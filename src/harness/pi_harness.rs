@@ -164,20 +164,23 @@ impl AiHarness for PiHarness {
                     secs: req.timeout.as_secs(),
                 });
             }
-            match task.next_line(Duration::from_millis(200)) {
-                Some(StreamEvt::Stdout(line)) => {
+            // NOTE: `Pending` is NOT an error state — the first event from a
+            // cold harness can lag well past one poll window.
+            match task.poll_next(Duration::from_millis(200)) {
+                Err(crate::harness::pi_proc::PollState::Pending) => continue,
+                Ok(StreamEvt::Stdout(line)) => {
                     crate::harness::pi_events::fold_line(&line, &mut fold);
                     if let Some(activity) = &fold.last_activity {
                         let _ = req.activity_tx.send(activity.clone());
                     }
                 }
-                Some(StreamEvt::Stderr(line)) => {
+                Ok(StreamEvt::Stderr(line)) => {
                     stderr_tail.push(line);
                     if stderr_tail.len() > 20 {
                         stderr_tail.remove(0);
                     }
                 }
-                Some(StreamEvt::Exited(ok)) => {
+                Ok(StreamEvt::Exited(ok)) => {
                     if !ok {
                         return Err(AppError::HarnessFailed {
                             reason: fold
@@ -189,7 +192,7 @@ impl AiHarness for PiHarness {
                     }
                     break;
                 }
-                None => {
+                Err(crate::harness::pi_proc::PollState::Closed) => {
                     // Pipe disconnected without an Exited event (defensive).
                     if !fold.saw_agent_end && fold.final_assistant_text.is_empty() {
                         return Err(AppError::HarnessFailed {

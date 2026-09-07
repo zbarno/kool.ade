@@ -34,8 +34,33 @@ pub struct ChildTask {
     child: Arc<Mutex<Option<Child>>>,
 }
 
+/// Tri-state poll result: separates "nothing YET" (timeout) from "stream
+/// is FINISHED" (disconnected), which the flat `next_line` conflates —
+/// mistaking one for the other kills healthy turns whose first event takes
+/// longer than one poll window to arrive (e.g. cold interpreter startup).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PollState {
+    /// Timed out; more events may still come.
+    Pending,
+    /// Every sender is gone; no further events will arrive.
+    Closed,
+}
+
 impl ChildTask {
+    /// One bounded wait: `Ok(event)`, `Err(Pending)` (timed out), or
+    /// `Err(Closed)` (stream finished, no more events will arrive).
+    pub fn poll_next(&self, timeout: Duration) -> Result<StreamEvt, PollState> {
+        use std::sync::mpsc::RecvTimeoutError::{Disconnected, Timeout};
+        match self.rx.recv_timeout(timeout) {
+            Ok(ev) => Ok(ev),
+            Err(Disconnected) => Err(PollState::Closed),
+            Err(Timeout) => Err(PollState::Pending),
+        }
+    }
+
     /// Block until a line arrives, the process ends, or the timeout lapses.
+    /// CAUTION: returns `None` for BOTH timeout and disconnection — use
+    /// [`Self::poll_next`] when the distinction matters.
     pub fn next_line(&self, timeout: Duration) -> Option<StreamEvt> {
         self.rx.recv_timeout(timeout).ok()
     }
@@ -176,6 +201,29 @@ mod tests {
         }
         assert!(saw_fail);
         assert!(stderr.iter().any(|l| l.contains("oops")));
+    }
+
+    #[test]
+    fn slow_first_event_survives_short_polls() {
+        // Regression: a child whose first output arrives AFTER several poll
+        // windows must classify those gaps as `Pending`, never as a dead
+        // stream (flat `None` used to kill healthy turns at ~200 ms).
+        let task = spawn(&sh("sleep 0.4; printf 'late\\n'"), Path::new("/")).unwrap();
+        let t0 = Instant::now();
+        let mut pending_seen = 0usize;
+        let mut got_late = false;
+        loop {
+            match task.poll_next(Duration::from_millis(40)) {
+                Err(PollState::Pending) => pending_seen += 1,
+                Ok(StreamEvt::Stdout(s)) if s == "late" => got_late = true,
+                Ok(StreamEvt::Exited(_)) => break,
+                Ok(_) => {}
+                Err(PollState::Closed) => panic!("stream closed before the child exited"),
+            }
+            assert!(t0.elapsed() < Duration::from_secs(5), "drained forever");
+        }
+        assert!(got_late);
+        assert!(pending_seen >= 1, "expected at least one Pending gap before the first line");
     }
 
     #[test]

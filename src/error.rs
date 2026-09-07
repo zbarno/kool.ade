@@ -34,7 +34,14 @@ impl AppError {
             Self::Artifact { path, .. } => format!("Could not use {path}"),
             Self::Git { cmd, .. } => format!("git {cmd} failed"),
             Self::HarnessNotFound { .. } => "Pi harness not found".to_string(),
-            Self::HarnessFailed { reason, .. } => format!("Pi harness failed: {reason}"),
+            Self::HarnessFailed { reason, stderr_tail } => {
+                let tail = tail_snippet(stderr_tail);
+                if tail.is_empty() {
+                    format!("Pi harness failed: {reason}")
+                } else {
+                    format!("Pi harness failed: {reason} (pi: {tail})")
+                }
+            },
             Self::HarnessTimedOut { secs } => format!("Pi took longer than {secs}s"),
             Self::InvalidResponse { problems } => {
                 format!(
@@ -79,6 +86,16 @@ impl From<anyhow::Error> for AppError {
     fn from(e: anyhow::Error) -> Self {
         Self::Other(e.to_string())
     }
+}
+
+/// Last non-empty line of a stderr tail, tidied for toast/headline use.
+fn tail_snippet(t: &str) -> String {
+    t.lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| truncate(l, 160))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_default()
 }
 
 /// Keep short strings tidy inside headlines.
