@@ -23,16 +23,23 @@ pub fn paint(
     let mut cancel = false;
 
     // ---------- message scroll ----------
-    egui::ScrollArea::vertical()
-        .stick_to_bottom(true)
-        .auto_shrink(egui::Vec2b::new(false, false))
-        .show(ui, |ui| {
-            let max_w = ui.available_width();
-            for m in messages {
-                paint_message(ui, m, max_w);
-                ui.add_space(10.0);
-            }
-        });
+    // RESERVE composer + (optionally) working-strip height UP FRONT:
+    // with the messages list unconstrained, an empty conversation would eat
+    // the whole pane and push the composer below the fold (invisible box).
+    let reserve: f32 = 118.0 + if busy { 52.0 } else { 0.0 };
+    ui.scope(|ui| {
+        ui.set_max_height((ui.available_height() - reserve).max(48.0));
+        egui::ScrollArea::vertical()
+            .stick_to_bottom(true)
+            .auto_shrink(egui::Vec2b::new(false, false))
+            .show(ui, |ui| {
+                let max_w = ui.available_width();
+                for m in messages {
+                    paint_message(ui, m, max_w);
+                    ui.add_space(10.0);
+                }
+            });
+    });
 
     // ---------- working strip (only while a turn runs) ----------
     if busy {

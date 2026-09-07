@@ -6,7 +6,7 @@
 //!   * pointer release ON the dim backdrop, off the card, at least 250 ms
 //!     after the modal first appeared.
 
-use egui::{Align2, CentralPanel, Color32, Frame, Layout, Margin, Order, RichText};
+use egui::{Align2, Color32, Frame, Layout, Margin, Order, RichText};
 use std::time::{Duration, Instant};
 
 use crate::ui::theme;
@@ -28,15 +28,36 @@ where
         return false;
     }
     let mut closed = false;
+    let vp = ui.ctx().viewport_rect();
 
-    // 1) Card — recorded above the backdrop via layer order; its rect feeds
-    //    the backdrop's hit test.
+    // 1) Backdrop — full-viewport dim, rendered FIRST so the card (same
+    //    order layer, shown later) stacks above it. Dismissal bookkeeping
+    //    happens in step 3 once the card rect is known.
+    {
+        let mut esc = false;
+        egui::Area::new(egui::Id::new("packet_modal_dim"))
+            .order(Order::Foreground)
+            .fixed_pos(vp.left_top())
+            .interactable(true)
+            .show(ui.ctx(), |ui| {
+                ui.painter().rect_filled(vp, 0.0, Color32::from_black_alpha(140));
+                esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            });
+        if esc {
+            closed = true;
+        }
+    }
+
+    // 2) Card — content-sized, height-clamped to the viewport, centered.
     let card_rect = egui::Area::new(egui::Id::new("packet_modal").with(title))
         .order(Order::Foreground)
         .anchor(Align2::CENTER_CENTER, [0.0, -10.0])
         .interactable(true)
         .show(ui.ctx(), |ui| {
             ui.set_min_width(width);
+            // Never taller than the screen (minus breathing room); long
+            // dialog bodies must opt into their own scrolling.
+            ui.set_max_height((vp.height() - 48.0).max(240.0));
             Frame::NONE
                 .fill(theme::PANEL)
                 .corner_radius(10.0)
@@ -68,28 +89,22 @@ where
                     ui.add_space(12.0);
                 });
         })
-.response.rect;
+        .response
+        .rect;
 
-    // 2) Backdrop — dims everything behind; only reacts to releases that
-    //    land outside the card, after the anti-steal grace period.
-    CentralPanel::default()
-        .frame(Frame::NONE.fill(Color32::from_black_alpha(140)))
-        .show(ui, |bp_ui| {
-            if bp_ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                closed = true;
-            }
-            let released =
-                bp_ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
-            if released && !closed {
-                let over_card = bp_ui
-                    .input(|i| i.pointer.interact_pos())
-                    .is_some_and(|pos| card_rect.contains(pos));
-                let inside = bp_ui.rect_contains_pointer(bp_ui.max_rect());
-                if inside && !over_card && backdrop_armed() {
-                    closed = true;
-                }
-            }
-        });
+    // 3) Release-outside dismissal: pointer-down/up must both land off the
+    //    card (releases the card swallowed never dismiss), after the
+    //    anti-steal grace period.
+    if !closed {
+        let released_now =
+            ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary));
+        let over = ui
+            .input(|i| i.pointer.interact_pos())
+            .is_some_and(|pos| card_rect.contains(pos));
+        if released_now && ui.rect_contains_pointer(vp) && !over && backdrop_armed() {
+            closed = true;
+        }
+    }
 
     closed
 }
