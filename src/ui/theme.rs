@@ -4,14 +4,14 @@
 
 use egui::{Color32, CornerRadius, Stroke};
 
-pub const BG: Color32 = Color32::from_rgb(15, 17, 21);
-pub const PANEL: Color32 = Color32::from_rgb(22, 26, 33);
-pub const PANEL_ALT: Color32 = Color32::from_rgb(28, 33, 43);
-pub const BORDER: Color32 = Color32::from_rgb(43, 50, 64);
-pub const TEXT: Color32 = Color32::from_rgb(230, 235, 242);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(154, 164, 178);
-pub const ACCENT: Color32 = Color32::from_rgb(77, 163, 255);
-pub const ACCENT_SOFT: Color32 = Color32::from_rgb(34, 58, 86);
+pub const BG: Color32 = Color32::from_rgb(32, 32, 32);
+pub const PANEL: Color32 = Color32::from_rgb(43, 43, 43);
+pub const PANEL_ALT: Color32 = Color32::from_rgb(53, 53, 53);
+pub const BORDER: Color32 = Color32::from_rgb(65, 65, 65);
+pub const TEXT: Color32 = Color32::from_rgb(236, 234, 230);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(157, 157, 153);
+pub const ACCENT: Color32 = Color32::from_rgb(218, 223, 212);
+pub const ACCENT_SOFT: Color32 = Color32::from_rgb(66, 74, 64);
 pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
 pub const WARNING: Color32 = Color32::from_rgb(255, 180, 84);
 pub const SUCCESS: Color32 = Color32::from_rgb(107, 212, 144);
@@ -22,12 +22,11 @@ pub fn packet_visuals() -> egui::Visuals {
     let mut v = egui::Visuals::dark();
     v.window_fill = BG;
     v.panel_fill = BG;
-    v.panel_fill = BG;
     v.window_fill = PANEL;
     v.extreme_bg_color = PANEL_ALT;
     v.widgets.noninteractive.bg_fill = PANEL;
     v.widgets.noninteractive.fg_stroke.color = TEXT;
-    v.widgets.noninteractive.corner_radius = CornerRadius::same(4);
+    v.widgets.noninteractive.corner_radius = CornerRadius::same(8);
     v.widgets.inactive.bg_fill = PANEL_ALT;
     v.widgets.inactive.fg_stroke.color = TEXT_DIM;
     v.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER);
@@ -38,9 +37,12 @@ pub fn packet_visuals() -> egui::Visuals {
     v.widgets.active.fg_stroke.color = TEXT;
     v.selection.bg_fill = ACCENT_SOFT;
     v.hyperlink_color = ACCENT;
-    v.widgets.inactive.corner_radius = CornerRadius::same(4);
-    v.widgets.hovered.corner_radius = CornerRadius::same(4);
-    v.widgets.active.corner_radius = CornerRadius::same(4);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
+    v.widgets.inactive.weak_bg_fill = PANEL_ALT;
+    v.widgets.hovered.weak_bg_fill = BORDER;
+    v.widgets.inactive.corner_radius = CornerRadius::same(8);
+    v.widgets.hovered.corner_radius = CornerRadius::same(8);
+    v.widgets.active.corner_radius = CornerRadius::same(8);
     v
 }
 
@@ -48,9 +50,9 @@ pub fn packet_visuals() -> egui::Visuals {
 pub fn card_frame() -> egui::Frame {
     egui::Frame::NONE
         .fill(PANEL)
-        .corner_radius(8.0)
+        .corner_radius(14.0)
         .stroke(Stroke::new(1.0, BORDER))
-        .inner_margin(egui::Margin::same(10))
+        .inner_margin(egui::Margin::same(20))
 }
 
 /// Badge chip (priorities, kinds, statuses).
@@ -61,7 +63,8 @@ pub fn badge(ui: &mut egui::Ui, text: &str, bg: Color32, fg: Color32) -> egui::R
     let size = galley.size() + egui::vec2(10.0, 6.0);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::hover());
     ui.painter().rect_filled(rect, 4.0, bg);
-    ui.painter().galley(rect.left_top() + egui::vec2(5.0, 3.0), galley, fg);
+    ui.painter()
+        .galley(rect.left_top() + egui::vec2(5.0, 3.0), galley, fg);
     resp
 }
 
@@ -81,8 +84,14 @@ impl crate::domain::ItemKind {
         match self {
             crate::domain::ItemKind::Question => (PURPLE_DARK, PURPLE),
             crate::domain::ItemKind::Ambiguity => (Color32::from_rgb(24, 66, 56), SUCCESS),
-            crate::domain::ItemKind::Assumption => (Color32::from_rgb(56, 44, 80), Color32::from_rgb(190, 168, 255)),
-            crate::domain::ItemKind::Ownership => (Color32::from_rgb(74, 38, 62), Color32::from_rgb(232, 145, 190)),
+            crate::domain::ItemKind::Assumption => (
+                Color32::from_rgb(56, 44, 80),
+                Color32::from_rgb(190, 168, 255),
+            ),
+            crate::domain::ItemKind::Ownership => (
+                Color32::from_rgb(74, 38, 62),
+                Color32::from_rgb(232, 145, 190),
+            ),
         }
     }
 }

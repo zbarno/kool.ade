@@ -23,11 +23,9 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         });
     }
     let expanded = expand_home(raw);
-    let canonical = std::fs::canonicalize(&expanded).map_err(|e| {
-        AppError::InvalidRepo {
-            path: raw.to_string(),
-            detail: format!("could not open that path: {e}"),
-        }
+    let canonical = std::fs::canonicalize(&expanded).map_err(|e| AppError::InvalidRepo {
+        path: raw.to_string(),
+        detail: format!("could not open that path: {e}"),
     })?;
     if !canonical.is_dir() {
         return Err(AppError::InvalidRepo {
@@ -42,24 +40,18 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         });
     }
 
-    let mut state = PlannerState::load(&canonical)
-        .map_err(|e| AppError::Artifact {
-            path: canonical.to_string_lossy().into_owned(),
-            detail: e.to_string(),
-        })?;
+    let mut state = PlannerState::load(&canonical).map_err(|e| AppError::Artifact {
+        path: canonical.to_string_lossy().into_owned(),
+        detail: e.to_string(),
+    })?;
     let created = state.bootstrap_missing().map_err(|e| AppError::Io {
         op: "bootstrap planning artifacts".into(),
         detail: e.to_string(),
     })?;
     if !created.is_empty() {
-        let paths: Vec<String> =
-            created.iter().map(|p| p.to_string()).collect();
+        let paths: Vec<String> = created.iter().map(|p| p.to_string()).collect();
         // Initial checkpoint so the very first session is already durable.
-        let _ = gitops::commit(
-            &canonical,
-            "planner: initialize planning artifacts",
-            &paths,
-        );
+        let _ = gitops::commit(&canonical, "planner: initialize planning artifacts", &paths);
     }
     let slug = project_slug(&canonical);
     let mut chat = chat_store::load(&slug).0;
@@ -91,24 +83,29 @@ fn expand_home(raw: &str) -> OsString {
 
 /// Paint the centered card on the connect screen.
 pub fn paint(card_ui: &mut egui::Ui, path: &mut String, error: Option<&str>) -> bool {
-    card_ui.set_min_width(470.0);
+    card_ui.set_width(460.0);
+    card_ui.add_space(12.0);
     card_ui.label(
-        RichText::new("PACKET ◈")
+        RichText::new("Packet")
             .strong()
-            .size(26.0)
+            .size(36.0)
             .extra_letter_spacing(1.0)
             .color(theme::TEXT),
     );
     card_ui.label(
-        RichText::new("Git-native specification planner — chat your way to a crisp spec.")
+        RichText::new("Great products start with a clear idea.")
             .weak()
             .size(13.0),
     );
-    card_ui.add_space(14.0);
-    card_ui.label(RichText::new("Repository (git working tree)").size(12.5).color(theme::TEXT_DIM));
+    card_ui.add_space(28.0);
+    card_ui.label(
+        RichText::new("Open your workspace")
+            .size(12.5)
+            .color(theme::TEXT_DIM),
+    );
     card_ui.add_space(4.0);
     card_ui.add_sized(
-        egui::vec2(card_ui.available_width(), 30.0),
+        egui::vec2(card_ui.available_width(), 42.0),
         TextEdit::singleline(path)
             .hint_text("/path/to/my/project")
             .desired_width(f32::INFINITY)
@@ -116,10 +113,15 @@ pub fn paint(card_ui: &mut egui::Ui, path: &mut String, error: Option<&str>) -> 
     );
     card_ui.add_space(6.0);
     let submit = card_ui.add_sized(
-        egui::vec2(card_ui.available_width(), 32.0),
-        egui::Button::new(RichText::new("Open repository  ➤").strong().size(13.0).color(theme::BG))
-            .fill(theme::ACCENT_SOFT)
-            .corner_radius(6.0),
+        egui::vec2(card_ui.available_width(), 44.0),
+        egui::Button::new(
+            RichText::new("Open workspace")
+                .strong()
+                .size(13.0)
+                .color(theme::BG),
+        )
+        .fill(theme::TEXT)
+        .corner_radius(6.0),
     );
     if submit.hovered() {
         card_ui.ctx().request_repaint();
@@ -138,14 +140,14 @@ pub fn paint(card_ui: &mut egui::Ui, path: &mut String, error: Option<&str>) -> 
     card_ui.add_space(4.0);
     card_ui.label(
         RichText::new(
-            "Packet writes only to planning/ , .planner/ and planning/imports/ , and talks to an AI through the local `pi` CLI. Chat history lives in ~/.packet outside git.",
+            "A conversation on the left. A living specification on the right.\nYour decisions, captured and versioned in your repository.",
         )
         .weak()
         .size(11.0),
     );
     // Return true when Enter or click should submit.
-    let entered = card_ui.input(|i| i.key_pressed(egui::Key::Enter))
-        && card_ui.input(|i| !i.modifiers.ctrl);
+    let entered =
+        card_ui.input(|i| i.key_pressed(egui::Key::Enter)) && card_ui.input(|i| !i.modifiers.ctrl);
     submit.clicked() || (entered && !path.trim().is_empty())
 }
 

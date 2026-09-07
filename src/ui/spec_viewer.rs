@@ -22,7 +22,7 @@ pub fn render(ui: &mut egui::Ui, spec: Option<&str>) {
                 egui::RichText::new(NO_CONTENT_HINT)
                     .weak()
                     .size(13.0)
-                                        .color(theme::TEXT_DIM),
+                    .color(theme::TEXT_DIM),
             );
             ui.add_space(30.0);
         });
@@ -66,6 +66,7 @@ impl Span {
             f.extra_letter_spacing = 0.01 * size;
         }
         f.color = color;
+        f.line_height = Some(size * 1.5);
         f.italics = self.italic;
         f.strikethrough = if self.strike {
             egui::epaint::Stroke::new(1.0, theme::TEXT_DIM)
@@ -81,11 +82,11 @@ struct State {
     strong: usize,
     emph: usize,
     strike: usize,
-    runs: Vec<Span>,          // current inline flow
+    runs: Vec<Span>, // current inline flow
     in_heading: Option<HeadingLevel>,
     code_buf: Option<String>,
     quote: usize,
-    list: Vec<(bool, u64)>,   // (ordered, next_number)
+    list: Vec<(bool, u64)>, // (ordered, next_number)
     // table machinery
     in_table: bool,
     in_head: bool,
@@ -103,7 +104,7 @@ impl State {
             italic: self.emph > 0,
             strike: self.strike > 0,
             color: None,
-            size: 13.0,
+            size: 15.0,
         }
     }
 
@@ -119,15 +120,17 @@ impl State {
         if self.runs.is_empty() {
             return;
         }
-        let size = size_override.unwrap_or(13.0);
+        let size = size_override.unwrap_or(15.0);
         let mut job = egui::text::LayoutJob::default();
         for r in self.runs.drain(..) {
             let mut fmt = r.fmt();
             if size_override.is_some() && fmt.font_id.size != size {
                 fmt.font_id = egui::FontId::new(size, fmt.font_id.family);
+                fmt.line_height = Some(size * 1.4);
             }
             job.append(&r.text, 0.0, fmt);
         }
+        job.wrap.max_width = ui.available_width();
         let galley = ui.painter().layout_job(job);
         ui.add(egui::Label::new(galley));
         if gap > 0.0 {
@@ -208,7 +211,7 @@ impl State {
                     if let Some(l) = self.list.last_mut() {
                         l.1 += 1;
                     }
-                },
+                }
                 TagEnd::List(_) => {
                     self.list.pop();
                 }
@@ -244,19 +247,19 @@ impl State {
                 } else {
                     self.push_text(&t, false);
                 }
-            },
+            }
             Event::Code(c) => self.push_text(&c, true),
             Event::SoftBreak => {
                 self.push_text("\n", false);
-            },
+            }
             Event::HardBreak => {
                 self.push_text("\n\n", false);
-            },
+            }
             Event::Rule => {
                 ui.add_space(6.0);
                 ui.separator();
                 ui.add_space(6.0);
-            },
+            }
             _ => {}
         }
     }
@@ -270,8 +273,10 @@ impl State {
         for r in runs {
             let mut fmt = r.fmt();
             fmt.font_id = egui::FontId::new(size, fmt.font_id.family);
+            fmt.line_height = Some(size * 1.4);
             job.append(&r.text, 0.0, fmt);
         }
+        job.wrap.max_width = ui.available_width();
         let galley = ui.painter().layout_job(job);
         ui.add(egui::Label::new(galley));
         if gap > 0.0 {
@@ -293,7 +298,11 @@ impl State {
         ui.add_space(4.0);
         if !lang.is_empty() {
             ui.label(
-                egui::RichText::new(lang).monospace().size(10.5).weak().color(theme::ACCENT),
+                egui::RichText::new(lang)
+                    .monospace()
+                    .size(10.5)
+                    .weak()
+                    .color(theme::ACCENT),
             );
         }
         self.code_buf = Some(String::new());
@@ -304,7 +313,11 @@ impl State {
             .auto_shrink(egui::Vec2b::new(true, false))
             .show(ui, |ui| {
                 for line in code.lines().chain(std::iter::once("")) {
-                    let s = if line.is_empty() { " ".to_string() } else { line.to_string() };
+                    let s = if line.is_empty() {
+                        " ".to_string()
+                    } else {
+                        line.to_string()
+                    };
                     ui.label(egui::RichText::new(s).monospace().size(12.0));
                 }
             });
@@ -335,9 +348,9 @@ impl State {
 
 fn heading_size(level: &HeadingLevel) -> f32 {
     match level {
-        HeadingLevel::H1 => 21.0,
-        HeadingLevel::H2 => 18.0,
-        HeadingLevel::H3 => 15.5,
+        HeadingLevel::H1 => 30.0,
+        HeadingLevel::H2 => 22.0,
+        HeadingLevel::H3 => 18.0,
         _ => 13.5,
     }
 }
@@ -350,7 +363,7 @@ fn prefix(txt: &str) -> Span {
         italic: false,
         strike: false,
         color: Some(theme::TEXT_DIM),
-        size: 13.0,
+        size: 15.0,
     };
     s
 }

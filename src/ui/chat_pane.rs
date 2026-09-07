@@ -26,7 +26,7 @@ pub fn paint(
     // RESERVE composer + (optionally) working-strip height UP FRONT:
     // with the messages list unconstrained, an empty conversation would eat
     // the whole pane and push the composer below the fold (invisible box).
-    let reserve: f32 = 118.0 + if busy { 52.0 } else { 0.0 };
+    let reserve: f32 = 130.0 + if busy { 52.0 } else { 0.0 };
     ui.scope(|ui| {
         ui.set_max_height((ui.available_height() - reserve).max(48.0));
         egui::ScrollArea::vertical()
@@ -65,88 +65,123 @@ pub fn paint(
         ui.add_space(8.0);
     }
 
-    // ---------- composer ----------
+    // Keep the editor and its actions in one rounded surface.
     let editable = !busy;
-    ui.add_sized(
-        egui::vec2(ui.available_width(), 74.0),
-        TextEdit::multiline(draft)
-            .hint_text("Describe requirements, raise questions, assign follow-ups…  (Ctrl+Enter sends)")
-            .desired_width(f32::INFINITY)
-            .desired_rows(3)
-            .frame(egui::Frame::NONE.fill(egui::Color32::from_black_alpha(40)).corner_radius(6.0))
-            .interactive(editable),
-    );
-    ui.add_space(6.0);
     let mut send = false;
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(char_count(draft)).weak().size(11.0));
-        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            if editable {
-                let blocked = draft.trim().is_empty();
-                if ui
-                    .add_enabled(
-                        !blocked,
-                        egui::Button::new(RichText::new("Send ➤").strong().color(theme::TEXT))
-                            .frame(false),
-                    )
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    send = true;
-                }
+    Frame::NONE
+        .fill(theme::PANEL_ALT)
+        .corner_radius(22.0)
+        .inner_margin(egui::Margin::symmetric(16, 12))
+        .show(ui, |ui| {
+            let editor = ui.add_sized(
+                egui::vec2(ui.available_width(), 48.0),
+                TextEdit::multiline(draft)
+                    .hint_text("What are you building?")
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(2)
+                    .frame(egui::Frame::NONE)
+                    .interactive(editable),
+            );
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Ctrl + Enter to send").size(10.5).weak());
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    let enabled = editable && !draft.trim().is_empty();
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
+                    let center = rect.center();
+                    ui.painter().circle_filled(
+                        center,
+                        18.0,
+                        if enabled {
+                            theme::TEXT
+                        } else {
+                            theme::TEXT_DIM
+                        },
+                    );
+                    let stroke = egui::Stroke::new(2.0, theme::BG);
+                    ui.painter().line_segment(
+                        [center + egui::vec2(0.0, 7.0), center - egui::vec2(0.0, 7.0)],
+                        stroke,
+                    );
+                    ui.painter().line_segment(
+                        [
+                            center + egui::vec2(-6.0, -1.0),
+                            center - egui::vec2(0.0, 7.0),
+                        ],
+                        stroke,
+                    );
+                    ui.painter().line_segment(
+                        [
+                            center + egui::vec2(6.0, -1.0),
+                            center - egui::vec2(0.0, 7.0),
+                        ],
+                        stroke,
+                    );
+                    send = response.on_hover_text("Send message").clicked() && enabled;
+                });
+            });
+            if editable
+                && editor.has_focus()
+                && !draft.trim().is_empty()
+                && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
+            {
+                send = true;
             }
         });
-    });
-
-    // Enter to send (guarded: non-empty draft AND likely-focused editor).
-    let entered = ui.input(|i| i.key_pressed(egui::Key::Enter))
-        && !ui.input(|i| i.modifiers.shift);
-    if editable && entered && !draft.trim().is_empty() {
-        // Heuristic focus check: the editor requested focus recently, or the
-        // pointer is within the last allocated rect. Simpler robust rule —
-        // send whenever Enter arrives with a non-blank draft: chat-first UX
-        // favours responsiveness over accidental-proof.
-        send = true;
-    }
-
     Intent { send, cancel }
-}
-
-fn char_count(d: &str) -> String {
-    format!("{}\u{00A0}chars", d.chars().count())
 }
 
 fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
     let mine = m.role == ChatRole::User;
-    let border = if mine { theme::ACCENT_SOFT } else { theme::BORDER };
-    let bg = if mine { theme::PANEL_ALT } else { theme::PANEL };
-    let (who, who_color) = match m.role {
-        ChatRole::User => ("you", theme::ACCENT),
-        ChatRole::Agent => ("planner", theme::PURPLE),
-        ChatRole::System => ("system", theme::TEXT_DIM),
-    };
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 7.0;
-        ui.label(RichText::new(who).strong().size(11.0).color(who_color));
-        ui.label(RichText::new(format!("{}", m.ts.format("%H:%M"))).weak().size(10.5).monospace());
-        if let Some(ref_it) = &m.ref_item {
-            theme::badge(ui, ref_it, theme::PANEL_ALT, theme::PURPLE);
-        }
-    });
-    Frame::NONE
-        .fill(bg)
-        .corner_radius(6.0)
-        .stroke(egui::Stroke::new(1.0, border))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
-            ui.set_max_width((max_w - 20.0).max(120.0));
-            for (li, line) in m.text.split('\n').enumerate() {
-                if li > 0 {
-                    ui.add_space(2.0);
-                }
-                ui.label(RichText::new(line).color(theme::TEXT));
+    let indent = if mine { 32.0 } else { 0.0 };
+    ui.horizontal(|ui| {
+        ui.add_space(indent);
+        ui.vertical(|ui| {
+            ui.set_width((max_w - indent - 8.0).max(100.0));
+            if !mine {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(if m.role == ChatRole::Agent {
+                            "Packet"
+                        } else {
+                            "Update"
+                        })
+                        .size(12.0)
+                        .strong(),
+                    );
+                    ui.label(
+                        RichText::new(m.ts.format("%H:%M").to_string())
+                            .size(10.0)
+                            .weak(),
+                    );
+                    if let Some(item) = &m.ref_item {
+                        theme::badge(ui, item, theme::PANEL_ALT, theme::TEXT_DIM);
+                    }
+                });
+                ui.add_space(6.0);
             }
+            Frame::NONE
+                .fill(if mine {
+                    theme::PANEL_ALT
+                } else {
+                    egui::Color32::TRANSPARENT
+                })
+                .corner_radius(20.0)
+                .inner_margin(if mine { 16 } else { 0 })
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(&m.text)
+                                .size(15.0)
+                                .line_height(Some(23.0))
+                                .color(theme::TEXT),
+                        )
+                        .wrap(),
+                    );
+                });
         });
+    });
+    ui.add_space(12.0);
 }
 
 fn trunc(s: &str, n: usize) -> String {
