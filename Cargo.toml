@@ -1,0 +1,26 @@
+[package]
+name = "packet"
+version = "0.1.0"
+edition = "2024"
+description = "Git-native LLM specification planner: an LLM-led interview that maintains a living specification and routed open-item queue inside a git repository."
+license = "MIT"
+
+[[bin]]
+name = "packet"
+path = "src/main.rs"
+
+[lib]
+name = "packet"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
+egui = "0.36.1"
+eframe = "0.36.1"
+pulldown-cmark = "0.13.4"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+
+[profile.release]
+lto = "thin"

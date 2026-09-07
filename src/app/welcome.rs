@@ -1,0 +1,171 @@
+//! First-launch / connect screen: pick a git repository, validate it,
+//! bootstrap planning artifacts if absent, and hydrate the ~/.packet chat.
+
+use std::ffi::OsString;
+use std::path::PathBuf;
+
+use egui::{Frame, RichText, TextEdit};
+
+use crate::app::session::Project;
+use crate::core::gitops;
+use crate::core::state::PlannerState;
+use crate::error::AppError;
+use crate::persistence::{chat_store, project_slug};
+use crate::ui::theme;
+
+/// Normalize user-typed paths (`~` expansion), then load-or-bootstrap.
+pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(AppError::InvalidRepo {
+            path: raw.to_string(),
+            detail: "Please enter the path to a git repository (working tree).".into(),
+        });
+    }
+    let expanded = expand_home(raw);
+    let canonical = std::fs::canonicalize(&expanded).map_err(|e| {
+        AppError::InvalidRepo {
+            path: raw.to_string(),
+            detail: format!("could not open that path: {e}"),
+        }
+    })?;
+    if !canonical.is_dir() {
+        return Err(AppError::InvalidRepo {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: "path is not a directory".into(),
+        });
+    }
+    if !gitops::is_work_tree(&canonical) {
+        return Err(AppError::InvalidRepo {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: "no .git directory found — Packet plans inside a git working tree. Initialize one first (git init) or choose a different folder.".into(),
+        });
+    }
+
+    let mut state = PlannerState::load(&canonical)
+        .map_err(|e| AppError::Artifact {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: e.to_string(),
+        })?;
+    let created = state.bootstrap_missing().map_err(|e| AppError::Io {
+        op: "bootstrap planning artifacts".into(),
+        detail: e.to_string(),
+    })?;
+    if !created.is_empty() {
+        let paths: Vec<String> =
+            created.iter().map(|p| p.to_string()).collect();
+        // Initial checkpoint so the very first session is already durable.
+        let _ = gitops::commit(
+            &canonical,
+            "planner: initialize planning artifacts",
+            &paths,
+        );
+    }
+    let slug = project_slug(&canonical);
+    let mut chat = chat_store::load(&slug).0;
+    if chat.is_empty() {
+        let welcome = crate::app::session::welcome_message(&state.title);
+        chat.push(welcome.clone());
+        chat_store::append(&slug, &[welcome]).ok();
+    }
+    Ok(Project {
+        state,
+        chat_slug: slug,
+        chat,
+        draft: String::new(),
+        active_turn: None,
+        activity_preview: None,
+        next_question_id: None,
+        git: gitops::snapshot(&canonical),
+    })
+}
+
+fn expand_home(raw: &str) -> OsString {
+    if let Some(rest) = raw.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest).into_os_string();
+        }
+    }
+    raw.into()
+}
+
+/// Paint the centered card on the connect screen.
+pub fn paint(card_ui: &mut egui::Ui, path: &mut String, error: Option<&str>) -> bool {
+    card_ui.set_min_width(470.0);
+    card_ui.label(
+        RichText::new("PACKET ◈")
+            .strong()
+            .size(26.0)
+            .extra_letter_spacing(1.0)
+            .color(theme::TEXT),
+    );
+    card_ui.label(
+        RichText::new("Git-native specification planner — chat your way to a crisp spec.")
+            .weak()
+            .size(13.0),
+    );
+    card_ui.add_space(14.0);
+    card_ui.label(RichText::new("Repository (git working tree)").size(12.5).color(theme::TEXT_DIM));
+    card_ui.add_space(4.0);
+    card_ui.add_sized(
+        egui::vec2(card_ui.available_width(), 30.0),
+        TextEdit::singleline(path)
+            .hint_text("/path/to/my/project")
+            .desired_width(f32::INFINITY)
+            .font(egui::FontId::monospace(12.5)),
+    );
+    card_ui.add_space(6.0);
+    let submit = card_ui.add_sized(
+        egui::vec2(card_ui.available_width(), 32.0),
+        egui::Button::new(RichText::new("Open repository  ➤").strong().size(13.0).color(theme::BG))
+            .fill(theme::ACCENT_SOFT)
+            .corner_radius(6.0),
+    );
+    if submit.hovered() {
+        card_ui.ctx().request_repaint();
+    }
+    card_ui.add_space(10.0);
+    if let Some(e) = error {
+        Frame::NONE
+            .fill(egui::Color32::from_rgb(58, 24, 24))
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(card_ui, |ui| {
+                ui.label(RichText::new(e).color(theme::DANGER).size(12.5));
+            });
+        card_ui.add_space(6.0);
+    }
+    card_ui.add_space(4.0);
+    card_ui.label(
+        RichText::new(
+            "Packet writes only to planning/ , .planner/ and planning/imports/ , and talks to an AI through the local `pi` CLI. Chat history lives in ~/.packet outside git.",
+        )
+        .weak()
+        .size(11.0),
+    );
+    // Return true when Enter or click should submit.
+    let entered = card_ui.input(|i| i.key_pressed(egui::Key::Enter))
+        && card_ui.input(|i| !i.modifiers.ctrl);
+    submit.clicked() || (entered && !path.trim().is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connecting_missing_path_errors_friendly() {
+        match attempt_connect("") {
+            Ok(_) => panic!("expected connection error"),
+            Err(err) => assert!(matches!(err, AppError::InvalidRepo { .. })),
+        }
+    }
+
+    #[test]
+    fn connecting_nonexistent_path_errors_friendly() {
+        match attempt_connect("/no/such/dir-xyz-123") {
+            Ok(_) => panic!("expected connection error"),
+            Err(err) => assert!(matches!(err, AppError::InvalidRepo { .. })),
+        }
+    }
+}

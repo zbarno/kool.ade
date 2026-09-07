@@ -1,0 +1,413 @@
+//! Central verification of the agent's structured envelope (SPECIFICATION.md
+//! §16): EVERYTHING is checked before any file mutates; a single fatal
+//! problem rolls the whole turn back (zero artifact writes, no commit).
+
+use std::collections::HashSet;
+
+use crate::core::ids;
+use crate::core::routing::{self, Eligibility};
+use crate::core::state::PlannerState;
+use crate::domain::{CurrentUser, ItemKind, OpenItem, Priority};
+use crate::harness::TurnEnvelope;
+
+/// Field-wise patch for an existing item: `Some` = set, `None` = untouched.
+/// Clearing an assignment is intentionally unsupported in the MVP.
+#[derive(Debug, Clone, Default)]
+pub struct UpdatePatch {
+    pub priority: Option<Priority>,
+    pub kind: Option<ItemKind>,
+    pub category: Option<String>,
+    pub assigned_to: Option<String>,
+    pub question: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// Fully-checked outcome of a turn, ready for `core::apply`.
+#[derive(Debug, Clone)]
+pub struct NormalizedTurn {
+    pub assistant_message: String,
+    pub change_summary: Option<String>,
+    /// Complete replacement specification (verified non-blank).
+    pub spec_markdown: Option<String>,
+    pub added: Vec<OpenItem>,
+    pub updates: Vec<(String, UpdatePatch)>,
+    pub resolved: Vec<String>,
+    pub next_question_id: Option<String>,
+    /// Non-fatal observations shown to the user (e.g. why next-question was
+    /// dropped — routing sovereignty, §18).
+    pub warnings: Vec<String>,
+}
+
+const QUESTION_CHAR_CAP: usize = 2000;
+const SUMMARY_CHAR_CAP: usize = 60;
+
+pub fn validate(envelope: &TurnEnvelope, state: &PlannerState, user: &CurrentUser) -> Result<NormalizedTurn, Vec<String>> {
+    let mut fatals: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    if let Some(v) = envelope.schema_version {
+        if v != 1 {
+            fatals.push(format!("unsupported schema_version {v} (this build understands 1)"));
+        }
+    }
+    if envelope.assistant().trim().is_empty() {
+        fatals.push("assistant_message is empty".into());
+    }
+
+    // ---- specification -----------------------------------------------------
+    let spec_markdown = match envelope.updated_spec() {
+        None => None,
+        Some(raw) if raw.trim().is_empty() => {
+            fatals.push("updated_specification is blank — send the FULL document or null".into());
+            None
+        }
+        Some(raw) => {
+            if state.spec_text.as_deref().is_some_and(|cur| cur.trim_end() == raw.trim_end()) {
+                None // cosmetic no-change
+            } else {
+                Some(raw.to_string())
+            }
+        }
+    };
+
+    // ---- resolutions --------------------------------------------------------
+    let existing: HashSet<&str> = state.items.iter().map(|i| i.id.as_str()).collect();
+    let mut resolved: Vec<String> = Vec::new();
+    for rid in envelope.resolved() {
+        if !existing.contains(rid.as_str()) {
+            fatals.push(format!("open_items_resolved references unknown id “{rid}”"));
+            continue;
+        }
+        if !resolved.iter().any(|r| r == rid) {
+            resolved.push(rid.clone());
+        }
+    }
+
+    // ---- updates --------------------------------------------------------------
+    let mut updates: Vec<(String, UpdatePatch)> = Vec::new();
+    for u in envelope.updated() {
+        let uid = match &u.id {
+            Some(id) if !id.trim().is_empty() => id.clone(),
+            _ => {
+                fatals.push("open_items_updated entry missing id".into());
+                continue;
+            }
+        };
+        if !existing.contains(uid.as_str()) {
+            fatals.push(format!("open_items_updated references unknown id “{uid}”"));
+            continue;
+        }
+        if envelope.resolved().iter().any(|r| r == &uid) {
+            fatals.push(format!("“{uid}”: cannot update and resolve the same item in one turn"));
+            continue;
+        }
+        let mut patch = UpdatePatch::default();
+        if let Some(raw) = u.priority.as_deref().filter(|s| !s.trim().is_empty()) {
+            match Priority::parse_i(raw) {
+                Some(p) => patch.priority = Some(p),
+                None => fatals.push(format!("“{uid}”: unrecognized priority “{raw}”")),
+            }
+        }
+        if let Some(raw) = u.kind.as_deref().filter(|s| !s.trim().is_empty()) {
+            match ItemKind::parse_i(raw) {
+                Some(k) => patch.kind = Some(k),
+                None => fatals.push(format!("“{uid}”: unrecognized kind “{raw}”")),
+            }
+        }
+        match u.category.as_deref() {
+            None => {}
+            Some(raw) if raw.trim().is_empty() => fatals.push(format!("“{}”: category cleared to empty", uid)),
+            Some(raw) => patch.category = Some(raw.trim().to_string()),
+        }
+        if let Some(raw) = u.assigned_to.as_deref().filter(|s| !s.trim().is_empty()) {
+            patch.assigned_to = Some(raw.trim().to_string());
+        }
+        if let Some(raw) = u.question.as_deref().filter(|s| !s.trim().is_empty()) {
+            if raw.trim().chars().count() > QUESTION_CHAR_CAP {
+                fatals.push(format!("“{}”: clarifying question longer than {QUESTION_CHAR_CAP} chars", uid));
+            } else {
+                patch.question = Some(raw.trim().to_string());
+            }
+        }
+        if let Some(raw) = u.reason.as_deref().filter(|s| !s.trim().is_empty()) {
+            patch.reason = Some(raw.trim().to_string());
+        }
+        updates.push((uid.clone(), patch));
+    }
+
+    // ---- additions -------------------------------------------------------
+    // Burned forever: everything ever issued — existing queue + this turn's
+    // resolutions (numbers are retired, never recycled).
+    let mut burned: HashSet<String> = state.items.iter().map(|i| i.id.clone()).collect();
+    burned.extend(resolved.iter().cloned());
+    let mut added: Vec<OpenItem> = Vec::new();
+    for a in envelope.added() {
+        let tag = a.id.as_deref().unwrap_or("<unnumbered>");
+        let priority = match Priority::parse_i(a.priority.as_deref().unwrap_or("")) {
+            Some(p) => p,
+            None => {
+                fatals.push(format!("new item {tag}: invalid priority “{}”", a.priority.as_deref().unwrap_or("")));
+                continue;
+            }
+        };
+        let kind = match ItemKind::parse_i(a.kind.as_deref().unwrap_or("")) {
+            Some(k) => k,
+            None => {
+                fatals.push(format!("new item {tag}: invalid kind “{}”", a.kind.as_deref().unwrap_or("")));
+                continue;
+            }
+        };
+        let category = a.category.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let assigned = a.assigned_to.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let question = a.question.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        match (category, assigned, question) {
+            (Some(cat), Some(to), Some(question)) => {
+                let id = match a.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    None => ids::next_free(burned.iter().cloned()),
+                    Some(want) if !ids::is_valid_id(want) => {
+                        fatals.push(format!("new item {tag}: malformed requested id “{want}”"));
+                        continue;
+                    }
+                    Some(want) if burned.contains(want) => {
+                        fatals.push(format!("new item {tag}: requested id “{want}” is already taken"));
+                        continue;
+                    }
+                    Some(want) => {
+                        burned.insert(want.to_string());
+                        want.to_string()
+                    }
+                };
+                added.push(OpenItem::new(
+                    id,
+                    priority,
+                    kind,
+                    cat.to_string(),
+                    Some(to.to_string()),
+                    question.to_string(),
+                    a.reason
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                        .unwrap_or_default(),
+                ));
+            }
+            _ => fatals.push(format!(
+                "new item {tag}: category, assigned_to and question are all required (got category={:?}, assigned_to={:?}, question={:?})",
+                a.category, a.assigned_to, a.question
+            )),
+        }
+    }
+
+    // ---- next question: routing is decided HERE, not by the agent (§18) --
+    let mut next_question_id = None;
+    if let Some(nqid) = envelope.next_question_id.as_deref() {
+        match state.items.iter().find(|i| i.id == nqid) {
+            None => warnings.push(format!("next question “{nqid}” dropped: unknown or just-resolved id")),
+            Some(item) if resolved.iter().any(|r| r == &item.id) => {
+                warnings.push(format!("next question “{}” dropped: it is being resolved this turn", item.id));
+            }
+            Some(item) if item.kind == ItemKind::Ownership => warnings.push(format!(
+                "next question “{}” dropped: ownership gaps are handled in the Settings panel, not asked in chat",
+                item.id
+            )),
+            Some(item) => match routing::evaluate(item, user) {
+                Eligibility::NotEligible => warnings.push(format!(
+                    "next question “{}” dropped: routed to “{}/{}”, not served to you",
+                    item.id, item.assigned_to.as_deref().unwrap_or("everyone"), item.category
+                )),
+                _ => next_question_id = Some(item.id.clone()),
+            },
+        }
+    }
+
+    let change_summary = envelope
+        .change_summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.chars().take(SUMMARY_CHAR_CAP).collect::<String>());
+
+    if !fatals.is_empty() {
+        return Err(fatals);
+    }
+    Ok(NormalizedTurn {
+        assistant_message: envelope.assistant().trim().to_string(),
+        change_summary,
+        spec_markdown,
+        added,
+        updates,
+        resolved,
+        next_question_id,
+        warnings,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::harness::{TurnEnvelope, TurnItem, TurnItemUpdate};
+
+    // Monotonic suffix keeps every sandbox UNIQUE even when two tests happen
+    // to carry equally-sized item lists (parallel-suite hygiene).
+    static VAL_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn base_state(items: Vec<OpenItem>) -> PlannerState {
+        let seq = VAL_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("packet_val_{seq}_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let mut st = PlannerState::load(&root).expect("temp state loads");
+        st.items = items;
+        st
+    }
+
+    fn item(id: &str, kind: ItemKind, cat: &str, to: &str) -> OpenItem {
+        OpenItem::new(
+            id.into(),
+            Priority::Normal,
+            kind,
+            cat.into(),
+            Some(to.into()),
+            "question text".into(),
+            "it matters".into(),
+        )
+    }
+
+    fn env(next: Option<&str>) -> TurnEnvelope {
+        TurnEnvelope {
+            schema_version: Some(1),
+            assistant_message: Some("Sure — recorded.".into()),
+            change_summary: None,
+            updated_specification: None,
+            open_items_added: None,
+            open_items_updated: None,
+            open_items_resolved: None,
+            next_question_id: next.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn next_question_obeyed_only_when_eligible() {
+        let zach = CurrentUser::new("Zach", vec!["Development".into()]);
+        let st = base_state(vec![
+            item("CLR-001", ItemKind::Question, "InfoSec", "Security Team"),
+            item("CLR-002", ItemKind::Question, "Platform", "Development"),
+            item("CLR-003", ItemKind::Question, "General", "Everyone"),
+        ]);
+        let ok = validate(&env(Some("CLR-002")), &st, &zach).unwrap();
+        assert_eq!(ok.next_question_id.as_deref(), Some("CLR-002"));
+        let blocked = validate(&env(Some("CLR-001")), &st, &zach).unwrap();
+        assert_eq!(blocked.next_question_id, None);
+        assert!(blocked.warnings.iter().any(|w| w.contains("dropped")));
+        let general_route = validate(&env(Some("CLR-003")), &st, &zach).unwrap();
+        assert_eq!(general_route.next_question_id.as_deref(), Some("CLR-003"));
+    }
+
+    #[test]
+    fn ownership_items_are_never_chat_questions() {
+        let ops = CurrentUser::new("Rita", vec!["Operations".into()]);
+        let st = base_state(vec![item("CLR-001", ItemKind::Ownership, "Operations", "Operations Team")]);
+        let v = validate(&env(Some("CLR-001")), &st, &ops).unwrap();
+        assert_eq!(v.next_question_id, None);
+    }
+
+    #[test]
+    fn unknown_resolve_is_fatal_and_blocks_everything() {
+        let u = CurrentUser::new("Zach", vec![]);
+        let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
+        let mut e = env(None);
+        e.open_items_resolved = Some(vec!["CLR-999".into()]);
+        e.updated_specification = Some("# spec\n".into());
+        let errs = validate(&e, &st, &u).unwrap_err();
+        assert!(errs.iter().any(|f| f.contains("CLR-999")));
+    }
+
+    #[test]
+    fn fresh_items_get_numbers_after_max_keeps_history_stable() {
+        let u = CurrentUser::new("Zach", vec![]);
+        let st = base_state(vec![
+            item("CLR-001", ItemKind::Question, "General", "All"),
+            item("CLR-003", ItemKind::Question, "General", "All"),
+        ]);
+        let mut e = env(None);
+        e.open_items_added = Some(vec![
+            TurnItem {
+                id: None,
+                kind: Some("Question".into()),
+                category: Some("Product".into()),
+                assigned_to: Some("Product Owner".into()),
+                priority: Some("High".into()),
+                question: Some("Which auth flow?".into()),
+                resolution_note: None,
+                reason: Some("login scoping depends on it".into()),
+            },
+            TurnItem {
+                id: Some("CLR-002".into()),
+                kind: Some("Assumption".into()),
+                category: Some("Architecture".into()),
+                assigned_to: Some("Alice".into()),
+                priority: Some("Normal".into()),
+                question: Some("Is SQLite acceptable for parity?".into()),
+                resolution_note: None,
+                reason: None,
+            },
+        ]);
+        let v = validate(&e, &st, &u).unwrap();
+        assert_eq!(v.added.len(), 2);
+        assert!(v.added.iter().any(|i| i.id == "CLR-004")); // appended after max
+        assert!(v.added.iter().any(|i| i.id == "CLR-002")); // explicit fill honored
+    }
+
+    #[test]
+    fn duplicate_request_collide_rejects_second() {
+        let u = CurrentUser::new("Zach", vec![]);
+        let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
+        let mut e = env(None);
+        let mk = || TurnItem {
+            id: Some("CLR-005".into()),
+            kind: Some("Question".into()),
+            category: Some("General".into()),
+            assigned_to: Some("All".into()),
+            priority: Some("Normal".into()),
+            question: Some("?".into()),
+            resolution_note: None,
+            reason: None,
+        };
+        e.open_items_added = Some(vec![mk(), mk()]);
+        let errs = validate(&e, &st, &u).unwrap_err();
+        assert!(errs.iter().any(|f| f.contains("already taken")));
+    }
+
+    #[test]
+    fn blank_spec_fails_the_whole_turn() {
+        let u = CurrentUser::new("Zach", vec![]);
+        let st = base_state(vec![]);
+        let mut e = env(None);
+        e.updated_specification = Some("   \n".into());
+        let errs = validate(&e, &st, &u).unwrap_err();
+        assert!(errs.iter().any(|f| f.contains("updated_specification")));
+    }
+
+    #[test]
+    fn update_can_change_priority_kind_category_fields() {
+        let u = CurrentUser::new("Zach", vec![]);
+        let st = base_state(vec![item("CLR-001", ItemKind::Assumption, "General", "All")]);
+        let mut e = env(None);
+        e.open_items_updated = Some(vec![TurnItemUpdate {
+            id: Some("CLR-001".into()),
+            priority: Some("Blocking".into()),
+            kind: Some("Question".into()),
+            category: Some("QA".into()),
+            assigned_to: None,
+            question: None,
+            reason: Some("regression risk surfaced".into()),
+        }]);
+        let v = validate(&e, &st, &u).unwrap();
+        assert_eq!(v.updates.len(), 1);
+        let (_id, patch) = &v.updates[0];
+        assert_eq!(patch.priority, Some(Priority::Blocking));
+        assert_eq!(patch.kind, Some(ItemKind::Question));
+        assert_eq!(patch.category.as_deref(), Some("QA"));
+        assert!(patch.assigned_to.is_none());
+    }
+}
