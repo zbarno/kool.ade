@@ -56,11 +56,11 @@ The as-built single-worker guarantee is per-process only (UI refuses concurrent 
 **Status:** Open
 
 ### Question
-Form of acceptance evidence (the metric half settled by D-19: no quantitative performance or usability thresholds apply to the MVP bar — "currently"): what concrete evidence defines MVP success — a scripted end-to-end walkthrough, a demonstration against a fixture repo, or a timeboxed pilot with a real team, or a stipulated combination?
+Confirm or amend the planner's provisional MVP acceptance proposal recorded in §12 under D-20: (1) a scripted fixture-repo demonstration passing a seven-outcome checklist legible in git history (spec improvement, ≥2-category items, ownership-gap synthesis, a recorded decision, checkpoint chain, zero-mutation proof via a deliberately invalid envelope, clean cancel); (2) NFR-8 regression suite green as the invariant leg; real-team pilot BARRED from the MVP exit bar (D-11 single-workstation conflict) and reserved as first post-MVP dogfood; standalone scripted E2E subsumed by the suite. Accept as written, or name the outcome(s) to strike or swap?
 
 
 ### Reason
-Defines the exit bar for the §25 experiment and gives QA an ownable checklist. With the threshold question retired (D-19), the only decision left is which evidence form — and combination — constitutes done, so the definition of done can be asserted.
+Defines the exit bar for the §25 experiment and gives QA an ownable checklist. D-20 converted the open-ended election into a cheaper confirm/amend against a provisional planner suggestion, honoring the operator's 'revisit later' rider — the item must stay live until the provisional definition is signed, since a provisional product definition that vanished from the queue would ossify by silence.
 
 ## CLR-008
 
