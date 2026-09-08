@@ -47,21 +47,6 @@ Writer model: how many simultaneous authors may hold the pen on the planning art
 ### Reason
 The as-built single-worker guarantee is per-process only (UI refuses concurrent submits; no cross-process guard exists, and gitops has no index-lock detection), so two peers on a shared checkout already race on git's own locks; genuine Google-Docs concurrency is a structural change to validation and apply that must be priced before any wire format is chosen.
 
-## CLR-007
-
-**Priority:** Normal
-**Type:** Question
-**Category:** General
-**Assigned To:** General
-**Status:** Open
-
-### Question
-Confirm or amend the planner's provisional MVP acceptance proposal recorded in §12 under D-20: (1) a scripted fixture-repo demonstration passing a seven-outcome checklist legible in git history (spec improvement, ≥2-category items, ownership-gap synthesis, a recorded decision, checkpoint chain, zero-mutation proof via a deliberately invalid envelope, clean cancel); (2) NFR-8 regression suite green as the invariant leg; real-team pilot BARRED from the MVP exit bar (D-11 single-workstation conflict) and reserved as first post-MVP dogfood; standalone scripted E2E subsumed by the suite. Accept as written, or name the outcome(s) to strike or swap?
-
-
-### Reason
-Defines the exit bar for the §25 experiment and gives QA an ownable checklist. D-20 converted the open-ended election into a cheaper confirm/amend against a provisional planner suggestion, honoring the operator's 'revisit later' rider — the item must stay live until the provisional definition is signed, since a provisional product definition that vanished from the queue would ossify by silence.
-
 ## CLR-008
 
 **Priority:** Normal
