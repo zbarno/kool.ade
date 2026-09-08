@@ -60,7 +60,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **F-13 Welcome / first-run guidance.** [implemented]
 - **F-14 Operator-local persistence** — chat history under `$PACKET_HOME` (default `~/.packet`), per-project slugs. [implemented]
 - **F-15 Configurable turn budget** — `PACKET_TURN_TIMEOUT_SECS`, 2 h default, evaluated at turn start, invalid values fall back (documented in README). [implementation]
-- **F-16 Harness setup guide** — operator-facing documentation walking the manual provisioning of the required harness CLI(s); MVP scope covers pi only, with alternate harnesses reserved for post-MVP per the NFR-6 seam (D-12). [due — drafting pending; vehicle/location undetermined]
+- **F-16 Harness setup guide** — operator-facing documentation walking the manual provisioning of the required harness CLI(s); MVP scope covers pi only, with alternate harnesses reserved for post-MVP per the NFR-6 seam (D-12). Per D-13 the guide additionally covers the runtime discovery order and the `PACKET_PI_BIN` override. [due — drafting pending; vehicle/location undetermined]
 
 ## 5. Functional Requirements
 
@@ -122,7 +122,7 @@ Category-to-owner map of persons or groups, plus the current operator's name and
 
 Layers, top to down: `ui` (chat pane, spec viewer, items pane, layout, overlays, toasts, theme) → `app` (session orchestration, root frame, welcome, dialogs) → `core` (state, context_build, prompt, turn, validation, apply, ownership, routing, ids, gitops, repo_overview) → `harness` (AiHarness trait; PiHarness: process supervision, event stream, envelope extraction, live-progress sink). Cross-cutting: `artifacts` (layout constants and IO helpers), `persistence` (home, chat store), `domain` (item, stakeholder, user, chat-log types), `error`.
 
-Harness discovery and health (audited baseline, ratification pending under CLR-002): binary located via `PACKET_PI_BIN` env override → `PATH` scan → common install locations (`~/.npm-global/bin`, `~/.local/bin`, `~/.pi/bin`); a ≤10 s `pi --version` probe validates it, and the parsed version is surfaced in the harness label; no minimum-version gate exists today. Absence fails with a `HarnessNotFound` diagnostic naming the searched sources and the override variable.
+Harness discovery and health (ratified as-built, D-13): binary located via `PACKET_PI_BIN` env override → `PATH` scan → common install locations (`~/.npm-global/bin`, `~/.local/bin`, `~/.pi/bin`); a ≤10 s `pi --version` probe validates it, and the parsed version is surfaced in the harness label as plain text (`pi {version}`). Version policy is deliberately display-only: no minimum-version floor and no pinning — whichever installed pi version the operator has is considered valid (an absent or dying probe is the only failure, surfacing as a `HarnessNotFound`/`HarnessFailed` diagnostic naming the searched sources and the override variable).
 
 Turn sequence (F-5):
 
@@ -145,8 +145,8 @@ Normative behaviors carried from the Contract:
 
 ## 9. Environment, Launch, Preconditions
 
-- Requires a stable Rust toolchain; a system git on PATH; a harness CLI self-provisioned by the operator per the setup guide (MVP: pi; D-12) — runtime discovery is implemented as described in §8, and ratifying or tightening that chain (including any minimum-version floor) is CLR-002, now narrowed; a writable connected repository; a resolvable HOME. Host expectation: Linux x86_64 (D-11 extended) — the operator develops against their own workstation, so preconditions are verified once locally rather than across a build farm.
-- Environment variables: `PACKET_TURN_TIMEOUT_SECS` (positive integer seconds, read when the turn begins; zero, invalid, or overflow falls back to the 2 h default; running turns keep their original deadline); `PACKET_HOME` (state directory override, mainly for tests and development); `PACKET_PI_BIN` (optional explicit harness binary override, consulted before PATH; undocumented in the README today).
+- Requires a stable Rust toolchain; a system git on PATH; a harness CLI self-provisioned by the operator per the setup guide (MVP: pi; D-12) — runtime discovery and version policy ratified as-built (D-13, see §8; display-only version, no pinning); a writable connected repository; a resolvable HOME. Host expectation: Linux x86_64 (D-11 extended) — the operator develops against their own workstation, so preconditions are verified once locally rather than across a build farm.
+- Environment variables: `PACKET_TURN_TIMEOUT_SECS` (positive integer seconds, read when the turn begins; zero, invalid, or overflow falls back to the 2 h default; running turns keep their original deadline); `PACKET_HOME` (state directory override, mainly for tests and development); `PACKET_PI_BIN` (optional explicit harness binary override, consulted before PATH; undocumented today — coverage is owed by the F-16 setup guide per D-13).
 - Launch: `cargo run --offline` from the checked-out source; window titled Packet — git-native specification planner. No installer, binary download, or third-party distribution channel is owed at MVP (CLR-001 resolved); later packaging decisions would revisit this line. The setup guide (F-16) completes the operator-side precondition story.
 
 ## 10. Decisions Log
@@ -165,10 +165,11 @@ Normative behaviors carried from the Contract:
 | D-10 | Edition 2024, thin-LTO release profile | Manifest | Observed, ratify |
 | D-11 | Extended: the MVP runs on the operator's own workstation only — Linux x86_64, built and launched from source via the local toolchain. Other OS families, other architectures, and any packaged/shipped distribution are out of launch scope (originally: Linux only, arch+channel open) | Operator decision (chat, two passes: "linux only", then "x86, just for this machine"); host verified (uname: Linux x86_64; rustc 1.98.1 builds the crate) | Confirmed |
 | D-12 | Harness onboarding is a written setup guide: the operator manually provisions the required harness CLI(s) themselves; at MVP only pi is in scope, and support for additional harnesses (already seam-ready via the AiHarness trait) is expressly post-MVP intent. No in-app installation or provisioning automation is owed at MVP. | Operator decision (chat: "provide a setup guide to have the user add their harness for now just pi. but eventually others."); consistent with NFR-6 and Contract §14–15 | Confirmed |
+| D-13 | pi runtime discovery ratified as-built: `PACKET_PI_BIN` override → `PATH` scan → `~/.npm-global/bin`, `~/.local/bin`, `~/.pi/bin` → ≤10 s `pi --version` probe. Version policy is display-only — probed version shown in the harness label, with no minimum-version floor and no pinning (any installed pi version is accepted). The F-16 setup guide must document the discovery order and the `PACKET_PI_BIN` override. | Operator decision (chat: "im good with whatever version they have...no pinning needed"), completing the ratify-or-tighten narrowing of CLR-002; code-verified in `src/harness/pi_harness.rs` (locate_binary, check_available, label) | Confirmed |
 
 ## 11. Risks and Open Concerns
 
-Tracked in the queue: CLR-002 (ratify-or-tighten the as-built harness discovery chain and set the minimum-version policy — onboarding half settled by the setup guide, D-12), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — partially corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension.
+Tracked in the queue: CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — partially corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension; CLR-002 (harness discovery and version policy) via D-13.
 
 Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing); the setup guide (F-16) is drafted by whom and in which vehicle is undetermined.
 
@@ -179,5 +180,5 @@ Success scenario (Contract §25, abridged): operator provisions the harness per 
 ## 13. Source Map
 
 - Intent: `SPECIFICATION.md` (root), sections 1 through 25; README.
-- Evidence: `src/{domain, artifacts, persistence, harness, core, app, ui}` at the v0.1.0 baseline; Cargo manifest; git history; `src/harness/pi_harness.rs` (binary discovery, `PACKET_PI_BIN`, version probe).
+- Evidence: `src/{domain, artifacts, persistence, harness, core, app, ui}` at the v0.1.0 baseline; Cargo manifest; git history; `src/harness/pi_harness.rs` (binary discovery, `PACKET_PI_BIN`, version probe — ratified as-built, D-13).
 - Normative agent behavior: the planner system instructions (response contract, routing, open-item hygiene).
