@@ -15,31 +15,35 @@ The central product experiment (Contract §25): can an external AI agent harness
 
 ## 2. Scope
 
-**In scope (MVP):** single-repository desktop planner; interview chat; read-only spec rendering; open-items panel; pi harness adapter; validation-gated application of changes; git checkpoints; document import; MCP advertisement to the harness; operator-local chat persistence; tunable turn timeout; harness setup guide (F-16).
+**In scope (MVP):** single-repository desktop planner; interview chat; read-only spec rendering; open-items panel; pi harness adapter; validation-gated application of changes; git checkpoints; document import; MCP advertisement to the harness; operator-local chat persistence; tunable turn timeout; harness setup guide (F-16); planner settings dialog with git-derived identity (F-17).
 
-**Out of scope (Contract §24, abridged):** direct provider API integration; additional harness implementations; embedded inference; implementation-task generation; PM-tool integrations; dashboards and analytics; ADR or risk registries; review/approval workflows; spec editing in the UI; separate project database; complex permissions; autonomous coding. (*D-12 note: supporting additional harnesses is expressed post-MVP intent; at MVP only pi is required, and the operator provisions it manually per the setup guide, F-16.*)
+**Out of scope (Contract §24, abridged):** direct provider API integration; additional harness implementations; embedded inference; implementation-task generation; PM-tool integrations; dashboards and analytics; ADR or risk registries; review/approval workflows; spec editing in the UI; separate project database; complex permissions; autonomous coding. (*D-12 note: supporting additional harnesses is expressed post-MVP intent; at MVP only pi is required, and the operator provisions it manually per the setup guide, F-16.* The *complex permissions* exclusion stands: D-14's exclusive/seat-inherited role model is deliberate lightweight routing, not an authorization framework — no login server, tokens, or ACL engine.)
 
 **Platform commitment (D-11, extended).** The MVP runs on the operator's own workstation: Linux x86_64 only, built and launched from source via the local Rust toolchain. Other OS families, other Linux architectures, and any packaged/shipped distribution (installer, tarball, system package) are out of launch scope (CLR-001 resolved: "linux only", then "x86, just for this machine").
 
 ## 3. Actors and Roles
 
-- **Operator:** the human at the desktop app. Declared in `.planner/config.md` with name plus group memberships; undeclared operators run as **guest** (the current session).
+- **Operator:** the human at the desktop app. Identity is **derived from the git user of the connected working tree** at connection and after settings saves: `git config user.name` first, `user.email` as fallback, then the optional `## Current User` block in `.planner/config.md`, and finally a neutral **(guest)** if all sources are empty (D-14). The settings dialog keeps the identity fields, re-purposed: they echo the derived identity and serve only as an override when git yields nothing.
+- **Roles and ownership (D-14).** Roles correspond to the categories of the planner configuration, each owned by a person or a group:
+  - **Explicit person ownership is sole-owned.** If a role is explicitly defined for a particular user, that user is the only owner of that category of items: only they are asked its questions; no one else — including the chair — inherits or redirects them. Their items remain visible in everyone's panel.
+  - **Group ownership is shared.** A role defined for a group is co-held by its members (existing behavior, preserved).
+  - **Seat inheritance is the default.** Any role with *no* explicit owner is assumed by the currently logged-in (git-identified) operator by default. Nothing orphans for want of a paper owner; Ownership items (FR-7) then serve as formal nominations rather than rescue tickets.
 - **Stakeholders:** holders of open items, organized by category (Contract §8).
 - **Planning agent** (this voice): interviewer and investigator; read-only over the repository except for the planning artifacts it owns.
 
-Ownership per the current `.planner/config.md`:
+Current ownership state (all non-General categories unowned; consequently every lane is presently held by the chair through seat inheritance):
 
-| Category | Owner |
-| --- | --- |
-| General | (no owner configured) |
-| Product | (no owner configured) |
-| Development | (no owner configured) |
-| QA | (no owner configured) |
-| InfoSec | (no owner configured) |
-| UX | (no owner configured) |
-| Operations | (no owner configured) |
+| Category | Configured owner | Effective routing |
+| --- | --- | --- |
+| General | — (structural) | Broadcast: every seated operator |
+| Product | (unowned) | Chair, by seat inheritance |
+| Development | (unowned) | Chair, by seat inheritance |
+| QA | (unowned) | Chair, by seat inheritance |
+| InfoSec | (unowned) | Chair, by seat inheritance |
+| UX | (unowned) | Chair, by seat inheritance |
+| Operations | (unowned) | Chair, by seat inheritance |
 
-Unfilled non-General categories carry Ownership items CLR-008 through CLR-013.
+Unfilled non-General categories carry Ownership items CLR-008 through CLR-013. Under D-14 these are formal-nomination record: the lane is answerable meanwhile (chair inherits), and the nomination installs a permanent sole/shared owner.
 
 ## 4. Feature Inventory
 
@@ -52,7 +56,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **F-5 Turn pipeline** — snapshot state; build context; assemble prompt; run pi subprocess; extract envelope; validate; apply (incl. ownership synthesis); atomic file writes; git checkpoint. [implemented]
 - **F-6 Structured response contract (schema v1)** — JSON envelope with assistant_message, change_summary, updated_specification, open_items_added/updated/resolved, next_question_id; any validation failure means zero mutation (Contract §16). [implemented]
 - **F-7 Item lifecycle** — four kinds (question, ambiguity, assumption, ownership); three priorities (blocking, high, normal); free-form categories routed against config; app-minted, monotonic, gap-never-reused IDs (CLR-nnn). [implemented]
-- **F-8 User-scoped routing** — chat surfaces only items assigned to the current user, one of their groups, or General; ownership items never enter chat; selection prefers Blocking, then earliest ID. [implemented]
+- **F-8 User-scoped routing** — chat surfaces only items eligible for the current user under the D-14 routing rules (broadcast General; group membership; sole-owned personal ownership; seat inheritance for unowned roles); ownership items never enter chat; selection prefers Blocking, then earliest ID. [implemented for name/group/General at baseline; the sole-ownership and seat-inheritance branches are owed per D-14]
 - **F-9 Git checkpoints** — commits staging only the touched planning paths, authored as Packet Planner; header reports branch, short SHA, dirty count, and last subject. [implemented]
 - **F-10 Document import** — files copied under `planning/imports/` with sanitized POSIX/Windows-safe basenames; optional Markdown twins for LLM readability (Contract §21). [IO implemented; import dialog pending dogfood]
 - **F-11 MCP passthrough** — servers listed in `.planner/mcp.json` are advertised to the pi session; the planner never brokers MCP itself (Contract §19). [plumbing implemented; configurator UX undecided, CLR-004]
@@ -61,6 +65,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **F-14 Operator-local persistence** — chat history under `$PACKET_HOME` (default `~/.packet`), per-project slugs. [implemented]
 - **F-15 Configurable turn budget** — `PACKET_TURN_TIMEOUT_SECS`, 2 h default, evaluated at turn start, invalid values fall back (documented in README). [implementation]
 - **F-16 Harness setup guide** — operator-facing documentation walking the manual provisioning of the required harness CLI(s); MVP scope covers pi only, with alternate harnesses reserved for post-MVP per the NFR-6 seam (D-12). Per D-13 the guide additionally covers the runtime discovery order and the `PACKET_PI_BIN` override. [due — drafting pending; vehicle/location undetermined]
+- **F-17 Planner settings dialog** — header-launched card holding the planner configuration: operator identity fields plus an editable category↔owners grid; Save atomically rewrites `.planner/config.md`, resyncs in-memory state, and commits a dedicated checkpoint (`settings: update stakeholders and identity`). Parse/serialize round-trips are tolerant (both heading styles, unknown sections, empty users) and unit-tested. The manual identity fields are re-purposed per D-14: they echo the git-derived identity and act as override only when git yields nothing. [implemented at baseline — discovered in `src/app/dialogs.rs` (`DlgSettings`), `src/artifacts/config_io.rs` during the D-14 audit; git-identity re-purposing owed]
 
 ## 5. Functional Requirements
 
@@ -69,13 +74,14 @@ Statuses reflect the audited v0.1.0 baseline.
 - **FR-3** Every accepted mutating turn yields exactly one git checkpoint with a short imperative subject derived from the turn's change summary; non-mutating turns commit nothing (Contract §20).
 - **FR-4** A failed validation causes no file mutation, no commit, and leaves prior state byte-for-byte intact; problems are surfaced to the operator (Contract §16).
 - **FR-5** Cancelling a turn ends it promptly; streamed fragments are discarded; atomic writes make torn artifacts impossible.
-- **FR-6** The agent may only pose questions eligible for the current user (assigned to them, to one of their groups, or General); ineligible selections are rejected at validation; other stakeholders' items remain visible in the panel (Contract §11).
-- **FR-7** An open item in a non-General category with no configured owner forces an Ownership item to exist (synthesized on apply; Contract §8).
+- **FR-6** The agent may only pose questions eligible for the current user under the D-14 routing law: categorized General (structural broadcast); assigned to a group the user belongs to; belonging to a category explicitly owned by the user personally; or inheriting, by seat, a role with no explicit owner. Questions in categories sole-owned by another particular user are never posed to the seated operator; ineligible selections are rejected at validation; other stakeholders' items remain visible in the panel (Contract §11, refined by D-14).
+- **FR-7** An open item in a non-General category with no configured owner forces an Ownership item to exist (synthesized on apply; Contract §8). Under D-14 the synthesized item requests a formal nomination; seat inheritance guarantees the lane is answerable in the interim.
 - **FR-8** Item IDs are unique, monotonic, minted exclusively by the application; retired numbers are never reused.
 - **FR-9** pi runs with the connected repository as its working directory and may inspect it freely before asking humans for clarification; the app supplies curated context but does not reimplement repository comprehension (Contract §18).
 - **FR-10** Imported documents stay in-repo and therefore remain natively inspectable by pi (Contract §21).
 - **FR-11** In-memory planner state after an adoption exactly matches what was written to disk, even if the subsequent git commit fails (that error is surfaced, not hidden).
 - **FR-12** Turn budgets: silence never shortens the deadline; zero/invalid env values fall back to the 2 h default; the budget is fixed when the turn begins.
+- **FR-13** The operator's identity is git-derived per D-14: `user.name` preferred, `user.email` fallback, the config's Current User block as tertiary source, `(guest)` last resort. Derivation runs at connection and after settings-save; git reads use the argument-array discipline (NFR-5) and are read-only invocations.
 
 ## 6. Non-Functional Requirements
 
@@ -86,7 +92,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **NFR-5 Security posture:** no built-in LLM or provider networking; model and MCP traffic belongs entirely to pi's external configuration; git invocations use argument arrays (no shell interpolation); imported filenames are sanitized; the app stores no credentials.
 - **NFR-6 Extensibility:** the `AiHarness` trait isolates pi internals; alternate backends (Codex CLI, Copilot CLI, Claude Code, OpenCode) can plug in without planner-core redesign (Contract §15); their arrival is post-MVP intent (D-12). At MVP the operator provisions the harness CLI(s) manually per the setup guide (F-16); in-app installation/provisioning automation is not owed.
 - **NFR-7 Deployment target:** pure Rust (edition 2024); offline-capable dependency graph (`cargo run --offline`); thin-LTO release profile; minimal dependency set (egui/eframe 0.36.1, serde plus serde_json, chrono, pulldown-cmark, anyhow). The deployment target is a single Linux x86_64 workstation operated by the operator themselves, built and run from source with a local toolchain (verified host: Linux x86_64, rustc 1.98.1; D-11 extended, CLR-001 resolved). Cross-platform/cross-arch builds, portable bundles, and any shipped artifact are explicitly out of MVP scope.
-- **NFR-8 Quality bar:** warning-free build; test suite green at baseline (88/88 per the baseline commit); regressions pinned by tests (e.g., tri-state stream polling separating timeout from stream death, with stderr surfaced in error toasts).
+- **NFR-8 Quality bar:** warning-free build; test suite green at baseline (88/88 per the baseline commit); regressions pinned by tests (e.g., tri-state stream polling separating timeout from stream death, with stderr surfaced in error toasts; D-14 routing branches likewise owe regression coverage).
 - **NFR-9 History readability:** checkpoint subjects are short imperative phrases; no per-message commit churn (Contract §20).
 
 ## 7. Data Model
@@ -98,7 +104,7 @@ Statuses reflect the audited v0.1.0 baseline.
 | `planning/specification.md` | Complete current specification | Agent (accepted turns) |
 | `planning/open-items.md` | Queues serialized behind a generated-by banner | App (domain to Markdown) |
 | `planning/imports/` | Imported reference documents, optional .md twins | Operator via app |
-| `.planner/config.md` | Stakeholders per category; current operator declaration | Operator/editorial |
+| `.planner/config.md` | Category-to-owner map; optional current-operator override block | F-17 dialog / editor |
 | `.planner/mcp.json` | MCP servers advertised to the session | Undecided (CLR-004) |
 | `SPECIFICATION.md` (root) | Human-authored MVP contract; treated as read-only input | Humans |
 
@@ -116,11 +122,12 @@ Root at `$PACKET_HOME` overriding `~/.packet`; per project under `projects/<slug
 
 ### 7.5 Configuration
 
-Category-to-owner map of persons or groups, plus the current operator's name and group memberships; projects may add further categories (Contract §7).
+Category-to-owner map (persons or groups) plus an optional current-operator override block (name and group memberships); projects may add further categories (Contract §7). Per D-14 the operator's *primary* identity is the git user of the connected repository (FR-13), so the override block demoted from declaration to fallback/echo. Persisted as Markdown with a tolerant parser and canonical serializer (F-17);
+semantic: an entry names a role's holder — a person (sole-owned) or a group (shared); an absent entry means the role is seat-inherited.
 
 ## 8. Architecture
 
-Layers, top to down: `ui` (chat pane, spec viewer, items pane, layout, overlays, toasts, theme) → `app` (session orchestration, root frame, welcome, dialogs) → `core` (state, context_build, prompt, turn, validation, apply, ownership, routing, ids, gitops, repo_overview) → `harness` (AiHarness trait; PiHarness: process supervision, event stream, envelope extraction, live-progress sink). Cross-cutting: `artifacts` (layout constants and IO helpers), `persistence` (home, chat store), `domain` (item, stakeholder, user, chat-log types), `error`.
+Layers, top to down: `ui` (chat pane, spec viewer, items pane, layout, overlays, toasts, theme) → `app` (session orchestration, root frame, welcome, dialogs) → `core` (state, context_build, prompt, turn, validation, apply, ownership, routing, ids, gitops, repo_overview) → `harness` (AiHarness trait; PiHarness: process supervision, event stream, envelope extraction, live-progress sink). Cross-cutting: `artifacts` (layout constants and IO helpers, incl. `config_io`), `persistence` (home, chat store), `domain` (item, stakeholder, user, chat-log types), `error`.
 
 Harness discovery and health (ratified as-built, D-13): binary located via `PACKET_PI_BIN` env override → `PATH` scan → common install locations (`~/.npm-global/bin`, `~/.local/bin`, `~/.pi/bin`); a ≤10 s `pi --version` probe validates it, and the parsed version is surfaced in the harness label as plain text (`pi {version}`). Version policy is deliberately display-only: no minimum-version floor and no pinning — whichever installed pi version the operator has is considered valid (an absent or dying probe is the only failure, surfacing as a `HarnessNotFound`/`HarnessFailed` diagnostic naming the searched sources and the override variable).
 
@@ -138,14 +145,21 @@ Turn sequence (F-5):
 
 Normative behaviors carried from the Contract:
 
-- **Routing (§11):** an operator is only asked items assigned to them personally, to one of their groups, or to General; everyone else's items stay visible in the panel until the right operator sits down. Selection prefers Blocking, ties broken by smallest item number.
-- **Ownership guard (§8):** categories without owners generate Ownership items so nothing can orphan.
+- **Routing (D-14 law):** an item is poseable to the seated operator iff it is (a) categorized General, (b) assigned to a group the operator belongs to, (c) in a category explicitly owned by the operator personally, or (d) in a category with no explicit owner at all (seat inheritance). Items sole-owned by another particular user stay visible in the panel but are never posed; the app enforces eligibility against the agent's `next_question_id` at validation. Selection prefers Blocking, ties broken by smallest item number.
+- **Ownership guard (§8):** categories without owners generate Ownership items so nothing can orphan on paper; D-14 seat inheritance ensures nothing orphans in practice.
 - **Rollback discipline (§16):** validity gates all mutation; an invalid turn costs nothing.
 - **Investigate first (§18, §22):** check the repository before asking a human; favor progress over exhaustive interrogation.
+
+Owed deltas versus the v0.1.0 baseline (all small, test-pinned per NFR-8):
+
+- `core/routing.rs::evaluate` currently encodes name/group/General only and declines unassigned non-General items for everyone; it gains owner-context arguments so sole-ownership (rule c) and seat inheritance (rule d) can be decided. Regression matrix: sole-owned other-user (denied), group-shared (granted), unowned (granted to chair), General (granted to all).
+- `core/state.rs::effective_user` prepends the git-identity lookup (FR-13) ahead of the config block and `(guest)`; the settings dialog's identity fields follow suit (echo + override, `src/app/dialogs.rs` `DlgSettings`).
+- The D-14 law replaces the as-built three-rule summary wherever prompts or docs quote routing (context builder text included).
 
 ## 9. Environment, Launch, Preconditions
 
 - Requires a stable Rust toolchain; a system git on PATH; a harness CLI self-provisioned by the operator per the setup guide (MVP: pi; D-12) — runtime discovery and version policy ratified as-built (D-13, see §8; display-only version, no pinning); a writable connected repository; a resolvable HOME. Host expectation: Linux x86_64 (D-11 extended) — the operator develops against their own workstation, so preconditions are verified once locally rather than across a build farm.
+- Identity expectation (soft precondition, D-14): the connected repository exposes a git user (`user.name` or `user.email`); if it does not, the app offers the config override or proceeds as `(guest)` — degraded but functional, never blocked.
 - Environment variables: `PACKET_TURN_TIMEOUT_SECS` (positive integer seconds, read when the turn begins; zero, invalid, or overflow falls back to the 2 h default; running turns keep their original deadline); `PACKET_HOME` (state directory override, mainly for tests and development); `PACKET_PI_BIN` (optional explicit harness binary override, consulted before PATH; undocumented today — coverage is owed by the F-16 setup guide per D-13).
 - Launch: `cargo run --offline` from the checked-out source; window titled Packet — git-native specification planner. No installer, binary download, or third-party distribution channel is owed at MVP (CLR-001 resolved); later packaging decisions would revisit this line. The setup guide (F-16) completes the operator-side precondition story.
 
@@ -164,21 +178,22 @@ Normative behaviors carried from the Contract:
 | D-09 | Tri-state stream polling separating timeout from stream death; stderr tail surfaced in error toasts | Fix commit plus regression test | Observed, ratify |
 | D-10 | Edition 2024, thin-LTO release profile | Manifest | Observed, ratify |
 | D-11 | Extended: the MVP runs on the operator's own workstation only — Linux x86_64, built and launched from source via the local toolchain. Other OS families, other architectures, and any packaged/shipped distribution are out of launch scope (originally: Linux only, arch+channel open) | Operator decision (chat, two passes: "linux only", then "x86, just for this machine"); host verified (uname: Linux x86_64; rustc 1.98.1 builds the crate) | Confirmed |
-| D-12 | Harness onboarding is a written setup guide: the operator manually provisions the required harness CLI(s) themselves; at MVP only pi is in scope, and support for additional harnesses (already seam-ready via the AiHarness trait) is expressly post-MVP intent. No in-app installation or provisioning automation is owed at MVP. | Operator decision (chat: "provide a setup guide to have the user add their harness for now just pi. but eventually others."); consistent with NFR-6 and Contract §14–15 | Confirmed |
+| D-12 | Harness onboarding is a written setup guide: the operator manually provisions the required harness CLI(s) themselves; at MVP only pi is in scope, and support for additional harnesses (already seam-ready via the AiHarness trait) is expressly post-MVP intent. No in-app installation or provisioning automation is owed at MVP. | Operator decision (chat: "provide a setup guide to have the user add their harness for now just pi. but eventually others."), consistent with NFR-6 and Contract §14–15 | Confirmed |
 | D-13 | pi runtime discovery ratified as-built: `PACKET_PI_BIN` override → `PATH` scan → `~/.npm-global/bin`, `~/.local/bin`, `~/.pi/bin` → ≤10 s `pi --version` probe. Version policy is display-only — probed version shown in the harness label, with no minimum-version floor and no pinning (any installed pi version is accepted). The F-16 setup guide must document the discovery order and the `PACKET_PI_BIN` override. | Operator decision (chat: "im good with whatever version they have...no pinning needed"), completing the ratify-or-tighten narrowing of CLR-002; code-verified in `src/harness/pi_harness.rs` (locate_binary, check_available, label) | Confirmed |
+| D-14 | Operator identity and role ownership law: (1) identity is git-derived from the connected repository — `user.name` first, `user.email` fallback, config Current User block tertiary, `(guest)` last resort; (2) any role (category) with no explicit owner is seat-inherited by the currently logged-in operator by default; (3) a role explicitly defined for a particular user is sole-owned — that user alone is ever asked its items; (4) group-owned roles remain shared among members; (5) population/editing of the configuration is done through the in-app settings dialog (found already implemented at baseline as `DlgSettings`, now inventoried as F-17), whose manual identity fields are re-purposed to echo the git-derived identity with override capability. Routing validation enforces the law; regression matrix owed per NFR-8. | Operator decision (chat: "Assume the logged in user has every role that is not explicitly defined. if the role is defined for a particular user they should be the only owner of that category of item. there should be ui to populate the config. and it should use the git user"); code-verified in `src/core/state.rs` (effective_user/guest), `src/core/routing.rs` (evaluate), `src/app/dialogs.rs` (DlgSettings, save→checkpoint), `src/artifacts/config_io.rs` (tolerant round-trip), `src/core/ownership.rs` (gap synthesis) | Confirmed |
 
 ## 11. Risks and Open Concerns
 
-Tracked in the queue: CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — partially corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension; CLR-002 (harness discovery and version policy) via D-13.
+Tracked in the queue: CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (formal owner nominations per category — clerical under D-14, since seat inheritance keeps lanes answerable in the interim). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension; CLR-002 (harness discovery and version policy) via D-13; CLR-003 (operator identity, role law, config UX) via D-14.
 
-Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing); the setup guide (F-16) is drafted by whom and in which vehicle is undetermined.
+Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing); the setup guide (F-16) is drafted by whom and in which vehicle is undetermined; D-14's seat-inheritance subtly broadens who may be asked versus the as-built router, so the validation layer and regression matrix must land together to keep FR-6 enforceable.
 
 ## 12. MVP Acceptance Walkthrough
 
-Success scenario (Contract §25, abridged): operator provisions the harness per the setup guide (MVP: pi), connects a repository; the agent opens the interview; the operator sketches a feature; repo-informed analysis fills the specification; items appear, categorized and assigned; the operator is asked the highest-priority eligible question; their answer updates the spec and clears the item; new gaps may appear; the loop continues. Definition of done pending CLR-007.
+Success scenario (Contract §25, abridged): operator provisions the harness per the setup guide (MVP: pi), connects a repository (identity auto-derived from the git user; override available if git is bare); the agent opens the interview; the operator sketches a feature; repo-informed analysis fills the specification; items appear, categorized and assigned; the operator is asked the highest-priority eligible question — under D-14, unclaimed lanes route to them by default while claimed lanes route to their sole owners; their answer updates the spec and clears the item; new gaps may appear; the loop continues. Definition of done pending CLR-007.
 
 ## 13. Source Map
 
 - Intent: `SPECIFICATION.md` (root), sections 1 through 25; README.
-- Evidence: `src/{domain, artifacts, persistence, harness, core, app, ui}` at the v0.1.0 baseline; Cargo manifest; git history; `src/harness/pi_harness.rs` (binary discovery, `PACKET_PI_BIN`, version probe — ratified as-built, D-13).
+- Evidence: `src/{domain, artifacts, persistence, harness, core, app, ui}` at the v0.1.0 baseline; Cargo manifest; git history; `src/harness/pi_harness.rs` (binary discovery, `PACKET_PI_BIN`, version probe — ratified as-built, D-13); `src/core/state.rs` (effective_user/guest fallback), `src/core/routing.rs` (eligibility, recommended-next), `src/core/ownership.rs` (gap synthesis), `src/app/dialogs.rs` plus `src/artifacts/config_io.rs` (settings dialog and config round-trip — the F-17 discovery behind D-14), `src/app/root.rs` (dialog wiring, header actions).
 - Normative agent behavior: the planner system instructions (response contract, routing, open-item hygiene).
