@@ -11,11 +11,11 @@ not by hand-editing._
 **Status:** Open
 
 ### Question
-Which operating-system and architecture combinations must Packet ship on at MVP launch (e.g. Linux x86_64 and arm64, macOS, Windows), and how should it be distributed: bare binaries/tarballs, package managers, or installers?
+Scoped-down follow-up after the Linux-only decision (D-11): which Linux architectures must be offered at launch — x86_64 alone, or x86_64 plus arm64? — and what is the distribution channel: build from source (cargo install / vendored), a published tarball, a system-package flavour, or a self-contained bundle? Note the eframe/egui stack requires system GTK/X11-Wayland libraries, which bears on the choice.
 
 
 ### Reason
-Fixes the build and test matrix, CI setup, and any packaging or signing work; NFR-7 currently has no platform commitment.
+Partial answer landed: platform family settled to Linux (D-11). The remaining halves still define the build and test matrix, CI jobs, and how an operator obtains the app, so the item is narrowed rather than resolved.
 
 ## CLR-002
 

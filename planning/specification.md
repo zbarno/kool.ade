@@ -19,6 +19,8 @@ The central product experiment (Contract §25): can an external AI agent harness
 
 **Out of scope (Contract §24, abridged):** direct provider API integration; additional harness implementations; embedded inference; implementation-task generation; PM-tool integrations; dashboards and analytics; ADR or risk registres; review/approval workflows; spec editing in the UI; separate project database; complex permissions; autonomous coding.
 
+**Platform commitment (D-11).** The MVP launches on Linux only; other operating systems are out of launch scope. Linux architecture coverage and the distribution channel remain open (CLR-001).
+
 ## 3. Actors and Roles
 
 - **Operator:** the human at the desktop app. Declared in `.planner/config.md` with name plus group memberships; undeclared operators run as **guest** (the current session).
@@ -82,7 +84,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **NFR-4 Responsiveness:** UI ticks are decoupled from the turn worker; hours-long turns are tolerable with live progress plus Cancel; default budget 2 h.
 - **NFR-5 Security posture:** no built-in LLM or provider networking; model and MCP traffic belongs entirely to pi's external configuration; git invocations use argument arrays (no shell interpolation); imported filenames are sanitized; the app stores no credentials.
 - **NFR-6 Extensibility:** the `AiHarness` trait isolates pi internals; alternate backends (Codex CLI, Copilot CLI, Claude Code, OpenCode) can plug in without planner-core redesign (Contract §15).
-- **NFR-7 Portability:** pure Rust (edition 2024); offline-capable dependency graph (`cargo run --offline`); thin-LTO release profile; minimal dependency set (egui/eframe 0.36.1, serde plus serde_json, chrono, pulldown-cmark, anyhow). Target platform matrix still open (CLR-001).
+- **NFR-7 Portability:** pure Rust (edition 2024); offline-capable dependency graph (`cargo run --offline`); thin-LTO release profile; minimal dependency set (egui/eframe 0.36.1, serde plus serde_json, chrono, pulldown-cmark, anyhow). Platform: Linux only at MVP launch (D-11); Linux architecture coverage and the distribution channel remain open (CLR-001).
 - **NFR-8 Quality bar:** warning-free build; test suite green at baseline (88/88 per the baseline commit); regressions pinned by tests (e.g., tri-state stream polling separating timeout from stream death, with stderr surfaced in error toasts).
 - **NFR-9 History readability:** checkpoint subjects are short imperative phrases; no per-message commit churn (Contract §20).
 
@@ -158,10 +160,11 @@ Normative behaviors carried from the Contract:
 | D-08 | 2 h default turn budget; env override fixed at turn start | README plus turn module | Confirmed |
 | D-09 | Tri-state stream polling separating timeout from stream death; stderr tail surfaced in error toasts | Fix commit plus regression test | Observed, ratify |
 | D-10 | Edition 2024, thin-LTO release profile | Manifest | Observed, ratify |
+| D-11 | MVP launches on Linux only; other OS families are out of launch scope. Linux architecture coverage (x86_64 alone vs. x86_64 + arm64) and the distribution channel remain open (CLR-001) | Operator decision (chat) | Confirmed |
 
 ## 11. Risks and Open Concerns
 
-Tracked in the queue: CLR-001 (platform and distribution matrix), CLR-002 (pi precondition discovery and onboarding), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category).
+Tracked in the queue: CLR-001 (Linux architecture coverage and distribution channel, now scoped down to the two open halves of the platform question), CLR-002 (pi precondition discovery and onboarding), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category).
 
 Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing).
 
