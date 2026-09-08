@@ -15,9 +15,9 @@ The central product experiment (Contract §25): can an external AI agent harness
 
 ## 2. Scope
 
-**In scope (MVP):** single-repository desktop planner; interview chat; read-only spec rendering; open-items panel; pi harness adapter; validation-gated application of changes; git checkpoints; document import; MCP advertisement to the harness; operator-local chat persistence; tunable turn timeout.
+**In scope (MVP):** single-repository desktop planner; interview chat; read-only spec rendering; open-items panel; pi harness adapter; validation-gated application of changes; git checkpoints; document import; MCP advertisement to the harness; operator-local chat persistence; tunable turn timeout; harness setup guide (F-16).
 
-**Out of scope (Contract §24, abridged):** direct provider API integration; additional harness implementations; embedded inference; implementation-task generation; PM-tool integrations; dashboards and analytics; ADR or risk registres; review/approval workflows; spec editing in the UI; separate project database; complex permissions; autonomous coding.
+**Out of scope (Contract §24, abridged):** direct provider API integration; additional harness implementations; embedded inference; implementation-task generation; PM-tool integrations; dashboards and analytics; ADR or risk registries; review/approval workflows; spec editing in the UI; separate project database; complex permissions; autonomous coding. (*D-12 note: supporting additional harnesses is expressed post-MVP intent; at MVP only pi is required, and the operator provisions it manually per the setup guide, F-16.*)
 
 **Platform commitment (D-11, extended).** The MVP runs on the operator's own workstation: Linux x86_64 only, built and launched from source via the local Rust toolchain. Other OS families, other Linux architectures, and any packaged/shipped distribution (installer, tarball, system package) are out of launch scope (CLR-001 resolved: "linux only", then "x86, just for this machine").
 
@@ -59,7 +59,8 @@ Statuses reflect the audited v0.1.0 baseline.
 - **F-12 Live feedback** — streamed snapshots of thoughts, response, spec preview, and activity line; transient by construction (never persisted, never re-fed to the prompt). [implemented]
 - **F-13 Welcome / first-run guidance.** [implemented]
 - **F-14 Operator-local persistence** — chat history under `$PACKET_HOME` (default `~/.packet`), per-project slugs. [implemented]
-- **F-15 Configurable turn budget** — `PACKET_TURN_TIMEOUT_SECS`, 2 h default, evaluated at turn start, invalid values fall back (documented in README). [implemented]
+- **F-15 Configurable turn budget** — `PACKET_TURN_TIMEOUT_SECS`, 2 h default, evaluated at turn start, invalid values fall back (documented in README). [implementation]
+- **F-16 Harness setup guide** — operator-facing documentation walking the manual provisioning of the required harness CLI(s); MVP scope covers pi only, with alternate harnesses reserved for post-MVP per the NFR-6 seam (D-12). [due — drafting pending; vehicle/location undetermined]
 
 ## 5. Functional Requirements
 
@@ -83,7 +84,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **NFR-3 Consistency:** single-writer invariant (concurrent submits refused while a turn runs); the UI adopts the produced state only after apply lands.
 - **NFR-4 Responsiveness:** UI ticks are decoupled from the turn worker; hours-long turns are tolerable with live progress plus Cancel; default budget 2 h.
 - **NFR-5 Security posture:** no built-in LLM or provider networking; model and MCP traffic belongs entirely to pi's external configuration; git invocations use argument arrays (no shell interpolation); imported filenames are sanitized; the app stores no credentials.
-- **NFR-6 Extensibility:** the `AiHarness` trait isolates pi internals; alternate backends (Codex CLI, Copilot CLI, Claude Code, OpenCode) can plug in without planner-core redesign (Contract §15).
+- **NFR-6 Extensibility:** the `AiHarness` trait isolates pi internals; alternate backends (Codex CLI, Copilot CLI, Claude Code, OpenCode) can plug in without planner-core redesign (Contract §15); their arrival is post-MVP intent (D-12). At MVP the operator provisions the harness CLI(s) manually per the setup guide (F-16); in-app installation/provisioning automation is not owed.
 - **NFR-7 Deployment target:** pure Rust (edition 2024); offline-capable dependency graph (`cargo run --offline`); thin-LTO release profile; minimal dependency set (egui/eframe 0.36.1, serde plus serde_json, chrono, pulldown-cmark, anyhow). The deployment target is a single Linux x86_64 workstation operated by the operator themselves, built and run from source with a local toolchain (verified host: Linux x86_64, rustc 1.98.1; D-11 extended, CLR-001 resolved). Cross-platform/cross-arch builds, portable bundles, and any shipped artifact are explicitly out of MVP scope.
 - **NFR-8 Quality bar:** warning-free build; test suite green at baseline (88/88 per the baseline commit); regressions pinned by tests (e.g., tri-state stream polling separating timeout from stream death, with stderr surfaced in error toasts).
 - **NFR-9 History readability:** checkpoint subjects are short imperative phrases; no per-message commit churn (Contract §20).
@@ -121,6 +122,8 @@ Category-to-owner map of persons or groups, plus the current operator's name and
 
 Layers, top to down: `ui` (chat pane, spec viewer, items pane, layout, overlays, toasts, theme) → `app` (session orchestration, root frame, welcome, dialogs) → `core` (state, context_build, prompt, turn, validation, apply, ownership, routing, ids, gitops, repo_overview) → `harness` (AiHarness trait; PiHarness: process supervision, event stream, envelope extraction, live-progress sink). Cross-cutting: `artifacts` (layout constants and IO helpers), `persistence` (home, chat store), `domain` (item, stakeholder, user, chat-log types), `error`.
 
+Harness discovery and health (audited baseline, ratification pending under CLR-002): binary located via `PACKET_PI_BIN` env override → `PATH` scan → common install locations (`~/.npm-global/bin`, `~/.local/bin`, `~/.pi/bin`); a ≤10 s `pi --version` probe validates it, and the parsed version is surfaced in the harness label; no minimum-version gate exists today. Absence fails with a `HarnessNotFound` diagnostic naming the searched sources and the override variable.
+
 Turn sequence (F-5):
 
 1. Snapshot planner state and recent chat into immutable turn inputs.
@@ -142,9 +145,9 @@ Normative behaviors carried from the Contract:
 
 ## 9. Environment, Launch, Preconditions
 
-- Requires a stable Rust toolchain; a system git on PATH; a resolvable pi CLI (discovery and minimum-version policy open, CLR-002); a writable connected repository; a resolvable HOME. Host expectation: Linux x86_64 (D-11 extended) — the operator develops against their own workstation, so preconditions are verified once locally rather than across a build farm.
-- Environment variables: `PACKET_TURN_TIMEOUT_SECS` (positive integer seconds, read when the turn begins; zero, invalid, or overflow falls back to the 2 h default; running turns keep their original deadline); `PACKET_HOME` (state directory override, mainly for tests and development).
-- Launch: `cargo run --offline` from the checked-out source; window titled Packet — git-native specification planner. No installer, binary download, or third-party distribution channel is owed at MVP (CLR-001 resolved); later packaging decisions would revisit this line.
+- Requires a stable Rust toolchain; a system git on PATH; a harness CLI self-provisioned by the operator per the setup guide (MVP: pi; D-12) — runtime discovery is implemented as described in §8, and ratifying or tightening that chain (including any minimum-version floor) is CLR-002, now narrowed; a writable connected repository; a resolvable HOME. Host expectation: Linux x86_64 (D-11 extended) — the operator develops against their own workstation, so preconditions are verified once locally rather than across a build farm.
+- Environment variables: `PACKET_TURN_TIMEOUT_SECS` (positive integer seconds, read when the turn begins; zero, invalid, or overflow falls back to the 2 h default; running turns keep their original deadline); `PACKET_HOME` (state directory override, mainly for tests and development); `PACKET_PI_BIN` (optional explicit harness binary override, consulted before PATH; undocumented in the README today).
+- Launch: `cargo run --offline` from the checked-out source; window titled Packet — git-native specification planner. No installer, binary download, or third-party distribution channel is owed at MVP (CLR-001 resolved); later packaging decisions would revisit this line. The setup guide (F-16) completes the operator-side precondition story.
 
 ## 10. Decisions Log
 
@@ -161,19 +164,20 @@ Normative behaviors carried from the Contract:
 | D-09 | Tri-state stream polling separating timeout from stream death; stderr tail surfaced in error toasts | Fix commit plus regression test | Observed, ratify |
 | D-10 | Edition 2024, thin-LTO release profile | Manifest | Observed, ratify |
 | D-11 | Extended: the MVP runs on the operator's own workstation only — Linux x86_64, built and launched from source via the local toolchain. Other OS families, other architectures, and any packaged/shipped distribution are out of launch scope (originally: Linux only, arch+channel open) | Operator decision (chat, two passes: "linux only", then "x86, just for this machine"); host verified (uname: Linux x86_64; rustc 1.98.1 builds the crate) | Confirmed |
+| D-12 | Harness onboarding is a written setup guide: the operator manually provisions the required harness CLI(s) themselves; at MVP only pi is in scope, and support for additional harnesses (already seam-ready via the AiHarness trait) is expressly post-MVP intent. No in-app installation or provisioning automation is owed at MVP. | Operator decision (chat: "provide a setup guide to have the user add their harness for now just pi. but eventually others."); consistent with NFR-6 and Contract §14–15 | Confirmed |
 
 ## 11. Risks and Open Concerns
 
-Tracked in the queue: CLR-002 (pi precondition discovery and onboarding), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — partially corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension.
+Tracked in the queue: CLR-002 (ratify-or-tighten the as-built harness discovery chain and set the minimum-version policy — onboarding half settled by the setup guide, D-12), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — partially corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension.
 
-Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing).
+Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing); the setup guide (F-16) is drafted by whom and in which vehicle is undetermined.
 
 ## 12. MVP Acceptance Walkthrough
 
-Success scenario (Contract §25, abridged): operator connects a repository; the agent opens the interview; the operator sketches a feature; repo-informed analysis fills the specification; items appear, categorized and assigned; the operator is asked the highest-priority eligible question; their answer updates the spec and clears the item; new gaps may appear; the loop continues. Definition of done pending CLR-007.
+Success scenario (Contract §25, abridged): operator provisions the harness per the setup guide (MVP: pi), connects a repository; the agent opens the interview; the operator sketches a feature; repo-informed analysis fills the specification; items appear, categorized and assigned; the operator is asked the highest-priority eligible question; their answer updates the spec and clears the item; new gaps may appear; the loop continues. Definition of done pending CLR-007.
 
 ## 13. Source Map
 
 - Intent: `SPECIFICATION.md` (root), sections 1 through 25; README.
-- Evidence: `src/{domain, artifacts, persistence, harness, core, app, ui}` at the v0.1.0 baseline; Cargo manifest; git history.
+- Evidence: `src/{domain, artifacts, persistence, harness, core, app, ui}` at the v0.1.0 baseline; Cargo manifest; git history; `src/harness/pi_harness.rs` (binary discovery, `PACKET_PI_BIN`, version probe).
 - Normative agent behavior: the planner system instructions (response contract, routing, open-item hygiene).

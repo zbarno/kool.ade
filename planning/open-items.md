@@ -11,7 +11,7 @@ not by hand-editing._
 **Status:** Open
 
 ### Question
-How should Packet locate and version-pin the external pi CLI: PATH lookup only, a configured path override, a minimum supported version? What first-run onboarding and error messaging should an operator see when pi is missing or incompatible?
+Onboarding is now settled (setup guide, D-12). Ratify or tighten the as-built runtime discovery chain — PACKET_PI_BIN env override → PATH scan → common install locations (~/.npm-global/bin, ~/.local/bin, ~/.pi/bin) → 10s pi --version probe — and decide the version policy: display-only (probed version shown in the harness label, no gate, as today) or a hard minimum pi version that refuses turns with a first-run notice pointing at the setup guide?
 
 
 ### Reason
