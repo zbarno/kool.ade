@@ -56,11 +56,11 @@ The as-built single-worker guarantee is per-process only (UI refuses concurrent 
 **Status:** Open
 
 ### Question
-What concrete acceptance criteria define MVP success: a scripted end-to-end walkthrough, a demonstration against a fixture repo, or a timeboxed pilot with a real team? Are there quantitative performance or usability thresholds?
+Form of acceptance evidence (the metric half settled by D-19: no quantitative performance or usability thresholds apply to the MVP bar — "currently"): what concrete evidence defines MVP success — a scripted end-to-end walkthrough, a demonstration against a fixture repo, or a timeboxed pilot with a real team, or a stipulated combination?
 
 
 ### Reason
-Defines the exit bar for the §25 experiment and lets QA own a checklist; currently there is no budget or rubric anywhere in the project.
+Defines the exit bar for the §25 experiment and gives QA an ownable checklist. With the threshold question retired (D-19), the only decision left is which evidence form — and combination — constitutes done, so the definition of done can be asserted.
 
 ## CLR-008
 
