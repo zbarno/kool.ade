@@ -19,7 +19,7 @@ The central product experiment (Contract §25): can an external AI agent harness
 
 **Out of scope (Contract §24, abridged):** direct provider API integration; additional harness implementations; embedded inference; implementation-task generation; PM-tool integrations; dashboards and analytics; ADR or risk registres; review/approval workflows; spec editing in the UI; separate project database; complex permissions; autonomous coding.
 
-**Platform commitment (D-11).** The MVP launches on Linux only; other operating systems are out of launch scope. Linux architecture coverage and the distribution channel remain open (CLR-001).
+**Platform commitment (D-11, extended).** The MVP runs on the operator's own workstation: Linux x86_64 only, built and launched from source via the local Rust toolchain. Other OS families, other Linux architectures, and any packaged/shipped distribution (installer, tarball, system package) are out of launch scope (CLR-001 resolved: "linux only", then "x86, just for this machine").
 
 ## 3. Actors and Roles
 
@@ -84,7 +84,7 @@ Statuses reflect the audited v0.1.0 baseline.
 - **NFR-4 Responsiveness:** UI ticks are decoupled from the turn worker; hours-long turns are tolerable with live progress plus Cancel; default budget 2 h.
 - **NFR-5 Security posture:** no built-in LLM or provider networking; model and MCP traffic belongs entirely to pi's external configuration; git invocations use argument arrays (no shell interpolation); imported filenames are sanitized; the app stores no credentials.
 - **NFR-6 Extensibility:** the `AiHarness` trait isolates pi internals; alternate backends (Codex CLI, Copilot CLI, Claude Code, OpenCode) can plug in without planner-core redesign (Contract §15).
-- **NFR-7 Portability:** pure Rust (edition 2024); offline-capable dependency graph (`cargo run --offline`); thin-LTO release profile; minimal dependency set (egui/eframe 0.36.1, serde plus serde_json, chrono, pulldown-cmark, anyhow). Platform: Linux only at MVP launch (D-11); Linux architecture coverage and the distribution channel remain open (CLR-001).
+- **NFR-7 Deployment target:** pure Rust (edition 2024); offline-capable dependency graph (`cargo run --offline`); thin-LTO release profile; minimal dependency set (egui/eframe 0.36.1, serde plus serde_json, chrono, pulldown-cmark, anyhow). The deployment target is a single Linux x86_64 workstation operated by the operator themselves, built and run from source with a local toolchain (verified host: Linux x86_64, rustc 1.98.1; D-11 extended, CLR-001 resolved). Cross-platform/cross-arch builds, portable bundles, and any shipped artifact are explicitly out of MVP scope.
 - **NFR-8 Quality bar:** warning-free build; test suite green at baseline (88/88 per the baseline commit); regressions pinned by tests (e.g., tri-state stream polling separating timeout from stream death, with stderr surfaced in error toasts).
 - **NFR-9 History readability:** checkpoint subjects are short imperative phrases; no per-message commit churn (Contract §20).
 
@@ -142,9 +142,9 @@ Normative behaviors carried from the Contract:
 
 ## 9. Environment, Launch, Preconditions
 
-- Requires a stable Rust toolchain; a system git on PATH; a resolvable pi CLI (discovery and minimum-version policy open, CLR-002); a writable connected repository; a resolvable HOME.
+- Requires a stable Rust toolchain; a system git on PATH; a resolvable pi CLI (discovery and minimum-version policy open, CLR-002); a writable connected repository; a resolvable HOME. Host expectation: Linux x86_64 (D-11 extended) — the operator develops against their own workstation, so preconditions are verified once locally rather than across a build farm.
 - Environment variables: `PACKET_TURN_TIMEOUT_SECS` (positive integer seconds, read when the turn begins; zero, invalid, or overflow falls back to the 2 h default; running turns keep their original deadline); `PACKET_HOME` (state directory override, mainly for tests and development).
-- Launch: `cargo run --offline`; window titled Packet — git-native specification planner.
+- Launch: `cargo run --offline` from the checked-out source; window titled Packet — git-native specification planner. No installer, binary download, or third-party distribution channel is owed at MVP (CLR-001 resolved); later packaging decisions would revisit this line.
 
 ## 10. Decisions Log
 
@@ -160,11 +160,11 @@ Normative behaviors carried from the Contract:
 | D-08 | 2 h default turn budget; env override fixed at turn start | README plus turn module | Confirmed |
 | D-09 | Tri-state stream polling separating timeout from stream death; stderr tail surfaced in error toasts | Fix commit plus regression test | Observed, ratify |
 | D-10 | Edition 2024, thin-LTO release profile | Manifest | Observed, ratify |
-| D-11 | MVP launches on Linux only; other OS families are out of launch scope. Linux architecture coverage (x86_64 alone vs. x86_64 + arm64) and the distribution channel remain open (CLR-001) | Operator decision (chat) | Confirmed |
+| D-11 | Extended: the MVP runs on the operator's own workstation only — Linux x86_64, built and launched from source via the local toolchain. Other OS families, other architectures, and any packaged/shipped distribution are out of launch scope (originally: Linux only, arch+channel open) | Operator decision (chat, two passes: "linux only", then "x86, just for this machine"); host verified (uname: Linux x86_64; rustc 1.98.1 builds the crate) | Confirmed |
 
 ## 11. Risks and Open Concerns
 
-Tracked in the queue: CLR-001 (Linux architecture coverage and distribution channel, now scoped down to the two open halves of the platform question), CLR-002 (pi precondition discovery and onboarding), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category).
+Tracked in the queue: CLR-002 (pi precondition discovery and onboarding), CLR-003 (operator identity UX), CLR-004 (MCP configurator scope), CLR-005 (governance of the two authoritative documents), CLR-006 (locality / single-machine assumption — partially corroborated by D-11's "just for this machine" scoping), CLR-007 (MVP success acceptance criteria), CLR-008 to CLR-013 (owner nominations per category). Recently closed: CLR-001 (platform/architecture/distribution) via the D-11 extension.
 
 Additionally unquantified: no performance or memory budget stated; no migration story defined for planning-artifact formats (mitigated today by git history and tolerant parsing).
 
