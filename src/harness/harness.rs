@@ -21,6 +21,8 @@ use crate::error::AppError;
 /// renders it in whatever shape the backing CLI prefers. */
 #[derive(Debug, Clone)]
 pub struct PlanningRequest {
+    /// Load repository instructions for implementation; planning remains isolated.
+    pub implementation: bool,
     /// Repository working directory the harness process must run in (§18).
     pub repo_root: std::path::PathBuf,
     /// Fully rendered prompt body (system instructions travel separately).

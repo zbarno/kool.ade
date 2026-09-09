@@ -30,7 +30,7 @@ pub const TURN_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// Optional positive wall-clock budget in seconds, read when a turn begins.
 /// Invalid, zero, or unrepresentable values fall back to the twelve-hour default.
-fn configured_turn_timeout() -> Duration {
+pub fn configured_turn_timeout() -> Duration {
     std::env::var("PACKET_TURN_TIMEOUT_SECS")
         .ok()
         .and_then(|value| value.trim().parse::<u64>().ok())
@@ -193,6 +193,7 @@ fn run_turn(
         prompt_body.push_str(prompt::TASK_OUTLINE_STEP);
     }
     let request = PlanningRequest {
+        implementation: false,
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: format!("{SYSTEM_INSTRUCTIONS}\n{}", prompt::WORKFLOW_INSTRUCTIONS),

@@ -148,7 +148,13 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     if ui
                         .selectable_label(
                             tasks_tab,
-                            format!("Task stories  {}", s.task_documents().iter().filter(|d| !d.path.ends_with("/README.md")).count()),
+                            format!(
+                                "Task stories  {}",
+                                s.task_documents()
+                                    .iter()
+                                    .filter(|d| !d.path.ends_with("/README.md"))
+                                    .count()
+                            ),
                         )
                         .clicked()
                     {
@@ -161,7 +167,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             }
             ui.ctx().data_mut(|d| d.insert_temp(tab_id, tasks_tab));
             if tasks_tab {
-                paint_tasks(ui, s.task_documents());
+                paint_tasks(ui, s);
                 return;
             }
             ui.horizontal(|ui| {
@@ -206,14 +212,16 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
         });
 }
 
-fn paint_tasks(ui: &mut egui::Ui, docs: &[crate::artifacts::task_docs::TaskDocument]) {
+fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    let docs = s.task_documents().to_vec();
     if let Some(progress) = docs.iter().find(|d| d.path.ends_with("/README.md")) {
         ui.label(RichText::new(&progress.title).weak());
         ui.add_space(8.0);
     }
     let id = egui::Id::new("packet_selected_task");
     let selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
-    let mut selected = selected_path.as_ref()
+    let mut selected = selected_path
+        .as_ref()
         .and_then(|path| docs.iter().position(|doc| &doc.path == path))
         .unwrap_or(0);
     egui::ComboBox::from_id_salt(id)
@@ -224,9 +232,35 @@ fn paint_tasks(ui: &mut egui::Ui, docs: &[crate::artifacts::task_docs::TaskDocum
                 ui.selectable_value(&mut selected, i, &doc.title);
             }
         });
-    ui.ctx().data_mut(|d| d.insert_temp(id, docs[selected].path.clone()));
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(id, docs[selected].path.clone()));
     ui.label(RichText::new(&docs[selected].path).size(11.0).weak());
-    ui.add_space(18.0);
+    let ticket = &docs[selected].path;
+    let state = s.implementation_state(ticket).cloned();
+    if !ticket.ends_with("/README.md") {
+        ui.horizontal(|ui| {
+            if let Some(record) = &state {
+                let status = if record.status == "Implementing" && !s.is_busy() { "Interrupted — ready to resume" } else { &record.status };
+                ui.label(RichText::new(status).size(12.0).weak());
+                if let Some(url) = &record.pr_url { ui.hyperlink_to("Open PR", url); }
+            }
+            let label = if state.is_some() { "Resume implementation" } else { "Implement" };
+            if ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then push and create a GitHub pull request. Existing work is preserved on resume. Starts from the current committed branch.").clicked() {
+                s.implement_task(ticket.clone());
+            }
+        });
+        if let Some(record) = &state {
+            ui.label(
+                RichText::new(record.worktree.display().to_string())
+                    .size(11.0)
+                    .weak(),
+            );
+            if record.status == "Needs attention" {
+                ui.label(&record.detail);
+            }
+        }
+    }
+    ui.add_space(12.0);
     egui::ScrollArea::vertical()
         .id_salt(("task_document", &docs[selected].path))
         .show(ui, |ui| {

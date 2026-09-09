@@ -61,17 +61,21 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat_store::append(&slug, &[welcome]).ok();
     }
     let task_documents = crate::artifacts::task_docs::load_latest(&canonical, &state.workflow);
-    Ok(Project {
+    let mut project = Project {
         task_documents,
         state,
         chat_slug: slug,
         chat,
         draft: String::new(),
         active_turn: None,
+        active_implementation: None,
+        implementation_states: Default::default(),
         live_progress: crate::harness::LiveProgress::default(),
         next_question_id: None,
         git: gitops::snapshot(&canonical),
-    })
+    };
+    project.refresh_implementations();
+    Ok(project)
 }
 
 fn expand_home(raw: &str) -> OsString {

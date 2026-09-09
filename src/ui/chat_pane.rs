@@ -67,7 +67,7 @@ pub fn paint(
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spinner();
-                    ui.label(RichText::new("planner working…").weak());
+                    ui.label(RichText::new("agent working…").weak());
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(RichText::new("Cancel").weak()).clicked() {
                             cancel = true;

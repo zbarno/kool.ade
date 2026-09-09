@@ -89,6 +89,29 @@ impl PacketApp {
                 }
             }
         }
+        if let Screen::Connected(project) = &mut self.screen {
+            let mut finished = None;
+            if let Some(ctrl) = &project.active_implementation {
+                for _ in 0..64 {
+                    match ctrl.poll() {
+                        Some(crate::core::implementation::Event::Progress(p)) => project.live_progress.update(p),
+                        Some(crate::core::implementation::Event::Done(result)) => { finished = Some(result); break; },
+                        None => break,
+                    }
+                }
+            }
+            if let Some(result) = finished {
+                project.active_implementation = None;
+                project.live_progress = Default::default();
+                project.refresh_implementations();
+                let text = match result {
+                    Ok(record) => format!("Implementation verified. Pull request: {}", record.pr_url.unwrap_or_default()),
+                    Err(error) => format!("Implementation stopped: {error}\nExisting work is preserved; use Resume implementation to continue."),
+                };
+                project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
+                project.refresh_git();
+            }
+        }
         // Phase 2: apply a completed turn. The project is detached first so
         // the `&mut self` work (caches, toasts) cannot alias `self.screen`.
         if let Some(o) = outcome {
@@ -103,6 +126,7 @@ impl PacketApp {
             let caches = match &mut self.screen {
                 Screen::Connected(p) => {
                     p.refresh_git();
+                    p.refresh_implementations();
                     p.task_documents = crate::artifacts::task_docs::load_latest(&p.state.repo_root, &p.state.workflow);
                     Self::derive_caches(p)
                 }
@@ -112,7 +136,7 @@ impl PacketApp {
             self.last_git_refresh = Instant::now();
         }
         let period = match &self.screen {
-            Screen::Connected(p) if p.active_turn.is_some() => Duration::from_millis(120),
+            Screen::Connected(p) if (p.active_turn.is_some() || p.active_implementation.is_some()) => Duration::from_millis(120),
             _ => Duration::from_millis(800),
         };
         ctx.request_repaint_after(period);
@@ -257,7 +281,7 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if project.active_turn.is_some() {
+        if project.active_turn.is_some() || project.active_implementation.is_some() {
             return;
         }
         let recent = project.recent_chat_tuples(6, 1200);
@@ -279,6 +303,7 @@ impl PacketApp {
     fn disconnect(&mut self) {
         if let Screen::Connected(p) = &mut self.screen {
             if p.active_turn.is_some() {
+                if let Some(ctrl) = &p.active_implementation { ctrl.request_cancel(); }
                 if let Some(ctrl) = &p.active_turn {
                     ctrl.request_cancel();
                 }
@@ -373,20 +398,33 @@ impl Surface for PacketApp {
     }
 
     fn is_busy(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some())
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementation.is_some())
     }
 
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
         match &self.screen {
-            Screen::Connected(p) if p.active_turn.is_some() => Some(&p.live_progress),
+            Screen::Connected(p) if p.active_turn.is_some() || p.active_implementation.is_some() => Some(&p.live_progress),
             _ => None,
         }
     }
 
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief> {
         match &self.screen {
-            Screen::Connected(p) if p.active_turn.is_none() && p.state.workflow.ready(p.state.spec_text.as_deref()) => p.state.workflow.brief.as_ref(),
+            Screen::Connected(p) if p.active_turn.is_none() && p.active_implementation.is_none() && p.state.workflow.ready(p.state.spec_text.as_deref()) => p.state.workflow.brief.as_ref(),
             _ => None,
+        }
+    }
+
+    fn implementation_state(&self, ticket: &str) -> Option<&crate::core::implementation::Implementation> {
+        match &self.screen { Screen::Connected(p) => p.implementation_states.get(ticket), _ => None }
+    }
+    fn implement_task(&mut self, ticket: String) {
+        if self.is_busy() { return; }
+        if let Screen::Connected(p) = &mut self.screen {
+            if !p.task_documents.iter().any(|d| d.path == ticket && !d.path.ends_with("/README.md")) { return; }
+            p.remember_chat(vec![ChatMessage::new(ChatRole::User, format!("Implement ticket {ticket}. Resume its worktree if it exists, verify the result, and create a pull request."), None)]);
+            p.live_progress = crate::harness::LiveProgress { activity: Some("Starting implementation…".into()), ..Default::default() };
+            p.active_implementation = Some(crate::core::implementation::Controller::start(p.state.repo_root.clone(), ticket));
         }
     }
 
@@ -447,6 +485,7 @@ impl Surface for PacketApp {
         }
         if intent.cancel {
             if let Screen::Connected(p) = &mut self.screen {
+                if let Some(ctrl) = &p.active_implementation { ctrl.request_cancel(); }
                 if let Some(ctrl) = &p.active_turn {
                     ctrl.request_cancel();
                     self.toasts.warning("Cancellation requested…");
@@ -471,6 +510,7 @@ impl Surface for PacketApp {
             HeaderAction::Refresh => {
                 if let Screen::Connected(p) = &mut self.screen {
                     p.refresh_git();
+                    p.refresh_implementations();
                     p.task_documents = crate::artifacts::task_docs::load_latest(&p.state.repo_root, &p.state.workflow);
                     self.toasts.info("Git state refreshed");
                 }

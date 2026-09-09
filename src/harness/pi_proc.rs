@@ -32,6 +32,7 @@ pub enum StreamEvt {
 pub struct ChildTask {
     rx: Receiver<StreamEvt>,
     child: Arc<Mutex<Option<Child>>>,
+    finished: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Tri-state poll result: separates "nothing YET" (timeout) from "stream
@@ -69,6 +70,17 @@ impl ChildTask {
     pub fn kill(&self) {
         let mut g = self.child.lock().unwrap();
         if let Some(c) = g.as_mut() {
+            #[cfg(unix)]
+            if !self.finished.load(std::sync::atomic::Ordering::SeqCst) {
+                // Each harness/verification command owns a process group. Cancel
+                // its children too, so a resumed worktree has no abandoned writer.
+                unsafe extern "C" {
+                    fn kill(pid: i32, signal: i32) -> i32;
+                }
+                unsafe {
+                    kill(-(c.id() as i32), 9);
+                }
+            }
             let _ = c.kill();
         }
     }
@@ -117,6 +129,11 @@ pub fn spawn_with_input(
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     let mut child = cmd
         .spawn()
         .map_err(|e| anyhow::anyhow!("failed to launch {}: {e}", argv[0]))?;
@@ -144,6 +161,8 @@ pub fn spawn_with_input(
     let stdout_reader = pipe_lines(stdout, tx.clone(), true);
     let stderr_reader = pipe_lines(stderr, tx.clone(), false);
 
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watcher_finished = finished.clone();
     let watcher = handle.clone();
     let exit_sender = tx.clone();
     std::thread::spawn(move || {
@@ -158,6 +177,7 @@ pub fn spawn_with_input(
                 // Final JSON can still be buffered after process exit.
                 let _ = stdout_reader.join();
                 let _ = stderr_reader.join();
+                watcher_finished.store(true, std::sync::atomic::Ordering::SeqCst);
                 let _ = exit_sender.send(StreamEvt::Exited(status.success()));
                 break;
             }
@@ -167,7 +187,11 @@ pub fn spawn_with_input(
     // All senders are thread-owned clones; when every thread exits the
     // receiver disconnects and `next_line` returns `None`.
 
-    Ok(ChildTask { rx, child: handle })
+    Ok(ChildTask {
+        rx,
+        child: handle,
+        finished,
+    })
 }
 
 /// One reader thread per pipe: converts lines into channel events.

@@ -63,3 +63,32 @@ for task-specific detail, typically 700–1400 words, rather than filler. These 
 validate structure and depth, not the correctness of every implementation decision.
 Earlier batches remain intact; regenerated batches use directories
 such as `saved-searches-02`. Task generation creates plans, not implementation changes.
+
+## Implement a ticket
+
+Select a numbered story in **Task stories** and click **Implement**. This starts Pi
+in a dedicated Git worktree on a stable `packet/<ticket>` branch. The worktree starts
+from the connected checkout's current committed branch; uncommitted changes in the
+original checkout are not copied or modified. Worktrees live in a sibling
+`.packet-worktrees` directory, with execution state and verification evidence under
+Git's private `packet-implementations` metadata directory.
+
+**Resume implementation** reopens the same worktree. Pi reviews its status, diffs,
+commits, repository instructions, and ticket dependencies before continuing. Cancel,
+application exit, failed verification, and unavailable GitHub preserve the worktree.
+Changed ticket text requires review and a revised ticket; it cannot silently change
+an existing implementation's scope. A per-ticket lock prevents concurrent writers
+from separate Packet instances.
+
+Packet requires a complete implementation report with evidence for every listed
+acceptance criterion, reruns the reported verification commands, checks the diff,
+and commits the result. It then pushes to `origin` and creates a GitHub pull request
+against the branch selected when implementation began. The app needs Git commit
+identity, push access to `origin`, and an authenticated GitHub CLI (`gh auth login`).
+It reuses an existing open PR and exposes **Open PR** once publishing succeeds.
+Publishing failures can be retried without repeating a verified implementation when
+the worktree and commit are unchanged. PRs are never automatically merged.
+
+Verification combines the model's acceptance evidence with actual command results;
+it does not replace human code review. Pi has normal local coding-tool access; the
+worktree is isolation for Git changes, not an operating-system sandbox.

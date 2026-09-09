@@ -147,6 +147,9 @@ impl AiHarness for PiHarness {
             req.system_instructions.clone(),
         ]);
 
+        if req.implementation {
+            argv.retain(|arg| arg != "--no-context-files");
+        }
         let task = crate::harness::pi_proc::spawn_with_input(
             &argv,
             &req.repo_root,

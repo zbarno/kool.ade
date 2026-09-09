@@ -1102,3 +1102,21 @@ Existing batches are preserved; subsequent batches use a
 new numbered feature directory. The files and workflow metadata are included in a
 git checkpoint, and the latest batch can be read in the Task stories tab. Producing
 task files does not authorize executing them.
+
+
+## Ticket implementation and pull requests
+
+Each numbered story offers an Implement action. Selecting it authorizes Pi to
+implement that ticket in a dedicated worktree and Packet to publish the verified
+result as a GitHub pull request. A stable branch and persisted worktree identity
+allow Resume implementation to review existing changes and continue after failure,
+cancellation, or restart. Original-checkout drafts are not copied or modified.
+Repository AGENTS.md instructions apply during implementation.
+
+The application records execution status and evidence outside tracked planning
+artifacts, prevents concurrent execution of the same ticket, and refuses changed
+ticket scope or mismatched worktrees. Pi must report evidence for every listed
+acceptance criterion and no remaining work. Packet reruns verification commands,
+checks the diff, commits the result, pushes to origin, and creates or reuses a PR
+against the original starting branch. Failed checks never create a PR. A publishing
+retry can reuse an unchanged verified commit. No automatic merging occurs.
