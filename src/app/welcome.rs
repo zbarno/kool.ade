@@ -60,13 +60,15 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat.push(welcome.clone());
         chat_store::append(&slug, &[welcome]).ok();
     }
+    let task_documents = crate::artifacts::task_docs::load_latest(&canonical, &state.workflow);
     Ok(Project {
+        task_documents,
         state,
         chat_slug: slug,
         chat,
         draft: String::new(),
         active_turn: None,
-        activity_preview: None,
+        live_progress: crate::harness::LiveProgress::default(),
         next_question_id: None,
         git: gitops::snapshot(&canonical),
     })

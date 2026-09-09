@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "assistant_message": "The goal is to let analysts resume daily searches without rebuilding filters. We have agreed to local saved searches, a picker, and clear failure feedback; sharing is excluded.",
+  "updated_specification": "# Saved searches\n\n## Goal and intent\nLet operations analysts resume daily searches without rebuilding filters.\n\n## User workflow\nSave a named filter, restart the application, and choose it to load current results.\n\n## Scope\n- Persist named filter records.\n- Provide an accessible saved-search picker.\n\n## Success criteria\n- Saved filters survive restart.\n- Invalid saves preserve existing records and show clear feedback.\n\n## Constraints and exclusions\nKeep ad hoc searches compatible. Sharing between users is excluded.\n",
+  "interview": {
+    "feature_name": "Saved searches",
+    "problem": "Analysts rebuild the same search filters every morning.",
+    "goal": "Resume useful searches without repeating setup.",
+    "target_users": "Operations analysts reviewing daily changes.",
+    "intended_outcome": "Select a named search and immediately see current results.",
+    "success_criteria": [
+      "A named search can be restored after restarting the application.",
+      "Saving an invalid search preserves existing saved records and shows a clear error."
+    ],
+    "in_scope": [
+      "Persist named filter records.",
+      "Provide a saved-search picker with accessible error feedback."
+    ],
+    "out_of_scope": [
+      "Sharing saved searches between users."
+    ],
+    "constraints": [
+      "Preserve existing ad hoc search behavior."
+    ],
+    "ready_for_tasks": true
+  }
+}

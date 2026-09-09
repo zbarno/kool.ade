@@ -77,9 +77,10 @@ impl PacketApp {
         let mut outcome: Option<TurnOutcome> = None;
         if let Screen::Connected(project) = &mut self.screen {
             if let Some(ctrl) = &project.active_turn {
-                while let Some(evt) = ctrl.poll(Duration::from_millis(5)) {
+                for _ in 0..64 {
+                    let Some(evt) = ctrl.poll(Duration::ZERO) else { break };
                     match evt {
-                        TurnEvt::Activity(text) => project.activity_preview = Some(text),
+                        TurnEvt::Progress(progress) => project.live_progress = progress,
                         TurnEvt::Done(o) => {
                             outcome = Some(o);
                             break;
@@ -102,6 +103,7 @@ impl PacketApp {
             let caches = match &mut self.screen {
                 Screen::Connected(p) => {
                     p.refresh_git();
+                    p.task_documents = crate::artifacts::task_docs::load_latest(&p.state.repo_root, &p.state.workflow);
                     Self::derive_caches(p)
                 }
                 Screen::Welcome => return,
@@ -134,6 +136,8 @@ impl PacketApp {
     }
 
     fn adopt_turn(&mut self, project: &mut Project, outcome: TurnOutcome) {
+        project.active_turn = None;
+        project.live_progress = crate::harness::LiveProgress::default();
         match outcome {
             TurnOutcome::Applied {
                 state,
@@ -142,7 +146,9 @@ impl PacketApp {
                 commit_result,
                 ..
             } => {
+                let previous_batches = project.state.workflow.task_batches.len();
                 project.state = state;
+                project.task_documents = crate::artifacts::task_docs::load_latest(&project.state.repo_root, &project.state.workflow);
                 project.next_question_id = normalized.next_question_id.clone();
                 let mut chat = vec![ChatMessage::new(
                     ChatRole::Agent,
@@ -162,8 +168,12 @@ impl PacketApp {
                 chat.extend(normalized.warnings.iter().map(|w| {
                     ChatMessage::new(ChatRole::System, w.clone(), None)
                 }));
+                if project.state.workflow.task_batches.len() > previous_batches {
+                    if let Some(batch) = project.state.workflow.task_batches.last() {
+                        chat.push(ChatMessage::new(ChatRole::System, format!("Created {} detailed task stories in {}. Open the Task stories tab to review them.", batch.count, batch.directory), None));
+                    }
+                }
                 project.remember_chat(chat);
-                project.activity_preview = None;
                 project.refresh_git();
                 self.refresh_derived(project);
                 match &commit_result {
@@ -182,7 +192,6 @@ impl PacketApp {
                 final_text,
                 ..
             } => {
-                project.activity_preview = None;
                 let mut chat = vec![ChatMessage::new(
                     ChatRole::System,
                     format!("⚠ Turn rejected — nothing was written.\n{}", problems.join("\n")),
@@ -204,10 +213,9 @@ impl PacketApp {
                 ));
             }
             TurnOutcome::HarnessFailed { error, .. } => {
-                project.activity_preview = None;
                 project.remember_chat(vec![ChatMessage::new(
                     ChatRole::System,
-                    format!("⛔ Harness error: {}", error.headline()),
+                    match &error { crate::error::AppError::InvalidResponse { .. } => format!("Task generation needs attention: {}", error.detail()), _ => format!("Planning stopped: {}", error.headline()) },
                     None,
                 )]);
                 self.toasts.danger(error.headline());
@@ -237,6 +245,15 @@ impl PacketApp {
     }
 
     fn start_turn(&mut self, text: &str) {
+        let purpose = match &self.screen {
+            Screen::Connected(p) if p.state.workflow.ready(p.state.spec_text.as_deref())
+                && crate::core::workflow::confirms_generation(text) => crate::core::workflow::TurnPurpose::GenerateTasks,
+            _ => crate::core::workflow::TurnPurpose::Interview,
+        };
+        self.start_turn_with_purpose(text, purpose);
+    }
+
+    fn start_turn_with_purpose(&mut self, text: &str, purpose: crate::core::workflow::TurnPurpose) {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -249,10 +266,14 @@ impl PacketApp {
             state: project.state.clone(),
             user_message: text.to_string(),
             recent_chat: recent,
+            purpose,
         };
         let ctrl = TurnController::start(inputs, Box::new(PiHarness));
         project.active_turn = Some(std::sync::Arc::new(ctrl));
-        project.activity_preview = Some("starting pi…".into());
+        project.live_progress = crate::harness::LiveProgress {
+            activity: Some("Starting planner…".into()),
+            ..Default::default()
+        };
     }
 
     fn disconnect(&mut self) {
@@ -276,7 +297,7 @@ impl PacketApp {
         let Screen::Connected(p) = &self.screen else {
             return;
         };
-        let text = p.state.spec_text.clone().unwrap_or_default();
+        let text = p.live_progress.specification.as_deref().or(p.state.spec_text.as_deref()).unwrap_or_default().to_owned();
         clipboard_put(&text);
         self.toasts
             .info(format!("Copied {} characters to clipboard", text.chars().count()));
@@ -355,11 +376,22 @@ impl Surface for PacketApp {
         matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some())
     }
 
-    fn activity_preview(&self) -> Option<&str> {
+    fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
         match &self.screen {
-            Screen::Connected(p) => p.activity_preview.as_deref(),
-            Screen::Welcome => None,
+            Screen::Connected(p) if p.active_turn.is_some() => Some(&p.live_progress),
+            _ => None,
         }
+    }
+
+    fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief> {
+        match &self.screen {
+            Screen::Connected(p) if p.active_turn.is_none() && p.state.workflow.ready(p.state.spec_text.as_deref()) => p.state.workflow.brief.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument] {
+        match &self.screen { Screen::Connected(p) => &p.task_documents, _ => &[] }
     }
 
     fn items(&self) -> &[OpenItem] {
@@ -393,7 +425,7 @@ impl Surface for PacketApp {
 
     fn spec_text(&self) -> &str {
         match &self.screen {
-            Screen::Connected(p) => p.state.spec_text.as_deref().unwrap_or(NO_SPEC_PLACEHOLDER),
+            Screen::Connected(p) => p.live_progress.specification.as_deref().or(p.state.spec_text.as_deref()).unwrap_or(NO_SPEC_PLACEHOLDER),
             Screen::Welcome => "",
         }
     }
@@ -407,6 +439,12 @@ impl Surface for PacketApp {
     }
 
     fn on_intent(&mut self, intent: &Intent) {
+        if intent.generate_tasks {
+            if self.task_offer().is_some() {
+                self.start_turn_with_purpose("Yes, proceed to task generation for the reviewed specification.", crate::core::workflow::TurnPurpose::GenerateTasks);
+            }
+            return;
+        }
         if intent.cancel {
             if let Screen::Connected(p) = &mut self.screen {
                 if let Some(ctrl) = &p.active_turn {
@@ -433,6 +471,7 @@ impl Surface for PacketApp {
             HeaderAction::Refresh => {
                 if let Screen::Connected(p) = &mut self.screen {
                     p.refresh_git();
+                    p.task_documents = crate::artifacts::task_docs::load_latest(&p.state.repo_root, &p.state.workflow);
                     self.toasts.info("Git state refreshed");
                 }
             }

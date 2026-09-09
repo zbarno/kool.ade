@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "assistant_message": "Detailed story 1 is ready.",
+  "task_stories": [
+    {
+      "title": "Persist named search filters",
+      "purpose": "Retain analysts\u2019 complete named filter configurations across application sessions without changing existing ad hoc query behavior.",
+      "scope_items": [
+        1
+      ],
+      "success_criteria": [
+        1,
+        2
+      ],
+      "dependencies": [],
+      "user_story": "As an operations analyst I want to save and restore a named search so that I can resume daily analysis without rebuilding filters.",
+      "affected_files": [
+        "src/search_store.rs (proposed): implement the versioned saved-search persistence contract."
+      ],
+      "implementation_steps": [
+        "Locate the existing search controller and filter representation, documenting every field that must survive a save and restore cycle before defining persistence.",
+        "Introduce a versioned SavedSearch record with stable identifier, trimmed nonblank display name and complete filter payload; reject unsupported schema versions with typed errors.",
+        "Implement loading so a missing store returns an empty collection, while corrupted records report a recoverable error and leave the source file untouched.",
+        "Implement atomic replacement writes using a temporary sibling file and rename; propagate IO failures while preserving the previous committed store and existing records.",
+        "Connect validated save and restore operations to the controller without executing queries inside the persistence module; add round-trip and injected-failure tests."
+      ],
+      "acceptance_criteria": [
+        "Given a saved compound filter, when a fresh process loads the store, then its stable identifier, name and every filter value match exactly.",
+        "Given an existing valid store, when saving a new record fails during writing or rename, then the original bytes remain readable and unchanged.",
+        "Given no saved-search file, when the store is opened, then it returns an empty collection without creating files or displaying an error.",
+        "Given an invalid record or unsupported schema version, when restore is requested, then a specific error is returned without changing existing records."
+      ],
+      "test_plan": [
+        "Create a compound filter containing optional and multi-value fields, save it, reload through a fresh store instance, and compare every serialized field exactly.",
+        "Inject failures before temporary-file completion and during rename, then assert the previous store bytes and previously saved records remain unchanged and readable.",
+        "Open an absent store and assert the returned list is empty, no file is created, and subsequent valid save succeeds normally.",
+        "Load malformed JSON, blank display names and unsupported schema versions separately; assert typed recoverable errors and verify source files are never silently rewritten."
+      ],
+      "edge_cases": [
+        "A blank or whitespace-only display name must fail validation before writing, with the existing saved-search collection and disk contents remaining unchanged.",
+        "An unsupported schema version or corrupted JSON record must produce a specific recoverable error; never guess missing filters or overwrite the source automatically.",
+        "A storage permission error or interrupted replacement must preserve the last valid store and expose an actionable error without clearing other saved searches."
+      ],
+      "rollout_notes": "Add the local store lazily. Existing ad hoc searches continue to work without a saved-search file. Rolling back the feature leaves the additive store unused.",
+      "definition_of_done": [
+        "All specified success and failure acceptance criteria have corresponding passing tests with recorded commands and actual observed results.",
+        "Existing ad hoc search behavior remains compatible, with no changes to sharing or synchronization scope and no silent data loss.",
+        "The implementing model records changed files, verification evidence and any unresolved discrepancy before marking the story complete."
+      ],
+      "intent": "Named filter records currently have no durable storage contract, so restarting the application loses them and forces analysts to rebuild their filters. This ticket establishes reliable persistence so later interfaces can save and restore records without data loss.",
+      "goal": "Deliver an atomic local saved-search store that restores identical named filter records across process restarts and preserves valid records when writes fail.",
+      "context": "The approved feature is local saved searches for operations analysts; sharing and synchronization are explicitly excluded. The current application supports ad hoc queries but has no saved-search persistence contract. Introduce src/search_store.rs as a proposed module and locate the existing search controller before integration. Persist a versioned record containing identifier, display name and the complete filter payload. Do not store rendered results because restoration must query current data. The store must tolerate an absent file and report corrupted or unsupported records without silently deleting them.",
+      "technical_design": [
+        "Define SavedSearch with stable identifier, display name, schema version and complete filter payload; keep serialization separate from query execution.",
+        "Expose list, save and restore operations returning typed validation and IO errors; the controller remains responsible for executing restored queries.",
+        "Write a complete replacement store to a sibling temporary file, flush it, then rename atomically; never truncate the last valid store."
+      ],
+      "verification_commands": [
+        "Run the repository\u2019s existing search test command after locating its documented runner; record the exact command, exit status and passing case names.",
+        "Run the documented application launch command and exercise save, restart, select and failed-restore recovery; record observed filter values and error behavior."
+      ]
+    }
+  ]
+}

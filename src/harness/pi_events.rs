@@ -5,7 +5,9 @@
 //! Deliberately tolerant: unparsable lines are counted and forgotten — pi
 //! may print startup chatter that is not JSON.
 
+use super::LiveProgress;
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// Rolling state accumulated line by line.
 #[derive(Debug, Default, Clone)]
@@ -18,6 +20,39 @@ pub struct EventFold {
     pub error_hint: Option<String>,
     pub events_seen: usize,
     pub unparsed_lines: usize,
+    blocks: BTreeMap<usize, (String, String)>,
+    prior_thoughts: String,
+    prior_response: String,
+}
+
+impl EventFold {
+    pub fn preview(&self) -> LiveProgress {
+        let current_text = self.block_text("text");
+        let (response, specification) = super::live_preview::project(&current_text);
+        LiveProgress {
+            thoughts: joined(&self.prior_thoughts, &self.block_text("thinking")),
+            response: joined(&self.prior_response, &response),
+            specification,
+            activity: self.last_activity.clone(),
+        }
+    }
+
+    fn block_text(&self, kind: &str) -> String {
+        self.blocks
+            .values()
+            .filter(|(k, _)| k == kind)
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+fn joined(a: &str, b: &str) -> String {
+    match (a.is_empty(), b.is_empty()) {
+        (true, _) => b.to_owned(),
+        (_, true) => a.to_owned(),
+        _ => format!("{a}\n\n{b}"),
+    }
 }
 
 /// Fast-path sniff: lines we do NOT need to fully parse (huge agent_end
@@ -29,9 +64,6 @@ fn skip_heavy(line: &str) -> Option<bool> {
     }
     // agent_end embeds the FULL conversation; we only care that it happened.
     if head.contains("\"agent_end\"") {
-        return Some(true);
-    }
-    if line.len() > 256 * 1024 {
         return Some(true);
     }
     None
@@ -58,10 +90,7 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
     match ty {
         "agent_end" => sink.saw_agent_end = true,
         "tool_execution_start" => {
-            let tool = v
-                .get("toolName")
-                .and_then(Value::as_str)
-                .unwrap_or("tool");
+            let tool = v.get("toolName").and_then(Value::as_str).unwrap_or("tool");
             let args = v
                 .get("args")
                 .map(|a| short_blob(Some(a)))
@@ -72,10 +101,61 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                 format!("{tool} · {args}")
             });
         }
+        "message_start" => {
+            if v.pointer("/message/role").and_then(Value::as_str) == Some("assistant") {
+                let preview = sink.preview();
+                sink.prior_thoughts = preview.thoughts;
+                sink.prior_response = preview.response;
+                sink.blocks.clear();
+            }
+        }
+        "message_update" => {
+            if let Some(event) = v.get("assistantMessageEvent") {
+                let ty = event.get("type").and_then(Value::as_str).unwrap_or("");
+                let kind = if ty.starts_with("thinking_") {
+                    "thinking"
+                } else if ty.starts_with("text_") {
+                    "text"
+                } else {
+                    return;
+                };
+                let index = event
+                    .get("contentIndex")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as usize;
+                let block = sink
+                    .blocks
+                    .entry(index)
+                    .or_insert_with(|| (kind.to_owned(), String::new()));
+                if ty.ends_with("_delta") {
+                    if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                        block.1.push_str(delta);
+                    }
+                } else if ty.ends_with("_end") {
+                    if let Some(content) = event.get("content").and_then(Value::as_str) {
+                        block.1 = content.to_owned();
+                    }
+                }
+            }
+        }
         "message_end" => {
             let msg = v.get("message");
             if msg.and_then(|m| m.get("role")).and_then(Value::as_str) == Some("assistant") {
                 sink.final_assistant_text = assistant_text(msg);
+                if let Some(blocks) = msg.and_then(|m| m.get("content")).and_then(Value::as_array) {
+                    for (index, b) in blocks.iter().enumerate() {
+                        let kind = b.get("type").and_then(Value::as_str).unwrap_or("");
+                        if kind == "text" || kind == "thinking" {
+                            if let Some(text) = b.get(kind).and_then(Value::as_str) {
+                                sink.blocks
+                                    .insert(index, (kind.to_owned(), text.to_owned()));
+                            }
+                        }
+                    }
+                } else {
+                    sink.blocks
+                        .insert(0, ("text".into(), sink.final_assistant_text.clone()));
+                }
             }
         }
         t if t.contains("error") => {
@@ -110,7 +190,9 @@ fn assistant_text(message: Option<&Value>) -> String {
 
 /// Compact, capped string form for previews/errors.
 pub fn short_blob(v: Option<&Value>) -> String {
-    let s = v.and_then(|v| serde_json::to_string(v).ok()).unwrap_or_default();
+    let s = v
+        .and_then(|v| serde_json::to_string(v).ok())
+        .unwrap_or_default();
     let s = s.replace('\\', "");
     const CAP: usize = 90;
     if s.chars().count() <= CAP {
@@ -156,11 +238,83 @@ mod tests {
     #[test]
     fn heavy_agent_end_and_chatter_are_safe() {
         let mut f = EventFold::default();
-        let big = format!(r#"{{"type":"agent_end","messages":["{}"]}}"#, "x".repeat(500_000));
+        let big = format!(
+            r#"{{"type":"agent_end","messages":["{}"]}}"#,
+            "x".repeat(500_000)
+        );
         fold_line(&big, &mut f);
         assert!(f.saw_agent_end);
         fold_line("npm WARN something", &mut f);
         assert_eq!(f.unparsed_lines, 0);
         assert_eq!(f.events_seen, 0);
+    }
+    fn delta(f: &mut EventFold, kind: &str, index: usize, value: &str) {
+        fold_line(
+            &serde_json::json!({"type":"message_update", "assistantMessageEvent":{
+                "type":format!("{kind}_delta"), "contentIndex":index, "delta":value
+            }})
+            .to_string(),
+            f,
+        );
+    }
+
+    #[test]
+    fn deltas_stream_thoughts_and_spec_before_message_end() {
+        let mut f = EventFold::default();
+        delta(&mut f, "thinking", 0, "Checking ");
+        delta(&mut f, "thinking", 0, "requirements.");
+        delta(
+            &mut f,
+            "text",
+            1,
+            "Drafting.\n```json\n{\"assistantMessage\":\"New draft\",\"updatedSpecification\":\"# Scope\\n",
+        );
+        let preview = f.preview();
+        assert_eq!(preview.thoughts, "Checking requirements.");
+        assert_eq!(preview.response, "New draft");
+        assert_eq!(preview.specification.as_deref(), Some("# Scope\n"));
+        assert!(f.final_assistant_text.is_empty());
+        assert!(!f.saw_agent_end);
+        delta(&mut f, "text", 1, "More detail\"}");
+        assert_eq!(
+            f.preview().specification.as_deref(),
+            Some("# Scope\nMore detail")
+        );
+    }
+
+    #[test]
+    fn block_end_and_message_end_reconcile_without_duplicate_thoughts() {
+        let mut f = EventFold::default();
+        delta(&mut f, "thinking", 0, "First thought.");
+        fold_line(
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":"First thought."}}"#,
+            &mut f,
+        );
+        fold_line(
+            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"First thought."},{"type":"text","text":"Reading files."}]}}"#,
+            &mut f,
+        );
+        assert_eq!(f.preview().thoughts, "First thought.");
+        fold_line(
+            r#"{"type":"message_start","message":{"role":"toolResult"}}"#,
+            &mut f,
+        );
+        assert_eq!(f.preview().response, "Reading files.");
+        fold_line(
+            r#"{"type":"message_start","message":{"role":"assistant"}}"#,
+            &mut f,
+        );
+        delta(&mut f, "thinking", 0, "Next thought.");
+        assert_eq!(f.preview().thoughts, "First thought.\n\nNext thought.");
+        assert_eq!(f.preview().response, "Reading files.");
+    }
+
+    #[test]
+    fn large_final_documents_are_not_mistaken_for_agent_end() {
+        let mut f = EventFold::default();
+        let text = "x".repeat(300_000);
+        fold_line(&text_msg(&text), &mut f);
+        assert_eq!(f.final_assistant_text, text);
+        assert!(!f.saw_agent_end);
     }
 }

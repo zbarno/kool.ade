@@ -29,10 +29,19 @@ pub struct PlanningRequest {
     pub system_instructions: String,
     /// Wall-clock budget for the whole turn.
     pub timeout: Duration,
-    /// Sink for transient activity previews (tool usage) shown in the UI.
-    pub activity_tx: std::sync::mpsc::Sender<String>,
+    /// Sink for transient thinking, response, document, and activity snapshots.
+    pub progress_tx: std::sync::mpsc::Sender<LiveProgress>,
     /// Cooperative cancellation set by the UI's Cancel button.
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Transient display snapshot; never fed back into prompts or saved as artifacts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveProgress {
+    pub thoughts: String,
+    pub response: String,
+    pub specification: Option<String>,
+    pub activity: Option<String>,
 }
 
 /// Parsed-but-not-yet-validated turn envelope emitted by the agent.
@@ -41,17 +50,30 @@ pub struct PlanningRequest {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnEnvelope {
+    #[serde(alias = "schema_version")]
     pub schema_version: Option<u32>,
+    #[serde(alias = "assistant_message")]
     pub assistant_message: Option<String>,
     /// Short phrase describing what changed (feeds the git commit subject).
+    #[serde(alias = "change_summary")]
     pub change_summary: Option<String>,
     /// Complete replacement specification markdown (null when unchanged).
+    #[serde(alias = "updated_specification")]
     pub updated_specification: Option<String>,
+    #[serde(alias = "open_items_added")]
     pub open_items_added: Option<Vec<TurnItem>>,
+    #[serde(alias = "open_items_updated")]
     pub open_items_updated: Option<Vec<TurnItemUpdate>>,
+    #[serde(alias = "open_items_resolved")]
     pub open_items_resolved: Option<Vec<String>>,
     /// The item the agent wants to ask NOW (must satisfy routing rules).
+    #[serde(alias = "next_question_id")]
     pub next_question_id: Option<String>,
+    pub interview: Option<crate::core::workflow::InterviewBrief>,
+    #[serde(alias = "task_stories")]
+    pub task_stories: Option<Vec<crate::core::workflow::TaskStory>>,
+    #[serde(alias = "task_outline")]
+    pub task_outline: Option<Vec<crate::core::workflow::TaskOutline>>,
 }
 
 impl TurnEnvelope {
@@ -85,11 +107,13 @@ pub struct TurnItem {
     pub kind: Option<String>,
     pub category: Option<String>,
     #[serde(default)]
+    #[serde(alias = "assigned_to")]
     pub assigned_to: Option<String>,
     pub question: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
     #[serde(default)]
+    #[serde(alias = "resolution_note")]
     pub resolution_note: Option<String>,
 }
 
@@ -103,6 +127,7 @@ pub struct TurnItemUpdate {
     pub kind: Option<String>,
     pub category: Option<String>,
     #[serde(default)]
+    #[serde(alias = "assigned_to")]
     pub assigned_to: Option<String>,
     pub question: Option<String>,
     #[serde(default)]

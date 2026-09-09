@@ -76,14 +76,14 @@ impl ChildTask {
     /// Drain events until termination (or `grace`, forcing a kill).
     pub fn settle(&self, grace: Duration) -> Option<bool> {
         let deadline = Instant::now() + grace;
-        while let Some(evt) = self.next_line(Duration::from_millis(50)) {
-            if let StreamEvt::Exited(ok) = evt {
-                return Some(ok);
-            }
-            if Instant::now() > deadline {
-                self.kill();
+        while Instant::now() < deadline {
+            match self.poll_next(Duration::from_millis(50)) {
+                Ok(StreamEvt::Exited(ok)) => return Some(ok),
+                Err(PollState::Closed) => return None,
+                _ => {}
             }
         }
+        self.kill();
         None
     }
 }
@@ -106,12 +106,18 @@ pub fn spawn(argv: &[String], cwd: &Path) -> anyhow::Result<ChildTask> {
     let mut child = cmd
         .spawn()
         .map_err(|e| anyhow::anyhow!("failed to launch {}: {e}", argv[0]))?;
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout pipe"))?;
-    let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("no stderr pipe"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stdout pipe"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("no stderr pipe"))?;
 
     let handle: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
-    pipe_lines(stdout, tx.clone(), true);
-    pipe_lines(stderr, tx.clone(), false);
+    let stdout_reader = pipe_lines(stdout, tx.clone(), true);
+    let stderr_reader = pipe_lines(stderr, tx.clone(), false);
 
     let watcher = handle.clone();
     let exit_sender = tx.clone();
@@ -124,6 +130,9 @@ pub fn spawn(argv: &[String], cwd: &Path) -> anyhow::Result<ChildTask> {
                 g.as_mut().and_then(|c| c.try_wait().ok().flatten())
             };
             if let Some(status) = status {
+                // Final JSON can still be buffered after process exit.
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
                 let _ = exit_sender.send(StreamEvt::Exited(status.success()));
                 break;
             }
@@ -137,7 +146,11 @@ pub fn spawn(argv: &[String], cwd: &Path) -> anyhow::Result<ChildTask> {
 }
 
 /// One reader thread per pipe: converts lines into channel events.
-fn pipe_lines<R: std::io::Read + Send + 'static>(reader: R, tx: std::sync::mpsc::Sender<StreamEvt>, is_stdout: bool) {
+fn pipe_lines<R: std::io::Read + Send + 'static>(
+    reader: R,
+    tx: std::sync::mpsc::Sender<StreamEvt>,
+    is_stdout: bool,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut br = std::io::BufReader::new(reader);
         let mut line = String::new();
@@ -160,7 +173,7 @@ fn pipe_lines<R: std::io::Read + Send + 'static>(reader: R, tx: std::sync::mpsc:
                 }
             }
         }
-    });
+    })
 }
 
 #[cfg(test)]
@@ -168,7 +181,32 @@ mod tests {
     use super::*;
 
     fn sh(script: &str) -> Vec<String> {
-        vec![String::from("/bin/sh"), String::from("-c"), script.to_string()]
+        vec![
+            String::from("/bin/sh"),
+            String::from("-c"),
+            script.to_string(),
+        ]
+    }
+
+    #[test]
+    fn exit_follows_all_buffered_output() {
+        let task = spawn(
+            &sh("i=0; while [ $i -lt 12000 ]; do echo final-payload; i=$((i+1)); done"),
+            Path::new("/"),
+        )
+        .unwrap();
+        let mut lines = 0;
+        loop {
+            match task.poll_next(Duration::from_secs(5)).unwrap() {
+                StreamEvt::Stdout(_) => lines += 1,
+                StreamEvt::Exited(ok) => {
+                    assert!(ok);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(lines, 12000);
     }
 
     #[test]
@@ -223,7 +261,10 @@ mod tests {
             assert!(t0.elapsed() < Duration::from_secs(5), "drained forever");
         }
         assert!(got_late);
-        assert!(pending_seen >= 1, "expected at least one Pending gap before the first line");
+        assert!(
+            pending_seen >= 1,
+            "expected at least one Pending gap before the first line"
+        );
     }
 
     #[test]

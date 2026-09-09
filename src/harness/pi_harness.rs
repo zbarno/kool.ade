@@ -78,7 +78,9 @@ fn is_executable(p: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        p.metadata().map(|m| m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+        p.metadata()
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
     }
     #[cfg(not(unix))]
     {
@@ -103,6 +105,7 @@ impl AiHarness for PiHarness {
         )?;
         let deadline = Instant::now() + CHECK_TIMEOUT;
         let mut version = String::new();
+        let mut exited = None;
         while Instant::now() < deadline {
             match task.next_line(Duration::from_millis(100)) {
                 Some(StreamEvt::Stdout(line)) => {
@@ -110,12 +113,15 @@ impl AiHarness for PiHarness {
                         version = line.trim().to_string();
                     }
                 }
-                Some(StreamEvt::Exited(_)) => break,
+                Some(StreamEvt::Exited(ok)) => {
+                    exited = Some(ok);
+                    break;
+                }
                 _ => {}
             }
         }
-        let tail = task.settle(Duration::from_secs(2));
-        if !tail.expect("pi timed out to settle") && version.is_empty() {
+        let exit = exited.or_else(|| task.settle(Duration::from_secs(2)));
+        if exit != Some(true) || version.is_empty() {
             return Err(AppError::HarnessFailed {
                 reason: "pi --version failed".into(),
                 stderr_tail: String::new(),
@@ -147,6 +153,9 @@ impl AiHarness for PiHarness {
         let deadline = Instant::now() + req.timeout;
         let mut fold = EventFold::default();
         let mut stderr_tail: Vec<String> = Vec::new();
+        let mut last_preview = super::LiveProgress::default();
+        let mut last_emit = Instant::now() - Duration::from_millis(50);
+        let mut preview_dirty = false;
 
         loop {
             if req.cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -164,15 +173,22 @@ impl AiHarness for PiHarness {
                     secs: req.timeout.as_secs(),
                 });
             }
+            if preview_dirty && last_emit.elapsed() >= Duration::from_millis(50) {
+                let preview = fold.preview();
+                if preview != last_preview {
+                    let _ = req.progress_tx.send(preview.clone());
+                    last_preview = preview;
+                }
+                preview_dirty = false;
+                last_emit = Instant::now();
+            }
             // NOTE: `Pending` is NOT an error state — the first event from a
             // cold harness can lag well past one poll window.
             match task.poll_next(Duration::from_millis(200)) {
                 Err(crate::harness::pi_proc::PollState::Pending) => continue,
                 Ok(StreamEvt::Stdout(line)) => {
                     crate::harness::pi_events::fold_line(&line, &mut fold);
-                    if let Some(activity) = &fold.last_activity {
-                        let _ = req.activity_tx.send(activity.clone());
-                    }
+                    preview_dirty = true;
                 }
                 Ok(StreamEvt::Stderr(line)) => {
                     stderr_tail.push(line);
@@ -205,6 +221,7 @@ impl AiHarness for PiHarness {
             }
         }
 
+        let _ = req.progress_tx.send(fold.preview());
         let final_text = std::mem::take(&mut fold.final_assistant_text);
         if final_text.trim().is_empty() {
             return Err(AppError::HarnessFailed {
@@ -212,9 +229,8 @@ impl AiHarness for PiHarness {
                 stderr_tail: tail(&stderr_tail),
             });
         }
-        let envelope = extract_json_object(&final_text).and_then(|obj| {
-            serde_json::from_str::<TurnEnvelope>(&obj).ok()
-        });
+        let envelope = extract_json_object(&final_text)
+            .and_then(|obj| serde_json::from_str::<TurnEnvelope>(&obj).ok());
         Ok(HarnessOutcome {
             final_text,
             envelope,
@@ -239,9 +255,17 @@ fn tail(lines: &[String]) -> String {
 fn extract_version(out: &str) -> String {
     let token = out
         .split_whitespace()
-        .find(|t| t.trim_start_matches(['v', '-']).starts_with(|c: char| c.is_ascii_digit()))
+        .find(|t| {
+            t.trim_start_matches(['v', '-'])
+                .starts_with(|c: char| c.is_ascii_digit())
+        })
         .map(str::to_string)
-        .unwrap_or_else(|| out.split_whitespace().next().unwrap_or_default().to_string());
+        .unwrap_or_else(|| {
+            out.split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        });
     token.trim_start_matches('v').to_string()
 }
 

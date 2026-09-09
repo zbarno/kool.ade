@@ -18,3 +18,5 @@ pub use artifacts::{
     atomic_write, read_utf8_lossy, repo_artifact, sanitize_basename,
     CONFIG_DIR, IMPORTS_DIR, MCP_CONFIG_FILE, OPEN_ITEMS_FILE, PLANNING_DIR, SPEC_FILE, CONFIG_FILE,
 };
+
+pub mod task_docs;

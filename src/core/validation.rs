@@ -36,12 +36,18 @@ pub struct NormalizedTurn {
     /// Non-fatal observations shown to the user (e.g. why next-question was
     /// dropped — routing sovereignty, §18).
     pub warnings: Vec<String>,
+    pub workflow: Option<crate::core::workflow::Workflow>,
+    pub task_batch: Option<crate::core::workflow::TaskBatch>,
 }
 
 const QUESTION_CHAR_CAP: usize = 2000;
 const SUMMARY_CHAR_CAP: usize = 60;
 
 pub fn validate(envelope: &TurnEnvelope, state: &PlannerState, user: &CurrentUser) -> Result<NormalizedTurn, Vec<String>> {
+    validate_for_turn(envelope, state, user, crate::core::workflow::TurnPurpose::Interview)
+}
+
+pub fn validate_for_turn(envelope: &TurnEnvelope, state: &PlannerState, user: &CurrentUser, purpose: crate::core::workflow::TurnPurpose) -> Result<NormalizedTurn, Vec<String>> {
     let mut fatals: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
@@ -231,7 +237,7 @@ pub fn validate(envelope: &TurnEnvelope, state: &PlannerState, user: &CurrentUse
     if !fatals.is_empty() {
         return Err(fatals);
     }
-    Ok(NormalizedTurn {
+    let mut normalized = NormalizedTurn {
         assistant_message: envelope.assistant().trim().to_string(),
         change_summary,
         spec_markdown,
@@ -240,7 +246,11 @@ pub fn validate(envelope: &TurnEnvelope, state: &PlannerState, user: &CurrentUse
         resolved,
         next_question_id,
         warnings,
-    })
+        workflow: None,
+        task_batch: None,
+    };
+    crate::core::workflow::prepare(state, envelope, &mut normalized, purpose)?;
+    Ok(normalized)
 }
 
 #[cfg(test)]
@@ -283,6 +293,9 @@ mod tests {
             open_items_updated: None,
             open_items_resolved: None,
             next_question_id: next.map(Into::into),
+            interview: None,
+            task_stories: None,
+            task_outline: None,
         }
     }
 

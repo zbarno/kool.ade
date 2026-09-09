@@ -21,6 +21,18 @@ pub struct ApplyReceipt {
 }
 
 pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<ApplyReceipt> {
+    if let Some(batch) = &nt.task_batch {
+        anyhow::ensure!(spec_doc::load(&state.repo_root)? == state.spec_text, "The specification changed during task generation; review it again before retrying");
+        anyhow::ensure!(crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow, "The interview changed during task generation; review it again");
+        let mut workflow = nt.workflow.clone().unwrap_or_else(|| state.workflow.clone());
+        let paths = crate::artifacts::task_docs::write_batch(&state.repo_root, batch, &mut workflow)?;
+        state.workflow = workflow;
+        return Ok(ApplyReceipt {
+            spec_written: false, items_written: false,
+            commit_message: format!("planner: generate task stories for {}", batch.brief.feature_name),
+            repo_relative_paths: paths, synthesized_open_items: Vec::new(),
+        });
+    }
     let spec_pre_existed = state.baseline_spec.is_some();
 
     // 1) Resolutions remove items from the queue; the history stays in git.
@@ -95,11 +107,16 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     let commit_message =
         compose_commit_message(nt, spec_pre_existed, spec_written, nt.resolved.len(), nt.added.len(), nt.updates.len());
 
-    let repo_relative_paths = [(spec_written, SPEC_FILE), (items_written, OPEN_ITEMS_FILE)]
+    let mut repo_relative_paths: Vec<String> = [(spec_written, SPEC_FILE), (items_written, OPEN_ITEMS_FILE)]
         .into_iter()
         .filter_map(|(yes, p)| yes.then_some(p.to_string()))
         .collect();
 
+    if let Some(workflow) = &nt.workflow {
+        crate::artifacts::task_docs::save_workflow(&state.repo_root, workflow)?;
+        state.workflow = workflow.clone();
+        repo_relative_paths.push(crate::core::workflow::WORKFLOW_FILE.into());
+    }
     Ok(ApplyReceipt {
         spec_written,
         items_written,
@@ -193,6 +210,8 @@ mod tests {
             updates: vec![],
             resolved: vec![],
             next_question_id: None,
+            workflow: None,
+            task_batch: None,
             warnings: vec![],
         }
     }
@@ -255,6 +274,9 @@ mod tests {
             open_items_updated: None,
             open_items_resolved: None,
             next_question_id: None,
+            interview: None,
+            task_stories: None,
+            task_outline: None,
         };
         let nt = validation::validate(&e, &st, &st.effective_user()).unwrap();
         let rc = apply(&mut st, &nt).unwrap();

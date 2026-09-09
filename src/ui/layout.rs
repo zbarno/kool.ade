@@ -114,11 +114,18 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             });
             ui.add_space(24.0);
             let msgs = s.chat_messages().to_vec();
-            let activity = s.activity_preview().map(str::to_owned);
+            let progress = s.live_progress().cloned();
             let busy = s.is_busy();
-            let intent =
-                crate::ui::chat_pane::paint(ui, &msgs, s.chat_draft(), busy, activity.as_deref());
-            if intent.send || intent.cancel {
+            let offer = s.task_offer().cloned();
+            let intent = crate::ui::chat_pane::paint(
+                ui,
+                &msgs,
+                s.chat_draft(),
+                busy,
+                progress.as_ref(),
+                offer.as_ref(),
+            );
+            if intent.send || intent.cancel || intent.generate_tasks {
                 s.on_intent(&intent);
             }
         });
@@ -129,8 +136,40 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 .inner_margin(egui::Margin::symmetric(28, 18)),
         )
         .show(ui, |ui| {
+            let tab_id = egui::Id::new("packet_document_tab");
+            let mut tasks_tab = ui
+                .ctx()
+                .data_mut(|d| d.get_temp::<bool>(tab_id).unwrap_or(false));
+            if !s.task_documents().is_empty() {
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(!tasks_tab, "Specification").clicked() {
+                        tasks_tab = false;
+                    }
+                    if ui
+                        .selectable_label(
+                            tasks_tab,
+                            format!("Task stories  {}", s.task_documents().iter().filter(|d| !d.path.ends_with("/README.md")).count()),
+                        )
+                        .clicked()
+                    {
+                        tasks_tab = true;
+                    }
+                });
+                ui.add_space(12.0);
+            } else {
+                tasks_tab = false;
+            }
+            ui.ctx().data_mut(|d| d.insert_temp(tab_id, tasks_tab));
+            if tasks_tab {
+                paint_tasks(ui, s.task_documents());
+                return;
+            }
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Specification").size(17.0).strong());
+                if s.live_progress().is_some_and(|p| p.specification.is_some()) {
+                    theme::badge(ui, "Live draft", theme::ACCENT_SOFT, theme::ACCENT)
+                        .on_hover_text("Updates as the planner writes. Saved after validation.");
+                }
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .button("Copy")
@@ -164,5 +203,33 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             ui.add_space(48.0);
                         });
                 });
+        });
+}
+
+fn paint_tasks(ui: &mut egui::Ui, docs: &[crate::artifacts::task_docs::TaskDocument]) {
+    if let Some(progress) = docs.iter().find(|d| d.path.ends_with("/README.md")) {
+        ui.label(RichText::new(&progress.title).weak());
+        ui.add_space(8.0);
+    }
+    let id = egui::Id::new("packet_selected_task");
+    let selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
+    let mut selected = selected_path.as_ref()
+        .and_then(|path| docs.iter().position(|doc| &doc.path == path))
+        .unwrap_or(0);
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(&docs[selected].title)
+        .width(ui.available_width().min(620.0))
+        .show_ui(ui, |ui| {
+            for (i, doc) in docs.iter().enumerate() {
+                ui.selectable_value(&mut selected, i, &doc.title);
+            }
+        });
+    ui.ctx().data_mut(|d| d.insert_temp(id, docs[selected].path.clone()));
+    ui.label(RichText::new(&docs[selected].path).size(11.0).weak());
+    ui.add_space(18.0);
+    egui::ScrollArea::vertical()
+        .id_salt(("task_document", &docs[selected].path))
+        .show(ui, |ui| {
+            crate::ui::spec_viewer::render(ui, Some(&docs[selected].text));
         });
 }

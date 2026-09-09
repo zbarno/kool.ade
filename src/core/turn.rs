@@ -9,24 +9,36 @@
 //! the resulting `PlannerState` when `Applied` lands. Cancellation is
 //! cooperative (flag polled between stream events by the harness driver).
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crate::core::apply::{apply, ApplyReceipt};
+use crate::core::apply::{ApplyReceipt, apply};
 use crate::core::context_build::TurnContext;
 use crate::core::gitops;
 use crate::core::prompt::{self, SYSTEM_INSTRUCTIONS};
 use crate::core::state::PlannerState;
 use crate::core::validation::{self, NormalizedTurn};
 use crate::error::AppError;
-use crate::harness::{AiHarness, HarnessOutcome, PlanningRequest, TurnEnvelope};
+use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, TurnEnvelope};
 
-/// Wall-clock budget per turn. Generous on purpose — investigations
-/// legitimately take minutes; the Cancel button is the escape hatch.
-pub const TURN_TIMEOUT: Duration = Duration::from_secs(600);
+/// Local inference can take hours; silence never shortens this deadline.
+/// The user can still stop a running turn with Cancel.
+pub const TURN_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// Optional positive wall-clock budget in seconds, read when a turn begins.
+/// Invalid, zero, or unrepresentable values fall back to the two-hour default.
+fn configured_turn_timeout() -> Duration {
+    std::env::var("PACKET_TURN_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .filter(|duration| Instant::now().checked_add(*duration).is_some())
+        .unwrap_or(TURN_TIMEOUT)
+}
 
 /// Immutable inputs frozen when the turn starts; chat is snapshotted so late
 /// UI typing cannot race the in-flight prompt.
@@ -36,11 +48,12 @@ pub struct TurnInputs {
     pub user_message: String,
     /// (speaker, text) oldest → newest, in chat-log order.
     pub recent_chat: Vec<(String, String)>,
+    pub purpose: crate::core::workflow::TurnPurpose,
 }
 
 pub enum TurnEvt {
-    /// Live progress preview (tool activity from the harness).
-    Activity(String),
+    /// Live display snapshot from the harness; never authoritative state.
+    Progress(LiveProgress),
     Done(TurnOutcome),
 }
 
@@ -82,30 +95,31 @@ pub struct TurnController {
 impl TurnController {
     pub fn start(inputs: TurnInputs, harness: Box<dyn AiHarness>) -> TurnController {
         let (evt_tx, evt_rx) = channel();
-        let (act_tx, act_rx) = channel::<String>();
+        let (act_tx, act_rx) = channel::<LiveProgress>();
         let cancel = Arc::new(AtomicBool::new(false));
 
-        // Forward harness activity into the event stream (de-duplicated).
-        {
+        // Forward snapshots in order and drain them before sending Done.
+        let forwarder = {
             let fwd = evt_tx.clone();
             std::thread::spawn(move || {
-                let mut last = String::new();
+                let mut last = LiveProgress::default();
                 for line in act_rx {
                     if line == last {
                         continue;
                     }
                     last = line.clone();
-                    if fwd.send(TurnEvt::Activity(line)).is_err() {
+                    if fwd.send(TurnEvt::Progress(line)).is_err() {
                         break;
                     }
                 }
-            });
-        }
+            })
+        };
 
         let worker_cancel = cancel.clone();
         let worker_evt_tx = evt_tx.clone();
         let worker = std::thread::spawn(move || {
             let outcome = run_turn(&inputs, &*harness, &worker_cancel, act_tx);
+            let _ = forwarder.join();
             let _ = worker_evt_tx.send(TurnEvt::Done(outcome));
         });
 
@@ -149,30 +163,65 @@ fn run_turn(
     inputs: &TurnInputs,
     harness: &dyn AiHarness,
     cancel: &Arc<AtomicBool>,
-    activity_tx: Sender<String>,
+    progress_tx: Sender<LiveProgress>,
 ) -> TurnOutcome {
     let started = Instant::now();
     let user = inputs.state.effective_user();
     let ctx = TurnContext::build(&inputs.state, &inputs.user_message, &inputs.recent_chat);
+    if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks
+        && !inputs
+            .state
+            .workflow
+            .ready(inputs.state.spec_text.as_deref())
+    {
+        return TurnOutcome::Rejected {
+            problems: vec!["Continue the interview and approve task generation first.".into()],
+            final_text: String::new(),
+            elapsed: started.elapsed(),
+        };
+    }
+    if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
+        match PlannerState::load(&inputs.state.repo_root) {
+            Ok(current) if current.spec_text == inputs.state.spec_text
+                && current.workflow == inputs.state.workflow && current.items == inputs.state.items => {}
+            _ => return TurnOutcome::Rejected { problems: vec!["Planning files changed since the readiness offer. Reopen the repository and review the current plan before generating tasks.".into()], final_text: String::new(), elapsed: started.elapsed() },
+        }
+    }
+    let mut prompt_body = prompt::render_prompt(&ctx);
+    prompt_body.push_str(&prompt::workflow_context(&inputs.state, inputs.purpose));
+    if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
+        prompt_body.push_str(prompt::TASK_OUTLINE_STEP);
+    }
     let request = PlanningRequest {
         repo_root: inputs.state.repo_root.clone(),
-        prompt_body: prompt::render_prompt(&ctx),
-        system_instructions: SYSTEM_INSTRUCTIONS.to_string(),
-        timeout: TURN_TIMEOUT,
-        activity_tx,
+        prompt_body,
+        system_instructions: format!("{SYSTEM_INSTRUCTIONS}\n{}", prompt::WORKFLOW_INSTRUCTIONS),
+        timeout: configured_turn_timeout(),
+        progress_tx,
         cancel: Arc::clone(cancel),
     };
 
-    let outcome: HarnessOutcome = match harness.execute(&request) {
-        Ok(o) => o,
-        Err(e) => return TurnOutcome::HarnessFailed { error: e, elapsed: started.elapsed() },
+    let result = if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
+        crate::core::task_generation::generate(harness, &request, &inputs.state, started)
+    } else { harness.execute(&request) };
+    let outcome: HarnessOutcome = match result {
+        Ok(outcome) => outcome,
+        Err(error) => return TurnOutcome::HarnessFailed { error, elapsed: started.elapsed() },
     };
-
+    if cancel.load(Ordering::SeqCst) {
+        return TurnOutcome::HarnessFailed {
+            error: AppError::HarnessFailed {
+                reason: "cancelled by user".into(),
+                stderr_tail: String::new(),
+            },
+            elapsed: started.elapsed(),
+        };
+    }
     // Decode (or discover the absence of) the structured block.
     match decode_envelope(&outcome.final_text) {
         EnvelopeDecode::Env(env) => {
             // Validate against the PRE-mutation snapshot.
-            match validation::validate(&env, &inputs.state, &user) {
+            match validation::validate_for_turn(&env, &inputs.state, &user, inputs.purpose) {
                 Err(problems) => TurnOutcome::Rejected {
                     problems,
                     final_text: outcome.final_text,
@@ -238,7 +287,7 @@ fn decode_envelope(final_text: &str) -> EnvelopeDecode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness::{TurnItem, HarnessOutcome};
+    use crate::harness::{HarnessOutcome, TurnItem};
 
     /// Fake harness for pipeline tests: canned envelopes, zero processes.
     struct ScriptedHarness {
@@ -278,7 +327,10 @@ mod tests {
             ["config", "user.email", "packet@test.local"].as_slice(),
             ["config", "user.name", "Packet Test"].as_slice(),
         ] {
-            let _ = std::process::Command::new("git").args(args).current_dir(&root).output();
+            let _ = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output();
         }
         let mut st = PlannerState::load(&root).unwrap();
         st.bootstrap_missing().unwrap();
@@ -286,6 +338,7 @@ mod tests {
             state: st,
             user_message: msg.into(),
             recent_chat: Vec::new(),
+            purpose: crate::core::workflow::TurnPurpose::Interview,
         };
         let dir = inputs.state.repo_root.clone();
         (inputs, dir)
@@ -294,7 +347,7 @@ mod tests {
     fn drain(controller: &TurnController) -> TurnOutcome {
         loop {
             match controller.poll(Duration::from_millis(250)) {
-                Some(TurnEvt::Activity(_)) => {}
+                Some(TurnEvt::Progress(_)) => {}
                 Some(TurnEvt::Done(o)) => return o,
                 None => panic!("turn vanished"),
             }
@@ -306,9 +359,13 @@ mod tests {
         let (inputs, dir) = inputs_for("happy", "please draft the initial spec");
         let env = TurnEnvelope {
             schema_version: Some(1),
-            assistant_message: Some("Drafted an initial spec and raised the first question.".into()),
+            assistant_message: Some(
+                "Drafted an initial spec and raised the first question.".into(),
+            ),
             change_summary: Some("Draft initial specification".into()),
-            updated_specification: Some("# Fixture\n\n## Goals\nDemo the planner end-to-end.\n".into()),
+            updated_specification: Some(
+                "# Fixture\n\n## Goals\nDemo the planner end-to-end.\n".into(),
+            ),
             open_items_added: Some(vec![TurnItem {
                 id: None,
                 kind: Some("Question".into()),
@@ -322,10 +379,24 @@ mod tests {
             open_items_updated: None,
             open_items_resolved: None,
             next_question_id: None,
+            interview: None,
+            task_stories: None,
+            task_outline: None,
         };
-        let c = TurnController::start(inputs, Box::new(ScriptedHarness { canned: Some(env), raw: None }));
+        let c = TurnController::start(
+            inputs,
+            Box::new(ScriptedHarness {
+                canned: Some(env),
+                raw: None,
+            }),
+        );
         match drain(&c) {
-            TurnOutcome::Applied { state, receipt, commit_result, .. } => {
+            TurnOutcome::Applied {
+                state,
+                receipt,
+                commit_result,
+                ..
+            } => {
                 assert_eq!(receipt.repo_relative_paths.len(), 2);
                 assert!(receipt.commit_message.starts_with("planner: "));
                 assert!(commit_result.is_ok(), "commit failed: {commit_result:?}");
@@ -341,7 +412,10 @@ mod tests {
         let (inputs, dir) = inputs_for("noblock", "go");
         let c = TurnController::start(
             inputs,
-            Box::new(ScriptedHarness { canned: None, raw: Some("chatty but no json 😅".into()) }),
+            Box::new(ScriptedHarness {
+                canned: None,
+                raw: Some("chatty but no json 😅".into()),
+            }),
         );
         match drain(&c) {
             TurnOutcome::Rejected { problems, .. } => {
@@ -367,8 +441,17 @@ mod tests {
             open_items_updated: None,
             open_items_resolved: Some(vec!["CLR-999".into()]),
             next_question_id: None,
+            interview: None,
+            task_stories: None,
+            task_outline: None,
         };
-        let c = TurnController::start(inputs, Box::new(ScriptedHarness { canned: Some(env), raw: None }));
+        let c = TurnController::start(
+            inputs,
+            Box::new(ScriptedHarness {
+                canned: Some(env),
+                raw: None,
+            }),
+        );
         match drain(&c) {
             TurnOutcome::Rejected { problems, .. } => {
                 assert!(problems.iter().any(|p| p.contains("CLR-999")));
@@ -385,12 +468,104 @@ mod tests {
         let (inputs, dir) = inputs_for("cancel", "think hard");
         let c = TurnController::start(
             inputs,
-            Box::new(ScriptedHarness { canned: None, raw: Some("{}\n".into()) }),
+            Box::new(ScriptedHarness {
+                canned: None,
+                raw: Some("{}\n".into()),
+            }),
         );
         assert!(!c.cancel_requested());
         c.request_cancel();
         assert!(c.cancel_requested());
         let _ = drain(&c);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    struct StreamingHarness {
+        gate: Arc<std::sync::Barrier>,
+        text: String,
+        fail: bool,
+    }
+    impl AiHarness for StreamingHarness {
+        fn label(&self) -> String {
+            "stream-fixture".into()
+        }
+        fn check_available(&self) -> Result<String, AppError> {
+            Ok("fixture".into())
+        }
+        fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+            for text in ["# Draft", "# Draft\n\nLive content"] {
+                req.progress_tx
+                    .send(LiveProgress {
+                        thoughts: "Reviewing the requested scope.".into(),
+                        specification: Some(text.into()),
+                        ..Default::default()
+                    })
+                    .unwrap();
+            }
+            self.gate.wait();
+            if self.fail {
+                return Err(AppError::Other("fixture failure".into()));
+            }
+            Ok(HarnessOutcome {
+                final_text: self.text.clone(),
+                envelope: None,
+                stderr_tail: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn live_previews_precede_completion_and_never_write_unvalidated_content() {
+        for mode in ["success", "invalid", "cancel", "failure"] {
+            let (inputs, dir) = inputs_for(&format!("stream_{mode}"), "draft scope");
+            let before = inputs.state.spec_text.clone();
+            let gate = Arc::new(std::sync::Barrier::new(2));
+            let text = if mode == "invalid" {
+                "no envelope".into()
+            } else {
+                // Snake-case is the actual prompt contract, camelCase remains supported.
+                serde_json::json!({"schema_version":1, "assistant_message":"Draft saved.",
+                    "updated_specification":"# Draft\n\nLive content", "open_items_added":[],
+                    "open_items_updated":[], "open_items_resolved":[]})
+                .to_string()
+            };
+            let c = TurnController::start(
+                inputs,
+                Box::new(StreamingHarness {
+                    gate: gate.clone(),
+                    text,
+                    fail: mode == "failure",
+                }),
+            );
+            let mut previews = Vec::new();
+            for _ in 0..2 {
+                match c.poll(Duration::from_secs(3)) {
+                    Some(TurnEvt::Progress(p)) => previews.push(p.specification.unwrap()),
+                    _ => {
+                        gate.wait();
+                        panic!("expected live preview before completion");
+                    }
+                }
+            }
+            assert_eq!(previews, ["# Draft", "# Draft\n\nLive content"]);
+            assert_eq!(PlannerState::load(&dir).unwrap().spec_text, before);
+            if mode == "cancel" {
+                c.request_cancel();
+            }
+            gate.wait();
+            let outcome = drain(&c);
+            match mode {
+                "success" => assert!(matches!(outcome, TurnOutcome::Applied { .. })),
+                "invalid" => assert!(matches!(outcome, TurnOutcome::Rejected { .. })),
+                _ => assert!(matches!(outcome, TurnOutcome::HarnessFailed { .. })),
+            }
+            if mode != "success" {
+                assert_eq!(PlannerState::load(&dir).unwrap().spec_text, before);
+            }
+            assert!(
+                c.poll(Duration::ZERO).is_none(),
+                "no stale preview may arrive after completion"
+            );
+            let _ = std::fs::remove_dir_all(dir);
+        }
     }
 }

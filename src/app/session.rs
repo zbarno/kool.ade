@@ -17,10 +17,11 @@ pub struct Project {
     pub chat: Vec<ChatMessage>,
     pub draft: String,
     pub active_turn: Option<Arc<TurnController>>,
-    pub activity_preview: Option<String>,
+    pub live_progress: crate::harness::LiveProgress,
     /// Which item the app decided to press the user with (routing verdict).
     pub next_question_id: Option<String>,
     pub git: GitSnapshot,
+    pub task_documents: Vec<crate::artifacts::task_docs::TaskDocument>,
 }
 
 impl Project {

@@ -31,6 +31,7 @@ pub struct PlannerState {
     /// turn never re-touches files.
     pub baseline_spec: Option<String>,
     pub baseline_items_md: String,
+    pub workflow: crate::core::workflow::Workflow,
 }
 
 impl PlannerState {
@@ -65,6 +66,7 @@ impl PlannerState {
             items,
             baseline_items_md,
             config,
+            workflow: crate::artifacts::task_docs::load_workflow(repo)?,
         })
     }
 

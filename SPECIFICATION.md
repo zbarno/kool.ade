@@ -989,7 +989,6 @@ Do not build these yet:
 * custom model-provider abstraction
 * embedded inference
 * multiple AI harness implementations
-* implementation task generation
 * Jira integration
 * readiness percentages
 * traceability graphs
@@ -1056,3 +1055,50 @@ The central product experiment is:
 > Can an external AI coding/agent harness continuously turn a loosely defined project idea into a better specification by identifying, routing, and resolving the most important unanswered questions?
 
 Everything in the MVP should serve that experiment.
+
+
+# Product intent and task generation
+
+The interview must establish the product or feature's problem, goal, intended users,
+desired outcome, scope, exclusions, constraints, and observable success criteria.
+The agent records this understanding in the specification and asks focused questions
+about missing intent before assuming an implementation direction.
+
+Once the agent is satisfied and blocking questions are resolved, it summarizes the
+agreed intent and asks whether to proceed to task generation. Readiness is stored in
+`.planner/workflow.json` against the exact reviewed specification. The application
+requires explicit user consent through Generate task stories or an affirmative reply
+to the pending offer. Further discussion invalidates the previous readiness decision.
+
+Task generation uses an ordered outline and a separate model response per detailed
+story. Completed dependency stories are included as context for subsequent tasks.
+Incomplete or invalid outputs receive validation feedback and up to three attempts
+per stage under the same planning-turn deadline. Completed stories are checkpointed
+in private project state and reused when retrying an unchanged plan and tracked
+checkout. Attempt evidence is retained for diagnosis. The app pins titles, purposes,
+and reference mappings to the accepted outline; wording drift alone is not fatal.
+Generation may not change the
+approved specification or unresolved-item queue. Missing details, incomplete scope
+coverage, invalid dependencies, cancellation, or changed source artifacts prevent
+completion of the task batch. Individually validated stories remain saved and visible.
+
+Each story leads with its own problem and rationale, plus the observable outcome
+that ticket alone delivers. These must not repeat the overall product mission.
+Each story also contains implementation context,
+technical contracts, verification commands and expected evidence, a user story,
+purpose, specification references,
+dependencies, affected files/components, concrete implementation steps, observable
+acceptance criteria, explicit test setup/actions/assertions, edge/failure cases,
+constraints, exclusions, rollout/compatibility notes, and a definition of done.
+Dependencies must refer to earlier numbered stories; every approved scope item and
+success criterion must be covered across the task set.
+
+The application saves each individually validated story under `planning/tasks/<feature>/`,
+with files such as `001-<descriptive-task-title>.md`, a README index, and the approved
+specification snapshot. The README and task panel show in-progress counts while
+stories are generated; only final batch validation marks the batch complete. Saved
+stories survive failure, cancellation, and restart, and resume preserves their contents.
+Existing batches are preserved; subsequent batches use a
+new numbered feature directory. The files and workflow metadata are included in a
+git checkpoint, and the latest batch can be read in the Task stories tab. Producing
+task files does not authorize executing them.

@@ -51,6 +51,8 @@ through configuration screens, NOT asked in chat: never choose them as the next 
 question. If no eligible unresolved question exists, set `next_question_id` to null.
 
 OUTPUT STYLE
+- During investigation, emit brief progress updates describing what you are checking \
+  and what you found, so the user can follow the work as it happens.
 - `assistant_message`: warm, direct, short (under ~250 words). Plain text or light \
 Markdown. Contains exactly one focused question when one is appropriate. Reference \
 item ids (like CLR-004) sparingly — only when it helps.
@@ -89,7 +91,10 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
         s.push_str("(this is the first exchange)\n");
     } else {
         if ctx.elided_messages > 0 {
-            s.push_str(&format!("({} earlier message(s) elided)\n", ctx.elided_messages));
+            s.push_str(&format!(
+                "({} earlier message(s) elided)\n",
+                ctx.elided_messages
+            ));
         }
         for line in &ctx.conversation {
             s.push_str(&format!("{}: {}\n", line.speaker, inline(&line.text)));
@@ -103,7 +108,10 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
     section(&mut s, "REPOSITORY OVERVIEW");
     s.push_str(&format!("Project: {}\n", ctx.repo_title));
     if !ctx.overview.manifests.is_empty() {
-        s.push_str(&format!("Likely manifests: {}\n", ctx.overview.manifests.join(", ")));
+        s.push_str(&format!(
+            "Likely manifests: {}\n",
+            ctx.overview.manifests.join(", ")
+        ));
     }
     if let Some(readme) = &ctx.overview.readme {
         s.push_str("\nREADME (excerpt):\n");
@@ -138,21 +146,28 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
             s.push_str(&format!(
                 "- {}{}\n",
                 row.path,
-                row.bytes.map(|b| format!(" (~{} KB)", b.div_ceil(1024))).unwrap_or_default()
+                row.bytes
+                    .map(|b| format!(" (~{} KB)", b.div_ceil(1024)))
+                    .unwrap_or_default()
             ));
         }
     }
 
     if let Some(mcp) = &ctx.mcp_json {
-        section(&mut s, "MCP SERVER CONFIGURATION (verbatim .planner/mcp.json)");
+        section(
+            &mut s,
+            "MCP SERVER CONFIGURATION (verbatim .planner/mcp.json)",
+        );
         s.push_str(mcp);
         s.push('\n');
     }
 
     section(&mut s, "TASK");
-    s.push_str("Proceed with the planning protocol. Investigate as needed (read-only), \
+    s.push_str(
+        "Proceed with the planning protocol. Investigate as needed (read-only), \
 update the specification and open items as warranted, and END your final message with \
-the structured JSON block defined in your instructions.");
+the structured JSON block defined in your instructions.",
+    );
     s
 }
 
@@ -178,7 +193,11 @@ fn section(s: &mut String, title: &str) {
 
 /// Collapse newlines so conversation lines stay one physical line each.
 fn inline(text: &str) -> String {
-    text.split('\n').map(|l| l.trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ⏎ ")
+    text.split('\n')
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ⏎ ")
 }
 
 #[cfg(test)]
@@ -238,3 +257,120 @@ mod tests {
         assert!(p1.contains("{\"servers\":{}}"));
     }
 }
+
+/// Workflow-specific instructions are added to the standing planning contract.
+pub const WORKFLOW_INSTRUCTIONS: &str = r#"
+PRODUCT INTENT INTERVIEW
+Your first responsibility is to understand WHY the product or feature should exist.
+Do not jump from a feature request to implementation. Elicit and reflect back:
+- the problem and current pain; why solving it matters now;
+- the product/feature name, intended users, and their desired outcome;
+- the goal, observable success criteria, and concrete end-to-end user journeys;
+- what is in scope and explicitly out of scope;
+- constraints, compatibility, important failure cases, and unresolved decisions.
+Investigate existing code to ground technical details, but never infer the user's
+business intent from the code alone. Ask one focused question at a time, prioritizing
+missing intent before architecture details. Preserve these answers in the specification.
+Use answers already supplied; do not repeat the interview mechanically. Reflect the
+agreed goal and tradeoffs back to the user. Do not invent metrics, requirements, or consent.
+
+INTERVIEW OUTPUT
+Extend the final JSON envelope with an `interview` object (snake_case or camelCase):
+{
+  "feature_name": "Human-readable product or feature name",
+  "problem": "The user's problem and why it matters",
+  "goal": "What the product/feature must achieve",
+  "target_users": "Who benefits and in what context",
+  "intended_outcome": "The user-visible change in their workflow",
+  "success_criteria": ["Observable, verifiable outcome"],
+  "in_scope": ["An agreed capability or user journey"],
+  "out_of_scope": ["An explicit exclusion; state none only when confirmed"],
+  "constraints": ["A confirmed constraint; state none only when confirmed"],
+  "ready_for_tasks": false
+}
+During discovery, fields not yet established may be empty. Set ready_for_tasks=true
+only when the goal and intent are clear, scope is agreed, the specification records
+that understanding, and no blocking questions remain. Summarize the agreed intent
+instead of asking a new question in assistant_message at that point. The application
+will append the explicit question asking whether to proceed to task generation.
+Do not set readiness when the user has declined generation or asked to keep refining.
+Never generate task stories during the interview, even if the user requests them
+before the goal is understood. An agent's readiness decision is NOT user approval.
+
+TASK GENERATION (only when APPLICATION TURN MODE explicitly authorizes it)
+Break the approved specification into a complete, ordered set of small, actionable,
+extremely detailed implementation stories. Cover every agreed scope item and success
+criterion. Explain the specific problem each ticket solves and why solving it matters. Order dependencies before their
+consumers. Include integration, UI, persistence, migration, failure handling, and
+verification where applicable. Do not add unrequested scope or vague foundation-only
+slices. Each task must be executable by a developer who has not read this conversation.
+
+Use read-only repository inspection to identify real file/component locations and
+existing patterns; distinguish proposed files from existing ones. Describe concrete
+changes, interfaces, data shapes, sequencing, and compatibility details. Each acceptance
+criterion must be observable; each test must give the setup/action and expected result,
+including relevant edge/failure cases. State rollout, migration and rollback needs (or
+explain why no deployment/migration change is needed). Do not use TODO/TBD placeholders.
+
+In generation mode do not change the approved specification, open items, or interview.
+Return updated_specification=null, interview=null, empty open-item changes, and a
+nonempty `task_stories` array with this shape per story:
+{
+  "title": "Specific, imperative task title",
+  "user_story": "As a ... I want ... so that ...",
+  "purpose": "The specific problem this ticket solves and why it matters",
+  "intent": "Current ticket-specific gap or pain, who it affects, and why it must be addressed",
+  "goal": "Observable before-to-after outcome delivered by this ticket alone",
+  "scope_items": [1],
+  "success_criteria": [1],
+  "dependencies": [],
+  "affected_files": ["src/example.rs (existing): exact responsibility/change"],
+  "implementation_steps": ["Concrete first step", "Concrete second step", "Concrete third step"],
+  "acceptance_criteria": ["Observable happy-path outcome", "Observable failure-path outcome"],
+  "test_plan": ["Setup/action/assertion for the first test", "Setup/action/assertion for the second test"],
+  "edge_cases": ["Specific edge case and required behavior"],
+  "rollout_notes": "Compatibility, migration, rollout and rollback approach",
+  "definition_of_done": ["Implementation completion evidence", "Verification completion evidence"]
+}
+scope_items and success_criteria are one-based positions in the approved brief's lists.
+All scope and success criteria must be covered across the task set. Each task needs at
+least one scope reference; supporting tasks may have no direct success_criteria entries.
+dependencies are one-based task positions and must refer only to earlier tasks.
+Implementation steps need at least 3 detailed entries; acceptance criteria, test plan,
+and definition of done each need at least 2. These are minimums, not a target for brevity.
+The application assigns safe numbered filenames, creates the feature directory and
+an index with a specification snapshot, and saves all stories. Never write files yourself.
+"#;
+
+pub fn workflow_context(
+    state: &crate::core::state::PlannerState,
+    purpose: crate::core::workflow::TurnPurpose,
+) -> String {
+    let mode = match purpose {
+        crate::core::workflow::TurnPurpose::Interview => {
+            "INTERVIEW. Task generation is NOT authorized. Clarify intent and scope; offer the next phase only when ready."
+        }
+        crate::core::workflow::TurnPurpose::GenerateTasks => {
+            "GENERATE TASK STORIES. The user explicitly approved the current reviewed specification. Generate the complete detailed task set now."
+        }
+    };
+    format!(
+        "\n=== APPLICATION TURN MODE ===\n{mode}\n\n=== INTERVIEW BRIEF ===\n{}\n\n=== EXISTING TASK BATCHES ===\n{}\n",
+        serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
+        serde_json::to_string_pretty(&state.workflow.task_batches).unwrap_or_default()
+    )
+}
+
+pub const TASK_OUTLINE_STEP: &str = r#"
+=== APPLICATION GENERATION STEP ===
+OUTLINE FIRST. This step overrides the default request for full task stories.
+Return task_stories=null and task_outline=[...] in the final JSON envelope.
+Plan the COMPLETE feature as an ordered list. Each outline entry contains:
+{"title":"Specific imperative title", "purpose":"Specific problem this ticket solves and why it matters",
+ "scope_items":[1], "success_criteria":[1], "dependencies":[]}
+Use one-based brief references and earlier-task dependency numbers. Cover every
+scope item and success criterion. Do not create vague foundation-only slices.
+The application will request each detailed story separately, giving you a full
+response for each. Keep updated_specification=null, interview=null and all
+open-item changes empty. Do not write any files.
+"#;

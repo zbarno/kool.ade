@@ -161,6 +161,7 @@ impl State {
                 Tag::Emphasis => self.emph += 1,
                 Tag::Strikethrough => self.strike += 1,
                 Tag::Item => {
+                    self.flush_runs(ui, None, 4.0);
                     self.push_list_marker(ui);
                 }
                 Tag::List(list_info) => {
@@ -208,6 +209,7 @@ impl State {
                 TagEnd::Emphasis => self.emph -= 1,
                 TagEnd::Strikethrough => self.strike -= 1,
                 TagEnd::Item => {
+                    self.flush_runs(ui, None, 4.0);
                     if let Some(l) = self.list.last_mut() {
                         l.1 += 1;
                     }

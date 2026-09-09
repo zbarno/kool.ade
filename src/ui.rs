@@ -31,7 +31,9 @@ pub trait Surface {
     fn chat_messages(&self) -> &[ChatMessage];
     fn chat_draft(&mut self) -> &mut String;
     fn is_busy(&self) -> bool;
-    fn activity_preview(&self) -> Option<&str>;
+    fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
+    fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
+    fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     // ------- items pane -------
     fn items(&self) -> &[OpenItem];
     fn synthetic_items(&self) -> &[OpenItem];

@@ -11,6 +11,7 @@ use crate::ui::theme;
 pub struct Intent {
     pub send: bool,
     pub cancel: bool,
+    pub generate_tasks: bool,
 }
 
 pub fn paint(
@@ -18,9 +19,11 @@ pub fn paint(
     messages: &[ChatMessage],
     draft: &mut String,
     busy: bool,
-    activity: Option<&str>,
+    progress: Option<&crate::harness::LiveProgress>,
+    offer: Option<&crate::core::workflow::InterviewBrief>,
 ) -> Intent {
     let mut cancel = false;
+    let mut generate_tasks = false;
 
     // ---------- message scroll ----------
     // RESERVE composer + (optionally) working-strip height UP FRONT:
@@ -38,6 +41,17 @@ pub fn paint(
                     paint_message(ui, m, max_w);
                     ui.add_space(10.0);
                 }
+                if let Some(brief) = offer {
+                    theme::card_frame().show(ui, |ui| {
+                        ui.label(RichText::new("Ready for task stories").strong());
+                        ui.label(RichText::new(&brief.feature_name).size(13.0));
+                        ui.label(RichText::new("Turn the agreed scope into a detailed implementation plan, or keep refining it below.").size(12.0).weak());
+                        generate_tasks = ui.button("Generate task stories").clicked();
+                    });
+                }
+                if let Some(progress) = progress {
+                    paint_progress(ui, progress);
+                }
             });
     });
 
@@ -52,9 +66,6 @@ pub fn paint(
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label(RichText::new("planner working…").weak());
-                    if let Some(a) = activity {
-                        ui.label(RichText::new(trunc(a, 56)).size(11.0).weak().monospace());
-                    }
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(RichText::new("Cancel").weak()).clicked() {
                             cancel = true;
@@ -128,7 +139,11 @@ pub fn paint(
                 send = true;
             }
         });
-    Intent { send, cancel }
+    Intent {
+        send,
+        cancel,
+        generate_tasks,
+    }
 }
 
 fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
@@ -184,11 +199,44 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
     ui.add_space(12.0);
 }
 
-fn trunc(s: &str, n: usize) -> String {
-    let t: String = s.chars().take(n).collect();
-    if s.chars().count() > n {
-        format!("{t}…")
-    } else {
-        t
-    }
+fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
+    ui.push_id("live_turn", |ui| {
+        if !progress.thoughts.is_empty() {
+            egui::CollapsingHeader::new(
+                RichText::new("Thinking").size(12.0).color(theme::TEXT_DIM),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(&progress.thoughts)
+                            .size(13.0)
+                            .line_height(Some(20.0))
+                            .color(theme::TEXT_DIM),
+                    )
+                    .wrap(),
+                );
+            });
+            ui.add_space(12.0);
+        }
+        if let Some(activity) = &progress.activity {
+            ui.add(
+                egui::Label::new(RichText::new(activity).size(11.0).color(theme::TEXT_DIM)).wrap(),
+            );
+            ui.add_space(12.0);
+        }
+        if !progress.response.is_empty() {
+            ui.label(RichText::new("Packet").size(12.0).strong());
+            ui.add(
+                egui::Label::new(
+                    RichText::new(&progress.response)
+                        .size(15.0)
+                        .line_height(Some(23.0))
+                        .color(theme::TEXT),
+                )
+                .wrap(),
+            );
+            ui.add_space(12.0);
+        }
+    });
 }
