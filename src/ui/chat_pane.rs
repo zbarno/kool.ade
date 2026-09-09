@@ -37,10 +37,11 @@ pub fn paint(
             .stick_to_bottom(true)
             .auto_shrink(egui::Vec2b::new(false, false))
             .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
                 let max_w = ui.available_width();
                 for m in messages {
                     paint_message(ui, m, max_w);
-                    ui.add_space(10.0);
+                    ui.add_space(8.0);
                 }
                 if let Some(brief) = offer {
                     theme::card_frame().show(ui, |ui| {
@@ -156,15 +157,9 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
             ui.set_width((max_w - indent - 8.0).max(100.0));
             if !mine {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(if m.role == ChatRole::Agent {
-                            "Packet"
-                        } else {
-                            "Update"
-                        })
-                        .size(12.0)
-                        .strong(),
-                    );
+                    if m.role != ChatRole::Agent {
+                        ui.label(RichText::new("Update").size(11.0).weak());
+                    }
                     ui.label(
                         RichText::new(m.ts.format("%H:%M").to_string())
                             .size(10.0)
@@ -174,7 +169,7 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
                         theme::badge(ui, item, theme::PANEL_ALT, theme::TEXT_DIM);
                     }
                 });
-                ui.add_space(6.0);
+                ui.add_space(2.0);
             }
             Frame::NONE
                 .fill(if mine {
@@ -187,7 +182,7 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
                 .show(ui, |ui| {
                     ui.add(
                         egui::Label::new(
-                            RichText::new(&m.text)
+                            RichText::new(m.text.trim())
                                 .size(15.0)
                                 .line_height(Some(23.0))
                                 .color(theme::TEXT),
@@ -197,7 +192,6 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
                 });
         });
     });
-    ui.add_space(12.0);
 }
 
 fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
@@ -214,7 +208,7 @@ fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
                         .show(ui, |ui| {
                             ui.add(
                                 egui::Label::new(
-                                    RichText::new(&post.text)
+                                    RichText::new(post.text.trim())
                                         .size(13.0)
                                         .line_height(Some(20.0))
                                         .color(theme::TEXT_DIM),
@@ -223,10 +217,9 @@ fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
                             );
                         });
                     } else {
-                        ui.label(RichText::new("Packet").size(12.0).strong());
                         ui.add(
                             egui::Label::new(
-                                RichText::new(&post.text)
+                                RichText::new(post.text.trim())
                                     .size(15.0)
                                     .line_height(Some(23.0))
                                     .color(theme::TEXT),
@@ -234,7 +227,7 @@ fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
                             .wrap(),
                         );
                     }
-                    ui.add_space(12.0);
+                    ui.add_space(4.0);
                 });
             }
             if let Some(activity) = &progress.activity {
@@ -251,7 +244,7 @@ fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
             .show(ui, |ui| {
                 ui.add(
                     egui::Label::new(
-                        RichText::new(&progress.thoughts)
+                        RichText::new(progress.thoughts.trim())
                             .size(13.0)
                             .line_height(Some(20.0))
                             .color(theme::TEXT_DIM),
@@ -259,26 +252,25 @@ fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
                     .wrap(),
                 );
             });
-            ui.add_space(12.0);
+            ui.add_space(4.0);
         }
         if let Some(activity) = &progress.activity {
             ui.add(
                 egui::Label::new(RichText::new(activity).size(11.0).color(theme::TEXT_DIM)).wrap(),
             );
-            ui.add_space(12.0);
+            ui.add_space(4.0);
         }
         if !progress.response.is_empty() {
-            ui.label(RichText::new("Packet").size(12.0).strong());
             ui.add(
                 egui::Label::new(
-                    RichText::new(&progress.response)
+                    RichText::new(progress.response.trim())
                         .size(15.0)
                         .line_height(Some(23.0))
                         .color(theme::TEXT),
                 )
                 .wrap(),
             );
-            ui.add_space(12.0);
+            ui.add_space(4.0);
         }
     });
 }

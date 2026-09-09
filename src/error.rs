@@ -34,14 +34,17 @@ impl AppError {
             Self::Artifact { path, .. } => format!("Could not use {path}"),
             Self::Git { cmd, .. } => format!("git {cmd} failed"),
             Self::HarnessNotFound { .. } => "Pi harness not found".to_string(),
-            Self::HarnessFailed { reason, stderr_tail } => {
+            Self::HarnessFailed {
+                reason,
+                stderr_tail,
+            } => {
                 let tail = tail_snippet(stderr_tail);
                 if tail.is_empty() {
                     format!("Pi harness failed: {reason}")
                 } else {
                     format!("Pi harness failed: {reason} (pi: {tail})")
                 }
-            },
+            }
             Self::HarnessTimedOut { secs } => format!("Pi took longer than {secs}s"),
             Self::InvalidResponse { problems } => {
                 format!(
@@ -61,11 +64,16 @@ impl AppError {
             Self::Artifact { path, detail } => format!("{path}: {detail}"),
             Self::Git { cmd: _, detail } => detail.clone(),
             Self::HarnessNotFound { detail } => detail.clone(),
-            Self::HarnessFailed { reason, stderr_tail } => {
+            Self::HarnessFailed {
+                reason,
+                stderr_tail,
+            } => {
                 format!("{reason}\nstderr:\n{}", stderr_tail.trim())
             }
             Self::HarnessTimedOut { secs } => {
-                format!("Process was cancelled after {secs}s. No changes were applied.")
+                format!(
+                    "The configured planning budget expired after {secs}s. Already saved stories are preserved; retry task generation to resume. Set PACKET_TURN_TIMEOUT_SECS before starting Packet to change the budget."
+                )
             }
             Self::InvalidResponse { problems } => problems.join("\n"),
             Self::Io { op, detail } => format!("{op}: {detail}"),
@@ -88,14 +96,36 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
-/// Last non-empty line of a stderr tail, tidied for toast/headline use.
+/// Prefer the actual error over a runtime version footer or stack frame.
 fn tail_snippet(t: &str) -> String {
-    t.lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())
-        .map(|l| truncate(l, 160))
-        .filter(|s| !s.is_empty())
+    let lines: Vec<_> = t.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    lines
+        .iter()
+        .find(|l| l.contains("ENOSPC") || l.contains("no space left on device"))
+        .or_else(|| {
+            lines.iter().find(|l| {
+                l.contains("Error:") || l.contains("Error [") || l.contains("FATAL ERROR")
+            })
+        })
+        .or_else(|| {
+            lines.iter().rev().find(|l| {
+                !l.starts_with("Node.js v") && !l.starts_with("at ") && !matches!(**l, "}" | "^")
+            })
+        })
+        .map(|l| truncate(l, 240))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn disk_full_error_is_not_hidden_by_node_footer() {
+        let error = AppError::HarnessFailed { reason: "pi exited with a failure code".into(), stderr_tail: "Error: ENOSPC: no space left on device, write\n    at emitErrorNT (node:internal/streams/destroy:170:8)\n}\nNode.js v22.23.2".into() };
+        assert!(error.headline().contains("ENOSPC"));
+        assert!(!error.headline().contains("v22.23.2"));
+        assert!(error.detail().contains("emitErrorNT"));
+    }
 }
 
 /// Keep short strings tidy inside headlines.

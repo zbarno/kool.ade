@@ -6,7 +6,7 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Slow local models
 
-Planning turns have a **two-hour timeout** by default. Long pauses without output do not end a turn; the Cancel button remains available.
+Planning turns have a **twelve-hour timeout** by default. Long pauses without output do not end a turn; the Cancel button remains available.
 
 To allow more time, set a positive timeout in seconds when launching Packet. For example, ten hours:
 
@@ -28,7 +28,7 @@ Generation builds an ordered outline, then gives the local model a separate resp
 for each detailed story. Dependencies are passed forward so the stories agree on
 interfaces. Invalid or incomplete responses receive precise repair feedback, with
 at most three attempts per outline/story under the same configured turn timeout
-(default two hours). Harmless title or purpose paraphrases retain the outline's
+(default twelve hours). Harmless title or purpose paraphrases retain the outline's
 stable identity instead of failing generation.
 
 Example output:

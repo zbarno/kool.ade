@@ -26,10 +26,10 @@ use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, T
 
 /// Local inference can take hours; silence never shortens this deadline.
 /// The user can still stop a running turn with Cancel.
-pub const TURN_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
+pub const TURN_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// Optional positive wall-clock budget in seconds, read when a turn begins.
-/// Invalid, zero, or unrepresentable values fall back to the two-hour default.
+/// Invalid, zero, or unrepresentable values fall back to the twelve-hour default.
 fn configured_turn_timeout() -> Duration {
     std::env::var("PACKET_TURN_TIMEOUT_SECS")
         .ok()

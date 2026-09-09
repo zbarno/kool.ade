@@ -194,7 +194,7 @@ impl AiHarness for PiHarness {
                 }
                 Ok(StreamEvt::Stderr(line)) => {
                     stderr_tail.push(line);
-                    if stderr_tail.len() > 20 {
+                    if stderr_tail.len() > 100 {
                         stderr_tail.remove(0);
                     }
                 }
@@ -243,7 +243,7 @@ impl AiHarness for PiHarness {
 
 fn tail(lines: &[String]) -> String {
     let joined = lines.join("\n");
-    const CAP: usize = 500;
+    const CAP: usize = 16_000;
     if joined.chars().count() <= CAP {
         return joined;
     }
@@ -284,9 +284,11 @@ mod tests {
 
     #[test]
     fn tail_caps_long_streams() {
-        let lines: Vec<String> = (0..100).map(|i| format!("line {i} ")).collect();
+        let lines: Vec<String> = (0..100)
+            .map(|i| format!("line {i} {}", "x".repeat(500)))
+            .collect();
         let t = tail(&lines);
-        assert!(t.chars().count() <= 2010);
+        assert!(t.chars().count() <= 16_001);
         assert!(t.starts_with('…'));
     }
 
