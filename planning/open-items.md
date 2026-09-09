@@ -137,18 +137,3 @@ Sharable surface: does "see collaboratively work together" include only the plan
 ### Reason
 Sets the class of payloads crossing the wire and whether the operator-local store ($PACKET_HOME) must split into shared and private planes; cheapest to answer before any serialization work starts.
 
-## CLR-018
-
-**Priority:** Normal
-**Type:** Question
-**Category:** General
-**Assigned To:** General
-**Status:** Open
-
-### Question
-Which default turn budget is ruled: the 12 hours now baked into both the code (turn.rs TURN_TIMEOUT, commit ce4015b, no companion decision) and the README, or a restore of the 2 hours recorded in D-08 (or some other ruled value)?
-
-
-### Reason
-D-08 formally records a 2 h default while code and README independently agree on 12 h, so one party is telling the operator a lie; the value sets expectations for how long a stall may run before deadline (salient to the two aborted ticket-001 harness runs) and the F-15/NFR-4/section-9 texts, and it paces the section-12 demonstration — a one-word ruling settles the spec and the decision log together.
-
