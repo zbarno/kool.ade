@@ -21,6 +21,8 @@ pub struct EventFold {
     pub events_seen: usize,
     pub unparsed_lines: usize,
     blocks: BTreeMap<usize, (String, String)>,
+    history: Vec<super::LivePost>,
+    message_id: u64,
     prior_thoughts: String,
     prior_response: String,
 }
@@ -30,11 +32,38 @@ impl EventFold {
         let current_text = self.block_text("text");
         let (response, specification) = super::live_preview::project(&current_text);
         LiveProgress {
+            posts: self
+                .history
+                .iter()
+                .cloned()
+                .chain(self.current_posts())
+                .collect(),
             thoughts: joined(&self.prior_thoughts, &self.block_text("thinking")),
             response: joined(&self.prior_response, &response),
             specification,
             activity: self.last_activity.clone(),
         }
+    }
+
+    fn current_posts(&self) -> Vec<super::LivePost> {
+        self.blocks
+            .iter()
+            .filter_map(|(index, (kind, text))| {
+                let text = if kind == "text" {
+                    super::live_preview::project(text).0
+                } else {
+                    text.clone()
+                };
+                if text.is_empty() {
+                    return None;
+                }
+                Some(super::LivePost {
+                    id: (self.message_id, *index),
+                    kind: kind.clone(),
+                    text,
+                })
+            })
+            .collect()
     }
 
     fn block_text(&self, kind: &str) -> String {
@@ -71,6 +100,10 @@ fn skip_heavy(line: &str) -> Option<bool> {
 
 /// Consume one stdout line into the fold.
 pub fn fold_line(line: &str, sink: &mut EventFold) {
+    static NEXT_MESSAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    if sink.message_id == 0 {
+        sink.message_id = NEXT_MESSAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
     let line = line.trim();
     if line.is_empty() {
         return;
@@ -106,7 +139,9 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                 let preview = sink.preview();
                 sink.prior_thoughts = preview.thoughts;
                 sink.prior_response = preview.response;
+                sink.history.extend(sink.current_posts());
                 sink.blocks.clear();
+                sink.message_id = NEXT_MESSAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
         "message_update" => {
@@ -280,6 +315,45 @@ mod tests {
             f.preview().specification.as_deref(),
             Some("# Scope\nMore detail")
         );
+    }
+
+    #[test]
+    fn thought_posts_stay_after_preceding_messages_across_calls() {
+        let mut fold = EventFold::default();
+        delta(&mut fold, "thinking", 0, "First thought.");
+        delta(&mut fold, "text", 1, "Reading files.");
+        let original = fold.preview().posts;
+        fold_line(
+            r#"{"type":"message_start","message":{"role":"assistant"}}"#,
+            &mut fold,
+        );
+        delta(&mut fold, "thinking", 0, "Next thought.");
+        let mut display = fold.preview();
+        assert_eq!(&display.posts[..2], &original);
+        assert_eq!(
+            display
+                .posts
+                .iter()
+                .map(|p| p.kind.as_str())
+                .collect::<Vec<_>>(),
+            ["thinking", "text", "thinking"]
+        );
+        let next_id = display.posts[2].id;
+        delta(&mut fold, "thinking", 0, " More detail.");
+        display.update(fold.preview());
+        assert_eq!(display.posts.len(), 3);
+        assert_eq!(display.posts[2].id, next_id);
+        assert_eq!(&display.posts[..2], &original);
+        let mut second_call = EventFold::default();
+        delta(&mut second_call, "thinking", 0, "New task.");
+        display.update(second_call.preview());
+        display.update(second_call.preview());
+        assert_eq!(
+            display.posts.len(),
+            4,
+            "snapshots update existing blocks without duplicating or replacing earlier calls"
+        );
+        assert_ne!(display.posts[3].id, original[0].id);
     }
 
     #[test]

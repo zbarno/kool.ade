@@ -33,6 +33,7 @@ pub fn paint(
     ui.scope(|ui| {
         ui.set_max_height((ui.available_height() - reserve).max(48.0));
         egui::ScrollArea::vertical()
+            .id_salt("conversation_scroll")
             .stick_to_bottom(true)
             .auto_shrink(egui::Vec2b::new(false, false))
             .show(ui, |ui| {
@@ -201,6 +202,47 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
 
 fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
     ui.push_id("live_turn", |ui| {
+        if !progress.posts.is_empty() {
+            for post in &progress.posts {
+                ui.push_id(post.id, |ui| {
+                    if post.kind == "thinking" {
+                        egui::CollapsingHeader::new(
+                            RichText::new("Thinking").size(12.0).color(theme::TEXT_DIM),
+                        )
+                        .id_salt("thought_block")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(&post.text)
+                                        .size(13.0)
+                                        .line_height(Some(20.0))
+                                        .color(theme::TEXT_DIM),
+                                )
+                                .wrap(),
+                            );
+                        });
+                    } else {
+                        ui.label(RichText::new("Packet").size(12.0).strong());
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(&post.text)
+                                    .size(15.0)
+                                    .line_height(Some(23.0))
+                                    .color(theme::TEXT),
+                            )
+                            .wrap(),
+                        );
+                    }
+                    ui.add_space(12.0);
+                });
+            }
+            if let Some(activity) = &progress.activity {
+                ui.label(RichText::new(activity).size(11.0).weak());
+            }
+            return;
+        }
+
         if !progress.thoughts.is_empty() {
             egui::CollapsingHeader::new(
                 RichText::new("Thinking").size(12.0).color(theme::TEXT_DIM),

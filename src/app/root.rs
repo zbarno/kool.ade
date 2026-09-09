@@ -80,7 +80,7 @@ impl PacketApp {
                 for _ in 0..64 {
                     let Some(evt) = ctrl.poll(Duration::ZERO) else { break };
                     match evt {
-                        TurnEvt::Progress(progress) => project.live_progress = progress,
+                        TurnEvt::Progress(progress) => project.live_progress.update(progress),
                         TurnEvt::Done(o) => {
                             outcome = Some(o);
                             break;

@@ -38,10 +38,33 @@ pub struct PlanningRequest {
 /// Transient display snapshot; never fed back into prompts or saved as artifacts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LiveProgress {
+    pub posts: Vec<LivePost>,
     pub thoughts: String,
     pub response: String,
     pub specification: Option<String>,
     pub activity: Option<String>,
+}
+
+/// A stable, chronologically placed block of external agent output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LivePost {
+    pub id: (u64, usize),
+    pub kind: String,
+    pub text: String,
+}
+
+impl LiveProgress {
+    pub fn update(&mut self, mut next: Self) {
+        for post in next.posts.drain(..) {
+            if let Some(existing) = self.posts.iter_mut().find(|p| p.id == post.id) {
+                *existing = post;
+            } else {
+                self.posts.push(post);
+            }
+        }
+        next.posts = std::mem::take(&mut self.posts);
+        *self = next;
+    }
 }
 
 /// Parsed-but-not-yet-validated turn envelope emitted by the agent.

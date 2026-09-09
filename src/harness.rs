@@ -13,7 +13,7 @@ pub mod pi_extract;
 pub mod pi_harness;
 pub mod pi_proc;
 
-pub use harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, TurnEnvelope, TurnItem, TurnItemUpdate};
+pub use harness::{AiHarness, HarnessOutcome, LivePost, LiveProgress, PlanningRequest, TurnEnvelope, TurnItem, TurnItemUpdate};
 pub use pi_harness::PiHarness;
 
 mod harness;
