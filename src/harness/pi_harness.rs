@@ -5,7 +5,7 @@
 //! ```sh
 //! pi -p --mode json --no-session --no-approve --no-context-files \
 //!    --no-extensions --no-skills --no-prompt-templates \
-//!    --append-system-prompt "<PLANNER PERSONA>" -- "<TURN PROMPT>"
+//!    --append-system-prompt "<PLANNER PERSONA>" < prompt.txt
 //! ```
 //!
 //! Working directory = the connected repository, so pi's own read/bash tools
@@ -145,11 +145,13 @@ impl AiHarness for PiHarness {
             "--no-prompt-templates".into(),
             "--append-system-prompt".into(),
             req.system_instructions.clone(),
-            "--".into(),
-            req.prompt_body.clone(),
         ]);
 
-        let task = crate::harness::pi_proc::spawn(&argv, &req.repo_root)?;
+        let task = crate::harness::pi_proc::spawn_with_input(
+            &argv,
+            &req.repo_root,
+            Some(req.prompt_body.clone()),
+        )?;
         let deadline = Instant::now() + req.timeout;
         let mut fold = EventFold::default();
         let mut stderr_tail: Vec<String> = Vec::new();

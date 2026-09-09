@@ -96,16 +96,41 @@ impl Drop for ChildTask {
 
 /// Spawn `argv[0] argv[1..]` in `cwd` with detached pipes.
 pub fn spawn(argv: &[String], cwd: &Path) -> anyhow::Result<ChildTask> {
+    spawn_with_input(argv, cwd, None)
+}
+
+/// Pipe a prompt without putting its contents in the operating system argument list.
+/// The writer closes stdin at EOF and never blocks the cancellation consumer.
+pub fn spawn_with_input(
+    argv: &[String],
+    cwd: &Path,
+    input: Option<String>,
+) -> anyhow::Result<ChildTask> {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut cmd = Command::new(&argv[0]);
     cmd.args(&argv[1..])
         .current_dir(cwd)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd
         .spawn()
         .map_err(|e| anyhow::anyhow!("failed to launch {}: {e}", argv[0]))?;
+    if let Some(input) = input {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("no stdin pipe"))?;
+        std::thread::spawn(move || {
+            use std::io::Write;
+            // Early pipe closure is reported through the child's exit/error stream.
+            let _ = stdin.write_all(input.as_bytes());
+        });
+    }
     let stdout = child
         .stdout
         .take()
@@ -186,6 +211,24 @@ mod tests {
             String::from("-c"),
             script.to_string(),
         ]
+    }
+
+    #[test]
+    fn large_prompt_is_delivered_exactly_through_stdin() {
+        let input = "filters: α\n$literal `text` ".repeat(80_000);
+        let task = spawn_with_input(&sh("wc -c"), Path::new("/"), Some(input.clone())).unwrap();
+        let mut count = None;
+        loop {
+            match task.poll_next(Duration::from_secs(5)).unwrap() {
+                StreamEvt::Stdout(text) => count = Some(text.trim().parse::<usize>().unwrap()),
+                StreamEvt::Exited(ok) => {
+                    assert!(ok);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(count, Some(input.len()));
     }
 
     #[test]
