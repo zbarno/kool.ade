@@ -1,11 +1,16 @@
 //! Right pane: live open-items queue, regrouped for the signed-in user.
-//! Uses the routing layer directly: `eligible_items` = “FOR YOU NOW”,
-//! everything else = “QUEUE” — plus synthetic ownership gaps.
+//! Uses the routing layer directly under the D-14 law: `eligible_items`
+//! (General broadcast; direct name or group address; a lane this user
+//! owns, sole or via group; or an unowned lane this seat inherits) =
+//! “FOR YOU NOW”; everything else — including lanes claimed by other
+//! holders, which are NEVER posed here — stays in “THE REST OF THE
+//! QUEUE”. Ownership-gap items ride the synthetic section.
 
 use egui::{Frame, RichText};
 
 use crate::core::routing;
 use crate::domain::item::OpenItem;
+use crate::domain::stakeholder::Stakeholders;
 use crate::domain::user::CurrentUser;
 use crate::ui::theme;
 
@@ -13,6 +18,8 @@ pub struct Args<'a> {
     pub items: &'a [OpenItem],
     pub synthetic: &'a [OpenItem],
     pub user: &'a CurrentUser,
+    /// Category→owner map the D-14 law judges partition eligibility against.
+    pub stakes: &'a Stakeholders,
     pub next_question_id: Option<&'a str>,
 }
 
@@ -35,8 +42,8 @@ pub fn paint(ui: &mut egui::Ui, args: &Args<'_>) {
     egui::ScrollArea::vertical()
         .auto_shrink(egui::Vec2b::new(false, false))
         .show(ui, |ui| {
-            let mine: Vec<&OpenItem> = routing::eligible_items(args.items, args.user);
-            let recommended = routing::recommended_next(args.items, args.user);
+            let mine: Vec<&OpenItem> = routing::eligible_items(args.items, args.user, args.stakes);
+            let recommended = routing::recommended_next(args.items, args.user, args.stakes);
             let recommended_id = recommended.map(|r| r.id.clone());
             let mine_ids: Vec<String> = mine.iter().map(|i| i.id.clone()).collect();
 
@@ -178,6 +185,7 @@ fn owner_line(owner: &str) -> String {
 mod tests {
     use super::*;
     use crate::domain::item::{ItemKind, Priority};
+    use crate::domain::stakeholder::CategoryOwners;
 
     fn mk(id: &str, kind: ItemKind, cat: &str, owner: &str, pri: Priority) -> OpenItem {
         OpenItem::new(
@@ -201,17 +209,44 @@ mod tests {
             "All",
             Priority::Normal,
         )];
+        let stakes = Stakeholders::default();
         let args = Args {
             items: &items,
             synthetic: &[],
             user: &u,
+            stakes: &stakes,
             next_question_id: None,
         };
-        let mine = routing::eligible_items(&args.items, &args.user);
+        let mine = routing::eligible_items(args.items, args.user, args.stakes);
         assert_eq!(mine.len(), 1);
         assert_eq!(
-            routing::recommended_next(&args.items, &args.user).map(|r| r.id.clone()),
+            routing::recommended_next(args.items, args.user, args.stakes).map(|r| r.id.clone()),
             Some("CLR-001".to_string())
         );
+    }
+
+    /// The FOR-YOU-NOW split tracks the D-14 evaluator: an unowned lane
+    /// seat-inherits into the user's partition, while a lane sole-owned by
+    /// somebody else stays in the remainder of the queue — visible, but
+    /// never posed (no ASKING-NOW ring).
+    #[test]
+    fn partition_tracks_the_routing_law() {
+        let u = CurrentUser::new("Zach", Vec::new());
+        let stakes = Stakeholders::new(vec![
+            CategoryOwners::new("Security", vec!["Morgan".into()]),
+            CategoryOwners::new("InfoSec", Vec::new()),
+        ]);
+        let items = vec![
+            mk("CLR-001", ItemKind::Question, "InfoSec", "All", Priority::High),
+            mk("CLR-002", ItemKind::Question, "Security", "Morgan", Priority::Blocking),
+        ];
+        let mine = routing::eligible_items(&items, &u, &stakes);
+        assert_eq!(
+            mine.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+            vec!["CLR-001"],
+            "the unowned InfoSec lane seat-inherits; the Morgan-sole Security lane must not"
+        );
+        let rec = routing::recommended_next(&items, &u, &stakes);
+        assert_eq!(rec.map(|r| r.id.as_str()), Some("CLR-001"), "ASKING-NOW ring must crown the seat-inherited question");
     }
 }

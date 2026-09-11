@@ -169,7 +169,13 @@ pub fn validate_for_turn(envelope: &TurnEnvelope, state: &PlannerState, user: &C
         match (category, assigned, question) {
             (Some(cat), Some(to), Some(question)) => {
                 let id = match a.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                    None => ids::next_free(burned.iter().cloned()),
+                    None => {
+                        let id = ids::next_free(burned.iter().cloned());
+                        // Reserve the freshly minted id so later unnumbered
+                        // items in the SAME batch keep numbering monotonic.
+                        burned.insert(id.clone());
+                        id
+                    }
                     Some(want) if !ids::is_valid_id(want) => {
                         fatals.push(format!("new item {tag}: malformed requested id “{want}”"));
                         continue;
@@ -205,7 +211,10 @@ pub fn validate_for_turn(envelope: &TurnEnvelope, state: &PlannerState, user: &C
         }
     }
 
-    // ---- next question: routing is decided HERE, not by the agent (§18) --
+    // ---- next question: the D-14 routing law is decided HERE, not by the
+    //         agent (§8, §18). A misrouted id is a FATAL problem — the whole
+    //         turn is rejected with zero mutation. Unknown/resolved/ownership
+    //         ids are noise, not law violations: they cost a warning only.
     let mut next_question_id = None;
     if let Some(nqid) = envelope.next_question_id.as_deref() {
         match state.items.iter().find(|i| i.id == nqid) {
@@ -217,10 +226,13 @@ pub fn validate_for_turn(envelope: &TurnEnvelope, state: &PlannerState, user: &C
                 "next question “{}” dropped: ownership gaps are handled in the Settings panel, not asked in chat",
                 item.id
             )),
-            Some(item) => match routing::evaluate(item, user) {
-                Eligibility::NotEligible => warnings.push(format!(
-                    "next question “{}” dropped: routed to “{}/{}”, not served to you",
-                    item.id, item.assigned_to.as_deref().unwrap_or("everyone"), item.category
+            Some(item) => match routing::evaluate(item, user, &state.config.stakeholders) {
+                Eligibility::NotEligible => fatals.push(format!(
+                    "next question “{}” (category “{}”, assignee “{}”) is not poseable to the seated user “{}” — it violates the routing law, so the ENTIRE turn is rejected and nothing is saved",
+                    item.id,
+                    item.category,
+                    item.assigned_to.as_deref().unwrap_or("unassigned"),
+                    user.name
                 )),
                 _ => next_question_id = Some(item.id.clone()),
             },
@@ -283,6 +295,14 @@ mod tests {
         )
     }
 
+    /// Stand-in for a genuinely unassigned item: an address no user can
+    /// match, so the lane's own claim decides eligibility.
+    fn unassigned(id: &str, kind: ItemKind, cat: &str) -> OpenItem {
+        let mut o = item(id, kind, cat, "Unassigned");
+        o.assigned_to = None;
+        o
+    }
+
     fn env(next: Option<&str>) -> TurnEnvelope {
         TurnEnvelope {
             schema_version: Some(1),
@@ -300,20 +320,90 @@ mod tests {
     }
 
     #[test]
-    fn next_question_obeyed_only_when_eligible() {
-        let zach = CurrentUser::new("Zach", vec!["Development".into()]);
-        let st = base_state(vec![
-            item("CLR-001", ItemKind::Question, "InfoSec", "Security Team"),
-            item("CLR-002", ItemKind::Question, "Platform", "Development"),
-            item("CLR-003", ItemKind::Question, "General", "Everyone"),
+    fn unnumbered_adds_in_one_batch_number_monotonically_without_collisions() {
+        let st = base_state(Vec::new());
+        let mut env = env(None);
+        env.open_items_added = Some(vec![
+            TurnItem { id: None, kind: Some("Question".into()), category: Some("QA".into()), assigned_to: Some("QA Guild".into()), priority: Some("High".into()), question: Some("first unnumbered?".into()), reason: None, resolution_note: None },
+            TurnItem { id: None, kind: Some("Question".into()), category: Some("QA".into()), assigned_to: Some("QA Guild".into()), priority: Some("High".into()), question: Some("second unnumbered?".into()), reason: None, resolution_note: None },
         ]);
-        let ok = validate(&env(Some("CLR-002")), &st, &zach).unwrap();
-        assert_eq!(ok.next_question_id.as_deref(), Some("CLR-002"));
-        let blocked = validate(&env(Some("CLR-001")), &st, &zach).unwrap();
-        assert_eq!(blocked.next_question_id, None);
-        assert!(blocked.warnings.iter().any(|w| w.contains("dropped")));
-        let general_route = validate(&env(Some("CLR-003")), &st, &zach).unwrap();
-        assert_eq!(general_route.next_question_id.as_deref(), Some("CLR-003"));
+        let v = validate(&env, &st, &CurrentUser::new("Zach", vec!["QA Guild".into()])).unwrap();
+        let ids: Vec<&str> = v.added.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, vec!["CLR-001", "CLR-002"], "auto-numbered siblings must reserve each minted id");
+    }
+
+    /// The next-question arm of the D-14 law: deny-by-veto is FATAL (the
+    /// whole turn rolls back); grant-by-group, grant-by-unowned-seat and
+    /// General-always preserve the id; unknown/resolved/ownership ids
+    /// degrade to warnings exactly as pinned before.
+    #[test]
+    fn next_question_enforces_the_routing_law() {
+        use crate::domain::{CategoryOwners, Stakeholders};
+        let zach = CurrentUser::new("Zach", vec!["QA Guild".into()]);
+        let mut st = base_state(vec![
+            item("CLR-001", ItemKind::Question, "Security", "Security Team"),
+            item("CLR-002", ItemKind::Question, "QA", "QA Guild"),
+            unassigned("CLR-003", ItemKind::Question, "InfoSec"),
+            item("CLR-004", ItemKind::Question, "General", "Everyone"),
+        ]);
+        // Security is sole-owned by Priya (veto vs Zach); QA is shared
+        // through QA Guild (Zach's); InfoSec has an entry with NO members
+        // (unowned → seat-inherited by Zach, the non-guest seat).
+        st.config.stakeholders = Stakeholders::new(vec![
+            CategoryOwners::new("Security", vec!["Priya".into()]),
+            CategoryOwners::new("QA", vec!["QA Guild".into()]),
+            CategoryOwners::new("InfoSec", Vec::new()),
+        ]);
+
+        // Deny-by-veto: even an unambiguous Security question is a FATAL
+        // routing-law problem that rejects the whole turn.
+        let vetoed = validate(&env(Some("CLR-001")), &st, &zach).unwrap_err();
+        assert!(
+            vetoed.iter().any(|f| f.contains("CLR-001") && f.contains("violates the routing law")),
+            "expected the veto fatal, got: {vetoed:?}"
+        );
+        assert!(
+            vetoed.iter().any(|f| f.contains('“') && f.contains("Zach") && f.contains('”')),
+            "the fatal must name the seated user in the message shape: {vetoed:?}"
+        );
+
+        // Grant-by-group: a QA question addressed to Zach's group is obeyed.
+        let grouped = validate(&env(Some("CLR-002")), &st, &zach).unwrap();
+        assert_eq!(grouped.next_question_id.as_deref(), Some("CLR-002"));
+
+        // Grant-by-unowned-seat: the ownerless InfoSec lane seat-inherits.
+        let inherited = validate(&env(Some("CLR-003")), &st, &zach).unwrap();
+        assert_eq!(inherited.next_question_id.as_deref(), Some("CLR-003"));
+
+        // General is always poseable.
+        let general_route = validate(&env(Some("CLR-004")), &st, &zach).unwrap();
+        assert_eq!(general_route.next_question_id.as_deref(), Some("CLR-004"));
+
+        // Warnings-only arms are unchanged: unknown id …
+        let unknown = validate(&env(Some("CLR-999")), &st, &zach).unwrap();
+        assert_eq!(unknown.next_question_id, None);
+        assert!(unknown.warnings.iter().any(|w| w.contains("CLR-999") && w.contains("dropped")));
+        // … an id being resolved this turn …
+        let mut er = env(Some("CLR-004"));
+        er.open_items_resolved = Some(vec!["CLR-004".into()]);
+        let mid_resolve = validate(&er, &st, &zach).unwrap();
+        assert_eq!(mid_resolve.next_question_id, None);
+        assert!(mid_resolve.warnings.iter().any(|w| w.contains("being resolved")));
+        // … and ownership-kind ids (handled in the settings panel).
+        let mut st2 = st.clone();
+        let own = crate::domain::OpenItem::new(
+            "CLR-005".into(),
+            Priority::Normal,
+            ItemKind::Ownership,
+            "InfoSec".into(),
+            None,
+            "nominate an owner".into(),
+            "formal nomination".into(),
+        );
+        st2.items.push(own);
+        let ownership_drop = validate(&env(Some("CLR-005")), &st2, &zach).unwrap();
+        assert_eq!(ownership_drop.next_question_id, None);
+        assert!(ownership_drop.warnings.iter().any(|w| w.contains("Settings panel")));
     }
 
     #[test]

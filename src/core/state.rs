@@ -152,7 +152,7 @@ fn seed_initial_config(existing: &PlannerConfig) -> String {
 mod tests {
     use super::*;
     use crate::core::gitops;
-    use crate::domain::{CurrentUser, IdentitySource};
+    use crate::domain::{CurrentUser, IdentitySource, GUEST_NAME};
 
     fn mkrepo(prefix: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("packet_state_{prefix}_{}", std::process::id()));
@@ -320,9 +320,9 @@ mod tests {
         // No git, no artifacts → guest, and load STILL SUCCEEDS.
         let bare = mkrepo("guest");
         let st = PlannerState::load(&bare).unwrap();
-        assert_eq!(st.identity.user.name, "(guest)");
+        assert_eq!(st.identity.user.name, GUEST_NAME);
         assert_eq!(st.identity.source, IdentitySource::Guest);
-        assert_eq!(st.effective_user().name, "(guest)");
+        assert_eq!(st.effective_user().name, GUEST_NAME);
         let _ = std::fs::remove_dir_all(&bare);
     }
 

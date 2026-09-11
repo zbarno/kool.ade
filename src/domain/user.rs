@@ -3,10 +3,16 @@
 
 /// Who is interacting with the planner right now.
 ///
-/// `groups` are membership labels (team names, roles). An open item is
-/// *eligible* for this user when it is assigned to the user by name, assigned
-/// to one of the user's groups (matched against stakeholder members), or
-/// categorized `General`. See `crate::core::routing`.
+/// `groups` are membership labels (team names, roles). Question
+/// eligibility against this seat obeys the D-14 routing law (approved
+/// specification §8; details in `crate::core::routing`): an item is
+/// poseable when (1) its category is the General broadcast, (2) it is
+/// addressed to the user by name or one of the user's groups,
+/// (3) its category is explicitly configured to the user — sole person
+/// or owning group — or (4) its category has NO explicit owner, in which
+/// case the seated (non-guest) git-identified operator inherits the
+/// lane. Lanes claimed by other holders are never posed, even on direct
+/// address.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CurrentUser {
     /// Display name, e.g. "Zach".
@@ -131,10 +137,13 @@ pub fn resolve_identity(
         };
     }
     ResolvedIdentity {
-        user: CurrentUser::new("(guest)", Vec::new()),
+        user: CurrentUser::new(GUEST_NAME, Vec::new()),
         source: IdentitySource::Guest,
     }
 }
+
+/// Neutral seat label when no identity can be derived (last FR-13 tier).
+pub const GUEST_NAME: &str = "(guest)";
 
 /// Canonical label for "categorized General → everyone is eligible".
 pub const GENERAL_CATEGORY: &str = "General";
@@ -204,7 +213,7 @@ mod tests {
 
         // 5. Nothing anywhere → neutral guest, groups stripped.
         let r = resolve_identity(None, None, None);
-        assert_eq!(r.user.name, "(guest)");
+        assert_eq!(r.user.name, GUEST_NAME);
         assert_eq!(r.user.groups, Vec::<String>::new());
         assert_eq!(r.source, IdentitySource::Guest);
 
@@ -219,7 +228,7 @@ mod tests {
             Some(&CurrentUser::new("   ", vec!["X".into()])),
         );
         assert_eq!(ghosted.source, IdentitySource::Guest);
-        assert_eq!(ghosted.user.name, "(guest)");
+        assert_eq!(ghosted.user.name, GUEST_NAME);
     }
 
     #[test]

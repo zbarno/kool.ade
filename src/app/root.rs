@@ -25,6 +25,10 @@ pub struct PacketApp {
     last_git_refresh: Instant,
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
+    /// D-14 configuration stand-in shown off-project (welcome screen):
+    /// an empty map means every category classifies as unowned, so the
+    /// pane degrades gracefully until a project connects.
+    fallback_stakes: crate::domain::Stakeholders,
     /// Synthesized ownership-gap items for the side pane.
     synth: Vec<OpenItem>,
 }
@@ -65,6 +69,7 @@ impl Default for PacketApp {
             conn_error: None,
             last_git_refresh: Instant::now(),
             cached_user: CurrentUser::new("", Vec::new()),
+            fallback_stakes: crate::domain::Stakeholders::default(),
             synth: Vec::new(),
         }
     }
@@ -580,6 +585,13 @@ impl Surface for PacketApp {
 
     fn current_user(&self) -> &CurrentUser {
         &self.cached_user
+    }
+
+    fn stakeholders(&self) -> &crate::domain::Stakeholders {
+        match &self.screen {
+            Screen::Connected(p) => &p.state.config.stakeholders,
+            Screen::Welcome => &self.fallback_stakes,
+        }
     }
 
     fn next_question_id(&self) -> Option<&str> {
