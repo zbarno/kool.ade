@@ -7,7 +7,6 @@ use crate::core::gitops::{self, GitSnapshot};
 use crate::core::state::PlannerState;
 use crate::core::turn::TurnController;
 use crate::domain::chatlog::ChatMessage;
-use crate::domain::user::CurrentUser;
 use crate::persistence::chat_store;
 
 pub struct Project {
@@ -87,14 +86,6 @@ pub fn welcome_message(project_title: &str) -> ChatMessage {
          open-items queue in git and only ever talk to you through this chat."
     );
     crate::domain::chatlog::ChatMessage::new(crate::domain::chatlog::ChatRole::System, text, None)
-}
-
-/// Convert the stored user into the routing identity, falling back gently.
-pub fn routing_user(config_user: Option<&CurrentUser>, project_name: &str) -> CurrentUser {
-    match config_user {
-        Some(u) if u.is_set() => u.clone(),
-        _ => CurrentUser::new(project_name, Vec::new()),
-    }
 }
 
 #[cfg(test)]
