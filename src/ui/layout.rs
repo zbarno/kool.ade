@@ -6,6 +6,7 @@ pub enum HeaderAction {
     Refresh,
     Import,
     Stakeholders,
+    McpServers,
     CopySpec,
     Disconnect,
 }
@@ -37,6 +38,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         for (label, action) in [
                             ("Import references", HeaderAction::Import),
                             ("Stakeholders & ownership", HeaderAction::Stakeholders),
+                            ("MCP servers", HeaderAction::McpServers),
                             ("Refresh repository", HeaderAction::Refresh),
                             ("Disconnect", HeaderAction::Disconnect),
                         ] {

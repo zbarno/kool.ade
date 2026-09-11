@@ -503,6 +503,109 @@ fn paint_harness_guide(ui: &mut egui::Ui, dlg: &mut DlgSettings) {
     }
 }
 
+/// Placeholder for the first-run editor — ITSELF valid JSON so pasting the
+/// hint straight into Save passes the well-formedness probe.
+pub const MCP_EXAMPLE_HINT: &str = "{\n  \"mcpServers\": {\n    \"example\": { \"command\": \"your-server\", \"args\": [] }\n  }\n}";
+
+/// F-18 / D-16: the in-app editor for `.planner/mcp.json`. Raw free-text,
+/// mono-spaced; the business effect (write/remove + checkpoint) is owned by
+/// `crate::artifacts::mcp_io`, which keeps this struct a dumb carrier.
+pub struct DlgMcp {
+    /// The editor buffer; bound to the file's live bytes on open.
+    pub text: String,
+    /// True when the field opened from NO existing file — the painter then
+    /// shows the exemplar hint as placeholder.
+    pub hint_active: bool,
+    pub feedback: Option<(bool, String)>,
+    /// Sticky, non-blocking warning (orange) — set on a malformed-yet-saved
+    /// buffer or an unreadable pre-existing file; survives until Close.
+    pub warning: Option<String>,
+    /// Keep-open driver owned by `perform_mcp`: after a malformed save the
+    /// card MUST stay up showing the warning; Unchanged/Write/Clear closes.
+    pub keep_open: bool,
+}
+
+impl DlgMcp {
+    /// Seed the card from the LIVE file bytes (first-run: absent → hint).
+    pub fn from_project(proj: &Project) -> Self {
+        let st = crate::artifacts::mcp_io::load_state(&proj.state.repo_root);
+        let (text, hint_active, warning) = Self::dialog_fields(&st);
+        Self {
+            text,
+            hint_active,
+            feedback: None,
+            warning,
+            keep_open: true,
+        }
+    }
+
+    /// Factor the load → field mapping so the pins exercise the REAL
+    /// branching (absent / present-ok / present-unreadable) without egui.
+    /// Unreadable ⇒ the field starts empty WITH an explicit OVERWRITE
+    /// warning: unseen content is never destroyed silently.
+    fn dialog_fields(st: &crate::artifacts::mcp_io::McpLoadState) -> (String, bool, Option<String>) {
+        if !st.present {
+            (String::new(), true, None)
+        } else if let Some(content) = &st.content {
+            (content.clone(), false, None)
+        } else {
+            let err = st.read_error.clone().unwrap_or_else(|| "unknown read error".into());
+            (
+                String::new(),
+                false,
+                Some(format!(
+                    "Existing .planner/mcp.json could not be read ({err}). The field starts empty — saving will OVERWRITE the file."
+                )),
+            )
+        }
+    }
+
+    /// Thin shim onto the module that owns all disk/git effects. No
+    /// `PlannerState` resync is owed: mcp.json is never cached in state —
+    /// the next turn's `context_build` re-reads the file fresh.
+    pub fn apply(
+        &mut self,
+        proj: &mut Project,
+    ) -> Result<crate::artifacts::mcp_io::McpApplyReceipt, AppError> {
+        crate::artifacts::mcp_io::apply_save(&proj.state.repo_root, &self.text)
+    }
+}
+
+/// Paint the MCP card; returns (save_pressed, close_pressed). Height budget
+/// (~360 px) fits the 640 px min window — no ScrollArea, unlike the grown
+/// settings card.
+pub fn paint_mcp_card(ui: &mut egui::Ui, dlg: &mut DlgMcp) -> (bool, bool) {
+    ui.label(RichText::new("MCP server configuration").size(13.0).strong().color(theme::TEXT));
+    ui.add_space(3.0);
+    ui.label(
+        RichText::new(
+            "Raw .planner/mcp.json — advertised verbatim to every pi session. The planner enforces no server schema; blank + Save removes the file (unconfigured)",
+        ).weak().size(11.0),
+    );
+    ui.add_space(4.0);
+    // Multiline pattern mirrors the import dialog; the exemplar hint is only
+    // offered while the field opened with no file underneath (hint_active).
+    let editor = TextEdit::multiline(&mut dlg.text)
+        .font(egui::FontId::monospace(12.0))
+        .desired_width(f32::INFINITY)
+        .desired_rows(10);
+    let editor = if dlg.hint_active { editor.hint_text(MCP_EXAMPLE_HINT) } else { editor };
+    ui.add_sized(egui::vec2(ui.available_width(), 210.0), editor);
+    // The verified feed cap: prompts clip past 4,096 chars (context_build).
+    // DISK NEVER clips — this line only telegraphs the presentation cutoff.
+    ui.label(
+        RichText::new(format!("{} chars — prompts clip past 4096", dlg.text.chars().count()))
+            .size(10.5)
+            .weak()
+            .color(theme::TEXT_DIM),
+    );
+    if let Some(warning) = &dlg.warning {
+        ui.add_space(6.0);
+        ui.label(RichText::new(warning).size(11.5).weak().color(theme::WARNING));
+    }
+    footers(ui, &dlg.feedback)
+}
+
 fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool) {
     if let Some((ok, msg)) = feedback {
         ui.add_space(8.0);
@@ -947,4 +1050,69 @@ fn expand_tilde(raw: &str) -> String {
         }
     }
     raw.to_string()
+}
+
+#[cfg(test)]
+mod mcp_tests {
+    //! F-18 dialog-field pins (pure; no egui): the load -> field mapping
+    //! decides hint/warning, so unseen content is never destroyed silently.
+
+    use crate::artifacts::mcp_io;
+
+    /// First run: no file -> empty field, exemplar hint ACTIVE, no warning.
+    #[test]
+    fn mcp_fields_absent_file_opens_empty_with_hint_active() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_dlg_mcpabsent_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let st = mcp_io::load_state(&root);
+        assert!(!st.present);
+        let (text, hint, warning) = super::DlgMcp::dialog_fields(&st);
+        assert_eq!(text, String::new());
+        assert!(hint, "first run activates the exemplar hint");
+        assert_eq!(warning, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Present file: content echoed BYTE-EXACT, hint OFF, no warning.
+    #[test]
+    fn mcp_fields_present_file_echoes_content_byte_exact() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_dlg_mcppresent_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".planner")).unwrap();
+        let body = r#"{"k":1}"#;
+        std::fs::write(root.join(".planner/mcp.json"), body).unwrap();
+        let st = mcp_io::load_state(&root);
+        assert!(st.present);
+        let (text, hint, warning) = super::DlgMcp::dialog_fields(&st);
+        assert_eq!(text, body, "editor seeds the exact stored bytes");
+        assert!(!hint, "a real file suppresses the exemplar hint");
+        assert_eq!(warning, None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Present but UNREADABLE: field starts empty (hint off - there WAS a
+    /// file) with the sticky warning demanding explicit consent to
+    /// OVERWRITE unseen content.
+    #[test]
+    fn mcp_fields_unreadable_file_warns_explicit_overwrite_consent() {
+        let st = mcp_io::McpLoadState {
+            present: true,
+            content: None,
+            read_error: Some("Permission denied (os error 13)".into()),
+        };
+        let (text, hint, warning) = super::DlgMcp::dialog_fields(&st);
+        assert_eq!(text, String::new(), "field must start empty, not guess");
+        assert!(!hint, "unreadable is not absent: hint must not imply empty");
+        let warning = warning.expect("sticky warning required for unreadable files");
+        assert!(warning.contains("could not be read"), "warns why: {warning}");
+        assert!(warning.contains("Permission denied"), "quotes the error: {warning}");
+        assert!(warning.contains("OVERWRITE"), "explicit consent wording: {warning}");
+    }
 }
