@@ -68,6 +68,9 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat,
         draft: String::new(),
         active_turn: None,
+        queue: crate::core::implementation_queue::Queue::load(&canonical)
+            .map_err(|e| AppError::Other(e.to_string()))?,
+        queue_lock: None,
         active_implementation: None,
         active_implementation_ticket: None,
         pr_refresh: None,

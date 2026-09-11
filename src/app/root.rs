@@ -120,14 +120,46 @@ impl PacketApp {
                 project.refresh_implementations();
                 project.last_pr_refresh = None;
                 let text = match result {
-                    Ok(record) => format!(
-                        "Implementation verified. Pull request: {}",
-                        record.pr_url.unwrap_or_default()
-                    ),
-                    Err(error) => format!(
-                        "Implementation stopped: {error}\nExisting work is preserved; use Resume implementation to continue."
-                    ),
+                    Ok(record) => {
+                        project.queue.current_ticket = None;
+                        if !record.auto_merge || record.status != "Done" {
+                            project.queue.running = false;
+                        }
+                        if record.auto_merge {
+                            format!(
+                                "Task merged into {} at {}. {}",
+                                record.base,
+                                record.merged_commit.unwrap_or_default(),
+                                if project.queue.running {
+                                    "Continuing the Auto queue."
+                                } else {
+                                    "Queue paused."
+                                }
+                            )
+                        } else {
+                            format!(
+                                "Implementation verified. Pull request: {}",
+                                record.pr_url.unwrap_or_default()
+                            )
+                        }
+                    }
+                    Err(error) => {
+                        project.queue.running = false;
+                        project.queue.last_error = error.clone();
+                        format!(
+                            "Implementation stopped after recovery: {error}\nExisting work is preserved; use Resume implementation to continue."
+                        )
+                    }
                 };
+                if project.queue_lock.is_some() {
+                    if let Err(error) = project.queue.save(&project.state.repo_root) {
+                        project.queue.running = false;
+                        project.queue.last_error = format!("Cannot save queue: {error}");
+                    }
+                }
+                if !project.queue.running {
+                    project.queue_lock = None;
+                }
                 project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
                 project.refresh_git();
             }
@@ -193,6 +225,7 @@ impl PacketApp {
             (self.cached_user, self.synth) = caches;
             self.last_git_refresh = Instant::now();
         }
+        self.advance_auto_queue();
         let period = match &self.screen {
             Screen::Connected(p)
                 if (p.active_turn.is_some() || p.active_implementation.is_some()) =>
@@ -202,6 +235,62 @@ impl PacketApp {
             _ => Duration::from_millis(800),
         };
         ctx.request_repaint_after(period);
+    }
+
+    fn advance_auto_queue(&mut self) {
+        let next = if let Screen::Connected(project) = &mut self.screen {
+            if !project.queue.auto_mode
+                || !project.queue.running
+                || project.active_turn.is_some()
+                || project.active_implementation.is_some()
+            {
+                return;
+            }
+            if project.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&project.state.repo_root) {
+                    Ok(lock) => project.queue_lock = Some(lock),
+                    Err(error) => {
+                        project.queue.running = false;
+                        project.queue.last_error = error.to_string();
+                        return;
+                    }
+                }
+            }
+            let pending = project.queue.current_ticket.clone().filter(|ticket| {
+                !project
+                    .implementation_states
+                    .get(ticket)
+                    .is_some_and(|state| state.status == "Done")
+            });
+            let choice = pending.map(|ticket| Ok(Some(ticket))).unwrap_or_else(|| {
+                crate::core::implementation_queue::next_ticket(
+                    &project.task_documents,
+                    &project.implementation_states,
+                )
+            });
+            match choice {
+                Ok(Some(ticket)) => Some(ticket),
+                Ok(None) => {
+                    project.queue.running = false;
+                    project.queue.current_ticket = None;
+                    project.queue.last_error.clear();
+                    if let Err(error) = project.queue.save(&project.state.repo_root) {
+                        project.queue.last_error = error.to_string();
+                    }
+                    project.queue_lock = None;
+                    None
+                }
+                Err(error) => {
+                    project.queue.last_error = error;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(ticket) = next {
+            self.implement_task(ticket);
+        }
     }
 
     /// Derived caches read by other layers through `Surface`.
@@ -528,6 +617,44 @@ impl Surface for PacketApp {
     fn implementation_active(&self, ticket: &str) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.active_implementation_ticket.as_deref() == Some(ticket))
     }
+    fn auto_mode(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.queue.auto_mode)
+    }
+    fn queue_status(&self) -> &str {
+        match &self.screen {
+            Screen::Connected(p) if !p.queue.last_error.is_empty() => &p.queue.last_error,
+            Screen::Connected(p) if p.queue.running => {
+                "Auto queue running — verified tasks merge into the default branch"
+            }
+            _ => "",
+        }
+    }
+    fn set_auto_mode(&mut self, enabled: bool) {
+        if let Screen::Connected(p) = &mut self.screen {
+            let temporary_lock = if p.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
+                    Ok(lock) => Some(lock),
+                    Err(error) => {
+                        p.queue.last_error = error.to_string();
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            p.queue.auto_mode = enabled;
+            if !enabled {
+                p.queue.running = false;
+            }
+            if let Err(error) = p.queue.save(&p.state.repo_root) {
+                p.queue.last_error = error.to_string();
+            }
+            drop(temporary_lock);
+            if !p.queue.running && p.active_implementation.is_none() {
+                p.queue_lock = None;
+            }
+        }
+    }
     fn implement_task(&mut self, ticket: String) {
         if self.is_busy() {
             return;
@@ -535,7 +662,7 @@ impl Surface for PacketApp {
         if let Screen::Connected(p) = &mut self.screen {
             if p.implementation_states
                 .get(&ticket)
-                .is_some_and(|state| state.pr_url.is_some())
+                .is_some_and(|state| state.pr_url.is_some() || state.status == "Done")
             {
                 return;
             }
@@ -546,7 +673,50 @@ impl Surface for PacketApp {
             {
                 return;
             }
-            p.remember_chat(vec![ChatMessage::new(ChatRole::User, format!("Implement ticket {ticket}. Resume its worktree if it exists, verify the result, and create a pull request."), None)]);
+            if p.queue.auto_mode {
+                let selected = p
+                    .task_documents
+                    .iter()
+                    .find(|doc| doc.path == ticket)
+                    .unwrap();
+                if let Err(error) = crate::core::implementation_queue::next_ticket(
+                    std::slice::from_ref(selected),
+                    &p.implementation_states,
+                ) {
+                    p.queue.last_error = error;
+                    return;
+                }
+                if p.queue_lock.is_none() {
+                    match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
+                        Ok(lock) => p.queue_lock = Some(lock),
+                        Err(error) => {
+                            p.queue.last_error = error.to_string();
+                            return;
+                        }
+                    }
+                }
+                p.queue.running = true;
+                p.queue.current_ticket = Some(ticket.clone());
+                p.queue.last_error.clear();
+                if let Err(error) = p.queue.save(&p.state.repo_root) {
+                    p.queue.running = false;
+                    p.queue.last_error = error.to_string();
+                    p.queue_lock = None;
+                    return;
+                }
+            }
+            p.remember_chat(vec![ChatMessage::new(
+                ChatRole::User,
+                format!(
+                    "Implement ticket {ticket}; verify and {}.",
+                    if p.queue.auto_mode {
+                        "merge atomically into the default branch, then continue the queue"
+                    } else {
+                        "create a pull request"
+                    }
+                ),
+                None,
+            )]);
             p.live_progress = crate::harness::LiveProgress {
                 activity: Some("Starting implementation…".into()),
                 ..Default::default()
@@ -555,6 +725,7 @@ impl Surface for PacketApp {
             p.active_implementation = Some(crate::core::implementation::Controller::start(
                 p.state.repo_root.clone(),
                 ticket,
+                p.queue.auto_mode,
             ));
         }
     }
@@ -634,6 +805,12 @@ impl Surface for PacketApp {
         }
         if intent.cancel {
             if let Screen::Connected(p) = &mut self.screen {
+                p.queue.running = false;
+                if p.queue_lock.is_some() {
+                    if let Err(error) = p.queue.save(&p.state.repo_root) {
+                        p.queue.last_error = error.to_string();
+                    }
+                }
                 if let Some(ctrl) = &p.active_implementation {
                     ctrl.request_cancel();
                 }
@@ -880,7 +1057,8 @@ impl PacketApp {
                         None => {
                             d.keep_open = false;
                             d.feedback = Some((true, format!("Saved · checkpoint {sha}")));
-                            self.toasts.success(format!("MCP servers saved · checkpoint {sha}"));
+                            self.toasts
+                                .success(format!("MCP servers saved · checkpoint {sha}"));
                         }
                         Some(parse_error) => {
                             d.keep_open = true;
@@ -889,14 +1067,17 @@ impl PacketApp {
                                  consumers sit outside the planner. Turns \
                                  advertise it verbatim until fixed."
                             ));
-                            d.feedback =
-                                Some((true, format!("Saved · checkpoint {sha} — kept open, see warning")));
+                            d.feedback = Some((
+                                true,
+                                format!("Saved · checkpoint {sha} — kept open, see warning"),
+                            ));
                         }
                     },
                     crate::artifacts::mcp_io::McpSaveOp::Clear => {
                         d.keep_open = false;
                         d.feedback = Some((true, format!("Cleared · checkpoint {sha}")));
-                        self.toasts.success(format!("MCP servers cleared · checkpoint {sha}"));
+                        self.toasts
+                            .success(format!("MCP servers cleared · checkpoint {sha}"));
                     }
                 }
             }
@@ -949,6 +1130,8 @@ mod board_tests {
                 detail: String::new(),
                 pr_url: Some(format!("https://github.com/fixture/repo/pull/{i}")),
                 verified_head: Some("fixture".into()),
+                auto_merge: false,
+                merged_commit: None,
                 pr_state: Some(pr_state.into()),
                 pr_checked_at: None,
                 pr_check_attempted_at: None,
@@ -962,6 +1145,8 @@ mod board_tests {
                 chat_slug: "unused".into(),
                 chat: Vec::new(),
                 draft: String::new(),
+                queue: Default::default(),
+                queue_lock: None,
                 active_implementation: None,
                 active_implementation_ticket: None,
                 implementation_states: states,
@@ -1097,6 +1282,123 @@ mod board_tests {
             "published tasks must not start another agent"
         );
     }
+    #[test]
+    fn auto_queue_runs_two_tasks_through_pi_and_merges_without_prs() {
+        let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
+        struct Restore(Option<std::ffi::OsString>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe {
+                    match self.0.take() {
+                        Some(value) => std::env::set_var("PACKET_PI_BIN", value),
+                        None => std::env::remove_var("PACKET_PI_BIN"),
+                    }
+                }
+            }
+        }
+        let _restore = Restore(std::env::var_os("PACKET_PI_BIN"));
+        let root = std::env::temp_dir().join(format!(
+            "packet-auto-e2e-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let repo = root.join("repo");
+        let remote = root.join("remote.git");
+        std::fs::create_dir_all(repo.join("planning/tasks/fixture")).unwrap();
+        std::fs::create_dir_all(repo.join(".planner")).unwrap();
+        let git = |cwd: &std::path::Path, args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_string()
+        };
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "user.name", "Fixture"]);
+        git(&repo, &["config", "user.email", "fixture@example.test"]);
+        let docs = (1..=2).map(|number| crate::artifacts::task_docs::TaskDocument {
+            path: format!("planning/tasks/fixture/{number:03}-task.md"), title: format!("Task {number}"),
+            text: format!("# Task {number}\n\n## Dependencies\n{}\n\n## Acceptance criteria\n- File exists.\n", if number == 2 { "- [Task 001](001-task.md) must be complete." } else { "None." }),
+        }).collect::<Vec<_>>();
+        for doc in &docs {
+            std::fs::write(repo.join(&doc.path), &doc.text).unwrap();
+        }
+        std::fs::write(repo.join(".planner/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":2}]}).to_string()).unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-qm", "baseline"]);
+        git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
+        git(
+            &repo,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        git(&repo, &["push", "-q", "origin", "main"]);
+        let pi = root.join("pi-fixture");
+        std::fs::write(&pi, r#"#!/usr/bin/python3
+import json, pathlib, sys
+prompt = sys.stdin.read()
+ticket = prompt.split('TICKET PATH: ', 1)[1].splitlines()[0]
+name = pathlib.Path(ticket).stem + '.txt'
+pathlib.Path(name).write_text('implemented')
+report = {'status':'complete','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':'File exists.','evidence':'File exists and was verified'}],'verification':['test -f '+name],'remaining':[]}
+print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
+"#).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&pi, std::fs::Permissions::from_mode(0o700)).unwrap();
+        unsafe {
+            std::env::set_var("PACKET_PI_BIN", &pi);
+        }
+        let mut app = fixture();
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state = crate::core::state::PlannerState::load(&repo).unwrap();
+            project.task_documents = docs.clone();
+            project.implementation_states.clear();
+            project.chat_slug = format!("auto-e2e-{}", std::process::id());
+        }
+        app.implement_task(docs[0].path.clone());
+        let ctx = egui::Context::default();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            app.tick(0.1, &ctx);
+            let finished = matches!(&app.screen, Screen::Connected(project) if !project.queue.running && project.active_implementation.is_none());
+            if finished {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "queue did not finish: {}",
+                app.queue_status()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if let Screen::Connected(project) = &app.screen {
+            assert!(
+                project.queue.last_error.is_empty(),
+                "{}",
+                project.queue.last_error
+            );
+            for doc in &docs {
+                assert_eq!(
+                    project.implementation_states.get(&doc.path).unwrap().status,
+                    "Done"
+                );
+            }
+        }
+        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "3");
+        assert_eq!(git(&remote, &["show", "main:001-task.txt"]), "implemented");
+        assert_eq!(git(&remote, &["show", "main:002-task.txt"]), "implemented");
+        assert!(
+            !crate::core::implementation_queue::Queue::load(&repo)
+                .unwrap()
+                .running
+        );
+        drop(app);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -1112,8 +1414,7 @@ mod tests {
     #[test]
     fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
         let _shield = crate::core::gitops::test_support::shield("caches-mira");
-        let root =
-            std::env::temp_dir().join(format!("packet_caches_mira_{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("packet_caches_mira_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let git = |args: &[&str]| -> std::process::Output {
@@ -1141,6 +1442,8 @@ mod tests {
             chat_slug: "test-slug".into(),
             chat: Vec::new(),
             draft: String::new(),
+            queue: Default::default(),
+            queue_lock: None,
             active_implementation: None,
             active_implementation_ticket: None,
             pr_refresh: None,

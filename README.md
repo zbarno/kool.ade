@@ -66,49 +66,62 @@ such as `saved-searches-02`. Task generation creates plans, not implementation c
 
 ## Implement a ticket
 
-Select a card on the **Task stories** Kanban board and click **Implement**. This starts Pi
-in a dedicated Git worktree on a stable `packet/<ticket>` branch. The worktree starts
-from the latest fetched `origin` version of the connected branch, with a fast-forward
-check. Local commits ahead of origin are retained; diverged branches or fetch failures
-stop before the agent runs. The connected checkout and its uncommitted drafts are
-not modified. Worktrees live in a sibling
-`.packet-worktrees` directory, with execution state and verification evidence under
-Git's private `packet-implementations` metadata directory.
+**Auto mode is enabled by default** on the Task stories board. Click
+**Implement & continue queue** (or **Resume implementation**) to start. Packet
+implements the selected story in its preserved worktree, verifies it, and merges
+it into origin's default branch (`main` or `master`) without creating a PR. It then
+starts the next unfinished story in the current batch, in order, once its linked
+dependencies are Done. Generating stories alone does not start implementation.
 
-**Resume implementation** reopens the same worktree without pulling or rebasing existing work. Pi reviews its status, diffs,
-commits, repository instructions, and ticket dependencies before continuing. Cancel,
-application exit, failed verification, and unavailable GitHub preserve the worktree.
-Changed ticket text requires review and a revised ticket; it cannot silently change
-an existing implementation's scope. A per-ticket lock prevents concurrent writers
-from separate Packet instances.
+Auto publication uses a separate integration worktree based on the latest remote
+default branch. Packet squash-merges the task there, reruns its checks, asks the
+agent to resolve conflicts or fix integration failures when needed, and publishes
+one atomic commit with a normal fast-forward push. A concurrent remote change
+triggers another integration against the new base. Failed verification cannot
+advance the remote branch or the queue. A lost push response is recovered by
+checking the saved commit against the remote history. Clean connected checkouts
+on the default branch are fast-forwarded; dirty or divergent checkouts remain
+untouched. Uncommitted drafts are never copied into task worktrees.
 
-Packet requires a complete implementation report with evidence for every listed
-acceptance criterion, reruns the reported verification commands, checks the diff,
-and commits the result. Malformed reports, missing acceptance evidence, failed
-verification commands, and diff-check failures are sent back to the agent
-with the precise error for up to three automatic correction attempts. Corrections
-reuse the same worktree and share the original time budget. Every response,
-verification result, and correction reason is retained. Explicit blockers,
-cancellation, exhausted time, and the correction limit still stop safely;
-Resume includes the previous stop reason. Agent-launch and publication failures
-remain visible stops rather than triggering implementation corrections. It then pushes to `origin` and creates a GitHub pull request
-against the branch selected when implementation began. The app needs Git commit
-identity, push access to `origin`, and an authenticated GitHub CLI (`gh auth login`).
-It reuses an existing open PR and exposes **Open PR** once publishing succeeds.
-Publishing failures can be retried without repeating a verified implementation when
-the worktree and commit are unchanged. PRs are never automatically merged.
+Disable **Auto mode** to stop queue advancement after the current task and use
+pull requests for future implementations. PR mode starts from the connected
+branch using the latest compatible remote commit, pushes a task branch, and
+creates or reuses a GitHub PR. It requires an authenticated `gh` CLI; Auto mode
+requires Git commit identity and push access, but does not invoke `gh` for
+publication. Branch protection and unavailable credentials remain real blockers.
 
-Verification combines the model's acceptance evidence with actual command results;
-it does not replace human code review. Pi has normal local coding-tool access; the
-worktree is isolation for Git changes, not an operating-system sandbox.
+Queue settings and the current task persist under Git's private metadata, so
+reopening a running queue resumes it. Cancellation pauses the queue. A terminal
+failure also pauses it with the worktree and diagnosis preserved; Resume restarts
+recovery. Queue, ticket, and publication locks prevent competing Packet windows
+from publishing or advancing the same work concurrently.
 
-The task board groups stories into **To do**, **In progress**, **In review**,
-**Needs attention**, and **Done**. Selecting a card opens its full story and actions;
-the batch overview remains available. Packet checks published PRs in the background
-on connection and every minute while the project is open, including implementations
-from previous batches. Open PRs stay in review, merged PRs move to Done, and PRs
-closed without merging need attention. Reopening a closed PR returns it to review
-on the next successful check. GitHub errors retain the last confirmed state and are
-shown on the board. State is persisted in Git's private implementation metadata;
-polling does not edit or commit story documents. Published tasks link to their PR
-instead of starting a duplicate implementation.
+Packet automatically retries harness failures, including an empty final response.
+The Pi event reader can recover a completed final message from `agent_end`.
+Implementation agents also write a per-attempt JSON report file before responding;
+Packet can recover that report if the CLI loses its final message, and still
+validates the report and reruns verification before committing anything.
+
+Report errors and verification failures each receive three normal corrections.
+When these are exhausted, two root-cause repair attempts ask the agent to fix the
+preventable cause in the current worktree and add regression coverage. Repeated
+harness failures similarly escalate to a repair request, with at most six calls
+that fail at the harness boundary. Recovery shares the original time budget and
+preserves cancellation. Valid explicit blockers, inability to run the agent,
+exhausted recovery, and expired budgets still stop safely; recovery does not bypass
+checks, credentials, or branch protection. Task changes and verified recovery
+fixes are committed together atomically. Response files, failure history, and
+verification evidence remain under `packet-implementations`; Pi event streams
+remain under `packet-harness` in Git metadata.
+
+Verification commands run in independent POSIX `/bin/sh` processes starting at
+the worktree. `$PACKET_WORKTREE` supplies its absolute path even after `cd`;
+use `"$PACKET_WORKTREE/Cargo.toml"` for temporary-fixture checks. Shell variables
+do not carry between commands. Prompts require executable commands, assertions,
+and propagation of failures rather than pipelines that hide exit codes.
+
+The Kanban board groups tasks into To do, In progress, In review, Needs attention,
+and Done. Existing PRs are checked every minute while connected: merged PRs become
+Done, closed PRs need attention, and reopened PRs return to review. Failed checks
+retain the last confirmed state. Task and queue state stay outside tracked story
+documents. Previously published tasks are not implemented again.

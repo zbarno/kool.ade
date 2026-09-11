@@ -653,6 +653,8 @@ mod tests {
             chat_slug: "test-slug".into(),
             chat: Vec::new(),
             draft: String::new(),
+            queue: Default::default(),
+            queue_lock: None,
             active_implementation: None,
             active_implementation_ticket: None,
             pr_refresh: None,

@@ -108,7 +108,7 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
     if line.is_empty() {
         return;
     }
-    if skip_heavy(line) == Some(true) {
+    if skip_heavy(line) == Some(true) && !sink.final_assistant_text.is_empty() {
         sink.saw_agent_end = true;
         return;
     }
@@ -121,7 +121,25 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
     sink.events_seen += 1;
     let ty = v.get("type").and_then(Value::as_str).unwrap_or("");
     match ty {
-        "agent_end" => sink.saw_agent_end = true,
+        "agent_end" => {
+            sink.saw_agent_end = true;
+            if sink.final_assistant_text.is_empty() {
+                if let Some(message) = v
+                    .get("messages")
+                    .and_then(Value::as_array)
+                    .and_then(|messages| messages.last())
+                {
+                    if message.get("role").and_then(Value::as_str) == Some("assistant")
+                        && !matches!(
+                            message.get("stopReason").and_then(Value::as_str),
+                            Some("toolUse" | "error" | "aborted")
+                        )
+                    {
+                        sink.final_assistant_text = assistant_text(Some(message));
+                    }
+                }
+            }
+        }
         "tool_execution_start" => {
             let tool = v.get("toolName").and_then(Value::as_str).unwrap_or("tool");
             let args = v
@@ -136,6 +154,7 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
         }
         "message_start" => {
             if v.pointer("/message/role").and_then(Value::as_str) == Some("assistant") {
+                sink.final_assistant_text.clear();
                 let preview = sink.preview();
                 sink.prior_thoughts = preview.thoughts;
                 sink.prior_response = preview.response;
@@ -176,7 +195,15 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
         "message_end" => {
             let msg = v.get("message");
             if msg.and_then(|m| m.get("role")).and_then(Value::as_str) == Some("assistant") {
-                sink.final_assistant_text = assistant_text(msg);
+                sink.final_assistant_text = if matches!(
+                    msg.and_then(|m| m.get("stopReason"))
+                        .and_then(Value::as_str),
+                    Some("toolUse" | "error" | "aborted")
+                ) {
+                    String::new()
+                } else {
+                    assistant_text(msg)
+                };
                 if let Some(blocks) = msg.and_then(|m| m.get("content")).and_then(Value::as_array) {
                     for (index, b) in blocks.iter().enumerate() {
                         let kind = b.get("type").and_then(Value::as_str).unwrap_or("");
@@ -281,7 +308,7 @@ mod tests {
         assert!(f.saw_agent_end);
         fold_line("npm WARN something", &mut f);
         assert_eq!(f.unparsed_lines, 0);
-        assert_eq!(f.events_seen, 0);
+        assert_eq!(f.events_seen, 1);
     }
     fn delta(f: &mut EventFold, kind: &str, index: usize, value: &str) {
         fold_line(
@@ -390,5 +417,33 @@ mod tests {
         fold_line(&text_msg(&text), &mut f);
         assert_eq!(f.final_assistant_text, text);
         assert!(!f.saw_agent_end);
+    }
+    #[test]
+    fn agent_end_recovers_missing_message_end_but_not_unfinished_tools() {
+        let mut fold = EventFold::default();
+        fold_line(
+            r#"{"type":"agent_end","messages":[{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"complete report"}]}]}"#,
+            &mut fold,
+        );
+        assert_eq!(fold.final_assistant_text, "complete report");
+        for last in [
+            serde_json::json!({"role":"toolResult","content":"tool output"}),
+            serde_json::json!({"role":"assistant","stopReason":"toolUse","content":[{"type":"text","text":"not final"}]}),
+        ] {
+            let mut fold = EventFold::default();
+            fold_line(&serde_json::json!({"type":"agent_end","messages":[{"role":"assistant","content":"old summary"},last]}).to_string(), &mut fold);
+            assert!(fold.final_assistant_text.is_empty());
+        }
+    }
+
+    #[test]
+    fn pending_assistant_does_not_reuse_an_earlier_completed_message() {
+        let mut fold = EventFold::default();
+        fold_line(&text_msg("old summary"), &mut fold);
+        fold_line(
+            r#"{"type":"message_start","message":{"role":"assistant"}}"#,
+            &mut fold,
+        );
+        assert!(fold.final_assistant_text.is_empty());
     }
 }

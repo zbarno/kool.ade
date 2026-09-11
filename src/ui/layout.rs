@@ -216,6 +216,20 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
 }
 
 fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    let mut auto_mode = s.auto_mode();
+    if ui.checkbox(&mut auto_mode, "Auto mode — merge verified tasks and continue the queue").on_hover_text("Enabled by default. Implement starts the queue. Disable to stop after the current task and use pull requests for future tasks.").changed() { s.set_auto_mode(auto_mode); }
+    if !s.queue_status().is_empty() {
+        ui.label(s.queue_status().lines().next().unwrap_or_default());
+        if s.queue_status().contains('\n') {
+            ui.collapsing("Queue recovery details", |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(160.0)
+                    .show(ui, |ui| {
+                        ui.label(s.queue_status());
+                    });
+            });
+        }
+    }
     let docs = s.task_documents().to_vec();
     if let Some(progress) = docs.iter().find(|d| d.path.ends_with("/README.md")) {
         ui.label(RichText::new(&progress.title).weak());
@@ -326,8 +340,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 ui.label(RichText::new(status).size(12.0).weak());
                 if let Some(url) = &record.pr_url { ui.hyperlink_to("Open PR", url); }
             }
-            let label = if state.is_some() { "Resume implementation" } else { "Implement" };
-            if state.as_ref().is_none_or(|record| record.pr_url.is_none()) && ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then push and create a GitHub pull request. Existing work is preserved on resume. New tasks fetch the latest remote base with fast-forward checks. Resume preserves the existing worktree.").clicked() {
+            let label = if state.is_some() { "Resume implementation" } else if s.auto_mode() { "Implement & continue queue" } else { "Implement" };
+            if state.as_ref().is_none_or(|record| record.pr_url.is_none() && record.status != "Done") && ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then publish using the selected Auto or pull-request mode. Existing work is preserved on resume. New tasks fetch the latest remote base with fast-forward checks. Resume preserves the existing worktree.").clicked() {
                 s.implement_task(ticket.clone());
             }
         });
@@ -351,7 +365,22 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 ui.label("PR closed without merging. Reopen the PR on GitHub to return this task to review.");
             }
             if record.status == "Needs attention" {
-                ui.label(&record.detail);
+                ui.collapsing("Recovery details", |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(160.0)
+                        .show(ui, |ui| {
+                            ui.label(&record.detail);
+                        });
+                });
+            }
+            if record.status == "Done" {
+                if let Some(commit) = &record.merged_commit {
+                    ui.label(format!(
+                        "Merged into {} · {}",
+                        record.base,
+                        &commit[..commit.len().min(12)]
+                    ));
+                }
             }
         }
     }

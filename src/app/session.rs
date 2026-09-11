@@ -15,6 +15,8 @@ pub struct Project {
     pub chat_slug: String,
     pub chat: Vec<ChatMessage>,
     pub draft: String,
+    pub queue: crate::core::implementation_queue::Queue,
+    pub queue_lock: Option<std::fs::File>,
     pub active_implementation_ticket: Option<String>,
     pub active_implementation: Option<crate::core::implementation::Controller>,
     pub implementation_states:

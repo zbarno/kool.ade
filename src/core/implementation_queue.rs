@@ -1,0 +1,198 @@
+//! Durable Auto-mode preferences and dependency-aware queue selection.
+use crate::{artifacts::task_docs::TaskDocument, core::implementation::Implementation};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Queue {
+    pub auto_mode: bool,
+    pub running: bool,
+    pub current_ticket: Option<String>,
+    pub last_error: String,
+}
+impl Default for Queue {
+    fn default() -> Self {
+        Self {
+            auto_mode: true,
+            running: false,
+            current_ticket: None,
+            last_error: String::new(),
+        }
+    }
+}
+fn directory(repo: &Path) -> anyhow::Result<PathBuf> {
+    let result = std::process::Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(repo)
+        .output()?;
+    anyhow::ensure!(result.status.success(), "Cannot locate queue metadata");
+    Ok(PathBuf::from(String::from_utf8(result.stdout)?.trim()))
+}
+impl Queue {
+    pub fn load(repo: &Path) -> anyhow::Result<Self> {
+        match fs::read(directory(repo)?.join("packet-queue.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(error) => Err(error.into()),
+        }
+    }
+    pub fn save(&self, repo: &Path) -> anyhow::Result<()> {
+        let path = directory(repo)?.join("packet-queue.json");
+        let temp = path.with_extension(format!("{}.tmp", std::process::id()));
+        fs::write(&temp, serde_json::to_vec_pretty(self)?)?;
+        fs::rename(temp, path)?;
+        Ok(())
+    }
+    pub fn acquire(repo: &Path) -> anyhow::Result<fs::File> {
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(directory(repo)?.join("packet-queue.lock"))?;
+        lock.try_lock().map_err(|_| {
+            anyhow::anyhow!("Auto queue is already running in another Packet window")
+        })?;
+        Ok(lock)
+    }
+}
+
+pub fn next_ticket(
+    docs: &[TaskDocument],
+    states: &BTreeMap<String, Implementation>,
+) -> Result<Option<String>, String> {
+    let mut docs = docs
+        .iter()
+        .filter(|doc| !doc.path.ends_with("/README.md"))
+        .collect::<Vec<_>>();
+    docs.sort_by_key(|doc| &doc.path);
+    let done = |path: &str| {
+        states.get(path).is_some_and(|state| {
+            state.status == "Done" || state.pr_state.as_deref() == Some("MERGED")
+        })
+    };
+    for doc in docs {
+        if done(&doc.path) {
+            continue;
+        }
+        if states
+            .get(&doc.path)
+            .is_some_and(|state| state.pr_url.is_some())
+        {
+            return Err(format!(
+                "Waiting for the existing PR for {} to merge",
+                doc.title
+            ));
+        }
+        let mut in_dependencies = false;
+        let mut dependencies = String::new();
+        for line in doc.text.lines() {
+            if line.starts_with("## ") {
+                in_dependencies = line.trim().eq_ignore_ascii_case("## Dependencies");
+                continue;
+            }
+            if in_dependencies {
+                dependencies.push_str(line);
+                dependencies.push('\n');
+            }
+        }
+        for event in pulldown_cmark::Parser::new(&dependencies) {
+            if let pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) = event
+            {
+                let dependency = Path::new(&*dest_url);
+                if dependency.components().count() != 1 || !dest_url.ends_with(".md") {
+                    return Err(format!(
+                        "Review unsupported dependency link {dest_url} in {}",
+                        doc.title
+                    ));
+                }
+                let path = Path::new(&doc.path).parent().unwrap().join(dependency);
+                if !done(&path.to_string_lossy()) {
+                    return Err(format!(
+                        "{} is waiting for dependency {dest_url}",
+                        doc.title
+                    ));
+                }
+            }
+        }
+        return Ok(Some(doc.path.clone()));
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn doc(n: usize, dependencies: &str) -> TaskDocument {
+        TaskDocument {
+            path: format!("planning/tasks/fixture/{n:03}-task.md"),
+            title: format!("Task {n}"),
+            text: format!(
+                "# Task {n}\n\n## Dependencies\n{dependencies}\n\n## Acceptance criteria\n- Done."
+            ),
+        }
+    }
+    fn done(ticket: &str) -> Implementation {
+        serde_json::from_value(serde_json::json!({"ticket":ticket,"ticket_text":"","branch":"task","base":"main","base_commit":"base","worktree":"fixture","status":"Done","detail":"","pr_url":null,"verified_head":"head"})).unwrap()
+    }
+    #[test]
+    fn queue_advances_in_order_and_waits_for_dependencies() {
+        let docs = vec![
+            doc(2, "- [Task 001](001-task.md) must be complete."),
+            doc(1, "None."),
+        ];
+        let mut states = BTreeMap::new();
+        assert_eq!(
+            next_ticket(&docs, &states).unwrap(),
+            Some(docs[1].path.clone())
+        );
+        states.insert(docs[1].path.clone(), done(&docs[1].path));
+        assert_eq!(
+            next_ticket(&docs, &states).unwrap(),
+            Some(docs[0].path.clone())
+        );
+        states.insert(docs[0].path.clone(), done(&docs[0].path));
+        assert_eq!(next_ticket(&docs, &states).unwrap(), None);
+        assert!(
+            next_ticket(&[doc(1, "- [missing](009-task.md)")], &BTreeMap::new())
+                .unwrap_err()
+                .contains("waiting")
+        );
+    }
+    #[test]
+    fn preferences_and_inflight_ticket_survive_restart_and_lock_excludes_another_window() {
+        let root = std::env::temp_dir().join(format!(
+            "packet-queue-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let mut queue = Queue::load(&root).unwrap();
+        assert!(queue.auto_mode);
+        assert!(!queue.running);
+        let lock = Queue::acquire(&root).unwrap();
+        assert!(Queue::acquire(&root).is_err());
+        queue.running = true;
+        queue.current_ticket = Some("planning/tasks/fixture/001-task.md".into());
+        queue.save(&root).unwrap();
+        drop(lock);
+        let _new_lock = Queue::acquire(&root).unwrap();
+        let loaded = Queue::load(&root).unwrap();
+        assert!(loaded.running && loaded.auto_mode);
+        assert_eq!(loaded.current_ticket, queue.current_ticket);
+        drop(_new_lock);
+        fs::remove_dir_all(root).unwrap();
+    }
+}

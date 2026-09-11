@@ -216,6 +216,33 @@ impl AiHarness for PiHarness {
         if req.implementation {
             argv.retain(|arg| arg != "--no-context-files");
         }
+        let mut diagnostics = if req.implementation {
+            let output = std::process::Command::new("git")
+                .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+                .current_dir(&req.repo_root)
+                .output()
+                .map_err(|e| AppError::Other(e.to_string()))?;
+            if !output.status.success() {
+                return Err(AppError::Other(
+                    "Cannot locate harness diagnostics directory".into(),
+                ));
+            }
+            let directory = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+                .join("packet-harness");
+            std::fs::create_dir_all(&directory).map_err(|e| AppError::Other(e.to_string()))?;
+            let path = directory.join(format!(
+                "{}-events.jsonl",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+            ));
+            let file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
+                .map_err(|e| AppError::Other(e.to_string()))?;
+            Some((path, file))
+        } else {
+            None
+        };
         let task = crate::harness::pi_proc::spawn_with_input(
             &argv,
             &req.repo_root,
@@ -258,6 +285,12 @@ impl AiHarness for PiHarness {
             match task.poll_next(Duration::from_millis(200)) {
                 Err(crate::harness::pi_proc::PollState::Pending) => continue,
                 Ok(StreamEvt::Stdout(line)) => {
+                    if let Some((_, file)) = diagnostics.as_mut() {
+                        use std::io::Write;
+                        writeln!(file, "{line}").map_err(|e| {
+                            AppError::Other(format!("Cannot write harness diagnostics: {e}"))
+                        })?;
+                    }
                     crate::harness::pi_events::fold_line(&line, &mut fold);
                     preview_dirty = true;
                 }
@@ -296,7 +329,16 @@ impl AiHarness for PiHarness {
         let final_text = std::mem::take(&mut fold.final_assistant_text);
         if final_text.trim().is_empty() {
             return Err(AppError::HarnessFailed {
-                reason: "pi finished but produced no final assistant message".into(),
+                reason: format!(
+                    "pi finished but produced no final assistant message ({} parsed events, {} unparsed lines, agent_end={}; diagnostics: {})",
+                    fold.events_seen,
+                    fold.unparsed_lines,
+                    fold.saw_agent_end,
+                    diagnostics
+                        .as_ref()
+                        .map(|(path, _)| path.display().to_string())
+                        .unwrap_or_else(|| "not recorded for planning turns".into())
+                ),
                 stderr_tail: tail(&stderr_tail),
             });
         }
@@ -408,7 +450,11 @@ mod tests {
         );
         // No fall-through claim: the searched-sources boilerplate is absent
         // because an invalid override stops discovery before PATH/home scans.
-        assert!(!rep.diagnostic.contains("searched PATH"), "got: {}", rep.diagnostic);
+        assert!(
+            !rep.diagnostic.contains("searched PATH"),
+            "got: {}",
+            rep.diagnostic
+        );
         assert_eq!(rep.status, label, "status drifted from label()");
     }
 
@@ -483,10 +529,18 @@ mod tests {
         assert!(rep.status.starts_with("pi "), "status: {}", rep.status);
         if rep.ok {
             assert!(rep.binary.is_some(), "ok requires a winning binary");
-            assert!(!rep.status.contains("(unavailable"), "status: {}", rep.status);
+            assert!(
+                !rep.status.contains("(unavailable"),
+                "status: {}",
+                rep.status
+            );
             assert!(rep.diagnostic.is_empty(), "diagnostic: {}", rep.diagnostic);
         } else {
-            assert!(rep.status.contains("(unavailable"), "status: {}", rep.status);
+            assert!(
+                rep.status.contains("(unavailable"),
+                "status: {}",
+                rep.status
+            );
         }
         if let Some(bin) = &rep.binary {
             assert!(bin.is_file(), "reported binary vanished: {bin:?}");

@@ -39,6 +39,9 @@ pub trait Surface {
     ) -> Option<&crate::core::implementation::Implementation>;
     fn implementation_active(&self, ticket: &str) -> bool;
     fn implement_task(&mut self, ticket: String);
+    fn auto_mode(&self) -> bool;
+    fn set_auto_mode(&mut self, enabled: bool);
+    fn queue_status(&self) -> &str;
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     // ------- items pane -------
     fn items(&self) -> &[OpenItem];

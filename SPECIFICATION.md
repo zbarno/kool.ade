@@ -1104,46 +1104,49 @@ git checkpoint, and the latest batch can be read in the Task stories tab. Produc
 task files does not authorize executing them.
 
 
-## Ticket implementation and pull requests
-
-Each numbered story offers an Implement action. Selecting it authorizes Pi to
-implement that ticket in a dedicated worktree and Packet to publish the verified
-result as a GitHub pull request. A stable branch and persisted worktree identity
-allow Resume implementation to review existing changes and continue after failure,
-cancellation, or restart. Original-checkout drafts are not copied or modified.
-Repository AGENTS.md instructions apply during implementation.
-
-The application records execution status and evidence outside tracked planning
-artifacts, prevents concurrent execution of the same ticket, and refuses changed
-ticket scope or mismatched worktrees. Pi must report evidence for every listed
-acceptance criterion and no remaining work. Packet reruns verification commands,
-checks the diff, commits the result, pushes to origin, and creates or reuses a PR
-against the original starting branch. Failed checks never create a PR. A publishing
-retry can reuse an unchanged verified commit. No automatic merging occurs.
-
-
-New implementations fetch the connected branch from origin and start from the
-latest commit compatible with a fast-forward. Local commits ahead of origin are
-preserved; divergent history and fetch failures stop execution before Pi starts.
-The original checkout is unchanged. Resume retains the existing base and worktree.
+## Ticket implementation, recovery, and Auto mode
 
 Task stories appear on a Kanban board with To do, In progress, In review, Needs
-attention, and Done columns. Cards select the story detail and its available action.
-Background PR checks run on connection and every minute while connected. GitHub's
-confirmed OPEN, CLOSED, and MERGED states drive review, attention, and completion;
-closed PRs may return to review if reopened. Polling uses the per-ticket execution
-lock, persists status outside tracked planning artifacts, and preserves the last
-confirmed state on errors with visible stale-state feedback. PRs from older task
-batches are also refreshed. Published tickets expose their PR rather than allowing
-a duplicate implementation. Confirmed merged PRs no longer require polling.
+attention, and Done columns. Auto mode defaults to enabled. Selecting Implement
+or Resume in Auto mode authorizes implementation of that story and subsequent
+unfinished stories in the current batch, respecting linked task dependencies.
+Task generation alone does not start the queue. Turning Auto mode off stops queue
+advancement after the active task and selects PR publication for future work.
 
+Each task has a stable isolated worktree and persisted identity. Resume preserves
+existing changes and receives the prior failure history. Repository instructions
+apply. Changed scope and mismatched worktree identity stop safely. Task, queue,
+and publication locks prevent concurrent writers across Packet instances. Queue
+preferences, the active ticket, and running state persist in Git-private metadata.
+Reopening an active queue resumes it; cancellation or terminal failure pauses it.
 
-Implementation report parsing, acceptance-evidence validation, verification-command
-failures, and diff-check failures trigger up to three automatic corrections after
-the initial attempt. Each correction receives the precise error and preceding
-response, preserves the same worktree, and uses only the remaining original turn
-budget. Attempt responses, verification results, and correction reasons remain
-immutable artifacts. Explicit blockers, cancellation, expired budgets, changed
-worktree identity, and exhausted corrections stop without publishing. Manual resume
-includes the saved stop reason. Transport and publication errors do not restart
-implementation automatically.
+Harness errors are retried within the original deadline. Pi can recover final
+assistant text from a terminal agent_end payload without accepting unfinished tool
+output. Per-attempt report files provide a second durable completion channel.
+Recovered reports still pass full acceptance and command verification. Event
+streams, report attempts, errors, and verification results remain diagnostic
+artifacts. The agent receives cumulative failure history, exact shell semantics,
+and the absolute PACKET_WORKTREE path. Report and verification errors each receive
+three normal corrections; exhausted corrections trigger two root-cause repair
+attempts with regression coverage in the same worktree. Harness failures escalate
+after three failures and stop after six if no useful response can be obtained.
+Explicit external blockers, cancellation, deadline expiry, and exhausted recovery
+remain terminal. No validation or access controls are bypassed.
+
+Packet verifies and commits task changes and recovery fixes atomically. Auto mode
+starts from origin's default branch and integrates the verified task into a separate
+worktree at the latest remote commit. Squash merging, conflict repair, and fresh
+verification precede a single atomic main-branch commit. Normal fast-forward
+pushes prevent overwriting concurrent remote work; publication retries refetch and
+reintegrate if necessary. Persisted candidate commits detect success after a lost
+push response. Only confirmed publication marks the task Done and advances the
+queue. A clean connected default-branch checkout may fast-forward afterward;
+drafts and divergent local history remain unchanged. Auto publication needs Git
+push access but no GitHub PR or gh CLI.
+
+PR mode remains available: it uses the connected branch and a compatible fetched
+base, creates or reuses an open PR, and does not advance automatically. Existing
+PR status is refreshed every minute while connected, including previous batches;
+OPEN, CLOSED, and MERGED map to review, attention, and completion. Errors preserve
+the last confirmed state. Merged and automatically published tasks cannot start a
+duplicate implementation. Status polling never rewrites tracked task documents.
