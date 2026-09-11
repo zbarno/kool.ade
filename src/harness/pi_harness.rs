@@ -11,7 +11,7 @@
 //! Working directory = the connected repository, so pi's own read/bash tools
 //! inspect the codebase directly (§18).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::error::AppError;
@@ -25,10 +25,37 @@ use super::{AiHarness, HarnessOutcome, PlanningRequest, TurnEnvelope};
 pub const PI_BINARY_ENV: &str = "PACKET_PI_BIN";
 /// Wall-clock budget for the availability probe.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+/// Home-relative install sites scanned LAST by [`PiHarness::locate_binary`]
+/// (`$HOME/<site>/pi`, in this order, after `PACKET_PI_BIN` and `PATH`).
+/// SINGLE SOURCE for that tier: the F-16 in-app setup guide composes its
+/// discovery-order lines from this constant, so the rendered order can never
+/// drift from the executed order (D-15).
+pub const COMMON_HOME_SITES: [&str; 3] = [".npm-global/bin", ".local/bin", ".pi/bin"];
 
 /// The single MVP harness. Construct once; the app may hold it behind an Arc.
 #[derive(Default)]
 pub struct PiHarness;
+
+/// Display-purpose snapshot from [`PiHarness::probe_report`], consumed by the
+/// F-16 setup-guide section of the settings card (D-15). Purely rendered —
+/// nothing durable is derived from it, and it never gates turns/connect/save.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeReport {
+    /// Status line in `label()` shape: `"pi {version}"` on success, or
+    /// `"pi (unavailable: {headline})"` otherwise. Byte-identical to
+    /// `PiHarness::label()` observed in the same environment state
+    /// (parity invariant, pinned by test).
+    pub status: String,
+    /// Actionable diagnosis (`AppError::detail`): names the bad override or
+    /// the searched sources. Empty when `ok`.
+    pub diagnostic: String,
+    /// The winning binary, when discovery itself succeeded (present even if
+    /// the version probe later failed, so the guide shows WHICH binary was
+    /// found beside why it failed). `None` when discovery failed outright.
+    pub binary: Option<PathBuf>,
+    /// `true` only when discovery AND the version probe both succeeded.
+    pub ok: bool,
+}
 
 impl PiHarness {
     /// Locate the pi executable: `PACKET_PI_BIN` → `PATH` → common homes.
@@ -54,11 +81,8 @@ impl PiHarness {
         }
         let home = std::env::var_os("HOME").map(|h| h.to_string_lossy().into_owned());
         if let Some(home) = home {
-            for cand in [
-                format!("{home}/.npm-global/bin/pi"),
-                format!("{home}/.local/bin/pi"),
-                format!("{home}/.pi/bin/pi"),
-            ] {
+            for site in COMMON_HOME_SITES {
+                let cand = format!("{home}/{site}/pi");
                 let p = Path::new(&cand);
                 if p.is_file() && is_executable(p) {
                     return Ok(p.to_path_buf());
@@ -72,33 +96,46 @@ impl PiHarness {
             ),
         })
     }
-}
 
-fn is_executable(p: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        p.metadata()
-            .map(|m| m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false)
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = p;
-        true
-    }
-}
-
-impl AiHarness for PiHarness {
-    fn label(&self) -> String {
-        match self.check_available() {
-            Ok(version) => format!("pi {version}"),
-            Err(e) => format!("pi (unavailable: {})", e.headline()),
+    /// Display-purpose probe for the F-16 setup guide (D-15): locates the
+    /// binary and, when found, runs the version probe. Panic-free — every
+    /// arm is matched and spawn/process errors map to `AppError`.
+    ///
+    /// Construction table (`status` keeps byte parity with
+    /// [`label`](super::AiHarness::label)):
+    /// * locate fails           → `ok=false, binary=None,       status=pi (unavailable: {headline}), diagnostic=detail`
+    /// * locate ok, probe fails → `ok=false, binary=Some(exe),  status=pi (unavailable: {headline}), diagnostic=detail`
+    /// * locate ok, probe ok    → `ok=true,  binary=Some(exe),  status=pi {version},                   diagnostic=""`
+    pub fn probe_report() -> ProbeReport {
+        match Self::locate_binary() {
+            Err(e) => ProbeReport {
+                status: format!("pi (unavailable: {})", e.headline()),
+                diagnostic: e.detail(),
+                binary: None,
+                ok: false,
+            },
+            Ok(exe) => match Self::probe_version(&exe) {
+                Ok(version) => ProbeReport {
+                    status: format!("pi {version}"),
+                    diagnostic: String::new(),
+                    binary: Some(exe),
+                    ok: true,
+                },
+                Err(e) => ProbeReport {
+                    status: format!("pi (unavailable: {})", e.headline()),
+                    diagnostic: e.detail(),
+                    binary: Some(exe),
+                    ok: false,
+                },
+            },
         }
     }
 
-    fn check_available(&self) -> Result<String, AppError> {
-        let exe = Self::locate_binary()?;
+    /// Run `<exe> --version` and pull the display-only version out of the
+    /// first stdout line: 10 s poll budget, 2 s settle. Body lifted verbatim
+    /// from `check_available`, which now delegates here (behavior and the
+    /// `AiHarness` contract are unchanged).
+    fn probe_version(exe: &Path) -> Result<String, AppError> {
         let task = crate::harness::pi_proc::spawn(
             &[exe.to_string_lossy().into_owned(), "--version".into()],
             Path::new("."),
@@ -128,6 +165,35 @@ impl AiHarness for PiHarness {
             });
         }
         Ok(extract_version(&version))
+    }
+}
+
+fn is_executable(p: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        p.metadata()
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = p;
+        true
+    }
+}
+
+impl AiHarness for PiHarness {
+    fn label(&self) -> String {
+        match self.check_available() {
+            Ok(version) => format!("pi {version}"),
+            Err(e) => format!("pi (unavailable: {})", e.headline()),
+        }
+    }
+
+    fn check_available(&self) -> Result<String, AppError> {
+        let exe = Self::locate_binary()?;
+        Self::probe_version(&exe)
     }
 
     fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
@@ -309,5 +375,121 @@ mod tests {
             }
         };
         assert!(matches!(res, Err(AppError::HarnessNotFound { .. })));
+    }
+
+    /// A bogus-but-set override FAILS FAST through the report path: no
+    /// binary, no fall-through claim, the exact coarse status line, and the
+    /// actionable override text in `diagnostic`. Parity invariant: under the
+    /// same forced state the report status is byte-identical to `label()`.
+    #[test]
+    fn probe_report_bogus_override_fast_fails_with_label_parity() {
+        let _shield = crate::core::gitops::test_support::shield("probe-bogus-env");
+        let prev = std::env::var_os(PI_BINARY_ENV);
+        // SAFETY: serialized by the shield; the pre-existing value is
+        // restored unconditionally before any assertion runs.
+        unsafe { std::env::set_var(PI_BINARY_ENV, "/nonexistent-packet-selftest/pi") };
+        let rep = PiHarness::probe_report();
+        // Trait label under the IDENTICALLY forced state (captured before
+        // restoring so the parity comparison spans one environment state).
+        let label = (<PiHarness as AiHarness>::label)(&PiHarness);
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var(PI_BINARY_ENV, v),
+                None => std::env::remove_var(PI_BINARY_ENV),
+            }
+        };
+        assert!(!rep.ok, "bogus override must not report ok");
+        assert!(rep.binary.is_none(), "failed discovery has no binary");
+        assert_eq!(rep.status, "pi (unavailable: Pi harness not found)");
+        assert!(
+            rep.diagnostic.contains("is not an executable file"),
+            "diagnostic must carry the fast-fail text, got: {}",
+            rep.diagnostic
+        );
+        // No fall-through claim: the searched-sources boilerplate is absent
+        // because an invalid override stops discovery before PATH/home scans.
+        assert!(!rep.diagnostic.contains("searched PATH"), "got: {}", rep.diagnostic);
+        assert_eq!(rep.status, label, "status drifted from label()");
+    }
+
+    /// SIMULATED NOT-FOUND (host-agnostic): exactly the "no pi anywhere
+    /// discoverable and no override set" state — every PATH entry that
+    /// actually provides a `pi` is dropped, HOME points nowhere, and the
+    /// override is unset — while the rest of the machine (git et al.) keeps
+    /// working. Pins the exact unavailable values, including the actionable
+    /// override hint in `diagnostic`. Green with or without pi installed.
+    #[test]
+    fn probe_report_without_any_discoverable_pi_names_the_override() {
+        // Restore-on-drop guards so an assertion failure cannot leak the
+        // narrowed environment into siblings.
+        struct EnvRestore(&'static str, Option<std::ffi::OsString>);
+        impl Drop for EnvRestore {
+            fn drop(&mut self) {
+                // SAFETY: serialized by the global test lock held below; the
+                // ambient value is restored exactly once, unconditionally.
+                unsafe {
+                    match self.1.clone() {
+                        Some(v) => std::env::set_var(self.0, v),
+                        None => std::env::remove_var(self.0),
+                    }
+                }
+            }
+        }
+        let _shield = crate::core::gitops::test_support::shield("probe-notfound-env");
+        let prev_home = std::env::var_os("HOME");
+        let prev_path = std::env::var_os("PATH");
+        let prev_override = std::env::var_os(PI_BINARY_ENV);
+        let keep: Vec<PathBuf> = match prev_path.as_ref() {
+            Some(p) => std::env::split_paths(&p)
+                .filter(|d| !d.join("pi").is_file())
+                .collect(),
+            None => Vec::new(),
+        };
+        let narrowed = std::env::join_paths(if keep.is_empty() {
+            [PathBuf::from("/usr/bin"), PathBuf::from("/bin")]
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            keep.clone()
+        })
+        .unwrap_or_else(|_| "/usr/bin:/bin".into());
+        // SAFETY: env mutations are guarded by the global test lock, and
+        // every one of them is restored by the Drop guards (even on panic).
+        unsafe {
+            std::env::set_var("HOME", "/nonexistent-packet-selftest-home");
+            std::env::set_var("PATH", narrowed);
+            std::env::remove_var(PI_BINARY_ENV);
+        }
+        let _guard_home = EnvRestore("HOME", prev_home);
+        let _guard_path = EnvRestore("PATH", prev_path);
+        let _guard_override = EnvRestore(PI_BINARY_ENV, prev_override);
+        let rep = PiHarness::probe_report();
+        assert!(!rep.ok, "undiscoverable pi must not report ok");
+        assert!(rep.binary.is_none(), "no binary may win: {:?}", rep.binary);
+        assert_eq!(rep.status, "pi (unavailable: Pi harness not found)");
+        assert!(
+            rep.diagnostic.contains("set PACKET_PI_BIN to override"),
+            "diagnostic must name the override remedy: {}",
+            rep.diagnostic
+        );
+    }
+
+    /// Host-agnostic invariant (green on pi-installed and pi-less CI alike):
+    /// status always keeps the label shape, `ok` agrees with the binary and
+    /// the "(unavailable" marker, and a reported binary is a real file.
+    #[test]
+    fn probe_report_invariants_hold_on_any_host() {
+        let rep = PiHarness::probe_report();
+        assert!(rep.status.starts_with("pi "), "status: {}", rep.status);
+        if rep.ok {
+            assert!(rep.binary.is_some(), "ok requires a winning binary");
+            assert!(!rep.status.contains("(unavailable"), "status: {}", rep.status);
+            assert!(rep.diagnostic.is_empty(), "diagnostic: {}", rep.diagnostic);
+        } else {
+            assert!(rep.status.contains("(unavailable"), "status: {}", rep.status);
+        }
+        if let Some(bin) = &rep.binary {
+            assert!(bin.is_file(), "reported binary vanished: {bin:?}");
+        }
     }
 }

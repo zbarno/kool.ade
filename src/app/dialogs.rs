@@ -76,6 +76,12 @@ pub struct DlgSettings {
     pub identity_note: String,
     pub rows: Vec<Row>,
     pub feedback: Option<(bool, String)>,
+    /// Per-open background probe (F-16 guide, D-15): `Some` while the
+    /// detached thread may still deliver its report; drained by
+    /// `paint_harness_guide`, then dropped.
+    pub probe_rx: Option<std::sync::mpsc::Receiver<ProbeReport>>,
+    /// Live guide state: pending until the probe thread replies.
+    pub probe_view: ProbeView,
 }
 
 impl DlgSettings {
@@ -123,6 +129,19 @@ impl DlgSettings {
             identity_note,
             rows,
             feedback: None,
+            // Per-open, DETACHED probe (D-15): bounded near ~12 s off the UI
+            // thread (10 s poll + 2 s settle, NFR-4). The closure is 'static
+            // and panic-free, and the send result is ignored, so an
+            // abandoned open (dialog closed early) just lets the thread die
+            // into a dead channel — no join, no accumulated handles.
+            probe_rx: {
+                let (tx, rx) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::harness::PiHarness::probe_report());
+                });
+                Some(rx)
+            },
+            probe_view: ProbeView::Pending,
         }
     }
 
@@ -158,6 +177,145 @@ impl DlgSettings {
         proj.refresh_git();
         Ok(sha.chars().take(7).collect())
     }
+}
+
+// ---------------------------------------------------------------------------
+// F-16 in-app pi harness setup guide (D-15: rendered-only, in this card)
+// ---------------------------------------------------------------------------
+
+/// Type alias so the dialog layer names the harness's display-purpose
+/// snapshot without repeating the path.
+pub type ProbeReport = crate::harness::pi_harness::ProbeReport;
+
+/// Live discovery state painted in the guide: a per-open background probe,
+/// pending until it replies.
+#[derive(Clone, Default, Debug, PartialEq)]
+pub enum ProbeView {
+    /// The probe thread has not replied yet — the card shows the pending
+    /// hint and NO detail line.
+    #[default]
+    Pending,
+    /// The detached probe delivered its report.
+    Report(ProbeReport),
+}
+
+/// Styling class for one rendered guide line (pins the golden-text tests).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GuideLineKind {
+    Title,
+    Lead,
+    Status,
+    Detail,
+    Order,
+    Rule,
+    Step,
+}
+
+/// One rendered line of the guide. Lines compose PURELY so the NFR-8
+/// golden-text pins can exercise the copy without painting widgets.
+#[derive(Debug, PartialEq)]
+pub struct GuideLine {
+    pub kind: GuideLineKind,
+    pub text: String,
+}
+
+/// Compose the full "Set up the pi harness" guide for the given live
+/// state. Pure: identical inputs yield identical lines. The discovery copy
+/// is SINGLE-SOURCED from the harness (`PI_BINARY_ENV`, `COMMON_HOME_SITES`),
+/// so the rendered order can never drift from the executed order; when
+/// `home` is `None` (HOME unset) the order lines print literal `$HOME`,
+/// mirroring `locate_binary` skipping its home sites entirely.
+fn harness_guide_lines(view: &ProbeView, home: Option<&str>) -> Vec<GuideLine> {
+    let env = crate::harness::pi_harness::PI_BINARY_ENV;
+    let home_display = home.unwrap_or("$HOME");
+    let mut lines = Vec::new();
+    lines.push(GuideLine {
+        kind: GuideLineKind::Title,
+        text: "Set up the pi harness".into(),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Lead,
+        text: "Packet shells out to a locally installed pi CLI; it downloads and \
+               installs nothing itself."
+            .into(),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Status,
+        text: match view {
+            ProbeView::Pending => "Looking for the pi CLI…".to_string(),
+            ProbeView::Report(r) => r.status.clone(),
+        },
+    });
+    if let ProbeView::Report(r) = view {
+        // Pending intentionally shows NO detail line: the hint stands alone
+        // until the probe actually says something.
+        lines.push(GuideLine {
+            kind: GuideLineKind::Detail,
+            text: if r.ok {
+                format!(
+                    "Winning binary: {}",
+                    r.binary
+                        .as_deref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                )
+            } else {
+                r.diagnostic.clone()
+            },
+        });
+    }
+    lines.push(GuideLine {
+        kind: GuideLineKind::Rule,
+        text: "Discovery order — first match wins:".into(),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Order,
+        text: format!(
+            "1. {env} override: if set and executable it wins outright; \
+             a bad value fails fast with no fall-through."
+        ),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Order,
+        text: "2. pi in every PATH directory, in PATH order.".into(),
+    });
+    for (i, site) in crate::harness::pi_harness::COMMON_HOME_SITES.iter().enumerate() {
+        lines.push(GuideLine {
+            kind: GuideLineKind::Order,
+            text: format!("{}. {home_display}/{site}/pi", i + 3),
+        });
+    }
+    lines.push(GuideLine {
+        kind: GuideLineKind::Rule,
+        text: "Version policy: no floor, no pinning — any installed pi is \
+              accepted; the probed version is display-only (D-13)."
+            .into(),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Lead,
+        text: "Install & make discoverable:".into(),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Step,
+        text: "1. Obtain pi via the vendor channel — npm install -g \
+               @earendil-works/pi-coding-agent (adjust if the vendor's \
+               documented channel differs)."
+            .into(),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Step,
+        text: format!(
+            "2. Make it reachable via PATH, a home location above, or {env}=/\
+             abs/path/to/pi in the launching environment."
+        ),
+    });
+    lines.push(GuideLine {
+        kind: GuideLineKind::Step,
+        text: "3. Reopen this dialog and confirm the status reads 'pi \
+              <version>'."
+            .into(),
+    });
+    lines
 }
 
 // ---------------------------------------------------------------------------
@@ -254,8 +412,95 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             members: String::new(),
         });
     }
+    // F-16 setup guide (D-15): appended at the card's tail, after all of the
+    // editable content, so ticket-1's identity block is untouched. The modal
+    // shell clamps card height, so this ~16-line block scrolls on its own.
+    ui.add_space(12.0);
+    ui.separator();
+    ui.add_space(4.0);
+    egui::ScrollArea::vertical()
+        .max_height(230.0)
+        .show(ui, |ui| paint_harness_guide(ui, dlg));
     ui.add_space(6.0);
     footers(ui, &dlg.feedback)
+}
+
+/// Drain whatever the detached probe has queued since the last frame; flip
+/// `dlg.probe_view` to the newest report and forget a channel whose sender
+/// has gone (probe delivered, or died with its superseded open). Borrow-only
+/// phase first (the receiver cannot be cloned), then commit the mutations.
+fn drain_probe(dlg: &mut DlgSettings) {
+    let (incoming, sender_gone) = match dlg.probe_rx.as_ref() {
+        Some(rx) => {
+            let mut incoming = None;
+            let mut gone = false;
+            loop {
+                match rx.recv_timeout(std::time::Duration::ZERO) {
+                    Ok(rep) => incoming = Some(rep),
+                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                        gone = true;
+                        break;
+                    }
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                }
+            }
+            (incoming, gone)
+        }
+        None => (None, false),
+    };
+    if let Some(rep) = incoming {
+        dlg.probe_view = ProbeView::Report(rep);
+    }
+    if sender_gone {
+        dlg.probe_rx = None;
+    }
+}
+
+/// Paint the F-16 "Set up the pi harness" section (private; rendered-only —
+/// no text inputs, no file writes, no navigation). Drains the probe (so the
+/// pending → resolved flip lands within the repaint cadence, no reopen
+/// needed), then composes and styles the golden-pinned line set. Keeps
+/// `paint_settings_card`'s `(bool, bool)` footer contract intact.
+fn paint_harness_guide(ui: &mut egui::Ui, dlg: &mut DlgSettings) {
+    drain_probe(dlg);
+    // Mirror `locate_binary`: HOME unset ⇔ home sites skipped in code, so the
+    // composer renders literal "$HOME" lines for the reduced search.
+    let home_raw = std::env::var("HOME").ok();
+    let home = home_raw.as_deref();
+    let lines = harness_guide_lines(&dlg.probe_view, home);
+    let probe_failed = matches!(&dlg.probe_view, ProbeView::Report(r) if !r.ok);
+    for line in &lines {
+        let rt = match line.kind {
+            GuideLineKind::Title => RichText::new(&line.text)
+                .size(13.0)
+                .strong()
+                .color(theme::TEXT),
+            GuideLineKind::Lead | GuideLineKind::Rule => {
+                RichText::new(&line.text).size(11.0).weak()
+            }
+            GuideLineKind::Status => RichText::new(&line.text)
+                .size(12.0)
+                .strong()
+                .color(match &dlg.probe_view {
+                    ProbeView::Pending => theme::TEXT_DIM,
+                    ProbeView::Report(r) if r.ok => theme::SUCCESS,
+                    ProbeView::Report(_) => theme::DANGER,
+                }),
+            GuideLineKind::Detail if probe_failed => {
+                RichText::new(&line.text).size(11.0).weak().color(theme::DANGER)
+            }
+            GuideLineKind::Detail => RichText::new(&line.text).size(11.0).weak(),
+            GuideLineKind::Order => RichText::new(&line.text)
+                .monospace()
+                .size(11.5)
+                .color(theme::TEXT_DIM),
+            GuideLineKind::Step => RichText::new(&line.text)
+                .monospace()
+                .size(11.5)
+                .color(theme::TEXT),
+        };
+        ui.label(rt);
+    }
 }
 
 fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool) {
@@ -479,6 +724,218 @@ mod tests {
         let again = DlgSettings::from_project(&proj);
         assert_eq!(again.user_name, "Ada Lovelace");
         assert!(again.identity_note.contains("git user.name"), "note: {}", again.identity_note);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- F-16 guide golden-text / probe pins (NFR-8, D-15) -------------
+
+    use GuideLineKind as K;
+
+    fn gl(k: K, t: &str) -> GuideLine {
+        GuideLine { kind: k, text: t.into() }
+    }
+
+    fn rep(status: &str, diagnostic: &str, binary: Option<&str>, ok: bool) -> ProbeReport {
+        ProbeReport {
+            status: status.into(),
+            diagnostic: diagnostic.into(),
+            binary: binary.map(std::path::PathBuf::from),
+            ok,
+        }
+    }
+
+    /// GOLDEN — found state: exact line count, ordering, and byte-identical
+    /// text for every line, including the five discovery lines, the override
+    /// naming, the version-policy rule, and the npm step. Any wording or
+    /// reorder breakage fails this test (the D-15 render pin).
+    #[test]
+    fn harness_guide_golden_found_state_pins_every_line() {
+        let view = ProbeView::Report(rep(
+            "pi 0.84.4",
+            "",
+            Some("/home/op/.local/bin/pi"),
+            true,
+        ));
+        let lines = harness_guide_lines(&view, Some("/home/op"));
+        let expected = vec![
+            gl(K::Title, "Set up the pi harness"),
+            gl(
+                K::Lead,
+                "Packet shells out to a locally installed pi CLI; it downloads and \
+                 installs nothing itself.",
+            ),
+            gl(K::Status, "pi 0.84.4"),
+            gl(K::Detail, "Winning binary: /home/op/.local/bin/pi"),
+            gl(K::Rule, "Discovery order — first match wins:"),
+            gl(
+                K::Order,
+                "1. PACKET_PI_BIN override: if set and executable it wins outright; \
+                 a bad value fails fast with no fall-through.",
+            ),
+            gl(K::Order, "2. pi in every PATH directory, in PATH order."),
+            gl(K::Order, "3. /home/op/.npm-global/bin/pi"),
+            gl(K::Order, "4. /home/op/.local/bin/pi"),
+            gl(K::Order, "5. /home/op/.pi/bin/pi"),
+            gl(
+                K::Rule,
+                "Version policy: no floor, no pinning — any installed pi is \
+                 accepted; the probed version is display-only (D-13).",
+            ),
+            gl(K::Lead, "Install & make discoverable:"),
+            gl(
+                K::Step,
+                "1. Obtain pi via the vendor channel — npm install -g \
+                 @earendil-works/pi-coding-agent (adjust if the vendor's \
+                 documented channel differs).",
+            ),
+            gl(
+                K::Step,
+                "2. Make it reachable via PATH, a home location above, or \
+                 PACKET_PI_BIN=/abs/path/to/pi in the launching environment.",
+            ),
+            gl(
+                K::Step,
+                "3. Reopen this dialog and confirm the status reads 'pi \
+                 <version>'.",
+            ),
+        ];
+        assert_eq!(lines, expected, "guide copy drifted from the D-15 pin");
+    }
+
+    /// GOLDEN — unavailable state: the status line pins the DANGER-state
+    /// string verbatim and the Detail line is the diagnostic itself, with no
+    /// “Winning binary” claim (fast-fail semantics preserved in the copy).
+    #[test]
+    fn harness_guide_golden_unavailable_state_pins_danger_status_and_diagnostic() {
+        let view = ProbeView::Report(rep(
+            "pi (unavailable: Pi harness not found)",
+            "PACKET_PI_BIN=/nonexistent-packet-selftest/pi is not an executable file",
+            None,
+            false,
+        ));
+        let lines = harness_guide_lines(&view, Some("/home/op"));
+        let status = lines
+            .iter()
+            .find(|l| l.kind == K::Status)
+            .expect("status line present");
+        assert_eq!(status.text, "pi (unavailable: Pi harness not found)");
+        let detail = lines
+            .iter()
+            .find(|l| l.kind == K::Detail)
+            .expect("detail line present for a report");
+        assert_eq!(
+            detail.text,
+            "PACKET_PI_BIN=/nonexistent-packet-selftest/pi is not an executable file"
+        );
+        // Fail-fast honesty: no line may promise a PATH rescue for a bad
+        // override.
+        assert!(!lines
+            .iter()
+            .any(|l| l.text.contains("would have") || l.text.contains("fallback")));
+    }
+
+    /// PENDING state + HOME-less composition: the first paint shows the
+    /// placeholder status and NO Detail line; with HOME unset the order
+    /// lines render literal $HOME (mirroring locate_binary skipping home
+    /// sites) and nothing else changes shape.
+    #[test]
+    fn harness_guide_pending_state_pins_placeholder_and_absent_detail() {
+        let lines = harness_guide_lines(&ProbeView::Pending, None);
+        let status = lines
+            .iter()
+            .find(|l| l.kind == K::Status)
+            .expect("status line present");
+        assert_eq!(status.text, "Looking for the pi CLI\u{2026}");
+        assert!(
+            !lines.iter().any(|l| l.kind == K::Detail),
+            "pending state must not show a detail line: {lines:?}"
+        );
+        let orders: Vec<&GuideLine> = lines.iter().filter(|l| l.kind == K::Order).collect();
+        assert_eq!(orders.len(), 5, "five discovery tiers");
+        assert_eq!(orders[2].text, "3. $HOME/.npm-global/bin/pi");
+        assert_eq!(orders[3].text, "4. $HOME/.local/bin/pi");
+        assert_eq!(orders[4].text, "5. $HOME/.pi/bin/pi");
+        assert!(orders[0].text.starts_with("1."), "env override stays tier 1: {}", orders[0].text);
+        assert!(orders[0].text.contains("PACKET_PI_BIN"), "{}", orders[0].text);
+        assert_eq!(lines.len(), 14, "pending drops exactly the detail line");
+    }
+
+    /// Single-source pin: the composed discovery lines derive FROM the
+    /// harness constants — guards against re-hardcoding the order or env
+    /// name in the UI copy (reorder/rename in code or copy breaks this).
+    #[test]
+    fn harness_guide_discovery_lines_single_source_from_harness_constants() {
+        use crate::harness::pi_harness::{COMMON_HOME_SITES, PI_BINARY_ENV};
+        let view = ProbeView::Report(rep("pi 1.2.3", "", Some("/x/pi"), true));
+        let lines = harness_guide_lines(&view, Some("/h"));
+        let orders: Vec<&GuideLine> = lines.iter().filter(|l| l.kind == K::Order).collect();
+        assert_eq!(orders.len(), 2 + COMMON_HOME_SITES.len());
+        assert!(
+            orders[0].text.contains(PI_BINARY_ENV),
+            "tier 1 must name {}: {}",
+            PI_BINARY_ENV,
+            orders[0].text
+        );
+        assert_eq!(orders[1].text, "2. pi in every PATH directory, in PATH order.");
+        for (i, site) in COMMON_HOME_SITES.iter().enumerate() {
+            assert_eq!(
+                orders[i + 2].text,
+                format!("{}. /h/{site}/pi", i + 3),
+                "site #{i} drifted from COMMON_HOME_SITES"
+            );
+        }
+        // The step offering the override also derives from the constant.
+        let steps: Vec<&GuideLine> = lines.iter().filter(|l| l.kind == K::Step).collect();
+        assert!(steps[1].text.contains(PI_BINARY_ENV), "step 2: {}", steps[1].text);
+    }
+
+    /// Runtime leg (headless stand-in for the manual smoke): opening the
+    /// dialog spawns the detached probe, and the drain path used by
+    /// `paint_harness_guide` observes the pending → report transition within
+    /// the probe's ~12 s budget — no dialog reopen, no keyboard input. The
+    /// assertions are host-agnostic (hold whether pi is installed or not).
+    #[test]
+    fn opened_dialog_flips_pending_to_report_within_probe_budget() {
+        let root = tempdir("probe-flip");
+        let proj = project_from(&root);
+        let mut dlg = DlgSettings::from_project(&proj);
+        assert!(
+            matches!(dlg.probe_view, ProbeView::Pending),
+            "fresh open is pending before the probe replies"
+        );
+        // Pump exactly like the painter: drain, then let the UI cadence
+        // elapse. Bound generously past the ~12 s worst-case probe.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+        loop {
+            drain_probe(&mut dlg);
+            if matches!(dlg.probe_view, ProbeView::Report(_)) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "probe did not report within budget; view still: {:?}",
+                dlg.probe_view
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        match &dlg.probe_view {
+            ProbeView::Report(r) => {
+                // Shape invariants, identical to the probe_report pins.
+                assert!(r.status.starts_with("pi "), "status: {}", r.status);
+                if r.ok {
+                    assert!(r.binary.is_some(), "ok requires a winning binary");
+                    assert!(!r.status.contains("(unavailable"), "status: {}", r.status);
+                } else {
+                    assert!(r.status.contains("(unavailable"), "status: {}", r.status);
+                }
+                // On THIS host (pi provisioned per F-16) the live report is
+                // the found-state line the operator would see on open.
+                if r.ok {
+                    println!("probe-reported live: {} | {}", r.status, r.binary.as_deref().map(|p| p.display().to_string()).unwrap_or_default());
+                }
+            }
+            ProbeView::Pending => unreachable!("loop exits only on a report"),
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 }
