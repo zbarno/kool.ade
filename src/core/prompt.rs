@@ -43,12 +43,25 @@ the team knows responsibility must be named.
 - Every item states WHY it matters (`reason`).
 
 ROUTING (enforced by the app, mirrored here for coherence)
-Questions are surfaced to the user only when ASSIGNED_TO equals the current user's \
-name, equals one of the user's GROUPS, or CATEGORY is General. When choosing \
-`next_question_id`, restrict yourself to items meeting that rule (prefer Blocking, \
-then by smallest item number). Ownership-type items are surfaced to administrators \
-through configuration screens, NOT asked in chat: never choose them as the next \
-question. If no eligible unresolved question exists, set `next_question_id` to null.
+The D-14 law decides who may be asked a question; an item is poseable to the
+CURRENT USER when ONE of four rules holds:
+1. Broadcast — the item's category belongs to the structural General
+   broadcast: General reaches every seated operator.
+2. Direct address — ASSIGNED_TO names the current user directly or one of
+   the user's GROUPS.
+3. Owned lane — the item's category is explicitly configured to that user:
+   as the sole personal owner, or as a member of the owning group.
+4. Seat inheritance — the item's category has NO explicit owner at all;
+   the seated, git-identified operator inherits such unowned lanes.
+VETO (outranks direct address): a lane claimed by OTHER holders is never
+askable of the current user — even when the item's ASSIGNED_TO names them,
+it stays out of chat.
+Ownership-type items are administered through configuration screens, NOT
+asked in chat: never choose them as the next question.
+Choosing a `next_question_id` that violates these rules REJECTS THE ENTIRE
+TURN — nothing is saved. Among eligible unresolved questions prefer
+Blocking, then the smallest item number; if none exists, set
+`next_question_id` to null.
 
 OUTPUT STYLE
 - During investigation, emit brief progress updates describing what you are checking \
@@ -182,6 +195,12 @@ fn describe_user(ctx: &TurnContext) -> String {
             ctx.user.groups.join(", ")
         }
     ));
+    // Per-seat lane digest: exactly which lanes THIS seat may serve under the
+    // D-14 law (empty for the guest seat and for an empty config).
+    if !ctx.lane_note.is_empty() {
+        out.push_str(&ctx.lane_note);
+        out.push('\n');
+    }
     out
 }
 
@@ -204,7 +223,8 @@ fn inline(text: &str) -> String {
 mod tests {
     use super::*;
     use crate::core::repo_overview::Overview;
-    use crate::domain::CurrentUser;
+    use crate::core::routing::describe_lanes;
+    use crate::domain::{CategoryOwners, CurrentUser, Stakeholders, GUEST_NAME};
 
     fn dummy_ctx() -> TurnContext {
         TurnContext {
@@ -219,6 +239,7 @@ mod tests {
             config_markdown: "## Stakeholders\n".into(),
             imports: vec![],
             mcp_json: None,
+            lane_note: String::new(),
         }
     }
 
@@ -237,6 +258,88 @@ mod tests {
         ] {
             assert!(p.contains(needle), "missing {needle}");
         }
+    }
+
+    /// Golden: the standing instructions carry ALL FOUR D-14 rules, the
+    /// veto, and the whole-turn-rejection consequence — and none of the
+    /// retired three-rule summary headline (built from parts below so this
+    /// very file contains the phrase nowhere at all).
+    #[test]
+    fn system_instructions_pin_the_four_rule_law() {
+        for needle in [
+            // rule 1: General broadcast
+            "Broadcast",
+            "General reaches every seated operator",
+            // rule 2: direct name or group address
+            "Direct address",
+            "ASSIGNED_TO names the current user directly",
+            "the user's GROUPS",
+            // rule 3: owned lane, sole or via group
+            "Owned lane",
+            "sole personal owner",
+            "member of the owning group",
+            // rule 4: seat inheritance of unowned lanes
+            "Seat inheritance",
+            "NO explicit owner",
+            "inherits such unowned lanes",
+            // the veto outranking address
+            "VETO",
+            "never\naskable of the current user",
+            // the consequence
+            "REJECTS THE ENTIRE\nTURN — nothing is saved",
+        ] {
+            assert!(SYSTEM_INSTRUCTIONS.contains(needle), "instructions missing: {needle:?}");
+        }
+        let retired_headline = ["is", crate::domain::GENERAL_CATEGORY].join(" ");
+        assert!(
+            !SYSTEM_INSTRUCTIONS.contains(&retired_headline),
+            "retired three-rule summary must be gone from the standing instructions"
+        );
+    }
+
+    #[test]
+    fn lane_digest_renders_under_current_user_only_for_chaired_seats() {
+        // Chaired seat with a sole lane, a shared lane and unowned lanes:
+        // the digest lands inside CURRENT USER, right under the identity.
+        let stakes = Stakeholders::new(vec![
+            CategoryOwners::new("Security", vec!["Zach".into()]),
+            CategoryOwners::new("QA", vec!["QA Guild".into()]),
+            CategoryOwners::new("InfoSec", Vec::new()),
+        ]);
+        let zacha = CurrentUser::new("Zach", vec!["QA Guild".into()]);
+        let mut ctx = dummy_ctx();
+        ctx.user = zacha.clone();
+        ctx.lane_note = describe_lanes(&zacha, &stakes);
+        let p = render_prompt(&ctx);
+        let cursor = p.find("=== CURRENT USER ===").expect("section present");
+        let next = p[cursor..].find("=== CONVERSATION SO FAR ===").expect("closing section");
+        let user_block = &p[cursor..cursor + next];
+        for needle in [
+            "Name: Zach",
+            "Sole-owned lanes: Security",
+            "Shared lanes: QA (via QA Guild)",
+            "Seat-inherited unowned lanes: InfoSec",
+        ] {
+            assert!(user_block.contains(needle), "CURRENT USER block missing: {needle:?}\n{user_block}");
+        }
+
+        // Guest seat: the digest is EMPTY and must be absent from the prompt.
+        let guest_user = CurrentUser::new(GUEST_NAME, Vec::new());
+        let mut gctx = dummy_ctx();
+        gctx.user = guest_user.clone();
+        gctx.lane_note = describe_lanes(&guest_user, &stakes);
+        assert_eq!(gctx.lane_note, "");
+        let gp = render_prompt(&gctx);
+        let gc = gp.find("=== CURRENT USER ===").expect("section present");
+        let gn = gp[gc..].find("=== CONVERSATION SO FAR ===").expect("closing section");
+        let gblock = &gp[gc..gc + gn];
+        assert!(!gblock.contains("Sole-owned lanes"), "guest must show no lane digest:\n{gblock}");
+        assert!(!gblock.contains("Seat-inherited"), "guest must show no lane digest:\n{gblock}");
+
+        // Empty config: likewise nothing rendered.
+        let ec = dummy_ctx();
+        assert!(ec.lane_note.is_empty());
+        assert!(!render_prompt(&ec).contains("Sole-owned lanes:"));
     }
 
     #[test]

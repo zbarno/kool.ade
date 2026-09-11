@@ -40,10 +40,14 @@ impl Stakeholders {
         Self { entries }
     }
 
-    /// Case-insensitive lookup of a category mapping.
+    /// Case-insensitive, trim-tolerant lookup of a category mapping:
+    /// hand-edited configs may drift in spacing as well as case on EITHER
+    /// side of the match (entry heading or queried item category).
     pub fn find(&self, category: &str) -> Option<&CategoryOwners> {
         let needle = category.trim().to_ascii_lowercase();
-        self.entries.iter().find(|e| e.name.to_ascii_lowercase() == needle)
+        self.entries
+            .iter()
+            .find(|e| e.name.trim().to_ascii_lowercase() == needle)
     }
 
     /// True when a category currently has at least one configured owner.
@@ -55,7 +59,7 @@ impl Stakeholders {
     /// Upsert a category mapping, preserving position when present.
     pub fn upsert(&mut self, entry: CategoryOwners) {
         if let Some(slot) = self.entries.iter_mut().find(|e| {
-            e.name.to_ascii_lowercase() == entry.name.to_ascii_lowercase()
+            e.name.trim().to_ascii_lowercase() == entry.name.trim().to_ascii_lowercase()
         }) {
             // Existing spelling wins; membership is refreshed.
             slot.members = entry.members;
@@ -86,16 +90,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn lookup_is_case_insensitive_and_ordered() {
+    fn lookup_is_case_insensitive_and_trim_tolerant_on_both_sides() {
         let h = Stakeholders::new(vec![
             CategoryOwners::new("product", vec!["Zach".into()]),
-            CategoryOwners::new("qa", Vec::new()),
+            CategoryOwners::new("qa ", Vec::new()), // hand-edited spaced heading
         ]);
         assert!(h.owner_exists("PRODUCT"));
-        assert!(!h.owner_exists("QA"));
+        assert!(h.find(" QA").is_some(), "spacing drift must match on either side");
+        assert!(!h.owner_exists("QA")); // entry exists but has no members
         assert!(!h.owner_exists("Ops"));
         let cats: Vec<&str> = h.iter_categories().collect();
-        assert_eq!(cats, vec!["product", "qa"]);
+        assert_eq!(cats, vec!["product", "qa "]);
     }
 
     #[test]
@@ -104,9 +109,11 @@ mod tests {
             CategoryOwners::new("alpha", vec!["A".into()]),
             CategoryOwners::new("beta", vec!["B".into()]),
         ]);
-        h.upsert(CategoryOwners::new("ALPHA", vec!["C".into()]));
+        h.upsert(CategoryOwners::new("ALPHA ", vec!["C".into()]));
         h.upsert(CategoryOwners::new("gamma", vec![]));
         let names: Vec<&str> = h.iter_categories().collect();
+        // Spelling drift (case or spacing) on the incoming name MERGES into
+        // the existing entry instead of duplicating the category.
         assert_eq!(names, vec!["alpha", "beta", "gamma"]);
         assert_eq!(h.find("Alpha").unwrap().members, vec!["C".to_string()]);
     }

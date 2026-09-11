@@ -45,6 +45,9 @@ pub trait Surface {
     fn synthetic_items(&self) -> &[OpenItem];
     fn items_len(&self) -> usize;
     fn current_user(&self) -> &CurrentUser;
+    /// Category→owner configuration backing the items pane's D-14-aware
+    /// partition (always present; a default-empty map off-project).
+    fn stakeholders(&self) -> &crate::domain::Stakeholders;
     fn next_question_id(&self) -> Option<&str>;
     // ------- spec pane -------
     fn spec_text(&self) -> &str;

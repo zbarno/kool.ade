@@ -90,6 +90,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         items: s.items(),
                         synthetic: s.synthetic_items(),
                         user: s.current_user(),
+                        stakes: s.stakeholders(),
                         next_question_id: s.next_question_id(),
                     },
                 );

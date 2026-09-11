@@ -27,6 +27,9 @@ pub struct ImportRow {
 #[derive(Debug, Clone)]
 pub struct TurnContext {
     pub user: CurrentUser,
+    /// Per-seat lane digest under the D-14 law (may be empty: guest seat
+    /// or empty config inherit nothing). Rendered inside CURRENT USER.
+    pub lane_note: String,
     pub repo_title: String,
     pub user_message: String,
     pub conversation: Vec<ConversationLine>,
@@ -63,6 +66,10 @@ impl TurnContext {
             .map(|s| clip(&s, 4096));
         TurnContext {
             user: state.effective_user(),
+            lane_note: crate::core::routing::describe_lanes(
+                &state.effective_user(),
+                &state.config.stakeholders,
+            ),
             repo_title: state.title.clone(),
             user_message: user_message.to_string(),
             conversation: convo,
