@@ -84,7 +84,14 @@ from separate Packet instances.
 
 Packet requires a complete implementation report with evidence for every listed
 acceptance criterion, reruns the reported verification commands, checks the diff,
-and commits the result. It then pushes to `origin` and creates a GitHub pull request
+and commits the result. Malformed reports, missing acceptance evidence, failed
+verification commands, and diff-check failures are sent back to the agent
+with the precise error for up to three automatic correction attempts. Corrections
+reuse the same worktree and share the original time budget. Every response,
+verification result, and correction reason is retained. Explicit blockers,
+cancellation, exhausted time, and the correction limit still stop safely;
+Resume includes the previous stop reason. Agent-launch and publication failures
+remain visible stops rather than triggering implementation corrections. It then pushes to `origin` and creates a GitHub pull request
 against the branch selected when implementation began. The app needs Git commit
 identity, push access to `origin`, and an authenticated GitHub CLI (`gh auth login`).
 It reuses an existing open PR and exposes **Open PR** once publishing succeeds.

@@ -1136,3 +1136,14 @@ lock, persists status outside tracked planning artifacts, and preserves the last
 confirmed state on errors with visible stale-state feedback. PRs from older task
 batches are also refreshed. Published tickets expose their PR rather than allowing
 a duplicate implementation. Confirmed merged PRs no longer require polling.
+
+
+Implementation report parsing, acceptance-evidence validation, verification-command
+failures, and diff-check failures trigger up to three automatic corrections after
+the initial attempt. Each correction receives the precise error and preceding
+response, preserves the same worktree, and uses only the remaining original turn
+budget. Attempt responses, verification results, and correction reasons remain
+immutable artifacts. Explicit blockers, cancellation, expired budgets, changed
+worktree identity, and exhausted corrections stop without publishing. Manual resume
+includes the saved stop reason. Transport and publication errors do not restart
+implementation automatically.

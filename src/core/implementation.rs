@@ -135,11 +135,7 @@ impl Runner {
                 Ok(StreamEvt::Stdout(line)) => append_tail(&mut output, &line),
                 Ok(StreamEvt::Stderr(line)) => append_tail(&mut error, &line),
                 Ok(StreamEvt::Exited(ok)) => {
-                    anyhow::ensure!(
-                        ok,
-                        "{program} failed: {}",
-                        if error.is_empty() { &output } else { &error }
-                    );
+                    anyhow::ensure!(ok, "{program} failed:\nstdout:\n{output}\nstderr:\n{error}");
                     return Ok(output.trim().into());
                 }
                 Err(PollState::Closed) => anyhow::bail!("{program} closed without an exit result"),
@@ -512,61 +508,119 @@ fn execute(
         return Ok(());
     }
     if !already_verified {
-        state.status = "Implementing".into();
-        state.detail.clear();
-        save(dir, state)?;
-        runner.update(format!(
-            "Reviewing and implementing {} in {}",
-            state.ticket,
-            state.worktree.display()
-        ));
+        // One initial attempt plus three corrections share the original deadline.
+        // Keep the last failure durable so manual resume has the same feedback.
+        let mut feedback = state.detail.clone();
+        let mut previous_response = String::new();
         let specification = Path::new(&state.ticket)
             .parent()
             .map(|p| repo.join(p).join("specification.md"))
             .and_then(|p| fs::read_to_string(p).ok())
             .unwrap_or_default();
-        let status = runner.git(&state.worktree, &["status", "--short"])?;
-        let log = runner.git(&state.worktree, &["log", "-5", "--oneline"])?;
-        let prompt = format!(
-            "Implement this ticket in the CURRENT working directory, a dedicated Git worktree. This may be a RESUME: inspect git status, existing diffs, commits, untracked files, tests and repository instructions FIRST. Preserve and complete existing work; do not restart, reset, clean, discard or overwrite unrelated changes. Verify prerequisites and dependencies; report blocked if unavailable. Implement only this ticket's scope. Run the required checks and repair failures. Do not change branches, create worktrees, commit, push, create PRs or merge; Packet owns those steps. Do not modify the original checkout.\n\nTICKET PATH: {}\nTICKET CONTENT:\n{}\n\nAPPROVED SPECIFICATION:\n{}\n\nCURRENT STATUS:\n{}\nRECENT COMMITS:\n{}\n\nReturn a complete JSON object with status (complete or blocked), summary, acceptance_criteria (array of objects with criterion copied verbatim from the ticket and concrete evidence), verification (array of runnable shell commands relative to this worktree; Packet will rerun them), remaining (array of unresolved work). Complete requires every ticket criterion met, meaningful checks passing, and remaining empty. Never claim success from an exit code alone or invent results. Do not include prose outside the JSON.",
-            state.ticket, state.ticket_text, specification, status, log
-        );
-        let request = PlanningRequest { implementation: true, repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Understand the ticket-specific problem and goal. Implement, integrate, and verify the whole ticket in the provided worktree. Preserve existing work when resuming. Report blockers honestly. The application alone manages Git commits and PR creation.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
-        let outcome = harness
-            .execute(&request)
-            .map_err(|e: AppError| anyhow::anyhow!(e.detail()))?;
-        let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
-        fs::write(
-            dir.join(format!("{stamp}-response.txt")),
-            &outcome.final_text,
-        )?;
-        runner.remaining()?;
-        let json = crate::harness::pi_extract::extract_json_object(&outcome.final_text)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Pi returned no complete implementation report. Worktree preserved for resume."
-                )
-            })?;
-        let report: Report = serde_json::from_str(&json)?;
-        validate_report(&report, &state.ticket_text)?;
-        state.status = "Verifying".into();
-        save(dir, state)?;
-        let mut evidence = Vec::new();
-        for command in &report.verification {
-            runner.update(format!("Verifying: {command}"));
-            let result = runner.command(&state.worktree, "/bin/sh", &["-c", command]);
-            evidence.push(serde_json::json!({"command":command,"output":result.as_ref().ok(),"error":result.as_ref().err().map(ToString::to_string)}));
+        let mut attempt = 0;
+        let report = loop {
+            runner.remaining()?;
+            attempt += 1;
+            anyhow::ensure!(
+                common(&state.worktree)?.canonicalize()? == common(repo)?.canonicalize()?,
+                "Implementation worktree belongs to a different repository"
+            );
+            anyhow::ensure!(
+                runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
+                "Implementation changed branches; refusing to continue"
+            );
+            state.status = "Implementing".into();
+            save(dir, state)?;
+            runner.update(format!(
+                "Implementing {} (attempt {attempt}/4)…",
+                state.ticket
+            ));
+            let status = runner.git(&state.worktree, &["status", "--short"])?;
+            let log = runner.git(&state.worktree, &["log", "-5", "--oneline"])?;
+            let mut prompt = format!(
+                "Implement this ticket in the CURRENT working directory, a dedicated Git worktree. This may be a RESUME: inspect git status, existing diffs, commits, untracked files, tests and repository instructions FIRST. Preserve and complete existing work; do not restart, reset, clean, discard or overwrite unrelated changes. Verify prerequisites and dependencies; report blocked if unavailable. Implement only this ticket's scope. Run the required checks and repair failures. Do not change branches, create worktrees, commit, push, create PRs or merge; Packet owns those steps. Do not modify the original checkout.\n\nTICKET PATH: {}\nTICKET CONTENT:\n{}\n\nAPPROVED SPECIFICATION:\n{}\n\nCURRENT STATUS:\n{}\nRECENT COMMITS:\n{}\n\nReturn a complete JSON object with status (complete or blocked), summary, acceptance_criteria (array of objects with criterion copied verbatim from the ticket and concrete evidence), verification (array of runnable shell commands relative to this worktree; Packet will rerun them), remaining (array of unresolved work). Complete requires every ticket criterion met, meaningful checks passing, and remaining empty. Never claim success from an exit code alone or invent results. Do not include prose outside the JSON.",
+                state.ticket, state.ticket_text, specification, status, log
+            );
+
+            if !feedback.is_empty() {
+                prompt.push_str(&format!("\n\nPREVIOUS STOP / CORRECTION REQUIRED:\n{feedback}\nContinue in this same worktree. Inspect and preserve existing work. Correct the report or implementation and rerun affected checks. Copy acceptance criterion text EXACTLY, including any spelling mistakes; do not edit the ticket to satisfy this check. Return the full JSON report, not just the correction. Do not weaken or bypass failing checks. Report blocked for prerequisites that require human intervention.\nPrevious response (possibly truncated):\n{previous_response}"));
+            }
+            let request = PlanningRequest { implementation: true, repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. The application alone manages Git commits and PR creation.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
+            let outcome = harness
+                .execute(&request)
+                .map_err(|e: AppError| anyhow::anyhow!(e.detail()))?;
+            let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
             fs::write(
-                dir.join(format!("{stamp}-verification.json")),
-                serde_json::to_vec_pretty(&evidence)?,
+                dir.join(format!("{stamp}-response.txt")),
+                &outcome.final_text,
             )?;
-            result?;
-        }
-        anyhow::ensure!(
-            runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
-            "Implementation changed branches; refusing to publish"
-        );
-        runner.git(&state.worktree, &["diff", "--check"])?;
+            runner.remaining()?;
+            let parsed = crate::harness::pi_extract::extract_json_object(&outcome.final_text)
+                .ok_or_else(|| anyhow::anyhow!("No complete JSON implementation report. Return JSON with status, summary, acceptance_criteria, verification, and remaining."))
+                .and_then(|json| serde_json::from_str::<Report>(&json).map_err(Into::into));
+            // An explicit blocker needs outside intervention, not repeated model calls.
+            if let Ok(report) = &parsed {
+                if report.status == "blocked" {
+                    validate_report(report, &state.ticket_text)?;
+                }
+            }
+            let mut failure = None;
+            match parsed {
+                Err(error) => failure = Some(error.to_string()),
+                Ok(report) => {
+                    if let Err(error) = validate_report(&report, &state.ticket_text) {
+                        failure = Some(error.to_string());
+                    } else {
+                        state.status = "Verifying".into();
+                        save(dir, state)?;
+                        let mut evidence = Vec::new();
+                        for command in &report.verification {
+                            runner.update(format!("Verifying: {command}"));
+                            let result =
+                                runner.command(&state.worktree, "/bin/sh", &["-c", command]);
+                            evidence.push(serde_json::json!({"command":command,"output":result.as_ref().ok(),"error":result.as_ref().err().map(ToString::to_string)}));
+                            fs::write(
+                                dir.join(format!("{stamp}-verification.json")),
+                                serde_json::to_vec_pretty(&evidence)?,
+                            )?;
+                            if let Err(error) = result {
+                                failure = Some(format!(
+                                    "Verification command failed: {command}\n{error}"
+                                ));
+                                break;
+                            }
+                        }
+                        anyhow::ensure!(
+                            runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])?
+                                == state.branch,
+                            "Implementation changed branches; refusing to publish"
+                        );
+                        if failure.is_none() {
+                            if let Err(error) = runner.git(&state.worktree, &["diff", "--check"]) {
+                                failure = Some(format!("git diff --check failed: {error}"));
+                            }
+                        }
+                        if failure.is_none() {
+                            break report;
+                        }
+                    }
+                }
+            }
+            feedback = failure.expect("unsuccessful attempt must have a failure");
+            state.detail = feedback.clone();
+            save(dir, state)?;
+            fs::write(dir.join(format!("{stamp}-correction.txt")), &feedback)?;
+            runner.remaining()?;
+            anyhow::ensure!(
+                attempt < 4,
+                "Automatic correction limit reached after {attempt} attempts. Last failure: {feedback}"
+            );
+            previous_response.clear();
+            append_tail(&mut previous_response, &outcome.final_text);
+            runner.update(format!(
+                "Automatically correcting attempt {attempt}: {feedback}"
+            ));
+        };
         runner.git(&state.worktree, &["add", "--all"])?;
         if !runner
             .git(&state.worktree, &["diff", "--cached", "--name-only"])?
@@ -786,10 +840,40 @@ mod tests {
             &self,
             req: &PlanningRequest,
         ) -> Result<crate::harness::HarnessOutcome, AppError> {
-            self.calls.fetch_add(1, Ordering::SeqCst);
+            let call = self.calls.fetch_add(1, Ordering::SeqCst);
             assert!(req.implementation);
             assert!(req.prompt_body.contains("RESUME"));
+            if self.mode.starts_with("repair_") && call > 0 {
+                assert!(
+                    req.prompt_body
+                        .contains("PREVIOUS STOP / CORRECTION REQUIRED")
+                );
+                assert!(req.prompt_body.contains("Previous response"));
+                assert_eq!(
+                    fs::read_to_string(req.repo_root.join("implemented.txt")).unwrap(),
+                    "implemented\n"
+                );
+                if self.mode == "repair_verification" {
+                    assert!(
+                        req.prompt_body
+                            .contains("Verification command failed: test -f missing-file")
+                    );
+                    fs::write(
+                        req.repo_root.join("missing-file"),
+                        "repaired prerequisite\n",
+                    )
+                    .unwrap();
+                }
+                if self.mode == "repair_cancel" {
+                    req.cancel.store(true, Ordering::SeqCst);
+                }
+            }
             if self.mode == "resume" {
+                assert!(
+                    req.prompt_body
+                        .contains("PREVIOUS STOP / CORRECTION REQUIRED")
+                );
+                assert!(req.prompt_body.contains("Implementation cancelled"));
                 assert_eq!(
                     fs::read_to_string(req.repo_root.join("implemented.txt")).unwrap(),
                     "partial\n"
@@ -806,12 +890,29 @@ mod tests {
             } else {
                 "complete"
             };
-            let verification = if self.mode == "fail" {
+            let verification = if self.mode == "fail" || self.mode == "repair_verification" {
                 "test -f missing-file"
             } else {
                 "test \"$(cat implemented.txt)\" = implemented"
             };
-            Ok(crate::harness::HarnessOutcome { final_text: serde_json::json!({"status":status,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":"File contains implemented.","evidence":"Created the file and checked its exact contents."}],"verification":[verification],"remaining":[]}).to_string(), envelope:None, stderr_tail:String::new() })
+            let mut report = serde_json::json!({"status":status,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":"File contains implemented.","evidence":"Created the file and checked its exact contents."}],"verification":[verification],"remaining":[]});
+            if call == 0 && self.mode == "repair_criterion" {
+                report["acceptance_criteria"][0]["criterion"] =
+                    "File contains implementation.".into();
+            }
+            let final_text =
+                if call == 0 && matches!(self.mode, "repair_markdown" | "repair_cancel") {
+                    "# Summary\nImplemented the ticket.".into()
+                } else if call == 0 && self.mode == "repair_schema" {
+                    "{\"status\":\"complete\"}".into()
+                } else {
+                    report.to_string()
+                };
+            Ok(crate::harness::HarnessOutcome {
+                final_text,
+                envelope: None,
+                stderr_tail: String::new(),
+            })
         }
     }
     struct Sandbox {
@@ -1106,6 +1207,77 @@ mod tests {
         }
     }
     #[test]
+    fn automatic_corrections_preserve_work_and_publish_only_after_verification() {
+        for mode in [
+            "repair_markdown",
+            "repair_schema",
+            "repair_criterion",
+            "repair_verification",
+        ] {
+            let s = Sandbox::new();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let result = s.run(mode, calls.clone()).unwrap();
+            assert_eq!(calls.load(Ordering::SeqCst), 2, "{mode}");
+            assert_eq!(result.status, "PR created");
+            let dir = state_dir(&s.repo, &s.ticket).unwrap();
+            let files = fs::read_dir(&dir)
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                files
+                    .iter()
+                    .filter(|name| name.ends_with("-response.txt"))
+                    .count(),
+                2
+            );
+            assert_eq!(
+                files
+                    .iter()
+                    .filter(|name| name.ends_with("-correction.txt"))
+                    .count(),
+                1
+            );
+            if mode == "repair_verification" {
+                assert_eq!(
+                    files
+                        .iter()
+                        .filter(|name| name.ends_with("-verification.json"))
+                        .count(),
+                    2
+                );
+                assert!(result.worktree.join("missing-file").exists());
+            }
+            assert_eq!(
+                fs::read_to_string(s.root.join("pr-created"))
+                    .unwrap()
+                    .lines()
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn correction_limit_blocker_and_cancellation_never_publish() {
+        for (mode, expected_calls, error_text) in [
+            ("fail", 4, "Automatic correction limit"),
+            ("blocked", 1, "Implementation is not complete"),
+            ("repair_cancel", 2, "Implementation cancelled"),
+        ] {
+            let s = Sandbox::new();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let error = s.run(mode, calls.clone()).unwrap_err().to_string();
+            assert!(error.contains(error_text), "{error}");
+            assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
+            assert!(!s.root.join("pr-created").exists());
+            let state = load(&s.repo, &s.ticket).unwrap();
+            assert!(state.worktree.join("implemented.txt").exists());
+            assert!(state.detail.contains(error_text));
+        }
+    }
+
+    #[test]
     fn publication_failure_retries_without_reimplementing() {
         let s = Sandbox::new();
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1179,6 +1351,27 @@ mod tests {
             remote_repository("ssh://git@github.company.test/team/project.git"),
             "github.company.test/team/project"
         );
+    }
+
+    #[test]
+    fn failed_command_retains_both_streams_for_correction() {
+        let (progress, _rx) = mpsc::channel();
+        let runner = Runner {
+            gh: "unused".into(),
+            deadline: Instant::now() + Duration::from_secs(5),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress,
+        };
+        let error = runner
+            .command(
+                &std::env::temp_dir(),
+                "/bin/sh",
+                &["-c", "echo assertion-detail; echo diagnostic >&2; exit 1"],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("assertion-detail"));
+        assert!(error.contains("diagnostic"));
     }
 
     #[test]
