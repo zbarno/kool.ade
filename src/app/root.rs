@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use eframe::{App, Frame};
 
-use crate::app::dialogs::{self, DlgImport, DlgSettings};
+use crate::app::dialogs::{self, DlgImport, DlgMcp, DlgSettings};
 use crate::app::session::{self, Project};
 use crate::app::welcome;
 use crate::core::turn::{TurnController, TurnEvt, TurnOutcome};
@@ -41,6 +41,7 @@ enum Screen {
 enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
+    Mcp(DlgMcp),
 }
 
 /// Native window options for [`eframe::run_native`].
@@ -677,6 +678,14 @@ impl Surface for PacketApp {
                     self.dialog = Some(Dialog::Settings(DlgSettings::from_project(p)));
                 }
             }
+            HeaderAction::McpServers => {
+                // No busy-guard, matching the adjacent Import/Stakeholders
+                // arms: the rename-swap keeps any in-flight turn observing a
+                // whole old or whole new file (NFR-2).
+                if let Screen::Connected(p) = &self.screen {
+                    self.dialog = Some(Dialog::Mcp(DlgMcp::from_project(p)));
+                }
+            }
             HeaderAction::CopySpec => self.copy_spec_to_clipboard(),
             HeaderAction::Disconnect => self.disconnect(),
         }
@@ -782,6 +791,29 @@ impl PacketApp {
                     self.dialog = Some(Dialog::Settings(d));
                 }
             }
+            Dialog::Mcp(mut d) => {
+                let save_slot = std::cell::RefCell::new(false);
+                let close_slot = std::cell::RefCell::new(false);
+                let closed = crate::ui::overlays::show_modal(
+                    ui,
+                    true,
+                    "MCP server configuration",
+                    660.0,
+                    |ui| {
+                        let (save, close) = dialogs::paint_mcp_card(ui, &mut d);
+                        *save_slot.borrow_mut() = save;
+                        *close_slot.borrow_mut() = close;
+                    },
+                );
+                if *save_slot.borrow() {
+                    self.perform_mcp(&mut d);
+                }
+                // Keep-open is owned by `perform_mcp` via `d.keep_open`
+                // (a malformed save must survive its own successful feedback).
+                if !closed && !*close_slot.borrow() && d.keep_open {
+                    self.dialog = Some(Dialog::Mcp(d));
+                }
+            }
         }
     }
 
@@ -814,6 +846,73 @@ impl PacketApp {
                 self.toasts.success(format!("Saved · checkpoint {sha}"));
             }
             Err(e) => d.feedback = Some((false, e.detail())),
+        }
+    }
+
+    /// F-18 outcome table (design-pinned):
+    /// * Unchanged → close, neutral feedback, INFO toast (zero churn, NFR-9).
+    /// * Write + well-formed → close, success toast with the 7-char SHA.
+    /// * Write + MALFORMED → KEEP OPEN with the sticky orange warning; the
+    ///   save DID land, so feedback stays positive (consumers sit outside
+    ///   the planner — D-16 non-blocking).
+    /// * Clear → close, success toast with the checkpoint SHA.
+    /// * Err → the disk write may have landed; the checkpoint FAILED. Honest
+    ///   accounting: explain that retrying will NOT re-create the commit.
+    fn perform_mcp(&mut self, d: &mut DlgMcp) {
+        let result = match &mut self.screen {
+            Screen::Connected(p) => d.apply(p),
+            _ => return,
+        };
+        // Keep the header's dirty indicator truthful after a disk effect.
+        if let Screen::Connected(p) = &mut self.screen {
+            p.refresh_git();
+        }
+        match result {
+            Ok(rec) => {
+                let sha = rec.short_sha.clone().unwrap_or_default();
+                match rec.op {
+                    crate::artifacts::mcp_io::McpSaveOp::Unchanged => {
+                        d.keep_open = false;
+                        d.feedback = Some((true, "Unchanged — no write, no checkpoint.".into()));
+                        self.toasts.info("MCP configuration already in sync");
+                    }
+                    crate::artifacts::mcp_io::McpSaveOp::Write => match rec.malformed {
+                        None => {
+                            d.keep_open = false;
+                            d.feedback = Some((true, format!("Saved · checkpoint {sha}")));
+                            self.toasts.success(format!("MCP servers saved · checkpoint {sha}"));
+                        }
+                        Some(parse_error) => {
+                            d.keep_open = true;
+                            d.warning = Some(format!(
+                                "Not valid JSON: {parse_error} — saved anyway; \
+                                 consumers sit outside the planner. Turns \
+                                 advertise it verbatim until fixed."
+                            ));
+                            d.feedback =
+                                Some((true, format!("Saved · checkpoint {sha} — kept open, see warning")));
+                        }
+                    },
+                    crate::artifacts::mcp_io::McpSaveOp::Clear => {
+                        d.keep_open = false;
+                        d.feedback = Some((true, format!("Cleared · checkpoint {sha}")));
+                        self.toasts.success(format!("MCP servers cleared · checkpoint {sha}"));
+                    }
+                }
+            }
+            Err(e) => {
+                d.feedback = Some((
+                    false,
+                    format!(
+                        "Disk write may have landed; git checkpoint failed: {} — \
+                         retrying Save won't re-create the commit (the file \
+                         already matches). Review git state or commit in a later turn.",
+                        e.detail()
+                    ),
+                ));
+                // keep_open stays as initialized (true): honest red feedback,
+                // operator stays in the card to react.
+            }
         }
     }
 }

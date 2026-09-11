@@ -6,10 +6,12 @@
 //! * `items_io.rs`      — `planning/open-items.md` (re)serialization
 //! * `config_io.rs`     — `.planner/config.md` parsing/serialization
 //! * `imports_io.rs`    — `planning/imports/` intake (§6)
+//! * `mcp_io.rs`        — `.planner/mcp.json` load/save/clear/checkpoint (F-18)
 
 pub mod config_io;
 pub mod imports_io;
 pub mod items_io;
+pub mod mcp_io;
 pub mod spec_doc;
 
 mod artifacts;
