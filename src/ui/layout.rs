@@ -220,32 +220,111 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     }
     let id = egui::Id::new("packet_selected_task");
     let selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
+    if docs.is_empty() {
+        ui.label("No task stories yet.");
+        return;
+    }
     let mut selected = selected_path
         .as_ref()
         .and_then(|path| docs.iter().position(|doc| &doc.path == path))
-        .unwrap_or(0);
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(&docs[selected].title)
-        .width(ui.available_width().min(620.0))
-        .show_ui(ui, |ui| {
-            for (i, doc) in docs.iter().enumerate() {
-                ui.selectable_value(&mut selected, i, &doc.title);
-            }
+        .unwrap_or_else(|| {
+            docs.iter()
+                .position(|doc| !doc.path.ends_with("/README.md"))
+                .unwrap_or(0)
+        });
+    ui.label(
+        RichText::new("PR status refreshes every minute. Select a card to review its story.")
+            .size(12.0)
+            .weak(),
+    );
+    if let Some(index) = docs.iter().position(|doc| doc.path.ends_with("/README.md")) {
+        if ui
+            .selectable_label(selected == index, "Batch overview")
+            .clicked()
+        {
+            selected = index;
+        }
+    }
+    egui::ScrollArea::horizontal()
+        .id_salt("task_board_horizontal")
+        .max_height(285.0)
+        .show(ui, |ui| {
+            ui.horizontal_top(|ui| {
+                for (column, label) in crate::core::implementation::BOARD_COLUMNS
+                    .iter()
+                    .enumerate()
+                {
+                    let cards = docs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, doc)| {
+                            !doc.path.ends_with("/README.md")
+                                && crate::core::implementation::board_column(
+                                    s.implementation_state(&doc.path),
+                                    s.implementation_active(&doc.path),
+                                ) == column
+                        })
+                        .collect::<Vec<_>>();
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width(190.0);
+                            ui.label(RichText::new(format!("{label} · {}", cards.len())).strong());
+                            ui.separator();
+                            egui::ScrollArea::vertical()
+                                .id_salt(("task_board_column", column))
+                                .max_height(230.0)
+                                .show(ui, |ui| {
+                                    if cards.is_empty() {
+                                        ui.label(RichText::new("No tasks").weak());
+                                    }
+                                    for (index, doc) in cards {
+                                        if ui
+                                            .add(
+                                                egui::Button::new(&doc.title)
+                                                    .selected(selected == index)
+                                                    .wrap(),
+                                            )
+                                            .clicked()
+                                        {
+                                            selected = index;
+                                        }
+                                        if let Some(record) = s.implementation_state(&doc.path) {
+                                            if let Some(url) = &record.pr_url {
+                                                ui.hyperlink_to("Open PR", url);
+                                            }
+                                            if record.pr_check_error.is_some() {
+                                                ui.label(
+                                                    RichText::new(
+                                                        "PR check failed; showing last known state",
+                                                    )
+                                                    .small(),
+                                                );
+                                            }
+                                        }
+                                        ui.add_space(6.0);
+                                    }
+                                });
+                        });
+                    });
+                }
+            });
         });
     ui.ctx()
         .data_mut(|d| d.insert_temp(id, docs[selected].path.clone()));
+    ui.add_space(10.0);
+    ui.label(RichText::new(&docs[selected].title).strong());
     ui.label(RichText::new(&docs[selected].path).size(11.0).weak());
     let ticket = &docs[selected].path;
     let state = s.implementation_state(ticket).cloned();
     if !ticket.ends_with("/README.md") {
         ui.horizontal(|ui| {
             if let Some(record) = &state {
-                let status = if record.status == "Implementing" && !s.is_busy() { "Interrupted — ready to resume" } else { &record.status };
+                let status = if matches!(record.status.as_str(), "Preparing" | "Implementing" | "Verifying") && !s.implementation_active(ticket) { "Interrupted — ready to resume" } else { &record.status };
                 ui.label(RichText::new(status).size(12.0).weak());
                 if let Some(url) = &record.pr_url { ui.hyperlink_to("Open PR", url); }
             }
             let label = if state.is_some() { "Resume implementation" } else { "Implement" };
-            if ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then push and create a GitHub pull request. Existing work is preserved on resume. Starts from the current committed branch.").clicked() {
+            if state.as_ref().is_none_or(|record| record.pr_url.is_none()) && ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then push and create a GitHub pull request. Existing work is preserved on resume. New tasks fetch the latest remote base with fast-forward checks. Resume preserves the existing worktree.").clicked() {
                 s.implement_task(ticket.clone());
             }
         });
@@ -255,6 +334,19 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     .size(11.0)
                     .weak(),
             );
+            if let Some(checked) = &record.pr_checked_at {
+                ui.label(
+                    RichText::new(format!("PR last checked: {checked}"))
+                        .small()
+                        .weak(),
+                );
+            }
+            if let Some(error) = &record.pr_check_error {
+                ui.label(format!("PR check failed: {error}"));
+            }
+            if record.pr_state.as_deref() == Some("CLOSED") {
+                ui.label("PR closed without merging. Reopen the PR on GitHub to return this task to review.");
+            }
             if record.status == "Needs attention" {
                 ui.label(&record.detail);
             }

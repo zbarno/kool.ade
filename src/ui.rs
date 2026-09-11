@@ -33,7 +33,11 @@ pub trait Surface {
     fn is_busy(&self) -> bool;
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
-    fn implementation_state(&self, ticket: &str) -> Option<&crate::core::implementation::Implementation>;
+    fn implementation_state(
+        &self,
+        ticket: &str,
+    ) -> Option<&crate::core::implementation::Implementation>;
+    fn implementation_active(&self, ticket: &str) -> bool;
     fn implement_task(&mut self, ticket: String);
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     // ------- items pane -------

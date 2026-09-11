@@ -28,6 +28,14 @@ pub struct Implementation {
     pub detail: String,
     pub pr_url: Option<String>,
     pub verified_head: Option<String>,
+    #[serde(default)]
+    pub pr_state: Option<String>,
+    #[serde(default)]
+    pub pr_checked_at: Option<String>,
+    #[serde(default)]
+    pub pr_check_attempted_at: Option<String>,
+    #[serde(default)]
+    pub pr_check_error: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize)]
 struct Report {
@@ -180,6 +188,20 @@ fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
         .join("packet-implementations")
         .join(key(ticket)))
 }
+pub fn load_all(repo: &Path) -> Vec<Implementation> {
+    let Ok(common) = common(repo) else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir(common.join("packet-implementations")) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            serde_json::from_slice(&fs::read(entry.path().join("state.json")).ok()?).ok()
+        })
+        .collect()
+}
 pub fn load(repo: &Path, ticket: &str) -> Option<Implementation> {
     serde_json::from_slice(&fs::read(state_dir(repo, ticket).ok()?.join("state.json")).ok()?).ok()
 }
@@ -188,6 +210,113 @@ fn save(dir: &Path, state: &Implementation) -> anyhow::Result<()> {
     fs::write(&temporary, serde_json::to_vec_pretty(state)?)?;
     fs::rename(temporary, dir.join("state.json"))?;
     Ok(())
+}
+
+/// Refresh in a worker: GitHub outages must not block the UI or erase the
+/// last confirmed state. The implementation lock prevents stale writes.
+pub struct PrRefresh {
+    rx: Receiver<()>,
+    cancel: Arc<AtomicBool>,
+}
+impl PrRefresh {
+    pub fn start(repo: PathBuf, tickets: Vec<String>) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let worker_cancel = cancel.clone();
+        std::thread::spawn(move || {
+            let (progress, _updates) = mpsc::channel();
+            let runner = Runner {
+                gh: "gh".into(),
+                deadline: Instant::now() + Duration::from_secs(45),
+                cancel: worker_cancel,
+                progress,
+            };
+            for ticket in tickets {
+                if runner.remaining().is_err() {
+                    break;
+                }
+                let _ = refresh_pr(&repo, &ticket, &runner);
+            }
+            let _ = tx.send(());
+        });
+        Self { rx, cancel }
+    }
+    pub fn finished(&self) -> bool {
+        !matches!(self.rx.try_recv(), Err(mpsc::TryRecvError::Empty))
+    }
+}
+impl Drop for PrRefresh {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+}
+
+fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> {
+    let dir = state_dir(repo, ticket)?;
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.join("run.lock"))?;
+    if lock.try_lock().is_err() {
+        return Ok(());
+    }
+    let mut state: Implementation = serde_json::from_slice(&fs::read(dir.join("state.json"))?)?;
+    let Some(url) = state.pr_url.clone() else {
+        return Ok(());
+    };
+    if state.pr_state.as_deref() == Some("MERGED") {
+        return Ok(());
+    }
+    state.pr_check_attempted_at = Some(chrono::Utc::now().to_rfc3339());
+    let result = (|| -> anyhow::Result<String> {
+        let output = runner.command(repo, &runner.gh, &["pr", "view", &url, "--json", "state"])?;
+        let value: serde_json::Value = serde_json::from_str(&output)?;
+        let status = value["state"].as_str().unwrap_or_default();
+        anyhow::ensure!(
+            matches!(status, "OPEN" | "CLOSED" | "MERGED"),
+            "GitHub returned an unknown PR state"
+        );
+        Ok(status.to_owned())
+    })();
+    match result {
+        Ok(status) => {
+            state.status = match status.as_str() {
+                "MERGED" => "Done",
+                "CLOSED" => "PR closed",
+                _ => "PR created",
+            }
+            .into();
+            state.pr_state = Some(status);
+            state.pr_checked_at = Some(chrono::Utc::now().to_rfc3339());
+            state.pr_check_error = None;
+        }
+        Err(error) => state.pr_check_error = Some(error.to_string()),
+    }
+    save(&dir, &state)
+}
+
+pub const BOARD_COLUMNS: [&str; 5] = [
+    "To do",
+    "In progress",
+    "In review",
+    "Needs attention",
+    "Done",
+];
+pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
+    let Some(state) = state else {
+        return if busy { 1 } else { 0 };
+    };
+    match state.pr_state.as_deref() {
+        Some("MERGED") => return 4,
+        Some("CLOSED") => return 3,
+        _ => {}
+    }
+    match state.status.as_str() {
+        "Done" => 4,
+        "PR created" => 2,
+        "Preparing" | "Implementing" | "Verifying" | "Ready for PR" if busy => 1,
+        _ => 3,
+    }
 }
 fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
@@ -260,7 +389,32 @@ fn run_with_gh(
     } else {
         // Persist identity before worktree creation so crashes can be resumed.
         let base = runner.git(repo, &["symbolic-ref", "--short", "HEAD"])?;
-        let head = runner.git(repo, &["rev-parse", "HEAD"])?;
+        runner.update(format!("Fetching latest origin/{base}…"));
+        // Fetch an explicit branch and resolve its immutable commit. Do not pull
+        // into the user's checkout, which may contain unrelated drafts.
+        let remote_ref = format!("refs/packet-bases/{}", key(ticket));
+        runner.git(
+            repo,
+            &[
+                "fetch",
+                "--no-tags",
+                "--no-write-fetch-head",
+                "origin",
+                &format!("+refs/heads/{base}:{remote_ref}"),
+            ],
+        )?;
+        let local = runner.git(repo, &["rev-parse", "HEAD"])?;
+        let remote = runner.git(repo, &["rev-parse", &remote_ref])?;
+        let head = if runner
+            .git(repo, &["merge-base", "--is-ancestor", &local, &remote])
+            .is_ok()
+        {
+            remote
+        } else {
+            runner.git(repo, &["merge-base", "--is-ancestor", &remote, &local])
+                .map_err(|_| anyhow::anyhow!("Local {base} and origin/{base} have diverged. Reconcile the branch before implementing; no work was discarded."))?;
+            local
+        };
         let root = repo
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Repository has no parent"))?
@@ -278,6 +432,10 @@ fn run_with_gh(
             detail: String::new(),
             pr_url: None,
             verified_head: None,
+            pr_state: None,
+            pr_checked_at: None,
+            pr_check_attempted_at: None,
+            pr_check_error: None,
         }
     };
     save(&dir, &state)?;
@@ -351,7 +509,6 @@ fn execute(
     let head = runner.git(&state.worktree, &["rev-parse", "HEAD"])?;
     let already_verified = clean && state.verified_head.as_deref() == Some(head.as_str());
     if already_verified && state.pr_url.is_some() {
-        state.status = "PR created".into();
         return Ok(());
     }
     if !already_verified {
@@ -521,6 +678,7 @@ fn execute(
         "GitHub did not return a PR URL"
     );
     state.status = "PR created".into();
+    state.pr_state = Some("OPEN".into());
     Ok(())
 }
 fn remote_repository(remote: &str) -> String {
@@ -663,6 +821,40 @@ mod tests {
         ticket: String,
     }
     impl Sandbox {
+        fn git(&self, cwd: &Path, args: &[&str]) -> String {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().into()
+        }
+        fn advance_remote(&self) -> String {
+            let peer = self.root.join("peer");
+            self.git(
+                &self.root,
+                &[
+                    "clone",
+                    "-q",
+                    "-b",
+                    "main",
+                    self.root.join("remote.git").to_str().unwrap(),
+                    peer.to_str().unwrap(),
+                ],
+            );
+            self.git(&peer, &["config", "user.name", "Fixture"]);
+            self.git(&peer, &["config", "user.email", "fixture@example.test"]);
+            fs::write(peer.join("upstream.txt"), "latest upstream\n").unwrap();
+            self.git(&peer, &["add", "."]);
+            self.git(&peer, &["commit", "-qm", "upstream update"]);
+            self.git(&peer, &["push", "-q", "origin", "main"]);
+            self.git(&peer, &["rev-parse", "HEAD"])
+        }
         fn new() -> Self {
             let root = std::env::temp_dir().join(format!(
                 "packet-implementation-{}-{}",
@@ -700,6 +892,7 @@ mod tests {
                 "origin",
                 root.join("remote.git").to_str().unwrap(),
             ]);
+            git(&["push", "-q", "origin", "main"]);
             let gh = root.join("gh-fixture");
             fs::write(&gh, "#!/bin/sh\nroot=$(dirname \"$0\")\nif [ -f \"$root/offline\" ]; then echo 'simulated GitHub unavailable' >&2; exit 1; fi\nif [ \"$2\" = list ]; then\n if [ -f \"$root/pr-created\" ]; then echo '[{\"url\":\"https://github.com/fixture/repo/pull/1\",\"state\":\"OPEN\"}]'; else echo '[]'; fi\nelse\n echo created >> \"$root/pr-created\"\n echo 'https://github.com/fixture/repo/pull/1'\nfi\n").unwrap();
             #[cfg(unix)]
@@ -772,9 +965,130 @@ mod tests {
         let state = load(&s.repo, &s.ticket).unwrap();
         assert_eq!(state.status, "Interrupted");
         assert!(!s.root.join("pr-created").exists());
+        s.advance_remote();
         let resumed = s.run("resume", calls.clone()).unwrap();
         assert_eq!(resumed.worktree, state.worktree);
+        assert_eq!(resumed.base_commit, state.base_commit);
+        assert!(!resumed.worktree.join("upstream.txt").exists());
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn new_task_includes_latest_remote_without_touching_checkout() {
+        let s = Sandbox::new();
+        let original = s.git(&s.repo, &["rev-parse", "HEAD"]);
+        let latest = s.advance_remote();
+        fs::write(s.repo.join("draft.txt"), "keep my draft").unwrap();
+        let result = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+        assert_eq!(result.base_commit, latest);
+        assert_eq!(
+            fs::read_to_string(result.worktree.join("upstream.txt")).unwrap(),
+            "latest upstream\n"
+        );
+        assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), original);
+        assert_eq!(
+            fs::read_to_string(s.repo.join("draft.txt")).unwrap(),
+            "keep my draft"
+        );
+        assert!(!s.repo.join("upstream.txt").exists());
+    }
+
+    #[test]
+    fn divergence_and_fetch_failure_stop_before_agent_runs() {
+        for diverged in [true, false] {
+            let s = Sandbox::new();
+            if diverged {
+                s.advance_remote();
+                fs::write(s.repo.join("local.txt"), "local change").unwrap();
+                s.git(&s.repo, &["add", "."]);
+                s.git(&s.repo, &["commit", "-qm", "local change"]);
+            } else {
+                s.git(
+                    &s.repo,
+                    &["remote", "set-url", "origin", "/nonexistent-packet-remote"],
+                );
+            }
+            let original = s.git(&s.repo, &["rev-parse", "HEAD"]);
+            let calls = Arc::new(AtomicUsize::new(0));
+            let error = s.run("complete", calls.clone()).unwrap_err().to_string();
+            assert!(error.contains(if diverged { "diverged" } else { "failed" }));
+            assert_eq!(calls.load(Ordering::SeqCst), 0);
+            assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), original);
+            assert!(load(&s.repo, &s.ticket).is_none());
+        }
+    }
+
+    #[test]
+    fn local_commits_ahead_of_remote_are_preserved() {
+        let s = Sandbox::new();
+        fs::write(s.repo.join("local.txt"), "local change").unwrap();
+        s.git(&s.repo, &["add", "."]);
+        s.git(&s.repo, &["commit", "-qm", "local change"]);
+        let original = s.git(&s.repo, &["rev-parse", "HEAD"]);
+        let state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+        assert_eq!(state.base_commit, original);
+        assert!(state.worktree.join("local.txt").exists());
+    }
+
+    #[test]
+    fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
+        let s = Sandbox::new();
+        s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+        let (progress, _rx) = mpsc::channel();
+        let runner = Runner {
+            gh: s.gh.to_string_lossy().into(),
+            deadline: Instant::now() + Duration::from_secs(20),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress,
+        };
+        for (value, column) in [("CLOSED", 3), ("OPEN", 2), ("MERGED", 4)] {
+            fs::write(
+                &s.gh,
+                format!("#!/bin/sh\nprintf '%s\\n' '{{\"state\":\"{value}\"}}'\n"),
+            )
+            .unwrap();
+            refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
+            let state = load(&s.repo, &s.ticket).unwrap();
+            assert_eq!(state.pr_state.as_deref(), Some(value));
+            assert_eq!(board_column(Some(&state), false), column);
+            assert!(state.pr_checked_at.is_some());
+            assert!(state.pr_check_error.is_none());
+            if value != "MERGED" {
+                for output in ["echo offline >&2; exit 1", "echo '{\"state\":\"UNKNOWN\"}'"] {
+                    fs::write(&s.gh, format!("#!/bin/sh\n{output}\n")).unwrap();
+                    refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
+                    let failed = load(&s.repo, &s.ticket).unwrap();
+                    assert_eq!(failed.pr_state, state.pr_state);
+                    assert_eq!(failed.pr_checked_at, state.pr_checked_at);
+                    assert!(failed.pr_check_error.is_some());
+                }
+            }
+        }
+        assert_eq!(load_all(&s.repo).len(), 1);
+        assert_eq!(load(&s.repo, &s.ticket).unwrap().status, "Done");
+    }
+
+    #[test]
+    fn pr_refresh_does_not_overwrite_an_active_implementation() {
+        let s = Sandbox::new();
+        s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        let before = fs::read(dir.join("state.json")).unwrap();
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(dir.join("run.lock"))
+            .unwrap();
+        lock.lock().unwrap();
+        let (progress, _rx) = mpsc::channel();
+        let runner = Runner {
+            gh: "must-not-run".into(),
+            deadline: Instant::now() + Duration::from_secs(5),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress,
+        };
+        refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
+        assert_eq!(fs::read(dir.join("state.json")).unwrap(), before);
     }
     #[test]
     fn blocked_or_failed_verification_never_creates_pr() {

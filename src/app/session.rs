@@ -16,8 +16,12 @@ pub struct Project {
     pub chat_slug: String,
     pub chat: Vec<ChatMessage>,
     pub draft: String,
+    pub active_implementation_ticket: Option<String>,
     pub active_implementation: Option<crate::core::implementation::Controller>,
-    pub implementation_states: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    pub implementation_states:
+        std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    pub pr_refresh: Option<crate::core::implementation::PrRefresh>,
+    pub last_pr_refresh: Option<std::time::Instant>,
     pub active_turn: Option<Arc<TurnController>>,
     pub live_progress: crate::harness::LiveProgress,
     /// Which item the app decided to press the user with (routing verdict).
@@ -53,9 +57,10 @@ impl Project {
     }
 
     pub fn refresh_implementations(&mut self) {
-        self.implementation_states = self.task_documents.iter().filter_map(|d| {
-            crate::core::implementation::load(&self.state.repo_root, &d.path).map(|s| (d.path.clone(), s))
-        }).collect();
+        self.implementation_states = crate::core::implementation::load_all(&self.state.repo_root)
+            .into_iter()
+            .map(|state| (state.ticket.clone(), state))
+            .collect();
     }
 
     pub fn refresh_git(&mut self) {

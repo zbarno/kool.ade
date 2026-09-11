@@ -78,7 +78,9 @@ impl PacketApp {
         if let Screen::Connected(project) = &mut self.screen {
             if let Some(ctrl) = &project.active_turn {
                 for _ in 0..64 {
-                    let Some(evt) = ctrl.poll(Duration::ZERO) else { break };
+                    let Some(evt) = ctrl.poll(Duration::ZERO) else {
+                        break;
+                    };
                     match evt {
                         TurnEvt::Progress(progress) => project.live_progress.update(progress),
                         TurnEvt::Done(o) => {
@@ -94,22 +96,69 @@ impl PacketApp {
             if let Some(ctrl) = &project.active_implementation {
                 for _ in 0..64 {
                     match ctrl.poll() {
-                        Some(crate::core::implementation::Event::Progress(p)) => project.live_progress.update(p),
-                        Some(crate::core::implementation::Event::Done(result)) => { finished = Some(result); break; },
+                        Some(crate::core::implementation::Event::Progress(p)) => {
+                            project.live_progress.update(p)
+                        }
+                        Some(crate::core::implementation::Event::Done(result)) => {
+                            finished = Some(result);
+                            break;
+                        }
                         None => break,
                     }
                 }
             }
             if let Some(result) = finished {
                 project.active_implementation = None;
+                project.active_implementation_ticket = None;
                 project.live_progress = Default::default();
                 project.refresh_implementations();
+                project.last_pr_refresh = None;
                 let text = match result {
-                    Ok(record) => format!("Implementation verified. Pull request: {}", record.pr_url.unwrap_or_default()),
-                    Err(error) => format!("Implementation stopped: {error}\nExisting work is preserved; use Resume implementation to continue."),
+                    Ok(record) => format!(
+                        "Implementation verified. Pull request: {}",
+                        record.pr_url.unwrap_or_default()
+                    ),
+                    Err(error) => format!(
+                        "Implementation stopped: {error}\nExisting work is preserved; use Resume implementation to continue."
+                    ),
                 };
                 project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
                 project.refresh_git();
+            }
+        }
+        if let Screen::Connected(project) = &mut self.screen {
+            if project
+                .pr_refresh
+                .as_ref()
+                .is_some_and(|refresh| refresh.finished())
+            {
+                project.pr_refresh = None;
+                project.refresh_implementations();
+            }
+            if project.pr_refresh.is_none()
+                && project
+                    .last_pr_refresh
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(60))
+            {
+                let mut states = project
+                    .implementation_states
+                    .values()
+                    .filter(|state| {
+                        state.pr_url.is_some() && state.pr_state.as_deref() != Some("MERGED")
+                    })
+                    .collect::<Vec<_>>();
+                states.sort_by_key(|state| &state.pr_check_attempted_at);
+                let tickets = states
+                    .into_iter()
+                    .map(|state| state.ticket.clone())
+                    .collect::<Vec<_>>();
+                if !tickets.is_empty() {
+                    project.pr_refresh = Some(crate::core::implementation::PrRefresh::start(
+                        project.state.repo_root.clone(),
+                        tickets,
+                    ));
+                }
+                project.last_pr_refresh = Some(Instant::now());
             }
         }
         // Phase 2: apply a completed turn. The project is detached first so
@@ -127,7 +176,10 @@ impl PacketApp {
                 Screen::Connected(p) => {
                     p.refresh_git();
                     p.refresh_implementations();
-                    p.task_documents = crate::artifacts::task_docs::load_latest(&p.state.repo_root, &p.state.workflow);
+                    p.task_documents = crate::artifacts::task_docs::load_latest(
+                        &p.state.repo_root,
+                        &p.state.workflow,
+                    );
                     Self::derive_caches(p)
                 }
                 Screen::Welcome => return,
@@ -136,7 +188,11 @@ impl PacketApp {
             self.last_git_refresh = Instant::now();
         }
         let period = match &self.screen {
-            Screen::Connected(p) if (p.active_turn.is_some() || p.active_implementation.is_some()) => Duration::from_millis(120),
+            Screen::Connected(p)
+                if (p.active_turn.is_some() || p.active_implementation.is_some()) =>
+            {
+                Duration::from_millis(120)
+            }
             _ => Duration::from_millis(800),
         };
         ctx.request_repaint_after(period);
@@ -172,7 +228,10 @@ impl PacketApp {
             } => {
                 let previous_batches = project.state.workflow.task_batches.len();
                 project.state = state;
-                project.task_documents = crate::artifacts::task_docs::load_latest(&project.state.repo_root, &project.state.workflow);
+                project.task_documents = crate::artifacts::task_docs::load_latest(
+                    &project.state.repo_root,
+                    &project.state.workflow,
+                );
                 project.next_question_id = normalized.next_question_id.clone();
                 let mut chat = vec![ChatMessage::new(
                     ChatRole::Agent,
@@ -189,9 +248,12 @@ impl PacketApp {
                         None,
                     ));
                 }
-                chat.extend(normalized.warnings.iter().map(|w| {
-                    ChatMessage::new(ChatRole::System, w.clone(), None)
-                }));
+                chat.extend(
+                    normalized
+                        .warnings
+                        .iter()
+                        .map(|w| ChatMessage::new(ChatRole::System, w.clone(), None)),
+                );
                 if project.state.workflow.task_batches.len() > previous_batches {
                     if let Some(batch) = project.state.workflow.task_batches.last() {
                         chat.push(ChatMessage::new(ChatRole::System, format!("Created {} detailed task stories in {}. Open the Task stories tab to review them.", batch.count, batch.directory), None));
@@ -218,7 +280,10 @@ impl PacketApp {
             } => {
                 let mut chat = vec![ChatMessage::new(
                     ChatRole::System,
-                    format!("⚠ Turn rejected — nothing was written.\n{}", problems.join("\n")),
+                    format!(
+                        "⚠ Turn rejected — nothing was written.\n{}",
+                        problems.join("\n")
+                    ),
                     None,
                 )];
                 chat.push(ChatMessage::new(
@@ -239,7 +304,12 @@ impl PacketApp {
             TurnOutcome::HarnessFailed { error, .. } => {
                 project.remember_chat(vec![ChatMessage::new(
                     ChatRole::System,
-                    match &error { crate::error::AppError::InvalidResponse { .. } => format!("Task generation needs attention: {}", error.detail()), _ => format!("Planning stopped: {}", error.headline()) },
+                    match &error {
+                        crate::error::AppError::InvalidResponse { .. } => {
+                            format!("Task generation needs attention: {}", error.detail())
+                        }
+                        _ => format!("Planning stopped: {}", error.headline()),
+                    },
                     None,
                 )]);
                 self.toasts.danger(error.headline());
@@ -255,8 +325,7 @@ impl PacketApp {
         match welcome::attempt_connect(&self.conn_path) {
             Ok(mut project) => {
                 self.refresh_derived(&project);
-                project
-                    .remember_chat(vec![session::welcome_message(&project.state.title)]);
+                project.remember_chat(vec![session::welcome_message(&project.state.title)]);
                 self.conn_error = None;
                 let title = project.state.title.clone();
                 self.screen = Screen::Connected(project);
@@ -270,8 +339,12 @@ impl PacketApp {
 
     fn start_turn(&mut self, text: &str) {
         let purpose = match &self.screen {
-            Screen::Connected(p) if p.state.workflow.ready(p.state.spec_text.as_deref())
-                && crate::core::workflow::confirms_generation(text) => crate::core::workflow::TurnPurpose::GenerateTasks,
+            Screen::Connected(p)
+                if p.state.workflow.ready(p.state.spec_text.as_deref())
+                    && crate::core::workflow::confirms_generation(text) =>
+            {
+                crate::core::workflow::TurnPurpose::GenerateTasks
+            }
             _ => crate::core::workflow::TurnPurpose::Interview,
         };
         self.start_turn_with_purpose(text, purpose);
@@ -303,14 +376,14 @@ impl PacketApp {
     fn disconnect(&mut self) {
         if let Screen::Connected(p) = &mut self.screen {
             if p.active_turn.is_some() {
-                if let Some(ctrl) = &p.active_implementation { ctrl.request_cancel(); }
+                if let Some(ctrl) = &p.active_implementation {
+                    ctrl.request_cancel();
+                }
                 if let Some(ctrl) = &p.active_turn {
                     ctrl.request_cancel();
                 }
-                self.toasts.warning(format!(
-                    "Turn aborted; disconnected from {}",
-                    p.state.title
-                ));
+                self.toasts
+                    .warning(format!("Turn aborted; disconnected from {}", p.state.title));
             }
         }
         self.dialog = None;
@@ -322,10 +395,18 @@ impl PacketApp {
         let Screen::Connected(p) = &self.screen else {
             return;
         };
-        let text = p.live_progress.specification.as_deref().or(p.state.spec_text.as_deref()).unwrap_or_default().to_owned();
+        let text = p
+            .live_progress
+            .specification
+            .as_deref()
+            .or(p.state.spec_text.as_deref())
+            .unwrap_or_default()
+            .to_owned();
         clipboard_put(&text);
-        self.toasts
-            .info(format!("Copied {} characters to clipboard", text.chars().count()));
+        self.toasts.info(format!(
+            "Copied {} characters to clipboard",
+            text.chars().count()
+        ));
     }
 }
 
@@ -403,33 +484,76 @@ impl Surface for PacketApp {
 
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
         match &self.screen {
-            Screen::Connected(p) if p.active_turn.is_some() || p.active_implementation.is_some() => Some(&p.live_progress),
+            Screen::Connected(p)
+                if p.active_turn.is_some() || p.active_implementation.is_some() =>
+            {
+                Some(&p.live_progress)
+            }
             _ => None,
         }
     }
 
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief> {
         match &self.screen {
-            Screen::Connected(p) if p.active_turn.is_none() && p.active_implementation.is_none() && p.state.workflow.ready(p.state.spec_text.as_deref()) => p.state.workflow.brief.as_ref(),
+            Screen::Connected(p)
+                if p.active_turn.is_none()
+                    && p.active_implementation.is_none()
+                    && p.state.workflow.ready(p.state.spec_text.as_deref()) =>
+            {
+                p.state.workflow.brief.as_ref()
+            }
             _ => None,
         }
     }
 
-    fn implementation_state(&self, ticket: &str) -> Option<&crate::core::implementation::Implementation> {
-        match &self.screen { Screen::Connected(p) => p.implementation_states.get(ticket), _ => None }
+    fn implementation_state(
+        &self,
+        ticket: &str,
+    ) -> Option<&crate::core::implementation::Implementation> {
+        match &self.screen {
+            Screen::Connected(p) => p.implementation_states.get(ticket),
+            _ => None,
+        }
+    }
+    fn implementation_active(&self, ticket: &str) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.active_implementation_ticket.as_deref() == Some(ticket))
     }
     fn implement_task(&mut self, ticket: String) {
-        if self.is_busy() { return; }
+        if self.is_busy() {
+            return;
+        }
         if let Screen::Connected(p) = &mut self.screen {
-            if !p.task_documents.iter().any(|d| d.path == ticket && !d.path.ends_with("/README.md")) { return; }
+            if p.implementation_states
+                .get(&ticket)
+                .is_some_and(|state| state.pr_url.is_some())
+            {
+                return;
+            }
+            if !p
+                .task_documents
+                .iter()
+                .any(|d| d.path == ticket && !d.path.ends_with("/README.md"))
+            {
+                return;
+            }
             p.remember_chat(vec![ChatMessage::new(ChatRole::User, format!("Implement ticket {ticket}. Resume its worktree if it exists, verify the result, and create a pull request."), None)]);
-            p.live_progress = crate::harness::LiveProgress { activity: Some("Starting implementation…".into()), ..Default::default() };
-            p.active_implementation = Some(crate::core::implementation::Controller::start(p.state.repo_root.clone(), ticket));
+            p.live_progress = crate::harness::LiveProgress {
+                activity: Some("Starting implementation…".into()),
+                ..Default::default()
+            };
+            p.active_implementation_ticket = Some(ticket.clone());
+            p.active_implementation = Some(crate::core::implementation::Controller::start(
+                p.state.repo_root.clone(),
+                ticket,
+            ));
         }
     }
 
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument] {
-        match &self.screen { Screen::Connected(p) => &p.task_documents, _ => &[] }
+        match &self.screen {
+            Screen::Connected(p) => &p.task_documents,
+            _ => &[],
+        }
     }
 
     fn items(&self) -> &[OpenItem] {
@@ -463,7 +587,12 @@ impl Surface for PacketApp {
 
     fn spec_text(&self) -> &str {
         match &self.screen {
-            Screen::Connected(p) => p.live_progress.specification.as_deref().or(p.state.spec_text.as_deref()).unwrap_or(NO_SPEC_PLACEHOLDER),
+            Screen::Connected(p) => p
+                .live_progress
+                .specification
+                .as_deref()
+                .or(p.state.spec_text.as_deref())
+                .unwrap_or(NO_SPEC_PLACEHOLDER),
             Screen::Welcome => "",
         }
     }
@@ -479,13 +608,18 @@ impl Surface for PacketApp {
     fn on_intent(&mut self, intent: &Intent) {
         if intent.generate_tasks {
             if self.task_offer().is_some() {
-                self.start_turn_with_purpose("Yes, proceed to task generation for the reviewed specification.", crate::core::workflow::TurnPurpose::GenerateTasks);
+                self.start_turn_with_purpose(
+                    "Yes, proceed to task generation for the reviewed specification.",
+                    crate::core::workflow::TurnPurpose::GenerateTasks,
+                );
             }
             return;
         }
         if intent.cancel {
             if let Screen::Connected(p) = &mut self.screen {
-                if let Some(ctrl) = &p.active_implementation { ctrl.request_cancel(); }
+                if let Some(ctrl) = &p.active_implementation {
+                    ctrl.request_cancel();
+                }
                 if let Some(ctrl) = &p.active_turn {
                     ctrl.request_cancel();
                     self.toasts.warning("Cancellation requested…");
@@ -509,9 +643,13 @@ impl Surface for PacketApp {
         match action {
             HeaderAction::Refresh => {
                 if let Screen::Connected(p) = &mut self.screen {
+                    p.last_pr_refresh = None;
                     p.refresh_git();
                     p.refresh_implementations();
-                    p.task_documents = crate::artifacts::task_docs::load_latest(&p.state.repo_root, &p.state.workflow);
+                    p.task_documents = crate::artifacts::task_docs::load_latest(
+                        &p.state.repo_root,
+                        &p.state.workflow,
+                    );
                     self.toasts.info("Git state refreshed");
                 }
             }
@@ -539,8 +677,12 @@ impl App for PacketApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
         ui.ctx().set_visuals(crate::ui::theme::packet_visuals());
         ui.ctx().style_mut_of(egui::Theme::Dark, |style| {
-            style.text_styles.insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
-            style.text_styles.insert(egui::TextStyle::Button, egui::FontId::proportional(13.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+            style
+                .text_styles
+                .insert(egui::TextStyle::Button, egui::FontId::proportional(13.0));
             style.spacing.item_spacing = egui::vec2(8.0, 8.0);
             style.spacing.button_padding = egui::vec2(12.0, 7.0);
         });
@@ -637,7 +779,8 @@ impl PacketApp {
                 d.feedback = Some((true, format!("Imported {n} document(s).")));
                 if n > 0 {
                     self.dialog = None;
-                    self.toasts.success(format!("Imported {n} reference doc(s)"));
+                    self.toasts
+                        .success(format!("Imported {n} reference doc(s)"));
                 }
             }
             Err(e) => d.feedback = Some((false, e.detail())),
@@ -662,3 +805,181 @@ impl PacketApp {
 const NO_SPEC_PLACEHOLDER: &str = "# No specification yet
 
 Describe what you are building in the chat. The planner will draft this page for you and keep every subsequent revision under git.";
+
+#[cfg(test)]
+mod board_tests {
+    use super::*;
+
+    fn fixture() -> PacketApp {
+        let root = std::env::temp_dir().join("packet-board-ui-fixture-nonexistent");
+        let docs = ["First task", "Review task", "Merged task"]
+            .iter()
+            .enumerate()
+            .map(|(i, title)| crate::artifacts::task_docs::TaskDocument {
+                path: format!("planning/tasks/fixture/{:03}-task.md", i + 1),
+                title: title.to_string(),
+                text: format!("# {title}\n\nUnique story detail {i}"),
+            })
+            .collect::<Vec<_>>();
+        let mut states = std::collections::BTreeMap::new();
+        for (i, pr_state) in [(1, "OPEN"), (2, "MERGED")] {
+            let record = crate::core::implementation::Implementation {
+                ticket: docs[i].path.clone(),
+                ticket_text: docs[i].text.clone(),
+                branch: "packet/fixture".into(),
+                base: "main".into(),
+                base_commit: "fixture".into(),
+                worktree: root.join("worktree"),
+                status: if i == 1 { "PR created" } else { "Done" }.into(),
+                detail: String::new(),
+                pr_url: Some(format!("https://github.com/fixture/repo/pull/{i}")),
+                verified_head: Some("fixture".into()),
+                pr_state: Some(pr_state.into()),
+                pr_checked_at: None,
+                pr_check_attempted_at: None,
+                pr_check_error: None,
+            };
+            states.insert(record.ticket.clone(), record);
+        }
+        PacketApp {
+            screen: Screen::Connected(Project {
+                state: crate::core::state::PlannerState::load(&root).unwrap(),
+                chat_slug: "unused".into(),
+                chat: Vec::new(),
+                draft: String::new(),
+                active_implementation: None,
+                active_implementation_ticket: None,
+                implementation_states: states,
+                pr_refresh: None,
+                last_pr_refresh: None,
+                active_turn: None,
+                live_progress: Default::default(),
+                next_question_id: None,
+                git: Default::default(),
+                task_documents: docs,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn frame(
+        app: &mut PacketApp,
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1800.0, 900.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| crate::ui::layout::paint(ui, app),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn text_position(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+        output.shapes.iter().find_map(|shape| {
+            if let egui::Shape::Text(text) = &shape.shape {
+                if text.galley.text() == needle {
+                    return Some(text.pos + text.galley.size() * 0.5);
+                }
+            }
+            None
+        })
+    }
+
+    #[test]
+    fn board_cards_select_story_details_and_open_the_correct_pr() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("packet_document_tab"), true));
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        for label in [
+            "To do · 1",
+            "In progress · 0",
+            "In review · 1",
+            "Needs attention · 0",
+            "Done · 1",
+        ] {
+            assert!(text_position(&output, label).is_some(), "missing {label}");
+        }
+        let click = text_position(&output, "Review task").unwrap();
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(click),
+                egui::Event::PointerButton {
+                    pos: click,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerButton {
+                pos: click,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        assert_eq!(
+            ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_task")))
+                .as_deref(),
+            Some("planning/tasks/fixture/002-task.md")
+        );
+        assert!(
+            text_position(&output, "Unique story detail 1").is_some(),
+            "texts: {:?}",
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| if let egui::Shape::Text(t) = &shape.shape {
+                    Some((t.galley.text(), t.pos))
+                } else {
+                    None
+                })
+                .collect::<Vec<_>>()
+        );
+        let link = text_position(&output, "Open PR").unwrap();
+        frame(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(link),
+                egui::Event::PointerButton {
+                    pos: link,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let output = frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::PointerButton {
+                pos: link,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+        assert!(output.platform_output.commands.iter().any(|cmd| matches!(cmd, egui::OutputCommand::OpenUrl(url) if url.url == "https://github.com/fixture/repo/pull/1")));
+        app.implement_task("planning/tasks/fixture/002-task.md".into());
+        assert!(
+            !app.is_busy(),
+            "published tasks must not start another agent"
+        );
+    }
+}

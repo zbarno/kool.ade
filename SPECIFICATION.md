@@ -1120,3 +1120,19 @@ acceptance criterion and no remaining work. Packet reruns verification commands,
 checks the diff, commits the result, pushes to origin, and creates or reuses a PR
 against the original starting branch. Failed checks never create a PR. A publishing
 retry can reuse an unchanged verified commit. No automatic merging occurs.
+
+
+New implementations fetch the connected branch from origin and start from the
+latest commit compatible with a fast-forward. Local commits ahead of origin are
+preserved; divergent history and fetch failures stop execution before Pi starts.
+The original checkout is unchanged. Resume retains the existing base and worktree.
+
+Task stories appear on a Kanban board with To do, In progress, In review, Needs
+attention, and Done columns. Cards select the story detail and its available action.
+Background PR checks run on connection and every minute while connected. GitHub's
+confirmed OPEN, CLOSED, and MERGED states drive review, attention, and completion;
+closed PRs may return to review if reopened. Polling uses the per-ticket execution
+lock, persists status outside tracked planning artifacts, and preserves the last
+confirmed state on errors with visible stale-state feedback. PRs from older task
+batches are also refreshed. Published tickets expose their PR rather than allowing
+a duplicate implementation. Confirmed merged PRs no longer require polling.

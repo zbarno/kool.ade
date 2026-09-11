@@ -66,14 +66,16 @@ such as `saved-searches-02`. Task generation creates plans, not implementation c
 
 ## Implement a ticket
 
-Select a numbered story in **Task stories** and click **Implement**. This starts Pi
+Select a card on the **Task stories** Kanban board and click **Implement**. This starts Pi
 in a dedicated Git worktree on a stable `packet/<ticket>` branch. The worktree starts
-from the connected checkout's current committed branch; uncommitted changes in the
-original checkout are not copied or modified. Worktrees live in a sibling
+from the latest fetched `origin` version of the connected branch, with a fast-forward
+check. Local commits ahead of origin are retained; diverged branches or fetch failures
+stop before the agent runs. The connected checkout and its uncommitted drafts are
+not modified. Worktrees live in a sibling
 `.packet-worktrees` directory, with execution state and verification evidence under
 Git's private `packet-implementations` metadata directory.
 
-**Resume implementation** reopens the same worktree. Pi reviews its status, diffs,
+**Resume implementation** reopens the same worktree without pulling or rebasing existing work. Pi reviews its status, diffs,
 commits, repository instructions, and ticket dependencies before continuing. Cancel,
 application exit, failed verification, and unavailable GitHub preserve the worktree.
 Changed ticket text requires review and a revised ticket; it cannot silently change
@@ -92,3 +94,14 @@ the worktree and commit are unchanged. PRs are never automatically merged.
 Verification combines the model's acceptance evidence with actual command results;
 it does not replace human code review. Pi has normal local coding-tool access; the
 worktree is isolation for Git changes, not an operating-system sandbox.
+
+The task board groups stories into **To do**, **In progress**, **In review**,
+**Needs attention**, and **Done**. Selecting a card opens its full story and actions;
+the batch overview remains available. Packet checks published PRs in the background
+on connection and every minute while the project is open, including implementations
+from previous batches. Open PRs stay in review, merged PRs move to Done, and PRs
+closed without merging need attention. Reopening a closed PR returns it to review
+on the next successful check. GitHub errors retain the last confirmed state and are
+shown on the board. State is persisted in Git's private implementation metadata;
+polling does not edit or commit story documents. Published tasks link to their PR
+instead of starting a duplicate implementation.
