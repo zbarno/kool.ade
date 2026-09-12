@@ -194,7 +194,7 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
     });
 }
 
-fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
+pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
     ui.push_id("live_turn", |ui| {
         if !progress.posts.is_empty() {
             for post in &progress.posts {

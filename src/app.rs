@@ -16,3 +16,5 @@ pub fn options() -> eframe::NativeOptions {
         ..Default::default()
     }
 }
+
+pub mod manager;

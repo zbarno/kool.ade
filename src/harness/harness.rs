@@ -23,6 +23,8 @@ use crate::error::AppError;
 pub struct PlanningRequest {
     /// Load repository instructions for implementation; planning remains isolated.
     pub implementation: bool,
+    /// Disable tools for independent project-manager status updates.
+    pub read_only: bool,
     /// Repository working directory the harness process must run in (§18).
     pub repo_root: std::path::PathBuf,
     /// Fully rendered prompt body (system instructions travel separately).
@@ -38,7 +40,7 @@ pub struct PlanningRequest {
 }
 
 /// Transient display snapshot; never fed back into prompts or saved as artifacts.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LiveProgress {
     pub posts: Vec<LivePost>,
     pub thoughts: String,
@@ -48,7 +50,7 @@ pub struct LiveProgress {
 }
 
 /// A stable, chronologically placed block of external agent output.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LivePost {
     pub id: (u64, usize),
     pub kind: String,

@@ -352,7 +352,7 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
     ui.horizontal(|ui| {
         ui.label(RichText::new("Name").size(12.0).weak());
         ui.add_sized(
-            egui::vec2(260.0, 26.0),
+            egui::vec2(ui.available_width(), 26.0),
             TextEdit::singleline(&mut dlg.user_name)
                 .font(egui::FontId::proportional(12.5))
                 .desired_width(240.0),
@@ -361,7 +361,7 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
     ui.horizontal(|ui| {
         ui.label(RichText::new("Teams").size(12.0).weak());
         ui.add_sized(
-            egui::vec2(340.0, 26.0),
+            egui::vec2(ui.available_width(), 26.0),
             TextEdit::singleline(&mut dlg.user_groups)
                 .hint_text("Platform, QA  (comma separated)")
                 .font(egui::FontId::proportional(12.5))
@@ -383,13 +383,13 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             for (i, r) in dlg.rows.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     ui.add_sized(
-                        egui::vec2(180.0, 24.0),
+                        egui::vec2((ui.available_width() - 40.0) * 0.38, 24.0),
                         TextEdit::singleline(&mut r.category)
                             .font(egui::FontId::proportional(12.0))
                             .desired_width(160.0),
                     );
                     ui.add_sized(
-                        egui::vec2(280.0, 24.0),
+                        egui::vec2((ui.available_width() - 32.0).max(40.0), 24.0),
                         TextEdit::singleline(&mut r.members)
                             .hint_text("members, comma, separated")
                             .font(egui::FontId::proportional(12.0))
@@ -649,6 +649,7 @@ mod tests {
     fn project_from(root: &std::path::Path) -> Project {
         let state = PlannerState::load(root).unwrap();
         Project {
+            activity: Default::default(),
             state,
             chat_slug: "test-slug".into(),
             chat: Vec::new(),

@@ -1,8 +1,6 @@
 //! Resumable ticket implementation. Git worktrees and runtime records are kept
 //! independently from planning state; only verified results proceed to a PR.
-use crate::{
-    harness::{AiHarness, LiveProgress, PiHarness, PlanningRequest},
-};
+use crate::harness::{AiHarness, LiveProgress, PiHarness, PlanningRequest};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -621,7 +619,7 @@ fn prepare_verified(
             let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
             let report_path = dir.join(format!("{stamp}-report.json"));
             prompt.push_str(&format!("\n\nRECOVERY REPORT FILE: {}\nAfter verification, atomically write the same complete JSON report to this absolute file (temporary sibling then rename) before your final response. This preserves completion if the CLI loses its final message.\nYou may fix the root cause of encountered failures and add regression coverage in this worktree when necessary. Keep repairs focused, preserve checks, and do not commit them yourself: Packet verifies and commits the task and its recovery fixes together atomically.\n", report_path.display()));
-            let request = PlanningRequest { implementation: true, repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
+            let request = PlanningRequest { implementation: true, read_only: false, repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
             let outcome = match harness.execute(&request) {
                 Ok(outcome) => outcome,
                 Err(error) => {
@@ -2126,4 +2124,22 @@ mod tests {
         };
         assert!(validate_report(&report, "## Acceptance criteria\n- One\n- Two\n").is_err());
     }
+}
+
+/// Task-only activity survives reconnects without becoming a tracked artifact.
+pub fn load_activity(repo: &Path, ticket: &str) -> Option<crate::harness::LiveProgress> {
+    serde_json::from_slice(&fs::read(state_dir(repo, ticket).ok()?.join("activity.json")).ok()?)
+        .ok()
+}
+pub fn save_activity(
+    repo: &Path,
+    ticket: &str,
+    activity: &crate::harness::LiveProgress,
+) -> anyhow::Result<()> {
+    let dir = state_dir(repo, ticket)?;
+    fs::create_dir_all(&dir)?;
+    let temp = dir.join("activity.json.tmp");
+    fs::write(&temp, serde_json::to_vec(activity)?)?;
+    fs::rename(temp, dir.join("activity.json"))?;
+    Ok(())
 }

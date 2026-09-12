@@ -213,6 +213,9 @@ impl AiHarness for PiHarness {
             req.system_instructions.clone(),
         ]);
 
+        if req.read_only {
+            argv.push("--no-tools".into());
+        }
         if req.implementation {
             argv.retain(|arg| arg != "--no-context-files");
         }

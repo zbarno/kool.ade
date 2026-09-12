@@ -62,6 +62,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     }
     let task_documents = crate::artifacts::task_docs::load_latest(&canonical, &state.workflow);
     let mut project = Project {
+        activity: Default::default(),
         task_documents,
         state,
         chat_slug: slug,

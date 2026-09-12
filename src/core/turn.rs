@@ -194,6 +194,7 @@ fn run_turn(
     }
     let request = PlanningRequest {
         implementation: false,
+        read_only: false,
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: format!("{SYSTEM_INSTRUCTIONS}\n{}", prompt::WORKFLOW_INSTRUCTIONS),

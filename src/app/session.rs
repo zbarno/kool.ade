@@ -10,6 +10,7 @@ use crate::domain::chatlog::ChatMessage;
 use crate::persistence::chat_store;
 
 pub struct Project {
+    pub activity: super::manager::WorkspaceActivity,
     pub state: PlannerState,
     /// Project slug keying the ~/.packet chat store.
     pub chat_slug: String,
@@ -58,10 +59,41 @@ impl Project {
     }
 
     pub fn refresh_implementations(&mut self) {
-        self.implementation_states = crate::core::implementation::load_all(&self.state.repo_root)
+        let latest = crate::core::implementation::load_all(&self.state.repo_root)
             .into_iter()
             .map(|state| (state.ticket.clone(), state))
-            .collect();
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for (ticket, state) in &latest {
+            if let Some(previous) = self.implementation_states.get(ticket) {
+                if previous.status != state.status || previous.pr_state != state.pr_state {
+                    self.activity.pending.push(format!(
+                        "{ticket}: {} → {}; PR {:?}",
+                        previous.status, state.status, state.pr_state
+                    ));
+                }
+            }
+        }
+        self.implementation_states = latest;
+        for ticket in self.implementation_states.keys() {
+            if !self.activity.tasks.contains_key(ticket) {
+                if let Some(activity) =
+                    crate::core::implementation::load_activity(&self.state.repo_root, ticket)
+                {
+                    self.activity.tasks.insert(ticket.clone(), activity);
+                }
+            }
+        }
+    }
+
+    pub fn save_task_activity(&mut self, ticket: &str) {
+        if let Some(activity) = self.activity.tasks.get(ticket) {
+            if let Err(error) =
+                crate::core::implementation::save_activity(&self.state.repo_root, ticket, activity)
+            {
+                self.activity.tasks.get_mut(ticket).unwrap().activity =
+                    Some(format!("Activity could not be saved: {error}"));
+            }
+        }
     }
 
     pub fn refresh_git(&mut self) {

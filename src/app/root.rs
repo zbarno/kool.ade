@@ -103,7 +103,14 @@ impl PacketApp {
                 for _ in 0..64 {
                     match ctrl.poll() {
                         Some(crate::core::implementation::Event::Progress(p)) => {
-                            project.live_progress.update(p)
+                            if let Some(ticket) = &project.active_implementation_ticket {
+                                project
+                                    .activity
+                                    .tasks
+                                    .entry(ticket.clone())
+                                    .or_default()
+                                    .update(p);
+                            }
                         }
                         Some(crate::core::implementation::Event::Done(result)) => {
                             finished = Some(result);
@@ -115,8 +122,15 @@ impl PacketApp {
             }
             if let Some(result) = finished {
                 project.active_implementation = None;
-                project.active_implementation_ticket = None;
-                project.live_progress = Default::default();
+                if let Some(ticket) = project.active_implementation_ticket.take() {
+                    if let Some(progress) = project.activity.tasks.get_mut(&ticket) {
+                        progress.activity = Some(match &result {
+                            Ok(record) => record.status.clone(),
+                            Err(_) => "Needs attention".into(),
+                        });
+                    }
+                    project.save_task_activity(&ticket);
+                }
                 project.refresh_implementations();
                 project.last_pr_refresh = None;
                 let text = match result {
@@ -147,7 +161,7 @@ impl PacketApp {
                         project.queue.running = false;
                         project.queue.last_error = error.clone();
                         format!(
-                            "Implementation stopped after recovery: {error}\nExisting work is preserved; use Resume implementation to continue."
+                            "The task needs attention after automatic recovery. Its work is preserved. Open its card for the failure details and Resume action."
                         )
                     }
                 };
@@ -160,7 +174,8 @@ impl PacketApp {
                 if !project.queue.running {
                     project.queue_lock = None;
                 }
-                project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
+                project.activity.pending.push(text.clone());
+                project.remember_chat(vec![ChatMessage::new(ChatRole::System, text, None)]);
                 project.refresh_git();
             }
         }
@@ -225,10 +240,67 @@ impl PacketApp {
             (self.cached_user, self.synth) = caches;
             self.last_git_refresh = Instant::now();
         }
+        if let Screen::Connected(project) = &mut self.screen {
+            if project
+                .activity
+                .last_save
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(2))
+            {
+                if let Some(ticket) = project.active_implementation_ticket.clone() {
+                    project.save_task_activity(&ticket);
+                }
+                project.activity.last_save = Some(Instant::now());
+            }
+            let mut result = None;
+            if let Some(manager) = &project.activity.manager {
+                for _ in 0..64 {
+                    let Some(progress) = manager.progress() else {
+                        break;
+                    };
+                    project.live_progress.update(progress);
+                }
+                result = manager.result();
+            }
+            if let Some(result) = result {
+                project.activity.manager = None;
+                project.live_progress = Default::default();
+                match result {
+                    Ok(text) => project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]),
+                    Err(_) => project.remember_chat(vec![ChatMessage::new(ChatRole::System, "Project-manager update unavailable after retry; task work continues. You can still send a message.", None)]),
+                }
+            }
+            if project.active_implementation.is_some()
+                && project.activity.pending.is_empty()
+                && project
+                    .activity
+                    .last_update
+                    .is_some_and(|last| last.elapsed() >= Duration::from_secs(120))
+            {
+                project.activity.pending.push("The worker is still running. No completion is confirmed; review the current task states and help the user with the next eligible planning decision without inventing progress.".into());
+            }
+            if project.active_turn.is_none()
+                && project.activity.manager.is_none()
+                && !project.activity.pending.is_empty()
+                && project
+                    .activity
+                    .last_update
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(30))
+            {
+                let events = std::mem::take(&mut project.activity.pending);
+                project.activity.manager = Some(super::manager::Manager::start(project, &events));
+                project.activity.last_update = Some(Instant::now());
+                project.live_progress = crate::harness::LiveProgress {
+                    activity: Some("Reviewing project progress…".into()),
+                    ..Default::default()
+                };
+            }
+        }
         self.advance_auto_queue();
         let period = match &self.screen {
             Screen::Connected(p)
-                if (p.active_turn.is_some() || p.active_implementation.is_some()) =>
+                if (p.active_turn.is_some()
+                    || p.active_implementation.is_some()
+                    || p.activity.manager.is_some()) =>
             {
                 Duration::from_millis(120)
             }
@@ -439,7 +511,8 @@ impl PacketApp {
     fn start_turn(&mut self, text: &str) {
         let purpose = match &self.screen {
             Screen::Connected(p)
-                if p.state.workflow.ready(p.state.spec_text.as_deref())
+                if p.active_implementation.is_none()
+                    && p.state.workflow.ready(p.state.spec_text.as_deref())
                     && crate::core::workflow::confirms_generation(text) =>
             {
                 crate::core::workflow::TurnPurpose::GenerateTasks
@@ -453,14 +526,27 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if project.active_turn.is_some() || project.active_implementation.is_some() {
+        if project.active_turn.is_some()
+            || (project.active_implementation.is_some()
+                && purpose == crate::core::workflow::TurnPurpose::GenerateTasks)
+        {
             return;
         }
+        project.activity.manager = None;
         let recent = project.recent_chat_tuples(6, 1200);
         project.remember_chat(vec![ChatMessage::new(ChatRole::User, text, None)]);
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
-            user_message: text.to_string(),
+            user_message: format!(
+                "{text}\n\n[Application project context: active task worker={:?}; auto queue running={}; task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
+                project.active_implementation_ticket,
+                project.queue.running,
+                project
+                    .implementation_states
+                    .iter()
+                    .map(|(ticket, state)| (ticket, &state.status))
+                    .collect::<Vec<_>>()
+            ),
             recent_chat: recent,
             purpose,
         };
@@ -581,11 +667,31 @@ impl Surface for PacketApp {
         matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementation.is_some())
     }
 
+    fn conversation_busy(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some())
+    }
+    fn task_progress(&self, ticket: &str) -> Option<&crate::harness::LiveProgress> {
+        match &self.screen {
+            Screen::Connected(p) => p.activity.tasks.get(ticket),
+            _ => None,
+        }
+    }
+    fn cancel_task(&mut self) {
+        if let Screen::Connected(p) = &mut self.screen {
+            p.queue.running = false;
+            if p.queue_lock.is_some() {
+                if let Err(error) = p.queue.save(&p.state.repo_root) {
+                    p.queue.last_error = error.to_string();
+                }
+            }
+            if let Some(ctrl) = &p.active_implementation {
+                ctrl.request_cancel();
+            }
+        }
+    }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
         match &self.screen {
-            Screen::Connected(p)
-                if p.active_turn.is_some() || p.active_implementation.is_some() =>
-            {
+            Screen::Connected(p) if p.active_turn.is_some() || p.activity.manager.is_some() => {
                 Some(&p.live_progress)
             }
             _ => None,
@@ -705,10 +811,11 @@ impl Surface for PacketApp {
                     return;
                 }
             }
+            p.activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
             p.remember_chat(vec![ChatMessage::new(
-                ChatRole::User,
+                ChatRole::System,
                 format!(
-                    "Implement ticket {ticket}; verify and {}.",
+                    "Assigned {ticket}; the worker will verify and {}.",
                     if p.queue.auto_mode {
                         "merge atomically into the default branch, then continue the queue"
                     } else {
@@ -717,10 +824,8 @@ impl Surface for PacketApp {
                 ),
                 None,
             )]);
-            p.live_progress = crate::harness::LiveProgress {
-                activity: Some("Starting implementation…".into()),
-                ..Default::default()
-            };
+            p.activity.tasks.entry(ticket.clone()).or_default().activity =
+                Some("Starting implementation…".into());
             p.active_implementation_ticket = Some(ticket.clone());
             p.active_implementation = Some(crate::core::implementation::Controller::start(
                 p.state.repo_root.clone(),
@@ -805,15 +910,7 @@ impl Surface for PacketApp {
         }
         if intent.cancel {
             if let Screen::Connected(p) = &mut self.screen {
-                p.queue.running = false;
-                if p.queue_lock.is_some() {
-                    if let Err(error) = p.queue.save(&p.state.repo_root) {
-                        p.queue.last_error = error.to_string();
-                    }
-                }
-                if let Some(ctrl) = &p.active_implementation {
-                    ctrl.request_cancel();
-                }
+                p.activity.manager = None;
                 if let Some(ctrl) = &p.active_turn {
                     ctrl.request_cancel();
                     self.toasts.warning("Cancellation requested…");
@@ -1141,6 +1238,7 @@ mod board_tests {
         }
         PacketApp {
             screen: Screen::Connected(Project {
+                activity: Default::default(),
                 state: crate::core::state::PlannerState::load(&root).unwrap(),
                 chat_slug: "unused".into(),
                 chat: Vec::new(),
@@ -1208,6 +1306,10 @@ mod board_tests {
         ] {
             assert!(text_position(&output, label).is_some(), "missing {label}");
         }
+        assert!(
+            text_position(&output, "Unique story detail 1").is_none(),
+            "Details must not appear beneath the board"
+        );
         let click = text_position(&output, "Review task").unwrap();
         frame(
             &mut app,
@@ -1276,12 +1378,98 @@ mod board_tests {
             }],
         );
         assert!(output.platform_output.commands.iter().any(|cmd| matches!(cmd, egui::OutputCommand::OpenUrl(url) if url.url == "https://github.com/fixture/repo/pull/1")));
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Unique story detail 1").is_none());
+        assert!(
+            ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_task")))
+                .is_none()
+        );
         app.implement_task("planning/tasks/fixture/002-task.md".into());
         assert!(
             !app.is_busy(),
             "published tasks must not start another agent"
         );
     }
+    #[test]
+    fn planning_items_use_board_and_modal_even_before_tasks_exist() {
+        let mut app = fixture();
+        let item = OpenItem::new(
+            "CLR-010".into(),
+            crate::domain::item::Priority::High,
+            crate::domain::item::ItemKind::Question,
+            "General".into(),
+            Some("All".into()),
+            "Which users need access?".into(),
+            "Determines the access model".into(),
+        );
+        if let Screen::Connected(project) = &mut app.screen {
+            project.task_documents.clear();
+            project.state.items = vec![item.clone()];
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "To do · 1").is_some());
+        assert!(text_position(&output, "For you").is_some());
+        assert!(text_position(&output, "Determines the access model").is_none());
+        let pos = text_position(&output, &item.summary()).unwrap();
+        for pressed in [true, false] {
+            frame(
+                &mut app,
+                &ctx,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ],
+            );
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Determines the access model").is_some());
+        assert!(text_position(&output, "Owner: All").is_some());
+        let pos = text_position(&output, "Discuss with project manager").unwrap();
+        for pressed in [true, false] {
+            frame(
+                &mut app,
+                &ctx,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ],
+            );
+        }
+        assert!(app.chat_draft().contains("CLR-010"));
+        assert!(
+            ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_planning")))
+                .is_none()
+        );
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state.items.clear();
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, &item.summary()).is_none());
+    }
+
     #[test]
     fn auto_queue_runs_two_tasks_through_pi_and_merges_without_prs() {
         let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
@@ -1339,8 +1527,17 @@ mod board_tests {
         git(&repo, &["push", "-q", "origin", "main"]);
         let pi = root.join("pi-fixture");
         std::fs::write(&pi, r#"#!/usr/bin/python3
-import json, pathlib, sys
+import json, pathlib, sys, time
 prompt = sys.stdin.read()
+if prompt.startswith('PROJECT MANAGER UPDATE'):
+    assert '--no-tools' in sys.argv
+    print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
+    sys.exit(0)
+if 'TICKET PATH: ' not in prompt:
+    report = {'schemaVersion':1,'assistantMessage':'Planning fixture: I can discuss this while the worker runs.','openItemsAdded':[],'openItemsUpdated':[],'openItemsResolved':[]}
+    print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
+    sys.exit(0)
+time.sleep(0.3)
 ticket = prompt.split('TICKET PATH: ', 1)[1].splitlines()[0]
 name = pathlib.Path(ticket).stem + '.txt'
 pathlib.Path(name).write_text('implemented')
@@ -1362,8 +1559,23 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
         app.implement_task(docs[0].path.clone());
         let ctx = egui::Context::default();
         let deadline = Instant::now() + Duration::from_secs(20);
+        let mut concurrent_chat = false;
         loop {
             app.tick(0.1, &ctx);
+            if !concurrent_chat
+                && app
+                    .chat_messages()
+                    .iter()
+                    .any(|m| m.text.starts_with("Manager fixture:"))
+            {
+                assert!(
+                    matches!(&app.screen, Screen::Connected(p) if p.active_implementation.is_some())
+                );
+                assert!(!app.conversation_busy());
+                app.start_turn("Can we discuss planning while the task runs?");
+                assert!(app.conversation_busy());
+                concurrent_chat = true;
+            }
             let finished = matches!(&app.screen, Screen::Connected(project) if !project.queue.running && project.active_implementation.is_none());
             if finished {
                 break;
@@ -1387,6 +1599,21 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
                     "Done"
                 );
             }
+        }
+        assert!(
+            concurrent_chat,
+            "Manager should proactively engage during task execution"
+        );
+        assert!(
+            app.chat_messages()
+                .iter()
+                .any(|m| m.text == "Planning fixture: I can discuss this while the worker runs.")
+        );
+        for doc in &docs {
+            let progress = crate::core::implementation::load_activity(&repo, &doc.path).unwrap();
+            assert_eq!(progress.activity.as_deref(), Some("Done"));
+            assert!(!progress.response.contains("Manager fixture"));
+            assert!(!progress.response.contains("Planning fixture"));
         }
         assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "3");
         assert_eq!(git(&remote, &["show", "main:001-task.txt"]), "implemented");
@@ -1438,6 +1665,7 @@ mod tests {
 
         let state = crate::core::state::PlannerState::load(&root).unwrap();
         let mut proj = Project {
+            activity: Default::default(),
             state,
             chat_slug: "test-slug".into(),
             chat: Vec::new(),
