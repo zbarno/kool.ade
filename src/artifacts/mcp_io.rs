@@ -174,17 +174,41 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).into_owned()
     }
 
+    /// Bootstrap-only git step: a silent fixture init failure masquerades as
+    /// a confusing downstream error (e.g. "not a git repository" at the
+    /// later `git add`). The certification gate (ticket 006) requires the
+    /// FIRST failure to speak at its own site with its own stderr, so an
+    /// environmental hit (power blip, external kill of the git child, fs
+    /// fault) is diagnosed where it landed. Read-side lookups keep using
+    /// `git_in` (status-insensitive).
+    fn git_mk(p: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(p)
+            .args(args)
+            .output()
+            .unwrap_or_else(|e| panic!("fixture git spawn {:?} in {} failed: {e}", args, p.display()));
+        assert!(
+            out.status.success(),
+            "fixture git {:?} failed in {}: exit={:?}\nstderr: {}",
+            args,
+            p.display(),
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
     /// Hand-rolled temp repo (same pattern as `gitops::tests::mkrepo` — no
     /// `tempfile` crate, NFR-7). Local identity so ambient git config can
     /// never leak into assertions.
     fn mkrepo(label: &str) -> PathBuf {
         let p = fresh_dir(label);
-        let _ = git_in(&p, &["init", "-q", "-b", "main"]);
-        let _ = git_in(&p, &["config", "user.name", "T"]);
-        let _ = git_in(&p, &["config", "user.email", "t@x"]);
+        git_mk(&p, &["init", "-q", "-b", "main"]);
+        git_mk(&p, &["config", "user.name", "T"]);
+        git_mk(&p, &["config", "user.email", "t@x"]);
         fs::write(p.join("a.txt"), "one").unwrap();
-        let _ = git_in(&p, &["add", "a.txt"]);
-        let _ = git_in(&p, &["commit", "-qm", "init"]);
+        git_mk(&p, &["add", "a.txt"]);
+        git_mk(&p, &["commit", "-qm", "init"]);
         p
     }
 
