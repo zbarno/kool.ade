@@ -39,14 +39,28 @@ pub struct PlanningRequest {
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
-/// Transient display snapshot; never fed back into prompts or saved as artifacts.
+/// Display snapshot; task snapshots are persisted privately, never as planning artifacts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct LiveProgress {
+    pub telemetry: ActivityTelemetry,
     pub posts: Vec<LivePost>,
     pub thoughts: String,
     pub response: String,
     pub specification: Option<String>,
     pub activity: Option<String>,
+}
+
+/// Observed stream updates, not estimated token counts. Persisted with task activity.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ActivityTelemetry {
+    pub started_ms: Option<i64>,
+    pub updated_ms: Option<i64>,
+    pub finished_ms: Option<i64>,
+    pub updates: u64,
+    /// Ten-second buckets: UTC bucket number and received update count.
+    pub samples: Vec<(i64, u64)>,
 }
 
 /// A stable, chronologically placed block of external agent output.
@@ -67,6 +81,23 @@ impl LiveProgress {
             }
         }
         next.posts = std::mem::take(&mut self.posts);
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut telemetry = std::mem::take(&mut self.telemetry);
+        telemetry.started_ms.get_or_insert(now);
+        telemetry.updated_ms = Some(now);
+        telemetry.updates += 1;
+        let bucket = now / 10_000;
+        if let Some((_, count)) = telemetry
+            .samples
+            .last_mut()
+            .filter(|(last, _)| *last == bucket)
+        {
+            *count += 1;
+        } else {
+            telemetry.samples.push((bucket, 1));
+        }
+        telemetry.samples.retain(|(time, _)| *time >= bucket - 59);
+        next.telemetry = telemetry;
         *self = next;
     }
 }

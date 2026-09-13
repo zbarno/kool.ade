@@ -22,6 +22,7 @@ pub struct EventFold {
     pub unparsed_lines: usize,
     blocks: BTreeMap<usize, (String, String)>,
     history: Vec<super::LivePost>,
+    tool_posts: BTreeMap<String, (u64, usize)>,
     message_id: u64,
     prior_thoughts: String,
     prior_response: String,
@@ -32,6 +33,7 @@ impl EventFold {
         let current_text = self.block_text("text");
         let (response, specification) = super::live_preview::project(&current_text);
         LiveProgress {
+            telemetry: Default::default(),
             posts: self
                 .history
                 .iter()
@@ -146,11 +148,61 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                 .get("args")
                 .map(|a| short_blob(Some(a)))
                 .unwrap_or_default();
+            let preview = sink.preview();
+            sink.prior_thoughts = preview.thoughts;
+            sink.prior_response = preview.response;
+            sink.history.extend(sink.current_posts());
+            sink.blocks.clear();
+            let id = (
+                NEXT_MESSAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+                0,
+            );
+            let call = v
+                .get("toolCallId")
+                .and_then(Value::as_str)
+                .unwrap_or("tool")
+                .to_string();
+            sink.tool_posts.insert(call, id);
+            sink.history.push(super::LivePost {
+                id,
+                kind: "tool".into(),
+                text: format!(
+                    "{tool}\n{}",
+                    v.get("args").map(|v| v.to_string()).unwrap_or_default()
+                ),
+            });
             sink.last_activity = Some(if args.is_empty() {
                 tool.to_string()
             } else {
                 format!("{tool} · {args}")
             });
+        }
+        "tool_execution_update" | "tool_execution_end" => {
+            let call = v
+                .get("toolCallId")
+                .and_then(Value::as_str)
+                .unwrap_or("tool");
+            let tool = v.get("toolName").and_then(Value::as_str).unwrap_or("tool");
+            let output = assistant_text(v.get("result").or_else(|| v.get("partialResult")));
+            if let Some(id) = sink.tool_posts.get(call) {
+                if let Some(post) = sink.history.iter_mut().find(|post| &post.id == id) {
+                    // Pi sends cumulative partialResult snapshots, followed by the final result.
+                    if !output.is_empty() {
+                        let header = post.text.split("\n\nOutput:\n").next().unwrap_or(tool);
+                        post.text = format!("{header}\n\nOutput:\n{output}");
+                    }
+                }
+            }
+            sink.last_activity = Some(format!(
+                "{tool} · {}",
+                if ty == "tool_execution_update" {
+                    "running"
+                } else if v.get("isError").and_then(Value::as_bool) == Some(true) {
+                    "failed"
+                } else {
+                    "completed"
+                }
+            ));
         }
         "message_start" => {
             if v.pointer("/message/role").and_then(Value::as_str) == Some("assistant") {
@@ -445,5 +497,29 @@ mod tests {
             &mut fold,
         );
         assert!(fold.final_assistant_text.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tool_history_tests {
+    use super::*;
+    #[test]
+    fn tool_output_preserves_order_and_replaces_partial_snapshots() {
+        let mut fold = EventFold::default();
+        for event in [
+            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"Check permissions","contentIndex":0}}"#,
+            r#"{"type":"tool_execution_start","toolName":"bash","toolCallId":"t1","args":{"command":"cargo test"}}"#,
+            r#"{"type":"tool_execution_update","toolName":"bash","toolCallId":"t1","partialResult":{"content":[{"type":"text","text":"running"}]}}"#,
+            r#"{"type":"tool_execution_end","toolName":"bash","toolCallId":"t1","result":{"content":[{"type":"text","text":"all tests passed"}]}}"#,
+        ] {
+            fold_line(event, &mut fold);
+        }
+        let p = fold.preview();
+        assert_eq!(p.posts.len(), 2);
+        assert_eq!(p.posts[0].kind, "thinking");
+        assert!(p.posts[1].text.contains("cargo test"));
+        assert!(p.posts[1].text.ends_with("all tests passed"));
+        assert!(!p.posts[1].text.contains("running"));
+        assert_eq!(p.thoughts, "Check permissions");
     }
 }

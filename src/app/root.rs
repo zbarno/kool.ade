@@ -124,6 +124,8 @@ impl PacketApp {
                 project.active_implementation = None;
                 if let Some(ticket) = project.active_implementation_ticket.take() {
                     if let Some(progress) = project.activity.tasks.get_mut(&ticket) {
+                        progress.telemetry.finished_ms =
+                            Some(chrono::Utc::now().timestamp_millis());
                         progress.activity = Some(match &result {
                             Ok(record) => record.status.clone(),
                             Err(_) => "Needs attention".into(),
@@ -826,6 +828,14 @@ impl Surface for PacketApp {
             )]);
             p.activity.tasks.entry(ticket.clone()).or_default().activity =
                 Some("Starting implementation…".into());
+            p.activity
+                .tasks
+                .entry(ticket.clone())
+                .or_default()
+                .telemetry = crate::harness::ActivityTelemetry {
+                started_ms: Some(chrono::Utc::now().timestamp_millis()),
+                ..Default::default()
+            };
             p.active_implementation_ticket = Some(ticket.clone());
             p.active_implementation = Some(crate::core::implementation::Controller::start(
                 p.state.repo_root.clone(),
@@ -1283,7 +1293,7 @@ mod board_tests {
         output.shapes.iter().find_map(|shape| {
             if let egui::Shape::Text(text) = &shape.shape {
                 if text.galley.text() == needle {
-                    return Some(text.pos + text.galley.size() * 0.5);
+                    return Some(text.pos + text.galley.mesh_bounds.center().to_vec2());
                 }
             }
             None
@@ -1401,6 +1411,103 @@ mod board_tests {
             "published tasks must not start another agent"
         );
     }
+    #[test]
+    fn live_card_opens_full_activity_and_returns_to_item_details() {
+        let mut app = fixture();
+        let ticket = "planning/tasks/fixture/001-task.md".to_owned();
+        if let Screen::Connected(p) = &mut app.screen {
+            p.active_implementation_ticket = Some(ticket.clone());
+            p.activity.tasks.insert(
+                ticket.clone(),
+                crate::harness::LiveProgress {
+                    thoughts: "Checking the permissions test results".into(),
+                    activity: Some("Running tests".into()),
+                    ..Default::default()
+                },
+            );
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "LIVE ACTIVITY").is_some());
+        assert!(text_position(&output, "Checking the permissions test results").is_some());
+        let click = |app: &mut PacketApp, pos: egui::Pos2| {
+            for pressed in [true, false] {
+                frame(
+                    app,
+                    &ctx,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ],
+                );
+            }
+        };
+        click(
+            &mut app,
+            text_position(&output, "View all activity").unwrap(),
+        );
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "TASK-001 / All activity").is_some());
+        assert!(
+            app.live_progress().is_none(),
+            "Task activity must not leak to main chat"
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(
+            ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_task_activity")))
+                .is_none()
+        );
+        click(&mut app, text_position(&output, "First task").unwrap());
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        // Select the modal's activity action, not the card under its backdrop.
+        let pos = output
+            .shapes
+            .iter()
+            .rev()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(t) if t.galley.text() == "View all activity" => {
+                    Some(t.pos + t.galley.mesh_bounds.center().to_vec2())
+                }
+                _ => None,
+            })
+            .unwrap();
+        click(&mut app, pos);
+        frame(&mut app, &ctx, vec![]);
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "TASK-001 / Task details").is_some());
+    }
+
     #[test]
     fn planning_items_use_board_and_modal_even_before_tasks_exist() {
         let mut app = fixture();

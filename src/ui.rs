@@ -3,6 +3,7 @@
 //! decoupled from pixels.
 
 pub mod chat_pane;
+pub mod task_activity;
 pub mod items_pane;
 pub mod layout;
 pub mod overlays;

@@ -216,6 +216,18 @@ pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress
                                 .wrap(),
                             );
                         });
+                    } else if post.kind == "tool" {
+                        egui::CollapsingHeader::new(format!(
+                            "Tool output · {}",
+                            post.text.lines().next().unwrap_or("tool")
+                        ))
+                        .id_salt("tool_output")
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Label::new(RichText::new(&post.text).monospace().size(12.0))
+                                    .wrap(),
+                            );
+                        });
                     } else {
                         ui.add(
                             egui::Label::new(

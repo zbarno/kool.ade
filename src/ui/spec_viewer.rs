@@ -9,12 +9,30 @@
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
-use crate::ui::theme;
+const INK: egui::Color32 = egui::Color32::from_rgb(31, 41, 55);
+const MUTED: egui::Color32 = egui::Color32::from_rgb(85, 98, 116);
 
 const NO_CONTENT_HINT: &str = "Nothing has been planned yet — describe the product in the chat and the living specification grows here.";
 
 /// Render the current specification markdown (or a friendly placeholder).
 pub fn render(ui: &mut egui::Ui, spec: Option<&str>) {
+    egui::Frame::NONE
+        .fill(egui::Color32::WHITE)
+        .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(220)))
+        .inner_margin(24)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.set_min_height(200.0);
+            ui.visuals_mut().override_text_color = Some(INK);
+            ui.visuals_mut().widgets.noninteractive.fg_stroke.color = MUTED;
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                render_markdown(ui, spec)
+            });
+        });
+}
+
+fn render_markdown(ui: &mut egui::Ui, spec: Option<&str>) {
     let Some(md) = spec.filter(|s| !s.trim().is_empty()) else {
         ui.vertical_centered_justified(|ui| {
             ui.add_space(60.0);
@@ -22,7 +40,7 @@ pub fn render(ui: &mut egui::Ui, spec: Option<&str>) {
                 egui::RichText::new(NO_CONTENT_HINT)
                     .weak()
                     .size(13.0)
-                    .color(theme::TEXT_DIM),
+                    .color(MUTED),
             );
             ui.add_space(30.0);
         });
@@ -60,16 +78,16 @@ impl Span {
         } else {
             egui::FontId::proportional(size)
         };
-        let mut color = self.color.unwrap_or(theme::TEXT);
+        let mut color = self.color.unwrap_or(INK);
         if self.bold {
-            color = egui::Color32::from_rgb(245, 247, 250);
+            color = INK;
             f.extra_letter_spacing = 0.01 * size;
         }
         f.color = color;
         f.line_height = Some(size * 1.5);
         f.italics = self.italic;
         f.strikethrough = if self.strike {
-            egui::epaint::Stroke::new(1.0, theme::TEXT_DIM)
+            egui::epaint::Stroke::new(1.0, MUTED)
         } else {
             egui::epaint::Stroke::NONE
         };
@@ -304,7 +322,7 @@ impl State {
                     .monospace()
                     .size(10.5)
                     .weak()
-                    .color(theme::ACCENT),
+                    .color(egui::Color32::from_rgb(23, 83, 151)),
             );
         }
         self.code_buf = Some(String::new());
@@ -364,7 +382,7 @@ fn prefix(txt: &str) -> Span {
         bold: false,
         italic: false,
         strike: false,
-        color: Some(theme::TEXT_DIM),
+        color: Some(MUTED),
         size: 15.0,
     };
     s
@@ -374,4 +392,38 @@ fn prefix_raw(txt: String) -> Span {
     let mut s = prefix("");
     s.text = txt;
     s
+}
+
+#[cfg(test)]
+mod paper_tests {
+    use super::*;
+    #[test]
+    fn specification_uses_white_paper_and_dark_text_in_dark_workspace() {
+        let ctx = egui::Context::default();
+        ctx.set_visuals(crate::ui::theme::packet_visuals());
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            render(ui, Some("# Specification\n\nReadable body with **emphasis**.\n\n```rust\nlet ok = true;\n```"));
+        });
+        assert!(
+            output.shapes.iter().any(
+                |s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == egui::Color32::WHITE)
+            )
+        );
+        let body = output
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text().contains("Readable body") => Some(t),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            body.galley
+                .job
+                .sections
+                .iter()
+                .all(|s| s.format.color == INK)
+        );
+        output.textures_delta.clear();
+    }
 }

@@ -125,3 +125,15 @@ and Done. Existing PRs are checked every minute while connected: merged PRs beco
 Done, closed PRs need attention, and reopened PRs return to review. Failed checks
 retain the last confirmed state. Task and queue state stay outside tracked story
 documents. Previously published tasks are not implemented again.
+
+Planning questions and implementation tasks share the board. Select an item's
+title to open its details across the board panel; task specifications and the
+main specification use a white paper surface. Task cards show the latest output
+and an active-worker indicator. **View all activity** opens a larger viewer with
+thoughts, tool commands and results, elapsed run time, and a graph of observed
+activity updates in ten-second buckets. These counts are stream updates, not
+estimated tokens. Older activity records without timing remain readable.
+
+Task activity is stored privately and stays separate from the project-manager
+conversation. The activity viewer follows new output until you scroll back;
+closing it returns to the item or board you were viewing.

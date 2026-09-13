@@ -395,7 +395,7 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
                             .font(egui::FontId::proportional(12.0))
                             .desired_width(260.0),
                     );
-                    if ui.small_button("\u{2715}").clicked() {
+                    if crate::ui::overlays::close_button(ui).clicked() {
                         removed.push(i);
                     }
                 });

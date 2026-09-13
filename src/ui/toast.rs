@@ -101,7 +101,7 @@ impl ToastQueue {
                             ui.label(RichText::new(&t.text).color(theme::TEXT));
                         });
                         ui.add_space(2.0);
-                        ui.button(RichText::new('\u{2715}'.to_string()).weak())
+                        crate::ui::overlays::close_button(ui)
                     });
                     if close_btn.response.clicked() {
                         dismissed_idx.push(idx);
