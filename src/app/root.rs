@@ -1320,6 +1320,17 @@ mod board_tests {
             text_position(&output, "Unique story detail 1").is_none(),
             "Details must not appear beneath the board"
         );
+        for shape in &output.shapes {
+            if let egui::Shape::Rect(rect) = &shape.shape {
+                if rect.corner_radius.nw == 8 && rect.fill == crate::ui::theme::BG {
+                    assert!(
+                        rect.rect.right() <= 1773.0,
+                        "Board column overflows the main panel: {:?}",
+                        rect.rect
+                    );
+                }
+            }
+        }
         let click = text_position(&output, "Review task").unwrap();
         frame(
             &mut app,
@@ -1530,7 +1541,7 @@ mod board_tests {
         assert!(text_position(&output, "To do · 1").is_some());
         assert!(text_position(&output, "For you").is_some());
         assert!(text_position(&output, "Determines the access model").is_none());
-        let pos = text_position(&output, &item.summary()).unwrap();
+        let pos = text_position(&output, &item.question).unwrap();
         for pressed in [true, false] {
             frame(
                 &mut app,
@@ -1574,7 +1585,7 @@ mod board_tests {
             project.state.items.clear();
         }
         let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, &item.summary()).is_none());
+        assert!(text_position(&output, &item.question).is_none());
     }
 
     #[test]

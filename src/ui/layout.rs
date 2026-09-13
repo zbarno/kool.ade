@@ -58,13 +58,13 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             }
                         )
                     };
-                    ui.label(RichText::new(label).size(11.0).color(theme::TEXT_DIM));
+                    ui.label(RichText::new(label).size(12.5).color(theme::TEXT_DIM));
                 });
             });
         });
     Panel::left("packet_chat")
-        .default_size(330.0)
-        .min_size(300.0)
+        .default_size((ui.ctx().content_rect().width() * 0.23).clamp(380.0, 480.0))
+        .min_size(380.0)
         .max_size(560.0)
         .resizable(true)
         .frame(
@@ -76,7 +76,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Conversation").size(17.0).strong());
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Project manager").size(11.0).weak());
+                    ui.label(RichText::new("Project manager").size(12.5).weak());
                 });
             });
             ui.add_space(24.0);
@@ -153,7 +153,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     }
                     ui.label(
                         RichText::new(format!("{} words", s.spec_words()))
-                            .size(11.0)
+                            .size(12.5)
                             .weak(),
                     );
                 });
@@ -168,10 +168,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                        ui.set_max_width(880.0);
-                        crate::ui::spec_viewer::render(ui, Some(s.spec_text()));
-                    });
+                    crate::ui::spec_viewer::render(ui, Some(s.spec_text()));
                 });
         });
 }
@@ -221,7 +218,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
         RichText::new(
             "Planning questions and task workers · select a card for details and activity",
         )
-        .small()
+        .size(12.5)
         .weak(),
     );
     if let Some(doc) = docs.iter().find(|doc| doc.path.ends_with("/README.md")) {
@@ -230,7 +227,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
         }
     }
     let height = (ui.available_height() - 24.0).max(120.0);
-    let column_width = ((ui.available_width() - 100.0) / 5.0).max(224.0);
+    let gaps = ui.spacing().item_spacing.x * 4.0;
+    let column_width = ((ui.available_width() - 100.0 - gaps - 2.0) / 5.0).max(190.0);
     egui::ScrollArea::horizontal()
         .id_salt("task_board_horizontal")
         .auto_shrink([false, false])
@@ -272,30 +270,30 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 .show(ui, |ui| {
                                     for item in questions {
                                         board_card(ui, &item.id, false, |ui| {
-                                            ui.label(RichText::new(format!("{} · {}", item.id, item.kind)).small().color(theme::ACCENT));
-                                            if ui.add(egui::Button::new(RichText::new(item.summary()).strong()).frame(false).wrap()).clicked() {
+                                            ui.label(RichText::new(format!("{} · {}", item.id, item.kind)).size(12.5).color(theme::ACCENT));
+                                            if ui.add(egui::Button::new(RichText::new(card_summary(&item.question)).strong()).frame(false).wrap()).on_hover_text(&item.question).clicked() {
                                                 planning_selection = Some(item.id.clone());
                                             }
                                             ui.horizontal_wrapped(|ui| {
-                                                ui.label(RichText::new(item.priority.to_string()).small().color(if item.priority == crate::domain::item::Priority::Blocking { theme::DANGER } else { theme::WARNING }));
-                                                ui.label(RichText::new(item.assigned_to.as_deref().unwrap_or("Unassigned")).small().weak());
+                                                ui.label(RichText::new(item.priority.to_string()).size(12.5).color(if item.priority == crate::domain::item::Priority::Blocking { theme::DANGER } else { theme::WARNING }));
+                                                ui.label(RichText::new(item.assigned_to.as_deref().unwrap_or("Unassigned")).size(12.5).weak());
                                             });
-                                            ui.label(RichText::new(&item.category).small().weak());
-                                            if eligible.contains(&item.id) { ui.label(RichText::new("For you").small().color(theme::ACCENT)); }
+                                            ui.label(RichText::new(&item.category).size(12.5).weak());
+                                            if eligible.contains(&item.id) { ui.label(RichText::new("For you").size(12.5).color(theme::ACCENT)); }
                                             if s.next_question_id() == Some(item.id.as_str()) { ui.label("Asking now"); }
                                         });
                                     }
                                     for doc in cards {
                                         let active = s.implementation_active(&doc.path);
                                         board_card(ui, &doc.path, active, |ui| {
-                                            ui.label(RichText::new(format!("{} · Task", task_key(&doc.path))).small().color(theme::ACCENT));
+                                            ui.label(RichText::new(format!("{} · Task", task_key(&doc.path))).size(12.5).color(theme::ACCENT));
                                             if ui.add(egui::Button::new(RichText::new(&doc.title).strong()).frame(false).wrap()).clicked() {
                                                 selected_path = Some(doc.path.clone());
                                             }
                                             let status = s.implementation_state(&doc.path).map(|r| r.status.as_str()).unwrap_or(if active { "Starting" } else { "To do" });
                                             ui.horizontal_wrapped(|ui| {
-                                                ui.label(RichText::new(status).small().color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
-                                                ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).small().weak());
+                                                ui.label(RichText::new(status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
+                                                ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).size(12.5).weak());
                                             });
                                             if let Some(progress) = s.task_progress(&doc.path) {
                                                 if crate::ui::task_activity::compact(ui, progress, active) { activity_path = Some(doc.path.clone()); }
@@ -447,7 +445,7 @@ fn paint_task_properties(
     doc: &crate::artifacts::task_docs::TaskDocument,
 ) {
     ui.add_space(10.0);
-    ui.label(RichText::new(&doc.path).size(11.0).weak());
+    ui.label(RichText::new(&doc.path).size(12.5).weak());
     let ticket = &doc.path;
     let state = s.implementation_state(ticket).cloned();
     if !ticket.ends_with("/README.md") {
@@ -465,13 +463,13 @@ fn paint_task_properties(
         if let Some(record) = &state {
             ui.label(
                 RichText::new(record.worktree.display().to_string())
-                    .size(11.0)
+                    .size(12.5)
                     .weak(),
             );
             if let Some(checked) = &record.pr_checked_at {
                 ui.label(
                     RichText::new(format!("PR last checked: {checked}"))
-                        .small()
+                        .size(12.5)
                         .weak(),
                 );
             }
@@ -580,34 +578,48 @@ fn paint_task_details(
 ) {
     ui.heading(&doc.title);
     ui.add_space(8.0);
-    let width = ui.available_width();
-    if width >= 720.0 {
-        let sidebar = (width * 0.3).clamp(220.0, 310.0);
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(width - sidebar - 20.0);
-                egui::ScrollArea::vertical()
-                    .id_salt(("task_paper", &doc.path))
-                    .max_height(height)
-                    .show(ui, |ui| {
-                        crate::ui::spec_viewer::render(ui, Some(&doc.text));
+    let width = ui.available_width().min(1460.0);
+    let inset = ((ui.available_width() - width) / 2.0).max(0.0);
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(inset);
+        ui.allocate_ui_with_layout(
+            egui::vec2(width, height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.set_width(width);
+                ui.spacing_mut().item_spacing.x = 16.0;
+                let width = ui.available_width().min(1460.0);
+                if width >= 720.0 {
+                    let sidebar = (width * 0.3).clamp(280.0, 420.0);
+                    ui.horizontal_top(|ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width(width - sidebar - ui.spacing().item_spacing.x - 16.0);
+                            egui::ScrollArea::vertical()
+                                .id_salt(("task_paper", &doc.path))
+                                .max_height(height)
+                                .show(ui, |ui| {
+                                    crate::ui::spec_viewer::render(ui, Some(&doc.text));
+                                });
+                        });
+                        ui.vertical(|ui| {
+                            ui.set_width(sidebar);
+                            egui::ScrollArea::vertical()
+                                .id_salt(("task_properties", &doc.path))
+                                .max_height(height)
+                                .show(ui, |ui| {
+                                    task_sidebar(ui, s, doc, activity_path);
+                                });
+                        });
                     });
-            });
-            ui.vertical(|ui| {
-                ui.set_width(sidebar);
-                egui::ScrollArea::vertical()
-                    .id_salt(("task_properties", &doc.path))
-                    .max_height(height)
-                    .show(ui, |ui| {
-                        task_sidebar(ui, s, doc, activity_path);
-                    });
-            });
-        });
-    } else {
-        task_sidebar(ui, s, doc, activity_path);
-        ui.add_space(12.0);
-        crate::ui::spec_viewer::render(ui, Some(&doc.text));
-    }
+                } else {
+                    task_sidebar(ui, s, doc, activity_path);
+                    ui.add_space(12.0);
+                    crate::ui::spec_viewer::render(ui, Some(&doc.text));
+                }
+            },
+        );
+    });
 }
 
 fn task_sidebar(
@@ -616,15 +628,24 @@ fn task_sidebar(
     doc: &crate::artifacts::task_docs::TaskDocument,
     activity_path: &mut Option<String>,
 ) {
-    ui.label(RichText::new("DETAILS").small().weak());
+    ui.label(RichText::new("DETAILS").size(12.5).weak());
     paint_task_properties(ui, s, doc);
     ui.separator();
-    ui.label(RichText::new("ACTIVITY").small().weak());
+    ui.label(RichText::new("ACTIVITY").size(12.5).weak());
     if let Some(progress) = s.task_progress(&doc.path) {
         if crate::ui::task_activity::compact(ui, progress, s.implementation_active(&doc.path)) {
             *activity_path = Some(doc.path.clone());
         }
     } else {
         ui.label("No worker activity recorded yet.");
+    }
+}
+
+fn card_summary(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= 160 {
+        flat
+    } else {
+        format!("{}…", flat.chars().take(160).collect::<String>())
     }
 }

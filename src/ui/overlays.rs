@@ -78,6 +78,9 @@ fn modal(
     let mut closed = false;
     let response = modal.show(ui.ctx(), |ui| {
         ui.set_width(width);
+        if bounds.is_some() {
+            ui.set_height(height + 50.0);
+        }
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.horizontal(|ui| {
             ui.add_sized(
@@ -107,6 +110,43 @@ fn modal(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn item_modal_grows_when_the_workspace_is_resized() {
+        let ctx = egui::Context::default();
+        for size in [egui::vec2(1080.0, 640.0), egui::vec2(2560.0, 1440.0)] {
+            let bounds = egui::Rect::from_min_max(
+                egui::pos2(380.0, 90.0),
+                egui::pos2(size.x - 28.0, size.y - 20.0),
+            );
+            for _ in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        show_panel_modal(ui, "Resize item", bounds, |ui| {
+                            ui.label("Short content");
+                        });
+                    },
+                );
+                if let Some(rect) = output.shapes.iter().find_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.corner_radius.nw == 12 && r.stroke.width == 1.0 => {
+                        Some(r.rect)
+                    }
+                    _ => None,
+                }) {
+                    assert!(
+                        rect.height() >= bounds.height() - 30.0,
+                        "Modal failed to grow: {rect:?}"
+                    );
+                    assert!(bounds.contains_rect(rect), "Modal overflow: {rect:?}");
+                }
+                output.textures_delta.clear();
+            }
+        }
+    }
+
     #[test]
     fn long_modal_stays_inside_small_and_large_viewports_and_closes_with_escape() {
         for size in [
