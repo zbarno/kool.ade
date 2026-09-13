@@ -376,31 +376,33 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             .color(theme::TEXT),
     );
     ui.add_space(4.0);
+    ui.label(RichText::new("Choose existing people or teams, or enter new owners separated by commas.").size(12.0).weak());
+    let owners = owner_choices(dlg);
     let mut removed: Vec<usize> = Vec::new();
-    egui::ScrollArea::vertical()
-        .max_height(170.0)
-        .show(ui, |ui| {
-            for (i, r) in dlg.rows.iter_mut().enumerate() {
+    for (i, row) in dlg.rows.iter_mut().enumerate() {
+        ui.push_id(("ownership_row", i), |ui| {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add_sized(
-                        egui::vec2((ui.available_width() - 40.0) * 0.38, 24.0),
-                        TextEdit::singleline(&mut r.category)
-                            .font(egui::FontId::proportional(12.0))
-                            .desired_width(160.0),
-                    );
-                    ui.add_sized(
-                        egui::vec2((ui.available_width() - 32.0).max(40.0), 24.0),
-                        TextEdit::singleline(&mut r.members)
-                            .hint_text("members, comma, separated")
-                            .font(egui::FontId::proportional(12.0))
-                            .desired_width(260.0),
-                    );
-                    if crate::ui::overlays::close_button(ui).clicked() {
-                        removed.push(i);
-                    }
+                    ui.label("Category");
+                    ui.add_sized([ (ui.available_width() - 40.0).max(60.0), 28.0 ], TextEdit::singleline(&mut row.category).id_salt("category"));
+                    if crate::ui::overlays::close_button(ui).on_hover_text("Remove category").clicked() { removed.push(i); }
                 });
-            }
+                ui.label(RichText::new("Owners").size(12.0).weak());
+                ui.add(TextEdit::singleline(&mut row.members).id_salt("owners").desired_width(f32::INFINITY).hint_text("Names or teams, separated by commas"));
+                egui::ComboBox::from_id_salt("existing_owners").selected_text("Select existing owners…")
+                    .width(240.0_f32.min(ui.available_width())).show_ui(ui, |ui| {
+                        if owners.is_empty() { ui.label("Enter a name or team to make it available here."); }
+                        for owner in &owners {
+                            let mut selected = csv_parts(&row.members).iter().any(|value| value.eq_ignore_ascii_case(owner));
+                            if ui.checkbox(&mut selected, owner).changed() {
+                                set_owner_selected(&mut row.members, owner, selected);
+                            }
+                        }
+                    });
+            });
+            ui.add_space(6.0);
         });
+    }
     for idx in removed.iter().rev() {
         if *idx < dlg.rows.len() {
             dlg.rows.remove(*idx);
@@ -412,17 +414,32 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             members: String::new(),
         });
     }
-    // F-16 setup guide (D-15): appended at the card's tail, after all of the
-    // editable content, so ticket-1's identity block is untouched. The modal
-    // shell clamps card height, so this ~16-line block scrolls on its own.
     ui.add_space(12.0);
     ui.separator();
-    ui.add_space(4.0);
-    egui::ScrollArea::vertical()
-        .max_height(230.0)
-        .show(ui, |ui| paint_harness_guide(ui, dlg));
+    ui.collapsing("AI harness setup", |ui| paint_harness_guide(ui, dlg));
     ui.add_space(6.0);
     footers(ui, &dlg.feedback)
+}
+
+/// Suggestions come from the current seat, its teams and existing category owners.
+fn owner_choices(dlg: &DlgSettings) -> Vec<String> {
+    let mut owners = Vec::<String>::new();
+    for owner in std::iter::once(dlg.user_name.trim().to_string())
+        .chain(csv_parts(&dlg.user_groups))
+        .chain(dlg.rows.iter().flat_map(|row| csv_parts(&row.members))) {
+        if owner.is_empty() || matches!(owner.to_ascii_lowercase().as_str(), "(guest)" | "(owner tbd)" | "-" | "all") { continue; }
+        if !owners.iter().any(|existing| existing.eq_ignore_ascii_case(&owner)) { owners.push(owner); }
+    }
+    owners.sort_by_key(|owner| owner.to_lowercase());
+    owners
+}
+
+fn set_owner_selected(members: &mut String, owner: &str, selected: bool) {
+    let mut owners = csv_parts(members);
+    if selected {
+        if !owners.iter().any(|existing| existing.eq_ignore_ascii_case(owner)) { owners.push(owner.to_owned()); }
+    } else { owners.retain(|existing| !existing.eq_ignore_ascii_case(owner)); }
+    *members = owners.join(", ");
 }
 
 /// Drain whatever the detached probe has queued since the last frame; flip
@@ -1117,5 +1134,58 @@ mod mcp_tests {
         assert!(warning.contains("could not be read"), "warns why: {warning}");
         assert!(warning.contains("Permission denied"), "quotes the error: {warning}");
         assert!(warning.contains("OVERWRITE"), "explicit consent wording: {warning}");
+    }
+}
+
+#[cfg(test)]
+mod ownership_picker_tests {
+    use super::*;
+    fn fixture() -> DlgSettings {
+        DlgSettings {
+            user_name: "Zach".into(), user_groups: "Platform, QA".into(), identity_note: "Current project identity".into(),
+            rows: vec![Row { category: "Product".into(), members: String::new() }, Row { category: "Engineering".into(), members: "Morgan, platform, (owner TBD)".into() }],
+            feedback: None, probe_rx: None, probe_view: ProbeView::Pending,
+        }
+    }
+    #[test]
+    fn suggestions_deduplicate_and_selection_preserves_custom_owners() {
+        let dlg = fixture();
+        assert_eq!(owner_choices(&dlg), vec!["Morgan", "Platform", "QA", "Zach"]);
+        let mut members = "Custom team, Morgan".to_string();
+        set_owner_selected(&mut members, "morgan", true);
+        assert_eq!(members, "Custom team, Morgan");
+        set_owner_selected(&mut members, "QA", true);
+        set_owner_selected(&mut members, "MORGAN", false);
+        assert_eq!(members, "Custom team, QA");
+    }
+    #[test]
+    fn existing_owner_can_be_selected_in_the_modal() {
+        let mut dlg = fixture();
+        let ctx = egui::Context::default();
+        fn frame(ctx: &egui::Context, dlg: &mut DlgSettings, events: Vec<egui::Event>) -> egui::FullOutput {
+            let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 900.0))), events, ..Default::default() }, |ui| {
+                crate::ui::overlays::show_modal(ui, true, "Stakeholders & ownership", 660.0, |ui| { paint_settings_card(ui, dlg); });
+            });
+            // Egui paints duplicate-ID diagnostics into the frame when IDs collide.
+            assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("use of ScrollArea ID") || t.galley.text().contains("use of widget ID"))));
+            output.textures_delta.clear();
+            output
+        }
+        fn position(output: &egui::FullOutput, text: &str) -> egui::Pos2 {
+            output.shapes.iter().find_map(|s| match &s.shape {
+                egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos + t.galley.mesh_bounds.center().to_vec2()), _ => None,
+            }).expect(text)
+        }
+        fn click(ctx: &egui::Context, dlg: &mut DlgSettings, pos: egui::Pos2) {
+            for pressed in [true, false] { frame(ctx, dlg, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }]); }
+        }
+        frame(&ctx, &mut dlg, vec![]);
+        let output = frame(&ctx, &mut dlg, vec![]);
+        click(&ctx, &mut dlg, position(&output, "Select existing owners…"));
+        frame(&ctx, &mut dlg, vec![]);
+        let output = frame(&ctx, &mut dlg, vec![]);
+        click(&ctx, &mut dlg, position(&output, "Morgan"));
+        assert_eq!(dlg.rows[0].members, "Morgan");
+        assert_eq!(dlg.rows[1].members, "Morgan, platform, (owner TBD)");
     }
 }
