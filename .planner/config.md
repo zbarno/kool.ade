@@ -1,24 +1,28 @@
 # Planner Configuration
 
+## Current User
+Name: Zachary Barno
+Groups:
+
 ## Stakeholders
 
 ### General
-(no owner configured)
+- Zachary Barno
 
 ### Product
-(no owner configured)
+- Zachary Barno
 
 ### Development
-(no owner configured)
+- Zachary Barno
 
 ### QA
-(no owner configured)
+- Zachary Barno
 
 ### InfoSec
-(no owner configured)
+- Zachary Barno
 
 ### UX
-(no owner configured)
+- Zachary Barno
 
 ### Operations
-(no owner configured)
+- Zachary Barno
