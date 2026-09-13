@@ -1,6 +1,6 @@
 //! Packet — git-native LLM specification planner.
 //!
-//! See `SPECIFICATION.md` in the repository root for the product contract.
+//! See `planning/specification.md` for the product contract.
 //! Module map (each file is intentionally small, ~<=300 lines):
 //!
 //! - [`domain`] — value types: open items, stakeholders, current user, chat log

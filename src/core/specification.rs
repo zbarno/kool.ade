@@ -1,0 +1,105 @@
+//! Structural gate for full specification replacements. Semantic truth and
+//! decision preservation remain authoring obligations, not parser guarantees.
+use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+
+pub const SECTIONS: [&str; 13] = [
+    "1. Vision",
+    "2. Scope",
+    "3. Actors and Roles",
+    "4. Feature Inventory",
+    "5. Functional Requirements",
+    "6. Non-Functional Requirements",
+    "7. Data Model",
+    "8. Architecture",
+    "9. Environment, Launch, and Preconditions",
+    "10. Decisions Log",
+    "11. Risks and Open Concerns",
+    "12. Acceptance / Definition of Done",
+    "13. Source Map",
+];
+
+pub fn validate_layout(markdown: &str) -> Result<(), String> {
+    let mut headings = Vec::new();
+    let mut active = None;
+    for event in Parser::new(markdown) {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => active = Some((level, String::new())),
+            Event::Text(text) | Event::Code(text) => {
+                if let Some((_, title)) = &mut active {
+                    title.push_str(&text);
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some(heading) = active.take() {
+                    headings.push(heading);
+                }
+            }
+            _ => {}
+        }
+    }
+    let titles: Vec<_> = headings
+        .iter()
+        .filter(|(l, _)| *l == HeadingLevel::H1)
+        .collect();
+    let suffix = " — Living Technical Specification";
+    if titles.len() != 1
+        || !titles[0].1.ends_with(suffix)
+        || titles[0].1.trim_end_matches(suffix).trim().is_empty()
+        || headings.first() != titles.first().copied()
+    {
+        return Err("updated_specification must begin with exactly one H1: <Project Name> — Living Technical Specification".into());
+    }
+    let sections: Vec<_> = headings
+        .iter()
+        .filter(|(l, _)| *l == HeadingLevel::H2)
+        .map(|(_, title)| title.as_str())
+        .collect();
+    if sections != SECTIONS {
+        return Err(format!(
+            "updated_specification must contain these H2 sections in order: {}. Use H3 for subsections; return the complete document.",
+            SECTIONS.join("; ")
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn fixture(body: &str) -> String {
+    let mut text = "# Fixture — Living Technical Specification\n\nVersion: 1.0. Status: test fixture. Authority: test scenario.\n\n**Maintenance.** Test harness supplies complete revisions; git preserves history.\n\n".to_string();
+    for section in SECTIONS {
+        text.push_str(&format!("## {section}\n\n{body}\n\n"));
+    }
+    text
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_specification_obeys_layout() {
+        validate_layout(include_str!("../../planning/specification.md")).unwrap();
+    }
+
+    #[test]
+    fn accepts_subsections_and_ignores_fenced_example_headings() {
+        let text = fixture(
+            "Unknown pending confirmation.\n\n### Detail\n\n```markdown\n# Example\n## Example section\n```",
+        );
+        validate_layout(&text).unwrap();
+    }
+
+    #[test]
+    fn rejects_missing_reordered_extra_sections_and_multiple_titles() {
+        let text = fixture("Unknown pending confirmation.");
+        for invalid in [
+            text.replace("## 2. Scope", "### 2. Scope"),
+            text.replace("## 2. Scope", "## 3. Actors and Roles"),
+            format!("{text}\n## Audit transcript\n"),
+            format!("{text}\n# Another title\n"),
+            text.replace("Fixture — Living Technical Specification", "Fixture"),
+        ] {
+            assert!(validate_layout(&invalid).is_err());
+        }
+    }
+}

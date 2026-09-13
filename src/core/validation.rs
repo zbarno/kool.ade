@@ -71,6 +71,9 @@ pub fn validate_for_turn(envelope: &TurnEnvelope, state: &PlannerState, user: &C
             if state.spec_text.as_deref().is_some_and(|cur| cur.trim_end() == raw.trim_end()) {
                 None // cosmetic no-change
             } else {
+                if let Err(problem) = crate::core::specification::validate_layout(raw) {
+                    fatals.push(problem);
+                }
                 Some(raw.to_string())
             }
         }

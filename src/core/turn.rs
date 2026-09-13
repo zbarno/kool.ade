@@ -197,7 +197,7 @@ fn run_turn(
         read_only: false,
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
-        system_instructions: format!("{SYSTEM_INSTRUCTIONS}\n{}", prompt::WORKFLOW_INSTRUCTIONS),
+        system_instructions: format!("{SYSTEM_INSTRUCTIONS}\n{}\n{}", prompt::SPECIFICATION_POLICY, prompt::WORKFLOW_INSTRUCTIONS),
         timeout: configured_turn_timeout(),
         progress_tx,
         cancel: Arc::clone(cancel),
@@ -305,7 +305,8 @@ mod tests {
         fn check_available(&self) -> Result<String, AppError> {
             Ok("test".into())
         }
-        fn execute(&self, _req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+        fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+            assert!(req.system_instructions.contains(prompt::SPECIFICATION_POLICY));
             let text = match (&self.raw, &self.canned) {
                 (Some(raw), _) => raw.clone(),
                 (_, Some(env)) => {
@@ -368,7 +369,7 @@ mod tests {
             ),
             change_summary: Some("Draft initial specification".into()),
             updated_specification: Some(
-                "# Fixture\n\n## Goals\nDemo the planner end-to-end.\n".into(),
+                crate::core::specification::fixture("Demo the planner end-to-end."),
             ),
             open_items_added: Some(vec![TurnItem {
                 id: None,
@@ -409,6 +410,34 @@ mod tests {
             other => panic!("expected Applied, got: {other:?}"),
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn malformed_specification_rejects_otherwise_valid_turn_without_mutation() {
+        let (inputs, dir) = inputs_for("spec_layout", "rewrite the specification");
+        git_stdout(&dir, &["add", "planning", ".planner"]);
+        git_stdout(&dir, &["commit", "-m", "Seed planning artifacts"]);
+        let before = law_evidence(&dir);
+        let raw = serde_json::json!({
+            "schema_version": 1,
+            "assistant_message": "Revised the document.",
+            "change_summary": "Revise specification",
+            "updated_specification": "# Fixture\n\n## Audit notes\nIncomplete replacement.",
+            "open_items_added": [{"kind":"Question", "priority":"Normal",
+                "category":"General", "assigned_to":"All", "question":"Which platform?",
+                "reason":"Defines launch scope"}]
+        }).to_string();
+        let controller = TurnController::start(inputs, Box::new(ScriptedHarness {
+            canned: None, raw: Some(raw),
+        }));
+        match drain(&controller) {
+            TurnOutcome::Rejected { problems, .. } => {
+                assert!(problems.iter().any(|p| p.contains("updated_specification")));
+            }
+            other => panic!("expected structural rejection, got {other:?}"),
+        }
+        assert_eq!(law_evidence(&dir), before, "no artifact or checkpoint may change");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -528,7 +557,7 @@ mod tests {
             } else {
                 // Snake-case is the actual prompt contract, camelCase remains supported.
                 serde_json::json!({"schema_version":1, "assistant_message":"Draft saved.",
-                    "updated_specification":"# Draft\n\nLive content", "open_items_added":[],
+                    "updated_specification":crate::core::specification::fixture("Live content"), "open_items_added":[],
                     "open_items_updated":[], "open_items_resolved":[]})
                 .to_string()
             };
@@ -652,7 +681,7 @@ mod tests {
             schema_version: Some(1),
             assistant_message: Some("Opened the lane-bound questions.".into()),
             change_summary: Some("raise security and infosec lane questions".into()),
-            updated_specification: Some("# Fixture\n\nSeeded for the routing-law demonstration.\n".into()),
+            updated_specification: Some(crate::core::specification::fixture("Seeded for the routing-law demonstration.")),
             open_items_added: Some(vec![
                 TurnItem {
                     id: None,
@@ -719,7 +748,7 @@ mod tests {
             schema_version: Some(1),
             assistant_message: Some("Recorded the security decision; carrying on.".into()),
             change_summary: Some("record threat-model depth decision".into()),
-            updated_specification: Some("# Fixture\n\nThreat model settled to L2.\n".into()),
+            updated_specification: Some(crate::core::specification::fixture("Threat model settled to L2.")),
             open_items_added: None,
             open_items_updated: None,
             open_items_resolved: None,
@@ -754,12 +783,12 @@ mod tests {
         // new imperative-subject checkpoint whose subject derives from
         // this change summary.
         const CADENCE_SUMMARY: &str = "record incident-response cadence";
-        const INHERITED_SPEC: &str = "# Fixture\n\nIncident cadence: page within the hour.\n";
+        let inherited_spec = crate::core::specification::fixture("Incident cadence: page within the hour.");
         let inherited = TurnEnvelope {
             schema_version: Some(1),
             assistant_message: Some("Recorded the infosec decision; carrying on.".into()),
             change_summary: Some(CADENCE_SUMMARY.into()),
-            updated_specification: Some(INHERITED_SPEC.into()),
+            updated_specification: Some(inherited_spec.clone()),
             open_items_added: None,
             open_items_updated: None,
             open_items_resolved: None,
@@ -785,7 +814,7 @@ mod tests {
                 // remains in its queue.
                 assert_eq!(
                     state.spec_text.as_deref(),
-                    Some(INHERITED_SPEC),
+                    Some(inherited_spec.as_str()),
                     "applied in-memory state must adopt the turn's spec change"
                 );
                 assert!(

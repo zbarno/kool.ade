@@ -9,11 +9,35 @@ use crate::artifacts::{atomic_write, read_utf8_lossy, repo_artifact, SPEC_FILE};
 
 /// Fresh skeleton planted when a repository is first connected.
 pub fn bootstrap_template(title: &str) -> String {
-    format!(
-        "# {title}\n\n\
-         ## Overview\n\n\
-         _Not established yet — describe the project in the chat to begin._\n"
-    )
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut text = format!(
+        "# {title} — Living Technical Specification\n\n\
+         **Version:** 0.1. **Status:** Initial draft; intent and implementation unconfirmed.\n\n\
+         **Authority:** Current planning specification, subject to confirmed project precedence.\n\n\
+         **Origin / latest revision:** Packet bootstrap; no product decisions recorded.\n\n\
+         **Maintenance.** The planning agent proposes coherent full revisions through accepted turns. \
+         Packet validates and persists them; the UI is read-only. Git preserves history.\n\n"
+    );
+    let contents = [
+        "Purpose, hypothesis and goals are not established. Describe the project in chat to begin.",
+        "In-scope, out-of-scope, platform commitments and deferred capabilities require confirmation.",
+        "Inspect project ownership configuration before recording concrete assignments. Responsibilities are unconfirmed.",
+        "No feature records yet. Do not infer implementation status without repository evidence.",
+        "No functional requirements confirmed.",
+        "Quality constraints and quantitative targets are unspecified.",
+        "Storage, domain types, protocols, private state and configuration require repository inspection.",
+        "Current architecture is unverified. No future architecture has been accepted.",
+        "Runtime, launch commands and operational prerequisites require repository inspection.",
+        "| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |",
+        "Initial discovery remains open. No application-assigned clarification records or accepted debt are recorded here yet.",
+        "No success scenario or acceptance bar has been agreed. Establish explicit criteria before claiming completion.",
+        "Source: Packet's bootstrap template. Repository evidence and authoritative project documents have not yet been indexed.",
+    ];
+    for (section, content) in crate::core::specification::SECTIONS.iter().zip(contents) {
+        text.push_str(&format!("## {section}\n\n{content}\n\n"));
+    }
+    text
+
 }
 
 /// Read the specification, returning `Ok(None)` when the file does not exist.
@@ -54,6 +78,7 @@ mod tests {
         ensure(tmp.path(), "Demo Proj").ok();
         let got = load(tmp.path()).unwrap().unwrap();
         assert!(got.starts_with("# Demo Proj"));
+        crate::core::specification::validate_layout(&got).unwrap();
     }
 
     /// Minimal tempdir without pulling in the `tempfile` crate.

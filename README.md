@@ -137,3 +137,17 @@ estimated tokens. Older activity records without timing remain readable.
 Task activity is stored privately and stays separate from the project-manager
 conversation. The activity viewer follows new output until you scroll back;
 closing it returns to the item or board you were viewing.
+
+### Living specification contract
+
+The planner maintains one coherent current specification with the thirteen ordered
+sections defined in [the authoring policy](docs/living-specification-policy.md).
+Material revisions preserve stable identifiers, explicitly supersede decisions,
+separate confirmed intent from repository observations, and retain the accepted
+acceptance bar. Git carries detailed history; revision notes stay compact.
+
+Every planning turn receives this policy. Changed specification responses must
+have the required title and section structure before any artifacts are written.
+Existing documents remain readable; their next material revision must use the new
+layout. Structural validation does not certify factual accuracy or semantic
+preservation. Task batches retain their frozen approved specification snapshots.

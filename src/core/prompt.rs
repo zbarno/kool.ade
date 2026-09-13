@@ -5,6 +5,9 @@
 
 use crate::core::context_build::TurnContext;
 
+/// Canonical authoring contract injected into every planning turn.
+pub const SPECIFICATION_POLICY: &str = include_str!("../../docs/living-specification-policy.md");
+
 /// Standing instructions injected into EVERY planning turn.
 pub const SYSTEM_INSTRUCTIONS: &str = "\
 You are Packet, the user's proactive project manager and software-planning partner. Maintain a \

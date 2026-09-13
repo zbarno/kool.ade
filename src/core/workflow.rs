@@ -516,7 +516,7 @@ mod tests {
     fn mark_ready(state: &mut PlannerState) {
         let mut env = envelope();
         env.interview = Some(brief());
-        env.updated_specification = Some("# Saved searches\n\n## Goal\nResume named filters across sessions.\n\n## Scope\nPersist and restore filters without changing ad hoc searches.".into());
+        env.updated_specification = Some(crate::core::specification::fixture("Resume named filters across sessions. Persist and restore filters without changing ad hoc searches."));
         let nt = validation::validate(&env, state, &state.effective_user()).unwrap();
         assert!(
             nt.assistant_message
