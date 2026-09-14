@@ -298,10 +298,12 @@ impl PacketApp {
             }
         }
         self.advance_auto_queue();
+        self.advance_reconciliation();
         let period = match &self.screen {
             Screen::Connected(p)
                 if (p.active_turn.is_some()
                     || p.active_implementation.is_some()
+                    || p.reconciliation.is_some()
                     || p.activity.manager.is_some()) =>
             {
                 Duration::from_millis(120)
@@ -364,6 +366,80 @@ impl PacketApp {
         };
         if let Some(ticket) = next {
             self.implement_task(ticket);
+        }
+    }
+
+    fn advance_reconciliation(&mut self) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if let Some(controller) = &project.reconciliation {
+            if let Some(result) = controller.poll() {
+                let feature_id = controller.feature_id.clone();
+                project.reconciliation = None;
+                match result {
+                    Ok((state, message)) => {
+                        project.state = state;
+                        project.task_documents = crate::artifacts::task_docs::load_latest(
+                            &project.state.repo_root,
+                            &project.state.workflow,
+                        );
+                        project.refresh_git();
+                        project.reconciliation_error = None;
+                        project
+                            .activity
+                            .pending
+                            .push(format!("Reconciled {feature_id}: {message}"));
+                        self.toasts.success(format!("Reconciled {feature_id}"));
+                    }
+                    Err(error) => {
+                        if let Ok(current) =
+                            crate::core::state::PlannerState::load(&project.state.repo_root)
+                        {
+                            project.state = current;
+                        }
+                        project.reconciliation_error = Some(error.to_string());
+                        project.activity.pending.push(format!(
+                            "Reconciliation of {feature_id} needs attention: {error}"
+                        ));
+                        self.toasts
+                            .warning(format!("Reconciliation needs attention: {error}"));
+                    }
+                }
+            }
+        }
+        if project.reconciliation.is_some()
+            || project.active_turn.is_some()
+            || project.active_implementation.is_some()
+            || project.queue.running
+        {
+            return;
+        }
+        let Some((feature_id, _)) = &project.state.active_feature else {
+            return;
+        };
+        if project.reconciliation_attempted.contains(feature_id) {
+            return;
+        }
+        match crate::core::reconciliation::candidate(&project.state) {
+            Ok(Some(candidate)) => {
+                project
+                    .reconciliation_attempted
+                    .insert(candidate.feature_id.clone());
+                project.activity.pending.push(format!("All tasks for {} have merged; checking actual implementation against the approved feature.", candidate.feature_id));
+                project.reconciliation = Some(crate::core::reconciliation::Controller::start(
+                    project.state.clone(),
+                    candidate,
+                ));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                project.reconciliation_attempted.insert(feature_id.clone());
+                project.reconciliation_error = Some(error.to_string());
+                project.activity.pending.push(format!(
+                    "Reconciliation of {feature_id} needs attention: {error}"
+                ));
+            }
         }
     }
 
@@ -528,6 +604,12 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
+        if project.reconciliation.is_some() {
+            project.draft = text.to_string();
+            self.toasts
+                .info("Reconciliation is checking merged implementation; your draft is preserved.");
+            return;
+        }
         if project.active_turn.is_some()
             || (project.active_implementation.is_some()
                 && purpose == crate::core::workflow::TurnPurpose::GenerateTasks)
@@ -1365,6 +1447,9 @@ mod board_tests {
                 active_implementation_ticket: None,
                 implementation_states: states,
                 pr_refresh: None,
+                reconciliation: None,
+                reconciliation_attempted: Default::default(),
+                reconciliation_error: None,
                 last_pr_refresh: None,
                 active_turn: None,
                 live_progress: Default::default(),
@@ -1899,6 +1984,9 @@ mod tests {
             active_implementation: None,
             active_implementation_ticket: None,
             pr_refresh: None,
+            reconciliation: None,
+            reconciliation_attempted: Default::default(),
+            reconciliation_error: None,
             last_pr_refresh: None,
             implementation_states: Default::default(),
             active_turn: None,

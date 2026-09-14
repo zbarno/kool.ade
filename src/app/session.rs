@@ -23,6 +23,9 @@ pub struct Project {
     pub implementation_states:
         std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
     pub pr_refresh: Option<crate::core::implementation::PrRefresh>,
+    pub reconciliation: Option<crate::core::reconciliation::Controller>,
+    pub reconciliation_attempted: std::collections::HashSet<String>,
+    pub reconciliation_error: Option<String>,
     pub last_pr_refresh: Option<std::time::Instant>,
     pub active_turn: Option<Arc<TurnController>>,
     pub live_progress: crate::harness::LiveProgress,

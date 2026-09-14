@@ -311,15 +311,15 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
     let Some(url) = state.pr_url.clone() else {
         return Ok(());
     };
-    if state.pr_state.as_deref() == Some("MERGED") {
+    if state.pr_state.as_deref() == Some("MERGED") && state.merged_commit.is_some() {
         return Ok(());
     }
     state.pr_check_attempted_at = Some(chrono::Utc::now().to_rfc3339());
-    let result = (|| -> anyhow::Result<String> {
+    let result = (|| -> anyhow::Result<(String, Option<String>)> {
         let output = runner.command(
             &target_repo,
             &runner.gh,
-            &["pr", "view", &url, "--json", "state"],
+            &["pr", "view", &url, "--json", "state,mergeCommit"],
         )?;
         let value: serde_json::Value = serde_json::from_str(&output)?;
         let status = value["state"].as_str().unwrap_or_default();
@@ -327,10 +327,14 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
             matches!(status, "OPEN" | "CLOSED" | "MERGED"),
             "GitHub returned an unknown PR state"
         );
-        Ok(status.to_owned())
+        let merged = value["mergeCommit"]["oid"]
+            .as_str()
+            .filter(|oid| !oid.is_empty())
+            .map(str::to_owned);
+        Ok((status.to_owned(), merged))
     })();
     match result {
-        Ok(status) => {
+        Ok((status, merged)) => {
             state.status = match status.as_str() {
                 "MERGED" => "Done",
                 "CLOSED" => "PR closed",
@@ -338,6 +342,9 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
             }
             .into();
             state.pr_state = Some(status);
+            if merged.is_some() {
+                state.merged_commit = merged;
+            }
             state.pr_checked_at = Some(chrono::Utc::now().to_rfc3339());
             state.pr_check_error = None;
         }
