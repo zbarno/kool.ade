@@ -170,8 +170,14 @@ pub fn validate_for_turn(
                         fatals.push(format!("{}: {error}", update.document_id));
                     }
                 }
-            } else if name == "index" && !update.content.starts_with("# ") {
-                fatals.push("product:index requires a product title".into());
+            } else if name == "index" {
+                if !update.content.starts_with("# ")
+                    || !update.content.contains("\n## Active features\n")
+                {
+                    fatals.push(
+                        "product:index requires a product title and active-feature manifest".into(),
+                    );
+                }
             }
         }
         if let Some(id) = update.document_id.strip_prefix("feature:") {
@@ -457,7 +463,7 @@ pub fn validate_for_turn(
 }
 
 fn valid_feature_reference(state: &PlannerState, envelope: &TurnEnvelope, id: &str) -> bool {
-    if !id.starts_with("CHG-") || id.len() != 7 || !id[4..].bytes().all(|b| b.is_ascii_digit()) {
+    if !crate::artifacts::product_docs::valid_feature_id(id) {
         return false;
     }
     crate::artifacts::product_docs::document_path(&state.repo_root, &format!("feature:{id}"))

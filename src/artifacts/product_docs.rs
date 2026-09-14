@@ -25,6 +25,18 @@ pub const MODULES: [&str; 13] = [
     "13-source-map.md",
 ];
 
+pub fn valid_feature_id(id: &str) -> bool {
+    id.strip_prefix("CHG-")
+        .is_some_and(|digits| digits.len() >= 3 && digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
+fn directory_feature_id(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("CHG-")?;
+    let (digits, _) = rest.split_once('-')?;
+    let id = name.get(..4 + digits.len())?;
+    valid_feature_id(id).then_some(id)
+}
+
 fn regular(path: &Path) -> anyhow::Result<bool> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -72,10 +84,11 @@ pub fn next_feature_id(repo: &Path) -> String {
     if let Ok(entries) = std::fs::read_dir(repo.join("planning/features")) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if let Some(n) = name.get(4..7).and_then(|digits| digits.parse::<u32>().ok()) {
-                    if name.starts_with("CHG-") {
-                        maximum = maximum.max(n);
-                    }
+                if let Some(n) = directory_feature_id(name)
+                    .and_then(|id| id.strip_prefix("CHG-"))
+                    .and_then(|digits| digits.parse::<u32>().ok())
+                {
+                    maximum = maximum.max(n);
                 }
             }
         }
@@ -94,8 +107,11 @@ pub fn next_feature_id(repo: &Path) -> String {
     {
         if output.status.success() {
             for line in String::from_utf8_lossy(&output.stdout).lines() {
-                if let Some(name) = line.strip_prefix("planning/features/CHG-") {
-                    if let Some(n) = name.get(..3).and_then(|digits| digits.parse::<u32>().ok()) {
+                if let Some(name) = line.strip_prefix("planning/features/") {
+                    if let Some(n) = directory_feature_id(name)
+                        .and_then(|id| id.strip_prefix("CHG-"))
+                        .and_then(|digits| digits.parse::<u32>().ok())
+                    {
                         maximum = maximum.max(n);
                     }
                 }
@@ -131,6 +147,14 @@ pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow:
 
 pub fn refreshed_index(repo: &Path, updates: &[(String, String)]) -> anyhow::Result<String> {
     let index = std::fs::read_to_string(repo.join(INDEX))?;
+    refreshed_index_from(repo, &index, updates)
+}
+
+pub fn refreshed_index_from(
+    repo: &Path,
+    index: &str,
+    updates: &[(String, String)],
+) -> anyhow::Result<String> {
     let marker = "## Active features";
     let prefix = index
         .split_once(marker)
@@ -147,7 +171,7 @@ pub fn refreshed_index(repo: &Path, updates: &[(String, String)]) -> anyhow::Res
             .and_then(|dir| dir.file_name())
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid feature path"))?;
-        entries.retain(|entry| entry.get(..7) != name.get(..7));
+        entries.retain(|entry| directory_feature_id(entry) != directory_feature_id(name));
         if !content.contains("**Status:** Implemented")
             && !content.contains("**Status:** Abandoned")
         {
@@ -203,10 +227,7 @@ pub fn document_path(repo: &Path, id: &str) -> anyhow::Result<PathBuf> {
         }
     }
     if let Some(id) = id.strip_prefix("feature:") {
-        anyhow::ensure!(
-            id.len() == 7 && id.starts_with("CHG-") && id[4..].bytes().all(|b| b.is_ascii_digit()),
-            "Invalid feature document ID"
-        );
+        anyhow::ensure!(valid_feature_id(id), "Invalid feature document ID");
         let root = repo.join("planning/features");
         anyhow::ensure!(real_dir(&root)?, "Feature directory does not exist");
         let mut matches = std::fs::read_dir(&root)?
@@ -350,7 +371,7 @@ pub fn render_product(repo: &Path) -> anyhow::Result<Option<String>> {
 
 pub fn active_feature(repo: &Path) -> Option<(String, String)> {
     for name in active_features(repo) {
-        let id = name.get(..7)?.to_string();
+        let id = directory_feature_id(&name)?.to_string();
         let body = std::fs::read_to_string(
             repo.join("planning/features")
                 .join(&name)
@@ -497,6 +518,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
     #[test]
+    fn migration_preserves_historical_tasks_and_open_board_items() {
+        use crate::domain::{ItemKind, OpenItem, Priority};
+        let root = std::env::temp_dir().join(format!(
+            "packet_migrate_history_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning/tasks/legacy-batch")).unwrap();
+        let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
+        std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
+        let task = "# Legacy task\n\nFrozen specification and acceptance.\n";
+        let task_path = root.join("planning/tasks/legacy-batch/001-legacy.md");
+        std::fs::write(&task_path, task).unwrap();
+        let item = OpenItem::new(
+            "CLR-041".into(),
+            Priority::High,
+            ItemKind::Question,
+            "Product".into(),
+            Some("Owner".into()),
+            "Which behavior should the legacy task keep?".into(),
+            "Requires a product decision.".into(),
+        );
+        let items_path = root.join("planning/open-items.md");
+        let items = crate::artifacts::items_io::serialize(&[item.clone()]);
+        std::fs::write(&items_path, &items).unwrap();
+        migrate(&root, &legacy).unwrap();
+        assert_eq!(std::fs::read_to_string(&task_path).unwrap(), task);
+        assert_eq!(std::fs::read_to_string(&items_path).unwrap(), items);
+        let restored = crate::artifacts::items_io::parse(&items).unwrap();
+        assert_eq!(restored[0], item);
+        assert_eq!(restored[0].authority, crate::domain::Authority::Human);
+        assert!(
+            render_product(&root)
+                .unwrap()
+                .unwrap()
+                .contains("## 13. Source Map")
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
     fn logical_ids_cannot_escape_allowlisted_paths() {
         let root = Path::new("/repo");
         assert_eq!(
@@ -510,6 +571,43 @@ mod tests {
         ] {
             assert!(document_path(root, id).is_err());
         }
+    }
+    #[test]
+    fn feature_ids_continue_past_three_digits() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_feature_ids_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning/features/CHG-1000-old")).unwrap();
+        std::fs::write(
+            root.join("planning/features/CHG-1000-old/specification.md"),
+            "# CHG-1000: Old\n\n**Status:** Draft\n",
+        )
+        .unwrap();
+        assert_eq!(next_feature_id(&root), "CHG-1001");
+        assert!(document_path(&root, "feature:CHG-1000").unwrap().exists());
+        assert_eq!(active_feature(&root).unwrap().0, "CHG-1000");
+        let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn explicit_index_edits_cannot_forge_active_feature_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_index_manifest_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning/features/CHG-001-first")).unwrap();
+        std::fs::write(
+            root.join("planning/features/CHG-001-first/specification.md"),
+            "# CHG-001: First\n\n**Status:** Draft\n",
+        )
+        .unwrap();
+        let forged = "# Revised product\n\n## Modules\n\nExisting modules.\n\n## Active features\n\n- fake\n";
+        let actual = refreshed_index_from(&root, forged, &[]).unwrap();
+        assert!(actual.contains("CHG-001-first"));
+        assert!(!actual.contains("- fake"));
+        let _ = std::fs::remove_dir_all(root);
     }
     #[test]
     fn restart_after_uncommitted_migration_still_reports_all_paths() {

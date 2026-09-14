@@ -128,11 +128,20 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             id,
             content,
         )?;
+        let content = if id == "product:index" {
+            crate::artifacts::product_docs::refreshed_index_from(
+                &state.repo_root,
+                content,
+                &nt.document_updates,
+            )?
+        } else {
+            content.clone()
+        };
         changes.push((
             path.strip_prefix(&state.repo_root)?
                 .to_string_lossy()
                 .into_owned(),
-            content.clone(),
+            content,
         ));
     }
     if !nt

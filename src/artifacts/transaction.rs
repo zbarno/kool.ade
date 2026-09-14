@@ -202,4 +202,49 @@ mod tests {
         assert_eq!(apply(&root, &changes).unwrap().len(), 2);
         let _ = fs::remove_dir_all(root);
     }
+    #[test]
+    fn persisted_journal_recovers_partial_write_on_restart() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_tx_recover_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        fs::create_dir_all(root.join("planning/product")).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let first = root.join("planning/product/01-vision.md");
+        let second = root.join("planning/product/02-scope.md");
+        fs::write(&first, "old vision").unwrap();
+        let entries = vec![
+            Entry {
+                path: "planning/product/01-vision.md".into(),
+                before: Some("old vision".into()),
+                after: "new vision".into(),
+            },
+            Entry {
+                path: "planning/product/02-scope.md".into(),
+                before: None,
+                after: "new scope".into(),
+            },
+        ];
+        fs::write(
+            journal_path(&root).unwrap(),
+            serde_json::to_vec(&Journal { entries }).unwrap(),
+        )
+        .unwrap();
+        fs::write(&first, "new vision").unwrap();
+        fs::write(&second, "new scope").unwrap();
+        assert!(recover(&root).unwrap());
+        assert_eq!(fs::read_to_string(&first).unwrap(), "old vision");
+        assert!(!second.exists());
+        assert!(!journal_path(&root).unwrap().exists());
+        assert!(!recover(&root).unwrap());
+        let _ = fs::remove_dir_all(root);
+    }
 }

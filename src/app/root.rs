@@ -1983,6 +1983,25 @@ mod board_tests {
     }
 
     #[test]
+    fn auto_queue_cannot_start_task_from_unapproved_feature() {
+        let mut app = fixture();
+        let ticket = "planning/tasks/fixture/001-task.md";
+        if let Screen::Connected(project) = &mut app.screen {
+            assert!(project.queue.auto_mode);
+            project.task_documents[0]
+                .text
+                .push_str("\nFeature ID: CHG-001\n");
+        }
+        app.implement_task(ticket.into());
+        let Screen::Connected(project) = &app.screen else {
+            panic!("disconnected");
+        };
+        assert!(project.active_implementation.is_none());
+        assert!(!project.queue.running);
+        assert!(project.queue.last_error.contains("needs explicit approval"));
+    }
+
+    #[test]
     fn auto_queue_runs_two_tasks_through_pi_and_merges_without_prs() {
         let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
         struct Restore(Option<std::ffi::OsString>);
