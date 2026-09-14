@@ -41,6 +41,8 @@ pub struct Workflow {
     /// The exact specification the readiness assessment covers.
     pub reviewed_specification: Option<String>,
     pub task_batches: Vec<TaskBatchRef>,
+    #[serde(default)]
+    pub approved_features: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,10 +53,16 @@ pub struct TaskBatchRef {
     pub count: usize,
 }
 
+fn default_repository() -> String {
+    String::new()
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct TaskStory {
     pub title: String,
+    #[serde(default = "default_repository", alias = "target_repository")]
+    pub target_repository: String,
     pub intent: String,
     pub goal: String,
     pub context: String,
@@ -159,7 +167,71 @@ pub fn validate_outline(
 pub struct TaskBatch {
     pub brief: InterviewBrief,
     pub specification: String,
+    pub feature_id: Option<String>,
     pub stories: Vec<TaskStory>,
+}
+
+/// Freeze the normative feature contract, excluding mutable status and
+/// repository-observation sections. A changed desired behavior needs approval again.
+pub fn feature_contract(text: &str) -> String {
+    let mut capture = false;
+    let mut selected = String::new();
+    for line in text.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            capture = [
+                "Intent",
+                "Desired Behavior",
+                "Scope",
+                "Requirements",
+                "Decisions and Assumptions",
+                "Acceptance Criteria",
+            ]
+            .contains(&heading);
+        }
+        if capture {
+            selected.push_str(line);
+            selected.push('\n');
+        }
+    }
+    selected
+}
+
+pub fn approve_feature(
+    repo: &std::path::Path,
+    workflow: &mut Workflow,
+    id: &str,
+) -> anyhow::Result<String> {
+    let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
+    let text = std::fs::read_to_string(path)?;
+    crate::core::specification::validate_feature(id, &text)?;
+    anyhow::ensure!(
+        text.contains("**Status:** Ready") || text.contains("**Status:** Implementing"),
+        "Only a ready or already implementing feature may be approved"
+    );
+    let contract = feature_contract(&text);
+    anyhow::ensure!(!contract.trim().is_empty(), "Feature contract is empty");
+    workflow.approved_features.insert(id.to_string(), contract);
+    crate::artifacts::task_docs::save_workflow(repo, workflow)?;
+    crate::core::gitops::commit(
+        repo,
+        &format!("planner: approve feature {id}"),
+        &[WORKFLOW_FILE.to_string()],
+    )
+    .map_err(|e| anyhow::anyhow!("approval saved but checkpoint failed: {e}"))
+}
+
+pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -> bool {
+    let Ok(path) = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))
+    else {
+        return false;
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    workflow
+        .approved_features
+        .get(id)
+        .is_some_and(|snapshot| snapshot == &feature_contract(&text))
 }
 
 impl Workflow {
@@ -198,13 +270,14 @@ pub fn prepare(
 ) -> Result<(), Vec<String>> {
     let mut workflow = state.workflow.clone();
     if purpose == TurnPurpose::GenerateTasks {
-        if !workflow.ready(state.spec_text.as_deref()) {
+        if !workflow.ready(state.planning_contract()) {
             return Err(vec!["Task generation requires approval of a ready, current specification. Continue the interview first.".into()]);
         }
         if nt
             .spec_markdown
             .as_deref()
-            .is_some_and(|s| Some(s) != state.spec_text.as_deref())
+            .is_some_and(|s| Some(s) != state.planning_contract())
+            || !nt.document_updates.is_empty()
             || !nt.added.is_empty()
             || !nt.updates.is_empty()
             || !nt.resolved.is_empty()
@@ -225,9 +298,33 @@ pub fn prepare(
         }
         let stories = env.task_stories.clone().unwrap_or_default();
         validate_stories(&brief, &stories)?;
+        let manifest = crate::core::project_repos::ProjectManifest::load(&state.repo_root)
+            .map_err(|error| vec![error.to_string()])?;
+        for story in &stories {
+            if manifest.repositories.len() > 1 && story.target_repository.is_empty() {
+                return Err(vec![
+                    "Every multi-repository task needs an explicit target_repository".into(),
+                ]);
+            }
+            let id = if story.target_repository.is_empty() {
+                "root"
+            } else {
+                story.target_repository.as_str()
+            };
+            if !manifest.repositories.iter().any(|repo| repo.id == id) {
+                return Err(vec![format!("Unknown target repository {id}")]);
+            }
+        }
+        let feature_id = state.active_feature.as_ref().map(|(id, _)| id.clone());
+        if let Some(id) = &feature_id {
+            if !feature_approved(&state.repo_root, &workflow, id) {
+                return Err(vec![format!("{id} needs explicit implementation approval")]);
+            }
+        }
         nt.task_batch = Some(TaskBatch {
             brief,
-            specification: state.spec_text.clone().unwrap(),
+            specification: state.planning_contract().unwrap().to_string(),
+            feature_id,
             stories,
         });
         workflow.brief.as_mut().unwrap().ready_for_tasks = false;
@@ -273,10 +370,15 @@ pub fn prepare(
                         "Resolve blocking questions before offering task generation.".into(),
                     ]);
                 }
-                let spec = nt
-                    .spec_markdown
-                    .as_deref()
-                    .or(state.spec_text.as_deref())
+                let updated_feature = state.active_feature.as_ref().and_then(|(id, _)| {
+                    nt.document_updates
+                        .iter()
+                        .find(|(document, _)| document == &format!("feature:{id}"))
+                        .map(|(_, body)| body.as_str())
+                });
+                let spec = updated_feature
+                    .or(nt.spec_markdown.as_deref())
+                    .or(state.planning_contract())
                     .unwrap_or_default();
                 if spec.trim().is_empty() {
                     return Err(vec![
@@ -506,6 +608,14 @@ mod tests {
             std::env::temp_dir().join(format!("packet_workflow_{tag}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
         let mut s = PlannerState::load(&root).unwrap();
         s.bootstrap_missing().unwrap();
         s
@@ -516,7 +626,9 @@ mod tests {
     fn mark_ready(state: &mut PlannerState) {
         let mut env = envelope();
         env.interview = Some(brief());
-        env.updated_specification = Some(crate::core::specification::fixture("Resume named filters across sessions. Persist and restore filters without changing ad hoc searches."));
+        env.updated_specification = Some(crate::core::specification::fixture(
+            "Resume named filters across sessions. Persist and restore filters without changing ad hoc searches.",
+        ));
         let nt = validation::validate(&env, state, &state.effective_user()).unwrap();
         assert!(
             nt.assistant_message

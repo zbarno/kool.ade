@@ -1,6 +1,6 @@
 # CHG-001: Scalable Planning and Feature Specifications
 
-**Status:** Ready — implementation approval pending
+**Status:** Implementing — operator approved implementation
 
 **Origin:** Operator proposal, 2026-09-14
 

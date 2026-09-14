@@ -7,13 +7,16 @@
 //! * `pi_events.rs`    — NDJSON event-stream folding
 //! * `pi_extract.rs`   — JSON-block extraction from final prose
 
-pub mod pi_events;
 pub mod live_preview;
+pub mod pi_events;
 pub mod pi_extract;
 pub mod pi_harness;
 pub mod pi_proc;
 
-pub use harness::{ActivityTelemetry, AiHarness, HarnessOutcome, LivePost, LiveProgress, PlanningRequest, TurnEnvelope, TurnItem, TurnItemUpdate};
+pub use harness::{
+    ActivityTelemetry, AiHarness, DocumentUpdate, HarnessOutcome, LivePost, LiveProgress,
+    PlanningRequest, TurnEnvelope, TurnItem, TurnItemUpdate,
+};
 pub use pi_harness::PiHarness;
 
 mod harness;

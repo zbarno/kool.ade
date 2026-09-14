@@ -40,6 +40,8 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         });
     }
 
+    crate::artifacts::transaction::recover(&canonical)
+        .map_err(|e| AppError::Other(format!("planning transaction recovery failed: {e:#}")))?;
     let mut state = PlannerState::load(&canonical).map_err(|e| AppError::Artifact {
         path: canonical.to_string_lossy().into_owned(),
         detail: e.to_string(),
@@ -48,11 +50,31 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         op: "bootstrap planning artifacts".into(),
         detail: e.to_string(),
     })?;
-    if !created.is_empty() {
-        let paths: Vec<String> = created.iter().map(|p| p.to_string()).collect();
-        // Initial checkpoint so the very first session is already durable.
-        let _ = gitops::commit(&canonical, "planner: initialize planning artifacts", &paths);
+    let legacy_path = canonical.join(crate::artifacts::SPEC_FILE);
+    let legacy = std::fs::read_to_string(&legacy_path).unwrap_or_default();
+    let migrated = crate::artifacts::product_docs::migrate(&canonical, &legacy).map_err(|e| {
+        AppError::Artifact {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: format!("product specification migration failed: {e:#}"),
+        }
+    })?;
+    let mut paths: Vec<String> = created.iter().map(|p| p.to_string()).collect();
+    paths.extend(migrated);
+    paths.sort();
+    paths.dedup();
+    if !paths.is_empty() {
+        gitops::commit(&canonical, "planner: migrate product specification", &paths).map_err(
+            |e| {
+                AppError::Other(format!(
+                    "migration files are preserved but checkpoint failed: {e}"
+                ))
+            },
+        )?;
     }
+    state.resync().map_err(|e| AppError::Artifact {
+        path: canonical.to_string_lossy().into_owned(),
+        detail: format!("cannot reload migrated product: {e:#}"),
+    })?;
     let slug = project_slug(&canonical);
     let mut chat = chat_store::load(&slug).0;
     if chat.is_empty() {

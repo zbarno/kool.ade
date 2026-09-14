@@ -137,6 +137,43 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 paint_tasks(ui, s);
                 return;
             }
+            let view_id = egui::Id::new("packet_spec_document_view");
+            let mut view = ui
+                .ctx()
+                .data_mut(|d| d.get_temp::<u8>(view_id))
+                .unwrap_or(if s.active_feature().is_some() { 0 } else { 1 });
+            ui.horizontal(|ui| {
+                if s.active_feature().is_some()
+                    && ui.selectable_label(view == 0, "Active Feature").clicked()
+                {
+                    view = 0;
+                }
+                if ui
+                    .selectable_label(view == 1, "Product Specification")
+                    .clicked()
+                {
+                    view = 1;
+                }
+                if s.task_story_preview().is_some()
+                    && ui.selectable_label(view == 2, "Task Stories").clicked()
+                {
+                    view = 2;
+                }
+            });
+            ui.ctx().data_mut(|d| d.insert_temp(view_id, view));
+            if view == 0 && s.active_feature().is_some() {
+                if s.active_feature_approved() {
+                    ui.label(RichText::new("Approved for implementation").color(theme::SUCCESS));
+                } else if ui
+                    .add_enabled(
+                        !s.is_busy(),
+                        egui::Button::new("Approve feature for implementation"),
+                    )
+                    .clicked()
+                {
+                    s.approve_active_feature();
+                }
+            }
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Specification").size(17.0).strong());
                 if s.live_progress().is_some_and(|p| p.specification.is_some()) {
@@ -168,7 +205,15 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
-                    crate::ui::spec_viewer::render(ui, Some(s.spec_text()));
+                    let text = match view {
+                        0 => s
+                            .active_feature()
+                            .map(|(_, text)| text)
+                            .unwrap_or(s.spec_text()),
+                        2 => s.task_story_preview().unwrap_or(s.spec_text()),
+                        _ => s.spec_text(),
+                    };
+                    crate::ui::spec_viewer::render(ui, Some(text));
                 });
         });
 }
@@ -276,6 +321,11 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             }
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(item.priority.to_string()).size(12.5).color(if item.priority == crate::domain::item::Priority::Blocking { theme::DANGER } else { theme::WARNING }));
+                                                ui.label(RichText::new(item.authority.to_string()).size(12.5).color(match item.authority {
+                                                    crate::domain::Authority::Agent => theme::SUCCESS,
+                                                    crate::domain::Authority::Review => theme::WARNING,
+                                                    crate::domain::Authority::Human => theme::ACCENT,
+                                                }));
                                                 ui.label(RichText::new(item.assigned_to.as_deref().unwrap_or("Unassigned")).size(12.5).weak());
                                             });
                                             ui.label(RichText::new(&item.category).size(12.5).weak());
@@ -346,6 +396,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         "{} · {} · {:?}",
                         item.kind, item.priority, item.status
                     ));
+                    ui.label(format!("Authority: {}", item.authority));
                     ui.label(format!("Category: {}", item.category));
                     ui.label(format!(
                         "Owner: {}",
@@ -432,10 +483,17 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
 fn planning_column(item: &crate::domain::item::OpenItem) -> usize {
     if item.status == crate::domain::item::ItemStatus::Resolved {
         4
-    } else if item.is_ownership_gap() || item.priority == crate::domain::item::Priority::Blocking {
+    } else if item.is_ownership_gap()
+        || (item.priority == crate::domain::item::Priority::Blocking
+            && item.authority == crate::domain::Authority::Human)
+    {
         3
     } else {
-        0
+        match item.authority {
+            crate::domain::Authority::Agent => 1,
+            crate::domain::Authority::Review => 2,
+            crate::domain::Authority::Human => 0,
+        }
     }
 }
 

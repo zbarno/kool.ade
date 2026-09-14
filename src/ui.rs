@@ -3,11 +3,11 @@
 //! decoupled from pixels.
 
 pub mod chat_pane;
-pub mod task_activity;
 pub mod items_pane;
 pub mod layout;
 pub mod overlays;
 pub mod spec_viewer;
+pub mod task_activity;
 pub mod theme;
 pub mod toast;
 
@@ -58,6 +58,16 @@ pub trait Surface {
     fn next_question_id(&self) -> Option<&str>;
     // ------- spec pane -------
     fn spec_text(&self) -> &str;
+    fn active_feature(&self) -> Option<(&str, &str)> {
+        None
+    }
+    fn active_feature_approved(&self) -> bool {
+        false
+    }
+    fn approve_active_feature(&mut self) {}
+    fn task_story_preview(&self) -> Option<&str> {
+        None
+    }
     fn spec_words(&self) -> usize;
     // ------- services -------
     fn toasts(&mut self) -> &mut ToastQueue;

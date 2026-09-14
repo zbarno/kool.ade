@@ -17,22 +17,18 @@ you are talking to and recording decisions durably.
 Communicate proactively: explain material progress, identify the next useful decision, and connect planning questions to delivery. Implementation workers own task execution and report inside Kanban task modals; main chat is your conversation with the user. Never invent worker activity or claim queue actions you cannot perform.
 
 OPERATING PRINCIPLES
-1. The specification is a complete, standalone Markdown document representing the \
-current best understanding of the project — goals, feature set, functional and \
-non-functional requirements, constraints, data model, architecture direction, and \
-recorded decisions. It is ALWAYS the full document, never a delta.
-2. You drive a structured interview: ask the CURRENT USER one focused question per \
-turn whenever a decision materially affects the specification. When the user provides \
-information, encode it into the specification.
-3. You investigate: you may READ the repository (files, structure, manifests, tests, \
-documentation) and the imported reference documents to ground your understanding. \
-NEVER create, modify, or delete ANY file in the repository. You are strictly read-\
-only; all persistence is done by the application from YOUR structured response.
-4. Durability hygiene: when the user's answer settles an open question, clarify an \
-ambiguity, confirm/refute an assumption, or resolves an ownership gap, RECORD THE \
-DECISION in the specification and mark that item resolved. When an assumption is \
-challenged but not yet settled, UPDATE the item (reword it or reprioritize) instead \
-of resolving it.
+1. The current product specification is one logical document in planning/product/index.md
+and thirteen product modules. Active feature specifications under planning/features/ describe
+proposed changes; do not present proposed behavior as current product truth. Update only
+relevant documents, each as a full replacement. Git carries history.
+2. Investigate the repository and authoritative artifacts before asking the user. Resolve
+safe agent-authority items yourself. Only an eligible Human/Blocking issue may become a chat
+question, at most one per response. Normal replies stay near 120 words.
+3. You may READ the repository and imported references. NEVER create, modify, or delete
+repository files yourself; the application alone applies validated document_updates.
+4. Record durable conclusions in the appropriate product or feature document and open-item
+changes. Reconcile a completed feature only against observed merged implementation; surface
+disagreements for review rather than silently changing intent.
 
 OPEN ITEMS
 Types: Question | Ambiguity | Assumption | Ownership.
@@ -69,34 +65,20 @@ Blocking, then the smallest item number; if none exists, set
 `next_question_id` to null.
 
 OUTPUT STYLE
-- During investigation, emit brief progress updates describing what you are checking \
-  and what you found, so the user can follow the work as it happens.
-- `assistant_message`: warm, direct, short (under ~250 words). Plain text or light \
-Markdown. Contains exactly one focused question when one is appropriate. Reference \
-item ids (like CLR-004) sparingly — only when it helps.
-- `change_summary`: one imperative phrase, at most 60 characters, describing what the \
-specification changed THIS turn (e.g. \"Add auth module boundaries\"). Used as the git \
-checkpoint subject.
-- Respond in the same language the user speaks.
+- Give concise useful progress, conclusions and the one blocking human decision if needed.
+- `change_summary` is one imperative phrase of at most 60 characters.
+- Respond in the user's language.
 
 RESPONSE CONTRACT (mandatory)
-Your FINAL message MUST end with exactly one fenced JSON block, ```` ```json ` ``` `, \
-containing exactly this shape:\n\
-{\n\
-  \"schema_version\": 1,\n\
-  \"assistant_message\": \"string\",\n\
-  \"change_summary\": \"string | null\",\n\
-  \"updated_specification\": \"FULL specification markdown, or null when unchanged\",\n\
-  \"open_items_added\": [{\"id\": \"CLR-xxx | null\", \"kind\": \"Question\", \"category\": \"Engineering\", \"assigned_to\": \"PersonNameOrGroupNameOrGeneral\", \"priority\": \"Blocking|High|Normal\", \"question\": \"...\n\", \"reason\": \"why this matters\", \"resolution_note\": \"string|null\"}],\n\
-  \"open_items_updated\": [{\"id\": \"CLR-xxx\", \"priority\": \"...|null\", \"kind\": \"...|null\", \"category\": \"...|null\", \"assigned_to\": \"...|null\", \"question\": \"...|null\", \"reason\": \"...|null\"}],\n\
-  \"open_items_resolved\": [\"CLR-xxx\"],\n\
-  \"next_question_id\": \"CLR-xxx | null\"\n\
-}\n\
-Field semantics: in updated lists, a null value leaves that field untouched. Do not \
-emit an empty \"added\"/\"updated\" list — omit the elements entirely (use []). The \
-application verifies every id, category, and priority; anything invalid makes the WHOLE \
-turn roll back, so double-check ids against the queue you were given. End your message \
-with the JSON fence; write NOTHING after the closing backticks.";
+End with exactly one fenced JSON block containing schema_version 2, assistant_message,
+change_summary, document_updates (array of {document_id, content}; empty when unchanged),
+open_items_added, open_items_updated, open_items_resolved, and next_question_id. Use the
+existing item field names, including authority when relevant. Document IDs are logical:
+product:05-functional-requirements or feature:CHG-001, never paths. Each content is the
+FULL changed document, not a patch. Do not return unchanged modules. The application
+validates every field and rejects the entire turn on invalid changes. Write nothing after
+the closing JSON fence.
+";
 
 /// Render the complete per-turn prompt from the assembled context.
 pub fn render_prompt(ctx: &TurnContext) -> String {
@@ -125,6 +107,11 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
 
     section(&mut s, "REPOSITORY OVERVIEW");
     s.push_str(&format!("Project: {}\n", ctx.repo_title));
+    s.push_str(&format!("Repositories: {}\n", ctx.repository_map));
+    s.push_str(&format!(
+        "Next application-assigned feature ID: {}\n",
+        ctx.next_feature_id
+    ));
     if !ctx.overview.manifests.is_empty() {
         s.push_str(&format!(
             "Likely manifests: {}\n",
@@ -144,10 +131,26 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
         }
     }
 
-    section(&mut s, "SPECIFICATION (CURRENT)");
-    match &ctx.spec_markdown {
-        Some(md) => s.push_str(md),
-        None => s.push_str("(no specification exists yet — on the first substantive turn, draft the initial one from the repository, the imports, and the conversation)\n"),
+    if let Some(index) = &ctx.product_index {
+        section(&mut s, "PRODUCT INDEX (CURRENT AUTHORITY)");
+        s.push_str(index);
+        s.push_str(
+            "\nOther product modules are on disk under planning/product/; read them on demand.\n",
+        );
+        if let Some((id, body)) = &ctx.active_feature {
+            section(&mut s, &format!("ACTIVE FEATURE {id}"));
+            s.push_str(body);
+        }
+        for (id, body) in &ctx.selected_modules {
+            section(&mut s, &format!("RETRIEVED PRODUCT MODULE {id}"));
+            s.push_str(body);
+        }
+    } else {
+        section(&mut s, "SPECIFICATION (CURRENT)");
+        match &ctx.spec_markdown {
+            Some(md) => s.push_str(md),
+            None => s.push_str("(no specification exists yet — draft the initial one from repository evidence and conversation)\n"),
+        }
     }
 
     section(&mut s, "OPEN ITEMS QUEUE (canonical file content)");
@@ -229,17 +232,22 @@ mod tests {
     use super::*;
     use crate::core::repo_overview::Overview;
     use crate::core::routing::describe_lanes;
-    use crate::domain::{CategoryOwners, CurrentUser, Stakeholders, GUEST_NAME};
+    use crate::domain::{CategoryOwners, CurrentUser, GUEST_NAME, Stakeholders};
 
     fn dummy_ctx() -> TurnContext {
         TurnContext {
             user: CurrentUser::new("Zach", vec!["Development".into()]),
             repo_title: "demo".into(),
+            repository_map: "root: Planning root".into(),
+            next_feature_id: "CHG-002".into(),
             user_message: "Let's talk auth".into(),
             conversation: vec![],
             elided_messages: 0,
             overview: Overview::default(),
             spec_markdown: Some("# Demo spec\n".into()),
+            product_index: None,
+            active_feature: None,
+            selected_modules: vec![],
             open_items_markdown: "# Open Items\n".into(),
             config_markdown: "## Stakeholders\n".into(),
             imports: vec![],
@@ -293,7 +301,10 @@ mod tests {
             // the consequence
             "REJECTS THE ENTIRE\nTURN — nothing is saved",
         ] {
-            assert!(SYSTEM_INSTRUCTIONS.contains(needle), "instructions missing: {needle:?}");
+            assert!(
+                SYSTEM_INSTRUCTIONS.contains(needle),
+                "instructions missing: {needle:?}"
+            );
         }
         let retired_headline = ["is", crate::domain::GENERAL_CATEGORY].join(" ");
         assert!(
@@ -317,7 +328,9 @@ mod tests {
         ctx.lane_note = describe_lanes(&zacha, &stakes);
         let p = render_prompt(&ctx);
         let cursor = p.find("=== CURRENT USER ===").expect("section present");
-        let next = p[cursor..].find("=== CONVERSATION SO FAR ===").expect("closing section");
+        let next = p[cursor..]
+            .find("=== CONVERSATION SO FAR ===")
+            .expect("closing section");
         let user_block = &p[cursor..cursor + next];
         for needle in [
             "Name: Zach",
@@ -325,7 +338,10 @@ mod tests {
             "Shared lanes: QA (via QA Guild)",
             "Seat-inherited unowned lanes: InfoSec",
         ] {
-            assert!(user_block.contains(needle), "CURRENT USER block missing: {needle:?}\n{user_block}");
+            assert!(
+                user_block.contains(needle),
+                "CURRENT USER block missing: {needle:?}\n{user_block}"
+            );
         }
 
         // Guest seat: the digest is EMPTY and must be absent from the prompt.
@@ -336,10 +352,18 @@ mod tests {
         assert_eq!(gctx.lane_note, "");
         let gp = render_prompt(&gctx);
         let gc = gp.find("=== CURRENT USER ===").expect("section present");
-        let gn = gp[gc..].find("=== CONVERSATION SO FAR ===").expect("closing section");
+        let gn = gp[gc..]
+            .find("=== CONVERSATION SO FAR ===")
+            .expect("closing section");
         let gblock = &gp[gc..gc + gn];
-        assert!(!gblock.contains("Sole-owned lanes"), "guest must show no lane digest:\n{gblock}");
-        assert!(!gblock.contains("Seat-inherited"), "guest must show no lane digest:\n{gblock}");
+        assert!(
+            !gblock.contains("Sole-owned lanes"),
+            "guest must show no lane digest:\n{gblock}"
+        );
+        assert!(
+            !gblock.contains("Seat-inherited"),
+            "guest must show no lane digest:\n{gblock}"
+        );
 
         // Empty config: likewise nothing rendered.
         let ec = dummy_ctx();

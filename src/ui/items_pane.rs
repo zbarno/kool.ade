@@ -43,7 +43,11 @@ pub fn paint(ui: &mut egui::Ui, args: &Args<'_>) {
         .auto_shrink(egui::Vec2b::new(false, false))
         .show(ui, |ui| {
             let mine: Vec<&OpenItem> = routing::eligible_items(args.items, args.user, args.stakes);
-            let recommended = routing::recommended_next(args.items, args.user, args.stakes);
+            let recommended =
+                routing::recommended_next(args.items, args.user, args.stakes).filter(|item| {
+                    item.authority == crate::domain::Authority::Human
+                        && item.priority == crate::domain::Priority::Blocking
+                });
             let recommended_id = recommended.map(|r| r.id.clone());
             let mine_ids: Vec<String> = mine.iter().map(|i| i.id.clone()).collect();
 
@@ -237,8 +241,20 @@ mod tests {
             CategoryOwners::new("InfoSec", Vec::new()),
         ]);
         let items = vec![
-            mk("CLR-001", ItemKind::Question, "InfoSec", "All", Priority::High),
-            mk("CLR-002", ItemKind::Question, "Security", "Morgan", Priority::Blocking),
+            mk(
+                "CLR-001",
+                ItemKind::Question,
+                "InfoSec",
+                "All",
+                Priority::High,
+            ),
+            mk(
+                "CLR-002",
+                ItemKind::Question,
+                "Security",
+                "Morgan",
+                Priority::Blocking,
+            ),
         ];
         let mine = routing::eligible_items(&items, &u, &stakes);
         assert_eq!(
@@ -247,6 +263,10 @@ mod tests {
             "the unowned InfoSec lane seat-inherits; the Morgan-sole Security lane must not"
         );
         let rec = routing::recommended_next(&items, &u, &stakes);
-        assert_eq!(rec.map(|r| r.id.as_str()), Some("CLR-001"), "ASKING-NOW ring must crown the seat-inherited question");
+        assert_eq!(
+            rec.map(|r| r.id.as_str()),
+            Some("CLR-001"),
+            "ASKING-NOW ring must crown the seat-inherited question"
+        );
     }
 }

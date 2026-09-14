@@ -3,10 +3,10 @@
 //! artifacts, and produce the checkpoint commit message. Git staging/commit
 //! is sequenced by `core::turn` right after these writes succeed.
 
+use crate::artifacts::{OPEN_ITEMS_FILE, SPEC_FILE, items_io, spec_doc};
 use crate::core::ownership;
 use crate::core::state::PlannerState;
 use crate::core::validation::NormalizedTurn;
-use crate::artifacts::{items_io, spec_doc, OPEN_ITEMS_FILE, SPEC_FILE};
 
 #[derive(Debug, Clone)]
 pub struct ApplyReceipt {
@@ -22,28 +22,53 @@ pub struct ApplyReceipt {
 
 pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<ApplyReceipt> {
     if let Some(batch) = &nt.task_batch {
-        anyhow::ensure!(spec_doc::load(&state.repo_root)? == state.spec_text, "The specification changed during task generation; review it again before retrying");
-        anyhow::ensure!(crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow, "The interview changed during task generation; review it again");
-        let mut workflow = nt.workflow.clone().unwrap_or_else(|| state.workflow.clone());
-        let paths = crate::artifacts::task_docs::write_batch(&state.repo_root, batch, &mut workflow)?;
+        anyhow::ensure!(
+            spec_doc::load(&state.repo_root)? == state.spec_text,
+            "The specification changed during task generation; review it again before retrying"
+        );
+        anyhow::ensure!(
+            crate::artifacts::product_docs::active_feature(&state.repo_root)
+                == state.active_feature,
+            "The active feature changed during task generation; review it again before retrying"
+        );
+        anyhow::ensure!(
+            crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow,
+            "The interview changed during task generation; review it again"
+        );
+        let mut workflow = nt
+            .workflow
+            .clone()
+            .unwrap_or_else(|| state.workflow.clone());
+        let paths =
+            crate::artifacts::task_docs::write_batch(&state.repo_root, batch, &mut workflow)?;
         state.workflow = workflow;
         return Ok(ApplyReceipt {
-            spec_written: false, items_written: false,
-            commit_message: format!("planner: generate task stories for {}", batch.brief.feature_name),
-            repo_relative_paths: paths, synthesized_open_items: Vec::new(),
+            spec_written: false,
+            items_written: false,
+            commit_message: format!(
+                "planner: generate task stories for {}",
+                batch.brief.feature_name
+            ),
+            repo_relative_paths: paths,
+            synthesized_open_items: Vec::new(),
         });
     }
     let spec_pre_existed = state.baseline_spec.is_some();
 
     // 1) Resolutions remove items from the queue; the history stays in git.
     if !nt.resolved.is_empty() {
-        state.items.retain(|i| !nt.resolved.iter().any(|r| r == &i.id));
+        state
+            .items
+            .retain(|i| !nt.resolved.iter().any(|r| r == &i.id));
     }
     // 2) Field patches on surviving items.
     for (id, patch) in &nt.updates {
         if let Some(it) = state.items.iter_mut().find(|i| &i.id == id) {
             if let Some(p) = patch.priority {
                 it.priority = p;
+            }
+            if let Some(authority) = patch.authority {
+                it.authority = authority;
             }
             if let Some(k) = patch.kind {
                 it.kind = k;
@@ -66,7 +91,8 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     state.items.extend(nt.added.iter().cloned());
 
     // 4) Ownership-gap synthesis (always after agent mutations, §8).
-    let mut synthetic = ownership::synthesize_missing_owners(&state.items, &state.config.stakeholders);
+    let mut synthetic =
+        ownership::synthesize_missing_owners(&state.items, &state.config.stakeholders);
     let synthetic_ids: Vec<String> = if synthetic.is_empty() {
         Vec::new()
     } else {
@@ -81,42 +107,89 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     items_io::sort_queue(&mut state.items);
     let items_md = items_io::serialize(&state.items);
 
-    // 6) Atomic writes, only where content truly changed.
-    let spec_written = match &nt.spec_markdown {
-        Some(new_spec)
-            if state
-                .baseline_spec
-                .as_deref()
-                .map_or(true, |b| b.trim_end() != new_spec.trim_end()) =>
-        {
-            spec_doc::write_full(&state.repo_root, new_spec)?;
-            state.baseline_spec = Some(new_spec.clone());
-            state.spec_text = Some(new_spec.clone());
-            true
+    // 6) Stage every changed artifact before writing any of them. The journal
+    // restores the old complete set on an interrupted or failed apply.
+    let mut changes = Vec::new();
+    if let Some(spec) = &nt.spec_markdown {
+        changes.push((SPEC_FILE.to_string(), spec.clone()));
+    }
+    for (id, content) in &nt.document_updates {
+        let path = crate::artifacts::product_docs::document_path_for_update(
+            &state.repo_root,
+            id,
+            content,
+        )?;
+        changes.push((
+            path.strip_prefix(&state.repo_root)?
+                .to_string_lossy()
+                .into_owned(),
+            content.clone(),
+        ));
+    }
+    if !nt
+        .document_updates
+        .iter()
+        .any(|(id, _)| id == "product:index")
+    {
+        let new_feature = nt.document_updates.iter().find_map(|(id, content)| {
+            if !id.starts_with("feature:") {
+                return None;
+            }
+            let path = crate::artifacts::product_docs::document_path_for_update(
+                &state.repo_root,
+                id,
+                content,
+            )
+            .ok()?;
+            if path.exists() {
+                None
+            } else {
+                Some(
+                    path.strip_prefix(&state.repo_root)
+                        .ok()?
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            }
+        });
+        if let Some(new_feature) = new_feature {
+            changes.push((
+                crate::artifacts::product_docs::INDEX.into(),
+                crate::artifacts::product_docs::refreshed_index(
+                    &state.repo_root,
+                    Some(&new_feature),
+                )?,
+            ));
         }
-        _ => false,
-    };
-    let items_written = items_md.trim_end() != state.baseline_items_md.trim_end();
-    if items_written {
-        let path = crate::artifacts::repo_artifact(&state.repo_root, OPEN_ITEMS_FILE);
-        crate::artifacts::atomic_write(&path, &items_md)?;
-        state.baseline_items_md = items_md;
     }
-
-    // 7) Commit subject (derived NOW, knowing which side pre-existed).
-    let commit_message =
-        compose_commit_message(nt, spec_pre_existed, spec_written, nt.resolved.len(), nt.added.len(), nt.updates.len());
-
-    let mut repo_relative_paths: Vec<String> = [(spec_written, SPEC_FILE), (items_written, OPEN_ITEMS_FILE)]
-        .into_iter()
-        .filter_map(|(yes, p)| yes.then_some(p.to_string()))
-        .collect();
-
+    changes.push((OPEN_ITEMS_FILE.into(), items_md.clone()));
     if let Some(workflow) = &nt.workflow {
-        crate::artifacts::task_docs::save_workflow(&state.repo_root, workflow)?;
-        state.workflow = workflow.clone();
-        repo_relative_paths.push(crate::core::workflow::WORKFLOW_FILE.into());
+        changes.push((
+            crate::core::workflow::WORKFLOW_FILE.into(),
+            serde_json::to_string_pretty(workflow)?,
+        ));
     }
+    let repo_relative_paths = crate::artifacts::transaction::apply(&state.repo_root, &changes)?;
+    let spec_written = repo_relative_paths.iter().any(|p| p == SPEC_FILE)
+        || repo_relative_paths
+            .iter()
+            .any(|p| p.starts_with("planning/product/") || p.starts_with("planning/features/"));
+    let items_written = repo_relative_paths.iter().any(|p| p == OPEN_ITEMS_FILE);
+    state.spec_text = spec_doc::load(&state.repo_root)?;
+    state.active_feature = crate::artifacts::product_docs::active_feature(&state.repo_root);
+    state.baseline_spec = state.spec_text.clone();
+    state.baseline_items_md = items_md;
+    if let Some(workflow) = &nt.workflow {
+        state.workflow = workflow.clone();
+    }
+    let commit_message = compose_commit_message(
+        nt,
+        spec_pre_existed,
+        spec_written,
+        nt.resolved.len(),
+        nt.added.len(),
+        nt.updates.len(),
+    );
     Ok(ApplyReceipt {
         spec_written,
         items_written,
@@ -136,7 +209,14 @@ fn compose_commit_message(
     n_added: usize,
     n_updated: usize,
 ) -> String {
-    let phrase_src = match (&nt.change_summary, spec_pre_existed, spec_written, n_resolved, n_added, n_updated) {
+    let phrase_src = match (
+        &nt.change_summary,
+        spec_pre_existed,
+        spec_written,
+        n_resolved,
+        n_added,
+        n_updated,
+    ) {
         (Some(summary), _, _, _, _, _) if !summary.is_empty() => summary.clone(),
         (_, false, true, _, _, _) => "establish initial specification".to_string(),
         (_, _, _, 0, 0, 0) => "refresh working notes".to_string(),
@@ -171,11 +251,7 @@ fn compose_commit_message(
 }
 
 fn plural(n: usize) -> &'static str {
-    if n == 1 {
-        ""
-    } else {
-        "s"
-    }
+    if n == 1 { "" } else { "s" }
 }
 
 #[cfg(test)]
@@ -194,7 +270,10 @@ mod tests {
             ["config", "user.email", "packet@test.local"].as_slice(),
             ["config", "user.name", "Packet Test"].as_slice(),
         ] {
-            let _ = std::process::Command::new("git").args(args).current_dir(&root).output();
+            let _ = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output();
         }
         let mut st = PlannerState::load(&root).unwrap();
         st.bootstrap_missing().unwrap();
@@ -206,6 +285,7 @@ mod tests {
             assistant_message: "done".into(),
             change_summary: change.map(str::to_string),
             spec_markdown: spec.map(str::to_string),
+            document_updates: Vec::new(),
             added: vec![],
             updates: vec![],
             resolved: vec![],
@@ -229,15 +309,27 @@ mod tests {
             "ops cadence".into(),
         ));
         st.baseline_items_md = items_io::serialize(&[]); // queue as of the PREVIOUS commit
-        let nt = make_norm(Some("Add caching policy"), Some("# Spec v2\nCache: Redis\n"));
+        let nt = make_norm(
+            Some("Add caching policy"),
+            Some("# Spec v2\nCache: Redis\n"),
+        );
         let rc = apply(&mut st, &nt).unwrap();
         assert!(rc.spec_written && rc.items_written);
         assert_eq!(rc.repo_relative_paths, vec![SPEC_FILE, OPEN_ITEMS_FILE]);
         assert_eq!(rc.commit_message, "planner: add caching policy");
-        let spec_disk = crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&root, SPEC_FILE)).unwrap();
+        let spec_disk =
+            crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&root, SPEC_FILE))
+                .unwrap();
         assert!(spec_disk.contains("Redis"));
-        let items_disk = crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&root, OPEN_ITEMS_FILE)).unwrap();
-        assert!(items_disk.contains("deploy frequency?"), "queued item must round-trip to disk");
+        let items_disk = crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(
+            &root,
+            OPEN_ITEMS_FILE,
+        ))
+        .unwrap();
+        assert!(
+            items_disk.contains("deploy frequency?"),
+            "queued item must round-trip to disk"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -269,6 +361,7 @@ mod tests {
             schema_version: Some(1),
             assistant_message: Some("logged".into()),
             change_summary: None,
+            document_updates: None,
             updated_specification: None,
             open_items_added: None,
             open_items_updated: None,
@@ -282,13 +375,23 @@ mod tests {
         let rc = apply(&mut st, &nt).unwrap();
         // Only the USED category (Operations) spawns an ownership item, and
         // exactly one; a re-apply must not multiply them.
-        let n_own = st.items.iter().filter(|i| i.kind == ItemKind::Ownership).count();
+        let n_own = st
+            .items
+            .iter()
+            .filter(|i| i.kind == ItemKind::Ownership)
+            .count();
         assert_eq!(n_own, 1);
         assert_eq!(rc.synthesized_open_items.len(), 1);
         let nt2 = validation::validate(&e, &st, &st.effective_user()).unwrap();
         let rc2 = apply(&mut st, &nt2).unwrap();
         assert!(rc2.synthesized_open_items.is_empty());
-        assert_eq!(st.items.iter().filter(|i| i.kind == ItemKind::Ownership).count(), 1);
+        assert_eq!(
+            st.items
+                .iter()
+                .filter(|i| i.kind == ItemKind::Ownership)
+                .count(),
+            1
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

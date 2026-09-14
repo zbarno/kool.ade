@@ -20,8 +20,8 @@ use anyhow::anyhow;
 use crate::artifacts::config_io::{self, PlannerConfig};
 use crate::artifacts::items_io;
 use crate::artifacts::spec_doc;
-use crate::domain::{OpenItem, ResolvedIdentity};
 use crate::artifacts::{CONFIG_FILE, OPEN_ITEMS_FILE, SPEC_FILE};
+use crate::domain::{OpenItem, ResolvedIdentity};
 
 /// Snapshot of one connected project.
 #[derive(Debug, Clone)]
@@ -31,6 +31,8 @@ pub struct PlannerState {
     pub title: String,
     /// Current specification Markdown, `None` before it existed.
     pub spec_text: Option<String>,
+    pub active_feature: Option<(String, String)>,
+    pub repositories: crate::core::project_repos::ProjectManifest,
     /// Open-item queue (sorted per `items_io::sort_queue`).
     pub items: Vec<OpenItem>,
     /// Stakeholder/current-user configuration.
@@ -50,7 +52,10 @@ impl PlannerState {
     /// reported rather than guessed around — §16).
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
         let spec = spec_doc::load(repo)?;
-        let items_text = match crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(repo, OPEN_ITEMS_FILE)) {
+        let items_text = match crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(
+            repo,
+            OPEN_ITEMS_FILE,
+        )) {
             Ok(t) => t,
             Err(_) => items_io::serialize(&[]),
         };
@@ -58,13 +63,15 @@ impl PlannerState {
             anyhow!("open-items.md is unreadable to the planner: {e} (restore it with git checkout if needed)")
         })?;
         let baseline_items_md = items_io::serialize(&items);
-        let config_text = match crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(repo, CONFIG_FILE)) {
+        let config_text = match crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(
+            repo,
+            CONFIG_FILE,
+        )) {
             Ok(t) => t,
             Err(_) => String::new(),
         };
-        let config = config_io::parse(&config_text).map_err(|e| {
-            anyhow!("{CONFIG_FILE} failed to parse: {e}")
-        })?;
+        let config = config_io::parse(&config_text)
+            .map_err(|e| anyhow!("{CONFIG_FILE} failed to parse: {e}"))?;
         // FR-13: derive the seated operator from the connected repository's
         // git config, THEN the config block, THEN the guest. Probe failures
         // are None by design (§9: degraded but functional, never blocked).
@@ -84,6 +91,8 @@ impl PlannerState {
             title,
             baseline_spec: spec.clone(),
             spec_text: spec,
+            active_feature: crate::artifacts::product_docs::active_feature(repo),
+            repositories: crate::core::project_repos::ProjectManifest::load(repo)?,
             items,
             baseline_items_md,
             config,
@@ -125,6 +134,13 @@ impl PlannerState {
         Ok(())
     }
 
+    pub fn planning_contract(&self) -> Option<&str> {
+        self.active_feature
+            .as_ref()
+            .map(|(_, body)| body.as_str())
+            .or(self.spec_text.as_deref())
+    }
+
     /// Effective current user: the seated operator (FR-13 — git-derived at
     /// load; the config block only acts when git yields nothing), else a
     /// neutral guest that can still be served `General` questions.
@@ -152,7 +168,7 @@ fn seed_initial_config(existing: &PlannerConfig) -> String {
 mod tests {
     use super::*;
     use crate::core::gitops;
-    use crate::domain::{CurrentUser, IdentitySource, GUEST_NAME};
+    use crate::domain::{CurrentUser, GUEST_NAME, IdentitySource};
 
     fn mkrepo(prefix: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("packet_state_{prefix}_{}", std::process::id()));
@@ -217,11 +233,9 @@ mod tests {
         let mut st = PlannerState::load(&repo).unwrap();
         st.config.user = Some(CurrentUser::new("Sam", vec!["QA".into()]));
         st.bootstrap_missing().unwrap();
-        let text = crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(
-            &repo,
-            CONFIG_FILE,
-        ))
-        .unwrap();
+        let text =
+            crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&repo, CONFIG_FILE))
+                .unwrap();
         assert!(text.contains("Name: Sam"));
         assert!(text.contains("### InfoSec"));
         let _ = std::fs::remove_dir_all(&repo);

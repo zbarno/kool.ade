@@ -126,12 +126,43 @@ impl ItemStatus {
     }
 }
 
+/// Who may settle an open item; independent of urgency and routing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Authority {
+    Agent,
+    Review,
+    #[default]
+    Human,
+}
+impl Authority {
+    pub fn parse_i(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "agent" => Some(Self::Agent),
+            "review" => Some(Self::Review),
+            "human" => Some(Self::Human),
+            _ => None,
+        }
+    }
+}
+impl std::fmt::Display for Authority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Agent => "Agent",
+            Self::Review => "Review",
+            Self::Human => "Human",
+        })
+    }
+}
+
 /// A single unresolved planning issue (SPECIFICATION.md §5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenItem {
     /// Stable identifier, e.g. `CLR-012`. Allocated by the app, referenced thereafter.
     pub id: String,
     pub priority: Priority,
+    #[serde(default)]
+    pub authority: Authority,
     pub kind: ItemKind,
     /// Routing category, e.g. `Security`, `Product`, `General`.
     pub category: String,
@@ -157,6 +188,7 @@ impl OpenItem {
         Self {
             id,
             priority,
+            authority: Authority::Human,
             kind,
             category,
             assigned_to,
@@ -217,7 +249,10 @@ mod tests {
         assert_eq!(Priority::parse_i("Medium"), Some(Priority::Normal));
         assert_eq!(Priority::parse_i("urgent-ish"), None);
         assert_eq!(ItemKind::parse_i("Ambiguity"), Some(ItemKind::Ambiguity));
-        assert_eq!(ItemKind::parse_i("ownership-gap"), Some(ItemKind::Ownership));
+        assert_eq!(
+            ItemKind::parse_i("ownership-gap"),
+            Some(ItemKind::Ownership)
+        );
         assert_eq!(ItemKind::parse_i("risk"), None);
         assert_eq!(ItemStatus::parse_i("CLOSED"), Some(ItemStatus::Resolved));
     }

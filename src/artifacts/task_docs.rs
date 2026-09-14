@@ -144,9 +144,26 @@ fn render(batch: &TaskBatch, index: usize, story: &TaskStory, names: &[String]) 
     let b = &batch.brief;
     let mut out = format!(
         "# {:03} — {}\n\nFeature: {}\n\nStatus: Individually validated; see batch index for generation status.\n\n## Problem this ticket solves and why\n\n{}\n\n## Ticket goal — what changes when done\n\n{}\n\n## User story\n\n{}\n\n## Purpose\n\n{}\n\n## Specification references\n\nSource: [Approved specification](specification.md)\n\n## Implementation context\n\n{}\n",
-        index + 1, story.title.trim(), b.feature_name, story.intent, story.goal,
-        story.user_story, story.purpose, story.context
+        index + 1,
+        story.title.trim(),
+        b.feature_name,
+        story.intent,
+        story.goal,
+        story.user_story,
+        story.purpose,
+        story.context
     );
+    if let Some(id) = &batch.feature_id {
+        out.push_str(&format!("\nFeature ID: {id}\n"));
+    }
+    out.push_str(&format!(
+        "Repository: {}\n",
+        if story.target_repository.is_empty() {
+            "root"
+        } else {
+            &story.target_repository
+        }
+    ));
     list(
         &mut out,
         "Technical design and contracts",

@@ -102,6 +102,14 @@ impl LiveProgress {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentUpdate {
+    #[serde(alias = "document_id")]
+    pub document_id: String,
+    pub content: String,
+}
+
 /// Parsed-but-not-yet-validated turn envelope emitted by the agent.
 /// Looser than the app's strict domain model: validation lives in
 /// `crate::core::validation` and is what guards the file system.
@@ -115,6 +123,9 @@ pub struct TurnEnvelope {
     /// Short phrase describing what changed (feeds the git commit subject).
     #[serde(alias = "change_summary")]
     pub change_summary: Option<String>,
+    /// Full replacements of logical product or feature documents.
+    #[serde(alias = "document_updates")]
+    pub document_updates: Option<Vec<DocumentUpdate>>,
     /// Complete replacement specification markdown (null when unchanged).
     #[serde(alias = "updated_specification")]
     pub updated_specification: Option<String>,
@@ -161,6 +172,7 @@ pub struct TurnItem {
     #[serde(default)]
     pub id: Option<String>,
     pub priority: Option<String>,
+    pub authority: Option<String>,
     #[serde(alias = "itemType", alias = "item_type")]
     pub kind: Option<String>,
     pub category: Option<String>,
@@ -181,6 +193,7 @@ pub struct TurnItem {
 pub struct TurnItemUpdate {
     pub id: Option<String>,
     pub priority: Option<String>,
+    pub authority: Option<String>,
     #[serde(alias = "itemType", alias = "item_type")]
     pub kind: Option<String>,
     pub category: Option<String>,

@@ -37,6 +37,11 @@ impl Manager {
         );
         let questions = eligible
             .iter()
+            .filter(|i| {
+                i.authority == crate::domain::Authority::Human
+                    && i.priority == crate::domain::Priority::Blocking
+                    && !i.is_ownership_gap()
+            })
             .map(|i| format!("{}: {} ({})", i.id, i.question, i.reason))
             .collect::<Vec<_>>();
         let tasks = project

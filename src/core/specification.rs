@@ -63,6 +63,70 @@ pub fn validate_layout(markdown: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn validate_feature(id: &str, markdown: &str) -> anyhow::Result<()> {
+    let mut headings = Vec::new();
+    let mut current = None;
+    for event in Parser::new(markdown) {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => current = Some((level, String::new())),
+            Event::Text(text) | Event::Code(text) => {
+                if let Some((_, title)) = &mut current {
+                    title.push_str(&text);
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some(head) = current.take() {
+                    headings.push(head);
+                }
+            }
+            _ => {}
+        }
+    }
+    let titles = headings
+        .iter()
+        .filter(|(level, _)| *level == HeadingLevel::H1)
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        titles.len() == 1 && titles[0].1.starts_with(&format!("{id}: ")),
+        "feature requires exactly one matching H1"
+    );
+    let sections = headings
+        .iter()
+        .filter(|(level, _)| *level == HeadingLevel::H2)
+        .map(|(_, title)| title.as_str())
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        sections
+            == [
+                "Intent",
+                "Current Behavior",
+                "Desired Behavior",
+                "Scope",
+                "Affected Product Areas",
+                "Requirements",
+                "Decisions and Assumptions",
+                "Acceptance Criteria"
+            ],
+        "feature requires the eight ordered sections"
+    );
+    anyhow::ensure!(
+        [
+            "Draft",
+            "Ready",
+            "Implementing",
+            "Reconciliation",
+            "Implemented",
+            "Abandoned"
+        ]
+        .iter()
+        .any(|status| markdown
+            .lines()
+            .any(|line| line.starts_with(&format!("**Status:** {status}")))),
+        "feature requires a recognized status"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) fn fixture(body: &str) -> String {
     let mut text = "# Fixture — Living Technical Specification\n\nVersion: 1.0. Status: test fixture. Authority: test scenario.\n\n**Maintenance.** Test harness supplies complete revisions; git preserves history.\n\n".to_string();
@@ -78,7 +142,15 @@ mod tests {
 
     #[test]
     fn current_specification_obeys_layout() {
-        validate_layout(include_str!("../../planning/specification.md")).unwrap();
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        if let Some(parts) = crate::artifacts::product_docs::load_modules(repo).unwrap() {
+            for (n, body) in parts.iter().enumerate() {
+                crate::artifacts::product_docs::validate_module(n + 1, body).unwrap();
+            }
+        } else {
+            let legacy = std::fs::read_to_string(repo.join("planning/specification.md")).unwrap();
+            crate::artifacts::product_docs::split_legacy(&legacy).unwrap();
+        }
     }
 
     #[test]

@@ -3,11 +3,11 @@
 //! Size discipline lives here — oversized feeds get clipped deterministically
 //! before the prompt renderer sees them.
 
-use crate::core::repo_overview::{scan, Overview};
-use crate::core::state::PlannerState;
-use crate::domain::CurrentUser;
 use crate::artifacts::config_io;
 use crate::artifacts::items_io;
+use crate::core::repo_overview::{Overview, scan};
+use crate::core::state::PlannerState;
+use crate::domain::CurrentUser;
 
 const CONVERSATION_TAIL_MESSAGES: usize = 6;
 const MESSAGE_CLIP_CHARS: usize = 1200;
@@ -31,12 +31,17 @@ pub struct TurnContext {
     /// or empty config inherit nothing). Rendered inside CURRENT USER.
     pub lane_note: String,
     pub repo_title: String,
+    pub repository_map: String,
+    pub next_feature_id: String,
     pub user_message: String,
     pub conversation: Vec<ConversationLine>,
     /// How many older messages were left out of `conversation`.
     pub elided_messages: usize,
     pub overview: Overview,
     pub spec_markdown: Option<String>,
+    pub product_index: Option<String>,
+    pub active_feature: Option<(String, String)>,
+    pub selected_modules: Vec<(String, String)>,
     pub open_items_markdown: String,
     pub config_markdown: String,
     pub imports: Vec<ImportRow>,
@@ -47,7 +52,11 @@ pub struct TurnContext {
 impl TurnContext {
     pub fn build(state: &PlannerState, user_message: &str, recent: &[(String, String)]) -> Self {
         let recent_len = recent.len();
-        let tail: Vec<&(String, String)> = recent.iter().rev().take(CONVERSATION_TAIL_MESSAGES).collect();
+        let tail: Vec<&(String, String)> = recent
+            .iter()
+            .rev()
+            .take(CONVERSATION_TAIL_MESSAGES)
+            .collect();
         let mut convo = Vec::with_capacity(tail.len());
         for (speaker, text) in tail.iter().rev() {
             convo.push(ConversationLine {
@@ -61,9 +70,89 @@ impl TurnContext {
             &state.repo_root,
             crate::artifacts::MCP_CONFIG_FILE,
         ))
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| clip(&s, 4096));
+        let modular = crate::artifacts::product_docs::load_modules(&state.repo_root)
             .ok()
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| clip(&s, 4096));
+            .flatten();
+        let mut product_index = None;
+        let mut active_feature = None;
+        let mut selected_modules = Vec::new();
+        if let Some(modules) = modular {
+            product_index = std::fs::read_to_string(
+                state.repo_root.join(crate::artifacts::product_docs::INDEX),
+            )
+            .ok()
+            .map(|s| clip(&s, 5000));
+            let focus = state
+                .active_feature
+                .as_ref()
+                .map(|(_, body)| body.as_str())
+                .unwrap_or("");
+            let mut numbers = Vec::new();
+            for (n, name) in crate::artifacts::product_docs::MODULES.iter().enumerate() {
+                let key = name.trim_end_matches(".md");
+                let explicit =
+                    user_message.contains(key) || user_message.contains(&format!("product:{key}"));
+                let referenced = match n + 1 {
+                    4 => user_message.contains("F-"),
+                    5 => user_message.contains("FR-"),
+                    6 => user_message.contains("NFR-"),
+                    10 => user_message.contains("D-"),
+                    _ => false,
+                };
+                if explicit || referenced {
+                    numbers.push(n);
+                }
+            }
+            if numbers.is_empty() {
+                for (n, name) in crate::artifacts::product_docs::MODULES.iter().enumerate() {
+                    if focus.contains(&format!("`{name}`")) {
+                        numbers.push(n);
+                    }
+                    if numbers.len() >= 4 {
+                        break;
+                    }
+                }
+            }
+            if numbers.is_empty() {
+                numbers.extend([0, 1, 3]);
+            }
+            numbers.truncate(4);
+            for n in numbers {
+                selected_modules.push((
+                    format!(
+                        "product:{}",
+                        crate::artifacts::product_docs::MODULES[n].trim_end_matches(".md")
+                    ),
+                    clip(&modules[n], 10000),
+                ));
+            }
+            active_feature = state
+                .active_feature
+                .as_ref()
+                .map(|(id, body)| (id.clone(), clip(body, 12000)));
+        }
+        let open_items = if product_index.is_some() {
+            let mut relevant = state
+                .items
+                .iter()
+                .filter(|item| user_message.contains(&item.id))
+                .cloned()
+                .collect::<Vec<_>>();
+            for item in &state.items {
+                if relevant.len() >= 12 {
+                    break;
+                }
+                if !relevant.iter().any(|found| found.id == item.id) {
+                    relevant.push(item.clone());
+                }
+            }
+            items_io::serialize(&relevant)
+        } else {
+            items_io::serialize(&state.items)
+        };
         TurnContext {
             user: state.effective_user(),
             lane_note: crate::core::routing::describe_lanes(
@@ -71,12 +160,26 @@ impl TurnContext {
                 &state.config.stakeholders,
             ),
             repo_title: state.title.clone(),
+            next_feature_id: crate::artifacts::product_docs::next_feature_id(&state.repo_root),
+            repository_map: state
+                .repositories
+                .repositories
+                .iter()
+                .map(|repo| format!("{}: {} ({})", repo.id, repo.role, repo.remote))
+                .collect::<Vec<_>>()
+                .join("\n"),
             user_message: user_message.to_string(),
             conversation: convo,
             elided_messages: recent_len.saturating_sub(CONVERSATION_TAIL_MESSAGES),
             overview,
-            spec_markdown: state.spec_text.clone(),
-            open_items_markdown: items_io::serialize(&state.items),
+            spec_markdown: product_index
+                .is_none()
+                .then(|| state.spec_text.clone())
+                .flatten(),
+            product_index,
+            active_feature,
+            selected_modules,
+            open_items_markdown: open_items,
             config_markdown: config_io::serialize(&state.config),
             imports,
             mcp_json,
@@ -104,7 +207,10 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
             for e in entries.flatten() {
                 let name = e.file_name().to_string_lossy().into_owned();
                 if name.ends_with(".md") && {
-                    let stem_companion = name.strip_suffix(".bin-note.md").map(|_| true).unwrap_or(false)
+                    let stem_companion = name
+                        .strip_suffix(".bin-note.md")
+                        .map(|_| true)
+                        .unwrap_or(false)
                         || name_has_source_twin(&e.path(), &base);
                     stem_companion
                 } {
@@ -142,7 +248,9 @@ mod tests {
     use super::*;
 
     fn lines(n: usize) -> Vec<(String, String)> {
-        (0..n).map(|i| (format!("sp{i}"), format!("msg {i}"))).collect()
+        (0..n)
+            .map(|i| (format!("sp{i}"), format!("msg {i}")))
+            .collect()
     }
 
     #[test]

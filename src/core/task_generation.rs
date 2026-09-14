@@ -40,7 +40,7 @@ impl Run {
             .filter(|o| o.status.success())
             .map(|o| crate::persistence::fnv1a64(&o.stdout));
         let identity = serde_json::json!({"contract":CONTRACT_VERSION, "workflow":state.workflow,
-            "specification":state.spec_text, "head":crate::core::gitops::snapshot(&state.repo_root).head_short,
+            "specification":state.planning_contract(), "head":crate::core::gitops::snapshot(&state.repo_root).head_short,
             "working_tree":delta, "system":SYSTEM, "configuration":crate::artifacts::config_io::serialize(&state.config)});
         let encoded = serde_json::to_vec(&identity).map_err(|e| AppError::Other(e.to_string()))?;
         let repo = state
@@ -284,7 +284,7 @@ pub fn generate(
     let base = format!(
         "=== APPLICATION TURN MODE ===\nGENERATE TASK STORIES. The user explicitly approved the current reviewed specification.\n\n=== APPROVED BRIEF ===\n{}\n\n=== APPROVED SPECIFICATION ===\n{}\n",
         serde_json::to_string_pretty(brief).unwrap_or_default(),
-        state.spec_text.as_deref().unwrap_or_default()
+        state.planning_contract().unwrap_or_default()
     );
     let mut cp = if let Some(cp) = run.load(state) {
         let _ = request.progress_tx.send(LiveProgress {
@@ -318,12 +318,18 @@ pub fn generate(
             "Specification changed during generation"
         );
         anyhow::ensure!(
+            crate::artifacts::product_docs::active_feature(&state.repo_root)
+                == state.active_feature,
+            "Active feature changed during generation"
+        );
+        anyhow::ensure!(
             crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow,
             "Interview changed during generation"
         );
         let batch = crate::core::workflow::TaskBatch {
             brief: brief.clone(),
-            specification: state.spec_text.clone().unwrap_or_default(),
+            specification: state.planning_contract().unwrap_or_default().to_string(),
+            feature_id: state.active_feature.as_ref().map(|(id, _)| id.clone()),
             stories: cp.stories.clone(),
         };
         crate::artifacts::task_docs::save_progress(

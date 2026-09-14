@@ -17,8 +17,12 @@ pub mod spec_doc;
 mod artifacts;
 
 pub use artifacts::{
-    atomic_write, read_utf8_lossy, repo_artifact, sanitize_basename,
-    CONFIG_DIR, IMPORTS_DIR, MCP_CONFIG_FILE, OPEN_ITEMS_FILE, PLANNING_DIR, SPEC_FILE, CONFIG_FILE,
+    CONFIG_DIR, CONFIG_FILE, IMPORTS_DIR, MCP_CONFIG_FILE, OPEN_ITEMS_FILE, PLANNING_DIR,
+    SPEC_FILE, atomic_write, read_utf8_lossy, repo_artifact, sanitize_basename,
 };
 
 pub mod task_docs;
+
+pub mod product_docs;
+
+pub mod transaction;

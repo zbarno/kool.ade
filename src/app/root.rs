@@ -514,7 +514,7 @@ impl PacketApp {
         let purpose = match &self.screen {
             Screen::Connected(p)
                 if p.active_implementation.is_none()
-                    && p.state.workflow.ready(p.state.spec_text.as_deref())
+                    && p.state.workflow.ready(p.state.planning_contract())
                     && crate::core::workflow::confirms_generation(text) =>
             {
                 crate::core::workflow::TurnPurpose::GenerateTasks
@@ -705,7 +705,7 @@ impl Surface for PacketApp {
             Screen::Connected(p)
                 if p.active_turn.is_none()
                     && p.active_implementation.is_none()
-                    && p.state.workflow.ready(p.state.spec_text.as_deref()) =>
+                    && p.state.workflow.ready(p.state.planning_contract()) =>
             {
                 p.state.workflow.brief.as_ref()
             }
@@ -780,6 +780,23 @@ impl Surface for PacketApp {
                 .any(|d| d.path == ticket && !d.path.ends_with("/README.md"))
             {
                 return;
+            }
+            if let Some(doc) = p.task_documents.iter().find(|d| d.path == ticket) {
+                if let Some(id) = doc
+                    .text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Feature ID: "))
+                {
+                    if !crate::core::workflow::feature_approved(
+                        &p.state.repo_root,
+                        &p.state.workflow,
+                        id,
+                    ) {
+                        p.queue.last_error =
+                            format!("{id} needs explicit approval before implementation");
+                        return;
+                    }
+                }
             }
             if p.queue.auto_mode {
                 let selected = p
@@ -900,6 +917,56 @@ impl Surface for PacketApp {
         }
     }
 
+    fn active_feature(&self) -> Option<(&str, &str)> {
+        match &self.screen {
+            Screen::Connected(p) => p
+                .state
+                .active_feature
+                .as_ref()
+                .map(|(id, body)| (id.as_str(), body.as_str())),
+            Screen::Welcome => None,
+        }
+    }
+    fn active_feature_approved(&self) -> bool {
+        match &self.screen {
+            Screen::Connected(p) => p.state.active_feature.as_ref().is_some_and(|(id, _)| {
+                crate::core::workflow::feature_approved(&p.state.repo_root, &p.state.workflow, id)
+            }),
+            Screen::Welcome => false,
+        }
+    }
+    fn approve_active_feature(&mut self) {
+        if let Screen::Connected(p) = &mut self.screen {
+            let Some((id, _)) = p.state.active_feature.as_ref() else {
+                return;
+            };
+            let id = id.clone();
+            match crate::core::workflow::approve_feature(
+                &p.state.repo_root,
+                &mut p.state.workflow,
+                &id,
+            ) {
+                Ok(_) => {
+                    p.refresh_git();
+                    self.toasts
+                        .success(format!("Approved {id} for implementation"));
+                }
+                Err(error) => self
+                    .toasts
+                    .danger(format!("Cannot approve feature: {error}")),
+            }
+        }
+    }
+    fn task_story_preview(&self) -> Option<&str> {
+        match &self.screen {
+            Screen::Connected(p) => p
+                .task_documents
+                .iter()
+                .find(|doc| !doc.path.ends_with("/README.md"))
+                .map(|doc| doc.text.as_str()),
+            Screen::Welcome => None,
+        }
+    }
     fn spec_words(&self) -> usize {
         self.spec_text().split_whitespace().count()
     }

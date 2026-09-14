@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use crate::artifacts::{atomic_write, read_utf8_lossy, repo_artifact, SPEC_FILE};
+use crate::artifacts::{SPEC_FILE, atomic_write, read_utf8_lossy, repo_artifact};
 
 /// Fresh skeleton planted when a repository is first connected.
 pub fn bootstrap_template(title: &str) -> String {
@@ -37,11 +37,13 @@ pub fn bootstrap_template(title: &str) -> String {
         text.push_str(&format!("## {section}\n\n{content}\n\n"));
     }
     text
-
 }
 
 /// Read the specification, returning `Ok(None)` when the file does not exist.
 pub fn load(repo_root: &Path) -> anyhow::Result<Option<String>> {
+    if let Some(product) = crate::artifacts::product_docs::render_product(repo_root)? {
+        return Ok(Some(product));
+    }
     let path = repo_artifact(repo_root, SPEC_FILE);
     match read_utf8_lossy(&path) {
         Ok(t) => Ok(Some(t)),
@@ -52,6 +54,9 @@ pub fn load(repo_root: &Path) -> anyhow::Result<Option<String>> {
 
 /// Ensure `planning/specification.md` exists; returns true when it was created.
 pub fn ensure(repo_root: &Path, title: &str) -> anyhow::Result<bool> {
+    if crate::artifacts::product_docs::load_modules(repo_root)?.is_some() {
+        return Ok(false);
+    }
     let path = repo_artifact(repo_root, SPEC_FILE);
     if path.exists() {
         return Ok(false);
@@ -62,6 +67,10 @@ pub fn ensure(repo_root: &Path, title: &str) -> anyhow::Result<bool> {
 
 /// Replace the whole specification (called from the apply step only).
 pub fn write_full(repo_root: &Path, markdown: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        crate::artifacts::product_docs::load_modules(repo_root)?.is_none(),
+        "The product specification is modular; update affected modules by logical ID"
+    );
     atomic_write(&repo_artifact(repo_root, SPEC_FILE), markdown)
 }
 
@@ -96,11 +105,8 @@ mod tests {
         }
     }
     fn tempfile_like(prefix: &str) -> Temp {
-        let dir = std::env::temp_dir().join(format!(
-            "packet_test_{}_{}",
-            prefix,
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("packet_test_{}_{}", prefix, std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("mktemp");
         Temp { dir }

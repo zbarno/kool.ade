@@ -172,7 +172,7 @@ fn run_turn(
         && !inputs
             .state
             .workflow
-            .ready(inputs.state.spec_text.as_deref())
+            .ready(inputs.state.planning_contract())
     {
         return TurnOutcome::Rejected {
             problems: vec!["Continue the interview and approve task generation first.".into()],
@@ -181,8 +181,27 @@ fn run_turn(
         };
     }
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
+        if let Some((id, _)) = &inputs.state.active_feature {
+            if !crate::core::workflow::feature_approved(
+                &inputs.state.repo_root,
+                &inputs.state.workflow,
+                id,
+            ) {
+                return TurnOutcome::Rejected {
+                    problems: vec![format!(
+                        "{id} needs explicit implementation approval before task generation"
+                    )],
+                    final_text: String::new(),
+                    elapsed: started.elapsed(),
+                };
+            }
+        }
+    }
+    if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
         match PlannerState::load(&inputs.state.repo_root) {
             Ok(current) if current.spec_text == inputs.state.spec_text
+                && current.active_feature == inputs.state.active_feature
+                && current.repositories == inputs.state.repositories
                 && current.workflow == inputs.state.workflow && current.items == inputs.state.items => {}
             _ => return TurnOutcome::Rejected { problems: vec!["Planning files changed since the readiness offer. Reopen the repository and review the current plan before generating tasks.".into()], final_text: String::new(), elapsed: started.elapsed() },
         }
@@ -197,7 +216,11 @@ fn run_turn(
         read_only: false,
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
-        system_instructions: format!("{SYSTEM_INSTRUCTIONS}\n{}\n{}", prompt::SPECIFICATION_POLICY, prompt::WORKFLOW_INSTRUCTIONS),
+        system_instructions: format!(
+            "{SYSTEM_INSTRUCTIONS}\n{}\n{}",
+            prompt::SPECIFICATION_POLICY,
+            prompt::WORKFLOW_INSTRUCTIONS
+        ),
         timeout: configured_turn_timeout(),
         progress_tx,
         cancel: Arc::clone(cancel),
@@ -205,10 +228,17 @@ fn run_turn(
 
     let result = if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
         crate::core::task_generation::generate(harness, &request, &inputs.state, started)
-    } else { harness.execute(&request) };
+    } else {
+        harness.execute(&request)
+    };
     let outcome: HarnessOutcome = match result {
         Ok(outcome) => outcome,
-        Err(error) => return TurnOutcome::HarnessFailed { error, elapsed: started.elapsed() },
+        Err(error) => {
+            return TurnOutcome::HarnessFailed {
+                error,
+                elapsed: started.elapsed(),
+            };
+        }
     };
     if cancel.load(Ordering::SeqCst) {
         return TurnOutcome::HarnessFailed {
@@ -306,7 +336,10 @@ mod tests {
             Ok("test".into())
         }
         fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
-            assert!(req.system_instructions.contains(prompt::SPECIFICATION_POLICY));
+            assert!(
+                req.system_instructions
+                    .contains(prompt::SPECIFICATION_POLICY)
+            );
             let text = match (&self.raw, &self.canned) {
                 (Some(raw), _) => raw.clone(),
                 (_, Some(env)) => {
@@ -368,10 +401,12 @@ mod tests {
                 "Drafted an initial spec and raised the first question.".into(),
             ),
             change_summary: Some("Draft initial specification".into()),
-            updated_specification: Some(
-                crate::core::specification::fixture("Demo the planner end-to-end."),
-            ),
+            document_updates: None,
+            updated_specification: Some(crate::core::specification::fixture(
+                "Demo the planner end-to-end.",
+            )),
             open_items_added: Some(vec![TurnItem {
+                authority: None,
                 id: None,
                 kind: Some("Question".into()),
                 category: Some("General".into()),
@@ -413,6 +448,152 @@ mod tests {
     }
 
     #[test]
+    fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
+        let (mut inputs, dir) = inputs_for("modular_turn", "refine product scope");
+        let legacy = std::fs::read_to_string(dir.join("planning/specification.md")).unwrap();
+        crate::artifacts::product_docs::migrate(&dir, &legacy).unwrap();
+        git_stdout(&dir, &["add", "-A"]);
+        git_stdout(&dir, &["commit", "-m", "Seed modular product"]);
+        inputs.state = PlannerState::load(&dir).unwrap();
+        let vision = dir.join("planning/product/01-vision.md");
+        let scope = dir.join("planning/product/02-scope.md");
+        let unrelated = dir.join("planning/product/03-actors-and-roles.md");
+        let original_unrelated = std::fs::read(&unrelated).unwrap();
+        let changed_vision = "## 1. Vision\n\nCurrent purpose from inspected evidence.\n";
+        let changed_scope = "## 2. Scope\n\nCurrent scope from accepted intent.\n";
+        let env = TurnEnvelope {
+            schema_version: Some(2),
+            assistant_message: Some("Updated two product areas.".into()),
+            change_summary: Some("Refine product vision and scope".into()),
+            document_updates: Some(vec![
+                crate::harness::DocumentUpdate {
+                    document_id: "product:01-vision".into(),
+                    content: changed_vision.into(),
+                },
+                crate::harness::DocumentUpdate {
+                    document_id: "product:02-scope".into(),
+                    content: changed_scope.into(),
+                },
+            ]),
+            updated_specification: None,
+            open_items_added: None,
+            open_items_updated: None,
+            open_items_resolved: None,
+            next_question_id: None,
+            interview: None,
+            task_stories: None,
+            task_outline: None,
+        };
+        let result = drain(&TurnController::start(
+            inputs.clone(),
+            Box::new(ScriptedHarness {
+                canned: Some(env),
+                raw: None,
+            }),
+        ));
+        match result {
+            TurnOutcome::Applied {
+                receipt,
+                commit_result,
+                ..
+            } => {
+                assert!(commit_result.is_ok());
+                assert_eq!(receipt.repo_relative_paths.len(), 2);
+            }
+            other => panic!("expected modular apply, got {other:?}"),
+        }
+        assert_eq!(std::fs::read_to_string(&vision).unwrap(), changed_vision);
+        assert_eq!(std::fs::read_to_string(&scope).unwrap(), changed_scope);
+        assert_eq!(std::fs::read(&unrelated).unwrap(), original_unrelated);
+        let before_commit = git_stdout(&dir, &["rev-list", "--count", "HEAD"]);
+        let before_vision = std::fs::read(&vision).unwrap();
+        inputs.state = PlannerState::load(&dir).unwrap();
+        let bad = serde_json::json!({"schema_version":2,"assistant_message":"Changed scope",
+            "document_updates":[{"document_id":"product:01-vision","content":"## 1. Vision\n\nWrong\n"},
+                {"document_id":"product:../../escape","content":"bad"}],
+            "open_items_added":[{"kind":"Question","priority":"Normal","authority":"Human",
+                "category":"General","assigned_to":"All","question":"Should this ship?","reason":"Release decision"}]}).to_string();
+        let result = drain(&TurnController::start(
+            inputs,
+            Box::new(ScriptedHarness {
+                canned: None,
+                raw: Some(bad),
+            }),
+        ));
+        assert!(matches!(result, TurnOutcome::Rejected { .. }));
+        assert_eq!(std::fs::read(&vision).unwrap(), before_vision);
+        assert_eq!(std::fs::read(&unrelated).unwrap(), original_unrelated);
+        assert_eq!(
+            git_stdout(&dir, &["rev-list", "--count", "HEAD"]),
+            before_commit
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn modular_turn_creates_next_feature_and_indexes_it() {
+        let (mut inputs, dir) = inputs_for("new_feature", "Plan saved searches");
+        let legacy = std::fs::read_to_string(dir.join("planning/specification.md")).unwrap();
+        crate::artifacts::product_docs::migrate(&dir, &legacy).unwrap();
+        git_stdout(&dir, &["add", "-A"]);
+        git_stdout(&dir, &["commit", "-m", "Seed modular product"]);
+        inputs.state = PlannerState::load(&dir).unwrap();
+        let feature = "# CHG-001: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave repeated searches.\n\n## Current Behavior\n\nNo saved searches observed.\n\n## Desired Behavior\n\nUsers can save searches.\n\n## Scope\n\nSearch UI only.\n\n## Affected Product Areas\n\n`product:05-functional-requirements`\n\n## Requirements\n\nSave and restore.\n\n## Decisions and Assumptions\n\nNone yet.\n\n## Acceptance Criteria\n\nA saved search reopens.\n";
+        let env = TurnEnvelope {
+            schema_version: Some(2),
+            assistant_message: Some("Drafted saved searches.".into()),
+            change_summary: Some("Draft saved searches".into()),
+            document_updates: Some(vec![crate::harness::DocumentUpdate {
+                document_id: "feature:CHG-001".into(),
+                content: feature.into(),
+            }]),
+            updated_specification: None,
+            open_items_added: None,
+            open_items_updated: None,
+            open_items_resolved: None,
+            next_question_id: None,
+            interview: None,
+            task_stories: None,
+            task_outline: None,
+        };
+        let result = drain(&TurnController::start(
+            inputs,
+            Box::new(ScriptedHarness {
+                canned: Some(env),
+                raw: None,
+            }),
+        ));
+        match result {
+            TurnOutcome::Applied {
+                receipt,
+                commit_result,
+                ..
+            } => {
+                assert!(commit_result.is_ok());
+                assert_eq!(receipt.repo_relative_paths.len(), 2);
+            }
+            other => panic!("expected new feature, got {other:?}"),
+        }
+        assert_eq!(
+            std::fs::read_to_string(
+                dir.join("planning/features/CHG-001-saved-searches/specification.md")
+            )
+            .unwrap(),
+            feature
+        );
+        assert!(
+            std::fs::read_to_string(dir.join("planning/product/index.md"))
+                .unwrap()
+                .contains("CHG-001-saved-searches")
+        );
+        assert_eq!(
+            crate::artifacts::product_docs::next_feature_id(&dir),
+            "CHG-002"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn malformed_specification_rejects_otherwise_valid_turn_without_mutation() {
         let (inputs, dir) = inputs_for("spec_layout", "rewrite the specification");
         git_stdout(&dir, &["add", "planning", ".planner"]);
@@ -426,17 +607,26 @@ mod tests {
             "open_items_added": [{"kind":"Question", "priority":"Normal",
                 "category":"General", "assigned_to":"All", "question":"Which platform?",
                 "reason":"Defines launch scope"}]
-        }).to_string();
-        let controller = TurnController::start(inputs, Box::new(ScriptedHarness {
-            canned: None, raw: Some(raw),
-        }));
+        })
+        .to_string();
+        let controller = TurnController::start(
+            inputs,
+            Box::new(ScriptedHarness {
+                canned: None,
+                raw: Some(raw),
+            }),
+        );
         match drain(&controller) {
             TurnOutcome::Rejected { problems, .. } => {
                 assert!(problems.iter().any(|p| p.contains("updated_specification")));
             }
             other => panic!("expected structural rejection, got {other:?}"),
         }
-        assert_eq!(law_evidence(&dir), before, "no artifact or checkpoint may change");
+        assert_eq!(
+            law_evidence(&dir),
+            before,
+            "no artifact or checkpoint may change"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -469,6 +659,7 @@ mod tests {
             schema_version: Some(1),
             assistant_message: Some("Okay!".into()),
             change_summary: None,
+            document_updates: None,
             updated_specification: None,
             open_items_added: None,
             open_items_updated: None,
@@ -606,8 +797,7 @@ mod tests {
     /// planning artifacts plus the commit-chain length.
     fn law_evidence(root: &std::path::Path) -> (Vec<u8>, Vec<u8>, Vec<u8>, usize) {
         let read = |rel: &str| {
-            std::fs::read(root.join(rel))
-                .unwrap_or_else(|e| panic!("reading {rel}: {e}"))
+            std::fs::read(root.join(rel)).unwrap_or_else(|e| panic!("reading {rel}: {e}"))
         };
         let out = std::process::Command::new("git")
             .arg("-C")
@@ -681,24 +871,29 @@ mod tests {
             schema_version: Some(1),
             assistant_message: Some("Opened the lane-bound questions.".into()),
             change_summary: Some("raise security and infosec lane questions".into()),
-            updated_specification: Some(crate::core::specification::fixture("Seeded for the routing-law demonstration.")),
+            document_updates: None,
+            updated_specification: Some(crate::core::specification::fixture(
+                "Seeded for the routing-law demonstration.",
+            )),
             open_items_added: Some(vec![
                 TurnItem {
+                    authority: None,
                     id: None,
                     kind: Some("Question".into()),
                     category: Some("Security".into()),
                     assigned_to: Some("Priya".into()),
-                    priority: Some("High".into()),
+                    priority: Some("Blocking".into()),
                     question: Some("How deep must the threat model go?".into()),
                     reason: Some("audit depth drives scope".into()),
                     resolution_note: None,
                 },
                 TurnItem {
+                    authority: None,
                     id: None,
                     kind: Some("Question".into()),
                     category: Some("InfoSec".into()),
                     assigned_to: Some("All".into()),
-                    priority: Some("High".into()),
+                    priority: Some("Blocking".into()),
                     question: Some("What is the incident-response cadence?".into()),
                     reason: Some("operational exposure".into()),
                     resolution_note: None,
@@ -713,7 +908,10 @@ mod tests {
         };
         let ctrl = TurnController::start(
             inputs.clone(),
-            Box::new(ScriptedHarness { canned: Some(seed), raw: None }),
+            Box::new(ScriptedHarness {
+                canned: Some(seed),
+                raw: None,
+            }),
         );
         // Chain the applied state forward exactly like the app's tick loop:
         // each subsequent turn must start from the PREVIOUS outcome's state,
@@ -748,7 +946,10 @@ mod tests {
             schema_version: Some(1),
             assistant_message: Some("Recorded the security decision; carrying on.".into()),
             change_summary: Some("record threat-model depth decision".into()),
-            updated_specification: Some(crate::core::specification::fixture("Threat model settled to L2.")),
+            document_updates: None,
+            updated_specification: Some(crate::core::specification::fixture(
+                "Threat model settled to L2.",
+            )),
             open_items_added: None,
             open_items_updated: None,
             open_items_resolved: None,
@@ -759,12 +960,17 @@ mod tests {
         };
         let ctrl = TurnController::start(
             inputs.clone(),
-            Box::new(ScriptedHarness { canned: Some(misroute), raw: None }),
+            Box::new(ScriptedHarness {
+                canned: Some(misroute),
+                raw: None,
+            }),
         );
         match drain(&ctrl) {
             TurnOutcome::Rejected { problems, .. } => {
                 assert!(
-                    problems.iter().any(|p| p.contains(&sec_id) && p.contains("violates the routing law")),
+                    problems
+                        .iter()
+                        .any(|p| p.contains(&sec_id) && p.contains("violates the routing law")),
                     "expected the routing-law fatal naming {sec_id}, got: {problems:?}"
                 );
             }
@@ -783,11 +989,13 @@ mod tests {
         // new imperative-subject checkpoint whose subject derives from
         // this change summary.
         const CADENCE_SUMMARY: &str = "record incident-response cadence";
-        let inherited_spec = crate::core::specification::fixture("Incident cadence: page within the hour.");
+        let inherited_spec =
+            crate::core::specification::fixture("Incident cadence: page within the hour.");
         let inherited = TurnEnvelope {
             schema_version: Some(1),
             assistant_message: Some("Recorded the infosec decision; carrying on.".into()),
             change_summary: Some(CADENCE_SUMMARY.into()),
+            document_updates: None,
             updated_specification: Some(inherited_spec.clone()),
             open_items_added: None,
             open_items_updated: None,
@@ -799,10 +1007,18 @@ mod tests {
         };
         let ctrl = TurnController::start(
             inputs.clone(),
-            Box::new(ScriptedHarness { canned: Some(inherited), raw: None }),
+            Box::new(ScriptedHarness {
+                canned: Some(inherited),
+                raw: None,
+            }),
         );
         match drain(&ctrl) {
-            TurnOutcome::Applied { normalized, commit_result, state, .. } => {
+            TurnOutcome::Applied {
+                normalized,
+                commit_result,
+                state,
+                ..
+            } => {
                 assert_eq!(
                     normalized.next_question_id.as_deref(),
                     Some(info_id.as_str()),
@@ -829,7 +1045,11 @@ mod tests {
             other => panic!("seat-inherited envelope must be Applied, got: {other:?}"),
         }
         let after = law_evidence(&dir);
-        assert_eq!(after.3, before.3 + 1, "exactly one new checkpoint for the accepted turn");
+        assert_eq!(
+            after.3,
+            before.3 + 1,
+            "exactly one new checkpoint for the accepted turn"
+        );
         assert_eq!(
             git_stdout(&dir, &["log", "-1", "--pretty=%s"]),
             format!("planner: {CADENCE_SUMMARY}\n"),

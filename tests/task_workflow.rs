@@ -229,6 +229,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 let batch = packet::core::workflow::TaskBatch {
                     brief: reloaded.workflow.brief.clone().unwrap(),
                     specification: reloaded.spec_text.clone().unwrap(),
+                    feature_id: None,
                     stories: envelope.task_stories.unwrap(),
                 };
                 let edited = format!("{saved}\nUser correction\n");
