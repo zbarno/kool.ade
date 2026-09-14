@@ -567,10 +567,21 @@ mod tests {
             TurnOutcome::Applied {
                 receipt,
                 commit_result,
+                state,
                 ..
             } => {
                 assert!(commit_result.is_ok());
                 assert_eq!(receipt.repo_relative_paths.len(), 2);
+                let contract = crate::core::contract_snapshot::freeze(&state)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(contract.feature_id, "CHG-001");
+                assert!(
+                    contract
+                        .product_modules
+                        .contains_key("05-functional-requirements")
+                );
+                assert!(contract.repository_bases.contains_key("root"));
             }
             other => panic!("expected new feature, got {other:?}"),
         }

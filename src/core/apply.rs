@@ -131,33 +131,16 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         .iter()
         .any(|(id, _)| id == "product:index")
     {
-        let new_feature = nt.document_updates.iter().find_map(|(id, content)| {
-            if !id.starts_with("feature:") {
-                return None;
-            }
-            let path = crate::artifacts::product_docs::document_path_for_update(
-                &state.repo_root,
-                id,
-                content,
-            )
-            .ok()?;
-            if path.exists() {
-                None
-            } else {
-                Some(
-                    path.strip_prefix(&state.repo_root)
-                        .ok()?
-                        .to_string_lossy()
-                        .into_owned(),
-                )
-            }
-        });
-        if let Some(new_feature) = new_feature {
+        if nt
+            .document_updates
+            .iter()
+            .any(|(id, _)| id.starts_with("feature:"))
+        {
             changes.push((
                 crate::artifacts::product_docs::INDEX.into(),
                 crate::artifacts::product_docs::refreshed_index(
                     &state.repo_root,
-                    Some(&new_feature),
+                    &nt.document_updates,
                 )?,
             ));
         }

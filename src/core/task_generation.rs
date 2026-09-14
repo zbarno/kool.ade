@@ -39,9 +39,11 @@ impl Run {
             .ok()
             .filter(|o| o.status.success())
             .map(|o| crate::persistence::fnv1a64(&o.stdout));
+        let batch_contract = crate::core::contract_snapshot::freeze(state)?;
         let identity = serde_json::json!({"contract":CONTRACT_VERSION, "workflow":state.workflow,
             "specification":state.planning_contract(), "head":crate::core::gitops::snapshot(&state.repo_root).head_short,
-            "working_tree":delta, "system":SYSTEM, "configuration":crate::artifacts::config_io::serialize(&state.config)});
+            "working_tree":delta, "system":SYSTEM, "configuration":crate::artifacts::config_io::serialize(&state.config),
+            "batch_contract":batch_contract});
         let encoded = serde_json::to_vec(&identity).map_err(|e| AppError::Other(e.to_string()))?;
         let repo = state
             .repo_root
@@ -113,6 +115,7 @@ impl Run {
                 story_detail_errors(story, i + 1).is_empty()
                     && story.title == cp.outline[i].title
                     && story.purpose == cp.outline[i].purpose
+                    && story.target_repository == cp.outline[i].target_repository
                     && same_refs(&story.scope_items, &cp.outline[i].scope_items)
                     && same_refs(&story.success_criteria, &cp.outline[i].success_criteria)
                     && same_refs(&story.dependencies, &cp.outline[i].dependencies)
@@ -241,6 +244,11 @@ fn story_response(
         ]);
     }
     let mut story = stories.remove(0);
+    if !story.target_repository.is_empty() && story.target_repository != planned.target_repository {
+        return Err(vec![
+            "target_repository changed the approved outline repository".into(),
+        ]);
+    }
     for (name, values, expected) in [
         ("scope_items", &story.scope_items, &planned.scope_items),
         (
@@ -258,6 +266,7 @@ fn story_response(
     }
     story.title = planned.title.clone();
     story.purpose = planned.purpose.clone();
+    story.target_repository = planned.target_repository.clone();
     story.scope_items = planned.scope_items.clone();
     story.success_criteria = planned.success_criteria.clone();
     story.dependencies = planned.dependencies.clone();
@@ -282,9 +291,10 @@ pub fn generate(
         .as_ref()
         .ok_or_else(|| AppError::Other("No approved interview brief.".into()))?;
     let base = format!(
-        "=== APPLICATION TURN MODE ===\nGENERATE TASK STORIES. The user explicitly approved the current reviewed specification.\n\n=== APPROVED BRIEF ===\n{}\n\n=== APPROVED SPECIFICATION ===\n{}\n",
+        "=== APPLICATION TURN MODE ===\nGENERATE TASK STORIES. The user explicitly approved the current reviewed specification.\n\n=== APPROVED BRIEF ===\n{}\n\n=== APPROVED FEATURE SPECIFICATION ===\n{}\n\n=== FROZEN AFFECTED PRODUCT MODULES AND REPOSITORY BASES ===\n{}\n",
         serde_json::to_string_pretty(brief).unwrap_or_default(),
-        state.planning_contract().unwrap_or_default()
+        state.planning_contract().unwrap_or_default(),
+        serde_json::to_string_pretty(&run.identity["batch_contract"]).unwrap_or_default()
     );
     let mut cp = if let Some(cp) = run.load(state) {
         let _ = request.progress_tx.send(LiveProgress {
@@ -301,6 +311,16 @@ pub fn generate(
             let env = decode(text)?; unchanged(&env)?;
             let outline = env.task_outline.unwrap_or_default();
             validate_outline(brief, &outline)?;
+            let manifest = &state.repositories;
+            for task in &outline {
+                if manifest.repositories.len() > 1 && task.target_repository.is_empty() {
+                    return Err(vec!["Each multi-repository outline task needs target_repository".into()]);
+                }
+                let id = if task.target_repository.is_empty() { "root" } else { task.target_repository.as_str() };
+                if !manifest.repositories.iter().any(|repo| repo.id == id) {
+                    return Err(vec![format!("Unknown target_repository {id}")]);
+                }
+            }
             if outline.iter().any(|o| o.purpose.split_whitespace().count() < 8) { return Err(vec!["Every task purpose needs at least 8 words describing the specific problem this ticket solves and why it matters.".into()]); }
             Ok(outline)
         })?;
@@ -323,6 +343,11 @@ pub fn generate(
             "Active feature changed during generation"
         );
         anyhow::ensure!(
+            serde_json::to_value(crate::core::contract_snapshot::freeze(state)?)?
+                == run.identity["batch_contract"],
+            "Affected product modules or repository bases changed during generation"
+        );
+        anyhow::ensure!(
             crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow,
             "Interview changed during generation"
         );
@@ -330,6 +355,7 @@ pub fn generate(
             brief: brief.clone(),
             specification: state.planning_contract().unwrap_or_default().to_string(),
             feature_id: state.active_feature.as_ref().map(|(id, _)| id.clone()),
+            contract: crate::core::contract_snapshot::freeze(state)?,
             stories: cp.stories.clone(),
         };
         crate::artifacts::task_docs::save_progress(

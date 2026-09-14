@@ -173,4 +173,72 @@ mod tests {
         };
         assert!(!valid_id(&path.id));
     }
+
+    #[test]
+    fn portable_manifest_resolves_private_checkout_without_committing_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "packet-repos-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let planning = root.join("planning-root");
+        let api = root.join("api-checkout");
+        std::fs::create_dir_all(planning.join(".planner")).unwrap();
+        std::fs::create_dir_all(&api).unwrap();
+        for repo in [&planning, &api] {
+            assert!(
+                std::process::Command::new("git")
+                    .args(["init", "-q"])
+                    .current_dir(repo)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        assert!(
+            std::process::Command::new("git")
+                .args(["remote", "add", "origin", "git@example.test:team/api.git"])
+                .current_dir(&api)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let manifest = ProjectManifest {
+            repositories: vec![
+                Repository {
+                    id: "planning".into(),
+                    role: "Planning root".into(),
+                    remote: "git@example.test:team/planning.git".into(),
+                },
+                Repository {
+                    id: "api".into(),
+                    role: "Backend API".into(),
+                    remote: "git@example.test:team/api.git".into(),
+                },
+            ],
+        };
+        std::fs::write(
+            planning.join(PROJECT_FILE),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        map_local_checkout(&planning, "api", &api).unwrap();
+        assert_eq!(
+            ProjectManifest::load(&planning)
+                .unwrap()
+                .target(&planning, "api")
+                .unwrap(),
+            api.canonicalize().unwrap()
+        );
+        assert!(
+            !std::fs::read_to_string(planning.join(PROJECT_FILE))
+                .unwrap()
+                .contains(api.to_str().unwrap())
+        );
+        let private = crate::persistence::project_dir(&crate::persistence::project_slug(
+            &planning.canonicalize().unwrap(),
+        ));
+        let _ = std::fs::remove_dir_all(private);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

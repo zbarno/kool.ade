@@ -100,6 +100,8 @@ pub struct TaskStory {
 pub struct TaskOutline {
     pub title: String,
     pub purpose: String,
+    #[serde(alias = "target_repository")]
+    pub target_repository: String,
     #[serde(alias = "scope_items")]
     pub scope_items: Vec<usize>,
     #[serde(alias = "success_criteria")]
@@ -168,6 +170,7 @@ pub struct TaskBatch {
     pub brief: InterviewBrief,
     pub specification: String,
     pub feature_id: Option<String>,
+    pub contract: Option<crate::core::contract_snapshot::BatchContract>,
     pub stories: Vec<TaskStory>,
 }
 
@@ -325,6 +328,8 @@ pub fn prepare(
             brief,
             specification: state.planning_contract().unwrap().to_string(),
             feature_id,
+            contract: crate::core::contract_snapshot::freeze(state)
+                .map_err(|error| vec![error.to_string()])?,
             stories,
         });
         workflow.brief.as_mut().unwrap().ready_for_tasks = false;

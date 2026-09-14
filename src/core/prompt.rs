@@ -498,10 +498,13 @@ pub const TASK_OUTLINE_STEP: &str = r#"
 OUTLINE FIRST. This step overrides the default request for full task stories.
 Return task_stories=null and task_outline=[...] in the final JSON envelope.
 Plan the COMPLETE feature as an ordered list. Each outline entry contains:
-{"title":"Specific imperative title", "purpose":"Specific problem this ticket solves and why it matters",
+{"title":"Specific imperative title", "purpose":"Specific problem this ticket solves and why it matters", "target_repository":"logical-repository-id",
  "scope_items":[1], "success_criteria":[1], "dependencies":[]}
 Use one-based brief references and earlier-task dependency numbers. Cover every
-scope item and success criterion. Do not create vague foundation-only slices.
+scope item and success criterion. Each task targets exactly one repository from
+the project manifest; use "root" for a single-repository project. Split
+cross-repository features into dependent repository-specific tasks. Do not
+create vague foundation-only slices.
 The application will request each detailed story separately, giving you a full
 response for each. Keep updated_specification=null, interview=null and all
 open-item changes empty. Do not write any files.

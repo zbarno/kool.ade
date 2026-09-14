@@ -337,6 +337,18 @@ pub fn save_progress(
         &repo.join(&directory).join("specification.md"),
         &batch.specification,
     )?;
+    if let Some(contract) = &batch.contract {
+        let path = repo.join(&directory).join("contract.json");
+        let encoded = serde_json::to_string_pretty(contract)?;
+        if path.exists() {
+            anyhow::ensure!(
+                std::fs::read_to_string(&path)? == encoded,
+                "Frozen batch contract changed during generation"
+            );
+        } else {
+            replace_progress_file(&path, &encoded)?;
+        }
+    }
     let mut index = format!(
         "# {} — task stories\n\n**Status: In progress — {} of {total} stories saved.**\n\nEach saved story is individually validated. Batch coverage and dependencies are not yet finalized. Generation can be resumed after interruption.\n\n[Approved specification](specification.md)\n\n",
         batch.brief.feature_name,
@@ -413,6 +425,9 @@ pub fn write_batch(
             format!("{directory}/specification.md"),
             WORKFLOW_FILE.into(),
         ]);
+        if batch.contract.is_some() {
+            paths.push(format!("{directory}/contract.json"));
+        }
         return Ok(paths);
     }
 
@@ -456,6 +471,12 @@ pub fn write_batch(
         );
         std::fs::write(stage.join("README.md"), index)?;
         std::fs::write(stage.join("specification.md"), &batch.specification)?;
+        if let Some(contract) = &batch.contract {
+            std::fs::write(
+                stage.join("contract.json"),
+                serde_json::to_string_pretty(contract)?,
+            )?;
+        }
         anyhow::ensure!(
             !repo.join(&directory).exists(),
             "Task destination changed during generation"
@@ -478,6 +499,9 @@ pub fn write_batch(
             .map(|n| format!("{directory}/{n}"))
             .collect();
         paths.push(WORKFLOW_FILE.into());
+        if batch.contract.is_some() {
+            paths.push(format!("{directory}/contract.json"));
+        }
         Ok(paths)
     })();
     if stage.exists() {

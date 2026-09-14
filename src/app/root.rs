@@ -798,6 +798,14 @@ impl Surface for PacketApp {
                     }
                 }
             }
+            let target_repo =
+                match crate::core::implementation::target_repository(&p.state.repo_root, &ticket) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        p.queue.last_error = format!("Cannot start {ticket}: {error}");
+                        return;
+                    }
+                };
             if p.queue.auto_mode {
                 let selected = p
                     .task_documents
@@ -854,8 +862,9 @@ impl Surface for PacketApp {
                 ..Default::default()
             };
             p.active_implementation_ticket = Some(ticket.clone());
-            p.active_implementation = Some(crate::core::implementation::Controller::start(
+            p.active_implementation = Some(crate::core::implementation::Controller::start_project(
                 p.state.repo_root.clone(),
+                target_repo,
                 ticket,
                 p.queue.auto_mode,
             ));
@@ -1296,6 +1305,7 @@ mod board_tests {
             let record = crate::core::implementation::Implementation {
                 ticket: docs[i].path.clone(),
                 ticket_text: docs[i].text.clone(),
+                approved_specification: None,
                 branch: "packet/fixture".into(),
                 base: "main".into(),
                 base_commit: "fixture".into(),

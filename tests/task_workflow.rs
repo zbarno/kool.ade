@@ -230,6 +230,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                     brief: reloaded.workflow.brief.clone().unwrap(),
                     specification: reloaded.spec_text.clone().unwrap(),
                     feature_id: None,
+                    contract: None,
                     stories: envelope.task_stories.unwrap(),
                 };
                 let edited = format!("{saved}\nUser correction\n");

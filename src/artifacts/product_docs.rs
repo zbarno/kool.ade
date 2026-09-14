@@ -53,6 +53,13 @@ fn real_dir(path: &Path) -> anyhow::Result<bool> {
         Err(e) => Err(e.into()),
     }
 }
+fn tracked(repo: &Path, relative: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["ls-files", "--error-unmatch", "--", relative])
+        .current_dir(repo)
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
 
 pub fn module_path(repo: &Path, number: usize) -> anyhow::Result<PathBuf> {
     anyhow::ensure!((1..=13).contains(&number), "Invalid product module number");
@@ -122,7 +129,7 @@ pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow:
     Ok(dir.join("specification.md"))
 }
 
-pub fn refreshed_index(repo: &Path, new_feature: Option<&str>) -> anyhow::Result<String> {
+pub fn refreshed_index(repo: &Path, updates: &[(String, String)]) -> anyhow::Result<String> {
     let index = std::fs::read_to_string(repo.join(INDEX))?;
     let marker = "## Active features";
     let prefix = index
@@ -130,13 +137,22 @@ pub fn refreshed_index(repo: &Path, new_feature: Option<&str>) -> anyhow::Result
         .map(|(prefix, _)| prefix)
         .ok_or_else(|| anyhow::anyhow!("Product index lacks active feature manifest"))?;
     let mut entries = active_features(repo);
-    if let Some(path) = new_feature {
-        let name = Path::new(path)
+    for (id, content) in updates {
+        if !id.starts_with("feature:") {
+            continue;
+        }
+        let path = document_path_for_update(repo, id, content)?;
+        let name = path
             .parent()
             .and_then(|dir| dir.file_name())
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid feature path"))?;
-        entries.push(name.to_string());
+        entries.retain(|entry| entry.get(..7) != name.get(..7));
+        if !content.contains("**Status:** Implemented")
+            && !content.contains("**Status:** Abandoned")
+        {
+            entries.push(name.to_string());
+        }
     }
     entries.sort();
     entries.dedup();
@@ -422,6 +438,10 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
         changes.extend(MODULES.iter().map(|name| format!("{PRODUCT_DIR}/{name}")));
     } else {
         load_modules(repo)?;
+        if repo.join(".git").exists() && !tracked(repo, INDEX) {
+            changes.push(INDEX.to_string());
+            changes.extend(MODULES.iter().map(|name| format!("{PRODUCT_DIR}/{name}")));
+        }
     }
     let old = repo.join("planning/specification.md");
     let archive_dir = repo.join("planning/archive");
@@ -437,6 +457,21 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
         std::fs::rename(old, archive)?;
         changes.push("planning/specification.md".into());
         changes.push(LEGACY_ARCHIVE.into());
+    }
+    if repo.join(".git").exists()
+        && regular(&repo.join(LEGACY_ARCHIVE))?
+        && !tracked(repo, LEGACY_ARCHIVE)
+    {
+        if !changes.iter().any(|path| path == LEGACY_ARCHIVE) {
+            changes.push(LEGACY_ARCHIVE.into());
+        }
+        if tracked(repo, "planning/specification.md")
+            && !changes
+                .iter()
+                .any(|path| path == "planning/specification.md")
+        {
+            changes.push("planning/specification.md".into());
+        }
     }
     Ok(changes)
 }
@@ -475,5 +510,54 @@ mod tests {
         ] {
             assert!(document_path(root, id).is_err());
         }
+    }
+    #[test]
+    fn restart_after_uncommitted_migration_still_reports_all_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_product_restart_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning")).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let source = crate::artifacts::spec_doc::bootstrap_template("Demo");
+        std::fs::write(root.join("planning/specification.md"), &source).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["add", "planning/specification.md"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args([
+                    "-c",
+                    "user.name=Fixture",
+                    "-c",
+                    "user.email=fixture@example.test",
+                    "commit",
+                    "-qm",
+                    "seed"
+                ])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        migrate(&root, &source).unwrap();
+        let retry = migrate(&root, &source).unwrap();
+        assert_eq!(retry.len(), 16);
+        assert!(retry.contains(&INDEX.to_string()));
+        assert!(retry.contains(&"planning/specification.md".to_string()));
+        let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -17,6 +17,8 @@ use std::{
 pub struct Implementation {
     pub ticket: String,
     pub ticket_text: String,
+    #[serde(default)]
+    pub approved_specification: Option<String>,
     pub branch: String,
     pub base: String,
     pub base_commit: String,
@@ -62,6 +64,14 @@ pub struct Controller {
 }
 impl Controller {
     pub fn start(repo: PathBuf, ticket: String, auto_merge: bool) -> Self {
+        Self::start_project(repo.clone(), repo, ticket, auto_merge)
+    }
+    pub fn start_project(
+        planning_root: PathBuf,
+        target_repo: PathBuf,
+        ticket: String,
+        auto_merge: bool,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -73,8 +83,9 @@ impl Controller {
                     let _ = fwd.send(Event::Progress(p));
                 }
             });
-            let result = run_with_options(
-                &repo,
+            let result = run_with_project_options(
+                &planning_root,
+                &target_repo,
                 &ticket,
                 &PiHarness,
                 worker_cancel,
@@ -296,6 +307,7 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
         return Ok(());
     }
     let mut state: Implementation = serde_json::from_slice(&fs::read(dir.join("state.json"))?)?;
+    let target_repo = target_repository(repo, ticket)?;
     let Some(url) = state.pr_url.clone() else {
         return Ok(());
     };
@@ -304,7 +316,11 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
     }
     state.pr_check_attempted_at = Some(chrono::Utc::now().to_rfc3339());
     let result = (|| -> anyhow::Result<String> {
-        let output = runner.command(repo, &runner.gh, &["pr", "view", &url, "--json", "state"])?;
+        let output = runner.command(
+            &target_repo,
+            &runner.gh,
+            &["pr", "view", &url, "--json", "state"],
+        )?;
         let value: serde_json::Value = serde_json::from_str(&output)?;
         let status = value["state"].as_str().unwrap_or_default();
         anyhow::ensure!(
@@ -379,6 +395,19 @@ fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     Ok(text)
 }
 
+pub fn target_repository(planning_root: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
+    let text = read_ticket(planning_root, ticket)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root)?;
+    let id = text
+        .lines()
+        .find_map(|line| line.strip_prefix("Repository: "));
+    anyhow::ensure!(
+        id.is_some() || manifest.repositories.len() == 1,
+        "Multi-repository task lacks a repository target"
+    );
+    manifest.target(planning_root, id.unwrap_or("root").trim())
+}
+
 pub fn run(
     repo: &Path,
     ticket: &str,
@@ -408,14 +437,32 @@ fn run_with_options(
     gh: &str,
     auto_merge: bool,
 ) -> anyhow::Result<Implementation> {
+    run_with_project_options(
+        repo, repo, ticket, harness, cancel, progress, gh, auto_merge,
+    )
+}
+fn run_with_project_options(
+    planning_root: &Path,
+    repo: &Path,
+    ticket: &str,
+    harness: &dyn AiHarness,
+    cancel: Arc<AtomicBool>,
+    progress: Sender<LiveProgress>,
+    gh: &str,
+    auto_merge: bool,
+) -> anyhow::Result<Implementation> {
+    anyhow::ensure!(
+        target_repository(planning_root, ticket)?.canonicalize()? == repo.canonicalize()?,
+        "Implementation checkout does not match the task repository manifest"
+    );
     let runner = Runner {
         gh: gh.into(),
         deadline: Instant::now() + crate::core::turn::configured_turn_timeout(),
         cancel,
         progress,
     };
-    let text = read_ticket(repo, ticket)?;
-    let dir = state_dir(repo, ticket)?;
+    let text = read_ticket(planning_root, ticket)?;
+    let dir = state_dir(planning_root, ticket)?;
     fs::create_dir_all(&dir)?;
     let lock = fs::OpenOptions::new()
         .read(true)
@@ -477,6 +524,9 @@ fn run_with_options(
         Implementation {
             ticket: ticket.into(),
             ticket_text: text,
+            approved_specification: Path::new(ticket).parent().and_then(|parent| {
+                fs::read_to_string(planning_root.join(parent).join("specification.md")).ok()
+            }),
             branch: format!("packet/{}", key(ticket)),
             base,
             base_commit: head,
@@ -500,7 +550,7 @@ fn run_with_options(
         return Ok(state);
     }
     save(&dir, &state)?;
-    let result = execute(repo, &dir, &mut state, harness, &runner);
+    let result = execute(planning_root, repo, &dir, &mut state, harness, &runner);
     if let Err(error) = result {
         state.status = if runner.cancel.load(Ordering::SeqCst) {
             "Interrupted"
@@ -579,10 +629,15 @@ fn prepare_verified(
         // Keep the last failure durable so manual resume has the same feedback.
         let mut feedback = state.detail.clone();
         let mut previous_response = String::new();
-        let specification = Path::new(&state.ticket)
-            .parent()
-            .map(|p| repo.join(p).join("specification.md"))
-            .and_then(|p| fs::read_to_string(p).ok())
+        let specification = state
+            .approved_specification
+            .clone()
+            .or_else(|| {
+                Path::new(&state.ticket)
+                    .parent()
+                    .map(|p| repo.join(p).join("specification.md"))
+                    .and_then(|p| fs::read_to_string(p).ok())
+            })
             .unwrap_or_default();
         let mut attempt = 0;
         let mut report_corrections = 0;
@@ -806,6 +861,7 @@ fn prepare_verified(
 }
 
 fn execute(
+    _planning_root: &Path,
     repo: &Path,
     dir: &Path,
     state: &mut Implementation,
