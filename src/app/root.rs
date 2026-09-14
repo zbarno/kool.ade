@@ -1523,6 +1523,8 @@ mod board_tests {
                 ticket: docs[i].path.clone(),
                 ticket_text: docs[i].text.clone(),
                 approved_specification: None,
+                approved_product_context: None,
+                completed_dependency_context: None,
                 branch: "packet/fixture".into(),
                 base: "main".into(),
                 base_commit: "fixture".into(),
@@ -1940,6 +1942,45 @@ mod board_tests {
         }
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, &item.question).is_none());
+    }
+
+    #[test]
+    fn migrated_open_item_remains_clickable_on_kanban() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_migrated_board_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning")).unwrap();
+        let legacy = crate::artifacts::spec_doc::bootstrap_template("Migrated product");
+        std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
+        let item = OpenItem::new(
+            "CLR-041".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            Some("All".into()),
+            "Who reviews saved searches?".into(),
+            "Review ownership remains open.".into(),
+        );
+        std::fs::write(
+            root.join("planning/open-items.md"),
+            crate::artifacts::items_io::serialize(&[item.clone()]),
+        )
+        .unwrap();
+        crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
+        let mut app = fixture();
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state = crate::core::state::PlannerState::load(&root).unwrap();
+            project.task_documents.clear();
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, &item.question).is_some());
+        let details = click_text(&mut app, &ctx, &item.question);
+        assert!(text_position(&details, &item.reason).is_some());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

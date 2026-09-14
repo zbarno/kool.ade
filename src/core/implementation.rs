@@ -19,6 +19,10 @@ pub struct Implementation {
     pub ticket_text: String,
     #[serde(default)]
     pub approved_specification: Option<String>,
+    #[serde(default)]
+    pub approved_product_context: Option<String>,
+    #[serde(default)]
+    pub completed_dependency_context: Option<String>,
     pub branch: String,
     pub base: String,
     pub base_commit: String,
@@ -528,12 +532,15 @@ fn run_with_project_options(
             .join(".packet-worktrees")
             .join(crate::persistence::project_slug(&repo.canonicalize()?));
         fs::create_dir_all(&root)?;
+        let dependency_context = completed_dependency_context(planning_root, ticket, &text)?;
         Implementation {
             ticket: ticket.into(),
             ticket_text: text,
             approved_specification: Path::new(ticket).parent().and_then(|parent| {
                 fs::read_to_string(planning_root.join(parent).join("specification.md")).ok()
             }),
+            approved_product_context: scoped_product_context(planning_root, ticket)?,
+            completed_dependency_context: dependency_context,
             branch: format!("packet/{}", key(ticket)),
             base,
             base_commit: head,
@@ -571,6 +578,82 @@ fn run_with_project_options(
     }
     save(&dir, &state)?;
     Ok(state)
+}
+
+fn scoped_product_context(planning_root: &Path, ticket: &str) -> anyhow::Result<Option<String>> {
+    let Some(parent) = Path::new(ticket).parent() else {
+        return Ok(None);
+    };
+    let contract_path = planning_root.join(parent).join("contract.json");
+    let bytes = match fs::read(&contract_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let contract: crate::core::contract_snapshot::BatchContract = serde_json::from_slice(&bytes)?;
+    let mut context = String::new();
+    for (id, body) in contract.product_modules {
+        context.push_str(&format!("\n=== product:{id} ===\n{body}\n"));
+    }
+    Ok(Some(context))
+}
+
+fn completed_dependency_context(
+    planning_root: &Path,
+    ticket: &str,
+    ticket_text: &str,
+) -> anyhow::Result<Option<String>> {
+    use pulldown_cmark::{Event, Parser, Tag};
+    let mut in_dependencies = false;
+    let mut section = String::new();
+    for line in ticket_text.lines() {
+        if line.starts_with("## ") {
+            in_dependencies = line.trim().eq_ignore_ascii_case("## Dependencies");
+            continue;
+        }
+        if in_dependencies {
+            section.push_str(line);
+            section.push('\n');
+        }
+    }
+    let mut links = std::collections::BTreeSet::new();
+    for event in Parser::new(&section) {
+        if let Event::Start(Tag::Link { dest_url, .. }) = event {
+            let filename = Path::new(dest_url.as_ref());
+            anyhow::ensure!(
+                filename.components().count() == 1 && dest_url.ends_with(".md"),
+                "Invalid dependency link {dest_url}"
+            );
+            links.insert(dest_url.to_string());
+        }
+    }
+    anyhow::ensure!(links.len() <= 16, "Too many task dependencies");
+    let mut context = String::new();
+    for filename in links {
+        let relative = Path::new(ticket)
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Task path has no batch directory"))?
+            .join(filename);
+        let relative = relative.to_string_lossy();
+        anyhow::ensure!(relative.as_ref() != ticket, "Task cannot depend on itself");
+        let record = load(planning_root, &relative)
+            .ok_or_else(|| anyhow::anyhow!("Dependency {relative} has no implementation record"))?;
+        anyhow::ensure!(
+            record.status == "Done" && record.merged_commit.is_some(),
+            "Dependency {relative} has not merged"
+        );
+        let story = fs::read_to_string(planning_root.join(relative.as_ref()))?;
+        anyhow::ensure!(
+            story == record.ticket_text,
+            "Dependency {relative} story changed"
+        );
+        context.push_str(&format!(
+            "\n=== Completed dependency {relative} ===\nMerged commit: {}\n{}\n",
+            record.merged_commit.as_deref().unwrap(),
+            story.chars().take(6_000).collect::<String>()
+        ));
+    }
+    Ok((!context.is_empty()).then_some(context))
 }
 
 fn prepare_verified(
@@ -671,9 +754,22 @@ fn prepare_verified(
             let status = runner.git(&state.worktree, &["status", "--short"])?;
             let log = runner.git(&state.worktree, &["log", "-5", "--oneline"])?;
             let mut prompt = format!(
-                "Implement this ticket in the CURRENT working directory, a dedicated Git worktree. This may be a RESUME: inspect git status, existing diffs, commits, untracked files, tests and repository instructions FIRST. Preserve and complete existing work; do not restart, reset, clean, discard or overwrite unrelated changes. Verify prerequisites and dependencies; report blocked if unavailable. Implement only this ticket's scope. Run the required checks and repair failures. Do not change branches, create worktrees, commit, push, create PRs or merge; Packet owns those steps. Do not modify the original checkout.\n\nTICKET PATH: {}\nTICKET CONTENT:\n{}\n\nAPPROVED SPECIFICATION:\n{}\n\nCURRENT STATUS:\n{}\nRECENT COMMITS:\n{}\n\nReturn a complete JSON object with status (complete or blocked), summary, acceptance_criteria (array of objects with criterion copied verbatim from the ticket and concrete evidence), verification (array of runnable POSIX /bin/sh commands; each runs in a NEW shell starting in this worktree, with PACKET_WORKTREE set to its absolute path; no shell variables or cwd changes carry between commands), remaining (array of unresolved work). Complete requires every ticket criterion met, meaningful checks passing, and remaining empty. Use actual commands without placeholder paths. Before changing directories, capture paths or use \"$PACKET_WORKTREE/Cargo.toml\"; $(pwd) after cd refers to the NEW directory. Do not use Bash-only syntax. When testing commands yourself, export PACKET_WORKTREE to this worktree path before invoking /bin/sh. Execute exactly the commands you report using /bin/sh. Assert expected outcomes and preserve command exit failures: capture output to a file, then check it, rather than masking a failed command with a successful pipeline or command substitution. Never claim success from an exit code alone or invent results. Do not include prose outside the JSON.",
-                state.ticket, state.ticket_text, specification, status, log
+                "Implement this ticket in the CURRENT working directory, a dedicated Git worktree. This may be a RESUME: inspect git status, existing diffs, commits, untracked files, tests and repository instructions FIRST. Preserve and complete existing work; do not restart, reset, clean, discard or overwrite unrelated changes. Verify prerequisites and dependencies; report blocked if unavailable. Implement only this ticket's scope. Run the required checks and repair failures. Do not change branches, create worktrees, commit, push, create PRs or merge; Packet owns those steps. Do not modify the original checkout.\n\nTICKET PATH: {}\nTICKET CONTENT:\n{}\n\nAPPROVED SPECIFICATION:\n{}\n\nAFFECTED PRODUCT MODULES (FROZEN AT TASK APPROVAL):\n{}\n\nCURRENT STATUS:\n{}\nRECENT COMMITS:\n{}\n\nReturn a complete JSON object with status (complete or blocked), summary, acceptance_criteria (array of objects with criterion copied verbatim from the ticket and concrete evidence), verification (array of runnable POSIX /bin/sh commands; each runs in a NEW shell starting in this worktree, with PACKET_WORKTREE set to its absolute path; no shell variables or cwd changes carry between commands), remaining (array of unresolved work). Complete requires every ticket criterion met, meaningful checks passing, and remaining empty. Use actual commands without placeholder paths. Before changing directories, capture paths or use \"$PACKET_WORKTREE/Cargo.toml\"; $(pwd) after cd refers to the NEW directory. Do not use Bash-only syntax. When testing commands yourself, export PACKET_WORKTREE to this worktree path before invoking /bin/sh. Execute exactly the commands you report using /bin/sh. Assert expected outcomes and preserve command exit failures: capture output to a file, then check it, rather than masking a failed command with a successful pipeline or command substitution. Never claim success from an exit code alone or invent results. Do not include prose outside the JSON.",
+                state.ticket,
+                state.ticket_text,
+                specification,
+                state
+                    .approved_product_context
+                    .as_deref()
+                    .unwrap_or("Legacy task: no scoped product snapshot."),
+                status,
+                log
             );
+            if let Some(dependencies) = &state.completed_dependency_context {
+                prompt.push_str(&format!(
+                    "\n\nCOMPLETED DEPENDENCY CONTRACTS:\n{dependencies}"
+                ));
+            }
 
             if !feedback.is_empty() {
                 prompt.push_str(&format!("\n\nPREVIOUS STOP / CORRECTION REQUIRED:\n{feedback}\nContinue in this same worktree. Treat this as a correction history: keep earlier fixes and address the newest failure without reintroducing older ones. Inspect and preserve existing work. Correct the report or implementation and rerun affected checks. Copy acceptance criterion text EXACTLY, including any spelling mistakes; do not edit the ticket to satisfy this check. Return the full JSON report, not just the correction. Do not weaken or bypass failing checks. Report blocked for prerequisites that require human intervention.\nPrevious response (possibly truncated):\n{previous_response}"));
@@ -1325,6 +1421,81 @@ mod tests {
     use super::*;
     use crate::error::AppError;
     use std::sync::atomic::AtomicUsize;
+    #[test]
+    fn implementation_context_uses_only_frozen_affected_product_modules() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_implementation_context_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let batch = root.join("planning/tasks/feature");
+        fs::create_dir_all(&batch).unwrap();
+        let contract = crate::core::contract_snapshot::BatchContract {
+            feature_id: "CHG-001".into(),
+            feature_specification: "# Feature".into(),
+            product_modules: [(
+                "05-functional-requirements".into(),
+                "## 5. Relevant\n".into(),
+            )]
+            .into(),
+            repository_bases: Default::default(),
+            configuration: String::new(),
+        };
+        fs::write(
+            batch.join("contract.json"),
+            serde_json::to_vec(&contract).unwrap(),
+        )
+        .unwrap();
+        let context = scoped_product_context(&root, "planning/tasks/feature/001-task.md")
+            .unwrap()
+            .unwrap();
+        assert!(context.contains("product:05-functional-requirements"));
+        assert!(context.contains("## 5. Relevant"));
+        assert!(!context.contains("product:01-vision"));
+        let _ = fs::remove_dir_all(root);
+    }
+    #[test]
+    fn cross_repository_dependency_context_requires_merged_record() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_dependency_context_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let batch = root.join("planning/tasks/feature");
+        fs::create_dir_all(&batch).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let prior = "planning/tasks/feature/001-api.md";
+        let prior_text =
+            "# API contract\n\nRepository: api\n\nThe endpoint returns a saved search.\n";
+        fs::write(root.join(prior), prior_text).unwrap();
+        let next = "planning/tasks/feature/002-web.md";
+        let next_text =
+            "# Web client\n\nRepository: web\n\n## Dependencies\n\n- [API contract](001-api.md)\n";
+        assert!(completed_dependency_context(&root, next, next_text).is_err());
+        let record: Implementation = serde_json::from_value(serde_json::json!({
+            "ticket": prior, "ticket_text": prior_text, "branch": "packet/api", "base": "main",
+            "base_commit": "base", "worktree": root, "status": "Done", "detail": "",
+            "pr_url": null, "verified_head": "merged", "merged_commit": "merged"
+        }))
+        .unwrap();
+        let dir = state_dir(&root, prior).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("state.json"), serde_json::to_vec(&record).unwrap()).unwrap();
+        let context = completed_dependency_context(&root, next, next_text)
+            .unwrap()
+            .unwrap();
+        assert!(context.contains("Repository: api"));
+        assert!(context.contains("Merged commit: merged"));
+        assert!(!context.contains("Repository: web"));
+        let _ = fs::remove_dir_all(root);
+    }
     struct Fixture {
         mode: &'static str,
         calls: Arc<AtomicUsize>,
