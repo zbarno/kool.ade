@@ -679,6 +679,8 @@ mod tests {
             reconciliation: None,
             reconciliation_attempted: Default::default(),
             reconciliation_error: None,
+            investigation: None,
+            investigation_attempted: Default::default(),
             last_pr_refresh: None,
             implementation_states: Default::default(),
             active_turn: None,

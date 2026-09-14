@@ -116,9 +116,6 @@ impl TurnContext {
                     }
                 }
             }
-            if numbers.is_empty() {
-                numbers.extend([0, 1, 3]);
-            }
             numbers.truncate(4);
             for n in numbers {
                 selected_modules.push((
@@ -149,25 +146,31 @@ impl TurnContext {
                     relevant.push(item.clone());
                 }
             }
-            items_io::serialize(&relevant)
+            clip(&items_io::serialize(&relevant), 12000)
         } else {
             items_io::serialize(&state.items)
         };
         TurnContext {
             user: state.effective_user(),
-            lane_note: crate::core::routing::describe_lanes(
-                &state.effective_user(),
-                &state.config.stakeholders,
+            lane_note: clip(
+                &crate::core::routing::describe_lanes(
+                    &state.effective_user(),
+                    &state.config.stakeholders,
+                ),
+                4000,
             ),
             repo_title: state.title.clone(),
             next_feature_id: crate::artifacts::product_docs::next_feature_id(&state.repo_root),
-            repository_map: state
-                .repositories
-                .repositories
-                .iter()
-                .map(|repo| format!("{}: {} ({})", repo.id, repo.role, repo.remote))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            repository_map: clip(
+                &state
+                    .repositories
+                    .repositories
+                    .iter()
+                    .map(|repo| format!("{}: {} ({})", repo.id, repo.role, repo.remote))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                5000,
+            ),
             user_message: user_message.to_string(),
             conversation: convo,
             elided_messages: recent_len.saturating_sub(CONVERSATION_TAIL_MESSAGES),
@@ -180,7 +183,7 @@ impl TurnContext {
             active_feature,
             selected_modules,
             open_items_markdown: open_items,
-            config_markdown: config_io::serialize(&state.config),
+            config_markdown: clip(&config_io::serialize(&state.config), 5000),
             imports,
             mcp_json,
         }
@@ -225,6 +228,7 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
         }
     }
     rows.sort_by(|a, b| a.path.cmp(&b.path));
+    rows.truncate(30);
     rows
 }
 
@@ -286,5 +290,93 @@ mod tests {
         let c = clip(&s, 1200);
         assert!(c.chars().count() <= 1200);
         assert!(c.ends_with("[…truncated…]"));
+    }
+
+    #[test]
+    fn historical_features_tasks_and_items_do_not_expand_normal_prompt_without_bound() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_context_growth_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning/features/CHG-001-active")).unwrap();
+        std::fs::create_dir_all(root.join("planning/imports")).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
+        std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
+        crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
+        std::fs::write(root.join("planning/features/CHG-001-active/specification.md"),
+            "# CHG-001: Active\n\n**Status:** Draft\n\n## Intent\n\nOne feature.\n\n## Current Behavior\n\nCurrent.\n\n## Desired Behavior\n\nDesired.\n\n## Scope\n\nOne area.\n\n## Affected Product Areas\n\n`05-functional-requirements.md`\n\n## Requirements\n\nOne.\n\n## Decisions and Assumptions\n\nNone.\n\n## Acceptance Criteria\n\nOne.\n").unwrap();
+        let mut state = PlannerState::load(&root).unwrap();
+        let before_ctx = TurnContext::build(&state, "Plan this feature", &lines(2));
+        assert_eq!(before_ctx.selected_modules.len(), 1);
+        assert_eq!(
+            before_ctx.selected_modules[0].0,
+            "product:05-functional-requirements"
+        );
+        let before = crate::core::prompt::render_prompt(&before_ctx)
+            + &crate::core::prompt::workflow_context(
+                &state,
+                crate::core::workflow::TurnPurpose::Interview,
+            );
+        for n in 2..=250 {
+            let name = format!("CHG-{n:03}-historical");
+            let dir = root.join("planning/features").join(name);
+            std::fs::create_dir(&dir).unwrap();
+            std::fs::write(
+                dir.join("specification.md"),
+                format!("# Historical {n}\n\n**Status:** Implemented\n\nHISTORICAL_SECRET_{n}\n"),
+            )
+            .unwrap();
+            std::fs::write(
+                root.join("planning/imports")
+                    .join(format!("source-{n:03}.txt")),
+                "evidence",
+            )
+            .unwrap();
+            state
+                .workflow
+                .task_batches
+                .push(crate::core::workflow::TaskBatchRef {
+                    feature: format!("Historical batch {n}"),
+                    directory: format!("planning/tasks/historical-{n}"),
+                    count: 1,
+                });
+            let mut item = crate::domain::OpenItem::new(
+                format!("CLR-{n:03}"),
+                crate::domain::Priority::Normal,
+                crate::domain::ItemKind::Question,
+                "General".into(),
+                Some("All".into()),
+                format!("Historical item {n}?"),
+                "Long context ".repeat(100),
+            );
+            item.authority = crate::domain::Authority::Human;
+            state.items.push(item);
+        }
+        let ctx = TurnContext::build(&state, "Plan this feature", &lines(1000));
+        let after = crate::core::prompt::render_prompt(&ctx)
+            + &crate::core::prompt::workflow_context(
+                &state,
+                crate::core::workflow::TurnPurpose::Interview,
+            );
+        assert!(
+            after.len() < before.len() + 20_000,
+            "prompt grew from {} to {}",
+            before.len(),
+            after.len()
+        );
+        assert!(!after.contains("HISTORICAL_SECRET_250"));
+        assert!(ctx.conversation.len() <= 6);
+        assert!(ctx.imports.len() <= 30);
+        assert!(ctx.selected_modules.len() <= 4);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

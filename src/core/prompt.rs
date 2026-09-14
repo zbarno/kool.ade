@@ -11,7 +11,7 @@ pub const SPECIFICATION_POLICY: &str = include_str!("../../docs/living-specifica
 /// Standing instructions injected into EVERY planning turn.
 pub const SYSTEM_INSTRUCTIONS: &str = "\
 You are Packet, the user's proactive project manager and software-planning partner. Maintain a \
-team's LIVING TECHNICAL SPECIFICATION for one codebase, by interviewing the person \
+team's LIVING TECHNICAL SPECIFICATION for the planning root and registered repositories, by interviewing the person \
 you are talking to and recording decisions durably.
 
 Communicate proactively: explain material progress, identify the next useful decision, and connect planning questions to delivery. Implementation workers own task execution and report inside Kanban task modals; main chat is your conversation with the user. Never invent worker activity or claim queue actions you cannot perform.
@@ -32,7 +32,7 @@ disagreements for review rather than silently changing intent.
 
 OPEN ITEMS
 Types: Question | Ambiguity | Assumption | Ownership.
-Priorities: Blocking (stops forward planning), High (important before the next major \
+Priorities: Blocking (requires resolution before the dependent next step), High (important before the next major \
 milestone), Normal (resolve opportunistically).
 Categories: Engineering, Architecture, Product, Compliance, Operations, QA, InfoSec, \
 Platform, General (plus any custom categories already present in the configuration).
@@ -60,8 +60,8 @@ it stays out of chat.
 Ownership-type items are administered through configuration screens, NOT
 asked in chat: never choose them as the next question.
 Choosing a `next_question_id` that violates these rules REJECTS THE ENTIRE
-TURN — nothing is saved. Among eligible unresolved questions prefer
-Blocking, then the smallest item number; if none exists, set
+TURN — nothing is saved. Among eligible Human/Blocking items choose
+the smallest item number; if none exists, set
 `next_question_id` to null.
 
 OUTPUT STYLE
@@ -490,8 +490,23 @@ pub fn workflow_context(
     };
     format!(
         "\n=== APPLICATION TURN MODE ===\n{mode}\n\n=== INTERVIEW BRIEF ===\n{}\n\n=== EXISTING TASK BATCHES ===\n{}\n",
-        serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
-        serde_json::to_string_pretty(&state.workflow.task_batches).unwrap_or_default()
+        crate::core::context_build::clip(
+            &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
+            5000
+        ),
+        crate::core::context_build::clip(
+            &serde_json::to_string_pretty(
+                &state
+                    .workflow
+                    .task_batches
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .collect::<Vec<_>>()
+            )
+            .unwrap_or_default(),
+            5000
+        )
     )
 }
 

@@ -7,13 +7,29 @@ use std::path::Path;
 
 const MAX_README_CHARS: usize = 4000;
 const MAX_TREE_LINES: usize = 150;
+const MAX_PLANNING_FILES: usize = 200;
 const TREE_DEPTH: u32 = 2;
 
 /// Directories the tree walk refuses to descend into.
 const SKIP_DIRS: &[&str] = &[
-    ".git", ".hg", ".svn", "target", "node_modules", "vendor", "dist", "build",
-    "out", "coverage", "__pycache__", ".venv", "venv", ".idea", ".vscode",
-    ".next", ".turbo", ".cache",
+    ".git",
+    ".hg",
+    ".svn",
+    "target",
+    "node_modules",
+    "vendor",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".idea",
+    ".vscode",
+    ".next",
+    ".turbo",
+    ".cache",
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -26,11 +42,25 @@ pub struct Overview {
 }
 
 const README_NAMES: &[&str] = &[
-    "readme.md", "readme.markdown", "readme.mdx", "readme.txt", "readme.rst", "readme",
+    "readme.md",
+    "readme.markdown",
+    "readme.mdx",
+    "readme.txt",
+    "readme.rst",
+    "readme",
 ];
 const MANIFEST_NAMES: &[&str] = &[
-    "package.json", "pyproject.toml", "setup.py", "cargo.toml", "pom.xml", "go.mod",
-    "composer.json", "csproj", "gradle.build", "makefile", "dockerfile",
+    "package.json",
+    "pyproject.toml",
+    "setup.py",
+    "cargo.toml",
+    "pom.xml",
+    "go.mod",
+    "composer.json",
+    "csproj",
+    "gradle.build",
+    "makefile",
+    "dockerfile",
 ];
 
 pub fn scan(repo: &Path) -> Overview {
@@ -134,12 +164,23 @@ fn list_planning(repo: &Path) -> Vec<String> {
 }
 
 fn rec_list(dir: &Path, root: &Path, out: &mut Vec<String>) {
+    if out.len() >= MAX_PLANNING_FILES {
+        return;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
-    for e in entries.flatten() {
+    let mut entries = entries.flatten().collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+    for e in entries {
+        if out.len() >= MAX_PLANNING_FILES {
+            break;
+        }
         let p = e.path();
-        let rel = p.strip_prefix(root).map(|r| r.display().to_string()).unwrap_or_default();
+        let rel = p
+            .strip_prefix(root)
+            .map(|r| r.display().to_string())
+            .unwrap_or_default();
         if p.is_dir() {
             out.push(format!("{rel}/"));
             rec_list(&p, root, out);
@@ -173,7 +214,11 @@ mod tests {
         assert!(ov.tree_lines.iter().any(|l| l == "src/"));
         assert!(!ov.tree_lines.iter().any(|l| l.starts_with("node_modules")));
         assert!(!ov.tree_lines.iter().any(|l| l.contains("deepest")));
-        assert!(ov.planning_files.iter().any(|l| l.contains("planning/imports/doc.txt (0 KB)")));
+        assert!(
+            ov.planning_files
+                .iter()
+                .any(|l| l.contains("planning/imports/doc.txt (0 KB)"))
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 

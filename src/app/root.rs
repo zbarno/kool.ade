@@ -299,11 +299,13 @@ impl PacketApp {
         }
         self.advance_auto_queue();
         self.advance_reconciliation();
+        self.advance_investigation();
         let period = match &self.screen {
             Screen::Connected(p)
                 if (p.active_turn.is_some()
                     || p.active_implementation.is_some()
                     || p.reconciliation.is_some()
+                    || p.investigation.is_some()
                     || p.activity.manager.is_some()) =>
             {
                 Duration::from_millis(120)
@@ -440,6 +442,103 @@ impl PacketApp {
                     "Reconciliation of {feature_id} needs attention: {error}"
                 ));
             }
+        }
+    }
+
+    fn advance_investigation(&mut self) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if let Some(controller) = &project.investigation {
+            let item_id = controller.item_id.clone();
+            let mut finished = None;
+            for _ in 0..64 {
+                match controller.poll() {
+                    Some(crate::core::investigation::Event::Progress(update)) => {
+                        project
+                            .activity
+                            .tasks
+                            .entry(item_id.clone())
+                            .or_default()
+                            .update(update);
+                    }
+                    Some(crate::core::investigation::Event::Done(result)) => {
+                        finished = Some(result);
+                        break;
+                    }
+                    None => break,
+                }
+            }
+            if let Some(result) = finished {
+                project.investigation = None;
+                if let Some(progress) = project.activity.tasks.get_mut(&item_id) {
+                    progress.telemetry.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+                }
+                project.save_task_activity(&item_id);
+                match result {
+                    Ok((state, message)) => {
+                        project.state = state;
+                        project
+                            .activity
+                            .pending
+                            .push(format!("Agent item {item_id}: {message}"));
+                    }
+                    Err(error) => {
+                        if let Ok(current) =
+                            crate::core::state::PlannerState::load(&project.state.repo_root)
+                        {
+                            project.state = current;
+                        }
+                        project
+                            .activity
+                            .tasks
+                            .entry(item_id.clone())
+                            .or_default()
+                            .activity = Some(format!("Needs attention: {error}"));
+                        project
+                            .activity
+                            .pending
+                            .push(format!("Agent item {item_id} needs attention: {error}"));
+                        project.save_task_activity(&item_id);
+                    }
+                }
+            }
+        }
+        if project.investigation.is_some()
+            || project.active_turn.is_some()
+            || project.reconciliation.is_some()
+        {
+            return;
+        }
+        let next = project
+            .state
+            .items
+            .iter()
+            .filter(|item| {
+                item.authority == crate::domain::Authority::Agent
+                    && !project.investigation_attempted.contains(&item.id)
+            })
+            .min_by_key(|item| (item.priority.rank(), &item.id));
+        if let Some(item) = next {
+            let item_id = item.id.clone();
+            project.investigation_attempted.insert(item_id.clone());
+            project
+                .activity
+                .tasks
+                .entry(item_id.clone())
+                .or_default()
+                .telemetry
+                .started_ms = Some(chrono::Utc::now().timestamp_millis());
+            project
+                .activity
+                .tasks
+                .entry(item_id.clone())
+                .or_default()
+                .activity = Some("Investigating repository evidence…".into());
+            project.investigation = Some(crate::core::investigation::Controller::start(
+                project.state.clone(),
+                item_id,
+            ));
         }
     }
 
@@ -610,6 +709,10 @@ impl PacketApp {
                 .info("Reconciliation is checking merged implementation; your draft is preserved.");
             return;
         }
+        if let Some(controller) = project.investigation.take() {
+            project.investigation_attempted.remove(&controller.item_id);
+            controller.cancel();
+        }
         if project.active_turn.is_some()
             || (project.active_implementation.is_some()
                 && purpose == crate::core::workflow::TurnPurpose::GenerateTasks)
@@ -622,12 +725,15 @@ impl PacketApp {
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: format!(
-                "{text}\n\n[Application project context: active task worker={:?}; auto queue running={}; task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
+                "{text}\n\n[Application project context: active task worker={:?}; auto queue running={}; task count={}; recent task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
                 project.active_implementation_ticket,
                 project.queue.running,
+                project.implementation_states.len(),
                 project
                     .implementation_states
                     .iter()
+                    .rev()
+                    .take(5)
                     .map(|(ticket, state)| (ticket, &state.status))
                     .collect::<Vec<_>>()
             ),
@@ -1450,6 +1556,8 @@ mod board_tests {
                 reconciliation: None,
                 reconciliation_attempted: Default::default(),
                 reconciliation_error: None,
+                investigation: None,
+                investigation_attempted: Default::default(),
                 last_pr_refresh: None,
                 active_turn: None,
                 live_progress: Default::default(),
@@ -1489,6 +1597,61 @@ mod board_tests {
             }
             None
         })
+    }
+
+    fn click_text(app: &mut PacketApp, ctx: &egui::Context, label: &str) -> egui::FullOutput {
+        let output = frame(app, ctx, vec![]);
+        let click =
+            text_position(&output, label).unwrap_or_else(|| panic!("missing clickable {label}"));
+        frame(
+            app,
+            ctx,
+            vec![
+                egui::Event::PointerMoved(click),
+                egui::Event::PointerButton {
+                    pos: click,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        frame(
+            app,
+            ctx,
+            vec![egui::Event::PointerButton {
+                pos: click,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }],
+        );
+        frame(app, ctx, vec![])
+    }
+
+    #[test]
+    fn document_switcher_displays_active_feature_product_and_task_story() {
+        let mut app = fixture();
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state.spec_text = Some("# Product\n\nProduct behavior marker".into());
+            project.state.active_feature = Some((
+                "CHG-001".into(),
+                "# Feature\n\nFeature proposal marker".into(),
+            ));
+        }
+        let ctx = egui::Context::default();
+        ctx.data_mut(|data| data.insert_temp(egui::Id::new("packet_document_tab"), false));
+        frame(&mut app, &ctx, vec![]);
+        let feature = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&feature, "Feature proposal marker").is_some());
+        assert!(text_position(&feature, "Product behavior marker").is_none());
+        let product = click_text(&mut app, &ctx, "Product Specification");
+        assert!(text_position(&product, "Product behavior marker").is_some());
+        assert!(text_position(&product, "Feature proposal marker").is_none());
+        let story = click_text(&mut app, &ctx, "Task Stories");
+        assert!(text_position(&story, "Unique story detail 0").is_some());
+        let feature_again = click_text(&mut app, &ctx, "Active Feature");
+        assert!(text_position(&feature_again, "Feature proposal marker").is_some());
     }
 
     #[test]
@@ -1780,6 +1943,46 @@ mod board_tests {
     }
 
     #[test]
+    fn agent_item_shows_live_investigation_on_board_and_in_detail() {
+        let mut app = fixture();
+        let mut item = OpenItem::new(
+            "CLR-011".into(),
+            crate::domain::Priority::Blocking,
+            crate::domain::ItemKind::Ambiguity,
+            "General".into(),
+            Some("All".into()),
+            "Does the repository already persist queries?".into(),
+            "Investigate the source.".into(),
+        );
+        item.authority = crate::domain::Authority::Agent;
+        if let Screen::Connected(project) = &mut app.screen {
+            project.task_documents.clear();
+            project.state.items = vec![item.clone()];
+            project.activity.tasks.insert(
+                item.id.clone(),
+                crate::harness::LiveProgress {
+                    activity: Some("Reading search source".into()),
+                    response: "Found the query cache but no persistence adapter".into(),
+                    thoughts: "Checking restart behavior".into(),
+                    ..Default::default()
+                },
+            );
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "In progress · 1").is_some());
+        assert!(text_position(&output, "Reading search source").is_some());
+        let details = click_text(&mut app, &ctx, &item.question);
+        assert!(text_position(&details, "Agent investigation").is_some());
+        assert!(text_position(&details, "Worker thoughts").is_some());
+        assert!(
+            app.live_progress().is_none(),
+            "Item worker output must stay out of main chat"
+        );
+    }
+
+    #[test]
     fn auto_queue_runs_two_tasks_through_pi_and_merges_without_prs() {
         let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
         struct Restore(Option<std::ffi::OsString>);
@@ -1987,6 +2190,8 @@ mod tests {
             reconciliation: None,
             reconciliation_attempted: Default::default(),
             reconciliation_error: None,
+            investigation: None,
+            investigation_attempted: Default::default(),
             last_pr_refresh: None,
             implementation_states: Default::default(),
             active_turn: None,

@@ -26,6 +26,8 @@ pub struct Project {
     pub reconciliation: Option<crate::core::reconciliation::Controller>,
     pub reconciliation_attempted: std::collections::HashSet<String>,
     pub reconciliation_error: Option<String>,
+    pub investigation: Option<crate::core::investigation::Controller>,
+    pub investigation_attempted: std::collections::HashSet<String>,
     pub last_pr_refresh: Option<std::time::Instant>,
     pub active_turn: Option<Arc<TurnController>>,
     pub live_progress: crate::harness::LiveProgress,

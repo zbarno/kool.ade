@@ -100,6 +100,8 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         reconciliation: None,
         reconciliation_attempted: Default::default(),
         reconciliation_error: None,
+        investigation: None,
+        investigation_attempted: Default::default(),
         last_pr_refresh: None,
         implementation_states: Default::default(),
         live_progress: crate::harness::LiveProgress::default(),
@@ -107,6 +109,11 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         git: gitops::snapshot(&canonical),
     };
     project.refresh_implementations();
+    for item in &project.state.items {
+        if let Some(activity) = crate::core::implementation::load_activity(&canonical, &item.id) {
+            project.activity.tasks.insert(item.id.clone(), activity);
+        }
+    }
     Ok(project)
 }
 

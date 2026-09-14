@@ -329,6 +329,14 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                 ui.label(RichText::new(item.assigned_to.as_deref().unwrap_or("Unassigned")).size(12.5).weak());
                                             });
                                             ui.label(RichText::new(&item.category).size(12.5).weak());
+                                            if let Some(progress) = s.task_progress(&item.id) {
+                                                if let Some(activity) = &progress.activity {
+                                                    ui.label(RichText::new(card_summary(activity)).size(12.5).color(theme::SUCCESS));
+                                                }
+                                                if !progress.response.trim().is_empty() {
+                                                    ui.label(RichText::new(card_summary(progress.response.trim())).size(12.0).weak());
+                                                }
+                                            }
                                             if eligible.contains(&item.id) { ui.label(RichText::new("For you").size(12.5).color(theme::ACCENT)); }
                                             if s.next_question_id() == Some(item.id.as_str()) { ui.label("Asking now"); }
                                         });
@@ -416,6 +424,30 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         ui.separator();
                         ui.label(RichText::new("Packet's recommendation").strong());
                         ui.label(&item.recommendation);
+                    }
+                    if let Some(progress) = s.task_progress(&item.id) {
+                        ui.separator();
+                        ui.heading("Agent investigation");
+                        if let Some(activity) = &progress.activity {
+                            ui.label(activity);
+                        }
+                        ui.label(format!("Activity updates: {}", progress.telemetry.updates));
+                        if !progress.response.trim().is_empty() {
+                            ui.collapsing("Latest output", |ui| {
+                                ui.label(crate::core::context_build::clip(
+                                    &progress.response,
+                                    4000,
+                                ));
+                            });
+                        }
+                        if !progress.thoughts.trim().is_empty() {
+                            ui.collapsing("Worker thoughts", |ui| {
+                                ui.label(crate::core::context_build::clip(
+                                    &progress.thoughts,
+                                    4000,
+                                ));
+                            });
+                        }
                     }
                     if eligible.contains(&item.id) {
                         ui.label("This item is in your planning queue.");
