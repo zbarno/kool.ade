@@ -182,6 +182,12 @@ pub struct TurnItem {
     pub question: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default, alias = "feature_id")]
+    pub feature_id: Option<String>,
+    #[serde(default)]
+    pub recommendation: Option<String>,
+    #[serde(default)]
+    pub evidence: Option<String>,
     #[serde(default)]
     #[serde(alias = "resolution_note")]
     pub resolution_note: Option<String>,
@@ -203,6 +209,12 @@ pub struct TurnItemUpdate {
     pub question: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default, alias = "feature_id")]
+    pub feature_id: Option<String>,
+    #[serde(default)]
+    pub recommendation: Option<String>,
+    #[serde(default)]
+    pub evidence: Option<String>,
 }
 
 /// Successful harness termination.

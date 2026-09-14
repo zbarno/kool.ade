@@ -386,6 +386,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             .and_then(|id| items.iter().find(|i| &i.id == id))
         {
             let mut discuss = false;
+            let mut approve = false;
             let closed = crate::ui::overlays::show_panel_modal(
                 ui,
                 &format!("Planning · {}", item.id),
@@ -403,6 +404,19 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         item.assigned_to.as_deref().unwrap_or("Unassigned")
                     ));
                     ui.label(&item.reason);
+                    if let Some(feature) = &item.feature_id {
+                        ui.label(format!("Feature: {feature}"));
+                    }
+                    if !item.evidence.is_empty() {
+                        ui.separator();
+                        ui.label(RichText::new("Evidence").strong());
+                        ui.label(&item.evidence);
+                    }
+                    if !item.recommendation.is_empty() {
+                        ui.separator();
+                        ui.label(RichText::new("Packet's recommendation").strong());
+                        ui.label(&item.recommendation);
+                    }
                     if eligible.contains(&item.id) {
                         ui.label("This item is in your planning queue.");
                     }
@@ -422,6 +436,12 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         }
                     }
                     discuss = ui.button("Discuss with project manager").clicked();
+                    if item.authority == crate::domain::Authority::Review
+                        && item.feature_id.is_some()
+                        && !item.recommendation.is_empty()
+                    {
+                        approve = ui.button("Approve provisional decision").clicked();
+                    }
                     if item.is_ownership_gap() && ui.button("Assign ownership").clicked() {
                         s.on_header_action(HeaderAction::Stakeholders);
                     }
@@ -430,7 +450,10 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             if discuss {
                 *s.chat_draft() = format!("Regarding {}: {}\n", item.id, item.question);
             }
-            if closed || discuss {
+            if approve {
+                s.approve_review_item(&item.id);
+            }
+            if closed || discuss || approve {
                 planning_selection = None;
             }
         } else {

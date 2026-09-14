@@ -21,6 +21,9 @@ pub struct UpdatePatch {
     pub assigned_to: Option<String>,
     pub question: Option<String>,
     pub reason: Option<String>,
+    pub feature_id: Option<String>,
+    pub recommendation: Option<String>,
+    pub evidence: Option<String>,
 }
 
 /// Fully-checked outcome of a turn, ready for `core::apply`.
@@ -275,6 +278,19 @@ pub fn validate_for_turn(
         if let Some(raw) = u.reason.as_deref().filter(|s| !s.trim().is_empty()) {
             patch.reason = Some(raw.trim().to_string());
         }
+        if let Some(id) = u.feature_id.as_deref() {
+            if valid_feature_reference(state, envelope, id) {
+                patch.feature_id = Some(id.to_string());
+            } else {
+                fatals.push(format!("{uid}: invalid feature reference {id}"));
+            }
+        }
+        if let Some(value) = &u.recommendation {
+            patch.recommendation = Some(value.trim().to_string());
+        }
+        if let Some(value) = &u.evidence {
+            patch.evidence = Some(value.trim().to_string());
+        }
         updates.push((uid.clone(), patch));
     }
 
@@ -366,6 +382,15 @@ pub fn validate_for_turn(
                         .unwrap_or_default(),
                 );
                 item.authority = authority;
+                if let Some(id) = a.feature_id.as_deref() {
+                    if valid_feature_reference(state, envelope, id) { item.feature_id = Some(id.to_string()); }
+                    else { fatals.push(format!("new item {tag}: invalid feature reference {id}")); }
+                }
+                item.recommendation = a.recommendation.as_deref().unwrap_or("").trim().to_string();
+                item.evidence = a.evidence.as_deref().unwrap_or("").trim().to_string();
+                if authority == Authority::Review && item.recommendation.is_empty() {
+                    fatals.push(format!("new review item {tag} requires a provisional recommendation"));
+                }
                 added.push(item);
             }
             _ => fatals.push(format!(
@@ -429,6 +454,20 @@ pub fn validate_for_turn(
     };
     crate::core::workflow::prepare(state, envelope, &mut normalized, purpose)?;
     Ok(normalized)
+}
+
+fn valid_feature_reference(state: &PlannerState, envelope: &TurnEnvelope, id: &str) -> bool {
+    if !id.starts_with("CHG-") || id.len() != 7 || !id[4..].bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    crate::artifacts::product_docs::document_path(&state.repo_root, &format!("feature:{id}"))
+        .is_ok()
+        || envelope
+            .document_updates
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .any(|update| update.document_id == format!("feature:{id}"))
 }
 
 #[cfg(test)]
@@ -501,6 +540,9 @@ mod tests {
                 question: Some("first unnumbered?".into()),
                 reason: None,
                 resolution_note: None,
+                feature_id: None,
+                recommendation: None,
+                evidence: None,
             },
             TurnItem {
                 authority: None,
@@ -512,6 +554,9 @@ mod tests {
                 question: Some("second unnumbered?".into()),
                 reason: None,
                 resolution_note: None,
+                feature_id: None,
+                recommendation: None,
+                evidence: None,
             },
         ]);
         let v = validate(
@@ -666,6 +711,9 @@ mod tests {
                 priority: Some("High".into()),
                 question: Some("Which auth flow?".into()),
                 resolution_note: None,
+                feature_id: None,
+                recommendation: None,
+                evidence: None,
                 reason: Some("login scoping depends on it".into()),
             },
             TurnItem {
@@ -677,6 +725,9 @@ mod tests {
                 priority: Some("Normal".into()),
                 question: Some("Is SQLite acceptable for parity?".into()),
                 resolution_note: None,
+                feature_id: None,
+                recommendation: None,
+                evidence: None,
                 reason: None,
             },
         ]);
@@ -700,6 +751,9 @@ mod tests {
             priority: Some("Normal".into()),
             question: Some("?".into()),
             resolution_note: None,
+            feature_id: None,
+            recommendation: None,
+            evidence: None,
             reason: None,
         };
         e.open_items_added = Some(vec![mk(), mk()]);
@@ -736,6 +790,9 @@ mod tests {
             assigned_to: None,
             question: None,
             reason: Some("regression risk surfaced".into()),
+            feature_id: None,
+            recommendation: None,
+            evidence: None,
         }]);
         let v = validate(&e, &st, &u).unwrap();
         assert_eq!(v.updates.len(), 1);

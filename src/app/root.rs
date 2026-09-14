@@ -914,6 +914,35 @@ impl Surface for PacketApp {
         }
     }
 
+    fn approve_review_item(&mut self, id: &str) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if project.active_turn.is_some() {
+            self.toasts
+                .warning("Finish the active planning turn before approving this review.");
+            return;
+        }
+        match crate::core::board_actions::approve_review(&mut project.state, id) {
+            Ok(_) => {
+                project.next_question_id = None;
+                project.activity.pending.push(format!(
+                    "Approved review {id}; the feature decision and board are updated."
+                ));
+                self.toasts.success(format!("Approved review {id}"));
+            }
+            Err(error) => {
+                if let Ok(current) =
+                    crate::core::state::PlannerState::load(&project.state.repo_root)
+                {
+                    project.state = current;
+                }
+                self.toasts
+                    .danger(format!("Could not approve {id}: {error}"));
+            }
+        }
+    }
+
     fn spec_text(&self) -> &str {
         match &self.screen {
             Screen::Connected(p) => p

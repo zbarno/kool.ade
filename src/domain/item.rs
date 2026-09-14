@@ -172,6 +172,12 @@ pub struct OpenItem {
     pub question: String,
     /// Why this matters / how it was discovered (context for the responder).
     pub reason: String,
+    #[serde(default)]
+    pub feature_id: Option<String>,
+    #[serde(default)]
+    pub recommendation: String,
+    #[serde(default)]
+    pub evidence: String,
     pub status: ItemStatus,
 }
 
@@ -194,6 +200,9 @@ impl OpenItem {
             assigned_to,
             question,
             reason,
+            feature_id: None,
+            recommendation: String::new(),
+            evidence: String::new(),
             status: ItemStatus::Open,
         }
     }

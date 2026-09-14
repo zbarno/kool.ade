@@ -73,7 +73,9 @@ RESPONSE CONTRACT (mandatory)
 End with exactly one fenced JSON block containing schema_version 2, assistant_message,
 change_summary, document_updates (array of {document_id, content}; empty when unchanged),
 open_items_added, open_items_updated, open_items_resolved, and next_question_id. Use the
-existing item field names, including authority when relevant. Document IDs are logical:
+existing item field names, including authority, feature_id, recommendation, and evidence
+when relevant. Review-authority items require a provisional recommendation and should
+identify the active feature so the board can approve them directly. Document IDs are logical:
 product:05-functional-requirements or feature:CHG-001, never paths. Each content is the
 FULL changed document, not a patch. Do not return unchanged modules. The application
 validates every field and rejects the entire turn on invalid changes. Write nothing after

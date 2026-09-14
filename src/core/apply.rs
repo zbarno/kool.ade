@@ -85,6 +85,15 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             if let Some(r) = &patch.reason {
                 it.reason = r.clone();
             }
+            if let Some(id) = &patch.feature_id {
+                it.feature_id = Some(id.clone());
+            }
+            if let Some(value) = &patch.recommendation {
+                it.recommendation = value.clone();
+            }
+            if let Some(value) = &patch.evidence {
+                it.evidence = value.clone();
+            }
         }
     }
     // 3) Agent-added items (validated + numbered already).

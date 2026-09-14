@@ -14,6 +14,7 @@
 pub mod apply;
 pub mod context_build;
 pub mod contract_snapshot;
+pub mod board_actions;
 pub mod gitops;
 pub mod ids;
 pub mod ownership;

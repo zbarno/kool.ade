@@ -56,6 +56,7 @@ pub trait Surface {
     /// partition (always present; a default-empty map off-project).
     fn stakeholders(&self) -> &crate::domain::Stakeholders;
     fn next_question_id(&self) -> Option<&str>;
+    fn approve_review_item(&mut self, _id: &str) {}
     // ------- spec pane -------
     fn spec_text(&self) -> &str;
     fn active_feature(&self) -> Option<(&str, &str)> {
