@@ -99,6 +99,7 @@ Out of scope:
 
 - **D-26 (confirmed operator directive):** the activity graph moves to task cards, redrawn as a red line, metric preserved.
 - **D-27 (confirmed operator directive):** card color depends on the type of card, type-based palette.
+- **Gate clearance (D-29, recorded this turn):** the operator answered the generation offer "yes", giving the Ready document its explicit approval and authorizing task generation for the two CHG-002 stories. That approval grants nothing downstream on its own: the D-29 order stands, P2 sequencing unchanged — ticket 007 resumes from its board card first, then Implement & continue walks the queue.
 - **CLR-020 (resolved, archived v1.4):** typology locked to the class the board already prints ("Yes card class") — Task-story versus open-item by kind; phase/code-area/priority axes ruled out by the operator's confirmation. No schema or data-model work owed; the branch is known structurally at paint time.
 - **Palette defaults (recorded defaults, overridable by a fresh word):** per-class hues per the table above; DANGER red unclaimed as a card hue (stipulation ii); active-state differentiation guaranteed incl. Task (stipulation i); Question/Assumption purple-family collapse handled by swapping one frame hue first (stipulation iii).
 - **P1 — assumption (agent grade, reversible):** "move" means the details view drops its accent-bar subchart while KEEPING the full text stream. Correctable by a word at story review; does not reopen D-26.
