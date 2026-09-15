@@ -30,6 +30,24 @@ pub trait Surface {
     fn git_dirty(&self) -> bool;
     // ------- chat pane -------
     fn chat_messages(&self) -> &[ChatMessage];
+    fn task_messages(&self, _key: &str) -> &[ChatMessage] {
+        &[]
+    }
+    fn task_draft(&mut self, _key: &str) -> Option<&mut String> {
+        None
+    }
+    fn send_task_reply(&mut self, _key: &str) {}
+    fn task_chat_active(&self, _key: &str) -> bool {
+        false
+    }
+    fn task_reply_busy(&self) -> bool {
+        self.conversation_busy()
+    }
+    fn cancel_task_reply(&mut self, _key: &str) {}
+    fn task_chat_error(&self) -> Option<&str> {
+        None
+    }
+    fn retry_task_chat_save(&mut self) {}
     fn chat_draft(&mut self) -> &mut String;
     fn is_busy(&self) -> bool;
     fn conversation_busy(&self) -> bool;
@@ -49,6 +67,9 @@ pub trait Surface {
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     // ------- items pane -------
     fn items(&self) -> &[OpenItem];
+    fn resolved_items(&self) -> &[OpenItem] {
+        &[]
+    }
     fn synthetic_items(&self) -> &[OpenItem];
     fn items_len(&self) -> usize;
     fn current_user(&self) -> &CurrentUser;

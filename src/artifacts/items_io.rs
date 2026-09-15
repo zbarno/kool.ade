@@ -31,6 +31,9 @@ fn render_one(i: &OpenItem) -> String {
     let _ = writeln!(s, "## {}\n", i.id);
     let _ = writeln!(s, "**Priority:** {}", i.priority);
     let _ = writeln!(s, "**Authority:** {}", i.authority);
+    if let Some(key) = &i.conversation_id {
+        let _ = writeln!(s, "**Conversation:** {key}");
+    }
     let _ = writeln!(s, "**Type:** {}", i.kind);
     let _ = writeln!(s, "**Category:** {}", i.category);
     if let Some(id) = &i.feature_id {
@@ -126,6 +129,7 @@ fn bold_field(line: &str) -> Option<(&str, &str)> {
 /// Accumulator for one item while scanning lines.
 struct Partial {
     id: String,
+    conversation_id: Option<String>,
     priority: Option<Priority>,
     authority: Option<Authority>,
     kind: Option<ItemKind>,
@@ -163,6 +167,7 @@ impl Partial {
     fn new(id: String) -> Self {
         Self {
             id,
+            conversation_id: None,
             priority: None,
             authority: None,
             kind: None,
@@ -210,6 +215,7 @@ impl Partial {
             "Status" => self._status = Some(parse_val!(ItemStatus, key, value)),
             "Category" => self.category = Some(value.to_string()),
             "Feature" => self.feature_id = Some(value.to_string()),
+            "Conversation" => self.conversation_id = Some(value.to_string()),
             "Assigned To" => {
                 self.assigned_to = if value == "(unassigned)" {
                     None
@@ -249,6 +255,7 @@ impl Partial {
             return Err(format!("duplicate open item id {}", item.id));
         }
         item.authority = self.authority.unwrap_or(Authority::Human);
+        item.conversation_id = self.conversation_id;
         item.feature_id = self.feature_id;
         item.recommendation = self.recommendation_buf.trim().to_string();
         item.evidence = self.evidence_buf.trim().to_string();

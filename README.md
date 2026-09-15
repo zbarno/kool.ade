@@ -4,6 +4,25 @@ A native desktop planner with a conversation and a living specification for your
 
 Run with `cargo run --offline` (once dependencies have been downloaded).
 
+## Conversations on the board
+
+Main Chat handles project-wide planning. Every board item also has a focused
+conversation: type a short answer in its **Reply to this item…** field and send it,
+or select the card title to open its full history and larger input. Both surfaces
+share the same draft and messages. **Stop reply** cancels a running response.
+
+Task conversations use the item's durable content, referenced specification
+sections, related tasks, and current implementation state. They do not inherit
+Main Chat or other task histories, and cannot start project interviews or generate
+task batches. Validated decisions update the shared planning artifacts. Completed
+questions remain available on the board with their outcomes and conversation.
+
+Histories persist per project under `~/.packet/projects/<slug>/task-conversations.json`
+(or `PACKET_HOME`), separately from Main Chat. Shared resolved-item outcomes live
+in `planning/resolved-items.json` and are checkpointed in Git. A failed history
+save keeps the agent reply visible and offers **Retry saving conversation**;
+keep the window open until the retry succeeds.
+
 ## Slow local models
 
 Planning turns have a **twelve-hour timeout** by default. Long pauses without output do not end a turn; the Cancel button remains available.

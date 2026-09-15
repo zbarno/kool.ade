@@ -10,6 +10,7 @@ use crate::domain::chatlog::ChatMessage;
 use crate::persistence::chat_store;
 
 pub struct Project {
+    pub task_chats: crate::persistence::task_chats::TaskChats,
     pub activity: super::manager::WorkspaceActivity,
     pub state: PlannerState,
     /// Project slug keying the ~/.packet chat store.
@@ -61,6 +62,15 @@ impl Project {
         }
         let _ = chat_store::append(&self.chat_slug, &msgs);
         self.chat.extend(msgs);
+    }
+
+    pub fn remember_turn_chat(&mut self, msgs: Vec<ChatMessage>) {
+        if let Some(key) = self.task_chats.active.clone() {
+            self.task_chats
+                .remember_response(&self.chat_slug, &key, msgs);
+        } else {
+            self.remember_chat(msgs);
+        }
     }
 
     pub fn refresh_implementations(&mut self) {

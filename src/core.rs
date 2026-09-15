@@ -38,3 +38,4 @@ pub mod implementation_queue;
 pub mod specification;
 
 pub mod project_repos;
+pub mod task_conversation;

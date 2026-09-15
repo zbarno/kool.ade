@@ -35,6 +35,8 @@ pub struct PlannerState {
     pub repositories: crate::core::project_repos::ProjectManifest,
     /// Open-item queue (sorted per `items_io::sort_queue`).
     pub items: Vec<OpenItem>,
+    /// Completed planning items remain available on the board with their outcomes.
+    pub resolved_items: Vec<OpenItem>,
     /// Stakeholder/current-user configuration.
     pub config: PlannerConfig,
     /// Seated operator per FR-13 (git user.name → git user.email → config
@@ -94,6 +96,11 @@ impl PlannerState {
             active_feature: crate::artifacts::product_docs::active_feature(repo),
             repositories: crate::core::project_repos::ProjectManifest::load(repo)?,
             items,
+            resolved_items: match std::fs::read(repo.join("planning/resolved-items.json")) {
+                Ok(bytes) => serde_json::from_slice(&bytes)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                Err(error) => return Err(error.into()),
+            },
             baseline_items_md,
             config,
             identity,

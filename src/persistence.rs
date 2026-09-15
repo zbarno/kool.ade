@@ -8,6 +8,7 @@
 //! * `chat_store.rs` — JSONL chat history per project
 
 pub mod chat_store;
+pub mod task_chats;
 
 mod home;
 

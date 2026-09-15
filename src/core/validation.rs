@@ -304,6 +304,7 @@ pub fn validate_for_turn(
     // Burned forever: everything ever issued — existing queue + this turn's
     // resolutions (numbers are retired, never recycled).
     let mut burned: HashSet<String> = state.items.iter().map(|i| i.id.clone()).collect();
+    burned.extend(state.resolved_items.iter().map(|i| i.id.clone()));
     burned.extend(resolved.iter().cloned());
     let mut added: Vec<OpenItem> = Vec::new();
     for a in envelope.added() {

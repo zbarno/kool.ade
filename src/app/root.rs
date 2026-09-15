@@ -15,8 +15,14 @@ use crate::domain::user::CurrentUser;
 use crate::harness::PiHarness;
 use crate::ui::{HeaderAction, Intent, Surface, ToastQueue};
 
+#[cfg(test)]
+#[path = "conversation_tests.rs"]
+mod conversation_tests;
+
 /// Root of the packet app.
 pub struct PacketApp {
+    #[cfg(test)]
+    task_harness: Option<Box<dyn crate::harness::AiHarness>>,
     screen: Screen,
     dialog: Option<Dialog>,
     toasts: ToastQueue,
@@ -63,6 +69,8 @@ impl Default for PacketApp {
         let toasts = ToastQueue::default();
 
         Self {
+            #[cfg(test)]
+            task_harness: None,
             screen: Screen::Welcome,
             dialog: None,
             toasts,
@@ -84,6 +92,7 @@ impl PacketApp {
         // Phase 1: drain pending turn events (borrows `self.screen` only).
         let mut outcome: Option<TurnOutcome> = None;
         if let Screen::Connected(project) = &mut self.screen {
+            project.task_chats.ensure_loaded(&project.chat_slug);
             if let Some(ctrl) = &project.active_turn {
                 for _ in 0..64 {
                     let Some(evt) = ctrl.poll(Duration::ZERO) else {
@@ -571,10 +580,7 @@ impl PacketApp {
     fn derive_caches(project: &Project) -> (CurrentUser, Vec<OpenItem>) {
         (
             project.state.effective_user(),
-            crate::core::ownership::synthesize_missing_owners(
-                project.state.items.as_slice(),
-                &project.state.config.stakeholders,
-            ),
+            crate::core::ownership::synthesize_for_state(&project.state),
         )
     }
 
@@ -595,7 +601,9 @@ impl PacketApp {
                     &project.state.repo_root,
                     &project.state.workflow,
                 );
-                project.next_question_id = normalized.next_question_id.clone();
+                if project.task_chats.active.is_none() {
+                    project.next_question_id = normalized.next_question_id.clone();
+                }
                 let mut chat = vec![ChatMessage::new(
                     ChatRole::Agent,
                     normalized.assistant_message,
@@ -622,7 +630,7 @@ impl PacketApp {
                         chat.push(ChatMessage::new(ChatRole::System, format!("Created {} detailed task stories in {}. Open the Task stories tab to review them.", batch.count, batch.directory), None));
                     }
                 }
-                project.remember_chat(chat);
+                project.remember_turn_chat(chat);
                 project.refresh_git();
                 self.refresh_derived(project);
                 match &commit_result {
@@ -658,14 +666,14 @@ impl PacketApp {
                     },
                     None,
                 ));
-                project.remember_chat(chat);
+                project.remember_turn_chat(chat);
                 self.toasts.danger(format!(
                     "Rejected: {}",
                     problems.first().map(String::as_str).unwrap_or("")
                 ));
             }
             TurnOutcome::HarnessFailed { error, .. } => {
-                project.remember_chat(vec![ChatMessage::new(
+                project.remember_turn_chat(vec![ChatMessage::new(
                     ChatRole::System,
                     match &error {
                         crate::error::AppError::InvalidResponse { .. } => {
@@ -678,6 +686,77 @@ impl PacketApp {
                 self.toasts.danger(error.headline());
             }
         }
+        project.task_chats.active = None;
+    }
+
+    fn submit_task_reply(&mut self, key: &str) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if project.active_turn.is_some() || project.reconciliation.is_some() {
+            return;
+        }
+        let text = project
+            .task_chats
+            .drafts
+            .get(key)
+            .cloned()
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            return;
+        }
+        if let Err(error) = crate::core::task_conversation::prompt(&project.state, key, &text, &[])
+        {
+            self.toasts.warning(error);
+            return;
+        }
+        project.task_chats.ensure_loaded(&project.chat_slug);
+        let user_message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
+        let sent_id = user_message.id.clone();
+        if let Err(error) = project
+            .task_chats
+            .append(&project.chat_slug, key, vec![user_message])
+        {
+            self.toasts.warning(error);
+            return;
+        }
+        // append merges the current on-disk history under a lock, so the prompt
+        // also sees replies saved by another window since the last refresh.
+        let recent_chat = project
+            .task_chats
+            .messages
+            .get(key)
+            .into_iter()
+            .flatten()
+            .filter(|m| m.id != sent_id)
+            .map(|m| (format!("{:?}", m.role), m.text.clone()))
+            .collect();
+        if let Some(controller) = project.investigation.take() {
+            project.investigation_attempted.remove(&controller.item_id);
+            controller.cancel();
+        }
+        project.activity.manager = None;
+        let inputs = crate::core::turn::TurnInputs {
+            state: project.state.clone(),
+            user_message: text,
+            recent_chat,
+            purpose: crate::core::workflow::TurnPurpose::Interview,
+        };
+        project.task_chats.drafts.remove(key);
+        project.task_chats.active = Some(key.into());
+        #[cfg(test)]
+        let harness = self
+            .task_harness
+            .take()
+            .unwrap_or_else(|| Box::new(PiHarness));
+        #[cfg(not(test))]
+        let harness = Box::new(PiHarness);
+        project.active_turn = Some(std::sync::Arc::new(TurnController::start_scoped(
+            inputs,
+            harness,
+            Some(key.into()),
+        )));
+        project.live_progress = crate::harness::LiveProgress::default();
     }
 
     // ---------------------------------------------------------------- actions
@@ -868,6 +947,59 @@ impl Surface for PacketApp {
         }
     }
 
+    fn task_messages(&self, key: &str) -> &[ChatMessage] {
+        match &self.screen {
+            Screen::Connected(p) => p
+                .task_chats
+                .messages
+                .get(key)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
+            _ => &[],
+        }
+    }
+    fn resolved_items(&self) -> &[OpenItem] {
+        match &self.screen {
+            Screen::Connected(p) => &p.state.resolved_items,
+            _ => &[],
+        }
+    }
+    fn task_draft(&mut self, key: &str) -> Option<&mut String> {
+        match &mut self.screen {
+            Screen::Connected(p) => Some(p.task_chats.drafts.entry(key.into()).or_default()),
+            _ => None,
+        }
+    }
+    fn send_task_reply(&mut self, key: &str) {
+        self.submit_task_reply(key);
+    }
+    fn task_chat_active(&self, key: &str) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() && p.task_chats.active.as_deref() == Some(key))
+    }
+    fn task_chat_error(&self) -> Option<&str> {
+        match &self.screen {
+            Screen::Connected(p) => p.task_chats.error.as_deref(),
+            _ => None,
+        }
+    }
+    fn task_reply_busy(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.reconciliation.is_some())
+    }
+    fn cancel_task_reply(&mut self, key: &str) {
+        if let Screen::Connected(p) = &self.screen {
+            if p.task_chats.active.as_deref() == Some(key) {
+                if let Some(turn) = &p.active_turn {
+                    turn.request_cancel();
+                }
+            }
+        }
+    }
+    fn retry_task_chat_save(&mut self) {
+        if let Screen::Connected(p) = &mut self.screen {
+            p.task_chats.retry_save(&p.chat_slug);
+        }
+    }
+
     fn is_busy(&self) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementation.is_some())
     }
@@ -896,7 +1028,10 @@ impl Surface for PacketApp {
     }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
         match &self.screen {
-            Screen::Connected(p) if p.active_turn.is_some() || p.activity.manager.is_some() => {
+            Screen::Connected(p)
+                if p.task_chats.active.is_none()
+                    && (p.active_turn.is_some() || p.activity.manager.is_some()) =>
+            {
                 Some(&p.live_progress)
             }
             _ => None,
@@ -1521,7 +1656,7 @@ Describe what you are building in the chat. The planner will draft this page for
 mod board_tests {
     use super::*;
 
-    fn fixture() -> PacketApp {
+    pub(super) fn fixture() -> PacketApp {
         let root = std::env::temp_dir().join("packet-board-ui-fixture-nonexistent");
         let docs = ["First task", "Review task", "Merged task"]
             .iter()
@@ -1559,6 +1694,7 @@ mod board_tests {
         }
         PacketApp {
             screen: Screen::Connected(Project {
+                task_chats: Default::default(),
                 activity: Default::default(),
                 state: crate::core::state::PlannerState::load(&root).unwrap(),
                 chat_slug: "unused".into(),
@@ -1586,7 +1722,7 @@ mod board_tests {
         }
     }
 
-    fn frame(
+    pub(super) fn frame(
         app: &mut PacketApp,
         ctx: &egui::Context,
         events: Vec<egui::Event>,
@@ -1602,10 +1738,7 @@ mod board_tests {
     ) -> egui::FullOutput {
         let mut output = ctx.run_ui(
             egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    size,
-                )),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
                 events,
                 ..Default::default()
             },
@@ -1614,7 +1747,7 @@ mod board_tests {
         output.textures_delta.clear();
         output
     }
-    fn text_position(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+    pub(super) fn text_position(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
         output.shapes.iter().find_map(|shape| {
             if let egui::Shape::Text(text) = &shape.shape {
                 if text.galley.text() == needle {
@@ -1625,7 +1758,11 @@ mod board_tests {
         })
     }
 
-    fn click_text(app: &mut PacketApp, ctx: &egui::Context, label: &str) -> egui::FullOutput {
+    pub(super) fn click_text(
+        app: &mut PacketApp,
+        ctx: &egui::Context,
+        label: &str,
+    ) -> egui::FullOutput {
         click_text_at(app, ctx, label, egui::vec2(1800.0, 900.0))
     }
 
@@ -1690,21 +1827,25 @@ mod board_tests {
         let mut app = fixture();
         let ctx = egui::Context::default();
         let expanded = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(
-            &expanded,
-            "Auto mode — merge verified tasks and continue the queue"
-        )
-        .is_some());
+        assert!(
+            text_position(
+                &expanded,
+                "Auto mode — merge verified tasks and continue the queue"
+            )
+            .is_some()
+        );
 
         let mut collapsed = click_text(&mut app, &ctx, "Board overview");
         for _ in 0..30 {
             collapsed = frame(&mut app, &ctx, vec![]);
         }
-        assert!(text_position(
-            &collapsed,
-            "Auto mode — merge verified tasks and continue the queue"
-        )
-        .is_none());
+        assert!(
+            text_position(
+                &collapsed,
+                "Auto mode — merge verified tasks and continue the queue"
+            )
+            .is_none()
+        );
         assert!(text_position(&collapsed, "To do · 1").is_some());
     }
 
@@ -1993,26 +2134,12 @@ mod board_tests {
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "Determines the access model").is_some());
         assert!(text_position(&output, "Owner: All").is_some());
-        let pos = text_position(&output, "Discuss with project manager").unwrap();
-        for pressed in [true, false] {
-            frame(
-                &mut app,
-                &ctx,
-                vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: Default::default(),
-                    },
-                ],
-            );
-        }
-        assert!(app.chat_draft().contains("CLR-010"));
+        assert!(text_position(&output, "Task conversation").is_some());
+        *app.task_draft("CLR-010").unwrap() = "Use corporate SSO".into();
+        assert!(app.chat_draft().is_empty());
         assert!(
             ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_planning")))
-                .is_none()
+                .is_some()
         );
         if let Screen::Connected(project) = &mut app.screen {
             project.state.items.clear();
@@ -2394,6 +2521,7 @@ mod tests {
 
         let state = crate::core::state::PlannerState::load(&root).unwrap();
         let mut proj = Project {
+            task_chats: Default::default(),
             activity: Default::default(),
             state,
             chat_slug: "test-slug".into(),

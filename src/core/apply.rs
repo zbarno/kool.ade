@@ -57,6 +57,19 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
 
     // 1) Resolutions remove items from the queue; the history stays in git.
     if !nt.resolved.is_empty() {
+        for item in state
+            .items
+            .iter()
+            .filter(|item| nt.resolved.contains(&item.id))
+        {
+            let mut resolved = item.clone();
+            resolved.status = crate::domain::ItemStatus::Resolved;
+            resolved
+                .evidence
+                .push_str(&format!("\n\nResolution outcome: {}", nt.assistant_message));
+            state.resolved_items.retain(|old| old.id != resolved.id);
+            state.resolved_items.push(resolved);
+        }
         state
             .items
             .retain(|i| !nt.resolved.iter().any(|r| r == &i.id));
@@ -100,12 +113,16 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     state.items.extend(nt.added.iter().cloned());
 
     // 4) Ownership-gap synthesis (always after agent mutations, §8).
-    let mut synthetic =
-        ownership::synthesize_missing_owners(&state.items, &state.config.stakeholders);
+    let mut synthetic = ownership::synthesize_for_state(state);
     let synthetic_ids: Vec<String> = if synthetic.is_empty() {
         Vec::new()
     } else {
-        let taken: Vec<String> = state.items.iter().map(|i| i.id.clone()).collect();
+        let taken: Vec<String> = state
+            .items
+            .iter()
+            .chain(&state.resolved_items)
+            .map(|i| i.id.clone())
+            .collect();
         ownership::assign_ids(&mut synthetic, taken);
         let ids = synthetic.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
         state.items.extend(synthetic);
@@ -119,6 +136,12 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     // 6) Stage every changed artifact before writing any of them. The journal
     // restores the old complete set on an interrupted or failed apply.
     let mut changes = Vec::new();
+    if !nt.resolved.is_empty() {
+        changes.push((
+            "planning/resolved-items.json".into(),
+            serde_json::to_string_pretty(&state.resolved_items)?,
+        ));
+    }
     if let Some(spec) = &nt.spec_markdown {
         changes.push((SPEC_FILE.to_string(), spec.clone()));
     }

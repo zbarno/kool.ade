@@ -666,6 +666,7 @@ mod tests {
     fn project_from(root: &std::path::Path) -> Project {
         let state = PlannerState::load(root).unwrap();
         Project {
+            task_chats: Default::default(),
             activity: Default::default(),
             state,
             chat_slug: "test-slug".into(),

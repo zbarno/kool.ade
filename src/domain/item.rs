@@ -160,6 +160,9 @@ impl std::fmt::Display for Authority {
 pub struct OpenItem {
     /// Stable identifier, e.g. `CLR-012`. Allocated by the app, referenced thereafter.
     pub id: String,
+    /// Stable origin for a generated board item before it receives a CLR number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
     pub priority: Priority,
     #[serde(default)]
     pub authority: Authority,
@@ -193,6 +196,7 @@ impl OpenItem {
     ) -> Self {
         Self {
             id,
+            conversation_id: None,
             priority,
             authority: Authority::Human,
             kind,
@@ -205,6 +209,11 @@ impl OpenItem {
             evidence: String::new(),
             status: ItemStatus::Open,
         }
+    }
+
+    /// Persistent conversation identity, including before permanent numbering.
+    pub fn conversation_key(&self) -> &str {
+        self.conversation_id.as_deref().unwrap_or(&self.id)
     }
 
     /// True when this item concerns an ownership gap rather than product content.

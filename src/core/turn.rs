@@ -94,6 +94,14 @@ pub struct TurnController {
 
 impl TurnController {
     pub fn start(inputs: TurnInputs, harness: Box<dyn AiHarness>) -> TurnController {
+        Self::start_scoped(inputs, harness, None)
+    }
+
+    pub fn start_scoped(
+        inputs: TurnInputs,
+        harness: Box<dyn AiHarness>,
+        task: Option<String>,
+    ) -> TurnController {
         let (evt_tx, evt_rx) = channel();
         let (act_tx, act_rx) = channel::<LiveProgress>();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -118,7 +126,7 @@ impl TurnController {
         let worker_cancel = cancel.clone();
         let worker_evt_tx = evt_tx.clone();
         let worker = std::thread::spawn(move || {
-            let outcome = run_turn(&inputs, &*harness, &worker_cancel, act_tx);
+            let outcome = run_turn(&inputs, &*harness, &worker_cancel, act_tx, task.as_deref());
             let _ = forwarder.join();
             let _ = worker_evt_tx.send(TurnEvt::Done(outcome));
         });
@@ -164,10 +172,10 @@ fn run_turn(
     harness: &dyn AiHarness,
     cancel: &Arc<AtomicBool>,
     progress_tx: Sender<LiveProgress>,
+    task: Option<&str>,
 ) -> TurnOutcome {
     let started = Instant::now();
     let user = inputs.state.effective_user();
-    let ctx = TurnContext::build(&inputs.state, &inputs.user_message, &inputs.recent_chat);
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks
         && !inputs
             .state
@@ -206,8 +214,27 @@ fn run_turn(
             _ => return TurnOutcome::Rejected { problems: vec!["Planning files changed since the readiness offer. Reopen the repository and review the current plan before generating tasks.".into()], final_text: String::new(), elapsed: started.elapsed() },
         }
     }
-    let mut prompt_body = prompt::render_prompt(&ctx);
-    prompt_body.push_str(&prompt::workflow_context(&inputs.state, inputs.purpose));
+    let mut prompt_body = if let Some(task) = task {
+        match crate::core::task_conversation::prompt(
+            &inputs.state,
+            task,
+            &inputs.user_message,
+            &inputs.recent_chat,
+        ) {
+            Ok(body) => body,
+            Err(error) => {
+                return TurnOutcome::HarnessFailed {
+                    error: AppError::Other(error),
+                    elapsed: started.elapsed(),
+                };
+            }
+        }
+    } else {
+        let ctx = TurnContext::build(&inputs.state, &inputs.user_message, &inputs.recent_chat);
+        let mut body = prompt::render_prompt(&ctx);
+        body.push_str(&prompt::workflow_context(&inputs.state, inputs.purpose));
+        body
+    };
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
         prompt_body.push_str(prompt::TASK_OUTLINE_STEP);
     }
@@ -217,9 +244,14 @@ fn run_turn(
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: format!(
-            "{SYSTEM_INSTRUCTIONS}\n{}\n{}",
+            "{SYSTEM_INSTRUCTIONS}\n{}\n{}\n{}",
             prompt::SPECIFICATION_POLICY,
-            prompt::WORKFLOW_INSTRUCTIONS
+            prompt::WORKFLOW_INSTRUCTIONS,
+            if task.is_some() {
+                "TASK CONVERSATION MODE: The user is discussing one selected board item. Reply only in that item's conversation. Task-specific follow-ups may appear in assistant_message regardless of item priority; next_question_id remains subject to routing validation. Main Chat controls project-level interviewing and task generation; do not emit interview, task_stories, or task_outline fields here. Persist significant conclusions in the appropriate shared specification or item evidence. Do not claim a shared-state change unless the structured response makes it."
+            } else {
+                ""
+            }
         ),
         timeout: configured_turn_timeout(),
         progress_tx,
@@ -252,6 +284,17 @@ fn run_turn(
     // Decode (or discover the absence of) the structured block.
     match decode_envelope(&outcome.final_text) {
         EnvelopeDecode::Env(env) => {
+            if let Some(task) = task {
+                let item_id = inputs.state.items.iter().find(|item| item.conversation_key() == task)
+                    .map(|item| item.id.as_str()).unwrap_or(task);
+                if env.interview.is_some() || env.task_stories.is_some() || env.task_outline.is_some()
+                    || env.next_question_id.as_deref().is_some_and(|id| id != item_id) {
+                    return TurnOutcome::Rejected {
+                        problems: vec!["Task conversations cannot advance the project interview, generate tasks, or redirect the conversation to another item.".into()],
+                        final_text: outcome.final_text, elapsed: started.elapsed(),
+                    };
+                }
+            }
             // Validate against the PRE-mutation snapshot.
             match validation::validate_for_turn(&env, &inputs.state, &user, inputs.purpose) {
                 Err(problems) => TurnOutcome::Rejected {
@@ -260,6 +303,22 @@ fn run_turn(
                     elapsed: started.elapsed(),
                 },
                 Ok(normalized) => {
+                    if task.is_some() {
+                        let unchanged = PlannerState::load(&inputs.state.repo_root).is_ok_and(|current|
+                            current.baseline_spec == inputs.state.baseline_spec
+                            && current.baseline_items_md == inputs.state.baseline_items_md
+                            && current.active_feature == inputs.state.active_feature
+                            && current.resolved_items == inputs.state.resolved_items
+                            && current.config == inputs.state.config
+                            && current.workflow == inputs.state.workflow
+                            && current.repositories == inputs.state.repositories);
+                        if !unchanged {
+                            return TurnOutcome::Rejected {
+                                problems: vec!["Shared planning state changed while this reply was running. Reload the project and resend your reply against the current state.".into()],
+                                final_text: outcome.final_text, elapsed: started.elapsed(),
+                            };
+                        }
+                    }
                     let mut state = inputs.state.clone();
                     let receipt = match apply(&mut state, &normalized) {
                         Ok(rc) => rc,
@@ -390,6 +449,90 @@ mod tests {
                 None => panic!("turn vanished"),
             }
         }
+    }
+
+    #[test]
+    fn synthetic_ownership_conversation_keeps_identity_after_numbering_and_reload() {
+        let (mut inputs, dir) = inputs_for("synthetic_conversation", "Who can assign this?");
+        inputs.state.items.push(crate::domain::OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "Security".into(),
+            None,
+            "Audit policy?".into(),
+            "Controls access".into(),
+        ));
+        let gaps = crate::core::ownership::synthesize_missing_owners(
+            &inputs.state.items,
+            &inputs.state.config.stakeholders,
+        );
+        let key = gaps[0].conversation_key().to_string();
+        let body =
+            crate::core::task_conversation::prompt(&inputs.state, &key, &inputs.user_message, &[])
+                .unwrap();
+        assert!(body.contains("has no assigned stakeholder"));
+        let c = TurnController::start_scoped(inputs, Box::new(ScriptedHarness {
+            canned: None,
+            raw: Some(serde_json::json!({"schema_version":1, "assistant_message":"Use Assign ownership to choose the responsible group.",
+                "open_items_added":[], "open_items_updated":[], "open_items_resolved":[]}).to_string()),
+        }), Some(key.clone()));
+        assert!(matches!(drain(&c), TurnOutcome::Applied { .. }));
+        let state = PlannerState::load(&dir).unwrap();
+        let gap = state
+            .items
+            .iter()
+            .find(|item| item.is_ownership_gap())
+            .unwrap();
+        assert!(gap.id.starts_with("CLR-"));
+        assert_eq!(gap.conversation_key(), key);
+        assert!(crate::core::task_conversation::prompt(&state, &key, "Continue", &[]).is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn focused_conversation_persists_resolution_without_other_chat_context() {
+        let (mut inputs, dir) = inputs_for("task_conversation", "Use corporate SSO");
+        let item = crate::domain::OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            Some("All".into()),
+            "Which authentication provider?".into(),
+            "Controls access".into(),
+        );
+        inputs.state.items.push(item);
+        inputs.recent_chat = vec![("User".into(), "Our employees need access".into())];
+        let body = crate::core::task_conversation::prompt(
+            &inputs.state,
+            "CLR-001",
+            &inputs.user_message,
+            &inputs.recent_chat,
+        )
+        .unwrap();
+        assert!(body.contains("Which authentication provider?"));
+        assert!(body.contains("Our employees need access"));
+        assert!(!body.contains("=== INTERVIEW BRIEF ==="));
+        let c = TurnController::start_scoped(inputs, Box::new(ScriptedHarness {
+            canned: None,
+            raw: Some(serde_json::json!({"schema_version":1, "assistant_message":"Recorded corporate SSO.",
+                "change_summary":"record authentication provider", "updated_specification":crate::core::specification::fixture("Authentication uses corporate SSO."),
+                "open_items_resolved":["CLR-001"]}).to_string()),
+        }), Some("CLR-001".into()));
+        match drain(&c) {
+            TurnOutcome::Applied { .. } => {}
+            other => panic!("expected applied task reply: {other:?}"),
+        }
+        let loaded = PlannerState::load(&dir).unwrap();
+        assert!(!loaded.items.iter().any(|i| i.id == "CLR-001"));
+        assert!(
+            loaded
+                .spec_text
+                .unwrap()
+                .contains("Authentication uses corporate SSO.")
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

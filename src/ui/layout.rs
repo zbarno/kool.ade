@@ -109,6 +109,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                     .count()
                                     + s.items().len()
                                     + s.synthetic_items().len()
+                                    + s.resolved_items().len()
                             ),
                         )
                         .clicked()
@@ -318,6 +319,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
         .items()
         .iter()
         .chain(s.synthetic_items())
+        .chain(s.resolved_items())
         .cloned()
         .collect::<Vec<_>>();
     items.sort_by_key(|item| (item.priority.rank(), item.id.clone()));
@@ -378,7 +380,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 .show(ui, |ui| {
                                     for item in questions {
                                         board_card(ui, &item.id, false, |ui| {
-                                            ui.label(RichText::new(format!("{} · {}", item.id, item.kind)).size(12.5).color(theme::ACCENT));
+                                            ui.label(RichText::new(format!("{} · {}", if item.id.starts_with("ownership:") { "Pending" } else { &item.id }, item.kind)).size(12.5).color(theme::ACCENT));
                                             if ui.add(egui::Button::new(RichText::new(card_summary(&item.question)).strong()).frame(false).wrap()).on_hover_text(&item.question).clicked() {
                                                 planning_selection = Some(item.id.clone());
                                             }
@@ -402,6 +404,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             }
                                             if eligible.contains(&item.id) { ui.label(RichText::new("For you").size(12.5).color(theme::ACCENT)); }
                                             if s.next_question_id() == Some(item.id.as_str()) { ui.label("Asking now"); }
+                                            task_conversation(ui, s, item.conversation_key(), false);
                                         });
                                     }
                                     for doc in cards {
@@ -419,6 +422,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if let Some(progress) = s.task_progress(&doc.path) {
                                                 if crate::ui::task_activity::compact(ui, progress, active) { activity_path = Some(doc.path.clone()); }
                                             } else if active { ui.spinner(); ui.label("Waiting for worker output…"); }
+                                            task_conversation(ui, s, &doc.path, false);
                                         });
                                     }
                                 });
@@ -456,11 +460,17 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             .as_ref()
             .and_then(|id| items.iter().find(|i| &i.id == id))
         {
-            let mut discuss = false;
             let mut approve = false;
             let closed = crate::ui::overlays::show_panel_modal(
                 ui,
-                &format!("Planning · {}", item.id),
+                &format!(
+                    "Planning · {}",
+                    if item.id.starts_with("ownership:") {
+                        "Ownership assignment"
+                    } else {
+                        &item.id
+                    }
+                ),
                 panel_bounds,
                 |ui| {
                     ui.heading(&item.question);
@@ -518,19 +528,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     if s.next_question_id() == Some(item.id.as_str()) {
                         ui.label("The project manager is asking about this item now.");
                     }
-                    let discussion = s
-                        .chat_messages()
-                        .iter()
-                        .filter(|m| m.ref_item.as_deref() == Some(item.id.as_str()))
-                        .collect::<Vec<_>>();
-                    if !discussion.is_empty() {
-                        ui.separator();
-                        ui.heading("Planning discussion");
-                        for message in discussion {
-                            ui.label(&message.text);
-                        }
-                    }
-                    discuss = ui.button("Discuss with project manager").clicked();
+                    task_conversation(ui, s, item.conversation_key(), true);
                     if item.authority == crate::domain::Authority::Review
                         && item.feature_id.is_some()
                         && !item.recommendation.is_empty()
@@ -542,13 +540,10 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     }
                 },
             );
-            if discuss {
-                *s.chat_draft() = format!("Regarding {}: {}\n", item.id, item.question);
-            }
             if approve {
                 s.approve_review_item(&item.id);
             }
-            if closed || discuss || approve {
+            if closed || approve {
                 planning_selection = None;
             }
         } else {
@@ -745,6 +740,77 @@ fn task_key(path: &str) -> String {
     format!("TASK-{}", prefix.to_uppercase())
 }
 
+fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) {
+    ui.push_id(("task_conversation", key, expanded), |ui| {
+        if expanded {
+            ui.separator();
+            ui.heading("Task conversation");
+            egui::ScrollArea::vertical()
+                .max_height(280.0)
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    for message in s.task_messages(key) {
+                        ui.label(
+                            RichText::new(format!("{:?} · {}", message.role, message.time_label()))
+                                .small()
+                                .weak(),
+                        );
+                        ui.label(&message.text);
+                    }
+                });
+        } else if let Some(message) = s.task_messages(key).last() {
+            ui.label(RichText::new(card_summary(&message.text)).small());
+        }
+        if s.task_chat_active(key) {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Replying…");
+                if ui.button("Stop reply").clicked() {
+                    s.cancel_task_reply(key);
+                }
+            });
+        }
+        if let Some(error) = s.task_chat_error() {
+            ui.colored_label(theme::DANGER, error);
+            if ui.button("Retry saving conversation").clicked() {
+                s.retry_task_chat_save();
+            }
+        }
+        let busy = s.task_reply_busy();
+        let mut send = false;
+        if let Some(draft) = s.task_draft(key) {
+            let response = if expanded {
+                ui.add(
+                    egui::TextEdit::multiline(draft)
+                        .desired_rows(3)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Continue this task conversation…"),
+                )
+            } else {
+                ui.add(
+                    egui::TextEdit::singleline(draft)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Reply to this item…"),
+                )
+            };
+            let enter = if expanded {
+                response.has_focus()
+                    && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
+            } else {
+                response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+            };
+            let enabled = !busy && !draft.trim().is_empty();
+            let clicked = ui
+                .add_enabled(enabled, egui::Button::new("Send reply"))
+                .clicked();
+            send = enabled && (enter || clicked);
+        }
+        if send {
+            s.send_task_reply(key);
+        }
+    });
+}
+
 fn paint_task_details(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
@@ -753,6 +819,7 @@ fn paint_task_details(
     activity_path: &mut Option<String>,
 ) {
     ui.heading(&doc.title);
+    task_conversation(ui, s, &doc.path, true);
     ui.add_space(8.0);
     let width = ui.available_width().min(1460.0);
     let inset = ((ui.available_width() - width) / 2.0).max(0.0);

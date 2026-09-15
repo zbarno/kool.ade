@@ -31,11 +31,9 @@ pub fn synthesize_missing_owners(queue: &[OpenItem], stakeholders: &Stakeholders
         if stakeholders.owner_exists(&item.category) {
             continue;
         }
-        let already_covered = queue.iter().any(
-            |existing|
-                existing.is_ownership_gap()
-                    && existing.category.eq_ignore_ascii_case(&item.category),
-        );
+        let already_covered = queue.iter().any(|existing| {
+            existing.is_ownership_gap() && existing.category.eq_ignore_ascii_case(&item.category)
+        });
         if already_covered {
             continue;
         }
@@ -45,8 +43,11 @@ pub fn synthesize_missing_owners(queue: &[OpenItem], stakeholders: &Stakeholders
             "No stakeholder mapping exists for this category.",
             |_| "The category is configured but has no members listed.",
         );
-        out.push(OpenItem::new(
-            format!("OWN-PLACEHOLDER-{}", cat_key.chars().take(8).collect::<String>().to_uppercase()),
+        let mut gap = OpenItem::new(
+            format!(
+                "OWN-PLACEHOLDER-{}",
+                cat_key.chars().take(8).collect::<String>().to_uppercase()
+            ),
             Priority::High,
             ItemKind::Ownership,
             item.category.clone(),
@@ -56,9 +57,42 @@ pub fn synthesize_missing_owners(queue: &[OpenItem], stakeholders: &Stakeholders
                 "Automatically created: another open item ({}) requires “{}”, but {blank}",
                 item.id, item.category
             ),
+        );
+        gap.conversation_id = Some(format!(
+            "ownership:{}:{}",
+            item.id,
+            cat_key
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
         ));
+        // Placeholder display IDs must also distinguish categories sharing a prefix.
+        gap.id = gap.conversation_id.clone().unwrap();
+        out.push(gap);
     }
     out
+}
+
+/// A newly raised gap must not reuse the conversation of a completed gap.
+pub fn synthesize_for_state(state: &crate::core::state::PlannerState) -> Vec<OpenItem> {
+    let mut gaps = synthesize_missing_owners(&state.items, &state.config.stakeholders);
+    for gap in &mut gaps {
+        let base = gap.conversation_key().to_owned();
+        let mut key = base.clone();
+        let mut generation = 1;
+        while state
+            .resolved_items
+            .iter()
+            .any(|old| old.conversation_key() == key)
+        {
+            generation += 1;
+            key = format!("{base}:{generation}");
+        }
+        gap.id = key.clone();
+        gap.conversation_id = Some(key);
+    }
+    gaps
 }
 
 /// Give synthesized items their final CLR ids, continuing from existing
@@ -95,12 +129,19 @@ mod tests {
 
     #[test]
     fn synthesizes_only_unowned_categories_once_each() {
-        let queue = vec![q("CLR-001", "Data Governance"), q("CLR-002", "DATA GOVERNANCE"), q("CLR-003", "Security")];
+        let queue = vec![
+            q("CLR-001", "Data Governance"),
+            q("CLR-002", "DATA GOVERNANCE"),
+            q("CLR-003", "Security"),
+        ];
         let synth = synthesize_missing_owners(&queue, &stakes());
         assert_eq!(synth.len(), 1);
         assert!(synth[0].category.eq_ignore_ascii_case("Data Governance"));
         assert!(synth[0].reason.contains("CLR-001"));
-        assert_eq!(synthesize_missing_owners(&queue, &Stakeholders::default()).len(), 2);
+        assert_eq!(
+            synthesize_missing_owners(&queue, &Stakeholders::default()).len(),
+            2
+        );
     }
 
     #[test]
@@ -119,7 +160,8 @@ mod tests {
 
     #[test]
     fn assign_ids_continues_numbering_without_clashes() {
-        let mut synth = synthesize_missing_owners(&[q("CLR-004", "Risk")], &Stakeholders::default());
+        let mut synth =
+            synthesize_missing_owners(&[q("CLR-004", "Risk")], &Stakeholders::default());
         assign_ids(&mut synth, ["CLR-005".to_string()]);
         assert_eq!(synth[0].id, "CLR-006");
     }

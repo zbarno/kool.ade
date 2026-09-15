@@ -169,6 +169,13 @@ mod tests {
         let commit = approve_review(&mut state, "CLR-001").unwrap();
         assert!(!commit.is_empty());
         assert!(state.items.is_empty());
+        let reopened = PlannerState::load(&repo).unwrap();
+        assert_eq!(reopened.resolved_items[0].conversation_key(), "CLR-001");
+        assert!(
+            reopened.resolved_items[0]
+                .evidence
+                .contains("Approved provisional decision CLR-001")
+        );
         assert!(
             std::fs::read_to_string(&feature_path)
                 .unwrap()
