@@ -5,15 +5,18 @@ pub mod root;
 pub mod session;
 pub mod welcome;
 
-pub use root::PacketApp;
+pub use root::{PacketApp, options};
 
-/// Native-window bootstrap options (initial size floor for the three-pane layout).
-pub fn options() -> eframe::NativeOptions {
-    eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1480.0, 900.0])
-            .with_min_inner_size([1080.0, 640.0]),
-        ..Default::default()
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn native_window_can_enter_the_compact_layout() {
+        let viewport = super::options().viewport;
+        let minimum = viewport.min_inner_size.expect("minimum window size");
+
+        assert!(minimum.x < 960.0);
+        assert!(minimum.x <= 360.0);
+        assert!(minimum.y <= 480.0);
     }
 }
 

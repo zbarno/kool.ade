@@ -44,12 +44,14 @@ enum Dialog {
     Mcp(DlgMcp),
 }
 
-/// Native window options for [`eframe::run_native`].
+/// Native window options for [`eframe::run_native`]. The minimum stays below
+/// the compact-layout breakpoint so the stacked workspace is reachable on
+/// smaller displays.
 pub fn options() -> eframe::NativeOptions {
     let mut vp = egui::ViewportBuilder::default();
     vp = vp
-        .with_inner_size([1280.0, 820.0])
-        .with_min_inner_size([1000.0, 640.0]);
+        .with_inner_size([1480.0, 900.0])
+        .with_min_inner_size([360.0, 480.0]);
     eframe::NativeOptions {
         viewport: vp,
         ..Default::default()
@@ -141,7 +143,20 @@ impl PacketApp {
                         if !record.auto_merge || record.status != "Done" {
                             project.queue.running = false;
                         }
-                        if record.auto_merge {
+                        if crate::core::implementation::permits_evidence_only_completion(
+                            &record.ticket_text,
+                        ) {
+                            format!(
+                                "Evidence-only task verified against {} at {}. {}",
+                                record.base,
+                                record.merged_commit.unwrap_or_default(),
+                                if project.queue.running {
+                                    "Continuing the Auto queue."
+                                } else {
+                                    "Queue paused."
+                                }
+                            )
+                        } else if record.auto_merge {
                             format!(
                                 "Task merged into {} at {}. {}",
                                 record.base,
@@ -1655,7 +1670,7 @@ mod board_tests {
     fn narrow_workspace_keeps_board_visible_and_collapses_conversation() {
         let mut app = fixture();
         let ctx = egui::Context::default();
-        let size = egui::vec2(480.0, 640.0);
+        let size = egui::vec2(360.0, 480.0);
 
         let expanded = frame_at(&mut app, &ctx, vec![], size);
         let board = text_position(&expanded, "Board  3").expect("board tab should remain visible");

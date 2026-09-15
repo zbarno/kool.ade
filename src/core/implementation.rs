@@ -826,12 +826,14 @@ fn prepare_verified(
             let parsed = crate::harness::pi_extract::extract_json_object(&report_text)
                 .ok_or_else(|| anyhow::anyhow!("No complete JSON implementation report. Return JSON with status, summary, acceptance_criteria, verification, and remaining."))
                 .and_then(|json| serde_json::from_str::<Report>(&json).map_err(Into::into));
-            // An explicit blocker needs outside intervention, not repeated model calls.
-            if let Ok(report) = &parsed {
-                if report.status == "blocked" {
-                    validate_report(report, &state.ticket_text)?;
-                }
-            }
+            // A blocked report is a recovery checkpoint, not an immediate
+            // terminal state. Feed its evidence and remaining work through the
+            // same bounded correction loop used for report and verification
+            // failures. The shared deadline and healing limit still prevent an
+            // unrecoverable external dependency from looping forever.
+            let blocked_report = parsed
+                .as_ref()
+                .is_ok_and(|report| report.status == "blocked");
             let mut failure = None;
             let mut verification_failure = false;
             match parsed {
@@ -883,6 +885,12 @@ fn prepare_verified(
                 "report"
             };
             feedback.push_str(&format!("\nAttempt {attempt} ({phase}): {failure}\n"));
+            if blocked_report {
+                feedback.push_str("AUTOMATIC BLOCKER RECOVERY REQUIRED: treat the blocked report as a checkpoint, preserve its evidence and completed work, and execute every remaining remediation available from this worktree. Diagnose and repair local tooling, scripts, tests, or implementation defects before reporting blocked again. Do not weaken acceptance criteria or fabricate evidence.\n");
+                runner.update(format!(
+                    "Recovering reported blocker in the preserved worktree (attempt {attempt})…"
+                ));
+            }
             state.detail = feedback.clone();
             save(dir, state)?;
             fs::write(dir.join(format!("{stamp}-correction.txt")), &failure)?;
@@ -934,19 +942,20 @@ fn prepare_verified(
                 .is_empty(),
             "Worktree is not clean after verification and commit; resume to review"
         );
-        anyhow::ensure!(
-            !runner
-                .git(
-                    &state.worktree,
-                    &[
-                        "diff",
-                        "--name-only",
-                        &format!("{}...HEAD", state.base_commit)
-                    ]
-                )?
-                .is_empty(),
-            "No implementation changes relative to the starting commit; no PR created"
-        );
+        let changed_paths = runner.git(
+            &state.worktree,
+            &[
+                "diff",
+                "--name-only",
+                &format!("{}...HEAD", state.base_commit),
+            ],
+        )?;
+        if changed_paths.is_empty() {
+            anyhow::ensure!(
+                permits_evidence_only_completion(&state.ticket_text),
+                "No implementation changes relative to the starting commit; no PR created"
+            );
+        }
         state.verified_head = Some(runner.git(&state.worktree, &["rev-parse", "HEAD"])?);
         state.detail = report.summary.clone();
         fs::write(
@@ -955,6 +964,16 @@ fn prepare_verified(
         )?;
         let body = pr_body(state, &report);
         fs::write(dir.join("pr-body.md"), body)?;
+        if changed_paths.is_empty() {
+            // Evidence-only tickets deliberately leave the product repository
+            // untouched. The verified base commit is their immutable
+            // completion anchor, allowing queue dependencies to advance
+            // without inventing an empty commit or pull request.
+            state.merged_commit = state.verified_head.clone();
+            state.status = "Done".into();
+            save(dir, state)?;
+            return Ok(());
+        }
         state.status = "Ready for PR".into();
         save(dir, state)?;
     }
@@ -970,6 +989,9 @@ fn execute(
     runner: &Runner,
 ) -> anyhow::Result<()> {
     prepare_verified(repo, dir, state, harness, runner)?;
+    if state.status == "Done" {
+        return Ok(());
+    }
     if state.auto_merge {
         return auto_publish(repo, dir, state, harness, runner);
     }
@@ -1421,6 +1443,20 @@ fn validate_report(report: &Report, ticket: &str) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+/// Recognize the deliberately narrow contract used by audit/demonstration
+/// tickets. Requiring all three independent statements prevents an ordinary
+/// implementation task from turning a no-op report into a successful result.
+pub(crate) fn permits_evidence_only_completion(ticket: &str) -> bool {
+    let contract = ticket.to_ascii_lowercase();
+    [
+        "this ticket lands zero planner code",
+        "explicitly unchanged",
+        "no product-repo file may be created or modified by this ticket",
+    ]
+    .iter()
+    .all(|statement| contract.contains(statement))
+}
 fn pr_body(state: &Implementation, report: &Report) -> String {
     let mut text = format!(
         "{}\n\nTicket: `{}`\n\n## Acceptance criteria\n\n",
@@ -1555,6 +1591,13 @@ mod tests {
                     )
                     .unwrap();
                 }
+                if self.mode == "repair_blocked" {
+                    assert!(
+                        req.prompt_body
+                            .contains("AUTOMATIC BLOCKER RECOVERY REQUIRED")
+                    );
+                    assert!(req.prompt_body.contains("Repair the local conductor"));
+                }
                 if self.mode == "repair_cancel" {
                     req.cancel.store(true, Ordering::SeqCst);
                 }
@@ -1573,7 +1616,7 @@ mod tests {
             if self.mode == "cancel" {
                 fs::write(req.repo_root.join("implemented.txt"), "partial\n").unwrap();
                 req.cancel.store(true, Ordering::SeqCst);
-            } else {
+            } else if self.mode != "evidence_only" {
                 fs::write(req.repo_root.join("implemented.txt"), "implemented\n").unwrap();
             }
             if self.mode == "harness_retry" && call == 0 || self.mode == "harness_dead" {
@@ -1585,12 +1628,16 @@ mod tests {
             if self.mode == "healing" && call >= 4 {
                 assert!(req.prompt_body.contains("SELF-REPAIR REQUIRED"));
             }
-            let status = if self.mode == "blocked" {
+            let status = if self.mode == "blocked"
+                || (self.mode == "repair_blocked" && call == 0)
+            {
                 "blocked"
             } else {
                 "complete"
             };
-            let verification = if self.mode == "fail"
+            let verification = if self.mode == "evidence_only" {
+                "test ! -e implemented.txt"
+            } else if self.mode == "fail"
                 || self.mode == "repair_verification"
                 || self.mode == "repair_mixed"
             {
@@ -1598,7 +1645,17 @@ mod tests {
             } else {
                 "test \"$(cat implemented.txt)\" = implemented"
             };
-            let mut report = serde_json::json!({"status":status,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":"File contains implemented.","evidence":"Created the file and checked its exact contents."}],"verification":[verification],"remaining":[]});
+            let criterion = if self.mode == "evidence_only" {
+                "Repository remains unchanged."
+            } else {
+                "File contains implemented."
+            };
+            let mut report = serde_json::json!({"status":status,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":criterion,"evidence":"Created the required evidence and checked its exact contents."}],"verification":[verification],"remaining":[]});
+            if status == "blocked" {
+                report["remaining"] = serde_json::json!([
+                    "Repair the local conductor and rerun the acceptance check."
+                ]);
+            }
             if call == 0 && self.mode == "repair_criterion" {
                 report["acceptance_criteria"][0]["criterion"] =
                     "File contains implementation.".into();
@@ -1740,6 +1797,16 @@ mod tests {
                 self.gh.to_str().unwrap(),
             )
         }
+        fn make_evidence_only(&self) {
+            fs::write(
+                self.repo.join(&self.ticket),
+                "# Conduct audit\n\nThis ticket lands zero planner code.\n\nAll source files are explicitly unchanged.\n\nNo product-repo file may be created or modified by this ticket.\n\n## Acceptance criteria\n\n- Repository remains unchanged.\n",
+            )
+            .unwrap();
+            self.git(&self.repo, &["add", &self.ticket]);
+            self.git(&self.repo, &["commit", "-qm", "define evidence-only audit"]);
+            self.git(&self.repo, &["push", "-q", "origin", "main"]);
+        }
     }
     impl Drop for Sandbox {
         fn drop(&mut self) {
@@ -1773,6 +1840,27 @@ mod tests {
                 .lines()
                 .count(),
             1
+        );
+    }
+    #[test]
+    fn explicit_evidence_only_task_completes_without_commit_or_pr() {
+        let s = Sandbox::new();
+        s.make_evidence_only();
+        let base = s.git(&s.repo, &["rev-parse", "HEAD"]);
+        let calls = Arc::new(AtomicUsize::new(0));
+
+        let result = s.run("evidence_only", calls.clone()).unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(result.status, "Done");
+        assert_eq!(result.verified_head.as_deref(), Some(base.as_str()));
+        assert_eq!(result.merged_commit.as_deref(), Some(base.as_str()));
+        assert!(result.pr_url.is_none());
+        assert!(!s.root.join("pr-created").exists());
+        assert_eq!(s.git(&result.worktree, &["rev-parse", "HEAD"]), base);
+        assert!(
+            s.git(&result.worktree, &["status", "--porcelain"])
+                .is_empty()
         );
     }
     #[test]
@@ -1930,6 +2018,7 @@ mod tests {
             "repair_schema",
             "repair_criterion",
             "repair_verification",
+            "repair_blocked",
         ] {
             let s = Sandbox::new();
             let calls = Arc::new(AtomicUsize::new(0));
@@ -1979,7 +2068,7 @@ mod tests {
     fn correction_limit_blocker_and_cancellation_never_publish() {
         for (mode, expected_calls, error_text) in [
             ("fail", 6, "Automatic correction limit"),
-            ("blocked", 1, "Implementation is not complete"),
+            ("blocked", 6, "Automatic correction limit"),
             ("repair_cancel", 2, "Implementation cancelled"),
         ] {
             let s = Sandbox::new();
