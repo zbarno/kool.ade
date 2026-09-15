@@ -12,23 +12,26 @@ pub enum HeaderAction {
 }
 
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    let compact = ui.ctx().content_rect().width() < 960.0;
     Panel::top("packet_header")
-        .exact_size(58.0)
+        .exact_size(if compact { 52.0 } else { 58.0 })
         .frame(
             Frame::NONE
                 .fill(theme::BG)
-                .inner_margin(egui::Margin::symmetric(22, 10)),
+                .inner_margin(egui::Margin::symmetric(if compact { 14 } else { 22 }, 10)),
         )
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.set_min_height(36.0);
+                ui.set_min_height(if compact { 30.0 } else { 36.0 });
                 ui.label(RichText::new("Packet").size(21.0).strong());
-                ui.add_space(18.0);
-                ui.label(
-                    RichText::new(s.session_title())
-                        .size(14.0)
-                        .color(theme::TEXT_DIM),
-                );
+                if !compact {
+                    ui.add_space(18.0);
+                    ui.label(
+                        RichText::new(s.session_title())
+                            .size(14.0)
+                            .color(theme::TEXT_DIM),
+                    );
+                }
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("Workspace", |ui| {
                         for (label, action) in [
@@ -44,63 +47,46 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             }
                         }
                     });
-                    ui.add_space(12.0);
-                    let label = if !s.is_git_repo() {
-                        "No repository".to_owned()
-                    } else {
-                        format!(
-                            "{}  ·  {}",
-                            s.git_branch(),
-                            if s.git_dirty() {
-                                "Uncommitted changes"
-                            } else {
-                                "Saved to git"
-                            }
-                        )
-                    };
-                    ui.label(RichText::new(label).size(12.5).color(theme::TEXT_DIM));
+                    if !compact {
+                        ui.add_space(12.0);
+                        let label = if !s.is_git_repo() {
+                            "No repository".to_owned()
+                        } else {
+                            format!(
+                                "{}  ·  {}",
+                                s.git_branch(),
+                                if s.git_dirty() {
+                                    "Uncommitted changes"
+                                } else {
+                                    "Saved to git"
+                                }
+                            )
+                        };
+                        ui.label(RichText::new(label).size(12.5).color(theme::TEXT_DIM));
+                    }
                 });
             });
         });
-    Panel::left("packet_chat")
-        .default_size((ui.ctx().content_rect().width() * 0.23).clamp(380.0, 480.0))
-        .min_size(380.0)
-        .max_size(560.0)
-        .resizable(true)
-        .frame(
-            Frame::NONE
-                .fill(theme::BG)
-                .inner_margin(egui::Margin::symmetric(22, 18)),
-        )
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Conversation").size(17.0).strong());
-                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Project manager").size(12.5).weak());
-                });
-            });
-            ui.add_space(24.0);
-            let msgs = s.chat_messages().to_vec();
-            let progress = s.live_progress().cloned();
-            let busy = s.conversation_busy();
-            let offer = s.task_offer().cloned();
-            let intent = crate::ui::chat_pane::paint(
-                ui,
-                &msgs,
-                s.chat_draft(),
-                busy,
-                progress.as_ref(),
-                offer.as_ref(),
-            );
-            if intent.send || intent.cancel || intent.generate_tasks {
-                s.on_intent(&intent);
-            }
-        });
+    if compact {
+        paint_compact_conversation(ui, s);
+    } else {
+        Panel::left("packet_chat")
+            .default_size((ui.ctx().content_rect().width() * 0.23).clamp(380.0, 480.0))
+            .min_size(380.0)
+            .max_size(560.0)
+            .resizable(true)
+            .frame(
+                Frame::NONE
+                    .fill(theme::BG)
+                    .inner_margin(egui::Margin::symmetric(22, 18)),
+            )
+            .show(ui, |ui| paint_conversation(ui, s, true));
+    }
     CentralPanel::default()
         .frame(
             Frame::NONE
                 .fill(theme::PANEL)
-                .inner_margin(egui::Margin::symmetric(28, 18)),
+                .inner_margin(egui::Margin::symmetric(if compact { 12 } else { 28 }, 18)),
         )
         .show(ui, |ui| {
             let tab_id = egui::Id::new("packet_document_tab");
@@ -218,31 +204,113 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
         });
 }
 
+fn paint_compact_conversation(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    let open_id = egui::Id::new("packet_compact_conversation_open");
+    let mut open = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<bool>(open_id).unwrap_or(true));
+    Panel::top("packet_compact_conversation_header")
+        .exact_size(44.0)
+        .frame(
+            Frame::NONE
+                .fill(theme::BG)
+                .inner_margin(egui::Margin::symmetric(14, 7)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let marker = if open { "▾" } else { "▸" };
+                if ui
+                    .button(format!("{marker}  Conversation"))
+                    .on_hover_text(if open {
+                        "Collapse project manager conversation"
+                    } else {
+                        "Expand project manager conversation"
+                    })
+                    .clicked()
+                {
+                    open = !open;
+                }
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new("Project manager").size(12.5).weak());
+                });
+            });
+        });
+    ui.ctx().data_mut(|data| data.insert_temp(open_id, open));
+    if open {
+        let max_height = (ui.ctx().content_rect().height() * 0.42).clamp(210.0, 360.0);
+        Panel::top("packet_compact_conversation_body")
+            .default_size(max_height.min(280.0))
+            .min_size(180.0)
+            .max_size(max_height)
+            .resizable(true)
+            .frame(
+                Frame::NONE
+                    .fill(theme::BG)
+                    .inner_margin(egui::Margin::symmetric(14, 10)),
+            )
+            .show(ui, |ui| paint_conversation(ui, s, false));
+    }
+}
+
+fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
+    if heading {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Conversation").size(17.0).strong());
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(RichText::new("Project manager").size(12.5).weak());
+            });
+        });
+        ui.add_space(24.0);
+    }
+    let msgs = s.chat_messages().to_vec();
+    let progress = s.live_progress().cloned();
+    let busy = s.conversation_busy();
+    let offer = s.task_offer().cloned();
+    let intent = crate::ui::chat_pane::paint(
+        ui,
+        &msgs,
+        s.chat_draft(),
+        busy,
+        progress.as_ref(),
+        offer.as_ref(),
+    );
+    if intent.send || intent.cancel || intent.generate_tasks {
+        s.on_intent(&intent);
+    }
+}
+
 fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let panel_bounds = ui.max_rect();
     let activity_id = egui::Id::new("packet_task_activity");
     let mut activity_path = ui.ctx().data_mut(|d| d.get_temp::<String>(activity_id));
-    let mut auto_mode = s.auto_mode();
-    if ui.checkbox(&mut auto_mode, "Auto mode — merge verified tasks and continue the queue").on_hover_text("Enabled by default. Implement starts the queue. Disable to stop after the current task and use pull requests for future tasks.").changed() { s.set_auto_mode(auto_mode); }
-    if !s.queue_status().is_empty() {
-        ui.label(s.queue_status().lines().next().unwrap_or_default());
-        if s.queue_status().contains('\n') {
-            ui.collapsing("Queue recovery details", |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(160.0)
-                    .show(ui, |ui| {
-                        ui.label(s.queue_status());
-                    });
-            });
-        }
-    }
-    let docs = s.task_documents().to_vec();
-    if let Some(progress) = docs.iter().find(|d| d.path.ends_with("/README.md")) {
-        ui.label(RichText::new(&progress.title).weak());
-        ui.add_space(8.0);
-    }
     let id = egui::Id::new("packet_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
+    let docs = s.task_documents().to_vec();
+    egui::CollapsingHeader::new(RichText::new("Board overview").strong())
+        .id_salt("packet_board_overview")
+        .default_open(true)
+        .show(ui, |ui| {
+            let mut auto_mode = s.auto_mode();
+            if ui.checkbox(&mut auto_mode, "Auto mode — merge verified tasks and continue the queue").on_hover_text("Enabled by default. Implement starts the queue. Disable to stop after the current task and use pull requests for future tasks.").changed() { s.set_auto_mode(auto_mode); }
+            if !s.queue_status().is_empty() {
+                ui.label(s.queue_status().lines().next().unwrap_or_default());
+                if s.queue_status().contains('\n') {
+                    ui.collapsing("Queue recovery details", |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(160.0)
+                            .show(ui, |ui| {
+                                ui.label(s.queue_status());
+                            });
+                    });
+                }
+            }
+            if let Some(progress) = docs.iter().find(|d| d.path.ends_with("/README.md")) {
+                ui.label(RichText::new(&progress.title).weak());
+                if ui.button("Batch overview").clicked() {
+                    selected_path = Some(progress.path.clone());
+                }
+            }
+        });
     let mut planning_selection = ui
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_planning")));
@@ -266,11 +334,6 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
         .size(12.5)
         .weak(),
     );
-    if let Some(doc) = docs.iter().find(|doc| doc.path.ends_with("/README.md")) {
-        if ui.button("Batch overview").clicked() {
-            selected_path = Some(doc.path.clone());
-        }
-    }
     let height = (ui.available_height() - 24.0).max(120.0);
     let gaps = ui.spacing().item_spacing.x * 4.0;
     let column_width = ((ui.available_width() - 100.0 - gaps - 2.0) / 5.0).max(190.0);

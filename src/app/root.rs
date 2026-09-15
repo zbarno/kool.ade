@@ -1576,11 +1576,20 @@ mod board_tests {
         ctx: &egui::Context,
         events: Vec<egui::Event>,
     ) -> egui::FullOutput {
+        frame_at(app, ctx, events, egui::vec2(1800.0, 900.0))
+    }
+
+    fn frame_at(
+        app: &mut PacketApp,
+        ctx: &egui::Context,
+        events: Vec<egui::Event>,
+        size: egui::Vec2,
+    ) -> egui::FullOutput {
         let mut output = ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
                     egui::Pos2::ZERO,
-                    egui::vec2(1800.0, 900.0),
+                    size,
                 )),
                 events,
                 ..Default::default()
@@ -1602,10 +1611,19 @@ mod board_tests {
     }
 
     fn click_text(app: &mut PacketApp, ctx: &egui::Context, label: &str) -> egui::FullOutput {
-        let output = frame(app, ctx, vec![]);
+        click_text_at(app, ctx, label, egui::vec2(1800.0, 900.0))
+    }
+
+    fn click_text_at(
+        app: &mut PacketApp,
+        ctx: &egui::Context,
+        label: &str,
+        size: egui::Vec2,
+    ) -> egui::FullOutput {
+        let output = frame_at(app, ctx, vec![], size);
         let click =
             text_position(&output, label).unwrap_or_else(|| panic!("missing clickable {label}"));
-        frame(
+        frame_at(
             app,
             ctx,
             vec![
@@ -1617,8 +1635,9 @@ mod board_tests {
                     modifiers: Default::default(),
                 },
             ],
+            size,
         );
-        frame(
+        frame_at(
             app,
             ctx,
             vec![egui::Event::PointerButton {
@@ -1627,8 +1646,51 @@ mod board_tests {
                 pressed: false,
                 modifiers: Default::default(),
             }],
+            size,
         );
-        frame(app, ctx, vec![])
+        frame_at(app, ctx, vec![], size)
+    }
+
+    #[test]
+    fn narrow_workspace_keeps_board_visible_and_collapses_conversation() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        let size = egui::vec2(480.0, 640.0);
+
+        let expanded = frame_at(&mut app, &ctx, vec![], size);
+        let board = text_position(&expanded, "Board  3").expect("board tab should remain visible");
+        assert!(board.x < size.x && board.y < size.y);
+        assert!(text_position(&expanded, "▾  Conversation").is_some());
+        assert!(text_position(&expanded, "Project manager").is_some());
+
+        let collapsed = click_text_at(&mut app, &ctx, "▾  Conversation", size);
+        assert!(text_position(&collapsed, "▸  Conversation").is_some());
+        let collapsed_board =
+            text_position(&collapsed, "Board  3").expect("board should remain after collapse");
+        assert!(collapsed_board.y < board.y);
+    }
+
+    #[test]
+    fn board_overview_collapses_status_above_kanban() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        let expanded = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(
+            &expanded,
+            "Auto mode — merge verified tasks and continue the queue"
+        )
+        .is_some());
+
+        let mut collapsed = click_text(&mut app, &ctx, "Board overview");
+        for _ in 0..30 {
+            collapsed = frame(&mut app, &ctx, vec![]);
+        }
+        assert!(text_position(
+            &collapsed,
+            "Auto mode — merge verified tasks and continue the queue"
+        )
+        .is_none());
+        assert!(text_position(&collapsed, "To do · 1").is_some());
     }
 
     #[test]
