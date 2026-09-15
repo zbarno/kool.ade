@@ -1,15 +1,21 @@
 ## 5. Functional Requirements
 
-- **FR-1** The specification file always holds the complete current document, never a delta.
-- **FR-2** All specification changes originate from accepted agent turns; users cannot edit the spec directly (Contract §2).
-- **FR-3** Every accepted mutating turn yields exactly one git checkpoint with a short imperative subject derived from the turn's change summary; non-mutating turns commit nothing (Contract §20).
-- **FR-4** A failed validation causes no file mutation, no commit, and leaves prior state byte-for-byte intact; problems are surfaced to the operator (Contract §16).
-- **FR-5** Cancelling a turn ends it promptly; streamed fragments are discarded; atomic writes make torn artifacts impossible.
-- **FR-6** The agent may only pose questions eligible for the current user under the D-14 routing law: categorized General (structural broadcast); assigned to a group the user belongs to; belonging to a category explicitly owned by the user personally; or inheriting, by seat, a role with no explicit owner. Questions in categories sole-owned by another particular user are never posed to the seated operator; ineligible selections are rejected at validation; other stakeholders' items remain visible in the panel (Contract §11, refined by D-14).
-- **FR-7** An open item in a non-General category with no configured owner forces an Ownership item to exist (synthesized on apply; Contract §8). Under D-14 the synthesized item requests a formal nomination; seat inheritance guarantees the lane is answerable in the interim. (Post-D-25 state: no unowned category remains in this repository, so synthesis is idle here.)
-- **FR-8** Item IDs are unique, monotonic, minted exclusively by the application; retired numbers are never reused.
-- **FR-9** pi runs with the connected repository as its working directory and may inspect it freely before asking humans for clarification; the app supplies curated context but does not reimplement repository comprehension (Contract §18).
-- **FR-10** Imported documents stay in-repo and therefore remain natively inspectable by pi (Contract §21).
-- **FR-11** In-memory planner state after an adoption exactly matches what was written to disk, even if the subsequent git commit fails (that error is surfaced, not hidden).
-- **FR-12** Turn budgets: silence never shortens the deadline; zero/invalid env values fall back to the ruled default (12 h, D-24); the budget is fixed when the turn begins.
-- **FR-13** The operator's identity is git-derived per D-14: `user.name` preferred, `user.email` fallback, the config's Current User block as tertiary source, `(guest)` last resort. Derivation runs at connection and after settings-save; git reads use the argument-array discipline (NFR-5) and are read-only invocations. [Landed with ticket 001 / PR #1 (`10f8e36`); v1.2 verified on master.]
+- **FR-1** The product specification MUST render as one complete current document from independently replaceable modules. A feature specification MUST describe a proposed delta until reconciliation (D-28).
+- **FR-2** The UI MUST treat accepted planner artifacts as authoritative. The model may propose only allowlisted logical-document replacements; direct UI editing of the product specification is not offered.
+- **FR-3** Each accepted mutating planning turn MUST create a scoped git checkpoint; a no-op turn MUST NOT create one.
+- **FR-4** Validation failure MUST leave document, item, workflow, and git state unchanged. A failed multi-file apply MUST roll back or recover its pre-turn bytes.
+- **FR-5** Cancel MUST stop an in-flight turn without adopting streamed fragments; interrupted artifacts MUST remain recoverable.
+- **FR-6** Chat MUST ask at most one eligible Human/Blocking question. D-14 ownership routing determines eligibility; other open items remain on the board.
+- **FR-7** A used non-General category without a configured owner MUST have an actionable Ownership nomination item. Seat inheritance keeps the lane answerable (D-14, D-25).
+- **FR-8** Packet MUST allocate stable, monotonic `CLR-nnn` identifiers; retired IDs MUST NOT be reused.
+- **FR-9** Pi MUST run in the relevant repository and may inspect source before a human question. Packet compiles bounded initial context and allows on-demand evidence reads.
+- **FR-10** Imports MUST remain in the planning repository and be inspectable by the harness.
+- **FR-11** After an accepted apply, in-memory state MUST mirror written artifacts even if the subsequent git checkpoint reports an error.
+- **FR-12** A turn's timeout MUST be fixed at start. Invalid or zero `PACKET_TURN_TIMEOUT_SECS` MUST fall back to the twelve-hour default (D-24).
+- **FR-13** Operator identity MUST follow git `user.name`, git `user.email`, config fallback, then `(guest)` (D-14).
+- **FR-14** A material new capability MUST receive a stable `CHG-` feature document; its approval MUST be explicit before task generation or Auto implementation.
+- **FR-15** A planning turn MUST replace only changed logical documents; unchanged product modules MUST retain their bytes. Product and feature documents MUST use full-document replacements rather than model-authored path patches.
+- **FR-16** Open items MUST keep authority separate from priority. Agent items MAY be resolved from evidence; Review items MUST have a provisional recommendation; an explicitly Human-owned item MUST NOT be silently downgraded.
+- **FR-17** Task batches MUST freeze approved feature intent, affected product modules, repository revisions, and configuration. Each story MUST target one logical repository; dependencies MUST be explicit.
+- **FR-18** Reconciliation MUST inspect actual merged commits before changing affected product modules. A material mismatch MUST create an actionable Review/Human item and leave product truth unchanged.
+- **FR-19** The Kanban MUST project actionable items and tasks from validated state. A user MUST be able to resolve a nonblocking provisional feature decision from the board without a chat turn.

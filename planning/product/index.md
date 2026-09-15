@@ -1,8 +1,17 @@
 # Packet — Living Technical Specification
 
-Status: migrated current product specification.
+**Version:** 2.0
 
-The modules below are the current product authority. The pre-migration source is archived and retained in git history.
+**Status:** Current product truth; CHG-001 reconciliation
+
+**Authority:** These modules govern current product behavior. Approved feature deltas govern proposed changes until merged-code reconciliation.
+
+**Origin:** Migrated from `planning/specification.md`; the prior file is archived in git.
+**Latest revision:** Added modular feature planning, scoped contexts, authority-aware work, multi-repository tasks, approval gating, and reconciliation. The existing MVP acceptance bar remains D-20/D-21.
+
+**Maintenance:** Packet's validated planner updates only affected modules as complete replacements and checkpoints them in git. The desktop specification view is read-only; direct repository edits are possible but should be reviewed against stable IDs, decisions, and evidence. Git preserves revision history.
+
+Packet is a git-backed desktop planning partner. The index orients an agent; individual modules supply the current product truth. Active feature documents describe pending deltas.
 
 ## Modules
 
@@ -22,4 +31,4 @@ The modules below are the current product authority. The pre-migration source is
 
 ## Active features
 
-- [`CHG-001-scalable-planning-and-feature-specification`](../features/CHG-001-scalable-planning-and-feature-specification/specification.md)
+None.

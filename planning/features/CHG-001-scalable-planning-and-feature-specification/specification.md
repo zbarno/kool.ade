@@ -1,10 +1,12 @@
 # CHG-001: Scalable Planning and Feature Specifications
 
-**Status:** Implementing — operator approved implementation
+**Status:** Implemented
+
+**Implementation:** `f72e3ae`, `77b3131`, `c020290`, `7239bb8`, `2b14482`, `6011b25`, `ace60b2`, `5bb9c4e`, and `32168c4`; evidence index: `docs/chg-001-acceptance-evidence.md`
 
 **Origin:** Operator proposal, 2026-09-14
 
-**Authority:** Proposed change contract. The current product remains described by `planning/specification.md` until implementation is reconciled.
+**Authority:** Accepted change contract, reconciled into `planning/product/`.
 
 **Affected repositories:** `packet` (this repository). Multi-repository support is part of the desired behavior; no additional concrete repository is currently registered.
 
