@@ -31,4 +31,4 @@ Packet is a git-backed desktop planning partner. The index orients an agent; ind
 
 ## Active features
 
-None.
+- [`CHG-002-board-card-display-red-line-activity-graph-and-class-col`](../features/CHG-002-board-card-display-red-line-activity-graph-and-class-col/specification.md)

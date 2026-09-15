@@ -22,8 +22,8 @@ Statuses describe current repository behavior; pending items are not treated as 
 | F-16 | In-app Pi setup guide | Implemented; D-12, D-13, D-15 |
 | F-17 | Stakeholder/ownership settings | Implemented; D-14 |
 | F-18 | In-app MCP editor | Implemented; D-16 |
-| F-19 | Red line activity graph on task cards | Planned; D-26 |
-| F-20 | Board card colors by class | Planned; D-27, CLR-020 resolved |
+| F-19 | Red line activity graph on task cards | Planned; D-26; feature CHG-002 |
+| F-20 | Board card colors by class | Planned; D-27, CLR-020 resolved; feature CHG-002 |
 | F-21 | Modular current product and per-feature change specifications | Implemented; CHG-001 |
 | F-22 | Bounded, deterministic, role-specific context compilation | Implemented; CHG-001 |
 | F-23 | Planning-root repository manifest and single-target dependent tasks | Implemented; CHG-001 |
