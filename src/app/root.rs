@@ -1984,6 +1984,73 @@ mod board_tests {
     }
 
     #[test]
+    fn kanban_distinguishes_authority_blockers_tasks_and_completed_work() {
+        let mut app = fixture();
+        let make = |id: &str, authority, priority, question: &str| {
+            let mut item = OpenItem::new(
+                id.into(),
+                priority,
+                crate::domain::ItemKind::Question,
+                "General".into(),
+                Some("All".into()),
+                question.into(),
+                "Evidence".into(),
+            );
+            item.authority = authority;
+            item
+        };
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state.items = vec![
+                make(
+                    "CLR-101",
+                    crate::domain::Authority::Human,
+                    crate::domain::Priority::Normal,
+                    "Human decision card",
+                ),
+                make(
+                    "CLR-102",
+                    crate::domain::Authority::Agent,
+                    crate::domain::Priority::High,
+                    "Agent resolving card",
+                ),
+                make(
+                    "CLR-103",
+                    crate::domain::Authority::Review,
+                    crate::domain::Priority::Normal,
+                    "Review decision card",
+                ),
+                make(
+                    "CLR-104",
+                    crate::domain::Authority::Human,
+                    crate::domain::Priority::Blocking,
+                    "Blocking human card",
+                ),
+            ];
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        for label in [
+            "To do · 2",
+            "In progress · 1",
+            "In review · 2",
+            "Needs attention · 1",
+            "Done · 1",
+            "Human decision card",
+            "Agent resolving card",
+            "Review decision card",
+            "Blocking human card",
+            "Human",
+            "Agent",
+            "Review",
+            "Blocking",
+        ] {
+            assert!(text_position(&output, label).is_some(), "missing {label}");
+        }
+        assert!(text_position(&output, "Non-actionable repository observation").is_none());
+    }
+
+    #[test]
     fn agent_item_shows_live_investigation_on_board_and_in_detail() {
         let mut app = fixture();
         let mut item = OpenItem::new(
@@ -2097,6 +2164,15 @@ mod board_tests {
             &["remote", "add", "origin", remote.to_str().unwrap()],
         );
         git(&repo, &["push", "-q", "origin", "main"]);
+        // Planning approval commonly exists only in the planning-root checkout
+        // when Auto starts. Its commit must remain an ancestor of published work.
+        std::fs::write(
+            repo.join("planning/local-approval.md"),
+            "approved locally\n",
+        )
+        .unwrap();
+        git(&repo, &["add", "planning/local-approval.md"]);
+        git(&repo, &["commit", "-qm", "approve local plan"]);
         let pi = root.join("pi-fixture");
         std::fs::write(&pi, r#"#!/usr/bin/python3
 import json, pathlib, sys, time
@@ -2187,7 +2263,11 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             assert!(!progress.response.contains("Manager fixture"));
             assert!(!progress.response.contains("Planning fixture"));
         }
-        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "3");
+        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "5");
+        assert_eq!(
+            git(&remote, &["show", "main:planning/local-approval.md"]),
+            "approved locally"
+        );
         assert_eq!(git(&remote, &["show", "main:001-task.txt"]), "implemented");
         assert_eq!(git(&remote, &["show", "main:002-task.txt"]), "implemented");
         assert!(

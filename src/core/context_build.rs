@@ -379,4 +379,56 @@ mod tests {
         assert!(ctx.selected_modules.len() <= 4);
         let _ = std::fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn accepted_feature_knowledge_survives_chat_expiration_and_derived_cache_deletion() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_context_authority_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning/features/CHG-001-active")).unwrap();
+        std::fs::create_dir_all(root.join(".planner/derived")).unwrap();
+        let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
+        std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
+        crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
+        std::fs::write(root.join("planning/features/CHG-001-active/specification.md"),
+            "# CHG-001: Active\n\n**Status:** Draft\n\n## Intent\n\nDURABLE_DECISION_MARKER\n\n## Current Behavior\n\nCurrent.\n\n## Desired Behavior\n\nDesired.\n\n## Scope\n\nOne area.\n\n## Affected Product Areas\n\n`product:05-functional-requirements`\n\n## Requirements\n\nOne.\n\n## Decisions and Assumptions\n\nAccepted.\n\n## Acceptance Criteria\n\nOne.\n").unwrap();
+        std::fs::write(
+            root.join(".planner/derived/summary.json"),
+            "DISPOSABLE_CACHE_MARKER",
+        )
+        .unwrap();
+        let conversations = (0..100)
+            .map(|n| {
+                (
+                    "user".to_string(),
+                    if n == 0 {
+                        "EXPIRED_CHAT_MARKER".into()
+                    } else {
+                        format!("recent {n}")
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        let state = PlannerState::load(&root).unwrap();
+        let first = crate::core::prompt::render_prompt(&TurnContext::build(
+            &state,
+            "Continue the active feature",
+            &conversations,
+        ));
+        assert!(first.contains("DURABLE_DECISION_MARKER"));
+        assert!(!first.contains("EXPIRED_CHAT_MARKER"));
+        assert!(!first.contains("DISPOSABLE_CACHE_MARKER"));
+        std::fs::remove_dir_all(root.join(".planner/derived")).unwrap();
+        let reloaded = PlannerState::load(&root).unwrap();
+        let rebuilt = crate::core::prompt::render_prompt(&TurnContext::build(
+            &reloaded,
+            "Continue the active feature",
+            &[],
+        ));
+        assert!(rebuilt.contains("DURABLE_DECISION_MARKER"));
+        assert!(!rebuilt.contains("DISPOSABLE_CACHE_MARKER"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

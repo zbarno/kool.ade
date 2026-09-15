@@ -514,16 +514,14 @@ fn run_with_project_options(
         )?;
         let local = runner.git(repo, &["rev-parse", "HEAD"])?;
         let remote = runner.git(repo, &["rev-parse", &remote_ref])?;
-        let head = if auto_merge {
-            remote.clone()
-        } else if runner
+        let head = if runner
             .git(repo, &["merge-base", "--is-ancestor", &local, &remote])
             .is_ok()
         {
             remote
         } else {
             runner.git(repo, &["merge-base", "--is-ancestor", &remote, &local])
-                .map_err(|_| anyhow::anyhow!("Local {base} and origin/{base} have diverged. Reconcile the branch before implementing; no work was discarded."))?;
+                .map_err(|_| anyhow::anyhow!("Local {base} and freshly fetched origin/{base} have diverged. Reconcile the branch before implementing; no work was discarded."))?;
             local
         };
         let root = repo
@@ -1114,7 +1112,22 @@ fn auto_publish(
                 return finish_auto_publish(repo, dir, state, runner);
             }
         }
-        let integration_dir = dir.join(format!("integration-{remote}"));
+        let local = runner.git(repo, &["rev-parse", "HEAD"])?;
+        let integration_base = if runner
+            .git(repo, &["merge-base", "--is-ancestor", &local, &remote])
+            .is_ok()
+        {
+            remote.clone()
+        } else {
+            runner
+                .git(repo, &["merge-base", "--is-ancestor", &remote, &local])
+                .map_err(|_| anyhow::anyhow!(
+                    "Local {} and freshly fetched origin/{} diverged before publication; verified work is preserved",
+                    state.base, state.base
+                ))?;
+            local
+        };
+        let integration_dir = dir.join(format!("integration-{integration_base}"));
         fs::create_dir_all(&integration_dir)?;
         let mut integration: Implementation = if integration_dir.join("state.json").exists() {
             serde_json::from_slice(&fs::read(integration_dir.join("state.json"))?)?
@@ -1123,14 +1136,14 @@ fn auto_publish(
             record.branch = format!(
                 "packet/integration/{}/{}",
                 key(&state.ticket),
-                &remote[..12]
+                &integration_base[..12]
             );
             record.worktree = state.worktree.with_file_name(format!(
                 "{}-integration-{}",
                 key(&state.ticket),
-                &remote[..12]
+                &integration_base[..12]
             ));
-            record.base_commit = remote.clone();
+            record.base_commit = integration_base.clone();
             record.verified_head = None;
             record.merged_commit = None;
             record.auto_merge = false;
@@ -1161,7 +1174,14 @@ fn auto_publish(
             } else {
                 runner.git(
                     repo,
-                    &["worktree", "add", "-b", &integration.branch, path, &remote],
+                    &[
+                        "worktree",
+                        "add",
+                        "-b",
+                        &integration.branch,
+                        path,
+                        &integration_base,
+                    ],
                 )?;
             }
         }

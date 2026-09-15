@@ -147,6 +147,14 @@ mod tests {
             for (n, body) in parts.iter().enumerate() {
                 crate::artifacts::product_docs::validate_module(n + 1, body).unwrap();
             }
+            if let Ok(legacy) = std::fs::read_to_string(
+                repo.join(crate::artifacts::product_docs::LEGACY_ARCHIVE),
+            ) {
+                let prior = crate::artifacts::product_docs::split_legacy(&legacy).unwrap();
+                for (old, current) in prior.iter().zip(parts.iter()) {
+                    crate::artifacts::product_docs::preserved_ids(old, current).unwrap();
+                }
+            }
         } else {
             let legacy = std::fs::read_to_string(repo.join("planning/specification.md")).unwrap();
             crate::artifacts::product_docs::split_legacy(&legacy).unwrap();

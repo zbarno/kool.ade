@@ -194,18 +194,29 @@ pub fn refreshed_index_from(
 }
 
 pub fn preserved_ids(old: &str, new: &str) -> anyhow::Result<()> {
-    fn ids(text: &str) -> std::collections::BTreeSet<String> {
-        text.split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
-            .filter(|token| {
-                let (prefix, digits) = token.rsplit_once('-').unwrap_or(("", ""));
-                matches!(prefix, "G" | "F" | "FR" | "NFR" | "D" | "CLR")
+    fn definitions(text: &str) -> std::collections::BTreeSet<String> {
+        text.lines()
+            .filter_map(|line| {
+                let line = line.trim_start();
+                let candidate = line
+                    .strip_prefix("| ")
+                    .or_else(|| line.strip_prefix("- **"))
+                    .or_else(|| line.strip_prefix("- "))?;
+                let id = candidate
+                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+                    .next()?;
+                let (prefix, digits) = id.rsplit_once('-')?;
+                (matches!(prefix, "G" | "F" | "FR" | "NFR" | "D" | "CLR")
                     && !digits.is_empty()
-                    && digits.bytes().all(|b| b.is_ascii_digit())
+                    && digits.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| id.to_string())
             })
-            .map(str::to_owned)
             .collect()
     }
-    let missing = ids(old).difference(&ids(new)).cloned().collect::<Vec<_>>();
+    let missing = definitions(old)
+        .difference(&definitions(new))
+        .cloned()
+        .collect::<Vec<_>>();
     anyhow::ensure!(
         missing.is_empty(),
         "Stable identifiers removed: {}",
@@ -608,6 +619,13 @@ mod tests {
         assert!(actual.contains("CHG-001-first"));
         assert!(!actual.contains("- fake"));
         let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn stable_definitions_survive_rewrite_without_freezing_incidental_references() {
+        let old = "## 5. Requirements\n\n- **FR-1** Maintain current truth. See D-17.\n";
+        let revised = "## 5. Requirements\n\n- **FR-1** Maintain current truth in modules.\n";
+        assert!(preserved_ids(old, revised).is_ok());
+        assert!(preserved_ids(old, "## 5. Requirements\n\nNo requirements.\n").is_err());
     }
     #[test]
     fn restart_after_uncommitted_migration_still_reports_all_paths() {
