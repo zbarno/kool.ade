@@ -14,6 +14,10 @@ pub enum HeaderAction {
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let compact = ui.ctx().content_rect().width() < 960.0;
     let chat_id = egui::Id::new("packet_project_chat_open");
+    let settings_id = egui::Id::new("packet_workspace_settings_open");
+    let mut settings_open = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<bool>(settings_id).unwrap_or(false));
     let mut chat_open = ui
         .ctx()
         .data_mut(|d| d.get_temp::<bool>(chat_id).unwrap_or(false));
@@ -38,6 +42,11 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 }
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.menu_button("Workspace", |ui| {
+                        if ui.button("Settings…").clicked() {
+                            settings_open = true;
+                            ui.close();
+                        }
+                        ui.separator();
                         for (label, action) in [
                             ("Import references", HeaderAction::Import),
                             ("Stakeholders & ownership", HeaderAction::Stakeholders),
@@ -51,9 +60,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             }
                         }
                     });
-                    if ui.selectable_label(chat_open, "Main Chat").on_hover_text("Project-wide planning with the main agent. Task conversations stay on their own cards.").clicked() {
-                        chat_open = !chat_open;
-                    }
                     if !compact {
                         ui.add_space(12.0);
                         let label = if !s.is_git_repo() {
@@ -82,37 +88,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     })
                     .small(),
                 );
-                ui.menu_button("Status", |ui| {
-                    let mut auto_mode = s.auto_mode();
-                    if ui
-                        .checkbox(
-                            &mut auto_mode,
-                            "Auto mode — merge verified tasks and continue the queue",
-                        )
-                        .changed()
-                    {
-                        s.set_auto_mode(auto_mode);
-                    }
-                    if !s.queue_status().is_empty() {
-                        ui.label(s.queue_status());
-                    }
-                    for doc in s
-                        .task_documents()
-                        .iter()
-                        .filter(|d| d.path.ends_with("/README.md"))
-                    {
-                        ui.label(&doc.title);
-                        if ui.button("Batch overview").clicked() {
-                            ui.ctx().data_mut(|d| {
-                                d.insert_temp(
-                                    egui::Id::new("packet_selected_task"),
-                                    doc.path.clone(),
-                                )
-                            });
-                            ui.close();
-                        }
-                    }
-                });
                 if !compact && !s.queue_status().is_empty() {
                     ui.add_sized(
                         [260.0, 20.0],
@@ -134,6 +109,36 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     },
                 );
             });
+        });
+    let tab = if compact {
+        Panel::top("packet_chat_tab").exact_size(34.0)
+    } else {
+        Panel::left("packet_chat_tab").exact_size(64.0)
+    };
+    tab.frame(Frame::NONE.fill(theme::BG).inner_margin(4))
+        .show(ui, |ui| {
+            let button = egui::Button::new(RichText::new("Main Chat").strong())
+                .fill(if chat_open {
+                    theme::ACCENT_SOFT
+                } else {
+                    theme::PANEL_ALT
+                })
+                .corner_radius(6)
+                .wrap();
+            if ui
+                .add_sized(if compact { [110.0, 26.0] } else { [56.0, 62.0] }, button)
+                .on_hover_text(if chat_open {
+                    "Hide Main Chat"
+                } else {
+                    "Show Main Chat"
+                })
+                .clicked()
+            {
+                chat_open = !chat_open;
+            }
+            if !compact {
+                ui.label(if chat_open { "‹ Hide" } else { "Show ›" });
+            }
         });
     ui.ctx().data_mut(|d| d.insert_temp(chat_id, chat_open));
     if chat_open && compact {
@@ -272,6 +277,50 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     crate::ui::spec_viewer::render(ui, Some(text));
                 });
         });
+    if settings_open {
+        let mut open_batch = None;
+        let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 560.0, |ui| {
+            ui.heading("Implementation & queue");
+            let mut auto_mode = s.auto_mode();
+            if ui
+                .checkbox(
+                    &mut auto_mode,
+                    "Auto mode — merge verified tasks and continue the queue",
+                )
+                .changed()
+            {
+                s.set_auto_mode(auto_mode);
+            }
+            ui.label("When enabled, verified tasks merge automatically and the queue continues. Disable to use pull requests for future tasks.");
+            if !s.queue_status().is_empty() {
+                ui.separator();
+                ui.label(s.queue_status());
+            }
+            for doc in s
+                .task_documents()
+                .iter()
+                .filter(|d| d.path.ends_with("/README.md"))
+            {
+                ui.separator();
+                ui.label(&doc.title);
+                if ui.button("Batch overview").clicked() {
+                    open_batch = Some(doc.path.clone());
+                }
+            }
+        });
+        if closed {
+            settings_open = false;
+        }
+        if let Some(path) = open_batch {
+            settings_open = false;
+            ui.ctx().data_mut(|d| {
+                d.insert_temp(egui::Id::new("packet_document_tab"), true);
+                d.insert_temp(egui::Id::new("packet_selected_task"), path);
+            });
+        }
+    }
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(settings_id, settings_open));
 }
 
 fn paint_compact_conversation(ui: &mut egui::Ui, s: &mut dyn Surface) {

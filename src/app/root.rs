@@ -1967,7 +1967,7 @@ mod board_tests {
         frame_at(&mut app, &ctx, vec![], size);
         let collapsed = frame_at(&mut app, &ctx, vec![], size);
         let board = text_position(&collapsed, "Board  3").unwrap();
-        assert!(board.x < size.x && board.y < 160.0);
+        assert!(board.x < size.x && board.y < 200.0);
         let graph = text_position(&collapsed, "All activity").unwrap();
         assert!(graph.y < board.y);
         assert!(text_position(&collapsed, "Project manager").is_none());
@@ -1979,7 +1979,7 @@ mod board_tests {
     }
 
     #[test]
-    fn status_controls_are_available_from_top_bar() {
+    fn settings_controls_open_in_modal_from_workspace_menu() {
         let mut app = fixture();
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
@@ -1995,7 +1995,10 @@ mod board_tests {
             text_position(&output, "All activity").unwrap().y
                 < text_position(&output, "To do · 1").unwrap().y
         );
-        let output = click_text(&mut app, &ctx, "Status");
+        assert!(text_position(&output, "Status").is_none());
+        click_text(&mut app, &ctx, "Workspace");
+        let output = click_text(&mut app, &ctx, "Settings…");
+        assert!(text_position(&output, "Workspace settings").is_some());
         assert!(
             text_position(
                 &output,
@@ -2003,6 +2006,37 @@ mod board_tests {
             )
             .is_some()
         );
+        frame(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Workspace settings").is_none());
+    }
+
+    #[test]
+    fn main_chat_tab_stays_on_left_and_toggles_attached_panel() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        let tab = text_position(&output, "Main Chat").unwrap();
+        assert!(tab.x < 64.0 && tab.y > text_position(&output, "All activity").unwrap().y);
+        let closed_board = text_position(&output, "Board  3").unwrap();
+        let output = click_text(&mut app, &ctx, "Main Chat");
+        assert!(text_position(&output, "Project manager").is_some());
+        assert!(text_position(&output, "Board  3").unwrap().x > closed_board.x);
+        assert!(text_position(&output, "Main Chat").unwrap().x < 64.0);
+        let output = click_text(&mut app, &ctx, "Main Chat");
+        assert!(text_position(&output, "Project manager").is_none());
+        assert!(text_position(&output, "Board  3").unwrap().x <= closed_board.x + 1.0);
     }
 
     #[test]

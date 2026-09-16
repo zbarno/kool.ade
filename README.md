@@ -6,9 +6,10 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Conversations on the board
 
-The Kanban fills the workspace by default. **Main Chat** in the top bar opens
-project-wide conversation on demand. Overall status, queue controls, and the
-combined activity graph live in that same top bar.
+The Kanban fills the workspace by default. The attached **Main Chat** tab on the
+left shows or hides project-wide conversation (above the board on narrow screens).
+Overall status and the combined activity graph stay in the top bar. Queue controls
+are available in the **Workspace → Settings…** modal.
 
 Every card has a red activity line, and **All activity** in the top bar combines
 worker, investigation, and conversation updates. Charts show observed updates in
