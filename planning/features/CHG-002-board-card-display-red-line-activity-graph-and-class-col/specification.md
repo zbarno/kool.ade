@@ -78,10 +78,12 @@ Out of scope:
 
 ## Affected Product Areas
 
-- **Module 04 (Feature Inventory):** F-19 and F-20 flip Planned → Implemented at reconciliation; no other F-numbers touched.
-- **Module 05 (Functional Requirements):** FR-19 (Kanban projection) is the nearest standing obligation; no new product MUST is admitted for unmerged behavior (FR-15 / D-28 discipline — the feature document carries the requirements until reconciliation).
-- **Module 12 (Acceptance):** explicitly unchanged; its last paragraph already excludes F-19/F-20 from the binding bar.
-- **Module 13 (Source Map):** the current-authority row and the desktop-board row gain this feature document.
+Modules marked for change are tagged with their logical document IDs — the task-contract freezer keys off these IDs when freezing the CHG-002 batch.
+
+- **Module 04 (Feature Inventory)** — `product:04-feature-inventory`: F-19 and F-20 flip Planned → Implemented at reconciliation; no other F-numbers touched.
+- **Module 05 (Functional Requirements)** — `product:05-functional-requirements`: FR-19 (Kanban projection) is the nearest standing obligation; no new product MUST is admitted for unmerged behavior (FR-15 / D-28 discipline — the feature document carries the requirements until reconciliation).
+- **Module 12 (Acceptance):** explicitly unchanged; its last paragraph already excludes F-19/F-20 from the binding bar. Deliberately left untagged — no update is planned for it.
+- **Module 13 (Source Map)** — `product:13-source-map`: the current-authority row and the desktop-board row gain this feature document.
 - **Code:** `src/ui/theme.rs`, `src/ui/task_activity.rs`, `src/ui/layout.rs` plus their in-file unit tests. Telemetry shape (`LiveProgress.telemetry.samples`) is reused verbatim.
 
 ## Requirements
