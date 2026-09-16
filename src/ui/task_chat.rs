@@ -56,6 +56,24 @@ fn failed(messages: &[ChatMessage]) -> bool {
         })
 }
 
+/// Conversation participation is durable progress, not implementation completion.
+/// Explicit review, blocker and terminal states take precedence over discussion.
+pub(crate) fn board_column(base: usize, messages: &[ChatMessage], active: bool) -> usize {
+    if base >= 2 {
+        return base;
+    }
+    if active {
+        return 1;
+    }
+    if failed(messages) || messages.last().is_some_and(|m| m.role == ChatRole::User) {
+        return 3;
+    }
+    if messages.iter().any(|m| m.role == ChatRole::User) {
+        return 1;
+    }
+    base
+}
+
 fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage]) {
     egui::ScrollArea::vertical()
         .max_height(260.0)
@@ -348,6 +366,39 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn conversation_progress_preserves_explicit_lifecycle_states() {
+        let mut messages = vec![];
+        assert_eq!(board_column(0, &messages, false), 0);
+        messages.push(ChatMessage::new(ChatRole::User, "Use SSO", None));
+        assert_eq!(board_column(0, &messages, true), 1);
+        assert_eq!(board_column(0, &messages, false), 3); // Interrupted reply.
+        messages.push(ChatMessage::new(
+            ChatRole::Agent,
+            "Recorded. Anything else?",
+            None,
+        ));
+        assert_eq!(board_column(0, &messages, false), 1);
+        // Saved history retains progress after a restart, without marking Done.
+        let restored: Vec<ChatMessage> =
+            serde_json::from_str(&serde_json::to_string(&messages).unwrap()).unwrap();
+        assert_eq!(board_column(0, &restored, false), 1);
+        for base in [2, 3, 4] {
+            assert_eq!(board_column(base, &restored, false), base);
+            assert_eq!(board_column(base, &restored, true), base);
+        }
+        messages.push(ChatMessage::new(
+            ChatRole::System,
+            "Planning stopped: provider unavailable",
+            None,
+        ));
+        assert_eq!(board_column(0, &messages, false), 3);
+        assert_eq!(board_column(0, &messages, true), 1); // Retrying.
+        messages.push(ChatMessage::new(ChatRole::User, "Try again", None));
+        messages.push(ChatMessage::new(ChatRole::Agent, "Recorded.", None));
+        assert_eq!(board_column(0, &messages, false), 1);
+    }
+
     #[test]
     fn next_step_is_separate_and_no_reply_is_not_a_request() {
         assert_eq!(

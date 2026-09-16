@@ -20,6 +20,11 @@ a larger input and expandable **Conversation history**. Routine updates say
 **No reply needed**, with **Add context** available for optional follow-ups.
 Both surfaces share the same draft and messages. **Stop reply** cancels a running response.
 
+Sending an answer moves an otherwise unstarted item to **In progress**. Saved
+conversation history keeps it there after reopening Packet. Failed or interrupted
+replies show **Needs attention** until retried; explicit blockers, review, and
+completed states take precedence. Discussion alone never marks a task Done.
+
 Task conversations use the item's durable content, referenced specification
 sections, related tasks, and current implementation state. They do not inherit
 Main Chat or other task histories, and cannot start project interviews or generate

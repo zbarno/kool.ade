@@ -372,15 +372,16 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         .iter()
                         .filter(|doc| {
                             !doc.path.ends_with("/README.md")
-                                && crate::core::implementation::board_column(
-                                    s.implementation_state(&doc.path),
-                                    s.implementation_active(&doc.path),
-                                ) == column
+                                && task_board_column(s, &doc.path) == column
                         })
                         .collect::<Vec<_>>();
                     let questions = items
                         .iter()
-                        .filter(|item| planning_column(item) == column)
+                        .filter(|item| crate::ui::task_chat::board_column(
+                            planning_column(item),
+                            s.task_messages(item.conversation_key()),
+                            s.task_chat_active(item.conversation_key()),
+                        ) == column)
                         .collect::<Vec<_>>();
                     egui::Frame::NONE.fill(theme::BG).corner_radius(8).inner_margin(10).show(ui, |ui| {
                         ui.vertical(|ui| {
@@ -436,7 +437,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if ui.add(egui::Button::new(RichText::new(&doc.title).strong()).frame(false).wrap()).clicked() {
                                                 selected_path = Some(doc.path.clone());
                                             }
-                                            let status = s.implementation_state(&doc.path).map(|r| r.status.as_str()).unwrap_or(if active { "Starting" } else { "To do" });
+                                            let status = s.implementation_state(&doc.path).map(|r| r.status.as_str()).unwrap_or(if active { "Starting" } else { crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)] });
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
                                                 ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).size(12.5).weak());
@@ -604,6 +605,19 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     });
 }
 
+fn task_board_column(s: &dyn Surface, key: &str) -> usize {
+    let base = crate::core::implementation::board_column(
+        s.implementation_state(key),
+        s.implementation_active(key),
+    );
+    // An active implementation owns its status even if an older chat failed.
+    if s.implementation_active(key) {
+        base
+    } else {
+        crate::ui::task_chat::board_column(base, s.task_messages(key), s.task_chat_active(key))
+    }
+}
+
 fn planning_column(item: &crate::domain::item::OpenItem) -> usize {
     if item.status == crate::domain::item::ItemStatus::Resolved {
         4
@@ -636,6 +650,8 @@ fn paint_task_properties(
                 let status = if matches!(record.status.as_str(), "Preparing" | "Implementing" | "Verifying") && !s.implementation_active(ticket) { "Interrupted — ready to resume" } else { &record.status };
                 ui.label(RichText::new(status).size(12.0).weak());
                 if let Some(url) = &record.pr_url { ui.hyperlink_to("Open PR", url); }
+            } else {
+                ui.label(RichText::new(crate::core::implementation::BOARD_COLUMNS[task_board_column(s, ticket)]).size(12.0).weak());
             }
             let label = if state.is_some() { "Resume implementation" } else if s.auto_mode() { "Implement & continue queue" } else { "Implement" };
             if state.as_ref().is_none_or(|record| record.pr_url.is_none() && record.status != "Done") && !s.implementation_active(ticket) && ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then publish using the selected Auto or pull-request mode. Existing work is preserved on resume. New tasks fetch the latest remote base with fast-forward checks. Resume preserves the existing worktree.").clicked() {

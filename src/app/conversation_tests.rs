@@ -2,6 +2,42 @@ use super::board_tests::{click_text, fixture, frame, text_position};
 use super::*;
 
 #[test]
+fn task_story_discussion_updates_board_without_overriding_review_or_done() {
+    let mut app = fixture();
+    if let Screen::Connected(p) = &mut app.screen {
+        for doc in &p.task_documents {
+            p.task_chats.messages.insert(
+                doc.path.clone(),
+                vec![
+                    ChatMessage::new(ChatRole::User, "Use SSO", None),
+                    ChatMessage::new(ChatRole::Agent, "Recorded.", None),
+                ],
+            );
+        }
+    }
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    for label in ["To do · 0", "In progress · 1", "In review · 1", "Done · 1"] {
+        assert!(text_position(&output, label).is_some(), "missing {label}");
+    }
+    if let Screen::Connected(p) = &mut app.screen {
+        p.task_chats
+            .messages
+            .get_mut(&p.task_documents[0].path)
+            .unwrap()
+            .push(ChatMessage::new(
+                ChatRole::System,
+                "Planning stopped: cancelled",
+                None,
+            ));
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "In progress · 0").is_some());
+    assert!(text_position(&output, "Needs attention · 1").is_some());
+}
+
+#[test]
 fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {
@@ -375,6 +411,8 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     complete(&mut app);
     assert_eq!(app.task_messages("CLR-001").len(), 2);
     assert_eq!(app.chat_messages().len(), 1);
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "In progress · 1").is_some());
     click_text(&mut app, &ctx, question);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Task conversation").is_some());
@@ -427,6 +465,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert_eq!(p.task_chats.messages["CLR-001"].len(), 4);
     assert_eq!(p.task_chats.messages["CLR-002"].len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Done · 1").is_some());
     assert!(text_position(&output, "Corporate SSO with MFA is confirmed.").is_some());
     std::fs::remove_dir_all(root).unwrap();
 }
