@@ -110,34 +110,55 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 );
             });
         });
-    let tab = if compact {
-        Panel::top("packet_chat_tab").exact_size(34.0)
-    } else {
-        Panel::left("packet_chat_tab").exact_size(64.0)
-    };
-    tab.frame(Frame::NONE.fill(theme::BG).inner_margin(4))
+    Panel::top("packet_chat_tab")
+        .exact_size(34.0)
+        .frame(Frame::NONE.fill(theme::PANEL).inner_margin(egui::Margin {
+            left: 12,
+            right: 12,
+            top: 6,
+            bottom: 0,
+        }))
         .show(ui, |ui| {
             let button = egui::Button::new(RichText::new("Main Chat").strong())
                 .fill(if chat_open {
-                    theme::ACCENT_SOFT
+                    theme::BG
                 } else {
                     theme::PANEL_ALT
                 })
-                .corner_radius(6)
-                .wrap();
-            if ui
-                .add_sized(if compact { [110.0, 26.0] } else { [56.0, 62.0] }, button)
+                .corner_radius(egui::CornerRadius {
+                    nw: 6,
+                    ne: 6,
+                    sw: 0,
+                    se: 0,
+                })
+                .truncate();
+            let response = ui
+                .add_sized([132.0, 28.0], button)
                 .on_hover_text(if chat_open {
                     "Hide Main Chat"
                 } else {
                     "Show Main Chat"
-                })
-                .clicked()
-            {
+                });
+            let center = egui::pos2(response.rect.right() - 12.0, response.rect.center().y);
+            let points = if chat_open {
+                vec![
+                    center + egui::vec2(-3.0, 2.0),
+                    center + egui::vec2(0.0, -1.0),
+                    center + egui::vec2(3.0, 2.0),
+                ]
+            } else {
+                vec![
+                    center + egui::vec2(-3.0, -2.0),
+                    center + egui::vec2(0.0, 1.0),
+                    center + egui::vec2(3.0, -2.0),
+                ]
+            };
+            ui.painter().add(egui::Shape::line(
+                points,
+                egui::Stroke::new(1.5, theme::TEXT_DIM),
+            ));
+            if response.clicked() {
                 chat_open = !chat_open;
-            }
-            if !compact {
-                ui.label(if chat_open { "‹ Hide" } else { "Show ›" });
             }
         });
     ui.ctx().data_mut(|d| d.insert_temp(chat_id, chat_open));

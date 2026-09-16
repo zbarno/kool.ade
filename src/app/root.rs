@@ -2028,12 +2028,25 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         let tab = text_position(&output, "Main Chat").unwrap();
-        assert!(tab.x < 64.0 && tab.y > text_position(&output, "All activity").unwrap().y);
+        assert!(tab.x < 150.0 && tab.y > text_position(&output, "All activity").unwrap().y);
+        let label = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "Main Chat" => Some(&text.galley),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            label.rows.len(),
+            1,
+            "Chat tab must never break into multiple lines"
+        );
         let closed_board = text_position(&output, "Board  3").unwrap();
         let output = click_text(&mut app, &ctx, "Main Chat");
         assert!(text_position(&output, "Project manager").is_some());
         assert!(text_position(&output, "Board  3").unwrap().x > closed_board.x);
-        assert!(text_position(&output, "Main Chat").unwrap().x < 64.0);
+        assert!(text_position(&output, "Main Chat").unwrap().x < 150.0);
         let output = click_text(&mut app, &ctx, "Main Chat");
         assert!(text_position(&output, "Project manager").is_none());
         assert!(text_position(&output, "Board  3").unwrap().x <= closed_board.x + 1.0);
