@@ -9,6 +9,7 @@ pub mod message_text;
 pub mod overlays;
 pub mod spec_viewer;
 pub mod task_activity;
+pub mod task_chat;
 pub mod theme;
 pub mod toast;
 

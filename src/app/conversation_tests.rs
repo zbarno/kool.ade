@@ -2,6 +2,50 @@ use super::board_tests::{click_text, fixture, frame, text_position};
 use super::*;
 
 #[test]
+fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
+    let mut app = fixture();
+    if let Screen::Connected(p) = &mut app.screen {
+        p.task_documents.clear();
+        p.state.items = vec![OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Which provider?".into(),
+            "Access".into(),
+        )];
+        p.task_chats.messages.insert(
+            "CLR-001".into(),
+            vec![
+                ChatMessage::new(ChatRole::User, "Earlier context for the provider", None),
+                ChatMessage::new(
+                    ChatRole::Agent,
+                    "SSO is recorded.\nYour next step: Should guests use SSO too?",
+                    None,
+                ),
+            ],
+        );
+    }
+    let ctx = egui::Context::default();
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
+    }
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Your answer needed").is_some());
+    assert!(text_position(&output, "Should guests use SSO too?").is_some());
+    assert!(text_position(&output, "Send answer").is_some());
+    assert!(text_position(&output, "Earlier context for the provider").is_none());
+    click_text(&mut app, &ctx, "Which provider?");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Earlier context for the provider").is_none());
+    click_last(&mut app, &ctx, "Conversation history (2)");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Earlier context for the provider").is_some());
+}
+
+#[test]
 fn saved_json_replies_render_as_readable_text_with_optional_diagnostics() {
     let mut app = fixture();
     let raw =
@@ -43,12 +87,13 @@ fn saved_json_replies_render_as_readable_text_with_optional_diagnostics() {
     assert!(
         text_position(
             &output,
-            "This update could not be saved. Nothing changed. Please try again."
+            "Nothing changed. Retry your last reply or send a revised answer."
         )
         .is_some()
     );
     assert!(text_position(&output, raw).is_none());
     assert_eq!(app.task_messages("CLR-001")[1].text, raw);
+    click_last(&mut app, &ctx, "Conversation history (2)");
     click_last(&mut app, &ctx, "Response details");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, raw).is_some());
@@ -304,7 +349,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     }).to_string() }));
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Reply to this item…");
+    click_text(&mut app, &ctx, "Your answer…");
     frame(
         &mut app,
         &ctx,
@@ -325,7 +370,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
         }],
     );
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Send reply");
+    click_text(&mut app, &ctx, "Send answer");
     assert_eq!(app.task_messages("CLR-001").len(), 1);
     complete(&mut app);
     assert_eq!(app.task_messages("CLR-001").len(), 2);
@@ -334,7 +379,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Task conversation").is_some());
     assert!(text_position(&output, "Use corporate SSO").is_some());
-    click_text(&mut app, &ctx, "Continue this task conversation…");
+    click_last(&mut app, &ctx, "Your answer…");
     frame(
         &mut app,
         &ctx,
@@ -359,7 +404,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
         "updated_specification":crate::core::specification::fixture("Use corporate SSO with MFA."),
         "open_items_resolved":["CLR-001"]
     }).to_string() }));
-    click_last(&mut app, &ctx, "Send reply");
+    click_last(&mut app, &ctx, "Send answer");
     assert_eq!(app.task_messages("CLR-001").len(), 3);
     complete(&mut app);
     assert_eq!(app.task_messages("CLR-001").len(), 4);

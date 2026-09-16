@@ -14,9 +14,11 @@ legend above the columns. Active cards have a heavier outline. Inactive cards
 retain their last recorded activity window.
 
 Main Chat handles project-wide planning. Every board item also has a focused
-conversation: type a short answer in its **Reply to this item…** field and send it,
-or select the card title to open its full history and larger input. Both surfaces
-share the same draft and messages. **Stop reply** cancels a running response.
+conversation with a highlighted next step and **Send answer** when your input is
+needed. Only the latest reply appears by default; select the card title to open
+a larger input and expandable **Conversation history**. Routine updates say
+**No reply needed**, with **Add context** available for optional follow-ups.
+Both surfaces share the same draft and messages. **Stop reply** cancels a running response.
 
 Task conversations use the item's durable content, referenced specification
 sections, related tasks, and current implementation state. They do not inherit

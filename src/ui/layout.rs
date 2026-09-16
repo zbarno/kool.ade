@@ -425,9 +425,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                     ui.label(RichText::new(card_summary(progress.response.trim())).size(12.0).weak());
                                                 }
                                             }
-                                            if eligible.contains(&item.id) { ui.label(RichText::new("For you").size(12.5).color(theme::ACCENT)); }
-                                            if s.next_question_id() == Some(item.id.as_str()) { ui.label("Asking now"); }
-                                            task_conversation(ui, s, item.conversation_key(), false);
+                                            if task_conversation(ui, s, item.conversation_key(), false) { planning_selection = Some(item.id.clone()); }
                                         });
                                     }
                                     for doc in cards {
@@ -447,7 +445,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if let Some(progress) = s.task_progress(&doc.path) {
                                                 if crate::ui::task_activity::compact(ui, progress, active) { activity_path = Some(doc.path.clone()); }
                                             } else if active { ui.spinner(); ui.label("Waiting for worker output…"); }
-                                            task_conversation(ui, s, &doc.path, false);
+                                            if task_conversation(ui, s, &doc.path, false) { selected_path = Some(doc.path.clone()); }
                                         });
                                     }
                                 });
@@ -485,7 +483,6 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             .as_ref()
             .and_then(|id| items.iter().find(|i| &i.id == id))
         {
-            let mut approve = false;
             let closed = crate::ui::overlays::show_panel_modal(
                 ui,
                 &format!(
@@ -499,6 +496,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 panel_bounds,
                 |ui| {
                     ui.heading(&item.question);
+                    task_conversation(ui, s, item.conversation_key(), true);
+                    ui.separator();
                     ui.label(format!(
                         "{} · {} · {:?}",
                         item.kind, item.priority, item.status
@@ -553,22 +552,9 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     if s.next_question_id() == Some(item.id.as_str()) {
                         ui.label("The project manager is asking about this item now.");
                     }
-                    task_conversation(ui, s, item.conversation_key(), true);
-                    if item.authority == crate::domain::Authority::Review
-                        && item.feature_id.is_some()
-                        && !item.recommendation.is_empty()
-                    {
-                        approve = ui.button("Approve provisional decision").clicked();
-                    }
-                    if item.is_ownership_gap() && ui.button("Assign ownership").clicked() {
-                        s.on_header_action(HeaderAction::Stakeholders);
-                    }
                 },
             );
-            if approve {
-                s.approve_review_item(&item.id);
-            }
-            if closed || approve {
+            if closed {
                 planning_selection = None;
             }
         } else {
@@ -763,103 +749,8 @@ fn task_key(path: &str) -> String {
     format!("TASK-{}", prefix.to_uppercase())
 }
 
-fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) {
-    ui.push_id(("task_conversation", key, expanded), |ui| {
-        if expanded {
-            ui.separator();
-            ui.heading("Task conversation");
-            egui::ScrollArea::vertical()
-                .max_height(280.0)
-                .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    for message in s.task_messages(key) {
-                        ui.label(
-                            RichText::new(format!("{:?} · {}", message.role, message.time_label()))
-                                .small()
-                                .weak(),
-                        );
-                        let readable = crate::ui::message_text::readable(message);
-                        ui.label(readable.as_ref());
-                        if readable.as_ref() != message.text {
-                            ui.push_id(&message.id, |ui| {
-                                ui.collapsing("Response details", |ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            RichText::new(&message.text).monospace().small(),
-                                        )
-                                        .wrap(),
-                                    );
-                                });
-                            });
-                        }
-                    }
-                });
-        } else if let Some(message) = s.task_messages(key).last() {
-            let messages = s.task_messages(key);
-            if messages.iter().rev().nth(1).is_some_and(|previous| {
-                previous.role == crate::domain::ChatRole::System
-                    && previous
-                        .text
-                        .starts_with("⚠ Turn rejected — nothing was written.")
-            }) {
-                ui.label(
-                    RichText::new("Update not saved")
-                        .small()
-                        .color(theme::WARNING),
-                );
-            }
-            ui.label(
-                RichText::new(card_summary(&crate::ui::message_text::readable(message))).small(),
-            );
-        }
-        if s.task_chat_active(key) {
-            ui.horizontal(|ui| {
-                ui.spinner();
-                ui.label("Replying…");
-                if ui.button("Stop reply").clicked() {
-                    s.cancel_task_reply(key);
-                }
-            });
-        }
-        if let Some(error) = s.task_chat_error() {
-            ui.colored_label(theme::DANGER, error);
-            if ui.button("Retry saving conversation").clicked() {
-                s.retry_task_chat_save();
-            }
-        }
-        let busy = s.task_reply_busy();
-        let mut send = false;
-        if let Some(draft) = s.task_draft(key) {
-            let response = if expanded {
-                ui.add(
-                    egui::TextEdit::multiline(draft)
-                        .desired_rows(3)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("Continue this task conversation…"),
-                )
-            } else {
-                ui.add(
-                    egui::TextEdit::singleline(draft)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("Reply to this item…"),
-                )
-            };
-            let enter = if expanded {
-                response.has_focus()
-                    && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
-            } else {
-                response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
-            };
-            let enabled = !busy && !draft.trim().is_empty();
-            let clicked = ui
-                .add_enabled(enabled, egui::Button::new("Send reply"))
-                .clicked();
-            send = enabled && (enter || clicked);
-        }
-        if send {
-            s.send_task_reply(key);
-        }
-    });
+fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) -> bool {
+    crate::ui::task_chat::paint(ui, s, key, expanded)
 }
 
 fn paint_task_details(

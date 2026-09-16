@@ -2266,7 +2266,7 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "To do · 1").is_some());
-        assert!(text_position(&output, "For you").is_some());
+        assert!(text_position(&output, "Your answer needed").is_some());
         assert!(text_position(&output, "Determines the access model").is_none());
         let pos = text_position(&output, &item.question).unwrap();
         for pressed in [true, false] {
