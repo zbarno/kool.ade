@@ -778,11 +778,39 @@ fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded
                                 .small()
                                 .weak(),
                         );
-                        ui.label(&message.text);
+                        let readable = crate::ui::message_text::readable(message);
+                        ui.label(readable.as_ref());
+                        if readable.as_ref() != message.text {
+                            ui.push_id(&message.id, |ui| {
+                                ui.collapsing("Response details", |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(&message.text).monospace().small(),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                            });
+                        }
                     }
                 });
         } else if let Some(message) = s.task_messages(key).last() {
-            ui.label(RichText::new(card_summary(&message.text)).small());
+            let messages = s.task_messages(key);
+            if messages.iter().rev().nth(1).is_some_and(|previous| {
+                previous.role == crate::domain::ChatRole::System
+                    && previous
+                        .text
+                        .starts_with("⚠ Turn rejected — nothing was written.")
+            }) {
+                ui.label(
+                    RichText::new("Update not saved")
+                        .small()
+                        .color(theme::WARNING),
+                );
+            }
+            ui.label(
+                RichText::new(card_summary(&crate::ui::message_text::readable(message))).small(),
+            );
         }
         if s.task_chat_active(key) {
             ui.horizontal(|ui| {

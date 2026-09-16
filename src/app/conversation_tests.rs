@@ -1,5 +1,58 @@
 use super::board_tests::{click_text, fixture, frame, text_position};
 use super::*;
+
+#[test]
+fn saved_json_replies_render_as_readable_text_with_optional_diagnostics() {
+    let mut app = fixture();
+    let raw =
+        r#"{"schema_version":1,"assistant_message":"Use corporate SSO.","open_items_updated":[]}"#;
+    if let Screen::Connected(p) = &mut app.screen {
+        p.task_documents.clear();
+        p.state.items = vec![OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Which provider?".into(),
+            "Access".into(),
+        )];
+        p.task_chats.messages.insert(
+            "CLR-001".into(),
+            vec![
+                ChatMessage::new(
+                    ChatRole::System,
+                    "⚠ Turn rejected — nothing was written.\nInvalid update",
+                    None,
+                ),
+                ChatMessage::new(ChatRole::Agent, raw, None),
+            ],
+        );
+    }
+    let ctx = egui::Context::default();
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
+    }
+    frame(&mut app, &ctx, vec![]);
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Use corporate SSO.").is_some());
+    assert!(text_position(&output, "Update not saved").is_some());
+    click_text(&mut app, &ctx, "Which provider?");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Use corporate SSO.").is_some());
+    assert!(
+        text_position(
+            &output,
+            "This update could not be saved. Nothing changed. Please try again."
+        )
+        .is_some()
+    );
+    assert!(text_position(&output, raw).is_none());
+    assert_eq!(app.task_messages("CLR-001")[1].text, raw);
+    click_last(&mut app, &ctx, "Response details");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, raw).is_some());
+}
 use std::sync::{Arc, Mutex};
 
 struct ReplyHarness {
@@ -64,10 +117,14 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
         }
         let before = std::fs::read(root.join("planning/specification.md")).unwrap();
         app.task_harness = Some(if mode == "rejected" {
-            Box::new(ReplyHarness { prompts: Default::default(), reply: serde_json::json!({
-                "schema_version":1, "assistant_message":"Starting an unrelated interview",
-                "interview":crate::core::workflow::InterviewBrief::default()
-            }).to_string() }) as Box<dyn crate::harness::AiHarness>
+            Box::new(ReplyHarness {
+                prompts: Default::default(),
+                reply: serde_json::json!({
+                    "schema_version":1, "assistant_message":"Starting an unrelated interview",
+                    "interview":crate::core::workflow::InterviewBrief::default()
+                })
+                .to_string(),
+            }) as Box<dyn crate::harness::AiHarness>
         } else {
             Box::new(StoppedHarness {
                 wait_for_cancel: mode == "cancelled",

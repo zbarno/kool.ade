@@ -5,6 +5,7 @@
 pub mod chat_pane;
 pub mod items_pane;
 pub mod layout;
+pub mod message_text;
 pub mod overlays;
 pub mod spec_viewer;
 pub mod task_activity;

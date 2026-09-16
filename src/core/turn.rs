@@ -246,7 +246,11 @@ fn run_turn(
         system_instructions: format!(
             "{SYSTEM_INSTRUCTIONS}\n{}\n{}\n{}",
             prompt::SPECIFICATION_POLICY,
-            prompt::WORKFLOW_INSTRUCTIONS,
+            if task.is_none() {
+                prompt::WORKFLOW_INSTRUCTIONS
+            } else {
+                ""
+            },
             if task.is_some() {
                 "TASK CONVERSATION MODE: The user is discussing one selected board item. Reply only in that item's conversation. Task-specific follow-ups may appear in assistant_message regardless of item priority; next_question_id remains subject to routing validation. Main Chat controls project-level interviewing and task generation; do not emit interview, task_stories, or task_outline fields here. Persist significant conclusions in the appropriate shared specification or item evidence. Do not claim a shared-state change unless the structured response makes it."
             } else {
