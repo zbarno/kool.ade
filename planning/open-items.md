@@ -49,19 +49,3 @@ Sharable surface: does "see collaboratively work together" include only the plan
 ### Reason
 Sets the class of payloads crossing the wire and whether the operator-local store ($PACKET_HOME) must split into shared and private planes; cheapest to answer before any serialization work starts.
 
-## CLR-019
-
-**Priority:** Normal
-**Authority:** Human
-**Type:** Assumption
-**Category:** Development
-**Assigned To:** Development
-**Status:** Open
-
-### Question
-Base freshness for implementation worktrees: the as-built pipeline (src/core/implementation.rs, verified v1.1) captures the connected checkout's committed LOCAL HEAD (branch name via `git symbolic-ref --short HEAD`, commit via `git rev-parse HEAD`) and cuts the ticket worktree from that commit — with no `git fetch` or `git pull` anywhere before or during worktree creation — then publishes with `gh pr create --base <captured branch name>`. Confirm this local-HEAD, no-remote-refresh base is AS-INTENDED (and should be documented as such), or rule for an optional refresh step before branching (update the local tracking branch from the remote first, or branch from the freshly fetched upstream commit).
-
-
-### Reason
-A checkout that trails its remote starts tickets from a stale base: the implementation compiles and verifies against outdated code, risking PRs that conflict with, duplicate, or silently diverge from upstream work, and local-only unpushed commits would ride along as part of the PR base. Settling before broader multi-repo use avoids retrofitting, and any fetch option is a deliberate departure from NFR-5's strictly-zero Packet-initiated network posture (admission of git-brokered remote traffic) that deserves an explicit ruling rather than quiet accretion.
-
