@@ -93,13 +93,33 @@ impl PacketApp {
         let mut outcome: Option<TurnOutcome> = None;
         if let Screen::Connected(project) = &mut self.screen {
             project.task_chats.ensure_loaded(&project.chat_slug);
+            project.activity.ensure_overall();
             if let Some(ctrl) = &project.active_turn {
                 for _ in 0..64 {
                     let Some(evt) = ctrl.poll(Duration::ZERO) else {
                         break;
                     };
                     match evt {
-                        TurnEvt::Progress(progress) => project.live_progress.update(progress),
+                        TurnEvt::Progress(progress) => {
+                            project
+                                .activity
+                                .overall
+                                .as_mut()
+                                .unwrap()
+                                .update(Default::default());
+                            let key = project
+                                .task_chats
+                                .active
+                                .clone()
+                                .unwrap_or_else(|| "__main".into());
+                            project
+                                .activity
+                                .conversations
+                                .entry(key)
+                                .or_default()
+                                .update(Default::default());
+                            project.live_progress.update(progress);
+                        }
                         TurnEvt::Done(o) => {
                             outcome = Some(o);
                             break;
@@ -114,6 +134,12 @@ impl PacketApp {
                 for _ in 0..64 {
                     match ctrl.poll() {
                         Some(crate::core::implementation::Event::Progress(p)) => {
+                            project
+                                .activity
+                                .overall
+                                .as_mut()
+                                .unwrap()
+                                .update(Default::default());
                             if let Some(ticket) = &project.active_implementation_ticket {
                                 project
                                     .activity
@@ -284,6 +310,18 @@ impl PacketApp {
                         break;
                     };
                     project.live_progress.update(progress);
+                    project
+                        .activity
+                        .overall
+                        .as_mut()
+                        .unwrap()
+                        .update(Default::default());
+                    project
+                        .activity
+                        .conversations
+                        .entry("__main".into())
+                        .or_default()
+                        .update(Default::default());
                 }
                 result = manager.result();
             }
@@ -481,6 +519,12 @@ impl PacketApp {
                     Some(crate::core::investigation::Event::Progress(update)) => {
                         project
                             .activity
+                            .overall
+                            .as_mut()
+                            .unwrap()
+                            .update(Default::default());
+                        project
+                            .activity
                             .tasks
                             .entry(item_id.clone())
                             .or_default()
@@ -585,6 +629,24 @@ impl PacketApp {
     }
 
     fn adopt_turn(&mut self, project: &mut Project, outcome: TurnOutcome) {
+        project.activity.ensure_overall();
+        project
+            .activity
+            .overall
+            .as_mut()
+            .unwrap()
+            .update(Default::default());
+        let activity_key = project
+            .task_chats
+            .active
+            .clone()
+            .unwrap_or_else(|| "__main".into());
+        project
+            .activity
+            .conversations
+            .entry(activity_key)
+            .or_default()
+            .update(Default::default());
         project.active_turn = None;
         project.live_progress = crate::harness::LiveProgress::default();
         match outcome {
@@ -981,6 +1043,48 @@ impl Surface for PacketApp {
             Screen::Connected(p) => p.task_chats.error.as_deref(),
             _ => None,
         }
+    }
+    fn activity_samples(&self, key: Option<&str>) -> Vec<(i64, u64)> {
+        let Screen::Connected(p) = &self.screen else {
+            return Vec::new();
+        };
+        if key.is_none() {
+            if let Some(overall) = &p.activity.overall {
+                return overall.telemetry.samples.clone();
+            }
+        }
+        let item_id = key
+            .and_then(|key| {
+                p.state
+                    .items
+                    .iter()
+                    .chain(&p.state.resolved_items)
+                    .find(|item| item.conversation_key() == key)
+                    .map(|item| item.id.as_str())
+            })
+            .or(key);
+        let mut buckets = std::collections::BTreeMap::<i64, u64>::new();
+        for (id, progress) in &p.activity.tasks {
+            if item_id.is_none_or(|key| key == id) {
+                for (bucket, count) in &progress.telemetry.samples {
+                    *buckets.entry(*bucket).or_default() += count;
+                }
+            }
+        }
+        for (id, progress) in &p.activity.conversations {
+            if key.is_none_or(|key| key == id) {
+                for (bucket, count) in &progress.telemetry.samples {
+                    *buckets.entry(*bucket).or_default() += count;
+                }
+            }
+        }
+        buckets.into_iter().collect()
+    }
+    fn activity_active(&self, key: &str) -> bool {
+        self.implementation_active(key)
+            || self.task_chat_active(key)
+            || matches!(&self.screen,
+            Screen::Connected(p) if p.investigation.as_ref().is_some_and(|run| run.item_id == key))
     }
     fn task_reply_busy(&self) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.reconciliation.is_some())
@@ -1720,6 +1824,55 @@ mod board_tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn board_renders_red_lines_for_every_card_and_sums_all_sources() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            for (key, count) in [
+                ("planning/tasks/fixture/001-task.md", 2),
+                ("another-task", 3),
+            ] {
+                p.activity
+                    .tasks
+                    .entry(key.into())
+                    .or_default()
+                    .telemetry
+                    .samples = vec![(100, count)];
+            }
+            p.activity
+                .conversations
+                .entry("__main".into())
+                .or_default()
+                .telemetry
+                .samples = vec![(100, 5), (101, 1)];
+            p.activity
+                .conversations
+                .entry("planning/tasks/fixture/001-task.md".into())
+                .or_default()
+                .telemetry
+                .samples = vec![(100, 7)];
+        }
+        assert_eq!(app.activity_samples(None), vec![(100, 17), (101, 1)]);
+        assert_eq!(
+            app.activity_samples(Some("planning/tasks/fixture/001-task.md")),
+            vec![(100, 9)]
+        );
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "All activity").is_some());
+        let red_lines = output.shapes.iter().filter(|shape| matches!(&shape.shape, egui::Shape::Path(path)
+            if path.points.len() == 60 && path.stroke.color == egui::epaint::ColorMode::Solid(crate::ui::theme::DANGER))).count();
+        assert_eq!(red_lines, 4, "one overview and one per task card");
+        // Starting another run must not erase the project's observed history.
+        if let Screen::Connected(p) = &mut app.screen {
+            p.activity.ensure_overall();
+            p.activity.tasks.clear();
+            p.activity.conversations.clear();
+        }
+        assert_eq!(app.activity_samples(None), vec![(100, 17), (101, 1)]);
     }
 
     pub(super) fn frame(

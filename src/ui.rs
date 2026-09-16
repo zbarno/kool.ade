@@ -52,6 +52,15 @@ pub trait Surface {
     fn is_busy(&self) -> bool;
     fn conversation_busy(&self) -> bool;
     fn task_progress(&self, ticket: &str) -> Option<&crate::harness::LiveProgress>;
+    /// None selects the project-wide series. Values are observed updates / 10s.
+    fn activity_samples(&self, key: Option<&str>) -> Vec<(i64, u64)> {
+        key.and_then(|key| self.task_progress(key))
+            .map(|p| p.telemetry.samples.clone())
+            .unwrap_or_default()
+    }
+    fn activity_active(&self, key: &str) -> bool {
+        self.implementation_active(key) || self.task_chat_active(key)
+    }
     fn cancel_task(&mut self);
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];

@@ -6,6 +6,13 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Conversations on the board
 
+Every card has a red activity line, and **All activity** above the board combines
+worker, investigation, and conversation updates. Charts show observed updates in
+ten-second buckets; quiet periods are flat, not an indication that work stopped.
+Card colors identify Task, Question, Ambiguity, Assumption, and Ownership, with a
+legend above the columns. Active cards have a heavier outline. Inactive cards
+retain their last recorded activity window.
+
 Main Chat handles project-wide planning. Every board item also has a focused
 conversation: type a short answer in its **Reply to this item…** field and send it,
 or select the card title to open its full history and larger input. Both surfaces

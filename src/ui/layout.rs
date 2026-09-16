@@ -287,6 +287,26 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let id = egui::Id::new("packet_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
     let docs = s.task_documents().to_vec();
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("All activity").strong());
+        ui.label(
+            RichText::new("Updates / 10s · last 10 minutes")
+                .small()
+                .weak(),
+        );
+    });
+    crate::ui::task_activity::graph(ui, &s.activity_samples(None), true, 48.0);
+    ui.horizontal_wrapped(|ui| {
+        for (kind, label) in [
+            (None, "Task"),
+            (Some(crate::domain::ItemKind::Question), "Question"),
+            (Some(crate::domain::ItemKind::Ambiguity), "Ambiguity"),
+            (Some(crate::domain::ItemKind::Assumption), "Assumption"),
+            (Some(crate::domain::ItemKind::Ownership), "Ownership"),
+        ] {
+            ui.colored_label(theme::board_hue(kind), format!("● {label}"));
+        }
+    });
     egui::CollapsingHeader::new(RichText::new("Board overview").strong())
         .id_salt("packet_board_overview")
         .default_open(true)
@@ -379,7 +399,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 .max_height(height - 32.0)
                                 .show(ui, |ui| {
                                     for item in questions {
-                                        board_card(ui, &item.id, false, |ui| {
+                                        let active = s.activity_active(item.conversation_key());
+                                        board_card(ui, &item.id, Some(item.kind), active, |ui| {
                                             ui.label(RichText::new(format!("{} · {}", if item.id.starts_with("ownership:") { "Pending" } else { &item.id }, item.kind)).size(12.5).color(theme::ACCENT));
                                             if ui.add(egui::Button::new(RichText::new(card_summary(&item.question)).strong()).frame(false).wrap()).on_hover_text(&item.question).clicked() {
                                                 planning_selection = Some(item.id.clone());
@@ -394,6 +415,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                 ui.label(RichText::new(item.assigned_to.as_deref().unwrap_or("Unassigned")).size(12.5).weak());
                                             });
                                             ui.label(RichText::new(&item.category).size(12.5).weak());
+                                            if active { ui.label(RichText::new("● Active").color(theme::SUCCESS)); }
+                                            crate::ui::task_activity::graph(ui, &s.activity_samples(Some(item.conversation_key())), active, 34.0);
                                             if let Some(progress) = s.task_progress(&item.id) {
                                                 if let Some(activity) = &progress.activity {
                                                     ui.label(RichText::new(card_summary(activity)).size(12.5).color(theme::SUCCESS));
@@ -409,7 +432,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                     }
                                     for doc in cards {
                                         let active = s.implementation_active(&doc.path);
-                                        board_card(ui, &doc.path, active, |ui| {
+                                        let activity_active = s.activity_active(&doc.path);
+                                        board_card(ui, &doc.path, None, activity_active, |ui| {
                                             ui.label(RichText::new(format!("{} · Task", task_key(&doc.path))).size(12.5).color(theme::ACCENT));
                                             if ui.add(egui::Button::new(RichText::new(&doc.title).strong()).frame(false).wrap()).clicked() {
                                                 selected_path = Some(doc.path.clone());
@@ -419,6 +443,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                 ui.label(RichText::new(status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
                                                 ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).size(12.5).weak());
                                             });
+                                            crate::ui::task_activity::graph(ui, &s.activity_samples(Some(&doc.path)), activity_active, 34.0);
                                             if let Some(progress) = s.task_progress(&doc.path) {
                                                 if crate::ui::task_activity::compact(ui, progress, active) { activity_path = Some(doc.path.clone()); }
                                             } else if active { ui.spinner(); ui.label("Waiting for worker output…"); }
@@ -711,21 +736,19 @@ fn paint_task_properties(
     }
 }
 
-fn board_card(ui: &mut egui::Ui, key: &str, active: bool, body: impl FnOnce(&mut egui::Ui)) {
+fn board_card(
+    ui: &mut egui::Ui,
+    key: &str,
+    kind: Option<crate::domain::ItemKind>,
+    active: bool,
+    body: impl FnOnce(&mut egui::Ui),
+) {
     ui.push_id(key, |ui| {
-        Frame::NONE
-            .fill(theme::PANEL)
-            .corner_radius(6)
-            .stroke(egui::Stroke::new(
-                1.0,
-                if active { theme::ACCENT } else { theme::BORDER },
-            ))
-            .inner_margin(10)
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.spacing_mut().item_spacing.y = 8.0;
-                body(ui);
-            });
+        theme::board_frame(kind, active).show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 8.0;
+            body(ui);
+        });
         ui.add_space(10.0);
     });
 }

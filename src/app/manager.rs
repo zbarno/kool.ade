@@ -12,11 +12,30 @@ use std::{
 
 #[derive(Default)]
 pub struct WorkspaceActivity {
+    pub overall: Option<LiveProgress>,
+    pub conversations: BTreeMap<String, LiveProgress>,
     pub tasks: BTreeMap<String, LiveProgress>,
     pub manager: Option<Manager>,
     pub pending: Vec<String>,
     pub last_update: Option<Instant>,
     pub last_save: Option<Instant>,
+}
+
+impl WorkspaceActivity {
+    pub fn ensure_overall(&mut self) {
+        if self.overall.is_some() {
+            return;
+        }
+        let mut buckets = BTreeMap::<i64, u64>::new();
+        for progress in self.tasks.values().chain(self.conversations.values()) {
+            for (bucket, count) in &progress.telemetry.samples {
+                *buckets.entry(*bucket).or_default() += count;
+            }
+        }
+        let mut progress = LiveProgress::default();
+        progress.telemetry.samples = buckets.into_iter().collect();
+        self.overall = Some(progress);
+    }
 }
 
 pub struct Manager {

@@ -17,6 +17,50 @@ pub const WARNING: Color32 = Color32::from_rgb(255, 180, 84);
 pub const SUCCESS: Color32 = Color32::from_rgb(107, 212, 144);
 pub const PURPLE: Color32 = Color32::from_rgb(167, 139, 250);
 
+/// Board categories retain text labels; red is reserved for activity.
+pub fn board_hue(kind: Option<crate::domain::ItemKind>) -> Color32 {
+    use crate::domain::ItemKind::*;
+    match kind {
+        None => Color32::from_rgb(116, 187, 235),
+        Some(Question) => PURPLE,
+        Some(Ambiguity) => SUCCESS,
+        Some(Assumption) => WARNING,
+        Some(Ownership) => Color32::from_rgb(232, 145, 190),
+    }
+}
+
+pub fn board_frame(kind: Option<crate::domain::ItemKind>, active: bool) -> egui::Frame {
+    let hue = board_hue(kind);
+    egui::Frame::NONE
+        .corner_radius(6)
+        .inner_margin(10)
+        .fill(PANEL.lerp_to_gamma(hue, if active { 0.22 } else { 0.12 }))
+        .stroke(Stroke::new(if active { 2.5 } else { 1.0 }, hue))
+}
+
+#[cfg(test)]
+#[test]
+fn board_categories_are_distinct_and_active_frames_keep_their_hue() {
+    use crate::domain::ItemKind::*;
+    let kinds = [
+        None,
+        Some(Question),
+        Some(Ambiguity),
+        Some(Assumption),
+        Some(Ownership),
+    ];
+    let hues = kinds.map(board_hue);
+    for (index, kind) in kinds.into_iter().enumerate() {
+        assert_ne!(hues[index], DANGER);
+        assert!(!hues[..index].contains(&hues[index]));
+        let idle = board_frame(kind, false);
+        let active = board_frame(kind, true);
+        assert_eq!(idle.stroke.color, active.stroke.color);
+        assert!(active.stroke.width > idle.stroke.width);
+        assert_ne!(active.fill, idle.fill);
+    }
+}
+
 /// Base style applied once during creation.
 pub fn packet_visuals() -> egui::Visuals {
     let mut v = egui::Visuals::dark();
