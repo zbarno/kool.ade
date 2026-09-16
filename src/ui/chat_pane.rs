@@ -22,6 +22,43 @@ pub fn paint(
     progress: Option<&crate::harness::LiveProgress>,
     offer: Option<&crate::core::workflow::InterviewBrief>,
 ) -> Intent {
+    paint_with_hint(
+        ui,
+        messages,
+        draft,
+        busy,
+        progress,
+        offer,
+        "What are you building?",
+    )
+}
+
+pub fn paint_task(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+) -> Intent {
+    paint_with_hint(
+        ui,
+        messages,
+        draft,
+        busy,
+        None,
+        None,
+        "Reply about this task…",
+    )
+}
+
+fn paint_with_hint(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+    progress: Option<&crate::harness::LiveProgress>,
+    offer: Option<&crate::core::workflow::InterviewBrief>,
+    hint: &str,
+) -> Intent {
     let mut cancel = false;
     let mut generate_tasks = false;
 
@@ -89,7 +126,7 @@ pub fn paint(
             let editor = ui.add_sized(
                 egui::vec2(ui.available_width(), 48.0),
                 TextEdit::multiline(draft)
-                    .hint_text("What are you building?")
+                    .hint_text(hint)
                     .desired_width(f32::INFINITY)
                     .desired_rows(2)
                     .frame(egui::Frame::NONE)

@@ -110,22 +110,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 );
             });
         });
-    Panel::top("packet_chat_launcher")
-        .exact_size(34.0)
-        .frame(Frame::NONE.fill(theme::PANEL).inner_margin(4))
-        .show(ui, |ui| {
-            if ui
-                .button("Main Chat")
-                .on_hover_text("Open the project conversation in its own window")
-                .clicked()
-            {
-                chat_open = true;
-                ui.ctx().send_viewport_cmd_to(
-                    egui::ViewportId::from_hash_of("packet_main_chat_window"),
-                    egui::ViewportCommand::Focus,
-                );
-            }
-        });
     CentralPanel::default()
         .frame(
             Frame::NONE
@@ -160,6 +144,19 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     {
                         tasks_tab = true;
                     }
+                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button("Main Chat")
+                            .on_hover_text("Open project chat in its own window")
+                            .clicked()
+                        {
+                            chat_open = true;
+                            ui.ctx().send_viewport_cmd_to(
+                                egui::ViewportId::from_hash_of("packet_main_chat_window"),
+                                egui::ViewportCommand::Focus,
+                            );
+                        }
+                    });
                 });
                 ui.add_space(12.0);
             }
@@ -345,43 +342,41 @@ fn conversation_window(ui: &mut egui::Ui, s: &mut dyn Surface, key: Option<&str>
             CentralPanel::default()
                 .frame(Frame::NONE.fill(theme::BG).inner_margin(16))
                 .show(ui, |ui| {
-                    if ui.small_button("Close chat window").clicked() {
-                        *open = false;
-                    }
                     if let Some(key) = key {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.heading(&title);
-                            crate::ui::task_chat::paint(ui, s, key, true);
-                            ui.collapsing("Task context", |ui| {
-                                if let Some(item) = s
-                                    .items()
-                                    .iter()
-                                    .chain(s.synthetic_items())
-                                    .chain(s.resolved_items())
-                                    .find(|item| item.conversation_key() == key)
-                                {
-                                    ui.label(format!(
-                                        "{} · {} · {}",
-                                        item.kind, item.priority, item.category
-                                    ));
-                                    ui.label(format!(
-                                        "Owner: {}",
-                                        item.assigned_to.as_deref().unwrap_or("Unassigned")
-                                    ));
-                                    ui.label(&item.reason);
-                                    if !item.evidence.is_empty() {
-                                        ui.label(&item.evidence);
-                                    }
-                                    if !item.recommendation.is_empty() {
-                                        ui.label(&item.recommendation);
-                                    }
-                                } else if let Some(doc) =
-                                    s.task_documents().iter().find(|doc| doc.path == key)
-                                {
-                                    crate::ui::spec_viewer::render(ui, Some(&doc.text));
-                                }
-                            });
-                        });
+                        ui.label(RichText::new(&title).size(17.0).strong());
+                        ui.label(
+                            RichText::new("Task conversation · only this item's history")
+                                .small()
+                                .weak(),
+                        );
+                        let messages = s
+                            .task_messages(key)
+                            .iter()
+                            .map(|message| {
+                                let mut readable = message.clone();
+                                readable.text =
+                                    crate::ui::message_text::readable(message).into_owned();
+                                readable
+                            })
+                            .collect::<Vec<_>>();
+                        let busy = s.task_reply_busy();
+                        let active = s.task_chat_active(key);
+                        if let Some(error) = s.task_chat_error() {
+                            ui.colored_label(theme::WARNING, error);
+                            if ui.button("Retry saving conversation").clicked() {
+                                s.retry_task_chat_save();
+                            }
+                        }
+                        if let Some(draft) = s.task_draft(key) {
+                            let intent =
+                                crate::ui::chat_pane::paint_task(ui, &messages, draft, busy);
+                            if intent.send {
+                                s.send_task_reply(key);
+                            }
+                            if intent.cancel && active {
+                                s.cancel_task_reply(key);
+                            }
+                        }
                     } else {
                         paint_conversation(ui, s, true);
                     }
