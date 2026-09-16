@@ -8,7 +8,7 @@
 | D-04 | All LLM activity runs through external Pi, not embedded inference. | Existing contract | Confirmed |
 | D-05 | Planner responses use schema-v1 `updated_specification`. | Original contract | Superseded by D-29 for modular projects |
 | D-06 | App-minted `CLR-` IDs are stable and never reclaimed. | Repository baseline | Observed / needs ratification |
-| D-07 | Chat history stays operator-local. | Existing behavior | Observed / needs ratification; CLR-017 tracks future sharing |
+| D-07 | Chat history stays operator-local. | Existing behavior | Ratified by D-31; CLR-017 resolved |
 | D-08 | Default turn budget is two hours. | Initial contract | Superseded by D-24 |
 | D-09 | Stream polling distinguishes timeout from process termination. | Regression result | Observed / needs ratification |
 | D-10 | Rust edition 2024 and thin-LTO release profile. | Manifest | Observed / needs ratification |
@@ -32,5 +32,6 @@
 | D-28 | One logical current product specification lives in thirteen replaceable modules; each material change has a concise feature delta. Git keeps completed deltas and history, while the board projects actionable work and context is selected on demand. | Operator CHG-001 proposal | Confirmed; supersedes D-17's physical single-file ruling |
 | D-29 | Modular planning uses schema-v2 allowlisted `document_updates`, recoverable multi-artifact apply, authority-aware items, explicit new-feature approval, scoped single-repository task contracts, and merged-code reconciliation. | Operator CHG-001 proposal | Confirmed; supersedes D-05 for modular projects |
 | D-30 | Fetch the latest target branch before implementation; Auto mode defaults on, publishes a verified integration to the target branch, and advances the approved queue. | Operator directives and implementation evidence | Confirmed; resolves CLR-019's stale-base question |
+| D-31 | The sharable peer surface is planning artifacts only - specification, open items, presence; interview and chat history stay operator-local, ratifying D-07. | Operator decision (chat: "not sharing chats, just artifacts") | Confirmed; CLR-017 resolved |
 
-Rows marked observed describe current implementation, not retroactively accepted product intent. Git history retains the detailed reasoning behind superseded rulings. Open post-MVP design items CLR-015, CLR-016, and CLR-017 remain in the board.
+Rows marked observed describe current implementation, not retroactively accepted product intent. Git history retains the detailed reasoning behind superseded rulings. CLR-017 is closed by D-31; open post-MVP design items CLR-015 and CLR-016 remain in the board.

@@ -12,5 +12,19 @@
     "recommendation": "",
     "evidence": "\n\nResolution outcome: Recorded and resolved CLR-019: refresh before implementing is mandatory, ruling D-30's fetch clause as unconditional. Your call matches the as-built pipeline, which now fetches origin/<base> into a Packet-private ref before every worktree — preferring the newer side of a fast-forward pair, refusing outright when local and remote have diverged, and never pulling into your checkout. Living modules already state this decision (D-30, D-22, 09-environment, 11-risks), so no spec rewrite is owed. One retained semantic: when your local branch is strictly ahead of origin, the worktree anchors to the local tip, so unpushed local commits can ride along as base ancestry — preserved deliberately rather than lost. If you ever want local-ahead refused too, that's a fresh change request.",
     "status": "resolved"
+  },
+  {
+    "id": "CLR-017",
+    "priority": "normal",
+    "authority": "human",
+    "kind": "question",
+    "category": "Product",
+    "assigned_to": "Product",
+    "question": "Sharable surface: does \"see collaboratively work together\" include only the planning artifacts (specification, open items, presence) or also the interview conversations themselves? Sharing chat would reverse D-07 (deliberately operator-local history) and require a privacy review of what the agent says in what may be private interviews.",
+    "reason": "Sets the class of payloads crossing the wire and whether the operator-local store ($PACKET_HOME) must split into shared and private planes; cheapest to answer before any serialization work starts.",
+    "feature_id": null,
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: It showed as TODO because my last two turns were both rejected by the application's validation and nothing was saved: the first turn's JSON was malformed, and the second turned out to have deleted the stable CLR-017 line from the risks module. Rejected turns persist nothing, so the ruling and the closure never reached the board. Fixed and resubmitted: D-31 records your answer (collaboration shares planning artifacts only - specification, open items, presence; interview chat stays operator-local, ratifying D-07, so no privacy review is owed and $PACKET_HOME keeps one store), CLR-017 is submitted as resolved this turn so the board drops it out of TODO, and its line is retained in the risks module as a recent resolution. The open post-MVP channel design space is now CLR-015 (topology/trust) and CLR-016 (writer model) only.",
+    "status": "resolved"
   }
 ]

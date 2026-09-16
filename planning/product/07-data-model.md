@@ -28,8 +28,8 @@ Schema v2 `TurnEnvelope` uses `assistant_message`, `document_updates[{document_i
 
 ### 7.4 Private and derived state
 
-Local checkout paths are private and are verified against `.planner/project.json` remote identity before use. Conversation, activity, and generation checkpoints are working memory. Repository surveys and any future full-text/vector indexes are derived and disposable; a semantic match must be reopened at its source before a durable decision. Conversation may expire after its accepted knowledge is written to authoritative artifacts (D-07, CLR-017).
+Local checkout paths are private and are verified against `.planner/project.json` remote identity before use. Conversation, activity, and generation checkpoints are working memory. Repository surveys and any future full-text/vector indexes are derived and disposable; a semantic match must be reopened at its source before a durable decision. Conversation may expire after its accepted knowledge is written to authoritative artifacts (D-07, ratified by D-31).
 
 ### 7.5 Configuration
 
-The connected git identity precedes `.planner/config.md` identity fallback (FR-13, D-14). Category ownership is person, group, or seat-inherited. `PACKET_HOME` changes private storage; `PACKET_PI_BIN` and `PACKET_TURN_TIMEOUT_SECS` affect harness discovery and deadlines. The project manifest holds no machine-specific paths. No collaboration wire payload is current (D-18, D-22; CLR-015/CLR-017 remain open).
+The connected git identity precedes `.planner/config.md` identity fallback (FR-13, D-14). Category ownership is person, group, or seat-inherited. `PACKET_HOME` changes private storage; `PACKET_PI_BIN` and `PACKET_TURN_TIMEOUT_SECS` affect harness discovery and deadlines. The project manifest holds no machine-specific paths. No collaboration wire payload is current (D-18, D-22; CLR-015/CLR-016 remain open). When the post-MVP channel lands, D-31 bounds its wire payload class to planning artifacts and presence - specification, open items, presence; chat never crosses the wire, and $PACKET_HOME owes no shared/private split.

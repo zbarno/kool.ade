@@ -33,19 +33,3 @@ Writer model: how many simultaneous authors may hold the pen on the planning art
 ### Reason
 Re-ranked with CLR-015 by D-22: not an MVP gate anymore, but the writer-model price (observers plus single author preserving the NFR-3 spine, versus true concurrency demanding a merge/CRDT layer composed with one-commit-per-turn apply) must be paid whenever the post-MVP channel project designs its wire and apply paths — and late pricing compounds with CLR-015's topology choice, so it queues near that project's front.
 
-## CLR-017
-
-**Priority:** Normal
-**Authority:** Human
-**Type:** Question
-**Category:** Product
-**Assigned To:** Product
-**Status:** Open
-
-### Question
-Sharable surface: does "see collaboratively work together" include only the planning artifacts (specification, open items, presence) or also the interview conversations themselves? Sharing chat would reverse D-07 (deliberately operator-local history) and require a privacy review of what the agent says in what may be private interviews.
-
-
-### Reason
-Sets the class of payloads crossing the wire and whether the operator-local store ($PACKET_HOME) must split into shared and private planes; cheapest to answer before any serialization work starts.
-
