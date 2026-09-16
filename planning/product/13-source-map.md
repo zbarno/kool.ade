@@ -11,4 +11,4 @@
 | Harness boundary and local state | `src/harness/`, `src/persistence/`, `.planner/config.md`, `.planner/project.json` where configured (D-13, D-15, D-16, D-23, D-25) |
 | Regression and demonstration evidence | `tests/multi_repository_feature.rs`, `tests/task_workflow.rs`, unit tests in the modules above, `examples/prepare_exit_demo.rs`, `docs/exit-demo-runbook.md` (D-20, D-21) |
 
-Git commits from `f72e3ae` through the CHG-001 reconciliation checkpoint record the implementation. Deferred WebSocket decisions D-18/D-22 and the CLR-016 writer risk remain indexed by the decisions and risks modules.
+Git commits from `f72e3ae` through the CHG-001 reconciliation checkpoint record the implementation. Deferred-channel decisions D-18, D-22, D-32 and D-33 remain indexed by the decisions and risks modules.
