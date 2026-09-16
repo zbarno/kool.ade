@@ -110,73 +110,22 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 );
             });
         });
-    Panel::top("packet_chat_tab")
+    Panel::top("packet_chat_launcher")
         .exact_size(34.0)
-        .frame(Frame::NONE.fill(theme::PANEL).inner_margin(egui::Margin {
-            left: 12,
-            right: 12,
-            top: 6,
-            bottom: 0,
-        }))
+        .frame(Frame::NONE.fill(theme::PANEL).inner_margin(4))
         .show(ui, |ui| {
-            let button = egui::Button::new(RichText::new("Main Chat").strong())
-                .fill(if chat_open {
-                    theme::BG
-                } else {
-                    theme::PANEL_ALT
-                })
-                .corner_radius(egui::CornerRadius {
-                    nw: 6,
-                    ne: 6,
-                    sw: 0,
-                    se: 0,
-                })
-                .truncate();
-            let response = ui
-                .add_sized([132.0, 28.0], button)
-                .on_hover_text(if chat_open {
-                    "Hide Main Chat"
-                } else {
-                    "Show Main Chat"
-                });
-            let center = egui::pos2(response.rect.right() - 12.0, response.rect.center().y);
-            let points = if chat_open {
-                vec![
-                    center + egui::vec2(-3.0, 2.0),
-                    center + egui::vec2(0.0, -1.0),
-                    center + egui::vec2(3.0, 2.0),
-                ]
-            } else {
-                vec![
-                    center + egui::vec2(-3.0, -2.0),
-                    center + egui::vec2(0.0, 1.0),
-                    center + egui::vec2(3.0, -2.0),
-                ]
-            };
-            ui.painter().add(egui::Shape::line(
-                points,
-                egui::Stroke::new(1.5, theme::TEXT_DIM),
-            ));
-            if response.clicked() {
-                chat_open = !chat_open;
+            if ui
+                .button("Main Chat")
+                .on_hover_text("Open the project conversation in its own window")
+                .clicked()
+            {
+                chat_open = true;
+                ui.ctx().send_viewport_cmd_to(
+                    egui::ViewportId::from_hash_of("packet_main_chat_window"),
+                    egui::ViewportCommand::Focus,
+                );
             }
         });
-    ui.ctx().data_mut(|d| d.insert_temp(chat_id, chat_open));
-    if chat_open && compact {
-        paint_compact_conversation(ui, s);
-    } else if chat_open {
-        Panel::left("packet_chat")
-            .default_size((ui.ctx().content_rect().width() * 0.23).clamp(380.0, 480.0))
-            .min_size(380.0)
-            .max_size(560.0)
-            .resizable(true)
-            .frame(
-                Frame::NONE
-                    .fill(theme::BG)
-                    .inner_margin(egui::Margin::symmetric(22, 18)),
-            )
-            .show(ui, |ui| paint_conversation(ui, s, true));
-    }
     CentralPanel::default()
         .frame(
             Frame::NONE
@@ -342,23 +291,103 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     }
     ui.ctx()
         .data_mut(|d| d.insert_temp(settings_id, settings_open));
+    if chat_open {
+        conversation_window(ui, s, None, &mut chat_open);
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(chat_id, chat_open));
+    let windows_id = egui::Id::new("packet_task_chat_windows");
+    let mut windows = ui.ctx().data_mut(|d| {
+        d.get_temp::<std::collections::BTreeSet<String>>(windows_id)
+            .unwrap_or_default()
+    });
+    windows.retain(|key| {
+        let mut open = true;
+        conversation_window(ui, s, Some(key), &mut open);
+        open
+    });
+    ui.ctx().data_mut(|d| d.insert_temp(windows_id, windows));
 }
 
-fn paint_compact_conversation(ui: &mut egui::Ui, s: &mut dyn Surface) {
-    {
-        let max_height = (ui.ctx().content_rect().height() * 0.42).clamp(210.0, 360.0);
-        Panel::top("packet_compact_conversation_body")
-            .default_size(max_height.min(280.0))
-            .min_size(180.0)
-            .max_size(max_height)
-            .resizable(true)
-            .frame(
-                Frame::NONE
-                    .fill(theme::BG)
-                    .inner_margin(egui::Margin::symmetric(14, 10)),
-            )
-            .show(ui, |ui| paint_conversation(ui, s, false));
-    }
+fn conversation_window(ui: &mut egui::Ui, s: &mut dyn Surface, key: Option<&str>, open: &mut bool) {
+    let title = key
+        .map(|key| {
+            s.items()
+                .iter()
+                .chain(s.synthetic_items())
+                .chain(s.resolved_items())
+                .find(|item| item.conversation_key() == key)
+                .map(|item| item.question.clone())
+                .or_else(|| {
+                    s.task_documents()
+                        .iter()
+                        .find(|doc| doc.path == key)
+                        .map(|doc| doc.title.clone())
+                })
+                .unwrap_or_else(|| key.to_string())
+        })
+        .unwrap_or_else(|| format!("Main Chat — {}", s.session_title()));
+    let id = match key {
+        Some(key) => egui::ViewportId::from_hash_of(("packet_task_chat_window", key)),
+        None => egui::ViewportId::from_hash_of("packet_main_chat_window"),
+    };
+    let ctx = ui.ctx().clone();
+    ctx.show_viewport_immediate(
+        id,
+        egui::ViewportBuilder::default()
+            .with_title(&title)
+            .with_inner_size([560.0, 720.0])
+            .with_min_inner_size([360.0, 400.0]),
+        |ui, _class| {
+            if ui.input(|i| i.viewport().close_requested()) {
+                *open = false;
+                return;
+            }
+            CentralPanel::default()
+                .frame(Frame::NONE.fill(theme::BG).inner_margin(16))
+                .show(ui, |ui| {
+                    if ui.small_button("Close chat window").clicked() {
+                        *open = false;
+                    }
+                    if let Some(key) = key {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            ui.heading(&title);
+                            crate::ui::task_chat::paint(ui, s, key, true);
+                            ui.collapsing("Task context", |ui| {
+                                if let Some(item) = s
+                                    .items()
+                                    .iter()
+                                    .chain(s.synthetic_items())
+                                    .chain(s.resolved_items())
+                                    .find(|item| item.conversation_key() == key)
+                                {
+                                    ui.label(format!(
+                                        "{} · {} · {}",
+                                        item.kind, item.priority, item.category
+                                    ));
+                                    ui.label(format!(
+                                        "Owner: {}",
+                                        item.assigned_to.as_deref().unwrap_or("Unassigned")
+                                    ));
+                                    ui.label(&item.reason);
+                                    if !item.evidence.is_empty() {
+                                        ui.label(&item.evidence);
+                                    }
+                                    if !item.recommendation.is_empty() {
+                                        ui.label(&item.recommendation);
+                                    }
+                                } else if let Some(doc) =
+                                    s.task_documents().iter().find(|doc| doc.path == key)
+                                {
+                                    crate::ui::spec_viewer::render(ui, Some(&doc.text));
+                                }
+                            });
+                        });
+                    } else {
+                        paint_conversation(ui, s, true);
+                    }
+                });
+        },
+    );
 }
 
 fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
@@ -884,7 +913,21 @@ fn task_key(path: &str) -> String {
 }
 
 fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) -> bool {
-    crate::ui::task_chat::paint(ui, s, key, expanded)
+    if crate::ui::task_chat::paint(ui, s, key, expanded) {
+        let id = egui::Id::new("packet_task_chat_windows");
+        ui.ctx().data_mut(|d| {
+            let mut windows = d
+                .get_temp::<std::collections::BTreeSet<String>>(id)
+                .unwrap_or_default();
+            windows.insert(key.to_string());
+            d.insert_temp(id, windows);
+        });
+        ui.ctx().send_viewport_cmd_to(
+            egui::ViewportId::from_hash_of(("packet_task_chat_window", key)),
+            egui::ViewportCommand::Focus,
+        );
+    }
+    false
 }
 
 fn paint_task_details(

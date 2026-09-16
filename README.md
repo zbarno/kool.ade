@@ -6,8 +6,12 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Conversations on the board
 
-The Kanban fills the workspace by default. The attached **Main Chat** tab on the
-left shows or hides project-wide conversation (above the board on narrow screens).
+The Kanban fills the workspace. **Main Chat** opens project-wide conversation in
+a separate native window without resizing the board. **Open conversation** on a
+card opens that task's own window; clicking the card title still opens task details.
+Launchers reuse and focus an existing window. Closing a chat window does not clear
+its history or draft, cancel its running reply, or close the board. Inline replies,
+task details, and the task window all use the same conversation and draft.
 Overall status and the combined activity graph stay in the top bar. Queue controls
 are available in the **Workspace → Settings…** modal.
 

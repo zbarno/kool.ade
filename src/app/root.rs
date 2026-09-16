@@ -1973,9 +1973,10 @@ mod board_tests {
         assert!(text_position(&collapsed, "Project manager").is_none());
         let expanded = click_text_at(&mut app, &ctx, "Main Chat", size);
         let expanded_board = text_position(&expanded, "Board  3").unwrap();
-        assert!(expanded_board.y > board.y && expanded_board.y < size.y);
-        let collapsed = click_text_at(&mut app, &ctx, "Main Chat", size);
-        assert!(text_position(&collapsed, "Board  3").unwrap().y < expanded_board.y);
+        assert_eq!(
+            expanded_board, board,
+            "Opening chat must not resize the board"
+        );
     }
 
     #[test]
@@ -2022,7 +2023,7 @@ mod board_tests {
     }
 
     #[test]
-    fn main_chat_tab_stays_on_left_and_toggles_attached_panel() {
+    fn main_chat_window_preserves_draft_without_resizing_board() {
         let mut app = fixture();
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
@@ -2043,13 +2044,55 @@ mod board_tests {
             "Chat tab must never break into multiple lines"
         );
         let closed_board = text_position(&output, "Board  3").unwrap();
+        *app.chat_draft() = "Keep my project draft".into();
         let output = click_text(&mut app, &ctx, "Main Chat");
         assert!(text_position(&output, "Project manager").is_some());
-        assert!(text_position(&output, "Board  3").unwrap().x > closed_board.x);
+        assert_eq!(text_position(&output, "Board  3").unwrap(), closed_board);
         assert!(text_position(&output, "Main Chat").unwrap().x < 150.0);
-        let output = click_text(&mut app, &ctx, "Main Chat");
+        let output = click_text(&mut app, &ctx, "Close chat window");
         assert!(text_position(&output, "Project manager").is_none());
+        assert_eq!(app.chat_draft(), "Keep my project draft");
+        click_text(&mut app, &ctx, "Main Chat");
+        assert_eq!(app.chat_draft(), "Keep my project draft");
         assert!(text_position(&output, "Board  3").unwrap().x <= closed_board.x + 1.0);
+    }
+
+    #[test]
+    fn open_conversation_uses_task_window_and_keeps_inline_draft() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        let key = "planning/tasks/fixture/001-task.md";
+        *app.task_draft(key).unwrap() = "Task draft stays with this item".into();
+        frame(&mut app, &ctx, vec![]);
+        click_text(&mut app, &ctx, "Open conversation");
+        let output = frame(&mut app, &ctx, vec![]);
+        let windows = ctx
+            .data_mut(|d| {
+                d.get_temp::<std::collections::BTreeSet<String>>(egui::Id::new(
+                    "packet_task_chat_windows",
+                ))
+            })
+            .unwrap();
+        assert_eq!(windows, std::collections::BTreeSet::from([key.to_string()]));
+        assert!(
+            ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_task")))
+                .is_none()
+        );
+        assert!(text_position(&output, "Task draft stays with this item").is_some());
+        click_text(&mut app, &ctx, "Close chat window");
+        assert_eq!(
+            app.task_draft(key).unwrap(),
+            "Task draft stays with this item"
+        );
+        assert!(
+            ctx.data_mut(
+                |d| d.get_temp::<std::collections::BTreeSet<String>>(egui::Id::new(
+                    "packet_task_chat_windows"
+                ))
+            )
+            .unwrap()
+            .is_empty()
+        );
     }
 
     #[test]
