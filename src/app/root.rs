@@ -1889,6 +1889,9 @@ mod board_tests {
         events: Vec<egui::Event>,
         size: egui::Vec2,
     ) -> egui::FullOutput {
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
+        }
         let mut output = ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
@@ -1961,45 +1964,67 @@ mod board_tests {
         let mut app = fixture();
         let ctx = egui::Context::default();
         let size = egui::vec2(360.0, 480.0);
-
-        let expanded = frame_at(&mut app, &ctx, vec![], size);
-        let board = text_position(&expanded, "Board  3").expect("board tab should remain visible");
-        assert!(board.x < size.x && board.y < size.y);
-        assert!(text_position(&expanded, "▾  Conversation").is_some());
-        assert!(text_position(&expanded, "Project manager").is_some());
-
-        let collapsed = click_text_at(&mut app, &ctx, "▾  Conversation", size);
-        assert!(text_position(&collapsed, "▸  Conversation").is_some());
-        let collapsed_board =
-            text_position(&collapsed, "Board  3").expect("board should remain after collapse");
-        assert!(collapsed_board.y < board.y);
+        frame_at(&mut app, &ctx, vec![], size);
+        let collapsed = frame_at(&mut app, &ctx, vec![], size);
+        let board = text_position(&collapsed, "Board  3").unwrap();
+        assert!(board.x < size.x && board.y < 160.0);
+        let graph = text_position(&collapsed, "All activity").unwrap();
+        assert!(graph.y < board.y);
+        assert!(text_position(&collapsed, "Project manager").is_none());
+        let expanded = click_text_at(&mut app, &ctx, "Project chat", size);
+        let expanded_board = text_position(&expanded, "Board  3").unwrap();
+        assert!(expanded_board.y > board.y && expanded_board.y < size.y);
+        let collapsed = click_text_at(&mut app, &ctx, "Project chat", size);
+        assert!(text_position(&collapsed, "Board  3").unwrap().y < expanded_board.y);
     }
 
     #[test]
-    fn board_overview_collapses_status_above_kanban() {
+    fn status_controls_are_available_from_top_bar() {
         let mut app = fixture();
         let ctx = egui::Context::default();
-        let expanded = frame(&mut app, &ctx, vec![]);
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
         assert!(
             text_position(
-                &expanded,
-                "Auto mode — merge verified tasks and continue the queue"
-            )
-            .is_some()
-        );
-
-        let mut collapsed = click_text(&mut app, &ctx, "Board overview");
-        for _ in 0..30 {
-            collapsed = frame(&mut app, &ctx, vec![]);
-        }
-        assert!(
-            text_position(
-                &collapsed,
+                &output,
                 "Auto mode — merge verified tasks and continue the queue"
             )
             .is_none()
         );
-        assert!(text_position(&collapsed, "To do · 1").is_some());
+        assert!(
+            text_position(&output, "All activity").unwrap().y
+                < text_position(&output, "To do · 1").unwrap().y
+        );
+        let output = click_text(&mut app, &ctx, "Status");
+        assert!(
+            text_position(
+                &output,
+                "Auto mode — merge verified tasks and continue the queue"
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn narrow_task_workspace_leads_with_action_and_discloses_description() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        let size = egui::vec2(360.0, 480.0);
+        frame_at(&mut app, &ctx, vec![], size);
+        click_text_at(&mut app, &ctx, "First task", size);
+        let output = frame_at(&mut app, &ctx, vec![], size);
+        let action = text_position(&output, "Implement & continue queue").unwrap();
+        assert!(action.x > 0.0 && action.x < size.x && action.y > 0.0 && action.y < size.y);
+        assert!(text_position(&output, "Unique story detail 0").is_none());
+        assert!(text_position(&output, "Technical details").is_some());
+        click_text_at(
+            &mut app,
+            &ctx,
+            "Task description & acceptance criteria",
+            size,
+        );
+        let output = frame_at(&mut app, &ctx, vec![], size);
+        assert!(text_position(&output, "Unique story detail 0").is_some());
     }
 
     #[test]
@@ -2089,7 +2114,7 @@ mod board_tests {
             Some("planning/tasks/fixture/002-task.md")
         );
         assert!(
-            text_position(&output, "Unique story detail 1").is_some(),
+            text_position(&output, "Unique story detail 1").is_none(),
             "texts: {:?}",
             output
                 .shapes
@@ -2215,6 +2240,7 @@ mod board_tests {
         );
         click(&mut app, text_position(&output, "First task").unwrap());
         frame(&mut app, &ctx, vec![]);
+        click_text(&mut app, &ctx, "Activity");
         let output = frame(&mut app, &ctx, vec![]);
         // Select the modal's activity action, not the card under its backdrop.
         let pos = output
@@ -2286,8 +2312,8 @@ mod board_tests {
         }
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "Determines the access model").is_some());
-        assert!(text_position(&output, "Owner: All").is_some());
-        assert!(text_position(&output, "Task conversation").is_some());
+        assert!(text_position(&output, "Owner: All").is_none());
+        assert!(text_position(&output, "Your answer needed").is_some());
         *app.task_draft("CLR-010").unwrap() = "Use corporate SSO".into();
         assert!(app.chat_draft().is_empty());
         assert!(
@@ -2439,6 +2465,9 @@ mod board_tests {
         assert!(text_position(&output, "In progress · 1").is_some());
         assert!(text_position(&output, "Reading search source").is_some());
         let details = click_text(&mut app, &ctx, &item.question);
+        assert!(text_position(&details, "Agent investigation").is_none());
+        click_text(&mut app, &ctx, "Activity");
+        let details = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&details, "Agent investigation").is_some());
         assert!(text_position(&details, "Worker thoughts").is_some());
         assert!(

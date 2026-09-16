@@ -55,6 +55,8 @@ fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
             "CLR-001".into(),
             vec![
                 ChatMessage::new(ChatRole::User, "Earlier context for the provider", None),
+                ChatMessage::new(ChatRole::Agent, "Which authentication method?", None),
+                ChatMessage::new(ChatRole::User, "Use corporate SSO", None),
                 ChatMessage::new(
                     ChatRole::Agent,
                     "SSO is recorded.\nYour next step: Should guests use SSO too?",
@@ -76,7 +78,8 @@ fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
     click_text(&mut app, &ctx, "Which provider?");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Earlier context for the provider").is_none());
-    click_last(&mut app, &ctx, "Conversation history (2)");
+    assert!(text_position(&output, "Use corporate SSO").is_some());
+    click_last(&mut app, &ctx, "Conversation history (4)");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Earlier context for the provider").is_some());
 }
@@ -415,7 +418,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert!(text_position(&output, "In progress · 1").is_some());
     click_text(&mut app, &ctx, question);
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Task conversation").is_some());
+    assert!(text_position(&output, "Your answer needed").is_some());
     assert!(text_position(&output, "Use corporate SSO").is_some());
     click_last(&mut app, &ctx, "Your answer…");
     frame(

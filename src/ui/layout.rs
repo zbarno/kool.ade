@@ -1,4 +1,4 @@
-//! Split conversation and document workspace with an optional item inspector.
+//! Board-first workspace with on-demand project chat and focused task interaction.
 use crate::ui::{Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
@@ -13,8 +13,12 @@ pub enum HeaderAction {
 
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let compact = ui.ctx().content_rect().width() < 960.0;
+    let chat_id = egui::Id::new("packet_project_chat_open");
+    let mut chat_open = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<bool>(chat_id).unwrap_or(false));
     Panel::top("packet_header")
-        .exact_size(if compact { 52.0 } else { 58.0 })
+        .exact_size(if compact { 102.0 } else { 108.0 })
         .frame(
             Frame::NONE
                 .fill(theme::BG)
@@ -47,6 +51,9 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             }
                         }
                     });
+                    if ui.selectable_label(chat_open, "Project chat").clicked() {
+                        chat_open = !chat_open;
+                    }
                     if !compact {
                         ui.add_space(12.0);
                         let label = if !s.is_git_repo() {
@@ -66,10 +73,72 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     }
                 });
             });
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(if s.is_busy() {
+                        "● Working"
+                    } else {
+                        "● Ready"
+                    })
+                    .small(),
+                );
+                ui.menu_button("Status", |ui| {
+                    let mut auto_mode = s.auto_mode();
+                    if ui
+                        .checkbox(
+                            &mut auto_mode,
+                            "Auto mode — merge verified tasks and continue the queue",
+                        )
+                        .changed()
+                    {
+                        s.set_auto_mode(auto_mode);
+                    }
+                    if !s.queue_status().is_empty() {
+                        ui.label(s.queue_status());
+                    }
+                    for doc in s
+                        .task_documents()
+                        .iter()
+                        .filter(|d| d.path.ends_with("/README.md"))
+                    {
+                        ui.label(&doc.title);
+                        if ui.button("Batch overview").clicked() {
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(
+                                    egui::Id::new("packet_selected_task"),
+                                    doc.path.clone(),
+                                )
+                            });
+                            ui.close();
+                        }
+                    }
+                });
+                if !compact && !s.queue_status().is_empty() {
+                    ui.add_sized(
+                        [260.0, 20.0],
+                        egui::Label::new(
+                            RichText::new(s.queue_status().lines().next().unwrap_or_default())
+                                .small(),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(s.queue_status());
+                }
+                ui.label(RichText::new("All activity").small())
+                    .on_hover_text("Updates per 10 seconds · last 10 minutes");
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width().max(40.0), 24.0),
+                    Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        crate::ui::task_activity::graph(ui, &s.activity_samples(None), true, 24.0);
+                    },
+                );
+            });
         });
-    if compact {
+    ui.ctx().data_mut(|d| d.insert_temp(chat_id, chat_open));
+    if chat_open && compact {
         paint_compact_conversation(ui, s);
-    } else {
+    } else if chat_open {
         Panel::left("packet_chat")
             .default_size((ui.ctx().content_rect().width() * 0.23).clamp(380.0, 480.0))
             .min_size(380.0)
@@ -206,38 +275,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
 }
 
 fn paint_compact_conversation(ui: &mut egui::Ui, s: &mut dyn Surface) {
-    let open_id = egui::Id::new("packet_compact_conversation_open");
-    let mut open = ui
-        .ctx()
-        .data_mut(|data| data.get_temp::<bool>(open_id).unwrap_or(true));
-    Panel::top("packet_compact_conversation_header")
-        .exact_size(44.0)
-        .frame(
-            Frame::NONE
-                .fill(theme::BG)
-                .inner_margin(egui::Margin::symmetric(14, 7)),
-        )
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let marker = if open { "▾" } else { "▸" };
-                if ui
-                    .button(format!("{marker}  Conversation"))
-                    .on_hover_text(if open {
-                        "Collapse project manager conversation"
-                    } else {
-                        "Expand project manager conversation"
-                    })
-                    .clicked()
-                {
-                    open = !open;
-                }
-                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Project manager").size(12.5).weak());
-                });
-            });
-        });
-    ui.ctx().data_mut(|data| data.insert_temp(open_id, open));
-    if open {
+    {
         let max_height = (ui.ctx().content_rect().height() * 0.42).clamp(210.0, 360.0);
         Panel::top("packet_compact_conversation_body")
             .default_size(max_height.min(280.0))
@@ -281,21 +319,17 @@ fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
 }
 
 fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
-    let panel_bounds = ui.max_rect();
+    let viewport = ui.ctx().content_rect();
+    let panel_bounds = egui::Rect::from_center_size(
+        viewport.center(),
+        egui::vec2(viewport.width().min(900.0), viewport.height()),
+    );
     let activity_id = egui::Id::new("packet_task_activity");
     let mut activity_path = ui.ctx().data_mut(|d| d.get_temp::<String>(activity_id));
+    let show_activity = activity_path.is_some();
     let id = egui::Id::new("packet_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
     let docs = s.task_documents().to_vec();
-    ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new("All activity").strong());
-        ui.label(
-            RichText::new("Updates / 10s · last 10 minutes")
-                .small()
-                .weak(),
-        );
-    });
-    crate::ui::task_activity::graph(ui, &s.activity_samples(None), true, 48.0);
     ui.horizontal_wrapped(|ui| {
         for (kind, label) in [
             (None, "Task"),
@@ -307,31 +341,6 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             ui.colored_label(theme::board_hue(kind), format!("● {label}"));
         }
     });
-    egui::CollapsingHeader::new(RichText::new("Board overview").strong())
-        .id_salt("packet_board_overview")
-        .default_open(true)
-        .show(ui, |ui| {
-            let mut auto_mode = s.auto_mode();
-            if ui.checkbox(&mut auto_mode, "Auto mode — merge verified tasks and continue the queue").on_hover_text("Enabled by default. Implement starts the queue. Disable to stop after the current task and use pull requests for future tasks.").changed() { s.set_auto_mode(auto_mode); }
-            if !s.queue_status().is_empty() {
-                ui.label(s.queue_status().lines().next().unwrap_or_default());
-                if s.queue_status().contains('\n') {
-                    ui.collapsing("Queue recovery details", |ui| {
-                        egui::ScrollArea::vertical()
-                            .max_height(160.0)
-                            .show(ui, |ui| {
-                                ui.label(s.queue_status());
-                            });
-                    });
-                }
-            }
-            if let Some(progress) = docs.iter().find(|d| d.path.ends_with("/README.md")) {
-                ui.label(RichText::new(&progress.title).weak());
-                if ui.button("Batch overview").clicked() {
-                    selected_path = Some(progress.path.clone());
-                }
-            }
-        });
     let mut planning_selection = ui
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_planning")));
@@ -497,62 +506,90 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 panel_bounds,
                 |ui| {
                     ui.heading(&item.question);
+                    ui.label(
+                        RichText::new(format!(
+                            "{} · {} · {}",
+                            item.kind,
+                            item.category,
+                            crate::core::implementation::BOARD_COLUMNS
+                                [crate::ui::task_chat::board_column(
+                                    planning_column(item),
+                                    s.task_messages(item.conversation_key()),
+                                    s.task_chat_active(item.conversation_key())
+                                )]
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                    if !item.reason.is_empty() {
+                        ui.label(crate::core::context_build::clip(&item.reason, 200));
+                    }
                     task_conversation(ui, s, item.conversation_key(), true);
-                    ui.separator();
-                    ui.label(format!(
-                        "{} · {} · {:?}",
-                        item.kind, item.priority, item.status
-                    ));
-                    ui.label(format!("Authority: {}", item.authority));
-                    ui.label(format!("Category: {}", item.category));
-                    ui.label(format!(
-                        "Owner: {}",
-                        item.assigned_to.as_deref().unwrap_or("Unassigned")
-                    ));
-                    ui.label(&item.reason);
-                    if let Some(feature) = &item.feature_id {
-                        ui.label(format!("Feature: {feature}"));
-                    }
-                    if !item.evidence.is_empty() {
-                        ui.separator();
-                        ui.label(RichText::new("Evidence").strong());
-                        ui.label(&item.evidence);
-                    }
-                    if !item.recommendation.is_empty() {
-                        ui.separator();
-                        ui.label(RichText::new("Packet's recommendation").strong());
-                        ui.label(&item.recommendation);
-                    }
-                    if let Some(progress) = s.task_progress(&item.id) {
-                        ui.separator();
-                        ui.heading("Agent investigation");
-                        if let Some(activity) = &progress.activity {
-                            ui.label(activity);
+                    ui.add_space(12.0);
+                    ui.collapsing("Background & evidence", |ui| {
+                        ui.label(format!(
+                            "{} · {} · {:?}",
+                            item.kind, item.priority, item.status
+                        ));
+                        ui.label(format!("Authority: {}", item.authority));
+                        ui.label(format!("Category: {}", item.category));
+                        ui.label(format!(
+                            "Owner: {}",
+                            item.assigned_to.as_deref().unwrap_or("Unassigned")
+                        ));
+                        ui.label(&item.reason);
+                        if let Some(feature) = &item.feature_id {
+                            ui.label(format!("Feature: {feature}"));
                         }
-                        ui.label(format!("Activity updates: {}", progress.telemetry.updates));
-                        if !progress.response.trim().is_empty() {
-                            ui.collapsing("Latest output", |ui| {
-                                ui.label(crate::core::context_build::clip(
-                                    &progress.response,
-                                    4000,
-                                ));
-                            });
+                        if !item.evidence.is_empty() {
+                            ui.separator();
+                            ui.label(RichText::new("Evidence").strong());
+                            ui.label(&item.evidence);
                         }
-                        if !progress.thoughts.trim().is_empty() {
-                            ui.collapsing("Worker thoughts", |ui| {
-                                ui.label(crate::core::context_build::clip(
-                                    &progress.thoughts,
-                                    4000,
-                                ));
-                            });
+                        if !item.recommendation.is_empty() {
+                            ui.separator();
+                            ui.label(RichText::new("Packet's recommendation").strong());
+                            ui.label(&item.recommendation);
                         }
-                    }
-                    if eligible.contains(&item.id) {
-                        ui.label("This item is in your planning queue.");
-                    }
-                    if s.next_question_id() == Some(item.id.as_str()) {
-                        ui.label("The project manager is asking about this item now.");
-                    }
+                    });
+                    ui.collapsing("Activity", |ui| {
+                        crate::ui::task_activity::graph(
+                            ui,
+                            &s.activity_samples(Some(item.conversation_key())),
+                            s.activity_active(item.conversation_key()),
+                            48.0,
+                        );
+                        if let Some(progress) = s.task_progress(&item.id) {
+                            ui.separator();
+                            ui.heading("Agent investigation");
+                            if let Some(activity) = &progress.activity {
+                                ui.label(activity);
+                            }
+                            ui.label(format!("Activity updates: {}", progress.telemetry.updates));
+                            if !progress.response.trim().is_empty() {
+                                ui.collapsing("Latest output", |ui| {
+                                    ui.label(crate::core::context_build::clip(
+                                        &progress.response,
+                                        4000,
+                                    ));
+                                });
+                            }
+                            if !progress.thoughts.trim().is_empty() {
+                                ui.collapsing("Worker thoughts", |ui| {
+                                    ui.label(crate::core::context_build::clip(
+                                        &progress.thoughts,
+                                        4000,
+                                    ));
+                                });
+                            }
+                        }
+                        if eligible.contains(&item.id) {
+                            ui.label("This item is in your planning queue.");
+                        }
+                        if s.next_question_id() == Some(item.id.as_str()) {
+                            ui.label("The project manager is asking about this item now.");
+                        }
+                    });
                 },
             );
             if closed {
@@ -562,7 +599,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             planning_selection = None;
         }
     }
-    if let Some(ticket) = activity_path.clone() {
+    if let Some(ticket) = activity_path.clone().filter(|_| show_activity) {
         let bounds = ui.ctx().content_rect();
         let closed = crate::ui::overlays::show_panel_modal(
             ui,
@@ -647,15 +684,27 @@ fn paint_task_properties(
     if !ticket.ends_with("/README.md") {
         ui.horizontal_wrapped(|ui| {
             if let Some(record) = &state {
-                let status = if matches!(record.status.as_str(), "Preparing" | "Implementing" | "Verifying") && !s.implementation_active(ticket) { "Interrupted — ready to resume" } else { &record.status };
+                let status = if matches!(
+                    record.status.as_str(),
+                    "Preparing" | "Implementing" | "Verifying"
+                ) && !s.implementation_active(ticket)
+                {
+                    "Interrupted — ready to resume"
+                } else {
+                    &record.status
+                };
                 ui.label(RichText::new(status).size(12.0).weak());
-                if let Some(url) = &record.pr_url { ui.hyperlink_to("Open PR", url); }
+                if let Some(url) = &record.pr_url {
+                    ui.hyperlink_to("Open PR", url);
+                }
             } else {
-                ui.label(RichText::new(crate::core::implementation::BOARD_COLUMNS[task_board_column(s, ticket)]).size(12.0).weak());
-            }
-            let label = if state.is_some() { "Resume implementation" } else if s.auto_mode() { "Implement & continue queue" } else { "Implement" };
-            if state.as_ref().is_none_or(|record| record.pr_url.is_none() && record.status != "Done") && !s.implementation_active(ticket) && ui.add_enabled(!s.is_busy(), egui::Button::new(label)).on_hover_text("Implement this ticket with Pi in a dedicated worktree, verify changes, then publish using the selected Auto or pull-request mode. Existing work is preserved on resume. New tasks fetch the latest remote base with fast-forward checks. Resume preserves the existing worktree.").clicked() {
-                s.implement_task(ticket.clone());
+                ui.label(
+                    RichText::new(
+                        crate::core::implementation::BOARD_COLUMNS[task_board_column(s, ticket)],
+                    )
+                    .size(12.0)
+                    .weak(),
+                );
             }
         });
         if let Some(record) = &state {
@@ -696,9 +745,6 @@ fn paint_task_properties(
                 }
             }
         }
-    }
-    if s.implementation_active(ticket) && ui.button("Stop task and pause queue").clicked() {
-        s.cancel_task();
     }
     if let Some(record) = &state {
         ui.collapsing("Implementation properties", |ui| {
@@ -773,73 +819,43 @@ fn paint_task_details(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
     doc: &crate::artifacts::task_docs::TaskDocument,
-    height: f32,
+    _height: f32,
     activity_path: &mut Option<String>,
 ) {
     ui.heading(&doc.title);
-    task_conversation(ui, s, &doc.path, true);
-    ui.add_space(8.0);
-    let width = ui.available_width().min(1460.0);
-    let inset = ((ui.available_width() - width) / 2.0).max(0.0);
-    ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space(inset);
-        ui.allocate_ui_with_layout(
-            egui::vec2(width, height),
-            egui::Layout::top_down(egui::Align::Min),
-            |ui| {
-                ui.set_width(width);
-                ui.spacing_mut().item_spacing.x = 16.0;
-                let width = ui.available_width().min(1460.0);
-                if width >= 720.0 {
-                    let sidebar = (width * 0.3).clamp(280.0, 420.0);
-                    ui.horizontal_top(|ui| {
-                        ui.vertical(|ui| {
-                            ui.set_width(width - sidebar - ui.spacing().item_spacing.x - 16.0);
-                            egui::ScrollArea::vertical()
-                                .id_salt(("task_paper", &doc.path))
-                                .max_height(height)
-                                .show(ui, |ui| {
-                                    crate::ui::spec_viewer::render(ui, Some(&doc.text));
-                                });
-                        });
-                        ui.vertical(|ui| {
-                            ui.set_width(sidebar);
-                            egui::ScrollArea::vertical()
-                                .id_salt(("task_properties", &doc.path))
-                                .max_height(height)
-                                .show(ui, |ui| {
-                                    task_sidebar(ui, s, doc, activity_path);
-                                });
-                        });
-                    });
-                } else {
-                    task_sidebar(ui, s, doc, activity_path);
-                    ui.add_space(12.0);
-                    crate::ui::spec_viewer::render(ui, Some(&doc.text));
-                }
-            },
-        );
-    });
-}
-
-fn task_sidebar(
-    ui: &mut egui::Ui,
-    s: &mut dyn Surface,
-    doc: &crate::artifacts::task_docs::TaskDocument,
-    activity_path: &mut Option<String>,
-) {
-    ui.label(RichText::new("DETAILS").size(12.5).weak());
-    paint_task_properties(ui, s, doc);
-    ui.separator();
-    ui.label(RichText::new("ACTIVITY").size(12.5).weak());
-    if let Some(progress) = s.task_progress(&doc.path) {
-        if crate::ui::task_activity::compact(ui, progress, s.implementation_active(&doc.path)) {
-            *activity_path = Some(doc.path.clone());
-        }
-    } else {
-        ui.label("No worker activity recorded yet.");
+    ui.label(
+        RichText::new(format!(
+            "Task · {}",
+            crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)]
+        ))
+        .small()
+        .weak(),
+    );
+    if doc.path.ends_with("/README.md") {
+        crate::ui::spec_viewer::render(ui, Some(&doc.text));
+        return;
     }
+    task_conversation(ui, s, &doc.path, true);
+    ui.add_space(12.0);
+    ui.collapsing("Task description & acceptance criteria", |ui| {
+        crate::ui::spec_viewer::render(ui, Some(&doc.text));
+    });
+    ui.collapsing("Activity", |ui| {
+        crate::ui::task_activity::graph(
+            ui,
+            &s.activity_samples(Some(&doc.path)),
+            s.activity_active(&doc.path),
+            48.0,
+        );
+        if let Some(progress) = s.task_progress(&doc.path) {
+            if crate::ui::task_activity::compact(ui, progress, s.implementation_active(&doc.path)) {
+                *activity_path = Some(doc.path.clone());
+            }
+        } else {
+            ui.label("No worker activity recorded yet.");
+        }
+    });
+    ui.collapsing("Technical details", |ui| paint_task_properties(ui, s, doc));
 }
 
 fn card_summary(text: &str) -> String {

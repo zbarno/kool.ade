@@ -202,24 +202,27 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                     && i.feature_id.is_some()
                     && !i.recommendation.is_empty()
             });
+        let implementation = s.implementation_state(key).cloned();
+        let implementing = s.implementation_active(key);
+        let story = item.is_none() && key.starts_with("planning/tasks/");
+        let implementation_column =
+            crate::core::implementation::board_column(implementation.as_ref(), implementing);
         let needs_answer = !active
             && !retry
             && !resolved
             && !ownership
             && !review
+            && !(story && (implementing || implementation_column >= 2))
             && eligible
             && !reply.no_reply
             && (reply.next.is_some()
                 || item
                     .as_ref()
                     .is_some_and(|i| i.authority == Authority::Human));
-        if expanded {
-            ui.heading("Task conversation");
-        }
         let (heading, action) = if active {
             (
-                "Packet is replying",
-                "You can keep drafting while you wait.".to_string(),
+                "Answer sent — Packet is updating this task",
+                "Your answer is saved. You can keep drafting while you wait.".to_string(),
             )
         } else if retry {
             (
@@ -246,6 +249,29 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                     .clone()
                     .unwrap_or_else(|| item.as_ref().unwrap().question.clone()),
             )
+        } else if story {
+            match implementation_column {
+                4 => ("Completed", "No action needed.".to_string()),
+                2 => (
+                    "Ready for review",
+                    "Review the changes in the pull request.".to_string(),
+                ),
+                3 => (
+                    "Needs attention",
+                    implementation
+                        .as_ref()
+                        .map(|r| crate::core::context_build::clip(&r.detail, 240))
+                        .unwrap_or_default(),
+                ),
+                1 => (
+                    "Packet is working",
+                    "Implementation is running. Activity is available below.".to_string(),
+                ),
+                _ => (
+                    "Ready to implement",
+                    "Start implementation, or add context before Packet begins.".to_string(),
+                ),
+            }
         } else if !eligible {
             (
                 "Waiting on the owner",
@@ -267,6 +293,16 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
         } else {
             ("No reply needed", "".to_string())
         };
+        if expanded && !reply.summary.is_empty() && !active {
+            ui.label(RichText::new("Latest update").small().weak());
+            ui.label(crate::core::context_build::clip(&reply.summary, 420));
+        }
+        if expanded && !active {
+            if let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User) {
+                ui.label(RichText::new("Your last answer").small().weak());
+                ui.label(crate::core::context_build::clip(&previous.text, 240));
+            }
+        }
         egui::Frame::NONE
             .fill(if needs_answer || ownership || review || retry {
                 theme::ACCENT_SOFT
@@ -287,6 +323,41 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 }
                 if active && ui.small_button("Stop reply").clicked() {
                     s.cancel_task_reply(key);
+                }
+                if expanded && active {
+                    if let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User)
+                    {
+                        ui.label(RichText::new("Your answer").small().weak());
+                        ui.label(crate::core::context_build::clip(&previous.text, 400));
+                    }
+                }
+                if expanded && story && !active && !retry && !needs_answer {
+                    if implementing {
+                        if ui.button("Stop task and pause queue").clicked() {
+                            s.cancel_task();
+                        }
+                    } else if let Some(url) =
+                        implementation.as_ref().and_then(|r| r.pr_url.as_ref())
+                    {
+                        ui.hyperlink_to("Open PR", url);
+                    } else if implementation_column != 4 {
+                        let label = if implementation.is_some() {
+                            "Resume implementation"
+                        } else if s.auto_mode() {
+                            "Implement & continue queue"
+                        } else {
+                            "Implement"
+                        };
+                        if ui
+                            .add_enabled(
+                                !s.is_busy(),
+                                egui::Button::new(label).fill(theme::ACCENT_SOFT),
+                            )
+                            .clicked()
+                        {
+                            s.implement_task(key.to_string());
+                        }
+                    }
                 }
                 if ownership && ui.button("Assign ownership").clicked() {
                     s.on_header_action(crate::ui::HeaderAction::Stakeholders);
@@ -328,8 +399,11 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                         }
                     }
                 }
+                if expanded && (needs_answer || retry) {
+                    composer(ui, s, key, true, true);
+                }
             });
-        if !reply.summary.is_empty() && !active {
+        if !expanded && !reply.summary.is_empty() && !active {
             ui.label(RichText::new("Latest reply").small().weak());
             ui.label(crate::core::context_build::clip(
                 &reply.summary,
@@ -343,14 +417,16 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 s.retry_task_chat_save();
             }
         }
-        if needs_answer || retry || expanded {
-            composer(ui, s, key, expanded, needs_answer || retry);
+        if needs_answer || retry {
+            if !expanded {
+                composer(ui, s, key, false, true);
+            }
         } else {
             let has_draft = s.task_draft(key).is_some_and(|draft| !draft.is_empty());
             egui::CollapsingHeader::new("Add context")
                 .default_open(has_draft)
                 .open(has_draft.then_some(true))
-                .show(ui, |ui| composer(ui, s, key, false, false));
+                .show(ui, |ui| composer(ui, s, key, expanded, false));
         }
         if expanded && !messages.is_empty() {
             ui.collapsing(format!("Conversation history ({})", messages.len()), |ui| {

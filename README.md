@@ -6,7 +6,11 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Conversations on the board
 
-Every card has a red activity line, and **All activity** above the board combines
+The Kanban fills the workspace by default. **Project chat** in the top bar opens
+project-wide conversation on demand. Overall status, queue controls, and the
+combined activity graph live in that same top bar.
+
+Every card has a red activity line, and **All activity** in the top bar combines
 worker, investigation, and conversation updates. Charts show observed updates in
 ten-second buckets; quiet periods are flat, not an indication that work stopped.
 Card colors identify Task, Question, Ambiguity, Assumption, and Ownership, with a
@@ -19,6 +23,12 @@ needed. Only the latest reply appears by default; select the card title to open
 a larger input and expandable **Conversation history**. Routine updates say
 **No reply needed**, with **Add context** available for optional follow-ups.
 Both surfaces share the same draft and messages. **Stop reply** cancels a running response.
+
+Opening a card creates a focused task workspace: its title, category, and status
+come first, followed by the current question, decision, or implementation action.
+Your latest answer stays visible while Packet responds. Task descriptions,
+acceptance criteria, background evidence, history, activity, and technical details
+remain available in expandable sections below the current interaction.
 
 Sending an answer moves an otherwise unstarted item to **In progress**. Saved
 conversation history keeps it there after reopening Packet. Failed or interrupted
