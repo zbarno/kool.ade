@@ -51,7 +51,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             }
                         }
                     });
-                    if ui.selectable_label(chat_open, "Project chat").clicked() {
+                    if ui.selectable_label(chat_open, "Main Chat").on_hover_text("Project-wide planning with the main agent. Task conversations stay on their own cards.").clicked() {
                         chat_open = !chat_open;
                     }
                     if !compact {
@@ -415,6 +415,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if ui.add(egui::Button::new(RichText::new(card_summary(&item.question)).strong()).frame(false).wrap()).on_hover_text(&item.question).clicked() {
                                                 planning_selection = Some(item.id.clone());
                                             }
+                                            if task_conversation(ui, s, item.conversation_key(), false) { planning_selection = Some(item.id.clone()); }
+                                            ui.add_space(4.0);
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(item.priority.to_string()).size(12.5).color(if item.priority == crate::domain::item::Priority::Blocking { theme::DANGER } else { theme::WARNING }));
                                                 ui.label(RichText::new(item.authority.to_string()).size(12.5).color(match item.authority {
@@ -435,7 +437,6 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                     ui.label(RichText::new(card_summary(progress.response.trim())).size(12.0).weak());
                                                 }
                                             }
-                                            if task_conversation(ui, s, item.conversation_key(), false) { planning_selection = Some(item.id.clone()); }
                                         });
                                     }
                                     for doc in cards {
@@ -446,6 +447,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if ui.add(egui::Button::new(RichText::new(&doc.title).strong()).frame(false).wrap()).clicked() {
                                                 selected_path = Some(doc.path.clone());
                                             }
+                                            if task_conversation(ui, s, &doc.path, false) { selected_path = Some(doc.path.clone()); }
+                                            ui.add_space(4.0);
                                             let status = s.implementation_state(&doc.path).map(|r| r.status.as_str()).unwrap_or(if active { "Starting" } else { crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)] });
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
@@ -455,7 +458,6 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if let Some(progress) = s.task_progress(&doc.path) {
                                                 if crate::ui::task_activity::compact(ui, progress, active) { activity_path = Some(doc.path.clone()); }
                                             } else if active { ui.spinner(); ui.label("Waiting for worker output…"); }
-                                            if task_conversation(ui, s, &doc.path, false) { selected_path = Some(doc.path.clone()); }
                                         });
                                     }
                                 });

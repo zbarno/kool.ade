@@ -85,23 +85,33 @@ fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage]) {
                     ChatRole::Agent => "Packet",
                     ChatRole::System => "Update",
                 };
-                ui.label(
-                    RichText::new(format!("{who} · {}", message.time_label()))
-                        .small()
-                        .weak(),
-                );
-                let readable = crate::ui::message_text::readable(message);
-                ui.label(readable.as_ref());
-                if readable.as_ref() != message.text {
-                    ui.push_id(&message.id, |ui| {
-                        ui.collapsing("Response details", |ui| {
-                            ui.add(
-                                egui::Label::new(RichText::new(&message.text).monospace().small())
-                                    .wrap(),
-                            );
-                        });
+                egui::Frame::NONE
+                    .fill(if message.role == ChatRole::User {
+                        theme::ACCENT_SOFT
+                    } else {
+                        theme::BG
+                    })
+                    .corner_radius(6)
+                    .inner_margin(10)
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.label(RichText::new(who).small().strong())
+                            .on_hover_text(message.time_label());
+                        let readable = crate::ui::message_text::readable(message);
+                        ui.label(readable.as_ref());
+                        if readable.as_ref() != message.text {
+                            ui.push_id(&message.id, |ui| {
+                                ui.collapsing("Response details", |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            RichText::new(&message.text).monospace().small(),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                            });
+                        }
                     });
-                }
                 ui.add_space(6.0);
             }
         });
@@ -114,7 +124,7 @@ fn composer(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool, a
         let response = if expanded {
             ui.add(
                 egui::TextEdit::multiline(draft)
-                    .desired_rows(2)
+                    .desired_rows(4)
                     .desired_width(f32::INFINITY)
                     .hint_text(if answer {
                         "Your answer…"
@@ -144,7 +154,17 @@ fn composer(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool, a
             RichText::new(if answer { "Send answer" } else { "Send reply" }).strong(),
         )
         .fill(theme::ACCENT_SOFT);
-        send = ui.add_enabled(enabled, button).clicked() || (enabled && enter);
+        send = ui
+            .add_enabled(enabled, button)
+            .on_hover_text(if busy {
+                "Another update is running. Your draft stays here until you can send it."
+            } else if expanded {
+                "Send to this task only · Ctrl / ⌘ + Enter"
+            } else {
+                "Send to this task only · Enter"
+            })
+            .clicked()
+            || (enabled && enter);
         if expanded {
             ui.label(
                 RichText::new(if busy {
@@ -221,7 +241,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                     .is_some_and(|i| i.authority == Authority::Human));
         let (heading, action) = if active {
             (
-                "Answer sent — Packet is updating this task",
+                if expanded { "Answer sent — Packet is updating this task" } else { "Packet is replying…" },
                 "Your answer is saved. You can keep drafting while you wait.".to_string(),
             )
         } else if retry {
@@ -306,18 +326,21 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
         egui::Frame::NONE
             .fill(if needs_answer || ownership || review || retry {
                 theme::ACCENT_SOFT
+            } else if !expanded {
+                egui::Color32::TRANSPARENT
             } else {
                 theme::BG
             })
             .corner_radius(6)
-            .inner_margin(8)
+            .inner_margin(if expanded || needs_answer || ownership || review || retry { 8 } else { 0 })
             .show(ui, |ui| {
                 ui.label(RichText::new(heading).strong().color(if retry {
                     theme::WARNING
                 } else {
                     theme::TEXT
                 }));
-                if !action.is_empty() && !item.as_ref().is_some_and(|item| item.question == action)
+                if !action.is_empty() && (expanded || needs_answer || retry)
+                    && !item.as_ref().is_some_and(|item| item.question == action)
                 {
                     ui.label(&action);
                 }
@@ -399,16 +422,13 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                         }
                     }
                 }
-                if expanded && (needs_answer || retry) {
-                    composer(ui, s, key, true, true);
+                if needs_answer || retry {
+                    composer(ui, s, key, expanded, true);
                 }
             });
         if !expanded && !reply.summary.is_empty() && !active {
-            ui.label(RichText::new("Latest reply").small().weak());
-            ui.label(crate::core::context_build::clip(
-                &reply.summary,
-                if expanded { 420 } else { 180 },
-            ));
+            ui.label(RichText::new(crate::core::context_build::clip(&reply.summary, 120)).small())
+                .on_hover_text("Open this task for the complete conversation.");
         }
         if let Some(error) = s.task_chat_error() {
             ui.colored_label(theme::WARNING, "Conversation has unsaved messages.");
@@ -417,11 +437,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 s.retry_task_chat_save();
             }
         }
-        if needs_answer || retry {
-            if !expanded {
-                composer(ui, s, key, false, true);
-            }
-        } else {
+        if !needs_answer && !retry {
             let has_draft = s.task_draft(key).is_some_and(|draft| !draft.is_empty());
             egui::CollapsingHeader::new("Add context")
                 .default_open(has_draft)
@@ -432,8 +448,15 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             ui.collapsing(format!("Conversation history ({})", messages.len()), |ui| {
                 transcript(ui, &messages)
             });
-        } else if !expanded && !review && ui.small_button("Open conversation").clicked() {
-            open = true;
+        } else if !expanded && !review {
+            ui.horizontal_wrapped(|ui| {
+                if ui.small_button("Open conversation").on_hover_text("Continue this same conversation with the task context and full history. Your draft comes with you.").clicked() {
+                    open = true;
+                }
+                if !messages.is_empty() {
+                    ui.label(RichText::new(format!("{} messages", messages.len())).small().weak());
+                }
+            });
         }
     });
     open

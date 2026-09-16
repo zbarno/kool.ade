@@ -74,6 +74,11 @@ fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
     assert!(text_position(&output, "Your answer needed").is_some());
     assert!(text_position(&output, "Should guests use SSO too?").is_some());
     assert!(text_position(&output, "Send answer").is_some());
+    assert!(
+        text_position(&output, "Send answer").unwrap().y
+            < text_position(&output, "General").unwrap().y,
+        "The reply action belongs above metadata and activity"
+    );
     assert!(text_position(&output, "Earlier context for the provider").is_none());
     click_text(&mut app, &ctx, "Which provider?");
     let output = frame(&mut app, &ctx, vec![]);

@@ -1971,10 +1971,10 @@ mod board_tests {
         let graph = text_position(&collapsed, "All activity").unwrap();
         assert!(graph.y < board.y);
         assert!(text_position(&collapsed, "Project manager").is_none());
-        let expanded = click_text_at(&mut app, &ctx, "Project chat", size);
+        let expanded = click_text_at(&mut app, &ctx, "Main Chat", size);
         let expanded_board = text_position(&expanded, "Board  3").unwrap();
         assert!(expanded_board.y > board.y && expanded_board.y < size.y);
-        let collapsed = click_text_at(&mut app, &ctx, "Project chat", size);
+        let collapsed = click_text_at(&mut app, &ctx, "Main Chat", size);
         assert!(text_position(&collapsed, "Board  3").unwrap().y < expanded_board.y);
     }
 
@@ -2003,6 +2003,48 @@ mod board_tests {
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn narrow_question_modal_keeps_larger_reply_input_and_send_reachable() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            p.task_documents.clear();
+            p.state.items = vec![OpenItem::new(
+                "CLR-050".into(),
+                crate::domain::Priority::Normal,
+                crate::domain::ItemKind::Question,
+                "General".into(),
+                Some("All".into()),
+                "Which authentication provider?".into(),
+                "Choose how users sign in.".into(),
+            )];
+        }
+        let ctx = egui::Context::default();
+        let size = egui::vec2(360.0, 480.0);
+        frame_at(&mut app, &ctx, vec![], size);
+        click_text_at(&mut app, &ctx, "Which authentication provider?", size);
+        let output = frame_at(&mut app, &ctx, vec![], size);
+        // The last matching control is in the modal, not the board behind it.
+        for label in ["Your answer…", "Send answer"] {
+            let pos = output
+                .shapes
+                .iter()
+                .rev()
+                .find_map(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape {
+                        (text.galley.text() == label)
+                            .then_some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            assert!(
+                pos.x > 0.0 && pos.x < size.x && pos.y > 0.0 && pos.y < size.y,
+                "{label} should be reachable"
+            );
+        }
     }
 
     #[test]

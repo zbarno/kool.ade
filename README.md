@@ -6,7 +6,7 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Conversations on the board
 
-The Kanban fills the workspace by default. **Project chat** in the top bar opens
+The Kanban fills the workspace by default. **Main Chat** in the top bar opens
 project-wide conversation on demand. Overall status, queue controls, and the
 combined activity graph live in that same top bar.
 
@@ -23,6 +23,9 @@ needed. Only the latest reply appears by default; select the card title to open
 a larger input and expandable **Conversation history**. Routine updates say
 **No reply needed**, with **Add context** available for optional follow-ups.
 Both surfaces share the same draft and messages. **Stop reply** cancels a running response.
+On cards, the reply sits directly beneath the question, ahead of metadata and
+activity. Expanded conversations use a four-line input and visually separate
+your messages from Packet's replies; timestamps remain available on hover.
 
 Opening a card creates a focused task workspace: its title, category, and status
 come first, followed by the current question, decision, or implementation action.
