@@ -59,7 +59,7 @@ In:
 1. Dark-theme Markdown painter sharing the spec viewer's pulldown-cmark event fold (factor `render_markdown` to callable-from-chat with a dark palette, or a shared module beside it); wired into agent replies in Main Chat, card tabs, and streaming. Spec viewer's light path remains behavior-identical.
 2. Tail digest: prose edits to the reply contract (main + task mode), a generalized detector replacing `task_chat::split_reply` (legacy 'Your next step:' and final-'?' fallbacks preserved), and the lifted tail block brought to Main Chat at card parity.
 3. Chips: option-grammar detector over digest bullets, chip-row widget, tap-to-insert wiring into both composers; freeform never gated.
-4. In-file unit tests (painter smoke; detector matrix; insert path; extractor invariant); NFR-8 warning-free build + full regression; no Cargo.toml change.
+4. In-file unit tests (painter smoke; detector matrix; insert path; extractor invariant); D-34 no-new-warnings bar (no new clippy warnings versus the recorded pre-work baseline, on the pinned Rust 1.98 toolchain) plus full regression; no Cargo.toml change.
 
 Out:
 
@@ -84,7 +84,7 @@ Modules marked for change are tagged with their logical document IDs; updates la
 - **REQ-R2-2 (MUST).** Legacy stored replies keep today's behavior: 'Your next step:' lines lift on both surfaces (cards unchanged, Main Chat newly at parity); the final-'?' fallback and no-marker passthrough remain intact.
 - **REQ-R3-1 (MUST).** Discrete-option digests (2–6 bullets with Yes/No/Option-N/letter leading tokens) render a tappable chip row, one chip per option; tapping inserts that option's text into the chat's composer draft WITHOUT sending; composer typing remains available at all times; no chips appear when the grammar does not hold.
 - **REQ-R4-1 (MUST).** Envelope hygiene: no envelope or implementation field reaches any chat render; broken envelopes keep the existing guard text; last-fence extraction is provably unaffected by digest/chip replies (invariant test).
-- **REQ-ALL-1 (MUST).** Warning-free build + clippy, full regression suite green (incumbent tests plus new), no new Cargo.toml dependencies; diff confined to `src/ui/**` plus the two prose-only prompt paragraphs in `src/core/prompt.rs` and `src/core/turn.rs`.
+- **REQ-ALL-1 (MUST).** Meets the NFR-8 bar as fixed by D-34: full regression suite green (incumbent tests plus new), and no NEW clippy warnings versus the recorded pre-work baseline at the commit under verification, evaluated on the pinned toolchain (Rust 1.98) — the literal globally-zero-warnings reading is superseded for this gate; no new Cargo.toml dependencies; diff confined to `src/ui/**` plus the two prose-only prompt paragraphs in `src/core/prompt.rs` and `src/core/turn.rs`.
 
 ## Decisions and Assumptions
 
@@ -94,14 +94,17 @@ Modules marked for change are tagged with their logical document IDs; updates la
 - **A4 (provisional):** user-entered text stays plain (chatlog.rs:28 stance); symmetric user-Markdown deferred.
 - **A5 (provisional):** streaming reply text is Markdown-painted progressively (partial documents degrade harmlessly); Thinking/Tool collapsibles stay plain/monospace.
 - **A6 (scope concession, recorded):** this feature deliberately touches `src/core` as PROSE-ONLY prompt-constant edits (two paragraphs) — the first non-`src/ui` touch since the MVP — because the digest/chips depend on model output shape. No logic, no semantics, no harness changes; contained by REQ-ALL-1's diff-scope assertion.
+- **CLR-021 / D-34 (resolved; operator ruling 'yes' in the CLR-021 conversation):** this feature's 'warning-free' wording in REQ-ALL-1 and Acceptance Criterion 6 is hereby read per D-34 — no NEW clippy warnings versus the recorded baseline at the commit under verification, on the pinned Rust 1.98 toolchain (initial global baseline: 110 warnings at 3ba5aa2). Story text in this batch that asserts a globally zero-warning clippy run (stories 002 and 003) is SUPERSEDED where it conflicts; story 004's pre-work baseline-diff method (sorted warning listing diffed against the pre-work capture: zero added lines, no warning naming a symbol this feature adds) is the binding operational form of the gate. Cleaning the pre-existing 110 warnings is NOT owed by this batch (module 11 tracks it as a standalone maintenance sweep). Because the document changes after approval registration, D-29's ledger-snapshot equality may require re-running the in-app Approve action on this document before further queue progression; the effective bar is unchanged for the in-flight batch, which already operates on the pre-work baseline.
 - **Sequencing note:** D-29 approval order holds — the CHG-002 verification gate concludes first; CHG-003 enters the approval pipeline only via the in-app Approve action on this promoted document (the ledger entry, not prose, releases the generation gate).
 - **Kickoff (operator directive, recorded in Main Chat):** the operator directed implementation to begin; the approved five-story batch under `planning/tasks/readable-chat-replies-with-at-a-glance-asks-and-quick-op` dispatches from story 001 via the board/queue controls. The in-app **Approve feature for implementation** action on this document registers the CHG-003 approval-ledger entry (ledger precedent: CHG-001 and CHG-002 each gained theirs by that action). The prerequisite CHG-002 verification gate is closed by CHG-002's reconciliation.
 
 ## Acceptance Criteria
+
+Each observable in the built app against the seeded fixture repository:
 
 1. Seeded reply corpus (bold/italic prose, nested bullets, an h3, inline + fenced code, a link) renders formatted in Main Chat, a card tab, and mid-stream; zero leftover '*'/'#' markers in reply areas; user bubbles, Thinking, and Tool-output styling unchanged.
 2. A scripted reply ending in '---' + ask / recommendation / pointer bullets shows the hairline-separated distinct block, and when the bullets are options ('Yes — …', 'No — …', 'Option 2 — …') three chips render beneath; tapping a chip places exactly that option text into the draft, unfocused-send impossible, caret at end; manual typing and Cmd/Ctrl+Enter still send normally.
 3. A reply with no tail rule renders as plain body with zero chip row; 'No reply needed.' replies show no tail chrome and no card ask.
 4. Regression: a pre-feature 'Your next step:' reply lifts on Main Chat (new parity) and on cards (behavior unchanged); the final-'?' fallback holds; the existing split_reply test matrix passes under the generalized detector.
 5. Invariant: pi_extract's suite is unmodified and green, plus a new test proving digest replies extract the envelope byte-identically to the same reply minus its digest.
-6. Gate: warning-free build/clippy, full suite green, no Cargo.toml delta, diff confined per REQ-ALL-1.
+6. Gate: meets the NFR-8 bar as fixed by D-34 — full suite green, and no NEW clippy warnings versus the recorded pre-work baseline at the commit under verification on the pinned Rust 1.98 toolchain (superseding the formerly literal 'reports no warnings' reading), no Cargo.toml delta, diff confined per REQ-ALL-1.
