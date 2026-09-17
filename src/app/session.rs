@@ -27,8 +27,14 @@ pub struct Project {
     pub reconciliation: Option<crate::core::reconciliation::Controller>,
     pub reconciliation_attempted: std::collections::HashSet<String>,
     pub reconciliation_error: Option<String>,
+    /// Suppresses reconciliation spawning until this instant; set after a
+    /// drift deferral so a live project stops churning model calls.
+    pub reconciliation_cooldown_until: Option<std::time::Instant>,
     pub investigation: Option<crate::core::investigation::Controller>,
     pub investigation_attempted: std::collections::HashSet<String>,
+    /// Suppresses agent-item investigation spawning until this instant; set
+    /// after a drift deferral so a live project stops churning model calls.
+    pub investigation_cooldown_until: Option<std::time::Instant>,
     pub last_pr_refresh: Option<std::time::Instant>,
     pub active_turn: Option<Arc<TurnController>>,
     pub live_progress: crate::harness::LiveProgress,

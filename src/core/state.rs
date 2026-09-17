@@ -134,6 +134,38 @@ impl PlannerState {
         Ok(created)
     }
 
+    /// Content-addressed comparison of an in-memory snapshot against a fresh
+    /// disk read. Returns the names of the planning surfaces that drifted
+    /// (empty = still safe to apply snapshot-based writes). Writers call this
+    /// INSIDE the [`crate::core::writer_gate`] section, immediately before
+    /// applying, so a stale snapshot is refused rather than allowed to
+    /// clobber a rival writer's newer commit.
+    pub fn drift_report(previous: &Self, current: &Self) -> Vec<&'static str> {
+        let mut changed = Vec::new();
+        if previous.spec_text != current.spec_text {
+            changed.push("specification");
+        }
+        if previous.items != current.items {
+            changed.push("open items");
+        }
+        if previous.workflow != current.workflow {
+            changed.push("workflow");
+        }
+        if previous.repositories != current.repositories {
+            changed.push("repositories");
+        }
+        if previous.active_feature != current.active_feature {
+            changed.push("active feature");
+        }
+        if previous.resolved_items != current.resolved_items {
+            changed.push("resolved items");
+        }
+        if previous.config != current.config {
+            changed.push("configuration");
+        }
+        changed
+    }
+
     /// Re-read artifacts from disk (e.g. user clicked Refresh after an
     /// external edit). Keeps baselines consistent with what is now on disk.
     pub fn resync(&mut self) -> anyhow::Result<()> {

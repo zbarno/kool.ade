@@ -52,6 +52,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     })?;
     let legacy_path = canonical.join(crate::artifacts::SPEC_FILE);
     let legacy = std::fs::read_to_string(&legacy_path).unwrap_or_default();
+    let _guard = crate::core::writer_gate::acquire();
     let migrated = crate::artifacts::product_docs::migrate(&canonical, &legacy).map_err(|e| {
         AppError::Artifact {
             path: canonical.to_string_lossy().into_owned(),
@@ -75,6 +76,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         path: canonical.to_string_lossy().into_owned(),
         detail: format!("cannot reload migrated product: {e:#}"),
     })?;
+    drop(_guard);
     let slug = project_slug(&canonical);
     let mut chat = chat_store::load(&slug).0;
     if chat.is_empty() {
@@ -100,8 +102,10 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         reconciliation: None,
         reconciliation_attempted: Default::default(),
         reconciliation_error: None,
+        reconciliation_cooldown_until: None,
         investigation: None,
         investigation_attempted: Default::default(),
+        investigation_cooldown_until: None,
         last_pr_refresh: None,
         implementation_states: Default::default(),
         live_progress: crate::harness::LiveProgress::default(),

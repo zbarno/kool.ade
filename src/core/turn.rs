@@ -175,6 +175,15 @@ fn run_turn(
     task: Option<&str>,
 ) -> TurnOutcome {
     let started = Instant::now();
+    // Snapshot the planning repo AS FOUND ON DISK (one retry: a single
+    // transient read hiccup should not silently disable the guard). Caller-side
+    // in-memory staging (e.g. an investigated item appended before its reply
+    // turn) is not competitor motion — this turn's apply will persist it. A
+    // rival writer (another turn, reconciliation, investigation, board
+    // action) committing during the run IS drift, and a stale apply is refused.
+    let base_snapshot = PlannerState::load(&inputs.state.repo_root)
+        .or_else(|_| PlannerState::load(&inputs.state.repo_root))
+        .ok();
     let user = inputs.state.effective_user();
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks
         && !inputs
@@ -307,21 +316,22 @@ fn run_turn(
                     elapsed: started.elapsed(),
                 },
                 Ok(normalized) => {
-                    if task.is_some() {
-                        let unchanged = PlannerState::load(&inputs.state.repo_root).is_ok_and(|current|
-                            current.baseline_spec == inputs.state.baseline_spec
-                            && current.baseline_items_md == inputs.state.baseline_items_md
-                            && current.active_feature == inputs.state.active_feature
-                            && current.resolved_items == inputs.state.resolved_items
-                            && current.config == inputs.state.config
-                            && current.workflow == inputs.state.workflow
-                            && current.repositories == inputs.state.repositories);
-                        if !unchanged {
-                            return TurnOutcome::Rejected {
-                                problems: vec!["Shared planning state changed while this reply was running. Reload the project and resend your reply against the current state.".into()],
-                                final_text: outcome.final_text, elapsed: started.elapsed(),
-                            };
-                        }
+                    // Serialize with every other planning writer, then refuse
+                    // to apply this snapshot if the project moved on disk in
+                    // the meantime (concurrent turn, reconciliation,
+                    // investigation, or board action). A stale apply would
+                    // clobber the rival's newer commit; resending is cheaper.
+                    let guard = crate::core::writer_gate::acquire();
+                    let unchanged = PlannerState::load(&inputs.state.repo_root)
+                        .is_ok_and(|current| match base_snapshot.as_ref() {
+                            Some(base) => PlannerState::drift_report(base, &current).is_empty(),
+                            None => true,
+                        });
+                    if !unchanged {
+                        return TurnOutcome::Rejected {
+                            problems: vec!["Planning files changed on disk while this turn was running, so nothing was saved. Review the latest artifacts and resend this message against the current state.".into()],
+                            final_text: outcome.final_text, elapsed: started.elapsed(),
+                        };
                     }
                     let mut state = inputs.state.clone();
                     let receipt = match apply(&mut state, &normalized) {
@@ -338,6 +348,7 @@ fn run_turn(
                     } else {
                         gitops::commit(&state.repo_root, &receipt.commit_message, &receipt.repo_relative_paths)
                     };
+                    drop(guard);
                     TurnOutcome::Applied {
                         state,
                         receipt,
@@ -414,6 +425,105 @@ mod tests {
             Ok(HarnessOutcome {
                 final_text: text,
                 envelope: None, // force the pipeline to extract + decode itself
+                stderr_tail: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn turn_refuses_to_overwrite_rival_checkpoint_landed_during_the_run() {
+        let (inputs, dir) = inputs_for("midflight_rival", "Note: adopt corporate SSO everywhere.");
+        let spec_path = dir.join(crate::artifacts::SPEC_FILE);
+        let heads_before = head_count(&dir);
+        let raw = serde_json::json!({"schema_version":1, "assistant_message":"Adopted corporate SSO.",
+            "change_summary":"adopt sso",
+            "updated_specification":crate::core::specification::fixture("Authentication uses corporate SSO.")}).to_string();
+        let c = TurnController::start(
+            inputs,
+            Box::new(RivalCheckpoint {
+                raw,
+                root: dir.clone(),
+                path: spec_path.clone(),
+            }),
+        );
+        match drain(&c) {
+            TurnOutcome::Rejected { problems, .. } => {
+                assert!(
+                    problems
+                        .iter()
+                        .any(|problem| problem.contains("changed on disk")),
+                    "unexpected problems: {problems:?}"
+                );
+            }
+            TurnOutcome::HarnessFailed { error, .. } => {
+                panic!("unexpected harness failure: {error}")
+            }
+            _ => panic!("expected the stale snapshot to be refused"),
+        }
+        // The rival's checkpoint stands: neither reverted nor clobbered,
+        // and the refused turn added no commit of its own.
+        let text = std::fs::read_to_string(&spec_path).unwrap();
+        assert!(text.contains("<!-- rival writer -->"));
+        assert_eq!(head_count(&dir), heads_before + 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn head_count(dir: &std::path::Path) -> usize {
+        let out = std::process::Command::new("git")
+            .args(["rev-list", "--count", "HEAD"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        if !out.status.success() {
+            // Unborn HEAD: the fixture repos ship uncommitted at start.
+            return 0;
+        }
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+    }
+
+    /// Acts as a rival writer: while the model is "running" it edits the spec
+    /// and checkpoints, exactly as another gated turn would.
+    struct RivalCheckpoint {
+        raw: String,
+        root: std::path::PathBuf,
+        path: std::path::PathBuf,
+    }
+    impl AiHarness for RivalCheckpoint {
+        fn label(&self) -> String {
+            "rival-checkpoint".into()
+        }
+        fn check_available(&self) -> Result<String, AppError> {
+            Ok("fixture".into())
+        }
+        fn execute(&self, _req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+            let text = std::fs::read_to_string(&self.path).map_err(|e| AppError::Io {
+                op: "read spec".into(),
+                detail: e.to_string(),
+            })?;
+            std::fs::write(&self.path, format!("{text}\n\n<!-- rival writer -->\n")).map_err(
+                |e| AppError::Io {
+                    op: "edit spec".into(),
+                    detail: e.to_string(),
+                },
+            )?;
+            for args in [
+                ["add", "planning/specification.md"].as_slice(),
+                ["commit", "-qm", "rival: external edit"].as_slice(),
+            ] {
+                let ok = std::process::Command::new("git")
+                    .args(args)
+                    .current_dir(&self.root)
+                    .status()
+                    .map_err(|e| AppError::Io {
+                        op: "git".into(),
+                        detail: e.to_string(),
+                    })?
+                    .success();
+                assert!(ok, "rival commit failed");
+            }
+            Ok(HarnessOutcome {
+                final_text: self.raw.clone(),
+                envelope: None,
                 stderr_tail: String::new(),
             })
         }

@@ -1,6 +1,7 @@
 //! Autonomous resolution of one Agent-authority planning item. The worker
 //! reads evidence through Pi, then uses the normal envelope validation and
 //! transaction path to preserve a durable conclusion or escalate authority.
+use crate::core::reconciliation::DEFER_PREFIX;
 use crate::{
     core::{apply, context_build::TurnContext, gitops, prompt, state::PlannerState, validation},
     domain::Authority,
@@ -97,6 +98,24 @@ pub fn run(
     progress: mpsc::Sender<LiveProgress>,
     cancel: Arc<AtomicBool>,
 ) -> anyhow::Result<(PlannerState, String)> {
+    run_with_settle_window(
+        state,
+        item_id,
+        harness,
+        progress,
+        cancel,
+        std::time::Duration::from_secs(5),
+    )
+}
+
+fn run_with_settle_window(
+    state: &PlannerState,
+    item_id: &str,
+    harness: &dyn AiHarness,
+    progress: mpsc::Sender<LiveProgress>,
+    cancel: Arc<AtomicBool>,
+    settle: std::time::Duration,
+) -> anyhow::Result<(PlannerState, String)> {
     let item = state
         .items
         .iter()
@@ -141,25 +160,47 @@ pub fn run(
         match result {
             Ok((envelope, normalized)) => {
                 anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
-                let current = PlannerState::load(&state.repo_root)?;
-                anyhow::ensure!(
-                    current.spec_text == state.spec_text
-                        && current.active_feature == state.active_feature
-                        && current.items == state.items
-                        && current.workflow == state.workflow,
-                    "Planning artifacts changed during investigation"
-                );
-                let mut next = state.clone();
-                let receipt = apply::apply(&mut next, &normalized)?;
-                let commit = gitops::commit(
-                    &next.repo_root,
-                    &receipt.commit_message,
-                    &receipt.repo_relative_paths,
-                )
-                .map_err(|error| {
-                    anyhow::anyhow!("Investigation was saved but checkpoint failed: {error}")
-                })?;
-                return Ok((next, format!("{} ({commit})", envelope.assistant())));
+                // Symmetric with reconciliation: give in-flight writers a short
+                // settle window, then DEFER (benign, auto-retried by the UI)
+                // rather than burn an alarming failure, and never write over a
+                // newer commit.
+                let deadline = std::time::Instant::now() + settle;
+                loop {
+                    anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
+                    let guard = crate::core::writer_gate::acquire();
+                    let attempt = (|| -> anyhow::Result<(PlannerState, String)> {
+                        let current = PlannerState::load(&state.repo_root)?;
+                        if !PlannerState::drift_report(state, &current).is_empty() {
+                            anyhow::bail!("{DEFER_PREFIX}");
+                        }
+                        let mut next = state.clone();
+                        let receipt = apply::apply(&mut next, &normalized)?;
+                        let commit = gitops::commit(
+                            &next.repo_root,
+                            &receipt.commit_message,
+                            &receipt.repo_relative_paths,
+                        )
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "Investigation was saved but checkpoint failed: {error}"
+                            )
+                        })?;
+                        Ok((next, format!("{} ({commit})", envelope.assistant())))
+                    })();
+                    drop(guard);
+                    match attempt {
+                        Ok(done) => return Ok(done),
+                        Err(error) if error.to_string().starts_with(DEFER_PREFIX) => {
+                            if std::time::Instant::now() >= deadline {
+                                anyhow::bail!(
+                                    "{DEFER_PREFIX}: the project changed while the investigation ran; Packet will retry shortly"
+                                );
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(200));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
             }
             Err(error) => {
                 correction = format!(
@@ -340,6 +381,79 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(root);
     }
+    /// Acts as a competing writer: edits the active feature document while
+    /// the model is "running", as another gated writer would.
+    struct DriftingPeer {
+        raw: String,
+        root: PathBuf,
+    }
+    impl AiHarness for DriftingPeer {
+        fn label(&self) -> String {
+            "drifting-peer".into()
+        }
+        fn check_available(&self) -> Result<String, crate::error::AppError> {
+            Ok("fixture".into())
+        }
+        fn execute(
+            &self,
+            _req: &PlanningRequest,
+        ) -> Result<HarnessOutcome, crate::error::AppError> {
+            let path = self
+                .root
+                .join("planning/features/CHG-001-search/specification.md");
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+            std::fs::write(
+                &path,
+                format!("{text}\nConcurrent edit by a gated writer.\n"),
+            )
+            .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+            Ok(HarnessOutcome {
+                final_text: self.raw.clone(),
+                envelope: None,
+                stderr_tail: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn drifting_project_defers_instead_of_clobbering() {
+        let (root, state, _) = fixture();
+        let response = serde_json::json!({"schema_version":2,"assistant_message":"Cannot settle autonomously.",
+            "document_updates":[],"open_items_updated":[{"id":"CLR-001","authority":"Review",
+                "recommendation":"Defer.","evidence":"Insufficient evidence."}],"next_question_id":null}).to_string();
+        let (progress, _events) = mpsc::channel();
+        let error = run_with_settle_window(
+            &state,
+            "CLR-001",
+            &DriftingPeer {
+                raw: response,
+                root: root.clone(),
+            },
+            progress,
+            Arc::new(AtomicBool::new(false)),
+            std::time::Duration::from_millis(200),
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.starts_with(DEFER_PREFIX),
+            "expected a benign deferral, got: {message}"
+        );
+        // The peer's edit survives; the investigation wrote nothing.
+        let feature_now =
+            std::fs::read_to_string(root.join("planning/features/CHG-001-search/specification.md"))
+                .unwrap();
+        assert!(feature_now.contains("Concurrent edit by a gated writer."));
+        assert!(feature_now.contains("Query persistence is unknown."));
+        let items = crate::artifacts::items_io::parse(
+            &std::fs::read_to_string(root.join("planning/open-items.md")).unwrap(),
+        )
+        .unwrap();
+        assert!(items.iter().any(|item| item.id == "CLR-001"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn uncertain_agent_item_becomes_review_with_evidence() {
         let (root, state, _) = fixture();

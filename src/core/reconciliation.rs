@@ -282,12 +282,34 @@ fn validate_response(
         .map_err(|problems| anyhow::anyhow!(problems.join("; ")))
 }
 
+/// Prefix of the benign deferral outcome emitted when competing writers kept
+/// moving the project past the settle window. The UI maps this to an
+/// informational note plus a retry cooldown instead of an alarm.
+pub const DEFER_PREFIX: &str = "PLANNER_DRIFT_DEFERRED";
+
+/// How long `run` waits for competing writers to finish checkpointing before
+/// deferring. Their commits are millisecond-scale, so ten seconds absorbs a
+/// normal turn; a longer stall means genuine contention and a retry is the
+/// right call.
+const DEFAULT_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub fn run(
     state: &PlannerState,
     candidate: &Candidate,
     harness: &dyn AiHarness,
     progress: mpsc::Sender<LiveProgress>,
     cancel: Arc<AtomicBool>,
+) -> anyhow::Result<(PlannerState, String)> {
+    run_with_settle_window(state, candidate, harness, progress, cancel, DEFAULT_SETTLE)
+}
+
+fn run_with_settle_window(
+    state: &PlannerState,
+    candidate: &Candidate,
+    harness: &dyn AiHarness,
+    progress: mpsc::Sender<LiveProgress>,
+    cancel: Arc<AtomicBool>,
+    settle: std::time::Duration,
 ) -> anyhow::Result<(PlannerState, String)> {
     anyhow::ensure!(
         state
@@ -335,26 +357,52 @@ pub fn run(
                 .map_err(|error| crate::error::AppError::Other(error.to_string()))
         }) {
             Ok((envelope, normalized)) => {
-                let current = PlannerState::load(&state.repo_root)?;
-                anyhow::ensure!(
-                    current.spec_text == state.spec_text
-                        && current.active_feature == state.active_feature
-                        && current.workflow == state.workflow
-                        && current.items == state.items
-                        && current.repositories == state.repositories,
-                    "Planning artifacts changed during reconciliation; retry against the current project"
-                );
-                let mut next = state.clone();
-                let receipt = apply::apply(&mut next, &normalized)?;
-                let commit = gitops::commit(
-                    &next.repo_root,
-                    &receipt.commit_message,
-                    &receipt.repo_relative_paths,
-                )
-                .map_err(|error| {
-                    anyhow::anyhow!("Reconciliation was saved but checkpoint failed: {error}")
-                })?;
-                return Ok((next, format!("{} ({})", envelope.assistant(), commit)));
+                // Competing writers (chat turns, investigations, board
+                // actions) may checkpoint while this run is in flight. Hold
+                // the writer gate and re-verify the snapshot INSIDE it; if a
+                // rival is still settling, wait a grace window, then DEFER
+                // (benign, auto-retried by the UI) rather than write over
+                // newer state or alarm the operator.
+                let deadline = std::time::Instant::now() + settle;
+                loop {
+                    anyhow::ensure!(
+                        !cancel.load(std::sync::atomic::Ordering::SeqCst),
+                        "Reconciliation cancelled"
+                    );
+                    let guard = crate::core::writer_gate::acquire();
+                    let attempt = (|| -> anyhow::Result<(PlannerState, String)> {
+                        let current = PlannerState::load(&state.repo_root)?;
+                        if !PlannerState::drift_report(state, &current).is_empty() {
+                            anyhow::bail!("{DEFER_PREFIX}");
+                        }
+                        let mut next = state.clone();
+                        let receipt = apply::apply(&mut next, &normalized)?;
+                        let commit = gitops::commit(
+                            &next.repo_root,
+                            &receipt.commit_message,
+                            &receipt.repo_relative_paths,
+                        )
+                        .map_err(|error| {
+                            anyhow::anyhow!(
+                                "Reconciliation was saved but checkpoint failed: {error}"
+                            )
+                        })?;
+                        Ok((next, format!("{} ({})", envelope.assistant(), commit)))
+                    })();
+                    drop(guard);
+                    match attempt {
+                        Ok(done) => return Ok(done),
+                        Err(error) if error.to_string().starts_with(DEFER_PREFIX) => {
+                            if std::time::Instant::now() >= deadline {
+                                anyhow::bail!(
+                                    "{DEFER_PREFIX}: the project changed while reconciliation ran; Packet will retry shortly"
+                                );
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(250));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
             }
             Err(error) => {
                 feedback = format!(
@@ -590,6 +638,88 @@ mod tests {
                 .contains(merged)
         );
         assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "3");
+        let _ = std::fs::remove_dir_all(repo);
+    }
+
+    /// Acts as a competing writer: while the model is "running" it edits the
+    /// active feature document on disk, so the snapshot the run validated
+    /// against is stale by the time the apply section is reached.
+    struct DriftHarness {
+        envelope: String,
+        feature_path: std::path::PathBuf,
+    }
+    impl AiHarness for DriftHarness {
+        fn label(&self) -> String {
+            "drift fixture".into()
+        }
+        fn check_available(&self) -> Result<String, crate::error::AppError> {
+            Ok("fixture".into())
+        }
+        fn execute(
+            &self,
+            _request: &PlanningRequest,
+        ) -> Result<HarnessOutcome, crate::error::AppError> {
+            let text = std::fs::read_to_string(&self.feature_path)
+                .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+            std::fs::write(
+                &self.feature_path,
+                format!("{text}\n\nExternal edit arrived.\n"),
+            )
+            .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+            Ok(HarnessOutcome {
+                final_text: self.envelope.clone(),
+                envelope: None,
+                stderr_tail: String::new(),
+            })
+        }
+    }
+
+    #[test]
+    fn drifting_project_is_deferred_not_clobbered() {
+        let (repo, state, candidate, feature) = fixture();
+        let merged = candidate.tasks[0].merged_commit.as_ref().unwrap().clone();
+        let updated_feature = feature.replace(
+            "**Status:** Implementing",
+            &format!("**Status:** Implemented\n\n**Implementation:** {merged}"),
+        );
+        let product = candidate.contract.product_modules["05-functional-requirements"].clone()
+            + "\nSearch queries persist across restart in the merged implementation.\n";
+        let response = serde_json::json!({"schema_version":2,"assistant_message":"Reconciled persisted search queries.",
+            "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature},
+                {"document_id":"product:05-functional-requirements","content":product}]}).to_string();
+        let feature_path = repo.join("planning/features/CHG-001-search/specification.md");
+        let harness = DriftHarness {
+            envelope: response,
+            feature_path: feature_path.clone(),
+        };
+        let (progress, _events) = mpsc::channel();
+        let error = run_with_settle_window(
+            &state,
+            &candidate,
+            &harness,
+            progress,
+            Arc::new(AtomicBool::new(false)),
+            std::time::Duration::from_millis(200),
+        )
+        .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.starts_with(DEFER_PREFIX),
+            "expected a benign deferral, got: {message}"
+        );
+        // Reconciliation must not have checkpointed or applied anything.
+        assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "2");
+        assert!(
+            !std::fs::read_to_string(repo.join("planning/product/05-functional-requirements.md"))
+                .unwrap()
+                .contains("persist across restart")
+        );
+        // The external edit survives untouched by the deferral.
+        assert!(
+            std::fs::read_to_string(feature_path)
+                .unwrap()
+                .contains("External edit arrived.")
+        );
         let _ = std::fs::remove_dir_all(repo);
     }
 

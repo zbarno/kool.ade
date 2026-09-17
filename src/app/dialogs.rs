@@ -30,6 +30,8 @@ impl DlgImport {
 
     /// Stage the listed paths into planning/imports/, then checkpoint.
     pub fn apply(&mut self, proj: &mut Project) -> Result<usize, AppError> {
+        // Writer section: import writes + checkpoint share the index.
+        let _guard = crate::core::writer_gate::acquire();
         let mut staged = 0usize;
         for line in self.paths.lines().map(str::trim).filter(|l| !l.is_empty()) {
             let expanded = expand_tilde(line);
@@ -49,11 +51,14 @@ impl DlgImport {
             staged += 1;
         }
         if staged > 0 {
-            let _ = gitops::commit(
+            gitops::commit(
                 &proj.state.repo_root,
                 "planner: import reference material",
                 &[format!("planning/{IMPORTS_DIR}")],
-            );
+            )
+            .map_err(|e| {
+                AppError::Other(format!("imports were staged but checkpoint failed: {e}"))
+            })?;
             proj.refresh_git();
         }
         Ok(staged)
@@ -156,6 +161,8 @@ impl DlgSettings {
 
     /// Commit the edited roster: rewrite config.md, resync, checkpoint.
     pub fn apply(&mut self, proj: &mut Project) -> Result<String, AppError> {
+        // Writer section: config write + checkpoint share the index.
+        let _guard = crate::core::writer_gate::acquire();
         let user = CurrentUser::new(self.user_name.trim(), csv_parts(&self.user_groups));
         let mut sk = Stakeholders::new(Vec::new());
         for r in &self.rows {
@@ -768,8 +775,10 @@ mod tests {
             reconciliation: None,
             reconciliation_attempted: Default::default(),
             reconciliation_error: None,
+            reconciliation_cooldown_until: None,
             investigation: None,
             investigation_attempted: Default::default(),
+            investigation_cooldown_until: None,
             last_pr_refresh: None,
             implementation_states: Default::default(),
             active_turn: None,

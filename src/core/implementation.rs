@@ -1374,6 +1374,9 @@ fn finish_auto_publish(
     save(dir, state)?;
     // Remote publication is already durable. Update an idle clean checkout only;
     // a dirty or divergent checkout remains untouched and does not undo success.
+    // The writer gate keeps this fast-forward from trampling an in-flight
+    // planning checkpoint (turns may commit while workers publish).
+    let _guard = crate::core::writer_gate::acquire();
     if runner
         .git(repo, &["status", "--porcelain"])
         .is_ok_and(|status| status.is_empty())

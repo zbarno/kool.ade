@@ -390,7 +390,6 @@ impl PacketApp {
             if !project.queue.auto_mode
                 || !project.queue.running
                 || project.active_turn.is_some()
-                || project.reconciliation.is_some()
                 || project.active_implementations.len() >= project.queue.max_parallel.clamp(1, 8)
             {
                 return;
@@ -490,6 +489,7 @@ impl PacketApp {
                 match result {
                     Ok((state, message)) => {
                         project.state = state;
+                        project.reconciliation_cooldown_until = None;
                         project.task_documents = crate::artifacts::task_docs::load_latest(
                             &project.state.repo_root,
                             &project.state.workflow,
@@ -508,20 +508,35 @@ impl PacketApp {
                         {
                             project.state = current;
                         }
-                        project.reconciliation_error = Some(error.to_string());
-                        project.activity.pending.push(format!(
-                            "Reconciliation of {feature_id} needs attention: {error}"
-                        ));
-                        self.toasts
-                            .warning(format!("Reconciliation needs attention: {error}"));
+                        let error = error.to_string();
+                        if error.starts_with(crate::core::reconciliation::DEFER_PREFIX) {
+                            // Benign: the live project moved while we ran.
+                            // Cool down and retry later; no alarm.
+                            project.reconciliation_cooldown_until =
+                                Some(Instant::now() + Duration::from_secs(300));
+                            project.activity.pending.push(format!(
+                                "Reconciliation of {feature_id} deferred - the project is still moving; Packet will check again shortly."
+                            ));
+                        } else {
+                            // Record the attempt so a failure cannot
+                            // instantly re-fire the model loop within this
+                            // session; a fresh session retries anew.
+                            project.reconciliation_attempted.insert(feature_id.clone());
+                            project.activity.pending.push(format!(
+                                "Reconciliation of {feature_id} needs attention: {error}"
+                            ));
+                            project.reconciliation_error = Some(error.clone());
+                            self.toasts
+                                .warning(format!("Reconciliation needs attention: {error}"));
+                        }
                     }
                 }
             }
         }
         if project.reconciliation.is_some()
-            || project.active_turn.is_some()
-            || !project.active_implementations.is_empty()
-            || project.queue.running
+            || project
+                .reconciliation_cooldown_until
+                .is_some_and(|until| until > Instant::now())
         {
             return;
         }
@@ -592,6 +607,7 @@ impl PacketApp {
                 match result {
                     Ok((state, message)) => {
                         project.state = state;
+                        project.investigation_cooldown_until = None;
                         project
                             .activity
                             .pending
@@ -603,24 +619,37 @@ impl PacketApp {
                         {
                             project.state = current;
                         }
-                        project
-                            .activity
-                            .tasks
-                            .entry(item_id.clone())
-                            .or_default()
-                            .activity = Some(format!("Needs attention: {error}"));
-                        project
-                            .activity
-                            .pending
-                            .push(format!("Agent item {item_id} needs attention: {error}"));
+                        let error = error.to_string();
+                        if error.starts_with(crate::core::reconciliation::DEFER_PREFIX) {
+                            // Benign contention: keep the item open and let
+                            // it retry after a quiet stretch; no alarm.
+                            project.investigation_cooldown_until =
+                                Some(Instant::now() + Duration::from_secs(300));
+                            project.activity.pending.push(format!(
+                                "Investigation of {item_id} deferred - the project is still moving; Packet will try again shortly."
+                            ));
+                        } else {
+                            project.investigation_attempted.insert(item_id.clone());
+                            project
+                                .activity
+                                .tasks
+                                .entry(item_id.clone())
+                                .or_default()
+                                .activity = Some(format!("Needs attention: {error}"));
+                            project
+                                .activity
+                                .pending
+                                .push(format!("Agent item {item_id} needs attention: {error}"));
+                        }
                         project.save_task_activity(&item_id);
                     }
                 }
             }
         }
         if project.investigation.is_some()
-            || project.active_turn.is_some()
-            || project.reconciliation.is_some()
+            || project
+                .investigation_cooldown_until
+                .is_some_and(|until| until > Instant::now())
         {
             return;
         }
@@ -635,7 +664,6 @@ impl PacketApp {
             .min_by_key(|item| (item.priority.rank(), &item.id));
         if let Some(item) = next {
             let item_id = item.id.clone();
-            project.investigation_attempted.insert(item_id.clone());
             project
                 .activity
                 .tasks
@@ -801,7 +829,7 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if project.active_turn.is_some() || project.reconciliation.is_some() {
+        if project.active_turn.is_some() {
             return;
         }
         let text = project
@@ -905,12 +933,6 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if project.reconciliation.is_some() {
-            project.draft = text.to_string();
-            self.toasts
-                .info("Reconciliation is checking merged implementation; your draft is preserved.");
-            return;
-        }
         if let Some(controller) = project.investigation.take() {
             project.investigation_attempted.remove(&controller.item_id);
             controller.cancel();
@@ -1133,7 +1155,7 @@ impl Surface for PacketApp {
             Screen::Connected(p) if p.investigation.as_ref().is_some_and(|run| run.item_id == key))
     }
     fn task_reply_busy(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.reconciliation.is_some())
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some())
     }
     fn cancel_task_reply(&mut self, key: &str) {
         if let Screen::Connected(p) = &self.screen {
@@ -1190,7 +1212,7 @@ impl Surface for PacketApp {
         }
     }
     fn implementation_capacity(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_none() && p.reconciliation.is_none() && p.active_implementations.len() < p.queue.max_parallel.clamp(1, 8))
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_none() && p.active_implementations.len() < p.queue.max_parallel.clamp(1, 8))
     }
     fn max_parallel_tasks(&self) -> usize {
         match &self.screen {
@@ -1302,7 +1324,7 @@ impl Surface for PacketApp {
         }
     }
     fn implement_task(&mut self, ticket: String) {
-        if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.reconciliation.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
+        if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
             return;
         }
@@ -1915,8 +1937,10 @@ mod board_tests {
                 reconciliation: None,
                 reconciliation_attempted: Default::default(),
                 reconciliation_error: None,
+                reconciliation_cooldown_until: None,
                 investigation: None,
                 investigation_attempted: Default::default(),
+                investigation_cooldown_until: None,
                 last_pr_refresh: None,
                 active_turn: None,
                 live_progress: Default::default(),
@@ -2985,8 +3009,10 @@ mod tests {
             reconciliation: None,
             reconciliation_attempted: Default::default(),
             reconciliation_error: None,
+            reconciliation_cooldown_until: None,
             investigation: None,
             investigation_attempted: Default::default(),
+            investigation_cooldown_until: None,
             last_pr_refresh: None,
             implementation_states: Default::default(),
             active_turn: None,

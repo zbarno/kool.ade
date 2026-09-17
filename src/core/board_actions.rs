@@ -48,12 +48,14 @@ fn insert_decision(
 }
 
 pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<String> {
+    // Writer section: board decision writes the feature spec + items and
+    // checkpoints, so it joins the planning writer gate like every other
+    // artifact mutator.
+    let guard = crate::core::writer_gate::acquire();
     let current = PlannerState::load(&state.repo_root)?;
+    let drifted = PlannerState::drift_report(state, &current);
     anyhow::ensure!(
-        current.spec_text == state.spec_text
-            && current.active_feature == state.active_feature
-            && current.items == state.items
-            && current.workflow == state.workflow,
+        drifted.is_empty(),
         "Planning artifacts changed; reload the board before approving"
     );
     let item = state
@@ -99,12 +101,16 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
     let normalized = validation::validate(&envelope, state, &state.effective_user())
         .map_err(|problems| anyhow::anyhow!(problems.join("; ")))?;
     let receipt = apply::apply(state, &normalized)?;
-    gitops::commit(
+    let result = gitops::commit(
         &state.repo_root,
         &receipt.commit_message,
         &receipt.repo_relative_paths,
     )
-    .map_err(|error| anyhow::anyhow!("Board decision was saved but git checkpoint failed: {error}"))
+    .map_err(|error| {
+        anyhow::anyhow!("Board decision was saved but git checkpoint failed: {error}")
+    });
+    drop(guard);
+    result
 }
 
 #[cfg(test)]

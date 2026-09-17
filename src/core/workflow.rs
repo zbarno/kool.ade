@@ -204,6 +204,9 @@ pub fn approve_feature(
     workflow: &mut Workflow,
     id: &str,
 ) -> anyhow::Result<String> {
+    // Writer section: this read-modify-commit of workflow.json shares the
+    // planning index with background turns/reconciliation.
+    let guard = crate::core::writer_gate::acquire();
     let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
     let text = std::fs::read_to_string(path)?;
     crate::core::specification::validate_feature(id, &text)?;
@@ -215,12 +218,14 @@ pub fn approve_feature(
     anyhow::ensure!(!contract.trim().is_empty(), "Feature contract is empty");
     workflow.approved_features.insert(id.to_string(), contract);
     crate::artifacts::task_docs::save_workflow(repo, workflow)?;
-    crate::core::gitops::commit(
+    let result = crate::core::gitops::commit(
         repo,
         &format!("planner: approve feature {id}"),
         &[WORKFLOW_FILE.to_string()],
     )
-    .map_err(|e| anyhow::anyhow!("approval saved but checkpoint failed: {e}"))
+    .map_err(|e| anyhow::anyhow!("approval saved but checkpoint failed: {e}"));
+    drop(guard);
+    result
 }
 
 pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -> bool {

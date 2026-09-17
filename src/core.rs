@@ -26,6 +26,7 @@ pub mod routing;
 pub mod state;
 pub mod turn;
 pub mod validation;
+pub mod writer_gate;
 
 pub mod workflow;
 

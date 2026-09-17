@@ -129,14 +129,10 @@ impl crate::domain::ItemKind {
         match self {
             crate::domain::ItemKind::Question => (PURPLE_DARK, PURPLE),
             crate::domain::ItemKind::Ambiguity => (Color32::from_rgb(24, 66, 56), SUCCESS),
-            crate::domain::ItemKind::Assumption => (
-                Color32::from_rgb(56, 44, 80),
-                ASSUMPTION_LAVENDER,
-            ),
-            crate::domain::ItemKind::Ownership => (
-                Color32::from_rgb(74, 38, 62),
-                OWNERSHIP_PINK,
-            ),
+            crate::domain::ItemKind::Assumption => {
+                (Color32::from_rgb(56, 44, 80), ASSUMPTION_LAVENDER)
+            }
+            crate::domain::ItemKind::Ownership => (Color32::from_rgb(74, 38, 62), OWNERSHIP_PINK),
         }
     }
 }
@@ -171,12 +167,7 @@ mod tests {
         ];
         assert_eq!(kinds.len(), recorded_defaults.len());
         for (kind, expected) in kinds.into_iter().zip(recorded_defaults) {
-            assert_eq!(
-                board_hue(kind),
-                expected,
-                "unexpected hue for {:?}",
-                kind
-            );
+            assert_eq!(board_hue(kind), expected, "unexpected hue for {:?}", kind);
         }
         assert_eq!(Question.badge_colors().1, board_hue(Some(Question)));
         assert_eq!(Ambiguity.badge_colors().1, board_hue(Some(Ambiguity)));
@@ -250,11 +241,7 @@ mod tests {
         for kind in kinds {
             let idle = board_frame(kind, false);
             let running = board_frame(kind, true);
-            assert_ne!(
-                running.fill, idle.fill,
-                "fill shift lost for {:?}",
-                kind
-            );
+            assert_ne!(running.fill, idle.fill, "fill shift lost for {:?}", kind);
             assert!(
                 running.stroke.width != idle.stroke.width
                     || running.stroke.color != idle.stroke.color,

@@ -1162,7 +1162,10 @@ mod tests {
 
     /// Builds a settled-record fixture by mutating `LiveProgress::default()`'
     /// public telemetry fields; no wall clock involved.
-    fn settled_fixture(updated_ms: Option<i64>, samples: &[(i64, u64)]) -> crate::harness::LiveProgress {
+    fn settled_fixture(
+        updated_ms: Option<i64>,
+        samples: &[(i64, u64)],
+    ) -> crate::harness::LiveProgress {
         let mut progress = crate::harness::LiveProgress::default();
         progress.telemetry.updated_ms = updated_ms;
         progress.telemetry.samples = samples.to_vec();
@@ -1222,16 +1225,25 @@ mod tests {
         // Settled: minute-CLOSE of telemetry.updated_ms, wall-clock-blind.
         let stamped = settled_fixture(Some(1_009_999), &[(100, 4), (97, 1)]);
         assert_eq!(task_card_activity_anchor(false, Some(&stamped), 0), 102);
-        assert_eq!(task_card_activity_anchor(false, Some(&stamped), 9_000_000), 102);
+        assert_eq!(
+            task_card_activity_anchor(false, Some(&stamped), 9_000_000),
+            102
+        );
         // The minute-boundary instant 960_000 belongs to that minute.
         let boundary = settled_fixture(Some(960_000), &[]);
-        assert_eq!(task_card_activity_anchor(false, Some(&boundary), 1_015_000), 102);
+        assert_eq!(
+            task_card_activity_anchor(false, Some(&boundary), 1_015_000),
+            102
+        );
         // Stamp-less record: the newest sample bucket 100 proxies the last
         // update (end proxy 1_000_000 ms) and lands in-window at slot 57
         // through the shared window math.
         let unstamped = settled_fixture(None, &[(100, 5), (97, 2)]);
         assert_eq!(task_card_activity_anchor(false, Some(&unstamped), 7), 102);
-        assert_eq!(crate::ui::task_activity::window(&[(100, 5), (97, 2)], 102)[57], 5);
+        assert_eq!(
+            crate::ui::task_activity::window(&[(100, 5), (97, 2)], 102)[57],
+            5
+        );
         // Record-less card: falls back to now_ms, still minute-CLOSE aligned.
         assert_eq!(task_card_activity_anchor(false, None, 1_015_000), 102);
     }
@@ -1259,7 +1271,10 @@ mod tests {
         let second = polylines(&render_band(samples, false, Some(&progress), 9_000_000))[0]
             .points
             .clone();
-        assert_eq!(first, second, "the final 10-minute window stays permanently static");
+        assert_eq!(
+            first, second,
+            "the final 10-minute window stays permanently static"
+        );
     }
 
     #[test]
@@ -1292,12 +1307,18 @@ mod tests {
         );
         for (index, p) in pt_before.iter().enumerate() {
             if index != 6 {
-                assert!((p.y - bottom).abs() <= 0.01, "slot {index} flat pre-boundary");
+                assert!(
+                    (p.y - bottom).abs() <= 0.01,
+                    "slot {index} flat pre-boundary"
+                );
             }
         }
         for (index, p) in pt_after.iter().enumerate() {
             if index != 0 {
-                assert!((p.y - bottom).abs() <= 0.01, "slot {index} flat post-boundary");
+                assert!(
+                    (p.y - bottom).abs() <= 0.01,
+                    "slot {index} flat post-boundary"
+                );
             }
         }
     }
@@ -1312,21 +1333,33 @@ mod tests {
         let shapes = render_band(samples, false, Some(&progress), 1_500_000);
 
         let lines = polylines(&shapes);
-        assert_eq!(lines.len(), 1, "exactly one chart: a single 60-point polyline");
+        assert_eq!(
+            lines.len(),
+            1,
+            "exactly one chart: a single 60-point polyline"
+        );
         let path = lines[0];
         assert!(
             matches!(path.stroke.color, egui::epaint::ColorMode::Solid(color) if color == theme::DANGER),
             "solid theme::DANGER stroke, got {:?}",
             path.stroke.color
         );
-        assert!((path.stroke.width - 1.8).abs() <= 0.01, "story-1 contractual 1.8px stroke");
+        assert!(
+            (path.stroke.width - 1.8).abs() <= 0.01,
+            "story-1 contractual 1.8px stroke"
+        );
         assert_eq!(
-            shapes.iter().filter(|c| matches!(c.shape, egui::Shape::Path(_))).count(),
+            shapes
+                .iter()
+                .filter(|c| matches!(c.shape, egui::Shape::Path(_)))
+                .count(),
             1,
             "no second chart on the band"
         );
         assert!(
-            shapes.iter().all(|c| !matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0)),
+            shapes
+                .iter()
+                .all(|c| !matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0)),
             "no bar fills on the card band"
         );
 
@@ -1346,7 +1379,10 @@ mod tests {
             (points[57].x - expected_x).abs() <= 0.5,
             "peak x pins the slot-57 anchor placement"
         );
-        assert!((points[57].y - (bottom - 40.0)).abs() <= 0.5, "peak sits at the 40 px plot top");
+        assert!(
+            (points[57].y - (bottom - 40.0)).abs() <= 0.5,
+            "peak sits at the 40 px plot top"
+        );
         assert!(
             (points[54].y - (bottom - 10.0)).abs() <= 0.5,
             "count-1 slot rises exactly 1/4 of the plot"
@@ -1355,7 +1391,10 @@ mod tests {
             if index == 54 || index == 57 {
                 continue;
             }
-            assert!((p.y - bottom).abs() <= 0.01, "slot {index} rests on the baseline");
+            assert!(
+                (p.y - bottom).abs() <= 0.01,
+                "slot {index} rests on the baseline"
+            );
         }
     }
 
@@ -1394,12 +1433,17 @@ mod tests {
                 );
             }
             assert_eq!(
-                shapes.iter().filter(|c| matches!(c.shape, egui::Shape::Path(_))).count(),
+                shapes
+                    .iter()
+                    .filter(|c| matches!(c.shape, egui::Shape::Path(_)))
+                    .count(),
                 1,
                 "{samples:?}: no additional spike-bearing shape"
             );
             assert!(
-                shapes.iter().all(|c| !matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0)),
+                shapes
+                    .iter()
+                    .all(|c| !matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0)),
                 "{samples:?}: the band still reserves its 48 px with no fills"
             );
         }

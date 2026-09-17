@@ -107,6 +107,8 @@ pub struct McpApplyReceipt {
 /// git effect, so a checkpoint failure never strands an un-written change
 /// — and never swallows: the `AppError` propagates to the dialog.
 pub fn apply_save(root: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError> {
+    // Writer section: config write + checkpoint shares the planning index.
+    let _guard = crate::core::writer_gate::acquire();
     let st = load_state(root);
     let op = classify(st.present, st.content.as_deref(), buffer);
     match op {

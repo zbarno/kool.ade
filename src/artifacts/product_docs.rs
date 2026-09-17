@@ -381,17 +381,15 @@ pub fn render_product(repo: &Path) -> anyhow::Result<Option<String>> {
 }
 
 pub fn active_feature(repo: &Path) -> Option<(String, String)> {
-    for name in active_features(repo) {
-        let id = directory_feature_id(&name)?.to_string();
-        let body = std::fs::read_to_string(
-            repo.join("planning/features")
-                .join(&name)
-                .join("specification.md"),
-        )
-        .ok()?;
-        return Some((id, body));
-    }
-    None
+    let name = active_features(repo).into_iter().next()?;
+    let id = directory_feature_id(&name)?.to_string();
+    let body = std::fs::read_to_string(
+        repo.join("planning/features")
+            .join(&name)
+            .join("specification.md"),
+    )
+    .ok()?;
+    Some((id, body))
 }
 
 fn active_features(repo: &Path) -> Vec<String> {
