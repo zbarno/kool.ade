@@ -294,7 +294,7 @@ pub fn brief_target_problem(
         [id] => match stamped {
             Some(stamped) if *id == stamped => None,
             Some(stamped) => Some(format!(
-                "Brief targets {id}, but the active feature is {stamped}; generation stamps every story with {stamped} and freezes its specification — conclude or activate {id} before generating its tasks"
+                "Brief targets {id}, but the active feature is {stamped}; generation stamps every story with {stamped} and freezes its specification — make {id} the active feature (conclude {stamped} first, or reopen {id} if it was concluded) before generating its tasks"
             )),
             None => Some(format!(
                 "Brief references feature {id}, but no feature is active"

@@ -9,9 +9,11 @@
 //!
 //! Gated twice on purpose: `#[ignore]` (normal suites never run it) and the
 //! `RUN_MIGRATE_CHG003_BATCH=1` environment variable. Refuses to operate when
-//! the active feature is not CHG-003, so it cannot corrupt a future batch.
-//! Once the migration has been applied and committed, this file may simply be
-//! deleted; nothing else references it.
+//! the active feature is not CHG-003, when the committed contract records a
+//! different repository base revision (the migration predates newer commits
+//! and must not blind-rewrite an established contract), so it cannot corrupt
+//! a future batch. Once the migration has been applied and committed, this
+//! file may simply be deleted; nothing else references it.
 
 #[cfg(test)]
 mod migration {
@@ -50,17 +52,44 @@ mod migration {
             "unexpected feature document head: {}\n...",
             body.lines().next().unwrap_or("<empty>")
         );
-        let batch = root.join(
-            "planning/tasks/readable-chat-replies-with-at-a-glance-asks-and-quick-op",
-        );
+        let batch =
+            root.join("planning/tasks/readable-chat-replies-with-at-a-glance-asks-and-quick-op");
         let spec_path = batch.join("specification.md");
         assert!(
             body == std::fs::read_to_string(&spec_path).expect("batch specification.md"),
             "fix the batch specification.md to the current CHG-003 feature document first"
         );
         let path = batch.join("contract.json");
-        let payload =
-            serde_json::to_string_pretty(&snapshot).expect("serialize contract");
+        // Re-run trap: freeze() captures the current HEAD, so if the working
+        // tree has moved since a192b48 froze 6445ae4..., blindly rewriting would
+        // drift repositoryBases out of sync with the committed repair. Refuse
+        // when the committed contract records a different base revision.
+        let current_root = snapshot.repository_bases.get("root").cloned();
+        match std::fs::read_to_string(&path) {
+            Ok(existing) => {
+                // Fail closed: an existing contract we cannot parse or compare
+                // is not grounds for a blind rewrite.
+                let parsed = serde_json::from_str::<serde_json::Value>(&existing).unwrap_or_else(
+                    |error| panic!("existing {path:?} is not valid JSON ({error}); refusing to rewrite it blindly"),
+                );
+                let old = parsed
+                    .pointer("/repositoryBases/root")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                match (old.as_deref(), current_root.as_deref()) {
+                    (Some(old), Some(current)) => assert_eq!(
+                        old, current,
+                        "repository base moved ({old} -> {current}); the committed CHG-003 contract is canonical — do not re-run this migration blindly"
+                    ),
+                    _ => panic!(
+                        "cannot compare {path:?} base revisions (existing {old:?}, current {current_root:?}); refusing to rewrite blindly"
+                    ),
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("cannot read {path:?} ({error}); refusing to rewrite blindly"),
+        }
+        let payload = serde_json::to_string_pretty(&snapshot).expect("serialize contract");
         std::fs::write(&path, format!("{payload}\n")).expect("write contract.json");
         println!("rewrote {path:?} for feature {}", snapshot.feature_id);
         println!(
