@@ -95,8 +95,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         queue: crate::core::implementation_queue::Queue::load(&canonical)
             .map_err(|e| AppError::Other(e.to_string()))?,
         queue_lock: None,
-        active_implementation: None,
-        active_implementation_ticket: None,
+        active_implementations: Default::default(),
         pr_refresh: None,
         reconciliation: None,
         reconciliation_attempted: Default::default(),

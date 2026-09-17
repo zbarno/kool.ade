@@ -124,30 +124,41 @@ such as `saved-searches-02`. Task generation creates plans, not implementation c
 **Implement & continue queue** (or **Resume implementation**) to start. Packet
 implements the selected story in its preserved worktree, verifies it, and merges
 it into origin's default branch (`main` or `master`) without creating a PR. It then
-starts the next unfinished story in the current batch, in order, once its linked
-dependencies are Done. Generating stories alone does not start implementation.
+fills available worker slots with independent stories in the current batch.
+Linked dependencies must be merged before a dependent story starts. Waiting tasks
+and open PRs do not prevent unrelated ready tasks from starting. Each worker has
+its own worktree, progress, cancellation, and verification. Generating stories
+alone does not start implementation.
 
-Auto publication uses a separate integration worktree based on the latest remote
+**Workspace → Settings… → Concurrent tasks** controls the pool (default **3**,
+range **1–8**). Lowering the limit does not interrupt running workers. You can also
+start another eligible task manually while workers are active.
+
+Auto publication is serialized per target repository, even when implementation
+runs concurrently. Verified tasks show **Waiting to merge** until the coordinator
+can integrate them. Publication uses a separate integration worktree based on the latest remote
 default branch. Packet squash-merges the task there, reruns its checks, asks the
 agent to resolve conflicts or fix integration failures when needed, and publishes
 one atomic commit with a normal fast-forward push. A concurrent remote change
 triggers another integration against the new base. Failed verification cannot
-advance the remote branch or the queue. A lost push response is recovered by
+advance the remote branch or unblock dependent tasks. A lost push response is recovered by
 checking the saved commit against the remote history. Clean connected checkouts
 on the default branch are fast-forwarded; dirty or divergent checkouts remain
 untouched. Uncommitted drafts are never copied into task worktrees.
 
-Disable **Auto mode** to stop queue advancement after the current task and use
+Disable **Auto mode** to stop launching queued tasks and use
 pull requests for future implementations. PR mode starts from the connected
 branch using the latest compatible remote commit, pushes a task branch, and
 creates or reuses a GitHub PR. It requires an authenticated `gh` CLI; Auto mode
 requires Git commit identity and push access, but does not invoke `gh` for
 publication. Branch protection and unavailable credentials remain real blockers.
 
-Queue settings and the current task persist under Git's private metadata, so
-reopening a running queue resumes it. Cancellation pauses the queue. A terminal
-failure also pauses it with the worktree and diagnosis preserved; Resume restarts
-recovery. Queue, ticket, and publication locks prevent competing Packet windows
+Queue settings and in-flight tasks persist under Git's private metadata, so
+reopening a running queue resumes unfinished work. Stopping a task pauses new
+starts and cancels only that worker; other running workers are preserved. A terminal
+failure blocks that task and its dependents but lets unrelated work continue.
+Its worktree and diagnosis remain available; Resume restarts recovery.
+Queue, ticket, and publication locks prevent competing Packet windows
 from publishing or advancing the same work concurrently.
 
 Packet automatically retries harness failures, including an empty final response.

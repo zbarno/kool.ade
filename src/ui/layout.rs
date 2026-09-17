@@ -81,10 +81,12 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             });
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(if s.is_busy() {
-                        "● Working"
+                    RichText::new(if s.active_task_count() > 0 {
+                        format!("● {} tasks", s.active_task_count())
+                    } else if s.is_busy() {
+                        "● Working".into()
                     } else {
-                        "● Ready"
+                        "● Ready".into()
                     })
                     .small(),
                 );
@@ -248,6 +250,15 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
         let mut open_batch = None;
         let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 560.0, |ui| {
             ui.heading("Implementation & queue");
+            let mut parallel = s.max_parallel_tasks();
+            if ui
+                .add(egui::Slider::new(&mut parallel, 1..=8).text("Concurrent tasks"))
+                .changed()
+            {
+                s.set_max_parallel_tasks(parallel);
+            }
+            ui.label(format!("{} workers active. Dependencies must merge before dependent tasks start. Merges are serialized and reverified.", s.active_task_count()));
+            ui.label("Lowering the limit affects new starts; running tasks keep their work.");
             let mut auto_mode = s.auto_mode();
             if ui
                 .checkbox(

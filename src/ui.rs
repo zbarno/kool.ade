@@ -64,6 +64,19 @@ pub trait Surface {
         self.implementation_active(key) || self.task_chat_active(key)
     }
     fn cancel_task(&mut self);
+    fn cancel_task_for(&mut self, _ticket: &str) {
+        self.cancel_task();
+    }
+    fn implementation_capacity(&self) -> bool {
+        !self.is_busy()
+    }
+    fn max_parallel_tasks(&self) -> usize {
+        3
+    }
+    fn active_task_count(&self) -> usize {
+        0
+    }
+    fn set_max_parallel_tasks(&mut self, _count: usize) {}
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
     fn implementation_state(

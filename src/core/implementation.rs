@@ -67,6 +67,17 @@ pub struct Controller {
     cancel: Arc<AtomicBool>,
 }
 impl Controller {
+    #[cfg(test)]
+    pub(crate) fn idle_fixture() -> Self {
+        Self {
+            rx: mpsc::channel().1,
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn cancellation_requested(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
     pub fn start(repo: PathBuf, ticket: String, auto_merge: bool) -> Self {
         Self::start_project(repo.clone(), repo, ticket, auto_merge)
     }
@@ -376,7 +387,12 @@ pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
     match state.status.as_str() {
         "Done" => 4,
         "PR created" => 2,
-        "Preparing" | "Implementing" | "Verifying" | "Ready for PR" | "Publishing" if busy => 1,
+        "Preparing" | "Implementing" | "Verifying" | "Ready for PR" | "Publishing"
+        | "Waiting to merge"
+            if busy =>
+        {
+            1
+        }
         _ => 3,
     }
 }
@@ -637,7 +653,8 @@ fn completed_dependency_context(
         let record = load(planning_root, &relative)
             .ok_or_else(|| anyhow::anyhow!("Dependency {relative} has no implementation record"))?;
         anyhow::ensure!(
-            record.status == "Done" && record.merged_commit.is_some(),
+            (record.status == "Done" || record.pr_state.as_deref() == Some("MERGED"))
+                && record.merged_commit.is_some(),
             "Dependency {relative} has not merged"
         );
         let story = fs::read_to_string(planning_root.join(relative.as_ref()))?;
@@ -1098,6 +1115,9 @@ fn auto_publish(
         .create(true)
         .truncate(false)
         .open(common(repo)?.join("packet-auto-publish.lock"))?;
+    state.status = "Waiting to merge".into();
+    save(dir, state)?;
+    runner.update("Verified; waiting for the project integration lock…");
     while publish_lock.try_lock().is_err() {
         runner.remaining()?;
         std::thread::sleep(Duration::from_millis(100));
@@ -1628,9 +1648,7 @@ mod tests {
             if self.mode == "healing" && call >= 4 {
                 assert!(req.prompt_body.contains("SELF-REPAIR REQUIRED"));
             }
-            let status = if self.mode == "blocked"
-                || (self.mode == "repair_blocked" && call == 0)
-            {
+            let status = if self.mode == "blocked" || (self.mode == "repair_blocked" && call == 0) {
                 "blocked"
             } else {
                 "complete"

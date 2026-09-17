@@ -129,8 +129,8 @@ impl PacketApp {
             }
         }
         if let Screen::Connected(project) = &mut self.screen {
-            let mut finished = None;
-            if let Some(ctrl) = &project.active_implementation {
+            let mut finished = Vec::new();
+            for (ticket, ctrl) in &project.active_implementations {
                 for _ in 0..64 {
                     match ctrl.poll() {
                         Some(crate::core::implementation::Event::Progress(p)) => {
@@ -140,7 +140,7 @@ impl PacketApp {
                                 .as_mut()
                                 .unwrap()
                                 .update(Default::default());
-                            if let Some(ticket) = &project.active_implementation_ticket {
+                            {
                                 project
                                     .activity
                                     .tasks
@@ -150,16 +150,20 @@ impl PacketApp {
                             }
                         }
                         Some(crate::core::implementation::Event::Done(result)) => {
-                            finished = Some(result);
+                            finished.push((ticket.clone(), result));
                             break;
                         }
                         None => break,
                     }
                 }
             }
-            if let Some(result) = finished {
-                project.active_implementation = None;
-                if let Some(ticket) = project.active_implementation_ticket.take() {
+            for (ticket, result) in finished {
+                project.active_implementations.remove(&ticket);
+                project.queue.in_flight.remove(&ticket);
+                if project.queue.current_ticket.as_ref() == Some(&ticket) {
+                    project.queue.current_ticket = None;
+                }
+                {
                     if let Some(progress) = project.activity.tasks.get_mut(&ticket) {
                         progress.telemetry.finished_ms =
                             Some(chrono::Utc::now().timestamp_millis());
@@ -174,7 +178,6 @@ impl PacketApp {
                 project.last_pr_refresh = None;
                 let text = match result {
                     Ok(record) => {
-                        project.queue.current_ticket = None;
                         if !record.auto_merge || record.status != "Done" {
                             project.queue.running = false;
                         }
@@ -210,7 +213,7 @@ impl PacketApp {
                         }
                     }
                     Err(error) => {
-                        project.queue.running = false;
+                        project.queue.blocked.insert(ticket.clone(), error.clone());
                         project.queue.last_error = error.clone();
                         format!(
                             "The task needs attention after automatic recovery. Its work is preserved. Open its card for the failure details and Resume action."
@@ -223,7 +226,7 @@ impl PacketApp {
                         project.queue.last_error = format!("Cannot save queue: {error}");
                     }
                 }
-                if !project.queue.running {
+                if !project.queue.running && project.active_implementations.is_empty() {
                     project.queue_lock = None;
                 }
                 project.activity.pending.push(text.clone());
@@ -298,7 +301,12 @@ impl PacketApp {
                 .last_save
                 .is_none_or(|last| last.elapsed() >= Duration::from_secs(2))
             {
-                if let Some(ticket) = project.active_implementation_ticket.clone() {
+                for ticket in project
+                    .active_implementations
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                {
                     project.save_task_activity(&ticket);
                 }
                 project.activity.last_save = Some(Instant::now());
@@ -333,7 +341,7 @@ impl PacketApp {
                     Err(_) => project.remember_chat(vec![ChatMessage::new(ChatRole::System, "Project-manager update unavailable after retry; task work continues. You can still send a message.", None)]),
                 }
             }
-            if project.active_implementation.is_some()
+            if !project.active_implementations.is_empty()
                 && project.activity.pending.is_empty()
                 && project
                     .activity
@@ -365,7 +373,7 @@ impl PacketApp {
         let period = match &self.screen {
             Screen::Connected(p)
                 if (p.active_turn.is_some()
-                    || p.active_implementation.is_some()
+                    || !p.active_implementations.is_empty()
                     || p.reconciliation.is_some()
                     || p.investigation.is_some()
                     || p.activity.manager.is_some()) =>
@@ -382,7 +390,8 @@ impl PacketApp {
             if !project.queue.auto_mode
                 || !project.queue.running
                 || project.active_turn.is_some()
-                || project.active_implementation.is_some()
+                || project.reconciliation.is_some()
+                || project.active_implementations.len() >= project.queue.max_parallel.clamp(1, 8)
             {
                 return;
             }
@@ -396,24 +405,48 @@ impl PacketApp {
                     }
                 }
             }
-            let pending = project.queue.current_ticket.clone().filter(|ticket| {
-                !project
-                    .implementation_states
-                    .get(ticket)
-                    .is_some_and(|state| state.status == "Done")
-            });
-            let choice = pending.map(|ticket| Ok(Some(ticket))).unwrap_or_else(|| {
-                crate::core::implementation_queue::next_ticket(
-                    &project.task_documents,
-                    &project.implementation_states,
-                )
-            });
+            let mut excluded = project
+                .active_implementations
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            excluded.extend(project.queue.blocked.keys().cloned());
+            for doc in &project.task_documents {
+                if let Some(id) = doc
+                    .text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Feature ID: "))
+                {
+                    if !crate::core::workflow::feature_approved(
+                        &project.state.repo_root,
+                        &project.state.workflow,
+                        id,
+                    ) {
+                        excluded.insert(doc.path.clone());
+                    }
+                }
+            }
+            let choice = crate::core::implementation_queue::next_ready_ticket(
+                &project.task_documents,
+                &project.implementation_states,
+                &excluded,
+            );
             match choice {
                 Ok(Some(ticket)) => Some(ticket),
                 Ok(None) => {
+                    if !project.active_implementations.is_empty() {
+                        return;
+                    }
                     project.queue.running = false;
                     project.queue.current_ticket = None;
-                    project.queue.last_error.clear();
+                    project.queue.in_flight.clear();
+                    project.queue.last_error = project
+                        .queue
+                        .blocked
+                        .iter()
+                        .map(|(ticket, error)| format!("{ticket}: {error}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
                     if let Err(error) = project.queue.save(&project.state.repo_root) {
                         project.queue.last_error = error.to_string();
                     }
@@ -422,6 +455,11 @@ impl PacketApp {
                 }
                 Err(error) => {
                     project.queue.last_error = error;
+                    if project.active_implementations.is_empty() {
+                        project.queue.running = false;
+                        let _ = project.queue.save(&project.state.repo_root);
+                        project.queue_lock = None;
+                    }
                     None
                 }
             }
@@ -429,7 +467,15 @@ impl PacketApp {
             None
         };
         if let Some(ticket) = next {
-            self.implement_task(ticket);
+            self.implement_task(ticket.clone());
+            if let Screen::Connected(p) = &mut self.screen {
+                if !p.active_implementations.contains_key(&ticket) {
+                    p.queue.blocked.insert(ticket, p.queue.last_error.clone());
+                    if p.queue_lock.is_some() {
+                        let _ = p.queue.save(&p.state.repo_root);
+                    }
+                }
+            }
         }
     }
 
@@ -474,7 +520,7 @@ impl PacketApp {
         }
         if project.reconciliation.is_some()
             || project.active_turn.is_some()
-            || project.active_implementation.is_some()
+            || !project.active_implementations.is_empty()
             || project.queue.running
         {
             return;
@@ -844,7 +890,7 @@ impl PacketApp {
     fn start_turn(&mut self, text: &str) {
         let purpose = match &self.screen {
             Screen::Connected(p)
-                if p.active_implementation.is_none()
+                if p.active_implementations.is_empty()
                     && p.state.workflow.ready(p.state.planning_contract())
                     && crate::core::workflow::confirms_generation(text) =>
             {
@@ -870,7 +916,7 @@ impl PacketApp {
             controller.cancel();
         }
         if project.active_turn.is_some()
-            || (project.active_implementation.is_some()
+            || (!project.active_implementations.is_empty()
                 && purpose == crate::core::workflow::TurnPurpose::GenerateTasks)
         {
             return;
@@ -882,7 +928,7 @@ impl PacketApp {
             state: project.state.clone(),
             user_message: format!(
                 "{text}\n\n[Application project context: active task worker={:?}; auto queue running={}; task count={}; recent task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
-                project.active_implementation_ticket,
+                project.active_implementations.keys().collect::<Vec<_>>(),
                 project.queue.running,
                 project.implementation_states.len(),
                 project
@@ -906,10 +952,10 @@ impl PacketApp {
 
     fn disconnect(&mut self) {
         if let Screen::Connected(p) = &mut self.screen {
+            for ctrl in p.active_implementations.values() {
+                ctrl.request_cancel();
+            }
             if p.active_turn.is_some() {
-                if let Some(ctrl) = &p.active_implementation {
-                    ctrl.request_cancel();
-                }
                 if let Some(ctrl) = &p.active_turn {
                     ctrl.request_cancel();
                 }
@@ -1105,7 +1151,7 @@ impl Surface for PacketApp {
     }
 
     fn is_busy(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementation.is_some())
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || !p.active_implementations.is_empty())
     }
 
     fn conversation_busy(&self) -> bool {
@@ -1125,9 +1171,59 @@ impl Surface for PacketApp {
                     p.queue.last_error = error.to_string();
                 }
             }
-            if let Some(ctrl) = &p.active_implementation {
+            for ctrl in p.active_implementations.values() {
                 ctrl.request_cancel();
             }
+        }
+    }
+    fn cancel_task_for(&mut self, ticket: &str) {
+        if let Screen::Connected(p) = &mut self.screen {
+            p.queue.running = false;
+            if let Some(ctrl) = p.active_implementations.get(ticket) {
+                ctrl.request_cancel();
+            }
+            if p.queue_lock.is_some() {
+                if let Err(error) = p.queue.save(&p.state.repo_root) {
+                    p.queue.last_error = error.to_string();
+                }
+            }
+        }
+    }
+    fn implementation_capacity(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_none() && p.reconciliation.is_none() && p.active_implementations.len() < p.queue.max_parallel.clamp(1, 8))
+    }
+    fn max_parallel_tasks(&self) -> usize {
+        match &self.screen {
+            Screen::Connected(p) => p.queue.max_parallel.clamp(1, 8),
+            _ => 3,
+        }
+    }
+    fn active_task_count(&self) -> usize {
+        match &self.screen {
+            Screen::Connected(p) => p.active_implementations.len(),
+            _ => 0,
+        }
+    }
+    fn set_max_parallel_tasks(&mut self, count: usize) {
+        if let Screen::Connected(p) = &mut self.screen {
+            let temporary_lock = if p.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
+                    Ok(lock) => Some(lock),
+                    Err(error) => {
+                        p.queue.last_error = error.to_string();
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            let previous = p.queue.max_parallel;
+            p.queue.max_parallel = count.clamp(1, 8);
+            if let Err(error) = p.queue.save(&p.state.repo_root) {
+                p.queue.max_parallel = previous;
+                p.queue.last_error = error.to_string();
+            }
+            drop(temporary_lock);
         }
     }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
@@ -1146,7 +1242,7 @@ impl Surface for PacketApp {
         match &self.screen {
             Screen::Connected(p)
                 if p.active_turn.is_none()
-                    && p.active_implementation.is_none()
+                    && p.active_implementations.is_empty()
                     && p.state.workflow.ready(p.state.planning_contract()) =>
             {
                 p.state.workflow.brief.as_ref()
@@ -1165,7 +1261,7 @@ impl Surface for PacketApp {
         }
     }
     fn implementation_active(&self, ticket: &str) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.active_implementation_ticket.as_deref() == Some(ticket))
+        matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(ticket))
     }
     fn auto_mode(&self) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.queue.auto_mode)
@@ -1200,13 +1296,14 @@ impl Surface for PacketApp {
                 p.queue.last_error = error.to_string();
             }
             drop(temporary_lock);
-            if !p.queue.running && p.active_implementation.is_none() {
+            if !p.queue.running && p.active_implementations.is_empty() {
                 p.queue_lock = None;
             }
         }
     }
     fn implement_task(&mut self, ticket: String) {
-        if self.is_busy() {
+        if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.reconciliation.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
+        {
             return;
         }
         if let Screen::Connected(p) = &mut self.screen {
@@ -1248,37 +1345,41 @@ impl Surface for PacketApp {
                         return;
                     }
                 };
-            if p.queue.auto_mode {
-                let selected = p
-                    .task_documents
-                    .iter()
-                    .find(|doc| doc.path == ticket)
-                    .unwrap();
-                if let Err(error) = crate::core::implementation_queue::next_ticket(
-                    std::slice::from_ref(selected),
-                    &p.implementation_states,
-                ) {
-                    p.queue.last_error = error;
-                    return;
-                }
-                if p.queue_lock.is_none() {
-                    match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
-                        Ok(lock) => p.queue_lock = Some(lock),
-                        Err(error) => {
-                            p.queue.last_error = error.to_string();
-                            return;
-                        }
+            let selected = p
+                .task_documents
+                .iter()
+                .find(|doc| doc.path == ticket)
+                .unwrap();
+            if let Err(error) = crate::core::implementation_queue::next_ticket(
+                std::slice::from_ref(selected),
+                &p.implementation_states,
+            ) {
+                p.queue.last_error = error;
+                return;
+            }
+            if p.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
+                    Ok(lock) => p.queue_lock = Some(lock),
+                    Err(error) => {
+                        p.queue.last_error = error.to_string();
+                        return;
                     }
                 }
+            }
+            if p.queue.auto_mode {
                 p.queue.running = true;
-                p.queue.current_ticket = Some(ticket.clone());
-                p.queue.last_error.clear();
-                if let Err(error) = p.queue.save(&p.state.repo_root) {
-                    p.queue.running = false;
-                    p.queue.last_error = error.to_string();
+            }
+            p.queue.in_flight.insert(ticket.clone());
+            p.queue.blocked.remove(&ticket);
+            p.queue.last_error.clear();
+            if let Err(error) = p.queue.save(&p.state.repo_root) {
+                p.queue.running = false;
+                p.queue.last_error = error.to_string();
+                p.queue.in_flight.remove(&ticket);
+                if p.active_implementations.is_empty() {
                     p.queue_lock = None;
-                    return;
                 }
+                return;
             }
             p.activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
             p.remember_chat(vec![ChatMessage::new(
@@ -1303,13 +1404,15 @@ impl Surface for PacketApp {
                 started_ms: Some(chrono::Utc::now().timestamp_millis()),
                 ..Default::default()
             };
-            p.active_implementation_ticket = Some(ticket.clone());
-            p.active_implementation = Some(crate::core::implementation::Controller::start_project(
-                p.state.repo_root.clone(),
-                target_repo,
-                ticket,
-                p.queue.auto_mode,
-            ));
+            p.active_implementations.insert(
+                ticket.clone(),
+                crate::core::implementation::Controller::start_project(
+                    p.state.repo_root.clone(),
+                    target_repo,
+                    ticket,
+                    p.queue.auto_mode,
+                ),
+            );
         }
     }
 
@@ -1806,8 +1909,7 @@ mod board_tests {
                 draft: String::new(),
                 queue: Default::default(),
                 queue_lock: None,
-                active_implementation: None,
-                active_implementation_ticket: None,
+                active_implementations: Default::default(),
                 implementation_states: states,
                 pr_refresh: None,
                 reconciliation: None,
@@ -2346,7 +2448,10 @@ mod board_tests {
         let mut app = fixture();
         let ticket = "planning/tasks/fixture/001-task.md".to_owned();
         if let Screen::Connected(p) = &mut app.screen {
-            p.active_implementation_ticket = Some(ticket.clone());
+            p.active_implementations.insert(
+                ticket.clone(),
+                crate::core::implementation::Controller::idle_fixture(),
+            );
             p.activity.tasks.insert(
                 ticket.clone(),
                 crate::harness::LiveProgress {
@@ -2657,13 +2762,43 @@ mod board_tests {
         let Screen::Connected(project) = &app.screen else {
             panic!("disconnected");
         };
-        assert!(project.active_implementation.is_none());
+        assert!(project.active_implementations.is_empty());
         assert!(!project.queue.running);
         assert!(project.queue.last_error.contains("needs explicit approval"));
     }
 
     #[test]
-    fn auto_queue_runs_two_tasks_through_pi_and_merges_without_prs() {
+    fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
+        let mut app = fixture();
+        let first = "planning/tasks/fixture/001-task.md";
+        let second = "planning/tasks/fixture/002-task.md";
+        if let Screen::Connected(p) = &mut app.screen {
+            p.implementation_states.remove(second);
+            p.queue.max_parallel = 2;
+            p.queue.running = true;
+            for ticket in [first, second] {
+                p.active_implementations.insert(
+                    ticket.into(),
+                    crate::core::implementation::Controller::idle_fixture(),
+                );
+            }
+        }
+        assert!(!app.implementation_capacity());
+        assert!(app.implementation_active(first) && app.implementation_active(second));
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "In progress · 2").is_some());
+        app.cancel_task_for(first);
+        if let Screen::Connected(p) = &app.screen {
+            assert!(!p.queue.running);
+            assert!(p.active_implementations[first].cancellation_requested());
+            assert!(!p.active_implementations[second].cancellation_requested());
+        }
+    }
+
+    #[test]
+    fn auto_queue_runs_independent_tasks_concurrently_then_merges_before_dependents() {
         let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
         struct Restore(Option<std::ffi::OsString>);
         impl Drop for Restore {
@@ -2701,14 +2836,14 @@ mod board_tests {
         git(&repo, &["init", "-q", "-b", "main"]);
         git(&repo, &["config", "user.name", "Fixture"]);
         git(&repo, &["config", "user.email", "fixture@example.test"]);
-        let docs = (1..=2).map(|number| crate::artifacts::task_docs::TaskDocument {
+        let docs = (1..=3).map(|number| crate::artifacts::task_docs::TaskDocument {
             path: format!("planning/tasks/fixture/{number:03}-task.md"), title: format!("Task {number}"),
-            text: format!("# Task {number}\n\n## Dependencies\n{}\n\n## Acceptance criteria\n- File exists.\n", if number == 2 { "- [Task 001](001-task.md) must be complete." } else { "None." }),
+            text: format!("# Task {number}\n\n## Dependencies\n{}\n\n## Acceptance criteria\n- File exists.\n", if number == 3 { "- [Task 001](001-task.md) must be complete.\n- [Task 002](002-task.md) must be complete." } else { "None." }),
         }).collect::<Vec<_>>();
         for doc in &docs {
             std::fs::write(repo.join(&doc.path), &doc.text).unwrap();
         }
-        std::fs::write(repo.join(".planner/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":2}]}).to_string()).unwrap();
+        std::fs::write(repo.join(".planner/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":3}]}).to_string()).unwrap();
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-qm", "baseline"]);
         git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
@@ -2741,6 +2876,15 @@ if 'TICKET PATH: ' not in prompt:
 time.sleep(0.3)
 ticket = prompt.split('TICKET PATH: ', 1)[1].splitlines()[0]
 name = pathlib.Path(ticket).stem + '.txt'
+root = pathlib.Path(__file__).parent
+if name in ('001-task.txt', '002-task.txt'):
+    (root / (name + '.started')).touch()
+    deadline = time.monotonic() + 10
+    while not all((root / (n + '.started')).exists() for n in ('001-task.txt', '002-task.txt')):
+        assert time.monotonic() < deadline, 'Independent workers did not overlap'
+        time.sleep(0.02)
+else:
+    assert pathlib.Path('001-task.txt').exists() and pathlib.Path('002-task.txt').exists(), 'Dependencies were not merged before starting'
 pathlib.Path(name).write_text('implemented')
 report = {'status':'complete','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':'File exists.','evidence':'File exists and was verified'}],'verification':['test -f '+name],'remaining':[]}
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
@@ -2754,15 +2898,19 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
         if let Screen::Connected(project) = &mut app.screen {
             project.state = crate::core::state::PlannerState::load(&repo).unwrap();
             project.task_documents = docs.clone();
+            project.queue.max_parallel = 2;
             project.implementation_states.clear();
             project.chat_slug = format!("auto-e2e-{}", std::process::id());
         }
         app.implement_task(docs[0].path.clone());
         let ctx = egui::Context::default();
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + Duration::from_secs(40);
         let mut concurrent_chat = false;
+        let mut max_workers = 0;
         loop {
             app.tick(0.1, &ctx);
+            max_workers = max_workers.max(app.active_task_count());
+            assert!(app.active_task_count() <= 2);
             if !concurrent_chat
                 && app
                     .chat_messages()
@@ -2770,14 +2918,14 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
                     .any(|m| m.text.starts_with("Manager fixture:"))
             {
                 assert!(
-                    matches!(&app.screen, Screen::Connected(p) if p.active_implementation.is_some())
+                    matches!(&app.screen, Screen::Connected(p) if !p.active_implementations.is_empty())
                 );
                 assert!(!app.conversation_busy());
                 app.start_turn("Can we discuss planning while the task runs?");
                 assert!(app.conversation_busy());
                 concurrent_chat = true;
             }
-            let finished = matches!(&app.screen, Screen::Connected(project) if !project.queue.running && project.active_implementation.is_none());
+            let finished = matches!(&app.screen, Screen::Connected(project) if !project.queue.running && project.active_implementations.is_empty());
             if finished {
                 break;
             }
@@ -2789,6 +2937,7 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             std::thread::sleep(Duration::from_millis(20));
         }
         if let Screen::Connected(project) = &app.screen {
+            assert_eq!(max_workers, 2, "Independent implementations must overlap");
             assert!(
                 project.queue.last_error.is_empty(),
                 "{}",
@@ -2816,13 +2965,14 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             assert!(!progress.response.contains("Manager fixture"));
             assert!(!progress.response.contains("Planning fixture"));
         }
-        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "5");
+        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "6");
         assert_eq!(
             git(&remote, &["show", "main:planning/local-approval.md"]),
             "approved locally"
         );
         assert_eq!(git(&remote, &["show", "main:001-task.txt"]), "implemented");
         assert_eq!(git(&remote, &["show", "main:002-task.txt"]), "implemented");
+        assert_eq!(git(&remote, &["show", "main:003-task.txt"]), "implemented");
         assert!(
             !crate::core::implementation_queue::Queue::load(&repo)
                 .unwrap()
@@ -2878,8 +3028,7 @@ mod tests {
             draft: String::new(),
             queue: Default::default(),
             queue_lock: None,
-            active_implementation: None,
-            active_implementation_ticket: None,
+            active_implementations: Default::default(),
             pr_refresh: None,
             reconciliation: None,
             reconciliation_attempted: Default::default(),

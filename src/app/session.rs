@@ -19,8 +19,8 @@ pub struct Project {
     pub draft: String,
     pub queue: crate::core::implementation_queue::Queue,
     pub queue_lock: Option<std::fs::File>,
-    pub active_implementation_ticket: Option<String>,
-    pub active_implementation: Option<crate::core::implementation::Controller>,
+    pub active_implementations:
+        std::collections::BTreeMap<String, crate::core::implementation::Controller>,
     pub implementation_states:
         std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
     pub pr_refresh: Option<crate::core::implementation::PrRefresh>,

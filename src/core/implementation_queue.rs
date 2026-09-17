@@ -13,6 +13,9 @@ pub struct Queue {
     pub auto_mode: bool,
     pub running: bool,
     pub current_ticket: Option<String>,
+    pub in_flight: std::collections::BTreeSet<String>,
+    pub max_parallel: usize,
+    pub blocked: BTreeMap<String, String>,
     pub last_error: String,
 }
 impl Default for Queue {
@@ -21,6 +24,9 @@ impl Default for Queue {
             auto_mode: true,
             running: false,
             current_ticket: None,
+            in_flight: Default::default(),
+            max_parallel: 3,
+            blocked: Default::default(),
             last_error: String::new(),
         }
     }
@@ -66,6 +72,14 @@ pub fn next_ticket(
     docs: &[TaskDocument],
     states: &BTreeMap<String, Implementation>,
 ) -> Result<Option<String>, String> {
+    next_ready_ticket(docs, states, &Default::default())
+}
+
+pub fn next_ready_ticket(
+    docs: &[TaskDocument],
+    states: &BTreeMap<String, Implementation>,
+    active: &std::collections::BTreeSet<String>,
+) -> Result<Option<String>, String> {
     let mut docs = docs
         .iter()
         .filter(|doc| !doc.path.ends_with("/README.md"))
@@ -76,18 +90,20 @@ pub fn next_ticket(
             state.status == "Done" || state.pr_state.as_deref() == Some("MERGED")
         })
     };
-    for doc in docs {
-        if done(&doc.path) {
+    let mut waiting = Vec::new();
+    'tasks: for doc in docs {
+        if done(&doc.path) || active.contains(&doc.path) {
             continue;
         }
         if states
             .get(&doc.path)
             .is_some_and(|state| state.pr_url.is_some())
         {
-            return Err(format!(
+            waiting.push(format!(
                 "Waiting for the existing PR for {} to merge",
                 doc.title
             ));
+            continue;
         }
         let mut in_dependencies = false;
         let mut dependencies = String::new();
@@ -106,23 +122,29 @@ pub fn next_ticket(
             {
                 let dependency = Path::new(&*dest_url);
                 if dependency.components().count() != 1 || !dest_url.ends_with(".md") {
-                    return Err(format!(
+                    waiting.push(format!(
                         "Review unsupported dependency link {dest_url} in {}",
                         doc.title
                     ));
+                    continue 'tasks;
                 }
                 let path = Path::new(&doc.path).parent().unwrap().join(dependency);
                 if !done(&path.to_string_lossy()) {
-                    return Err(format!(
+                    waiting.push(format!(
                         "{} is waiting for dependency {dest_url}",
                         doc.title
                     ));
+                    continue 'tasks;
                 }
             }
         }
         return Ok(Some(doc.path.clone()));
     }
-    Ok(None)
+    if waiting.is_empty() {
+        Ok(None)
+    } else {
+        Err(waiting.join("\n"))
+    }
 }
 
 #[cfg(test)]
@@ -165,6 +187,53 @@ mod tests {
         );
     }
     #[test]
+    fn independent_tasks_skip_blocked_and_running_predecessors() {
+        let docs = vec![
+            doc(1, "- [missing](009-task.md)"),
+            doc(2, "None."),
+            doc(3, "None."),
+            doc(4, "- [two](002-task.md)"),
+        ];
+        let states = BTreeMap::new();
+        assert_eq!(
+            next_ticket(&docs, &states).unwrap(),
+            Some(docs[1].path.clone())
+        );
+        let active = std::collections::BTreeSet::from([docs[1].path.clone()]);
+        assert_eq!(
+            next_ready_ticket(&docs, &states, &active).unwrap(),
+            Some(docs[2].path.clone())
+        );
+        let active = std::collections::BTreeSet::from([docs[1].path.clone(), docs[2].path.clone()]);
+        assert!(
+            next_ready_ticket(&docs, &states, &active)
+                .unwrap_err()
+                .contains("waiting")
+        );
+        let states = BTreeMap::from([(docs[1].path.clone(), done(&docs[1].path))]);
+        assert_eq!(
+            next_ready_ticket(&docs, &states, &active).unwrap(),
+            Some(docs[3].path.clone())
+        );
+    }
+
+    #[test]
+    fn cycles_and_invalid_dependencies_do_not_starve_independent_work() {
+        let docs = vec![
+            doc(1, "- [two](002-task.md)"),
+            doc(2, "- [one](001-task.md)"),
+            doc(3, "- [unsafe](../other.md)"),
+            doc(4, "None."),
+        ];
+        assert_eq!(
+            next_ticket(&docs, &BTreeMap::new()).unwrap(),
+            Some(docs[3].path.clone())
+        );
+        let waiting = next_ticket(&docs[..3], &BTreeMap::new()).unwrap_err();
+        assert!(waiting.contains("waiting") && waiting.contains("unsupported"));
+    }
+
+    #[test]
     fn preferences_and_inflight_ticket_survive_restart_and_lock_excludes_another_window() {
         let root = std::env::temp_dir().join(format!(
             "packet-queue-{}",
@@ -186,12 +255,16 @@ mod tests {
         assert!(Queue::acquire(&root).is_err());
         queue.running = true;
         queue.current_ticket = Some("planning/tasks/fixture/001-task.md".into());
+        queue.in_flight.extend(["one".into(), "two".into()]);
+        queue.max_parallel = 4;
         queue.save(&root).unwrap();
         drop(lock);
         let _new_lock = Queue::acquire(&root).unwrap();
         let loaded = Queue::load(&root).unwrap();
         assert!(loaded.running && loaded.auto_mode);
         assert_eq!(loaded.current_ticket, queue.current_ticket);
+        assert_eq!(loaded.in_flight, queue.in_flight);
+        assert_eq!(loaded.max_parallel, 4);
         drop(_new_lock);
         fs::remove_dir_all(root).unwrap();
     }

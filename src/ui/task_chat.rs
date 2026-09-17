@@ -357,7 +357,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 if expanded && story && !active && !retry && !needs_answer {
                     if implementing {
                         if ui.button("Stop task and pause queue").clicked() {
-                            s.cancel_task();
+                            s.cancel_task_for(key);
                         }
                     } else if let Some(url) =
                         implementation.as_ref().and_then(|r| r.pr_url.as_ref())
@@ -373,7 +373,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                         };
                         if ui
                             .add_enabled(
-                                !s.is_busy(),
+                                s.implementation_capacity(),
                                 egui::Button::new(label).fill(theme::ACCENT_SOFT),
                             )
                             .clicked()
