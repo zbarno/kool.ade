@@ -230,15 +230,26 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
                 .corner_radius(20.0)
                 .inner_margin(if mine { 16 } else { 0 })
                 .show(ui, |ui| {
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(m.text.trim())
-                                .size(15.0)
-                                .line_height(Some(23.0))
-                                .color(theme::TEXT),
-                        )
-                        .wrap(),
-                    );
+                    if m.role == ChatRole::Agent {
+                        // Agent prose renders as structured dark-theme
+                        // Markdown. Card-tab messages arrive pre-shielded by
+                        // layout.rs and `readable` is idempotent on
+                        // already-shielded prose, so the re-shield composes.
+                        let shielded = crate::ui::message_text::readable(m);
+                        crate::ui::markdown::paint(ui, &shielded, crate::ui::markdown::CHAT);
+                    } else {
+                        // User bubbles and System notices stay plain —
+                        // only agent prose is Markdown-rendered.
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(m.text.trim())
+                                    .size(15.0)
+                                    .line_height(Some(23.0))
+                                    .color(theme::TEXT),
+                            )
+                            .wrap(),
+                        );
+                    }
                 });
         });
     });
@@ -279,14 +290,14 @@ pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress
                             );
                         });
                     } else {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(post.text.trim())
-                                    .size(15.0)
-                                    .line_height(Some(23.0))
-                                    .color(theme::TEXT),
-                            )
-                            .wrap(),
+                        // Streaming reply prose: painted progressively,
+                        // degrading harmlessly on in-flight prefixes (the
+                        // harness projection withholds envelopes and
+                        // unterminated opening fences upstream).
+                        crate::ui::markdown::paint(
+                            ui,
+                            post.text.trim(),
+                            crate::ui::markdown::CHAT,
                         );
                     }
                     ui.add_space(4.0);
@@ -323,16 +334,323 @@ pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress
             ui.add_space(4.0);
         }
         if !progress.response.is_empty() {
-            ui.add(
-                egui::Label::new(
-                    RichText::new(progress.response.trim())
-                        .size(15.0)
-                        .line_height(Some(23.0))
-                        .color(theme::TEXT),
-                )
-                .wrap(),
+            crate::ui::markdown::paint(
+                ui,
+                progress.response.trim(),
+                crate::ui::markdown::CHAT,
             );
             ui.add_space(4.0);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::harness::{LivePost, LiveProgress};
+
+    /// One Markdown body shared by all three roles so the negative
+    /// controls (User/System) lock the role gate against the converted
+    /// agent bubble.
+    const SHARED_MD: &str = "# Heading\n\nLead with **boldlead** and finish plain.";
+
+    fn galleys(output: &egui::FullOutput) -> Vec<&egui::Galley> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => Some(&*shape.galley),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn galley_texts(output: &egui::FullOutput) -> Vec<String> {
+        galleys(output)
+            .iter()
+            .map(|galley| galley.text().to_owned())
+            .collect()
+    }
+
+    fn section_text<'a>(
+        galley: &'a egui::Galley,
+        section: &egui::text::LayoutSection,
+    ) -> &'a str {
+        &galley.job.text[section.byte_range.start.0..section.byte_range.end.0]
+    }
+
+    fn paint_ctx() -> egui::Context {
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+        ctx
+    }
+
+    #[test]
+    fn agent_replies_paint_markdown_while_user_and_system_bubbles_stay_plain() {
+        let ctx = paint_ctx();
+        let messages = vec![
+            ChatMessage::new(ChatRole::Agent, SHARED_MD, None),
+            ChatMessage::new(ChatRole::User, SHARED_MD, None),
+            ChatMessage::new(ChatRole::System, SHARED_MD, None),
+        ];
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        let texts = galley_texts(&output);
+        let bearing = texts.iter().filter(|t| t.contains("boldlead"));
+        assert_eq!(bearing.count(), 3, "each role paints the body once: {texts:?}");
+        let scrubbed = texts
+            .iter()
+            .filter(|t| t.contains("boldlead") && !t.contains('*'));
+        assert_eq!(scrubbed.count(), 1, "exactly the agent bubble scrubs markers: {texts:?}");
+        // Negative controls: User and System galleys keep every raw marker.
+        for text in &texts {
+            if text.contains("boldlead") && text.contains('*') {
+                assert!(
+                    text.contains('#') && text.contains('\n'),
+                    "control stays verbatim: {text}"
+                );
+            }
+        }
+        // The agent bold run carries a distinct TextFormat from its sibling.
+        let agent_body = galleys(&output)
+            .into_iter()
+            .find(|g| g.text().contains("boldlead") && !g.text().contains('*'))
+            .expect("agent paragraph galley");
+        let bold_section = agent_body
+            .job
+            .sections
+            .iter()
+            .find(|s| section_text(agent_body, s) == "boldlead")
+            .expect("styled bold section");
+        let plain_section = agent_body
+            .job
+            .sections
+            .iter()
+            .find(|s| section_text(agent_body, s) == "Lead with ")
+            .expect("plain lead section");
+        assert_ne!(bold_section.format, plain_section.format, "bold differs from plain");
+        assert!(bold_section.format.extra_letter_spacing.abs() > 1e-9);
+        assert!(plain_section.format.extra_letter_spacing.abs() < f32::EPSILON);
+        assert_eq!(bold_section.format.color, theme::TEXT);
+        // The heading renders at CHAT.h1 in theme ink.
+        let heading = galleys(&output)
+            .into_iter()
+            .find(|g| g.text() == "Heading")
+            .expect("heading galley");
+        for section in &heading.job.sections {
+            assert!(
+                (section.format.font_id.size - crate::ui::markdown::CHAT.h1).abs() < 1e-6,
+                "heading size {}",
+                section.format.font_id.size
+            );
+            assert_eq!(section.format.color, theme::TEXT);
+        }
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn card_tab_entry_paints_the_same_agent_markdown_after_double_shield() {
+        // layout.rs pre-swaps card messages' text with `readable` output
+        // before paint_task re-shields; this pins that the round trip is
+        // stable and the reply still renders styled and marker-free.
+        let prose = "Shaped reply.\n\n- ship it\n- then **verify**";
+        let raw_envelope = serde_json::json!({
+            "assistant_message": prose,
+            "schema_version": 1,
+        })
+        .to_string();
+        let original = ChatMessage::new(ChatRole::Agent, raw_envelope, None);
+        let pre_shielded = crate::ui::message_text::readable(&original);
+        assert_eq!(pre_shielded.as_ref(), prose);
+        let swapped = ChatMessage::new(ChatRole::Agent, pre_shielded.into_owned(), None);
+        let re_shielded = crate::ui::message_text::readable(&swapped);
+        assert_eq!(re_shielded.as_ref(), prose, "double shield must round-trip");
+        let messages = vec![swapped];
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint_task(ui, &messages, &mut draft, false);
+        });
+        let texts = galley_texts(&output);
+        assert!(
+            texts.iter().any(|t| t.contains("verify") && !t.contains('*')),
+            "card-tab agent reply must be marker-free: {texts:?}"
+        );
+        assert!(!texts.iter().any(|t| t.contains('{')), "no envelope braces: {texts:?}");
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn raw_envelopes_never_reach_the_reply_galley() {
+        let ctx = paint_ctx();
+        let envelope = "{\"assistant_message\":\"Hi **you**\",\"schema_version\":1,\"open_items_updated\":[]}";
+        let messages = vec![ChatMessage::new(ChatRole::Agent, envelope, None)];
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        let texts = galley_texts(&output);
+        assert!(
+            texts.iter().any(|t| t.contains("you") && !t.contains('*')),
+            "readable prose must render styled: {texts:?}"
+        );
+        assert!(
+            !texts
+                .iter()
+                .any(|t| t.contains("assistant_message") || t.contains('{')),
+            "envelope leaked into a chat galley: {texts:?}"
+        );
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn degenerate_agent_bodies_leave_the_pane_intact() {
+        for body in ["", "   \n\t  ", "---", "solo", "```rust\nlet value = 1;"] {
+            let ctx = paint_ctx();
+            let messages = vec![ChatMessage::new(ChatRole::Agent, body, None)];
+            let mut draft = String::new();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                paint(ui, &messages, &mut draft, false, None, None, false);
+            });
+            let texts = galley_texts(&output);
+            // Surrounding chrome (composer hint, send affordance) survives.
+            assert!(
+                texts.iter().any(|t| t.contains("Ctrl + Enter to send")),
+                "composer hint missing for body {body:?}"
+            );
+            // Painter never leaks fence glyphs, not even on an unclosed one.
+            assert!(
+                texts.iter().all(|t| !t.contains("```")),
+                "fence glyphs leaked for body {body:?}: {texts:?}"
+            );
+            output.textures_delta.clear();
+        }
+        // The unclosed fence still lands as a monospace line in the bubble.
+        let ctx = paint_ctx();
+        let messages = vec![ChatMessage::new(ChatRole::Agent, "```rust\nlet value = 1;", None)];
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        let code_line = galleys(&output)
+            .into_iter()
+            .find(|g| g.text() == "let value = 1;")
+            .expect("unclosed fence paints its code line");
+        assert!(code_line
+            .job
+            .sections
+            .iter()
+            .all(|s| s.format.font_id.family == egui::FontFamily::Monospace));
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn live_stream_keeps_diagnostic_regimes_and_formats_prose_chunks() {
+        let streaming_md = "Streamed **boldchunk** and a half fence\n```rust\nlet n = 2;";
+        let progress = LiveProgress {
+            posts: vec![
+                LivePost {
+                    id: (1, 0),
+                    kind: "thinking".to_string(),
+                    text: "reasoning **still plain**".to_string(),
+                },
+                LivePost {
+                    id: (2, 0),
+                    kind: "tool".to_string(),
+                    text: "cargo build\nCompiling packet v0.1.0".to_string(),
+                },
+                LivePost {
+                    id: (3, 0),
+                    kind: "text".to_string(),
+                    text: streaming_md.to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        let ctx = paint_ctx();
+        // Frame 1: the thinking diagnostic is open by default and stays
+        // plainly labeled; the streamed prose renders through the painter.
+        let mut first = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint_progress(ui, &progress);
+        });
+        let texts = galley_texts(&first);
+        assert!(
+            texts.iter().any(|t| t.contains("boldchunk") && !t.contains('*')),
+            "streamed prose must be marker-free: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("reasoning **still plain**")),
+            "plain thinking body must show its literal markers: {texts:?}"
+        );
+        // Locate the tool diagnostics header and click it open.
+        let header_center = first
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => Some(shape),
+                _ => None,
+            })
+            .find(|shape| (*shape.galley).text().starts_with("Tool output"))
+            .map(|shape| shape.pos + (*shape.galley).size() * 0.5)
+            .expect("tool diagnostics header");
+        let click = egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(header_center),
+                egui::Event::PointerButton {
+                    pos: header_center,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+                egui::Event::PointerButton {
+                    pos: header_center,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        // The collapsible fades open over a short wall-clock animation, so
+        // keep painting frames until the tool body is fully disclosed.
+        let mut saw_tool_mono = false;
+        for _ in 0..120 {
+            let input = if !saw_tool_mono { click.clone() } else { egui::RawInput::default() };
+            let mut out = ctx.run_ui(input, |ui| paint_progress(ui, &progress));
+            for galley in galleys(&out) {
+                if galley.text() == "cargo build\nCompiling packet v0.1.0" {
+                    saw_tool_mono = galley
+                        .job
+                        .sections
+                        .iter()
+                        .all(|sect| sect.format.font_id.family == egui::FontFamily::Monospace);
+                    break;
+                }
+            }
+            out.textures_delta.clear();
+            if saw_tool_mono {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(saw_tool_mono, "disclosed tool output must stay monospace");
+        first.textures_delta.clear();
+
+        // Posts empty: the response fallback renders through the painter.
+        let response_only = LiveProgress {
+            response: "Final **word** lands.".to_string(),
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint_progress(ui, &response_only);
+        });
+        let texts = galley_texts(&output);
+        assert!(
+            texts.iter().any(|t| t.contains("word") && !t.contains('*')),
+            "fallback response must be marker-free: {texts:?}"
+        );
+        output.textures_delta.clear();
+    }
 }

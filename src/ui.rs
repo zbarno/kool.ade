@@ -5,6 +5,7 @@
 pub mod chat_pane;
 pub mod items_pane;
 pub mod layout;
+pub mod markdown;
 pub mod message_text;
 pub mod overlays;
 pub mod reply_tail;

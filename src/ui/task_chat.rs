@@ -76,7 +76,14 @@ fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage]) {
                         ui.label(RichText::new(who).small().strong())
                             .on_hover_text(message.time_label());
                         let readable = crate::ui::message_text::readable(message);
-                        ui.label(readable.as_ref());
+                        if message.role == ChatRole::Agent {
+                            // Agent prose renders as structured dark-theme
+                            // Markdown; user and System lines keep today's
+                            // plain label regime.
+                            crate::ui::markdown::paint(ui, readable.as_ref(), crate::ui::markdown::CHAT);
+                        } else {
+                            ui.label(readable.as_ref());
+                        }
                         if readable.as_ref() != message.text {
                             ui.push_id(&message.id, |ui| {
                                 ui.collapsing("Response details", |ui| {
@@ -443,6 +450,38 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transcript_roles_gate_markdown_like_the_main_pane() {
+        const MD: &str = "Card says **boldcard** now.";
+        let messages = vec![
+            ChatMessage::new(ChatRole::Agent, MD, None),
+            ChatMessage::new(ChatRole::User, MD, None),
+            ChatMessage::new(ChatRole::System, MD, None),
+        ];
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| transcript(ui, &messages));
+        });
+        let texts: Vec<String> = output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => Some((*shape.galley).text().to_owned()),
+                _ => None,
+            })
+            .collect();
+        let bearing = texts.iter().filter(|t| t.contains("boldcard")).count();
+        assert_eq!(bearing, 3, "each role paints its body once: {texts:?}");
+        let scrubbed = texts
+            .iter()
+            .filter(|t| t.contains("boldcard") && !t.contains('*'))
+            .count();
+        assert_eq!(scrubbed, 1, "only the agent entry renders Markdown: {texts:?}");
+        output.textures_delta.clear();
+    }
+
     #[test]
     fn conversation_progress_preserves_explicit_lifecycle_states() {
         let mut messages = vec![];
