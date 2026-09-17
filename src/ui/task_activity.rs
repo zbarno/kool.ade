@@ -63,7 +63,14 @@ pub fn line_chart(
 /// Verbatim legacy hover copy for the activity graph; wording is pinned by
 /// tests and kept stable so incumbent chrome does not drift.
 fn hover_copy(peak: u64, live: bool) -> String {
-    format!("Observed updates / 10s · 10-minute window · peak {peak}/10s. {} Empty buckets mean no update arrived, not that a worker stopped. Activity is not completion percentage; token usage is not reported.", if live { "Rolling live window." } else { "Last recorded window." })
+    format!(
+        "Observed updates / 10s · 10-minute window · peak {peak}/10s. {} Empty buckets mean no update arrived, not that a worker stopped. Activity is not completion percentage; token usage is not reported.",
+        if live {
+            "Rolling live window."
+        } else {
+            "Last recorded window."
+        }
+    )
 }
 
 /// Compatibility adapter over [`line_chart`] preserving the incumbent
@@ -95,7 +102,12 @@ pub fn graph(ui: &mut egui::Ui, samples: &[(i64, u64)], live: bool, height: f32)
     // Deliberate mirror of line_chart's internal window scan: the hover copy
     // only needs the peak, and keeping line_chart's signature payload-free is
     // cheaper than threading values out of the primitive.
-    let peak = window(samples, anchor).iter().copied().max().unwrap_or(0).max(1);
+    let peak = window(samples, anchor)
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .max(1);
     response.on_hover_text(hover_copy(peak, live));
     if live {
         ui.ctx()
@@ -293,9 +305,7 @@ mod tests {
         shapes
             .iter()
             .filter_map(|clip| match &clip.shape {
-                egui::Shape::LineSegment { points, stroke }
-                    if stroke.color == theme::BORDER =>
-                {
+                egui::Shape::LineSegment { points, stroke } if stroke.color == theme::BORDER => {
                     Some((stroke.width, *points))
                 }
                 _ => None,
@@ -331,11 +341,18 @@ mod tests {
         let samples: &[(i64, u64)] = &[(47, 2), (47, 5), (90, 99), (98, 9), (102, 7), (103, 1)];
         let values = window(samples, 102);
         assert_eq!(values.len(), 60);
-        assert_eq!(values[4], 7, "duplicate buckets at 47 saturate-sum into slot 4");
+        assert_eq!(
+            values[4], 7,
+            "duplicate buckets at 47 saturate-sum into slot 4"
+        );
         assert_eq!(values[47], 99, "bucket 90 lands in slot 90 - (102 - 59)");
         assert_eq!(values[55], 9, "bucket 98 lands in slot 55");
         assert_eq!(values[59], 7, "the anchor bucket is the right-most slot");
-        assert_eq!(values.iter().sum::<u64>(), 122, "post-window bucket 103 is excluded");
+        assert_eq!(
+            values.iter().sum::<u64>(),
+            122,
+            "post-window bucket 103 is excluded"
+        );
         assert_eq!(
             window(&[(10, 0), (11, 0)], 11),
             [0; 60],
@@ -346,14 +363,18 @@ mod tests {
     #[test]
     fn degenerate_series_render_one_flat_polyline_plus_one_baseline() {
         let cases: [(&[(i64, u64)], i64); 4] = [
-            (&[], 100),              // empty telemetry
+            (&[], 100),                 // empty telemetry
             (&[(50, 0), (51, 0)], 100), // in-window, all zero
-            (&[(40, 8)], 100),      // strictly before the window
-            (&[(160, 9)], 100),     // strictly after the window
+            (&[(40, 8)], 100),          // strictly before the window
+            (&[(160, 9)], 100),         // strictly after the window
         ];
         for (samples, anchor) in cases {
             let (placed, shapes) = render_line(samples, anchor, theme::DANGER);
-            assert_ne!(placed, egui::Rect::NOTHING, "{samples:?}@{anchor} allocated");
+            assert_ne!(
+                placed,
+                egui::Rect::NOTHING,
+                "{samples:?}@{anchor} allocated"
+            );
             let bottom = placed.max.y - 4.0;
             let points = line_points(&shapes)
                 .unwrap_or_else(|| panic!("{samples:?}@{anchor}: missing 60-point polyline"));
@@ -371,9 +392,16 @@ mod tests {
             assert!((points[59].x - (placed.max.x - 2.0)).abs() <= 0.01);
             // Exactly one baseline, 1.0px wide, spanning the shrunken plot bottom.
             let baselines = baselines(&shapes);
-            assert_eq!(baselines.len(), 1, "{samples:?}@{anchor}: exactly one baseline");
+            assert_eq!(
+                baselines.len(),
+                1,
+                "{samples:?}@{anchor}: exactly one baseline"
+            );
             let (bl_width, [bl_tl, bl_br]) = baselines[0];
-            assert!((bl_width - 1.0).abs() <= 0.01, "contractual 1.0px baseline width");
+            assert!(
+                (bl_width - 1.0).abs() <= 0.01,
+                "contractual 1.0px baseline width"
+            );
             assert!((bl_br - egui::pos2(placed.max.x - 2.0, bottom)).length() <= 0.01);
             assert!((bl_tl - egui::pos2(placed.min.x + 2.0, bottom)).length() <= 0.01);
             // No other path-bearing (spike) shape exists; the lone polyline
@@ -382,9 +410,15 @@ mod tests {
                 .iter()
                 .filter(|clip| matches!(clip.shape, egui::Shape::Path(_)))
                 .count();
-            assert_eq!(path_count, 1, "{samples:?}@{anchor}: no extra path/spike shapes");
+            assert_eq!(
+                path_count, 1,
+                "{samples:?}@{anchor}: no extra path/spike shapes"
+            );
             let (pl_width, _) = polylines(&shapes)[0];
-            assert!((pl_width - 1.8).abs() <= 0.01, "contractual 1.8px polyline width");
+            assert!(
+                (pl_width - 1.8).abs() <= 0.01,
+                "contractual 1.8px polyline width"
+            );
         }
     }
 
@@ -397,12 +431,21 @@ mod tests {
         let height = bottom - top;
         let points = line_points(&shapes).expect("60-point polyline");
         // The argmax vertex (slot 59) reaches the plot top.
-        assert!((points[59].y - top).abs() <= 0.5, "argmax vertex at plot top");
+        assert!(
+            (points[59].y - top).abs() <= 0.5,
+            "argmax vertex at plot top"
+        );
         // More counted vertices rise higher: slot 58 (5/9) sits strictly
         // below the top vertex, and slot 57 (3/9) strictly below slot 58.
         // (Screen y grows downward: lower on screen == larger y.)
-        assert!(points[58].y > points[59].y, "slot 58 strictly below the top vertex");
-        assert!(points[57].y > points[58].y, "slot 57 strictly below slot 58");
+        assert!(
+            points[58].y > points[59].y,
+            "slot 58 strictly below the top vertex"
+        );
+        assert!(
+            points[57].y > points[58].y,
+            "slot 57 strictly below slot 58"
+        );
         assert!(
             (bottom - points[57].y) > 0.01 && (bottom - points[57].y) < height,
             "3-count vertex strictly between top and baseline"
@@ -410,9 +453,18 @@ mod tests {
         // Exact linear peak-division (rules out sqrt/log-like scalings):
         // each filled vertex sits at count/peak of the usable plot height.
         let frac = |p: &egui::Pos2| (bottom - p.y) / height;
-        assert!((frac(&points[59]) - 1.0).abs() <= 0.02, "slot 59 fills 9/9 of the plot height");
-        assert!((frac(&points[58]) - 5.0 / 9.0).abs() <= 0.02, "slot 58 fills 5/9 of the plot height");
-        assert!((frac(&points[57]) - 3.0 / 9.0).abs() <= 0.02, "slot 57 fills 3/9 of the plot height");
+        assert!(
+            (frac(&points[59]) - 1.0).abs() <= 0.02,
+            "slot 59 fills 9/9 of the plot height"
+        );
+        assert!(
+            (frac(&points[58]) - 5.0 / 9.0).abs() <= 0.02,
+            "slot 58 fills 5/9 of the plot height"
+        );
+        assert!(
+            (frac(&points[57]) - 3.0 / 9.0).abs() <= 0.02,
+            "slot 57 fills 3/9 of the plot height"
+        );
         // Slots 57/58/59 are the only nonzero buckets; every other slot is
         // flush with the baseline, and slot 59 is the unique highest vertex.
         for (j, p) in points.iter().enumerate() {
@@ -420,7 +472,10 @@ mod tests {
                 continue;
             }
             let lift = (bottom - p.y).abs();
-            assert!(lift <= 0.01, "slot {j} flush with the baseline, lift={lift}");
+            assert!(
+                lift <= 0.01,
+                "slot {j} flush with the baseline, lift={lift}"
+            );
         }
     }
 
@@ -440,7 +495,10 @@ mod tests {
             "unique-peak vertex (7/7) sits at the plot's top edge"
         );
         let frac = |p: &egui::Pos2| (bottom - p.y) / height;
-        assert!((frac(&points[58]) - 1.0).abs() <= 0.02, "peak 7 fills 7/7 of the plot height");
+        assert!(
+            (frac(&points[58]) - 1.0).abs() <= 0.02,
+            "peak 7 fills 7/7 of the plot height"
+        );
         assert!(
             (frac(&points[59]) - 3.0 / 7.0).abs() <= 0.02,
             "slot 59 (count 3) rises 3/7 of the plot height"
@@ -460,8 +518,16 @@ mod tests {
                 "slot {j} flush with the baseline, lift={lift}"
             );
         }
-        assert_eq!(polylines(&shapes).len(), 1, "exactly one polyline for the fixture");
-        assert_eq!(baselines(&shapes).len(), 1, "baseline accompanies the fixture");
+        assert_eq!(
+            polylines(&shapes).len(),
+            1,
+            "exactly one polyline for the fixture"
+        );
+        assert_eq!(
+            baselines(&shapes).len(),
+            1,
+            "baseline accompanies the fixture"
+        );
     }
 
     #[test]
@@ -485,13 +551,28 @@ mod tests {
         let points_c = line_points(&shapes_c).expect("shifted capture");
 
         // At anchor 500 both edge buckets are occupied...
-        assert!((bottom_a - points_a[0].y).abs() > 1.0, "slot 0 holds bucket 441");
-        assert!((bottom_a - points_a[59].y).abs() > 1.0, "slot 59 holds bucket 500");
+        assert!(
+            (bottom_a - points_a[0].y).abs() > 1.0,
+            "slot 0 holds bucket 441"
+        );
+        assert!(
+            (bottom_a - points_a[59].y).abs() > 1.0,
+            "slot 59 holds bucket 500"
+        );
         // ...and at anchor 501 the profile slides one slot left: bucket 441
         // falls out (slot 0 flat) and bucket 500 vacates the rightmost slot.
-        assert!((bottom_c - points_c[0].y).abs() <= 0.01, "left-edge bucket left the window");
-        assert!((bottom_c - points_c[58].y).abs() > 1.0, "bucket 500 now sits in slot 58");
-        assert!((bottom_c - points_c[59].y).abs() <= 0.01, "former rightmost slot zeroed");
+        assert!(
+            (bottom_c - points_c[0].y).abs() <= 0.01,
+            "left-edge bucket left the window"
+        );
+        assert!(
+            (bottom_c - points_c[58].y).abs() > 1.0,
+            "bucket 500 now sits in slot 58"
+        );
+        assert!(
+            (bottom_c - points_c[59].y).abs() <= 0.01,
+            "former rightmost slot zeroed"
+        );
     }
 
     #[test]
@@ -500,12 +581,20 @@ mod tests {
         let (_, purple_shapes) = render_line(samples, 102, theme::PURPLE);
         let (_, danger_shapes) = render_line(samples, 102, theme::DANGER);
         assert_eq!(
-            polylines(&purple_shapes).iter().map(|(_, c)| c).cloned().collect::<Vec<_>>(),
+            polylines(&purple_shapes)
+                .iter()
+                .map(|(_, c)| c)
+                .cloned()
+                .collect::<Vec<_>>(),
             [egui::epaint::ColorMode::Solid(theme::PURPLE)],
             "PURPLE argument strokes the polyline PURPLE"
         );
         assert_eq!(
-            polylines(&danger_shapes).iter().map(|(_, c)| c).cloned().collect::<Vec<_>>(),
+            polylines(&danger_shapes)
+                .iter()
+                .map(|(_, c)| c)
+                .cloned()
+                .collect::<Vec<_>>(),
             [egui::epaint::ColorMode::Solid(theme::DANGER)],
             "DANGER argument strokes the polyline DANGER"
         );
@@ -524,17 +613,26 @@ mod tests {
         });
         output.textures_delta.clear();
         assert_eq!(
-            polylines(&output.shapes).iter().map(|(_, c)| c).cloned().collect::<Vec<_>>(),
+            polylines(&output.shapes)
+                .iter()
+                .map(|(_, c)| c)
+                .cloned()
+                .collect::<Vec<_>>(),
             [egui::epaint::ColorMode::Solid(theme::DANGER)],
             "live strip keeps the DANGER-red 60-point line"
         );
         assert!(
-            polylines(&output.shapes).iter().all(|(w, _)| (w - 1.8).abs() <= 0.01),
+            polylines(&output.shapes)
+                .iter()
+                .all(|(w, _)| (w - 1.8).abs() <= 0.01),
             "live strip keeps the 1.8px polyline"
         );
         let bls = baselines(&output.shapes);
         assert_eq!(bls.len(), 1, "live strip keeps the baseline");
-        assert!((bls[0].0 - 1.0).abs() <= 0.01, "live strip keeps the 1.0px baseline");
+        assert!(
+            (bls[0].0 - 1.0).abs() <= 0.01,
+            "live strip keeps the 1.0px baseline"
+        );
         assert_eq!(labels(&output.shapes), ["No activity yet"]);
 
         // Mirrors the layout.rs:628 item-details collapsing: settled mode, 48px.
@@ -544,17 +642,26 @@ mod tests {
         });
         output.textures_delta.clear();
         assert_eq!(
-            polylines(&output.shapes).iter().map(|(_, c)| c).cloned().collect::<Vec<_>>(),
+            polylines(&output.shapes)
+                .iter()
+                .map(|(_, c)| c)
+                .cloned()
+                .collect::<Vec<_>>(),
             [egui::epaint::ColorMode::Solid(theme::DANGER)],
             "settled details view keeps the DANGER-red 60-point line"
         );
         assert!(
-            polylines(&output.shapes).iter().all(|(w, _)| (w - 1.8).abs() <= 0.01),
+            polylines(&output.shapes)
+                .iter()
+                .all(|(w, _)| (w - 1.8).abs() <= 0.01),
             "settled details view keeps the 1.8px polyline"
         );
         let bls = baselines(&output.shapes);
         assert_eq!(bls.len(), 1, "settled details view keeps the baseline");
-        assert!((bls[0].0 - 1.0).abs() <= 0.01, "settled details view keeps the 1.0px baseline");
+        assert!(
+            (bls[0].0 - 1.0).abs() <= 0.01,
+            "settled details view keeps the 1.0px baseline"
+        );
         assert_eq!(labels(&output.shapes), ["Last recorded activity"]);
     }
 
@@ -570,20 +677,37 @@ mod tests {
                 placed = line_chart(ui, samples, 100, theme::DANGER, size).rect;
             });
             output.textures_delta.clear();
-            assert_eq!(placed.size(), size, "{size:?}: Response still allocates the requested size");
+            assert_eq!(
+                placed.size(),
+                size,
+                "{size:?}: Response still allocates the requested size"
+            );
             let drawn = output
                 .shapes
                 .iter()
-                .filter(|c| matches!(c.shape, egui::Shape::LineSegment { .. } | egui::Shape::Path(_)))
+                .filter(|c| {
+                    matches!(
+                        c.shape,
+                        egui::Shape::LineSegment { .. } | egui::Shape::Path(_)
+                    )
+                })
                 .count();
-            assert_eq!(drawn, 0, "{size:?}: a shrunk plot at/below zero size must suppress every drawing");
+            assert_eq!(
+                drawn, 0,
+                "{size:?}: a shrunk plot at/below zero size must suppress every drawing"
+            );
         }
     }
 
     #[test]
     fn legacy_hover_copy_is_byte_identical_for_every_mode() {
         let samples: &[(i64, u64)] = &[(100, 2), (102, 7)];
-        let peak = window(samples, 102).iter().copied().max().unwrap_or(0).max(1);
+        let peak = window(samples, 102)
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0)
+            .max(1);
         assert_eq!(peak, 7);
         assert_eq!(
             hover_copy(peak, false),
@@ -594,7 +718,11 @@ mod tests {
             "Observed updates / 10s · 10-minute window · peak 7/10s. Rolling live window. Empty buckets mean no update arrived, not that a worker stopped. Activity is not completion percentage; token usage is not reported."
         );
         // Retained cosmetic quirk: an all-zero/empty window prints peak 1/10s.
-        assert!(hover_copy(1, false).starts_with("Observed updates / 10s · 10-minute window · peak 1/10s. Last recorded window."));
-        assert!(hover_copy(1, true).starts_with("Observed updates / 10s · 10-minute window · peak 1/10s. Rolling live window."));
+        assert!(hover_copy(1, false).starts_with(
+            "Observed updates / 10s · 10-minute window · peak 1/10s. Last recorded window."
+        ));
+        assert!(hover_copy(1, true).starts_with(
+            "Observed updates / 10s · 10-minute window · peak 1/10s. Rolling live window."
+        ));
     }
 }

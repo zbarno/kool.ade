@@ -1,4 +1,4 @@
-//! Board-first workspace with on-demand project chat and focused task interaction.
+//! Workspace with persistent tabbed conversations beside the Kanban board.
 use crate::ui::{Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
@@ -13,16 +13,12 @@ pub enum HeaderAction {
 
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let compact = ui.ctx().content_rect().width() < 960.0;
-    let chat_id = egui::Id::new("packet_project_chat_open");
     let settings_id = egui::Id::new("packet_workspace_settings_open");
     let mut settings_open = ui
         .ctx()
         .data_mut(|d| d.get_temp::<bool>(settings_id).unwrap_or(false));
-    let mut chat_open = ui
-        .ctx()
-        .data_mut(|d| d.get_temp::<bool>(chat_id).unwrap_or(false));
     Panel::top("packet_header")
-        .exact_size(if compact { 102.0 } else { 108.0 })
+        .exact_size(if compact { 78.0 } else { 108.0 })
         .frame(
             Frame::NONE
                 .fill(theme::BG)
@@ -112,11 +108,23 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 );
             });
         });
+    let chat_panel = if compact {
+        Panel::top("packet_chat_panel").exact_size(230.0)
+    } else {
+        Panel::left("packet_chat_panel")
+            .exact_size((ui.available_width() * 0.32).clamp(340.0, 560.0))
+    };
+    chat_panel
+        .frame(Frame::NONE.fill(theme::BG).inner_margin(12))
+        .show(ui, |ui| paint_chat_tabs(ui, s));
     CentralPanel::default()
         .frame(
             Frame::NONE
                 .fill(theme::PANEL)
-                .inner_margin(egui::Margin::symmetric(if compact { 12 } else { 28 }, 18)),
+                .inner_margin(egui::Margin::symmetric(
+                    if compact { 12 } else { 28 },
+                    if compact { 4 } else { 18 },
+                )),
         )
         .show(ui, |ui| {
             let tab_id = egui::Id::new("packet_document_tab");
@@ -146,19 +154,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     {
                         tasks_tab = true;
                     }
-                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button("Main Chat")
-                            .on_hover_text("Open project chat in its own window")
-                            .clicked()
-                        {
-                            chat_open = true;
-                            ui.ctx().send_viewport_cmd_to(
-                                egui::ViewportId::from_hash_of("packet_main_chat_window"),
-                                egui::ViewportCommand::Focus,
-                            );
-                        }
-                    });
                 });
                 ui.add_space(12.0);
             }
@@ -299,101 +294,124 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     }
     ui.ctx()
         .data_mut(|d| d.insert_temp(settings_id, settings_open));
-    if chat_open {
-        conversation_window(ui, s, None, &mut chat_open);
-    }
-    ui.ctx().data_mut(|d| d.insert_temp(chat_id, chat_open));
-    let windows_id = egui::Id::new("packet_task_chat_windows");
-    let mut windows = ui.ctx().data_mut(|d| {
-        d.get_temp::<std::collections::BTreeSet<String>>(windows_id)
-            .unwrap_or_default()
-    });
-    windows.retain(|key| {
-        let mut open = true;
-        conversation_window(ui, s, Some(key), &mut open);
-        open
-    });
-    ui.ctx().data_mut(|d| d.insert_temp(windows_id, windows));
 }
 
-fn conversation_window(ui: &mut egui::Ui, s: &mut dyn Surface, key: Option<&str>, open: &mut bool) {
-    let title = key
-        .map(|key| {
-            s.items()
+#[derive(Clone, Default)]
+pub(crate) struct ChatTabs {
+    pub(crate) keys: Vec<String>,
+    pub(crate) active: Option<String>,
+    reveal_active: bool,
+}
+
+impl ChatTabs {
+    fn open(&mut self, key: &str) {
+        if !self.keys.iter().any(|existing| existing == key) {
+            self.keys.push(key.to_owned());
+        }
+        self.active = Some(key.to_owned());
+        self.reveal_active = true;
+    }
+
+    fn close(&mut self, key: &str) {
+        self.keys.retain(|existing| existing != key);
+        if self.active.as_deref() == Some(key) {
+            self.active = None;
+        }
+    }
+}
+
+fn conversation_title(s: &dyn Surface, key: &str) -> String {
+    s.items()
+        .iter()
+        .chain(s.synthetic_items())
+        .chain(s.resolved_items())
+        .find(|item| item.conversation_key() == key)
+        .map(|item| item.question.clone())
+        .or_else(|| {
+            s.task_documents()
                 .iter()
-                .chain(s.synthetic_items())
-                .chain(s.resolved_items())
-                .find(|item| item.conversation_key() == key)
-                .map(|item| item.question.clone())
-                .or_else(|| {
-                    s.task_documents()
-                        .iter()
-                        .find(|doc| doc.path == key)
-                        .map(|doc| doc.title.clone())
-                })
-                .unwrap_or_else(|| key.to_string())
+                .find(|doc| doc.path == key)
+                .map(|doc| doc.title.clone())
         })
-        .unwrap_or_else(|| format!("Main Chat — {}", s.session_title()));
-    let id = match key {
-        Some(key) => egui::ViewportId::from_hash_of(("packet_task_chat_window", key)),
-        None => egui::ViewportId::from_hash_of("packet_main_chat_window"),
-    };
-    let ctx = ui.ctx().clone();
-    ctx.show_viewport_immediate(
-        id,
-        egui::ViewportBuilder::default()
-            .with_title(&title)
-            .with_inner_size([560.0, 720.0])
-            .with_min_inner_size([360.0, 400.0]),
-        |ui, _class| {
-            if ui.input(|i| i.viewport().close_requested()) {
-                *open = false;
-                return;
+        .unwrap_or_else(|| key.to_owned())
+}
+
+fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    let id = egui::Id::new("packet_chat_tabs");
+    let mut tabs = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<ChatTabs>(id).unwrap_or_default());
+    egui::ScrollArea::horizontal()
+        .id_salt("chat_tabs")
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(tabs.active.is_none(), "Main Chat")
+                    .clicked()
+                {
+                    tabs.active = None;
+                }
+                for key in tabs.keys.clone() {
+                    ui.push_id(&key, |ui| {
+                        let title = conversation_title(s, &key);
+                        let label = crate::core::context_build::clip(&title, 28);
+                        let selected = tabs.active.as_deref() == Some(key.as_str());
+                        let response = ui.selectable_label(selected, label).on_hover_text(&title);
+                        if selected && tabs.reveal_active {
+                            response.scroll_to_me(Some(egui::Align::Center));
+                        }
+                        if response.clicked() {
+                            tabs.active = Some(key.clone());
+                        }
+                        if ui
+                            .small_button("×")
+                            .on_hover_text(format!("Close {title}"))
+                            .clicked()
+                        {
+                            tabs.close(&key);
+                        }
+                    });
+                }
+            });
+        });
+    tabs.reveal_active = false;
+    ui.separator();
+    ui.push_id(("chat_tab", &tabs.active), |ui| {
+        if let Some(key) = tabs.active.as_deref() {
+            let title = conversation_title(s, key);
+            ui.add(egui::Label::new(RichText::new(&title).strong()).truncate())
+                .on_hover_text(title);
+            let messages = s
+                .task_messages(key)
+                .iter()
+                .map(|message| {
+                    let mut readable = message.clone();
+                    readable.text = crate::ui::message_text::readable(message).into_owned();
+                    readable
+                })
+                .collect::<Vec<_>>();
+            let busy = s.task_reply_busy();
+            let active = s.task_chat_active(key);
+            if let Some(error) = s.task_chat_error() {
+                ui.colored_label(theme::WARNING, error);
+                if ui.button("Retry saving conversation").clicked() {
+                    s.retry_task_chat_save();
+                }
             }
-            CentralPanel::default()
-                .frame(Frame::NONE.fill(theme::BG).inner_margin(16))
-                .show(ui, |ui| {
-                    if let Some(key) = key {
-                        ui.label(RichText::new(&title).size(17.0).strong());
-                        ui.label(
-                            RichText::new("Task conversation · only this item's history")
-                                .small()
-                                .weak(),
-                        );
-                        let messages = s
-                            .task_messages(key)
-                            .iter()
-                            .map(|message| {
-                                let mut readable = message.clone();
-                                readable.text =
-                                    crate::ui::message_text::readable(message).into_owned();
-                                readable
-                            })
-                            .collect::<Vec<_>>();
-                        let busy = s.task_reply_busy();
-                        let active = s.task_chat_active(key);
-                        if let Some(error) = s.task_chat_error() {
-                            ui.colored_label(theme::WARNING, error);
-                            if ui.button("Retry saving conversation").clicked() {
-                                s.retry_task_chat_save();
-                            }
-                        }
-                        if let Some(draft) = s.task_draft(key) {
-                            let intent =
-                                crate::ui::chat_pane::paint_task(ui, &messages, draft, busy);
-                            if intent.send {
-                                s.send_task_reply(key);
-                            }
-                            if intent.cancel && active {
-                                s.cancel_task_reply(key);
-                            }
-                        }
-                    } else {
-                        paint_conversation(ui, s, true);
-                    }
-                });
-        },
-    );
+            if let Some(draft) = s.task_draft(key) {
+                let intent = crate::ui::chat_pane::paint_task(ui, &messages, draft, busy);
+                if intent.send {
+                    s.send_task_reply(key);
+                }
+                if intent.cancel && active {
+                    s.cancel_task_reply(key);
+                }
+            }
+        } else {
+            paint_conversation(ui, s, false);
+        }
+    });
+    ui.ctx().data_mut(|d| d.insert_temp(id, tabs));
 }
 
 fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
@@ -435,17 +453,19 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let id = egui::Id::new("packet_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
     let docs = s.task_documents().to_vec();
-    ui.horizontal_wrapped(|ui| {
-        for (kind, label) in [
-            (None, "Task"),
-            (Some(crate::domain::ItemKind::Question), "Question"),
-            (Some(crate::domain::ItemKind::Ambiguity), "Ambiguity"),
-            (Some(crate::domain::ItemKind::Assumption), "Assumption"),
-            (Some(crate::domain::ItemKind::Ownership), "Ownership"),
-        ] {
-            ui.colored_label(theme::board_hue(kind), format!("● {label}"));
-        }
-    });
+    if viewport.width() >= 960.0 {
+        ui.horizontal_wrapped(|ui| {
+            for (kind, label) in [
+                (None, "Task"),
+                (Some(crate::domain::ItemKind::Question), "Question"),
+                (Some(crate::domain::ItemKind::Ambiguity), "Ambiguity"),
+                (Some(crate::domain::ItemKind::Assumption), "Assumption"),
+                (Some(crate::domain::ItemKind::Ownership), "Ownership"),
+            ] {
+                ui.colored_label(theme::board_hue(kind), format!("● {label}"));
+            }
+        });
+    }
     let mut planning_selection = ui
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_planning")));
@@ -463,13 +483,15 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
             .iter()
             .map(|i| i.id.clone())
             .collect::<Vec<_>>();
-    ui.label(
-        RichText::new(
-            "Planning questions and task workers · select a card for details and activity",
-        )
-        .size(12.5)
-        .weak(),
-    );
+    if viewport.width() >= 960.0 {
+        ui.label(
+            RichText::new(
+                "Planning questions and task workers · select a card for details and activity",
+            )
+            .size(12.5)
+            .weak(),
+        );
+    }
     let height = (ui.available_height() - 24.0).max(120.0);
     let gaps = ui.spacing().item_spacing.x * 4.0;
     let column_width = ((ui.available_width() - 100.0 - gaps - 2.0) / 5.0).max(190.0);
@@ -920,18 +942,13 @@ fn task_key(path: &str) -> String {
 
 fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) -> bool {
     if crate::ui::task_chat::paint(ui, s, key, expanded) {
-        let id = egui::Id::new("packet_task_chat_windows");
+        let id = egui::Id::new("packet_chat_tabs");
         ui.ctx().data_mut(|d| {
-            let mut windows = d
-                .get_temp::<std::collections::BTreeSet<String>>(id)
-                .unwrap_or_default();
-            windows.insert(key.to_string());
-            d.insert_temp(id, windows);
+            let mut tabs = d.get_temp::<ChatTabs>(id).unwrap_or_default();
+            tabs.open(key);
+            d.insert_temp(id, tabs);
         });
-        ui.ctx().send_viewport_cmd_to(
-            egui::ViewportId::from_hash_of(("packet_task_chat_window", key)),
-            egui::ViewportCommand::Focus,
-        );
+        ui.ctx().request_repaint();
     }
     false
 }
@@ -985,5 +1002,26 @@ fn card_summary(text: &str) -> String {
         flat
     } else {
         format!("{}…", flat.chars().take(160).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod chat_tab_tests {
+    use super::ChatTabs;
+
+    #[test]
+    fn multiple_tabs_keep_open_order_and_close_only_the_selected_conversation() {
+        let mut tabs = ChatTabs::default();
+        tabs.open("first");
+        tabs.open("second");
+        tabs.open("first");
+        assert_eq!(tabs.keys, ["first", "second"]);
+        assert_eq!(tabs.active.as_deref(), Some("first"));
+        tabs.close("second");
+        assert_eq!(tabs.active.as_deref(), Some("first"));
+        tabs.open("third");
+        tabs.close("third");
+        assert!(tabs.active.is_none());
+        assert_eq!(tabs.keys, ["first"]);
     }
 }

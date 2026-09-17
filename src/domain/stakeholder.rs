@@ -58,9 +58,11 @@ impl Stakeholders {
 
     /// Upsert a category mapping, preserving position when present.
     pub fn upsert(&mut self, entry: CategoryOwners) {
-        if let Some(slot) = self.entries.iter_mut().find(|e| {
-            e.name.trim().to_ascii_lowercase() == entry.name.trim().to_ascii_lowercase()
-        }) {
+        if let Some(slot) = self
+            .entries
+            .iter_mut()
+            .find(|e| e.name.trim().to_ascii_lowercase() == entry.name.trim().to_ascii_lowercase())
+        {
             // Existing spelling wins; membership is refreshed.
             slot.members = entry.members;
         } else {
@@ -96,7 +98,10 @@ mod tests {
             CategoryOwners::new("qa ", Vec::new()), // hand-edited spaced heading
         ]);
         assert!(h.owner_exists("PRODUCT"));
-        assert!(h.find(" QA").is_some(), "spacing drift must match on either side");
+        assert!(
+            h.find(" QA").is_some(),
+            "spacing drift must match on either side"
+        );
         assert!(!h.owner_exists("QA")); // entry exists but has no members
         assert!(!h.owner_exists("Ops"));
         let cats: Vec<&str> = h.iter_categories().collect();

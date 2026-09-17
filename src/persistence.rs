@@ -12,6 +12,4 @@ pub mod task_chats;
 
 mod home;
 
-pub use home::{
-    fnv1a64, known_projects_path, project_dir, project_slug, state_root,
-};
+pub use home::{fnv1a64, known_projects_path, project_dir, project_slug, state_root};

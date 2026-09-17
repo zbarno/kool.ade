@@ -12,15 +12,15 @@
 //! * `turn` — the threaded turn pipeline driving the UI
 
 pub mod apply;
+pub mod board_actions;
 pub mod context_build;
 pub mod contract_snapshot;
-pub mod board_actions;
-pub mod reconciliation;
-pub mod investigation;
 pub mod gitops;
 pub mod ids;
+pub mod investigation;
 pub mod ownership;
 pub mod prompt;
+pub mod reconciliation;
 pub mod repo_overview;
 pub mod routing;
 pub mod state;

@@ -4,7 +4,7 @@
 use egui::{Layout, RichText, TextEdit};
 
 use crate::app::session::Project;
-use crate::artifacts::{atomic_write, config_io, imports_io, CONFIG_FILE, IMPORTS_DIR};
+use crate::artifacts::{CONFIG_FILE, IMPORTS_DIR, atomic_write, config_io, imports_io};
 use crate::core::gitops;
 use crate::domain::stakeholder::{CategoryOwners, Stakeholders};
 use crate::domain::user::{CurrentUser, IdentitySource};
@@ -16,13 +16,16 @@ use crate::ui::theme;
 // ---------------------------------------------------------------------------
 
 pub struct DlgImport {
-    pub paths: String, // one per line (files or folders)
+    pub paths: String,                    // one per line (files or folders)
     pub feedback: Option<(bool, String)>, // (ok, message)
 }
 
 impl DlgImport {
     pub fn new() -> Self {
-        Self { paths: String::new(), feedback: None }
+        Self {
+            paths: String::new(),
+            feedback: None,
+        }
     }
 
     /// Stage the listed paths into planning/imports/, then checkpoint.
@@ -109,8 +112,14 @@ impl DlgSettings {
         let cfg = &proj.state.config;
         let (user_name, user_groups) = match proj.state.identity.source {
             IdentitySource::Guest => (
-                cfg.user.as_ref().map(|u| u.name.trim().to_string()).unwrap_or_default(),
-                cfg.user.as_ref().map(|u| u.groups.join(", ")).unwrap_or_default(),
+                cfg.user
+                    .as_ref()
+                    .map(|u| u.name.trim().to_string())
+                    .unwrap_or_default(),
+                cfg.user
+                    .as_ref()
+                    .map(|u| u.groups.join(", "))
+                    .unwrap_or_default(),
             ),
             _ => (seated.name.clone(), seated.groups.join(", ")),
         };
@@ -279,7 +288,10 @@ fn harness_guide_lines(view: &ProbeView, home: Option<&str>) -> Vec<GuideLine> {
         kind: GuideLineKind::Order,
         text: "2. pi in every PATH directory, in PATH order.".into(),
     });
-    for (i, site) in crate::harness::pi_harness::COMMON_HOME_SITES.iter().enumerate() {
+    for (i, site) in crate::harness::pi_harness::COMMON_HOME_SITES
+        .iter()
+        .enumerate()
+    {
         lines.push(GuideLine {
             kind: GuideLineKind::Order,
             text: format!("{}. {home_display}/{site}/pi", i + 3),
@@ -345,7 +357,12 @@ pub fn paint_import_card(ui: &mut egui::Ui, dlg: &mut DlgImport) -> (bool, bool)
 
 /// Paint card body; returns (save_pressed, close_pressed).
 pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, bool) {
-    ui.label(RichText::new("Who am I?").size(13.0).strong().color(theme::TEXT));
+    ui.label(
+        RichText::new("Who am I?")
+            .size(13.0)
+            .strong()
+            .color(theme::TEXT),
+    );
     ui.add_space(3.0);
     ui.label(RichText::new(&dlg.identity_note).size(11.0).weak());
     ui.add_space(5.0);
@@ -376,7 +393,11 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             .color(theme::TEXT),
     );
     ui.add_space(4.0);
-    ui.label(RichText::new("Choose existing people or teams, or enter new owners separated by commas.").size(12.0).weak());
+    ui.label(
+        RichText::new("Choose existing people or teams, or enter new owners separated by commas.")
+            .size(12.0)
+            .weak(),
+    );
     let owners = owner_choices(dlg);
     let mut removed: Vec<usize> = Vec::new();
     for (i, row) in dlg.rows.iter_mut().enumerate() {
@@ -384,16 +405,35 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Category");
-                    ui.add_sized([ (ui.available_width() - 40.0).max(60.0), 28.0 ], TextEdit::singleline(&mut row.category).id_salt("category"));
-                    if crate::ui::overlays::close_button(ui).on_hover_text("Remove category").clicked() { removed.push(i); }
+                    ui.add_sized(
+                        [(ui.available_width() - 40.0).max(60.0), 28.0],
+                        TextEdit::singleline(&mut row.category).id_salt("category"),
+                    );
+                    if crate::ui::overlays::close_button(ui)
+                        .on_hover_text("Remove category")
+                        .clicked()
+                    {
+                        removed.push(i);
+                    }
                 });
                 ui.label(RichText::new("Owners").size(12.0).weak());
-                ui.add(TextEdit::singleline(&mut row.members).id_salt("owners").desired_width(f32::INFINITY).hint_text("Names or teams, separated by commas"));
-                egui::ComboBox::from_id_salt("existing_owners").selected_text("Select existing owners…")
-                    .width(240.0_f32.min(ui.available_width())).show_ui(ui, |ui| {
-                        if owners.is_empty() { ui.label("Enter a name or team to make it available here."); }
+                ui.add(
+                    TextEdit::singleline(&mut row.members)
+                        .id_salt("owners")
+                        .desired_width(f32::INFINITY)
+                        .hint_text("Names or teams, separated by commas"),
+                );
+                egui::ComboBox::from_id_salt("existing_owners")
+                    .selected_text("Select existing owners…")
+                    .width(240.0_f32.min(ui.available_width()))
+                    .show_ui(ui, |ui| {
+                        if owners.is_empty() {
+                            ui.label("Enter a name or team to make it available here.");
+                        }
                         for owner in &owners {
-                            let mut selected = csv_parts(&row.members).iter().any(|value| value.eq_ignore_ascii_case(owner));
+                            let mut selected = csv_parts(&row.members)
+                                .iter()
+                                .any(|value| value.eq_ignore_ascii_case(owner));
                             if ui.checkbox(&mut selected, owner).changed() {
                                 set_owner_selected(&mut row.members, owner, selected);
                             }
@@ -426,9 +466,22 @@ fn owner_choices(dlg: &DlgSettings) -> Vec<String> {
     let mut owners = Vec::<String>::new();
     for owner in std::iter::once(dlg.user_name.trim().to_string())
         .chain(csv_parts(&dlg.user_groups))
-        .chain(dlg.rows.iter().flat_map(|row| csv_parts(&row.members))) {
-        if owner.is_empty() || matches!(owner.to_ascii_lowercase().as_str(), "(guest)" | "(owner tbd)" | "-" | "all") { continue; }
-        if !owners.iter().any(|existing| existing.eq_ignore_ascii_case(&owner)) { owners.push(owner); }
+        .chain(dlg.rows.iter().flat_map(|row| csv_parts(&row.members)))
+    {
+        if owner.is_empty()
+            || matches!(
+                owner.to_ascii_lowercase().as_str(),
+                "(guest)" | "(owner tbd)" | "-" | "all"
+            )
+        {
+            continue;
+        }
+        if !owners
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(&owner))
+        {
+            owners.push(owner);
+        }
     }
     owners.sort_by_key(|owner| owner.to_lowercase());
     owners
@@ -437,8 +490,15 @@ fn owner_choices(dlg: &DlgSettings) -> Vec<String> {
 fn set_owner_selected(members: &mut String, owner: &str, selected: bool) {
     let mut owners = csv_parts(members);
     if selected {
-        if !owners.iter().any(|existing| existing.eq_ignore_ascii_case(owner)) { owners.push(owner.to_owned()); }
-    } else { owners.retain(|existing| !existing.eq_ignore_ascii_case(owner)); }
+        if !owners
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(owner))
+        {
+            owners.push(owner.to_owned());
+        }
+    } else {
+        owners.retain(|existing| !existing.eq_ignore_ascii_case(owner));
+    }
     *members = owners.join(", ");
 }
 
@@ -495,17 +555,20 @@ fn paint_harness_guide(ui: &mut egui::Ui, dlg: &mut DlgSettings) {
             GuideLineKind::Lead | GuideLineKind::Rule => {
                 RichText::new(&line.text).size(11.0).weak()
             }
-            GuideLineKind::Status => RichText::new(&line.text)
-                .size(12.0)
-                .strong()
-                .color(match &dlg.probe_view {
-                    ProbeView::Pending => theme::TEXT_DIM,
-                    ProbeView::Report(r) if r.ok => theme::SUCCESS,
-                    ProbeView::Report(_) => theme::DANGER,
-                }),
-            GuideLineKind::Detail if probe_failed => {
-                RichText::new(&line.text).size(11.0).weak().color(theme::DANGER)
+            GuideLineKind::Status => {
+                RichText::new(&line.text)
+                    .size(12.0)
+                    .strong()
+                    .color(match &dlg.probe_view {
+                        ProbeView::Pending => theme::TEXT_DIM,
+                        ProbeView::Report(r) if r.ok => theme::SUCCESS,
+                        ProbeView::Report(_) => theme::DANGER,
+                    })
             }
+            GuideLineKind::Detail if probe_failed => RichText::new(&line.text)
+                .size(11.0)
+                .weak()
+                .color(theme::DANGER),
             GuideLineKind::Detail => RichText::new(&line.text).size(11.0).weak(),
             GuideLineKind::Order => RichText::new(&line.text)
                 .monospace()
@@ -560,13 +623,18 @@ impl DlgMcp {
     /// branching (absent / present-ok / present-unreadable) without egui.
     /// Unreadable ⇒ the field starts empty WITH an explicit OVERWRITE
     /// warning: unseen content is never destroyed silently.
-    fn dialog_fields(st: &crate::artifacts::mcp_io::McpLoadState) -> (String, bool, Option<String>) {
+    fn dialog_fields(
+        st: &crate::artifacts::mcp_io::McpLoadState,
+    ) -> (String, bool, Option<String>) {
         if !st.present {
             (String::new(), true, None)
         } else if let Some(content) = &st.content {
             (content.clone(), false, None)
         } else {
-            let err = st.read_error.clone().unwrap_or_else(|| "unknown read error".into());
+            let err = st
+                .read_error
+                .clone()
+                .unwrap_or_else(|| "unknown read error".into());
             (
                 String::new(),
                 false,
@@ -592,7 +660,12 @@ impl DlgMcp {
 /// (~360 px) fits the 640 px min window — no ScrollArea, unlike the grown
 /// settings card.
 pub fn paint_mcp_card(ui: &mut egui::Ui, dlg: &mut DlgMcp) -> (bool, bool) {
-    ui.label(RichText::new("MCP server configuration").size(13.0).strong().color(theme::TEXT));
+    ui.label(
+        RichText::new("MCP server configuration")
+            .size(13.0)
+            .strong()
+            .color(theme::TEXT),
+    );
     ui.add_space(3.0);
     ui.label(
         RichText::new(
@@ -606,19 +679,31 @@ pub fn paint_mcp_card(ui: &mut egui::Ui, dlg: &mut DlgMcp) -> (bool, bool) {
         .font(egui::FontId::monospace(12.0))
         .desired_width(f32::INFINITY)
         .desired_rows(10);
-    let editor = if dlg.hint_active { editor.hint_text(MCP_EXAMPLE_HINT) } else { editor };
+    let editor = if dlg.hint_active {
+        editor.hint_text(MCP_EXAMPLE_HINT)
+    } else {
+        editor
+    };
     ui.add_sized(egui::vec2(ui.available_width(), 210.0), editor);
     // The verified feed cap: prompts clip past 4,096 chars (context_build).
     // DISK NEVER clips — this line only telegraphs the presentation cutoff.
     ui.label(
-        RichText::new(format!("{} chars — prompts clip past 4096", dlg.text.chars().count()))
-            .size(10.5)
-            .weak()
-            .color(theme::TEXT_DIM),
+        RichText::new(format!(
+            "{} chars — prompts clip past 4096",
+            dlg.text.chars().count()
+        ))
+        .size(10.5)
+        .weak()
+        .color(theme::TEXT_DIM),
     );
     if let Some(warning) = &dlg.warning {
         ui.add_space(6.0);
-        ui.label(RichText::new(warning).size(11.5).weak().color(theme::WARNING));
+        ui.label(
+            RichText::new(warning)
+                .size(11.5)
+                .weak()
+                .color(theme::WARNING),
+        );
     }
     footers(ui, &dlg.feedback)
 }
@@ -626,7 +711,11 @@ pub fn paint_mcp_card(ui: &mut egui::Ui, dlg: &mut DlgMcp) -> (bool, bool) {
 fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool) {
     if let Some((ok, msg)) = feedback {
         ui.add_space(8.0);
-        ui.label(RichText::new(msg).size(11.5).color(if *ok { theme::SUCCESS } else { theme::DANGER }));
+        ui.label(RichText::new(msg).size(11.5).color(if *ok {
+            theme::SUCCESS
+        } else {
+            theme::DANGER
+        }));
     }
     let mut save = false;
     let mut close = false;
@@ -730,9 +819,21 @@ mod tests {
         let dlg = DlgSettings::from_project(&proj);
         // The DERIVED value, not the config's 'Bob'.
         assert_eq!(dlg.user_name, "Ada Lovelace");
-        assert!(dlg.identity_note.contains("git user.name"), "note: {}", dlg.identity_note);
-        assert!(dlg.identity_note.contains("Ada Lovelace"), "note: {}", dlg.identity_note);
-        assert!(!dlg.identity_note.contains("override"), "git seat is not an override: {}", dlg.identity_note);
+        assert!(
+            dlg.identity_note.contains("git user.name"),
+            "note: {}",
+            dlg.identity_note
+        );
+        assert!(
+            dlg.identity_note.contains("Ada Lovelace"),
+            "note: {}",
+            dlg.identity_note
+        );
+        assert!(
+            !dlg.identity_note.contains("override"),
+            "git seat is not an override: {}",
+            dlg.identity_note
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -752,8 +853,16 @@ mod tests {
         let dlg = DlgSettings::from_project(&proj);
         assert_eq!(dlg.user_name, "Dana");
         assert_eq!(dlg.user_groups, "Ops, Platform");
-        assert!(dlg.identity_note.contains(".planner/config.md"), "note: {}", dlg.identity_note);
-        assert!(dlg.identity_note.contains("override"), "note: {}", dlg.identity_note);
+        assert!(
+            dlg.identity_note.contains(".planner/config.md"),
+            "note: {}",
+            dlg.identity_note
+        );
+        assert!(
+            dlg.identity_note.contains("override"),
+            "note: {}",
+            dlg.identity_note
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -772,8 +881,16 @@ mod tests {
         // declaration; the provenance line carries the guest notice.
         assert_eq!(dlg.user_name, "");
         assert!(dlg.user_groups.is_empty());
-        assert!(dlg.identity_note.contains("guest"), "note: {}", dlg.identity_note);
-        assert!(dlg.identity_note.contains("override"), "note: {}", dlg.identity_note);
+        assert!(
+            dlg.identity_note.contains("guest"),
+            "note: {}",
+            dlg.identity_note
+        );
+        assert!(
+            dlg.identity_note.contains("override"),
+            "note: {}",
+            dlg.identity_note
+        );
         let _ = std::fs::remove_dir_all(&root);
 
         // Ghosted block (whitespace-only Name:, real Groups): the tolerant
@@ -790,7 +907,10 @@ mod tests {
         .unwrap();
         let proj = project_from(&ghost);
         assert_eq!(proj.state.identity.source, IdentitySource::Guest);
-        assert!(proj.state.config.user.is_none(), "tolerant parser nulls ghosted blocks");
+        assert!(
+            proj.state.config.user.is_none(),
+            "tolerant parser nulls ghosted blocks"
+        );
         let dlg = DlgSettings::from_project(&proj);
         assert_eq!(dlg.user_name, "");
         assert_eq!(dlg.user_groups, "");
@@ -803,8 +923,7 @@ mod tests {
     /// git-derived seat), checkpoints with the conventional settings subject,
     /// and the reopened dialog echoes the SAME derived identity.
     #[test]
-    fn no_edit_save_on_drifted_git_tree_keeps_git_seat_and_sets_checkpoint()
-    {
+    fn no_edit_save_on_drifted_git_tree_keeps_git_seat_and_sets_checkpoint() {
         let _shield = test_support::shield("dlg-save");
         let root = tempdir("adasave");
         let git = |args: &[&str]| -> std::process::Output {
@@ -838,8 +957,7 @@ mod tests {
         assert_eq!(proj.state.identity.user.name, "Ada Lovelace");
         assert_eq!(proj.state.identity.source, IdentitySource::GitUserName);
         assert_eq!(proj.state.effective_user().name, "Ada Lovelace");
-        let log =
-            String::from_utf8_lossy(&git(&["log", "-1", "--pretty=%s"]).stdout).into_owned();
+        let log = String::from_utf8_lossy(&git(&["log", "-1", "--pretty=%s"]).stdout).into_owned();
         assert!(
             log.contains("settings: update stakeholders and identity"),
             "checkpoint subject: {log}"
@@ -851,7 +969,11 @@ mod tests {
         // Reopening the dialog echoes the same derived identity/provenance.
         let again = DlgSettings::from_project(&proj);
         assert_eq!(again.user_name, "Ada Lovelace");
-        assert!(again.identity_note.contains("git user.name"), "note: {}", again.identity_note);
+        assert!(
+            again.identity_note.contains("git user.name"),
+            "note: {}",
+            again.identity_note
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -860,7 +982,10 @@ mod tests {
     use GuideLineKind as K;
 
     fn gl(k: K, t: &str) -> GuideLine {
-        GuideLine { kind: k, text: t.into() }
+        GuideLine {
+            kind: k,
+            text: t.into(),
+        }
     }
 
     fn rep(status: &str, diagnostic: &str, binary: Option<&str>, ok: bool) -> ProbeReport {
@@ -878,12 +1003,7 @@ mod tests {
     /// reorder breakage fails this test (the D-15 render pin).
     #[test]
     fn harness_guide_golden_found_state_pins_every_line() {
-        let view = ProbeView::Report(rep(
-            "pi 0.84.4",
-            "",
-            Some("/home/op/.local/bin/pi"),
-            true,
-        ));
+        let view = ProbeView::Report(rep("pi 0.84.4", "", Some("/home/op/.local/bin/pi"), true));
         let lines = harness_guide_lines(&view, Some("/home/op"));
         let expected = vec![
             gl(K::Title, "Set up the pi harness"),
@@ -957,9 +1077,11 @@ mod tests {
         );
         // Fail-fast honesty: no line may promise a PATH rescue for a bad
         // override.
-        assert!(!lines
-            .iter()
-            .any(|l| l.text.contains("would have") || l.text.contains("fallback")));
+        assert!(
+            !lines
+                .iter()
+                .any(|l| l.text.contains("would have") || l.text.contains("fallback"))
+        );
     }
 
     /// PENDING state + HOME-less composition: the first paint shows the
@@ -983,8 +1105,16 @@ mod tests {
         assert_eq!(orders[2].text, "3. $HOME/.npm-global/bin/pi");
         assert_eq!(orders[3].text, "4. $HOME/.local/bin/pi");
         assert_eq!(orders[4].text, "5. $HOME/.pi/bin/pi");
-        assert!(orders[0].text.starts_with("1."), "env override stays tier 1: {}", orders[0].text);
-        assert!(orders[0].text.contains("PACKET_PI_BIN"), "{}", orders[0].text);
+        assert!(
+            orders[0].text.starts_with("1."),
+            "env override stays tier 1: {}",
+            orders[0].text
+        );
+        assert!(
+            orders[0].text.contains("PACKET_PI_BIN"),
+            "{}",
+            orders[0].text
+        );
         assert_eq!(lines.len(), 14, "pending drops exactly the detail line");
     }
 
@@ -1004,7 +1134,10 @@ mod tests {
             PI_BINARY_ENV,
             orders[0].text
         );
-        assert_eq!(orders[1].text, "2. pi in every PATH directory, in PATH order.");
+        assert_eq!(
+            orders[1].text,
+            "2. pi in every PATH directory, in PATH order."
+        );
         for (i, site) in COMMON_HOME_SITES.iter().enumerate() {
             assert_eq!(
                 orders[i + 2].text,
@@ -1014,7 +1147,11 @@ mod tests {
         }
         // The step offering the override also derives from the constant.
         let steps: Vec<&GuideLine> = lines.iter().filter(|l| l.kind == K::Step).collect();
-        assert!(steps[1].text.contains(PI_BINARY_ENV), "step 2: {}", steps[1].text);
+        assert!(
+            steps[1].text.contains(PI_BINARY_ENV),
+            "step 2: {}",
+            steps[1].text
+        );
     }
 
     /// Runtime leg (headless stand-in for the manual smoke): opening the
@@ -1059,7 +1196,14 @@ mod tests {
                 // On THIS host (pi provisioned per F-16) the live report is
                 // the found-state line the operator would see on open.
                 if r.ok {
-                    println!("probe-reported live: {} | {}", r.status, r.binary.as_deref().map(|p| p.display().to_string()).unwrap_or_default());
+                    println!(
+                        "probe-reported live: {} | {}",
+                        r.status,
+                        r.binary
+                            .as_deref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    );
                 }
             }
             ProbeView::Pending => unreachable!("loop exits only on a report"),
@@ -1087,10 +1231,8 @@ mod mcp_tests {
     /// First run: no file -> empty field, exemplar hint ACTIVE, no warning.
     #[test]
     fn mcp_fields_absent_file_opens_empty_with_hint_active() {
-        let root = std::env::temp_dir().join(format!(
-            "packet_dlg_mcpabsent_{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("packet_dlg_mcpabsent_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let st = mcp_io::load_state(&root);
@@ -1105,10 +1247,8 @@ mod mcp_tests {
     /// Present file: content echoed BYTE-EXACT, hint OFF, no warning.
     #[test]
     fn mcp_fields_present_file_echoes_content_byte_exact() {
-        let root = std::env::temp_dir().join(format!(
-            "packet_dlg_mcppresent_{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("packet_dlg_mcppresent_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(".planner")).unwrap();
         let body = r#"{"k":1}"#;
@@ -1136,9 +1276,18 @@ mod mcp_tests {
         assert_eq!(text, String::new(), "field must start empty, not guess");
         assert!(!hint, "unreadable is not absent: hint must not imply empty");
         let warning = warning.expect("sticky warning required for unreadable files");
-        assert!(warning.contains("could not be read"), "warns why: {warning}");
-        assert!(warning.contains("Permission denied"), "quotes the error: {warning}");
-        assert!(warning.contains("OVERWRITE"), "explicit consent wording: {warning}");
+        assert!(
+            warning.contains("could not be read"),
+            "warns why: {warning}"
+        );
+        assert!(
+            warning.contains("Permission denied"),
+            "quotes the error: {warning}"
+        );
+        assert!(
+            warning.contains("OVERWRITE"),
+            "explicit consent wording: {warning}"
+        );
     }
 }
 
@@ -1147,15 +1296,31 @@ mod ownership_picker_tests {
     use super::*;
     fn fixture() -> DlgSettings {
         DlgSettings {
-            user_name: "Zach".into(), user_groups: "Platform, QA".into(), identity_note: "Current project identity".into(),
-            rows: vec![Row { category: "Product".into(), members: String::new() }, Row { category: "Engineering".into(), members: "Morgan, platform, (owner TBD)".into() }],
-            feedback: None, probe_rx: None, probe_view: ProbeView::Pending,
+            user_name: "Zach".into(),
+            user_groups: "Platform, QA".into(),
+            identity_note: "Current project identity".into(),
+            rows: vec![
+                Row {
+                    category: "Product".into(),
+                    members: String::new(),
+                },
+                Row {
+                    category: "Engineering".into(),
+                    members: "Morgan, platform, (owner TBD)".into(),
+                },
+            ],
+            feedback: None,
+            probe_rx: None,
+            probe_view: ProbeView::Pending,
         }
     }
     #[test]
     fn suggestions_deduplicate_and_selection_preserves_custom_owners() {
         let dlg = fixture();
-        assert_eq!(owner_choices(&dlg), vec!["Morgan", "Platform", "QA", "Zach"]);
+        assert_eq!(
+            owner_choices(&dlg),
+            vec!["Morgan", "Platform", "QA", "Zach"]
+        );
         let mut members = "Custom team, Morgan".to_string();
         set_owner_selected(&mut members, "morgan", true);
         assert_eq!(members, "Custom team, Morgan");
@@ -1167,22 +1332,65 @@ mod ownership_picker_tests {
     fn existing_owner_can_be_selected_in_the_modal() {
         let mut dlg = fixture();
         let ctx = egui::Context::default();
-        fn frame(ctx: &egui::Context, dlg: &mut DlgSettings, events: Vec<egui::Event>) -> egui::FullOutput {
-            let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 900.0))), events, ..Default::default() }, |ui| {
-                crate::ui::overlays::show_modal(ui, true, "Stakeholders & ownership", 660.0, |ui| { paint_settings_card(ui, dlg); });
-            });
+        fn frame(
+            ctx: &egui::Context,
+            dlg: &mut DlgSettings,
+            events: Vec<egui::Event>,
+        ) -> egui::FullOutput {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 900.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::overlays::show_modal(
+                        ui,
+                        true,
+                        "Stakeholders & ownership",
+                        660.0,
+                        |ui| {
+                            paint_settings_card(ui, dlg);
+                        },
+                    );
+                },
+            );
             // Egui paints duplicate-ID diagnostics into the frame when IDs collide.
             assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("use of ScrollArea ID") || t.galley.text().contains("use of widget ID"))));
             output.textures_delta.clear();
             output
         }
         fn position(output: &egui::FullOutput, text: &str) -> egui::Pos2 {
-            output.shapes.iter().find_map(|s| match &s.shape {
-                egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos + t.galley.mesh_bounds.center().to_vec2()), _ => None,
-            }).expect(text)
+            output
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Text(t) if t.galley.text() == text => {
+                        Some(t.pos + t.galley.mesh_bounds.center().to_vec2())
+                    }
+                    _ => None,
+                })
+                .expect(text)
         }
         fn click(ctx: &egui::Context, dlg: &mut DlgSettings, pos: egui::Pos2) {
-            for pressed in [true, false] { frame(ctx, dlg, vec![egui::Event::PointerMoved(pos), egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }]); }
+            for pressed in [true, false] {
+                frame(
+                    ctx,
+                    dlg,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ],
+                );
+            }
         }
         frame(&ctx, &mut dlg, vec![]);
         let output = frame(&ctx, &mut dlg, vec![]);

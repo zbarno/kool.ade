@@ -2062,23 +2062,18 @@ mod board_tests {
     }
 
     #[test]
-    fn narrow_workspace_keeps_board_visible_and_collapses_conversation() {
+    fn narrow_workspace_keeps_chat_and_board_visible() {
         let mut app = fixture();
         let ctx = egui::Context::default();
         let size = egui::vec2(360.0, 480.0);
         frame_at(&mut app, &ctx, vec![], size);
-        let collapsed = frame_at(&mut app, &ctx, vec![], size);
-        let board = text_position(&collapsed, "Board  3").unwrap();
-        assert!(board.x < size.x && board.y < 200.0);
-        let graph = text_position(&collapsed, "All activity").unwrap();
-        assert!(graph.y < board.y);
-        assert!(text_position(&collapsed, "Project manager").is_none());
-        let expanded = click_text_at(&mut app, &ctx, "Main Chat", size);
-        let expanded_board = text_position(&expanded, "Board  3").unwrap();
-        assert_eq!(
-            expanded_board, board,
-            "Opening chat must not resize the board"
-        );
+        let output = frame_at(&mut app, &ctx, vec![], size);
+        let chat = text_position(&output, "Main Chat").unwrap();
+        let board = text_position(&output, "Board  3").unwrap();
+        let send = text_position(&output, "Ctrl + Enter to send").unwrap();
+        assert!(chat.y < send.y && send.y < board.y);
+        assert!(board.x < size.x && board.y < size.y);
+        assert_eq!(output.viewport_output.len(), 1);
     }
 
     #[test]
@@ -2124,67 +2119,27 @@ mod board_tests {
         assert!(text_position(&output, "Workspace settings").is_none());
     }
 
-    fn close_chat_window(app: &mut PacketApp, ctx: &egui::Context) {
-        // Headless viewports are embedded; simulate a close request.
-        let mut input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1800.0, 900.0),
-            )),
-            ..Default::default()
-        };
-        input
-            .viewports
-            .entry(egui::ViewportId::ROOT)
-            .or_default()
-            .events
-            .push(egui::ViewportEvent::Close);
-        let mut output = ctx.run_ui(input, |ui| crate::ui::layout::paint(ui, app));
-        output.textures_delta.clear();
-    }
-
     #[test]
-    fn main_chat_window_preserves_draft_without_resizing_board() {
+    fn main_chat_is_always_visible_left_of_board() {
         let mut app = fixture();
         let ctx = egui::Context::default();
+        *app.chat_draft() = "Keep my project draft".into();
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        let tab = text_position(&output, "Main Chat").unwrap();
+        let chat = text_position(&output, "Main Chat").unwrap();
         let board = text_position(&output, "Board  3").unwrap();
-        assert!(tab.x > board.x && (tab.y - board.y).abs() < 4.0);
-        let label = output
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.text() == "Main Chat" => Some(&text.galley),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(
-            label.rows.len(),
-            1,
-            "Chat tab must never break into multiple lines"
-        );
-        let closed_board = text_position(&output, "Board  3").unwrap();
-        *app.chat_draft() = "Keep my project draft".into();
-        let output = click_text(&mut app, &ctx, "Main Chat");
-        assert!(text_position(&output, "Project manager").is_some());
-        assert_eq!(text_position(&output, "Board  3").unwrap(), closed_board);
-        assert!(text_position(&output, "Close chat window").is_none());
-        close_chat_window(&mut app, &ctx);
-        let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "Project manager").is_none());
-        assert_eq!(app.chat_draft(), "Keep my project draft");
-        click_text(&mut app, &ctx, "Main Chat");
-        assert_eq!(app.chat_draft(), "Keep my project draft");
-        assert!(text_position(&output, "Board  3").unwrap().x <= closed_board.x + 1.0);
+        assert!(chat.x < board.x);
+        assert!(text_position(&output, "Keep my project draft").is_some());
+        assert!(text_position(&output, "×").is_none());
+        assert_eq!(output.viewport_output.len(), 1);
     }
 
     #[test]
-    fn open_conversation_uses_task_window_and_keeps_inline_draft() {
+    fn conversation_tabs_focus_deduplicate_close_and_preserve_drafts() {
         let mut app = fixture();
         let ctx = egui::Context::default();
         let key = "planning/tasks/fixture/001-task.md";
+        *app.chat_draft() = "Keep my project draft".into();
         *app.task_draft(key).unwrap() = "Task draft stays with this item".into();
         if let Screen::Connected(p) = &mut app.screen {
             p.task_chats.messages.insert(
@@ -2199,37 +2154,34 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         click_text(&mut app, &ctx, "Open conversation");
         let output = frame(&mut app, &ctx, vec![]);
-        let windows = ctx
-            .data_mut(|d| {
-                d.get_temp::<std::collections::BTreeSet<String>>(egui::Id::new(
-                    "packet_task_chat_windows",
-                ))
+        let tabs = || {
+            ctx.data_mut(|d| {
+                d.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("packet_chat_tabs"))
             })
-            .unwrap();
-        assert_eq!(windows, std::collections::BTreeSet::from([key.to_string()]));
-        assert!(
-            ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_task")))
-                .is_none()
-        );
+            .unwrap()
+        };
+        assert_eq!(tabs().keys, vec![key.to_owned()]);
+        assert_eq!(tabs().active.as_deref(), Some(key));
         assert!(text_position(&output, "Task draft stays with this item").is_some());
         assert!(text_position(&output, "Task-only previous reply").is_some());
-        assert!(text_position(&output, "Conversation history (1)").is_none());
-        assert!(text_position(&output, "Task conversation · only this item's history").is_some());
-        assert!(text_position(&output, "Close chat window").is_none());
-        close_chat_window(&mut app, &ctx);
+        assert!(text_position(&output, "Keep my project draft").is_none());
+        assert_eq!(output.viewport_output.len(), 1);
+        let output = click_text(&mut app, &ctx, "Main Chat");
+        assert!(tabs().active.is_none());
+        assert!(text_position(&output, "Keep my project draft").is_some());
+        click_text(&mut app, &ctx, "Open conversation");
+        assert_eq!(tabs().keys.len(), 1);
+        assert_eq!(tabs().active.as_deref(), Some(key));
+        click_text(&mut app, &ctx, "×");
+        assert!(tabs().keys.is_empty());
+        assert!(tabs().active.is_none());
         assert_eq!(
             app.task_draft(key).unwrap(),
             "Task draft stays with this item"
         );
-        assert!(
-            ctx.data_mut(
-                |d| d.get_temp::<std::collections::BTreeSet<String>>(egui::Id::new(
-                    "packet_task_chat_windows"
-                ))
-            )
-            .unwrap()
-            .is_empty()
-        );
+        assert_eq!(app.chat_draft(), "Keep my project draft");
+        click_text(&mut app, &ctx, "Open conversation");
+        assert_eq!(tabs().active.as_deref(), Some(key));
     }
 
     #[test]

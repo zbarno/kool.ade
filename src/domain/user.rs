@@ -40,11 +40,7 @@ impl CurrentUser {
         if a.eq_ignore_ascii_case(&self.name.trim()) {
             return AssignmentMatch::ByName;
         }
-        if self
-            .groups
-            .iter()
-            .any(|g| g.trim().eq_ignore_ascii_case(a))
-        {
+        if self.groups.iter().any(|g| g.trim().eq_ignore_ascii_case(a)) {
             return AssignmentMatch::ByGroup;
         }
         AssignmentMatch::Nobody
@@ -161,7 +157,10 @@ mod tests {
     fn identity_matching_flavors() {
         let u = CurrentUser::new("Zach", vec!["Development".into(), "Architecture".into()]);
         assert_eq!(u.matches_assignment("zach"), AssignmentMatch::ByName);
-        assert_eq!(u.matches_assignment("ARCHITECTURE"), AssignmentMatch::ByGroup);
+        assert_eq!(
+            u.matches_assignment("ARCHITECTURE"),
+            AssignmentMatch::ByGroup
+        );
         assert_eq!(u.matches_assignment("Morgan"), AssignmentMatch::Nobody);
         assert!(u.is_set());
         assert!(!CurrentUser::default().is_set());
@@ -205,10 +204,16 @@ mod tests {
         let r = resolve_identity(
             None,
             None,
-            Some(&CurrentUser::new("Dana", vec!["Ops".into(), "Platform".into()])),
+            Some(&CurrentUser::new(
+                "Dana",
+                vec!["Ops".into(), "Platform".into()],
+            )),
         );
         assert_eq!(r.user.name, "Dana");
-        assert_eq!(r.user.groups, vec!["Ops".to_string(), "Platform".to_string()]);
+        assert_eq!(
+            r.user.groups,
+            vec!["Ops".to_string(), "Platform".to_string()]
+        );
         assert_eq!(r.source, IdentitySource::ConfigBlock);
 
         // 5. Nothing anywhere → neutral guest, groups stripped.
@@ -222,23 +227,26 @@ mod tests {
         let empty = resolve_identity(Some(""), Some("nully@example.org"), None);
         let ws = resolve_identity(Some("   "), Some("nully@example.org"), None);
         assert_eq!(empty, ws);
-        let ghosted = resolve_identity(
-            None,
-            None,
-            Some(&CurrentUser::new("   ", vec!["X".into()])),
-        );
+        let ghosted =
+            resolve_identity(None, None, Some(&CurrentUser::new("   ", vec!["X".into()])));
         assert_eq!(ghosted.source, IdentitySource::Guest);
         assert_eq!(ghosted.user.name, GUEST_NAME);
     }
 
     #[test]
     fn identity_source_labels_read_as_provenance() {
-        assert_eq!(IdentitySource::GitUserName.label(), "derived from git user.name");
+        assert_eq!(
+            IdentitySource::GitUserName.label(),
+            "derived from git user.name"
+        );
         assert_eq!(
             IdentitySource::GitUserEmail.label(),
             "derived from git user.email (fallback)"
         );
-        assert_eq!(IdentitySource::ConfigBlock.label(), "from .planner/config.md override");
+        assert_eq!(
+            IdentitySource::ConfigBlock.label(),
+            "from .planner/config.md override"
+        );
         assert_eq!(IdentitySource::Guest.label(), "no identity found — guest");
     }
 }

@@ -24,7 +24,11 @@ struct Toast {
 
 impl Toast {
     fn new(text: String, tone: Tone) -> Self {
-        Self { text, tone, born: Instant::now() }
+        Self {
+            text,
+            tone,
+            born: Instant::now(),
+        }
     }
 
     fn expired(&self) -> bool {

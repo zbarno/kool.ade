@@ -26,7 +26,7 @@
 //! is saved.
 
 use crate::domain::{
-    AssignmentMatch, CurrentUser, OpenItem, Stakeholders, is_general_category, GUEST_NAME,
+    AssignmentMatch, CurrentUser, GUEST_NAME, OpenItem, Stakeholders, is_general_category,
 };
 
 /// Explanation of why an item may be posed to the current user.
@@ -123,7 +123,11 @@ pub fn evaluate(item: &OpenItem, user: &CurrentUser, stakes: &Stakeholders) -> E
     if claim == LaneClaim::ClaimedByOthers {
         return Eligibility::NotEligible;
     }
-    match item.assigned_to.as_deref().map(|a| user.matches_assignment(a)) {
+    match item
+        .assigned_to
+        .as_deref()
+        .map(|a| user.matches_assignment(a))
+    {
         Some(AssignmentMatch::ByName) => return Eligibility::ByName,
         Some(AssignmentMatch::ByGroup) => return Eligibility::ByGroup,
         _ => {}
@@ -301,8 +305,15 @@ mod tests {
         let q = item("CLR-001", Priority::Blocking, "General", None);
         assert_eq!(evaluate(&q, &chair(), &stakes()), Eligibility::General);
         assert_eq!(evaluate(&q, &morgan(), &stakes()), Eligibility::General);
-        assert_eq!(evaluate(&q, &guest(), &Stakeholders::default()), Eligibility::General);
-        assert_eq!(recommended_next(std::slice::from_ref(&q), &guest(), &Stakeholders::default()).map(|r| r.id.as_str()), Some("CLR-001"));
+        assert_eq!(
+            evaluate(&q, &guest(), &Stakeholders::default()),
+            Eligibility::General
+        );
+        assert_eq!(
+            recommended_next(std::slice::from_ref(&q), &guest(), &Stakeholders::default())
+                .map(|r| r.id.as_str()),
+            Some("CLR-001")
+        );
     }
 
     // ---- rule 2: direct name or group address -----------------------------
@@ -313,14 +324,23 @@ mod tests {
         assert_eq!(evaluate(&by_name, &chair(), &stakes()), Eligibility::ByName);
 
         let by_group = item("CLR-003", Priority::High, "QA", Some("QA GUILD"));
-        assert_eq!(evaluate(&by_group, &qa_member(), &stakes()), Eligibility::ByGroup);
+        assert_eq!(
+            evaluate(&by_group, &qa_member(), &stakes()),
+            Eligibility::ByGroup
+        );
         // The address axis still binds for non-members of that group…
-        assert_eq!(evaluate(&by_group, &chair(), &stakes()), Eligibility::NotEligible);
+        assert_eq!(
+            evaluate(&by_group, &chair(), &stakes()),
+            Eligibility::NotEligible
+        );
 
         // …and the guest seat KEEPS direct address (the legacy experience is
         // a strict subset of the law — guests lose only inheritance).
         let addressed_guest = item("CLR-003b", Priority::High, "InfoSec", Some(GUEST_NAME));
-        assert_eq!(evaluate(&addressed_guest, &guest(), &stakes()), Eligibility::ByName);
+        assert_eq!(
+            evaluate(&addressed_guest, &guest(), &stakes()),
+            Eligibility::ByName
+        );
     }
 
     // ---- rule 3: owned lanes ----------------------------------------------
@@ -330,24 +350,38 @@ mod tests {
         let q = item("CLR-004", Priority::High, "Security", None);
         assert_eq!(evaluate(&q, &morgan(), &stakes()), Eligibility::SoleOwner);
         assert_eq!(
-            recommended_next(std::slice::from_ref(&q), &morgan(), &stakes())
-                .map(|r| r.id.as_str()),
+            recommended_next(std::slice::from_ref(&q), &morgan(), &stakes()).map(|r| r.id.as_str()),
             Some("CLR-004")
         );
         // …and the SAME lane closes for everyone else, addressed or not.
         let addressed_them = item("CLR-005", Priority::High, "Security", Some("Zach"));
-        assert_eq!(evaluate(&addressed_them, &chair(), &stakes()), Eligibility::NotEligible);
+        assert_eq!(
+            evaluate(&addressed_them, &chair(), &stakes()),
+            Eligibility::NotEligible
+        );
     }
 
     #[test]
     fn shared_lane_grants_every_group_member_and_only_them() {
         let unaddressed = item("CLR-006", Priority::High, "QA", None);
-        assert_eq!(evaluate(&unaddressed, &qa_member(), &stakes()), Eligibility::SharedOwner);
+        assert_eq!(
+            evaluate(&unaddressed, &qa_member(), &stakes()),
+            Eligibility::SharedOwner
+        );
         let addressed_group = item("CLR-007", Priority::High, "QA", Some("QA Guild"));
-        assert_eq!(evaluate(&addressed_group, &qa_member(), &stakes()), Eligibility::ByGroup);
+        assert_eq!(
+            evaluate(&addressed_group, &qa_member(), &stakes()),
+            Eligibility::ByGroup
+        );
         // A fellow non-member of the lane's group loses it outright.
-        assert_eq!(evaluate(&unaddressed, &chair(), &stakes()), Eligibility::NotEligible);
-        assert_eq!(evaluate(&unaddressed, &morgan(), &stakes()), Eligibility::NotEligible);
+        assert_eq!(
+            evaluate(&unaddressed, &chair(), &stakes()),
+            Eligibility::NotEligible
+        );
+        assert_eq!(
+            evaluate(&unaddressed, &morgan(), &stakes()),
+            Eligibility::NotEligible
+        );
     }
 
     // ---- the veto outranks direct address ---------------------------------
@@ -361,12 +395,26 @@ mod tests {
             vec!["Alex".into()],
         )]);
         let unassigned = item("CLR-008", Priority::High, "Development", None);
-        assert_eq!(evaluate(&unassigned, &chair(), &dev), Eligibility::NotEligible);
-        assert!(!eligible_items(std::slice::from_ref(&unassigned), &chair(), &dev).iter().any(|i| i.id == "CLR-008"));
+        assert_eq!(
+            evaluate(&unassigned, &chair(), &dev),
+            Eligibility::NotEligible
+        );
+        assert!(
+            !eligible_items(std::slice::from_ref(&unassigned), &chair(), &dev)
+                .iter()
+                .any(|i| i.id == "CLR-008")
+        );
 
         let addressed_zach = item("CLR-009", Priority::High, "Development", Some("Zach"));
-        assert_eq!(evaluate(&addressed_zach, &chair(), &dev), Eligibility::NotEligible);
-        assert!(!eligible_items(std::slice::from_ref(&addressed_zach), &chair(), &dev).iter().any(|i| i.id == "CLR-009"));
+        assert_eq!(
+            evaluate(&addressed_zach, &chair(), &dev),
+            Eligibility::NotEligible
+        );
+        assert!(
+            !eligible_items(std::slice::from_ref(&addressed_zach), &chair(), &dev)
+                .iter()
+                .any(|i| i.id == "CLR-009")
+        );
 
         // The named owner keeps their lane through the same config.
         let alex = CurrentUser::new("Alex", Vec::new());
@@ -381,28 +429,73 @@ mod tests {
         // questions arrive on their OWN lane even when unaddressed. A
         // foreign address on the same lane does NOT strip it (addresses
         // are grants of reach-in, never revocation of ownership).
-        assert_eq!(evaluate(&item("M-1", Priority::High, "Security", None), &morgan(), &stakes()), Eligibility::SoleOwner);
-        assert_eq!(evaluate(&item("M-1b", Priority::High, "Security", Some("Someone Else")), &morgan(), &stakes()), Eligibility::SoleOwner);
+        assert_eq!(
+            evaluate(
+                &item("M-1", Priority::High, "Security", None),
+                &morgan(),
+                &stakes()
+            ),
+            Eligibility::SoleOwner
+        );
+        assert_eq!(
+            evaluate(
+                &item("M-1b", Priority::High, "Security", Some("Someone Else")),
+                &morgan(),
+                &stakes()
+            ),
+            Eligibility::SoleOwner
+        );
 
         // AC-2 — Development is sole-owned by Alex; the addressed-but-not-
         // owner (Zach, groups excluding Alex) gets NOTHING, addressed or
         // unaddressed: the veto outranks direct address.
-        let dev = Stakeholders::new(vec![CategoryOwners::new("Development", vec!["Alex".into()])]);
-        assert_eq!(evaluate(&item("M-2", Priority::High, "Development", None), &chair(), &dev), Eligibility::NotEligible);
-        assert_eq!(evaluate(&item("M-2b", Priority::High, "Development", Some("Zach")), &chair(), &dev), Eligibility::NotEligible);
+        let dev = Stakeholders::new(vec![CategoryOwners::new(
+            "Development",
+            vec!["Alex".into()],
+        )]);
+        assert_eq!(
+            evaluate(
+                &item("M-2", Priority::High, "Development", None),
+                &chair(),
+                &dev
+            ),
+            Eligibility::NotEligible
+        );
+        assert_eq!(
+            evaluate(
+                &item("M-2b", Priority::High, "Development", Some("Zach")),
+                &chair(),
+                &dev
+            ),
+            Eligibility::NotEligible
+        );
 
         // AC-3 — UNOWNED InfoSec: the non-guest chair INHERITS it;
         // the guest seat gets the same view without this item (subset).
         let q = item("M-3", Priority::High, "InfoSec", None);
-        assert_eq!(evaluate(&q, &chair(), &stakes()), Eligibility::SeatInherited);
+        assert_eq!(
+            evaluate(&q, &chair(), &stakes()),
+            Eligibility::SeatInherited
+        );
         assert_eq!(evaluate(&q, &guest(), &stakes()), Eligibility::NotEligible);
 
         // AC-4 — an OWNERLESS category: guests inherit nothing, ever.
         let ux = item("M-4", Priority::High, "UX", None);
         assert_eq!(evaluate(&ux, &guest(), &stakes()), Eligibility::NotEligible);
-        assert_eq!(recommended_next(std::slice::from_ref(&ux), &guest(), &stakes()), None);
-        let chaired_views: Vec<String> = eligible_items(std::slice::from_ref(&ux), &chair(), &stakes()).iter().map(|i| i.id.clone()).collect();
-        assert_eq!(chaired_views, vec!["M-4"], "the seated operator does inherit the unowned lane");
+        assert_eq!(
+            recommended_next(std::slice::from_ref(&ux), &guest(), &stakes()),
+            None
+        );
+        let chaired_views: Vec<String> =
+            eligible_items(std::slice::from_ref(&ux), &chair(), &stakes())
+                .iter()
+                .map(|i| i.id.clone())
+                .collect();
+        assert_eq!(
+            chaired_views,
+            vec!["M-4"],
+            "the seated operator does inherit the unowned lane"
+        );
     }
 
     // ---- rule 4: seat inheritance, guest excluded -------------------------
@@ -411,7 +504,10 @@ mod tests {
     fn unowned_lane_is_seat_inherited_by_a_named_chair_but_never_guest() {
         // Present-entry-with-empty-member-list (the seeded-repo form)…
         let q = item("CLR-010", Priority::Blocking, "InfoSec", None);
-        assert_eq!(evaluate(&q, &chair(), &stakes()), Eligibility::SeatInherited);
+        assert_eq!(
+            evaluate(&q, &chair(), &stakes()),
+            Eligibility::SeatInherited
+        );
         assert_eq!(evaluate(&q, &guest(), &stakes()), Eligibility::NotEligible);
 
         // …and the missing-entry form classify IDENTICALLY (Unowned).
@@ -423,8 +519,7 @@ mod tests {
         // Poseable from the chair's seat: the seat-inherited lane drives the
         // recommendation and the eligible partition.
         assert_eq!(
-            recommended_next(std::slice::from_ref(&q), &chair(), &stakes())
-                .map(|r| r.id.as_str()),
+            recommended_next(std::slice::from_ref(&q), &chair(), &stakes()).map(|r| r.id.as_str()),
             Some("CLR-010")
         );
         let rest: Vec<String> = eligible_items(std::slice::from_ref(&q), &guest(), &stakes())
@@ -460,10 +555,8 @@ mod tests {
     #[test]
     fn classification_folds_trailing_spaces_and_case_like_find_does() {
         // Category "infosec " vs entry "InfoSec", owner " ZACH " vs user Zach.
-        let drifted = Stakeholders::new(vec![CategoryOwners::new(
-            "InfoSec",
-            vec!["  ZACH ".into()],
-        )]);
+        let drifted =
+            Stakeholders::new(vec![CategoryOwners::new("InfoSec", vec!["  ZACH ".into()])]);
         let q = item("CLR-012", Priority::High, "infosec ", None);
         assert_eq!(evaluate(&q, &chair(), &drifted), Eligibility::SoleOwner);
         assert_eq!(evaluate(&q, &morgan(), &drifted), Eligibility::NotEligible);
@@ -471,13 +564,16 @@ mod tests {
         // Entry-name drift (hand-edited config heading "InfoSec "): the
         // SAME trim-plus-casefold stance holds on the entry side too, and
         // the empty member list still reads Unowned (seat-inheritable).
-        let padded_entry = Stakeholders::new(vec![CategoryOwners::new(
-            "InfoSec ",
-            Vec::new(),
-        )]);
+        let padded_entry = Stakeholders::new(vec![CategoryOwners::new("InfoSec ", Vec::new())]);
         let q2 = item("CLR-012b", Priority::High, "InfoSec", None);
-        assert_eq!(evaluate(&q2, &chair(), &padded_entry), Eligibility::SeatInherited);
-        assert_eq!(evaluate(&q2, &guest(), &padded_entry), Eligibility::NotEligible);
+        assert_eq!(
+            evaluate(&q2, &chair(), &padded_entry),
+            Eligibility::SeatInherited
+        );
+        assert_eq!(
+            evaluate(&q2, &guest(), &padded_entry),
+            Eligibility::NotEligible
+        );
     }
 
     // ---- recommendation ordering -------------------------------------------
@@ -492,24 +588,17 @@ mod tests {
             item("CLR-014", Priority::Blocking, "InfoSec", None),
         ];
         assert_eq!(
-            recommended_next(&q, &chair(), &stakes())
-                .map(|r| r.id.as_str()),
+            recommended_next(&q, &chair(), &stakes()).map(|r| r.id.as_str()),
             Some("CLR-014")
         );
         let after: Vec<OpenItem> = q.iter().filter(|i| i.id != "CLR-014").cloned().collect();
         assert_eq!(
-            recommended_next(&after, &chair(), &stakes())
-                .map(|r| r.id.as_str()),
+            recommended_next(&after, &chair(), &stakes()).map(|r| r.id.as_str()),
             Some("CLR-015")
         );
         let lone = item("CLR-016", Priority::Blocking, "InfoSec", None);
         assert!(
-            recommended_next(
-                std::slice::from_ref(&lone),
-                &guest(),
-                &stakes()
-            )
-            .is_none(),
+            recommended_next(std::slice::from_ref(&lone), &guest(), &stakes()).is_none(),
             "the guest seat has no lane to recommend from"
         );
     }
@@ -524,10 +613,14 @@ mod tests {
         let pooled = vec![
             item("CLR-020", Priority::Normal, "InfoSec", None), // seat-inherited, lower priority
             item("CLR-021", Priority::High, "QA", Some("QA Guild")), // group-addressed
-            item("CLR-022", Priority::Normal, "UX", None), // seat-inherited, later id
+            item("CLR-022", Priority::Normal, "UX", None),      // seat-inherited, later id
         ];
         let recs = recommended_next(&pooled, &qa_member(), &stakes()).map(|r| r.id.as_str());
-        assert_eq!(recs, Some("CLR-021"), "ByGroup eligibility grants the lane AND High ranks it first");
+        assert_eq!(
+            recs,
+            Some("CLR-021"),
+            "ByGroup eligibility grants the lane AND High ranks it first"
+        );
         // The group-addressed item is reachable at all BECAUSE of the group
         // match: strip Robin's membership and the only eligible High item
         // vanishes — the recommendation falls to the seat-inherited Normal.
@@ -543,8 +636,7 @@ mod tests {
         let gap = ownership_item("CLR-017", Priority::Blocking, "InfoSec");
         let q = vec![gap, item("CLR-018", Priority::Normal, "InfoSec", None)];
         assert_eq!(
-            recommended_next(&q, &chair(), &stakes())
-                .map(|r| r.id.as_str()),
+            recommended_next(&q, &chair(), &stakes()).map(|r| r.id.as_str()),
             Some("CLR-018")
         );
         // They DO stay visible in the eligible partition (paper, not chat).
@@ -556,7 +648,10 @@ mod tests {
         // Robin (QA Guild) inherits InfoSec/UX too — seat inheritance is a
         // property of the SEAT, not of the lane's nominal readers.
         let ux = item("CLR-019", Priority::Normal, "UX", None);
-        assert_eq!(evaluate(&ux, &qa_member(), &stakes()), Eligibility::SeatInherited);
+        assert_eq!(
+            evaluate(&ux, &qa_member(), &stakes()),
+            Eligibility::SeatInherited
+        );
         assert_eq!(
             recommended_next(std::slice::from_ref(&ux), &qa_member(), &stakes())
                 .map(|r| r.id.as_str()),
@@ -570,7 +665,7 @@ mod tests {
 #[cfg(test)]
 mod digest_goldens {
     use super::*;
-    use crate::domain::{CategoryOwners, CurrentUser, Stakeholders, GUEST_NAME};
+    use crate::domain::{CategoryOwners, CurrentUser, GUEST_NAME, Stakeholders};
 
     fn mixed_config() -> Stakeholders {
         // One sole lane (Infra, for Ada), one group-shared lane (QA, via QA
@@ -613,7 +708,10 @@ mod digest_goldens {
     #[test]
     fn digest_empty_for_guest_and_for_empty_config() {
         let ada = CurrentUser::new("Ada", Vec::new());
-        assert_eq!(describe_lanes(&CurrentUser::new(GUEST_NAME, Vec::new()), &mixed_config()), "");
+        assert_eq!(
+            describe_lanes(&CurrentUser::new(GUEST_NAME, Vec::new()), &mixed_config()),
+            ""
+        );
         assert_eq!(describe_lanes(&ada, &Stakeholders::default()), "");
     }
 
@@ -624,6 +722,9 @@ mod digest_goldens {
             CategoryOwners::new("infosec", Vec::new()), // drifting spelling, same lane
         ]);
         let ada = CurrentUser::new("Ada", Vec::new());
-        assert_eq!(describe_lanes(&ada, &dup), "Seat-inherited unowned lanes: InfoSec");
+        assert_eq!(
+            describe_lanes(&ada, &dup),
+            "Seat-inherited unowned lanes: InfoSec"
+        );
     }
 }

@@ -5,7 +5,6 @@
 //! `~/.packet/` (overridable with `$PACKET_HOME`) keyed by repository slug.
 //! Git remains the sole store for *shared* planning artifacts.
 
-
 use std::path::{Path, PathBuf};
 
 /// Root of the per-user state directory. Honors `PACKET_HOME` (tests/devs).
@@ -36,7 +35,13 @@ pub fn project_slug(repo_canonical: &Path) -> String {
         .unwrap_or_else(|| "repo".into());
     let base: String = base
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
     let digest = fnv1a64(canonical_display(repo_canonical).as_bytes());
     format!("{base}-{:016x}", digest)

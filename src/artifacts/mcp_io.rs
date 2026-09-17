@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::artifacts::{atomic_write, repo_artifact, MCP_CONFIG_FILE};
+use crate::artifacts::{MCP_CONFIG_FILE, atomic_write, repo_artifact};
 use crate::core::gitops;
 use crate::error::AppError;
 
@@ -52,7 +52,9 @@ pub fn load_state(root: &Path) -> McpLoadState {
 /// enforces NO server schema — the file's consumers sit outside the planner.
 /// Any top-level JSON value (object, array, scalar, even `5`) passes.
 pub fn probe_json(text: &str) -> Result<(), String> {
-    serde_json::from_str::<serde_json::Value>(text).map(|_| ()).map_err(|e| e.to_string())
+    serde_json::from_str::<serde_json::Value>(text)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// Which disk action a Save implies. Derived purely, so the dialog layer
@@ -187,7 +189,13 @@ mod tests {
             .arg(p)
             .args(args)
             .output()
-            .unwrap_or_else(|e| panic!("fixture git spawn {:?} in {} failed: {e}", args, p.display()));
+            .unwrap_or_else(|e| {
+                panic!(
+                    "fixture git spawn {:?} in {} failed: {e}",
+                    args,
+                    p.display()
+                )
+            });
         assert!(
             out.status.success(),
             "fixture git {:?} failed in {}: exit={:?}\nstderr: {}",
@@ -234,9 +242,9 @@ mod tests {
     #[test]
     fn probe_rejects_truncation_trailing_comma_prose_and_double_docs() {
         for sample in [
-            "{\"servers\":", // truncation
-            "{ \"a\": 1, }", // trailing comma
-            "not json", // plain prose
+            "{\"servers\":",        // truncation
+            "{ \"a\": 1, }",        // trailing comma
+            "not json",             // plain prose
             "{\"a\":1}\n{\"b\":2}", // double document
         ] {
             let err = probe_json(sample)
@@ -274,15 +282,29 @@ mod tests {
         assert!(rec.malformed.is_none(), "valid JSON must not be flagged");
 
         let path = repo_artifact(&root, MCP_CONFIG_FILE);
-        assert_eq!(fs::read_to_string(&path).unwrap(), buffer, "bytes equal the buffer");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            buffer,
+            "bytes equal the buffer"
+        );
         assert!(
-            git_in(&root, &["ls-files", MCP_CONFIG_FILE]).lines().any(|l| l.trim() == MCP_CONFIG_FILE),
+            git_in(&root, &["ls-files", MCP_CONFIG_FILE])
+                .lines()
+                .any(|l| l.trim() == MCP_CONFIG_FILE),
             "file must be git-tracked"
         );
-        assert_eq!(git_in(&root, &["log", "-1", "--pretty=%s"]).trim(), UPDATE_SUBJECT);
-        assert_eq!(git_in(&root, &["log", "-1", "--pretty=%an"]).trim(), "Packet Planner");
+        assert_eq!(
+            git_in(&root, &["log", "-1", "--pretty=%s"]).trim(),
+            UPDATE_SUBJECT
+        );
+        assert_eq!(
+            git_in(&root, &["log", "-1", "--pretty=%an"]).trim(),
+            "Packet Planner"
+        );
 
-        let head = git_in(&root, &["rev-parse", "--short", "HEAD"]).trim().to_string();
+        let head = git_in(&root, &["rev-parse", "--short", "HEAD"])
+            .trim()
+            .to_string();
         let sha = rec.short_sha.expect("Write carries the checkpoint SHA");
         assert_eq!(sha.chars().count(), 7);
         assert_eq!(sha, head, "receipt SHA equals real git HEAD");
@@ -296,7 +318,10 @@ mod tests {
             .flat_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".packet.tmp"))
             .collect();
-        assert!(tmps.is_empty(), "atomic write leaves no temp residue: {tmps:?}");
+        assert!(
+            tmps.is_empty(),
+            "atomic write leaves no temp residue: {tmps:?}"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -315,7 +340,10 @@ mod tests {
         assert_eq!(rec.op, McpSaveOp::Clear);
         let path = repo_artifact(&root, MCP_CONFIG_FILE);
         assert!(!path.is_file(), "file must be gone");
-        assert_eq!(git_in(&root, &["log", "-1", "--pretty=%s"]).trim(), CLEAR_SUBJECT);
+        assert_eq!(
+            git_in(&root, &["log", "-1", "--pretty=%s"]).trim(),
+            CLEAR_SUBJECT
+        );
         assert_eq!(
             git_in(&root, &["log", "-1", "--pretty=%an"]).trim(),
             "Packet Planner"
@@ -345,16 +373,26 @@ mod tests {
 
         let path = repo_artifact(&root, MCP_CONFIG_FILE);
         let bytes_before = fs::read(&path).unwrap();
-        let mtime_before = fs::metadata(&path).unwrap().modified().unwrap_or(std::time::UNIX_EPOCH);
+        let mtime_before = fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap_or(std::time::UNIX_EPOCH);
         let head_before = git_in(&root, &["rev-parse", "HEAD"]).trim().to_string();
 
         let rec = apply_save(&root, buffer).expect("second save");
         assert_eq!(rec.op, McpSaveOp::Unchanged);
         assert_eq!(rec.short_sha, None, "no checkpoint for an unchanged save");
 
-        let mtime_after = fs::metadata(&path).unwrap().modified().unwrap_or(std::time::UNIX_EPOCH);
+        let mtime_after = fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap_or(std::time::UNIX_EPOCH);
         assert_eq!(mtime_before, mtime_after, "no write occurred (mtime)");
-        assert_eq!(fs::read(&path).unwrap(), bytes_before, "no write occurred (bytes)");
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            bytes_before,
+            "no write occurred (bytes)"
+        );
         assert_eq!(
             git_in(&root, &["rev-parse", "HEAD"]).trim(),
             head_before,
@@ -373,8 +411,7 @@ mod tests {
         let root = mkrepo("malformed");
         let fragment = "{\"broken\":";
 
-        let rec = apply_save(&root, fragment)
-            .expect("malformed input must NOT block the save");
+        let rec = apply_save(&root, fragment).expect("malformed input must NOT block the save");
         assert_eq!(rec.op, McpSaveOp::Write);
         let err = rec.malformed.expect("malformed flag must be set");
         assert!(!err.trim().is_empty(), "flag carries the parse error text");
@@ -384,7 +421,10 @@ mod tests {
             fragment,
             "file holds the fragment VERBATIM"
         );
-        assert_eq!(git_in(&root, &["log", "-1", "--pretty=%s"]).trim(), UPDATE_SUBJECT);
+        assert_eq!(
+            git_in(&root, &["log", "-1", "--pretty=%s"]).trim(),
+            UPDATE_SUBJECT
+        );
         assert_eq!(
             git_in(&root, &["rev-list", "--count", "HEAD"]).trim(),
             "2",

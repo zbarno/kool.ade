@@ -51,7 +51,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use packet::artifacts::{
-    atomic_write, config_io, items_io, CONFIG_FILE, OPEN_ITEMS_FILE, SPEC_FILE,
+    CONFIG_FILE, OPEN_ITEMS_FILE, SPEC_FILE, atomic_write, config_io, items_io,
 };
 use packet::core::state::PlannerState;
 use packet::domain::{
@@ -69,17 +69,14 @@ const SEED_SUBJECT: &str = "chore: seed tinypipe fixture";
 const SOLE_OWNED_CATEGORY: &str = "InfoSec";
 const SOLE_OWNER: &str = "Mira Voss";
 const RUNBOOK_POINTER: &str = "docs/exit-demo-runbook.md";
-const GUARD_REFUSAL: &str = "destination already populated or is a git repo — remove it or pass a different path";
+const GUARD_REFUSAL: &str =
+    "destination already populated or is a git repo — remove it or pass a different path";
 
 /// The three seeded wrong claims. Each must survive self-verification in
 /// the loaded spec, and each is refutable by reading the fixture code:
 /// claim 1 by `tinypipe/core.py::Pipeline.run`, claims 2–3 by
 /// `tinypipe/cli.py::main`.
-const SEEDED_WRONG_CLAIMS: [&str; 3] = [
-    "reverse registration order",
-    "gunzip",
-    "1 MiB",
-];
+const SEEDED_WRONG_CLAIMS: [&str; 3] = ["reverse registration order", "gunzip", "1 MiB"];
 
 const USAGE: &str = "\
 prepare_exit_demo — deterministic §12 exit-demo fixture preparer (Packet)
@@ -281,9 +278,7 @@ enum ParsedInvocation {
 /// Positional DEST (default `packet-exit-fixture` relative to the cwd),
 /// `--user`/`--email` (defaults: the D-23 chair seat), `--help`. Whitespace
 /// user/email after trim and unknown options are usage errors (exit 2).
-fn parse_args(
-    tokens: impl IntoIterator<Item = OsString>,
-) -> Result<ParsedInvocation, String> {
+fn parse_args(tokens: impl IntoIterator<Item = OsString>) -> Result<ParsedInvocation, String> {
     let mut dest: Option<PathBuf> = None;
     let mut user: Option<String> = None;
     let mut email: Option<String> = None;
@@ -319,9 +314,7 @@ fn parse_args(
                 }
                 _ => {
                     if dest.is_some() {
-                        return Err(format!(
-                            "more than one positional DEST supplied ('{tok}')"
-                        ));
+                        return Err(format!("more than one positional DEST supplied ('{tok}')"));
                     }
                     dest = Some(PathBuf::from(tok));
                 }
@@ -770,10 +763,10 @@ fn print_manifest(root: &Path, seat_name: &str, seat_email: &str) {
             item.category
         );
     }
+    println!("  runbook      : {RUNBOOK_POINTER} — begin at Step 1 (Step 0 is complete)");
     println!(
-        "  runbook      : {RUNBOOK_POINTER} — begin at Step 1 (Step 0 is complete)"
+        "Self-verification PASSED: seeded planning state loads through the app's own strict loader."
     );
-    println!("Self-verification PASSED: seeded planning state loads through the app's own strict loader.");
 }
 
 // ---------------------------------------------------------------------------

@@ -46,8 +46,7 @@ pub fn is_work_tree(cwd: &Path) -> bool {
     if !cwd.is_dir() {
         return false;
     }
-    let Ok((code, _, _)) = run(cwd, &["rev-parse", "--is-inside-work-tree"])
-    else {
+    let Ok((code, _, _)) = run(cwd, &["rev-parse", "--is-inside-work-tree"]) else {
         return false;
     };
     code == 0
@@ -161,7 +160,11 @@ pub fn commit(cwd: &Path, message: &str, paths: &[String]) -> Result<String, App
 }
 
 /// Convenience: commit only the canonical planning artifacts.
-pub fn commit_planning_changes(cwd: &Path, message: &str, paths: &[String]) -> Result<String, AppError> {
+pub fn commit_planning_changes(
+    cwd: &Path,
+    message: &str,
+    paths: &[String],
+) -> Result<String, AppError> {
     commit(cwd, message, paths)
 }
 
@@ -188,10 +191,7 @@ pub(crate) mod test_support {
     /// control dir on drop.
     pub fn shield(tag: &str) -> Guard {
         let lock = GIT_HIERARCHY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let dir = env::temp_dir().join(format!(
-            "packet_git_shield_{tag}_{}",
-            std::process::id()
-        ));
+        let dir = env::temp_dir().join(format!("packet_git_shield_{tag}_{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let global = dir.join("control.global.empty");
         let system = dir.join("control.system.empty");
@@ -287,7 +287,12 @@ mod tests {
     fn commit_lands_a_checkpoint_with_planner_authorship() {
         let repo = mkrepo("commit");
         fs::write(repo.join("planning.md"), "spec").unwrap();
-        let sha = commit(&repo, "planner: establish initial specification", &["planning.md".into()]).unwrap();
+        let sha = commit(
+            &repo,
+            "planner: establish initial specification",
+            &["planning.md".into()],
+        )
+        .unwrap();
         let log = git_in(&repo, &["log", "-1", "--pretty=%an %s"]);
         assert!(log.contains(AUTHOR_NAME));
         assert!(log.contains("planner: establish initial specification"));
@@ -323,7 +328,10 @@ mod tests {
         let _ = git_in(&p, &["config", "user.email", "eve@example.org"]);
         // user.name deliberately never set locally or ambient.
         assert_eq!(read_config(&p, "user.name"), None);
-        assert_eq!(read_config(&p, "user.email"), Some("eve@example.org".into()));
+        assert_eq!(
+            read_config(&p, "user.email"),
+            Some("eve@example.org".into())
+        );
         let _ = fs::remove_dir_all(&p);
     }
 
@@ -346,6 +354,9 @@ mod tests {
 
     #[test]
     fn non_existent_cwd_degrades_to_none() {
-        assert_eq!(read_config(Path::new("/no/such/cwd-xyz"), "user.name"), None);
+        assert_eq!(
+            read_config(Path::new("/no/such/cwd-xyz"), "user.name"),
+            None
+        );
     }
 }

@@ -14,7 +14,10 @@ const WIDTH: usize = 3;
 
 /// Validate an item id spelling.
 pub fn is_valid_id(id: &str) -> bool {
-    let Some(num) = id.strip_prefix(ITEM_ID_PREFIX).and_then(|r| r.strip_prefix('-')) else {
+    let Some(num) = id
+        .strip_prefix(ITEM_ID_PREFIX)
+        .and_then(|r| r.strip_prefix('-'))
+    else {
         return false;
     };
     num.len() == WIDTH && num.bytes().all(|b| b.is_ascii_digit())
@@ -80,6 +83,9 @@ mod tests {
     #[test]
     fn round_trip_render_index() {
         assert_eq!(index_of(&render(42)), Some(42));
-        assert_eq!(max_index(["CLR-003".to_string(), "CLR-101".to_string()]), 101);
+        assert_eq!(
+            max_index(["CLR-003".to_string(), "CLR-101".to_string()]),
+            101
+        );
     }
 }

@@ -6,15 +6,14 @@ Run with `cargo run --offline` (once dependencies have been downloaded).
 
 ## Conversations on the board
 
-The Kanban fills the workspace. **Main Chat**, at the right of the Board tab row, opens project-wide conversation in
-a separate native window without resizing the board. **Open conversation** on a
-card opens that task's own window; clicking the card title still opens task details.
-Launchers reuse and focus an existing window. Closing a chat window does not clear
-its history or draft, cancel its running reply, or close the board. Inline replies,
-task details, and the task window all use the same conversation and draft.
-Both chat windows use the same transcript-and-composer layout and the operating
-system's window controls. Task descriptions and workflow actions remain in details,
-not in the task's conversation window.
+Conversations stay in a persistent tabbed panel to the left of the Kanban (above it
+on narrow screens). **Main Chat** is selected initially and cannot be closed.
+**Open conversation** on a card adds and focuses that item's tab, or focuses its
+existing tab. Each additional tab has a close button; closing the selected tab
+returns to Main Chat without clearing history or drafts or cancelling a running
+reply. Inline replies, task details, and the tab share the same conversation and
+draft. Only the selected chat is rendered, with no additional native windows.
+Clicking a card title still opens task details, descriptions, and workflow actions.
 Overall status and the combined activity graph stay in the top bar. Queue controls
 are available in the **Workspace → Settings…** modal.
 

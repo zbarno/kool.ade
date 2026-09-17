@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::artifacts::{repo_artifact, sanitize_basename, IMPORTS_DIR};
+use crate::artifacts::{IMPORTS_DIR, repo_artifact, sanitize_basename};
 
 /// Report of one successful import (surfaced in the UI as a toast/note).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,16 +74,18 @@ pub fn import_into_repo(repo_root: &Path, src: &Path) -> anyhow::Result<Imported
     std::fs::copy(&src, &dest)?;
 
     let (companion, note) = if extension_is_textual(&base) {
-        let already_md = base
-            .rsplit_once('.')
-            .is_some_and(|(_, e)| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"));
+        let already_md = base.rsplit_once('.').is_some_and(|(_, e)| {
+            e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown")
+        });
         if already_md {
             (None, None)
         } else {
             let comp_name = format!(
                 "{}-{}.md",
                 stem_part,
-                base.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default()
+                base.rsplit_once('.')
+                    .map(|(_, e)| e.to_ascii_lowercase())
+                    .unwrap_or_default()
             );
             let bytes = std::fs::read(&src)?;
             let comp_path = imports.join(comp_name.clone());
@@ -93,7 +95,10 @@ pub fn import_into_repo(repo_root: &Path, src: &Path) -> anyhow::Result<Imported
             } else {
                 (
                     None,
-                    Some("Source carried a textual extension but non-UTF-8 content; stored raw.".into()),
+                    Some(
+                        "Source carried a textual extension but non-UTF-8 content; stored raw."
+                            .into(),
+                    ),
                 )
             }
         }
@@ -158,7 +163,8 @@ mod tests {
 
     fn sandbox(prefix: &str) -> (PathBuf, PathBuf) {
         let root = std::env::temp_dir().join(format!("packet_imp_{prefix}_{}", std::process::id()));
-        let outside = std::env::temp_dir().join(format!("packet_outside_{prefix}_{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("packet_outside_{prefix}_{}", std::process::id()));
         for d in [&root, &outside] {
             let _ = std::fs::remove_dir_all(d);
             std::fs::create_dir_all(d).unwrap();
@@ -223,7 +229,10 @@ mod tests {
         std::fs::write(repo.join(IMPORTS_DIR).join("b.md"), "bb").unwrap();
         std::fs::write(repo.join(IMPORTS_DIR).join("a.md"), "a").unwrap();
         let v = list_imports(&repo);
-        assert_eq!(v.iter().map(|e| e.name.clone()).collect::<Vec<_>>(), vec!["a.md", "b.md"]);
+        assert_eq!(
+            v.iter().map(|e| e.name.clone()).collect::<Vec<_>>(),
+            vec!["a.md", "b.md"]
+        );
         let _ = std::fs::remove_dir_all(&repo);
     }
 }

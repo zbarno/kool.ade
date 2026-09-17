@@ -29,8 +29,12 @@ pub fn serialize(cfg: &PlannerConfig) -> String {
     if let Some(u) = &cfg.user {
         s.push_str("\n## Current User\n");
         s.push_str(&format!("Name: {}\n", u.name.trim()));
-        let groups: Vec<String> =
-            u.groups.iter().map(|g| g.trim().to_string()).filter(|g| !g.is_empty()).collect();
+        let groups: Vec<String> = u
+            .groups
+            .iter()
+            .map(|g| g.trim().to_string())
+            .filter(|g| !g.is_empty())
+            .collect();
         let groups_line = format!("Groups: {}\n", groups.join(", "));
         s.push_str(if groups.is_empty() {
             "Groups:\n"
@@ -126,9 +130,13 @@ pub fn parse(text: &str) -> Result<PlannerConfig, String> {
                 .or_else(|| line.strip_prefix('*'))
                 .map(str::trim)
             {
-                if !member.is_empty() && cfg.stakeholders.entries.last_mut().is_some_and(|l| {
-                    l.members.len() < 50
-                }) {
+                if !member.is_empty()
+                    && cfg
+                        .stakeholders
+                        .entries
+                        .last_mut()
+                        .is_some_and(|l| l.members.len() < 50)
+                {
                     cfg.stakeholders
                         .entries
                         .last_mut()
@@ -172,7 +180,10 @@ mod tests {
     #[test]
     fn round_trips_the_canonical_form() {
         let mut cfg = PlannerConfig::default();
-        cfg.user = Some(CurrentUser::new("Zach", vec!["Development".into(), "Architecture".into()]));
+        cfg.user = Some(CurrentUser::new(
+            "Zach",
+            vec!["Development".into(), "Architecture".into()],
+        ));
         cfg.stakeholders = Stakeholders::new(vec![
             CategoryOwners::new("Product", vec!["Zach".into(), "Sarah".into()]),
             CategoryOwners::new("Development", vec!["Alex".into(), "Chris".into()]),

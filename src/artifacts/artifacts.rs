@@ -4,7 +4,6 @@
 //! Named-file module convention: this file declares submodules; each artifact
 //! file has its own small neighbor.
 
-
 use std::path::{Path, PathBuf};
 
 /// Repository-relative directory holding human-facing planning documents.
@@ -29,7 +28,8 @@ pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {
 
 /// Read a UTF-8 file, reporting a clean error message when absent.
 pub fn read_utf8_lossy(path: &Path) -> anyhow::Result<String> {
-    std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
+    std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
 }
 
 /// Atomically write `text` to `path` (write-to-temp + rename) so a crash

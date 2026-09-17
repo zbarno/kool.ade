@@ -76,7 +76,10 @@ fn modal(
         );
     }
     if bounds.is_none() {
-        modal = modal.area(egui::Modal::default_area(id).default_size(egui::vec2(width + 34.0, viewport.height() - 48.0)));
+        modal = modal.area(
+            egui::Modal::default_area(id)
+                .default_size(egui::vec2(width + 34.0, viewport.height() - 48.0)),
+        );
     }
     let mut closed = false;
     let response = modal.show(ui.ctx(), |ui| {

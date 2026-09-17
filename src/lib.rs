@@ -10,8 +10,8 @@
 //! - [`core`] — planning engine: state, routing, validation, apply, git, turn pipeline
 //! - [`app`] — desktop UI session wiring (eframe)
 
-pub mod artifacts;
 pub mod app;
+pub mod artifacts;
 pub mod core;
 pub mod domain;
 pub mod error;
