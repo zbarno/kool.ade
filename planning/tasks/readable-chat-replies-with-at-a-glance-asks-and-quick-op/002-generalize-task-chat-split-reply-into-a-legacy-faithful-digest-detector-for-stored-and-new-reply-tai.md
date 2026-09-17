@@ -28,7 +28,7 @@ Source: [Approved specification](specification.md)
 
 Verified at repository base d881038: split_reply(text: &str) -> Reply lives privately in src/ui/task_chat.rs (struct Reply { summary: String, next: Option<String>, no_reply: bool }, lines 9–45) and its single production caller is paint() at task_chat.rs:210, fed by message_text::readable(m) on the newest Agent message. readable (src/ui/message_text.rs:4) strips the final fenced JSON envelope (pi_extract::extract_json_object, src/harness/pi_extract.rs:12) or returns shield strings, so the detector always receives prose; stored turns persist the already-normalized assistant_message (src/app/root.rs:745). The legacy conventions were authored by the task-mode prompt (src/core/turn.rs:264: line beginning exactly 'Your next step:' / closing 'No reply needed.'); story 3 later rewords that prose, so legacy fidelity must hold here, now. Main Chat's paint_message (chat_pane.rs:188) wraps m.text as a plain label with no tail awareness. App-level fixtures reuse the same vectors (src/app/conversation_tests.rs:62: "SSO is recorded.\nYour next step: Should guests use SSO too?"). Proposed (NOT yet in tree): src/ui/reply_tail.rs and its registration line in src/ui.rs. Module registry src/ui.rs declares children alphabetically (lines 5–14: … overlays at line 9, spec_viewer at line 10); the new module slots between them. Constraint: no new crates, no Cargo.toml delta, no painting in this ticket, and the diff stays in src/ui/**.
 
-Feature ID: CHG-002
+Feature ID: CHG-003
 Repository: root
 
 ## Technical design and contracts
