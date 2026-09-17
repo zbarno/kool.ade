@@ -1,6 +1,6 @@
 # CHG-003: Readable Chat Replies — Formatted Markdown, At-a-Glance Asks, and Quick Option Chips
 
-**Status:** Draft
+**Status:** Implementing
 **Directed by:** Operator statements in the Main Chat interview: the formatting complaint; the trailing 'ask/recommendation/point' list ('almost like a TL;DR, but not explicitly called out that way'); tappable controls for explicit options — with an explicit refusal to limit replies to listable forms.
 **Bound:** Chat display plus prose-only prompt-contract edits. The §12 MVP exit bar (D-21) is untouched; D-29 approval ordering is untouched.
 
@@ -95,6 +95,7 @@ Modules marked for change are tagged with their logical document IDs; updates la
 - **A5 (provisional):** streaming reply text is Markdown-painted progressively (partial documents degrade harmlessly); Thinking/Tool collapsibles stay plain/monospace.
 - **A6 (scope concession, recorded):** this feature deliberately touches `src/core` as PROSE-ONLY prompt-constant edits (two paragraphs) — the first non-`src/ui` touch since the MVP — because the digest/chips depend on model output shape. No logic, no semantics, no harness changes; contained by REQ-ALL-1's diff-scope assertion.
 - **Sequencing note:** D-29 approval order holds — the CHG-002 verification gate concludes first; CHG-003 enters the approval pipeline only via the in-app Approve action on this promoted document (the ledger entry, not prose, releases the generation gate).
+- **Kickoff (operator directive, recorded in Main Chat):** the operator directed implementation to begin; the approved five-story batch under `planning/tasks/readable-chat-replies-with-at-a-glance-asks-and-quick-op` dispatches from story 001 via the board/queue controls. The in-app **Approve feature for implementation** action on this document registers the CHG-003 approval-ledger entry (ledger precedent: CHG-001 and CHG-002 each gained theirs by that action). The prerequisite CHG-002 verification gate is closed by CHG-002's reconciliation.
 
 ## Acceptance Criteria
 

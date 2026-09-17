@@ -1,6 +1,8 @@
 # CHG-002: Board Card Display — Red-Line Activity Graph and Class-Colored Cards
 
-**Status:** Ready
+**Status:** Implemented
+
+**Implementation:** `7f7831e`, `6b851d3`, `beb998d`
 **Directed by:** Operator directives recorded as D-26 and D-27; F-20 typology locked by the operator's CLR-020 answer.
 **Bound:** Additive UI features only. The binding §12 MVP exit bar is untouched (D-21).
 
@@ -107,6 +109,7 @@ Modules marked for change are tagged with their logical document IDs — the tas
 - **P1 — assumption (agent grade, reversible):** "move" means the details view drops its accent-bar subchart while KEEPING the full text stream. Correctable by a word at story review; does not reopen D-26.
 - **P2 — sequencing:** the two stories slot BEHIND ticket 007 (the binding seven-outcome demonstration, currently Needs attention with preserved work, resumable from its board card). F-19 and F-20 are functionally independent but touch neighboring files; implement F-19 first (smaller blast radius in `task_activity.rs`) to keep merges clean.
 - **P3 — geometry:** the compact chart occupies a bounded band (~40–56 px tall, card-width) under the card's existing activity preview; cards grow slightly in height, absorbed by the existing column scroll. Exact pixels are the implementing story's discretion within the band.
+- **Reconciliation (merged on master, verified read-only):** AC 1–6 and 8 hold against the merged code — the anchored red-line painter with degenerate-baseline behavior and card-mounted band (`task_activity.rs`, `layout.rs` incl. a no-bar-cluster shape guard), the pinned class→hue table with DANGER-exclusion, pairwise-distinctness, and active/idle frame guards (`theme.rs`), and the details view keeping its stream and timing while the subchart is gone (in-file test). Fresh runs on master at reconciliation: `cargo test --offline` green (292 passed / 0 failed); the 110-warning clippy wave in that run is systemic toolchain drift with no warning attributable to this diff — tracked separately as CLR-021. F-19/F-20 flipped to Implemented in module 04, module 13 extended, §12 bar untouched per AC 8.
 
 ## Acceptance Criteria
 
