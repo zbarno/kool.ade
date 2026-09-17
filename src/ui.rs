@@ -78,6 +78,7 @@ pub trait Surface {
     }
     fn set_max_parallel_tasks(&mut self, _count: usize) {}
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
+    fn implementation_offer(&self) -> bool { false }
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
     fn implementation_state(
         &self,

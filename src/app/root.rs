@@ -44,6 +44,14 @@ enum Screen {
     Connected(Project),
 }
 
+fn has_current_task_batch(project: &Project) -> bool {
+    project.task_documents.iter().any(|doc| !doc.path.ends_with("/README.md"))
+        && project.state.workflow.brief.as_ref().is_none_or(|brief| {
+            project.state.workflow.task_batches.last()
+                .is_some_and(|batch| batch.feature == brief.feature_name)
+        })
+}
+
 /// Match complete, affirmative commands only: questions, quotations, negations,
 /// and conditional requests must remain ordinary conversation.
 fn implementation_request(text: &str) -> bool {
@@ -955,6 +963,7 @@ impl PacketApp {
         let purpose = match &self.screen {
             Screen::Connected(p)
                 if p.active_implementations.is_empty()
+                    && !has_current_task_batch(p)
                     && p.state.workflow.ready(p.state.planning_contract())
                     && crate::core::workflow::confirms_generation(text) =>
             {
@@ -1361,12 +1370,22 @@ impl Surface for PacketApp {
             Screen::Connected(p)
                 if p.active_turn.is_none()
                     && p.active_implementations.is_empty()
+                    && !has_current_task_batch(p)
                     && p.state.workflow.ready(p.state.planning_contract()) =>
             {
                 p.state.workflow.brief.as_ref()
             }
             _ => None,
         }
+    }
+
+    fn implementation_offer(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(p)
+            if p.active_turn.is_none()
+                && p.active_implementations.is_empty()
+                && has_current_task_batch(p)
+                && matches!(crate::core::implementation_queue::next_ticket(
+                    &p.task_documents, &p.implementation_states), Ok(Some(_))))
     }
 
     fn implementation_state(
@@ -1677,6 +1696,12 @@ impl Surface for PacketApp {
     }
 
     fn on_intent(&mut self, intent: &Intent) {
+        if intent.implement_tasks {
+            if self.implementation_offer() {
+                self.start_implementation_from_chat("implement the tasks");
+            }
+            return;
+        }
         if intent.generate_tasks {
             if self.task_offer().is_some() {
                 self.start_turn_with_purpose(
@@ -2852,6 +2877,45 @@ mod board_tests {
     }
 
     #[test]
+    fn chat_action_moves_from_generation_to_implementation_and_disappears_when_done() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            p.state.workflow.brief = Some(crate::core::workflow::InterviewBrief {
+                feature_name: "Current feature".into(),
+                ready_for_tasks: true,
+                ..Default::default()
+            });
+            p.state.workflow.reviewed_specification = p.state.planning_contract().map(str::to_owned);
+            p.state.workflow.task_batches.clear();
+            p.state.active_feature = Some(("CHG-001".into(), "Current feature specification".into()));
+            p.state.workflow.reviewed_specification = p.state.planning_contract().map(str::to_owned);
+        }
+        assert!(app.task_offer().is_some());
+        assert!(!app.implementation_offer());
+        if let Screen::Connected(p) = &mut app.screen {
+            p.state.workflow.task_batches.push(crate::core::workflow::TaskBatchRef {
+                feature: "Current feature".into(), directory: "planning/tasks/fixture".into(), count: 3,
+            });
+        }
+        assert!(app.task_offer().is_none(), "stale readiness must not offer duplicate generation");
+        assert!(app.implementation_offer());
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Implement tasks").is_some());
+        assert!(text_position(&output, "Generate task stories").is_none());
+        if let Screen::Connected(p) = &mut app.screen {
+            let mut done = p.implementation_states.values().next().unwrap().clone();
+            done.status = "Done".into();
+            for doc in &p.task_documents {
+                p.implementation_states.insert(doc.path.clone(), done.clone());
+            }
+        }
+        assert!(!app.implementation_offer());
+        assert!(app.task_offer().is_none());
+    }
+
+    #[test]
     fn implementation_command_without_tasks_reports_the_blocker_without_a_planner_turn() {
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
@@ -3082,7 +3146,9 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             project.state.active_feature = Some(("CHG-001".into(), feature.into()));
             assert!(!crate::core::workflow::feature_approved(&repo, &project.state.workflow, "CHG-001"));
         }
-        app.start_turn("start implementing");
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        click_text(&mut app, &ctx, "Implement tasks");
         if let Screen::Connected(project) = &app.screen {
             assert!(project.active_turn.is_none());
             assert!(project.active_implementations.contains_key(&docs[0].path));

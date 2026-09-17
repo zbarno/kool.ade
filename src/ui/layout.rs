@@ -472,6 +472,7 @@ fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
     let progress = s.live_progress().cloned();
     let busy = s.conversation_busy();
     let offer = s.task_offer().cloned();
+    let implementation_offer = s.implementation_offer();
     let intent = crate::ui::chat_pane::paint(
         ui,
         &msgs,
@@ -479,8 +480,9 @@ fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
         busy,
         progress.as_ref(),
         offer.as_ref(),
+        implementation_offer,
     );
-    if intent.send || intent.cancel || intent.generate_tasks {
+    if intent.send || intent.cancel || intent.generate_tasks || intent.implement_tasks {
         s.on_intent(&intent);
     }
 }

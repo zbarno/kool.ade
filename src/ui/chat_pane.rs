@@ -12,6 +12,7 @@ pub struct Intent {
     pub send: bool,
     pub cancel: bool,
     pub generate_tasks: bool,
+    pub implement_tasks: bool,
 }
 
 pub fn paint(
@@ -21,6 +22,7 @@ pub fn paint(
     busy: bool,
     progress: Option<&crate::harness::LiveProgress>,
     offer: Option<&crate::core::workflow::InterviewBrief>,
+    implementation_offer: bool,
 ) -> Intent {
     paint_with_hint(
         ui,
@@ -29,6 +31,7 @@ pub fn paint(
         busy,
         progress,
         offer,
+        implementation_offer,
         "What are you building?",
     )
 }
@@ -46,6 +49,7 @@ pub fn paint_task(
         busy,
         None,
         None,
+        false,
         "Reply about this task…",
     )
 }
@@ -57,10 +61,12 @@ fn paint_with_hint(
     busy: bool,
     progress: Option<&crate::harness::LiveProgress>,
     offer: Option<&crate::core::workflow::InterviewBrief>,
+    implementation_offer: bool,
     hint: &str,
 ) -> Intent {
     let mut cancel = false;
     let mut generate_tasks = false;
+    let mut implement_tasks = false;
 
     // ---------- message scroll ----------
     // RESERVE composer + (optionally) working-strip height UP FRONT:
@@ -80,7 +86,13 @@ fn paint_with_hint(
                     paint_message(ui, m, max_w);
                     ui.add_space(8.0);
                 }
-                if let Some(brief) = offer {
+                if implementation_offer {
+                    theme::card_frame().show(ui, |ui| {
+                        ui.label(RichText::new("Ready to implement").strong());
+                        ui.label("Approve the active feature and start its next eligible task. Auto mode continues the queue.");
+                        implement_tasks = ui.add_enabled(!busy, egui::Button::new("Implement tasks")).clicked();
+                    });
+                } else if let Some(brief) = offer {
                     theme::card_frame().show(ui, |ui| {
                         ui.label(RichText::new("Ready for task stories").strong());
                         ui.label(RichText::new(&brief.feature_name).size(13.0));
@@ -182,6 +194,7 @@ fn paint_with_hint(
         send,
         cancel,
         generate_tasks,
+        implement_tasks,
     }
 }
 
