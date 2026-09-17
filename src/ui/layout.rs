@@ -537,6 +537,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                         let active = s.implementation_active(&doc.path);
                                         let activity_active = s.activity_active(&doc.path);
                                         board_card(ui, &doc.path, None, activity_active, |ui| {
+                                            let progress = s.task_progress(&doc.path).cloned();
                                             ui.label(RichText::new(format!("{} · Task", task_key(&doc.path))).size(12.5).color(theme::ACCENT));
                                             if ui.add(egui::Button::new(RichText::new(&doc.title).strong()).frame(false).wrap()).clicked() {
                                                 selected_path = Some(doc.path.clone());
@@ -548,10 +549,11 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                 ui.label(RichText::new(status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
                                                 ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).size(12.5).weak());
                                             });
-                                            crate::ui::task_activity::graph(ui, &s.activity_samples(Some(&doc.path)), activity_active, 34.0);
-                                            if let Some(progress) = s.task_progress(&doc.path) {
+                                            if let Some(progress) = progress.as_ref() {
                                                 if crate::ui::task_activity::compact(ui, progress, active) { activity_path = Some(doc.path.clone()); }
                                             } else if active { ui.spinner(); ui.label("Waiting for worker output…"); }
+                                            let samples = s.activity_samples(Some(&doc.path));
+                                            task_card_activity_band(ui, &samples, active, progress.as_ref(), chrono::Utc::now().timestamp_millis());
                                         });
                                     }
                                 });
@@ -880,6 +882,86 @@ fn paint_task_properties(
     }
 }
 
+/// Height (pixels) of the task card's red activity-line band, chosen inside
+/// P3's bounded 40–56 px card-width band; the constant vertical reservation
+/// keeps card geometry stable regardless of telemetry density.
+const CARD_ACTIVITY_BAND_PX: f32 = 48.0;
+
+/// The metric-meaningful hover legend (REQ-F19-2) carried by the task card's
+/// activity band; attached unconditionally to the line chart's response so
+/// flat-baseline cards explain the metric too.
+const CARD_ACTIVITY_HOVER: &str = "Updates per 10-second bucket · Last 10 minutes · Token usage is not reported · Empty buckets do not mean the worker stopped.";
+
+/// Window edge (rightmost ten-second tick) for a task card's 60-slot activity
+/// line, derived from card state. Six ticks make a minute.
+///
+/// Active regime: `(now_ms / 60_000) * 6` — the right edge sits at the current
+/// minute's START (story 1's sanctioned live anchor), so the in-progress
+/// minute is never peered into and the window rolls forward exactly six ticks
+/// per minute across repaints.
+///
+/// Settled regime: `((last_ms / 60_000) + 1) * 6` — the CLOSE of the record's
+/// last-updated minute, with `last_ms` falling back through
+/// `telemetry.updated_ms` to the newest recorded sample bucket's end proxy
+/// (`bucket * 10_000`) to `now_ms`. Minute-close is deliberate: bucket `b`
+/// covers `[b * 10_000, b * 10_000 + 9999]`, so minute-start alignment would
+/// strand the final burst of the last updated minute outside the window
+/// (e.g. updated_ms = 1_009_999 puts bucket 100 past tick 96's right edge),
+/// while minute-close keeps every recorded sample of that minute in view, keeps
+/// both regimes on the same six-tick grid, and — because `last_ms` is a pure
+/// function of persisted record fields — makes the settled anchor identical
+/// across repaints and relaunches (the static final-window guarantee).
+fn task_card_activity_anchor(
+    active: bool,
+    progress: Option<&crate::harness::LiveProgress>,
+    now_ms: i64,
+) -> i64 {
+    if active {
+        (now_ms / 60_000) * 6
+    } else {
+        let last_ms = progress
+            .and_then(|p| {
+                p.telemetry
+                    .updated_ms
+                    .or_else(|| p.telemetry.samples.iter().map(|(bucket, _)| *bucket * 10_000).max())
+            })
+            .unwrap_or(now_ms);
+        ((last_ms / 60_000) + 1) * 6
+    }
+}
+
+/// Mounts the task card's red activity band directly below the card's
+/// existing activity preview: computes the card-state-derived anchor
+/// ([task_card_activity_anchor]), delegates all drawing to story 1's
+/// payload-free primitive `crate::ui::task_activity::line_chart` in
+/// `theme::DANGER` over a [CARD_ACTIVITY_BAND_PX]-tall card-width band,
+/// attaches [CARD_ACTIVITY_HOVER] unconditionally to the primitive's returned
+/// response (so the legend survives degenerate windows, REQ-F19-2), and — per
+/// story 1's contract, repaint cadence lives at the mount, not the primitive
+/// — schedules the one-second repaint only while this card's worker is
+/// running (`active`). The clock arrives as an injected parameter so tests
+/// stay wall-clock-free.
+fn task_card_activity_band(
+    ui: &mut egui::Ui,
+    samples: &[(i64, u64)],
+    active: bool,
+    progress: Option<&crate::harness::LiveProgress>,
+    now_ms: i64,
+) {
+    let anchor = task_card_activity_anchor(active, progress, now_ms);
+    let response = crate::ui::task_activity::line_chart(
+        ui,
+        samples,
+        anchor,
+        theme::DANGER,
+        egui::vec2(ui.available_width(), CARD_ACTIVITY_BAND_PX),
+    );
+    response.on_hover_text(CARD_ACTIVITY_HOVER);
+    if active {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+    }
+}
+
 fn board_card(
     ui: &mut egui::Ui,
     key: &str,
@@ -974,5 +1056,276 @@ fn card_summary(text: &str) -> String {
         flat
     } else {
         format!("{}…", flat.chars().take(160).collect::<String>())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a settled-record fixture by mutating `LiveProgress::default()`'
+    /// public telemetry fields; no wall clock involved.
+    fn settled_fixture(updated_ms: Option<i64>, samples: &[(i64, u64)]) -> crate::harness::LiveProgress {
+        let mut progress = crate::harness::LiveProgress::default();
+        progress.telemetry.updated_ms = updated_ms;
+        progress.telemetry.samples = samples.to_vec();
+        progress
+    }
+
+    /// Runs `body` in a fresh default egui context and returns the emitted
+    /// shapes (texture deltas cleared, mirroring story 1's captures).
+    fn capture(body: impl FnMut(&mut egui::Ui)) -> Vec<egui::epaint::ClippedShape> {
+        let mut output = egui::Context::default().run_ui(Default::default(), body);
+        output.textures_delta.clear();
+        output.shapes
+    }
+
+    /// The 60-point polylines in the frame.
+    fn polylines(shapes: &[egui::epaint::ClippedShape]) -> Vec<&egui::epaint::PathShape> {
+        shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Path(path) if path.points.len() == 60 => Some(path),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The border-colored baseline segments in the frame (coordinate oracle).
+    fn baselines(shapes: &[egui::epaint::ClippedShape]) -> Vec<[egui::Pos2; 2]> {
+        shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::LineSegment { points, stroke } if stroke.color == theme::BORDER => {
+                    Some(*points)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Renders the card band through the mount seam
+    /// (`task_card_activity_band`), never the bare primitive.
+    fn render_band(
+        samples: &[(i64, u64)],
+        active: bool,
+        progress: Option<&crate::harness::LiveProgress>,
+        now_ms: i64,
+    ) -> Vec<egui::epaint::ClippedShape> {
+        capture(move |ui| task_card_activity_band(ui, samples, active, progress, now_ms))
+    }
+
+    #[test]
+    fn anchor_matrix_pins_both_regimes_on_the_six_tick_minute_grid() {
+        // Active: right edge is the current minute's START; stable inside the
+        // minute, exactly +6 at the boundary.
+        assert_eq!(task_card_activity_anchor(true, None, 1_015_000), 96);
+        assert_eq!(task_card_activity_anchor(true, None, 1_019_999), 96);
+        assert_eq!(task_card_activity_anchor(true, None, 1_020_000), 102);
+        // Settled: minute-CLOSE of telemetry.updated_ms, wall-clock-blind.
+        let stamped = settled_fixture(Some(1_009_999), &[(100, 4), (97, 1)]);
+        assert_eq!(task_card_activity_anchor(false, Some(&stamped), 0), 102);
+        assert_eq!(task_card_activity_anchor(false, Some(&stamped), 9_000_000), 102);
+        // The minute-boundary instant 960_000 belongs to that minute.
+        let boundary = settled_fixture(Some(960_000), &[]);
+        assert_eq!(task_card_activity_anchor(false, Some(&boundary), 1_015_000), 102);
+        // Stamp-less record: the newest sample bucket 100 proxies the last
+        // update (end proxy 1_000_000 ms) and lands in-window at slot 57
+        // through the shared window math.
+        let unstamped = settled_fixture(None, &[(100, 5), (97, 2)]);
+        assert_eq!(task_card_activity_anchor(false, Some(&unstamped), 7), 102);
+        assert_eq!(crate::ui::task_activity::window(&[(100, 5), (97, 2)], 102)[57], 5);
+        // Record-less card: falls back to now_ms, still minute-CLOSE aligned.
+        assert_eq!(task_card_activity_anchor(false, None, 1_015_000), 102);
+    }
+
+    #[test]
+    fn settled_anchor_is_static_across_repaints_and_relaunch() {
+        // Same record bytes at widely differing wall clocks: the frozen
+        // window depends only on persisted record fields.
+        let progress = settled_fixture(Some(1_009_999), &[(100, 4), (97, 1)]);
+        let anchors: Vec<i64> = [500_000i64, 1_000_000, 9_000_000]
+            .iter()
+            .map(|&now_ms| task_card_activity_anchor(false, Some(&progress), now_ms))
+            .collect();
+        assert_eq!(anchors, [102, 102, 102], "same record, differing now_ms");
+        // Two successive calls agree bit-for-bit (relaunch-survival proxy).
+        assert_eq!(
+            task_card_activity_anchor(false, Some(&progress), 42),
+            task_card_activity_anchor(false, Some(&progress), 43)
+        );
+        // And the rendered point clouds agree element-wise.
+        let samples: &[(i64, u64)] = &[(100, 4), (97, 1)];
+        let first = polylines(&render_band(samples, false, Some(&progress), 500_000))[0]
+            .points
+            .clone();
+        let second = polylines(&render_band(samples, false, Some(&progress), 9_000_000))[0]
+            .points
+            .clone();
+        assert_eq!(first, second, "the final 10-minute window stays permanently static");
+    }
+
+    #[test]
+    fn active_window_advances_six_ticks_at_the_minute_boundary_and_profile_shifts() {
+        // 96 -> 102 across the 1_020_000 boundary: exactly +6 ticks...
+        assert_eq!(
+            task_card_activity_anchor(true, None, 1_020_000)
+                - task_card_activity_anchor(true, None, 1_019_999),
+            6
+        );
+        // ...and the drawn profile slides one minute (six slots) right:
+        // bucket 43 sits in slot 6 under anchor 96 and slot 0 under 102.
+        let samples: &[(i64, u64)] = &[(43, 7)];
+        let before = render_band(samples, true, None, 1_019_999);
+        let after = render_band(samples, true, None, 1_020_000);
+        let (before_seg, after_seg) = (baselines(&before)[0], baselines(&after)[0]);
+        assert_eq!(before_seg, after_seg, "the band geometry itself is fixed");
+        let bottom = after_seg[0].y;
+        let (pt_before, pt_after) = (
+            polylines(&before)[0].points.clone(),
+            polylines(&after)[0].points.clone(),
+        );
+        assert!(
+            (bottom - pt_before[6].y - 40.0).abs() <= 0.5,
+            "pre-boundary: bucket 43 fills slot 6 to the plot top"
+        );
+        assert!(
+            (bottom - pt_after[0].y - 40.0).abs() <= 0.5,
+            "post-boundary: bucket 43 fills slot 0 to the plot top"
+        );
+        for (index, p) in pt_before.iter().enumerate() {
+            if index != 6 {
+                assert!((p.y - bottom).abs() <= 0.01, "slot {index} flat pre-boundary");
+            }
+        }
+        for (index, p) in pt_after.iter().enumerate() {
+            if index != 0 {
+                assert!((p.y - bottom).abs() <= 0.01, "slot {index} flat post-boundary");
+            }
+        }
+    }
+
+    #[test]
+    fn band_mount_paints_one_danger_polyline_peak_slot_57_quarter_lift_slot_54() {
+        // Settled fixture (updated_ms 1_009_999, samples [(100,4),(97,1)]) ->
+        // anchor 102: bucket 100 -> slot 57 (peak 4 -> plot top), bucket 97
+        // -> slot 54 (a quarter of the 40 px plot -> 10 px of lift).
+        let progress = settled_fixture(Some(1_009_999), &[(100, 4), (97, 1)]);
+        let samples: &[(i64, u64)] = &[(100, 4), (97, 1)];
+        let shapes = render_band(samples, false, Some(&progress), 1_500_000);
+
+        let lines = polylines(&shapes);
+        assert_eq!(lines.len(), 1, "exactly one chart: a single 60-point polyline");
+        let path = lines[0];
+        assert!(
+            matches!(path.stroke.color, egui::epaint::ColorMode::Solid(color) if color == theme::DANGER),
+            "solid theme::DANGER stroke, got {:?}",
+            path.stroke.color
+        );
+        assert!((path.stroke.width - 1.8).abs() <= 0.01, "story-1 contractual 1.8px stroke");
+        assert_eq!(
+            shapes.iter().filter(|c| matches!(c.shape, egui::Shape::Path(_))).count(),
+            1,
+            "no second chart on the band"
+        );
+        assert!(
+            shapes.iter().all(|c| !matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0)),
+            "no bar fills on the card band"
+        );
+
+        // The baseline serves as the coordinate oracle.
+        let segs = baselines(&shapes);
+        assert_eq!(segs.len(), 1, "exactly one baseline");
+        let segment = segs[0];
+        let (left, right, bottom) = (segment[0].x, segment[1].x, segment[0].y);
+
+        let points = &path.points;
+        // Plot height is exactly 40 px (48 px band minus the 2x4 px insets);
+        // only the peak vertex climbs near the top.
+        let elevated: Vec<usize> = (0..60).filter(|&i| points[i].y <= bottom - 39.0).collect();
+        assert_eq!(elevated, [57], "only slot 57 reaches the plot top");
+        let expected_x = left + (right - left) * 57.0 / 59.0;
+        assert!(
+            (points[57].x - expected_x).abs() <= 0.5,
+            "peak x pins the slot-57 anchor placement"
+        );
+        assert!((points[57].y - (bottom - 40.0)).abs() <= 0.5, "peak sits at the 40 px plot top");
+        assert!(
+            (points[54].y - (bottom - 10.0)).abs() <= 0.5,
+            "count-1 slot rises exactly 1/4 of the plot"
+        );
+        for (index, p) in points.iter().enumerate() {
+            if index == 54 || index == 57 {
+                continue;
+            }
+            assert!((p.y - bottom).abs() <= 0.01, "slot {index} rests on the baseline");
+        }
+    }
+
+    #[test]
+    fn degenerate_telemetry_yields_one_flat_danger_line_through_the_seam() {
+        let stamped = settled_fixture(Some(1_009_999), &[(100, 4), (97, 1)]);
+        let no_samples: &[(i64, u64)] = &[];
+        let zero_buckets: &[(i64, u64)] = &[(5, 0), (6, 0)];
+        let pre_window: &[(i64, u64)] = &[(1, 7)];
+        let cases: [DegenerateCase<'_>; 4] = [
+            (no_samples, None),             // (a) no LiveProgress record at all
+            (no_samples, Some(&stamped)),   // (b) record present, samples = []
+            (zero_buckets, Some(&stamped)), // (b) all-zero buckets
+            (pre_window, Some(&stamped)),   // (c) samples strictly pre-window
+        ];
+        for (samples, progress) in cases {
+            let shapes = render_band(samples, false, progress, 1_015_000);
+            let lines = polylines(&shapes);
+            assert_eq!(lines.len(), 1, "{samples:?}: exactly one 60-point polyline");
+            let path = lines[0];
+            assert!(
+                matches!(path.stroke.color, egui::epaint::ColorMode::Solid(color) if color == theme::DANGER),
+                "{samples:?}: still stroked solid theme::DANGER"
+            );
+            let segs = baselines(&shapes);
+            assert_eq!(segs.len(), 1, "{samples:?}: exactly one border baseline");
+            let bottom = segs[0][0].y;
+            for (index, p) in path.points.iter().enumerate() {
+                assert!(
+                    p.x.is_finite() && p.y.is_finite(),
+                    "{samples:?}: no NaN/infinite ordinate at slot {index}"
+                );
+                assert!(
+                    (p.y - bottom).abs() <= 0.01,
+                    "{samples:?}: slot {index} flat on the baseline — no fabricated spike"
+                );
+            }
+            assert_eq!(
+                shapes.iter().filter(|c| matches!(c.shape, egui::Shape::Path(_))).count(),
+                1,
+                "{samples:?}: no additional spike-bearing shape"
+            );
+            assert!(
+                shapes.iter().all(|c| !matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0)),
+                "{samples:?}: the band still reserves its 48 px with no fills"
+            );
+        }
+    }
+
+    /// One degenerate-sweep case: the band's samples and the record it
+    /// references (aliased to keep the case-table type out of clippy's
+    /// type_complexity complaint range).
+    type DegenerateCase<'a> = (&'a [(i64, u64)], Option<&'a crate::harness::LiveProgress>);
+
+    #[test]
+    fn band_legend_is_the_verbatim_four_phrase_metric_explanation() {
+        assert_eq!(
+            CARD_ACTIVITY_HOVER,
+            "Updates per 10-second bucket · Last 10 minutes · Token usage is not reported · Empty buckets do not mean the worker stopped."
+        );
+        for phrase in [
+            "Updates per 10-second bucket",
+            "Last 10 minutes",
+            "Token usage is not reported",
+            "Empty buckets do not mean the worker stopped",
+        ] {
+            assert!(CARD_ACTIVITY_HOVER.contains(phrase), "missing: {phrase}");
+        }
     }
 }
