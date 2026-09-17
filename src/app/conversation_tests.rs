@@ -477,3 +477,96 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert!(text_position(&output, "Corporate SSO with MFA is confirmed.").is_some());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn tabs_load_persisted_item_histories_without_main_or_other_task_messages() {
+    let mut app = fixture();
+    let ctx = egui::Context::default();
+    let first = "planning/tasks/fixture/001-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
+    let dir = std::env::temp_dir().join(format!("packet_tab_isolation_{}", std::process::id()));
+    let slug = dir.to_str().unwrap();
+    if let Screen::Connected(p) = &mut app.screen {
+        p.chat = vec![ChatMessage::new(
+            ChatRole::Agent,
+            "MAIN HISTORY MARKER",
+            None,
+        )];
+        let mut saved = crate::persistence::task_chats::TaskChats::default();
+        saved
+            .append(
+                slug,
+                first,
+                vec![ChatMessage::new(
+                    ChatRole::Agent,
+                    "FIRST TASK HISTORY",
+                    None,
+                )],
+            )
+            .unwrap();
+        saved
+            .append(
+                slug,
+                second,
+                vec![ChatMessage::new(
+                    ChatRole::Agent,
+                    "SECOND TASK HISTORY",
+                    None,
+                )],
+            )
+            .unwrap();
+        p.task_chats = Default::default();
+        p.task_chats.ensure_loaded(slug);
+    }
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "Open conversation");
+    // Add the second loaded conversation to the same tab strip, then exercise
+    // actual pointer-driven tab selection and closing below.
+    ctx.data_mut(|d| {
+        let id = egui::Id::new("packet_chat_tabs");
+        let mut tabs = d.get_temp::<crate::ui::layout::ChatTabs>(id).unwrap();
+        tabs.keys.push(second.into());
+        d.insert_temp(id, tabs);
+    });
+    let assert_history = |output: &egui::FullOutput, expected: &str| {
+        let board_x = text_position(output, "Board  3").unwrap().x;
+        let texts = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.pos.x < board_x - 100.0 => Some(text.galley.text()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for marker in [
+            "MAIN HISTORY MARKER",
+            "FIRST TASK HISTORY",
+            "SECOND TASK HISTORY",
+        ] {
+            assert_eq!(
+                texts.contains(&marker),
+                marker == expected,
+                "{marker}: {texts:?}"
+            );
+        }
+    };
+    let output = frame(&mut app, &ctx, vec![]);
+    assert_history(&output, "FIRST TASK HISTORY");
+    let label = text_position(&output, "TASK-001").unwrap();
+    let close = text_position(&output, "×").unwrap();
+    assert!(
+        output.shapes.iter().any(|shape| matches!(&shape.shape,
+        egui::Shape::Rect(rect) if rect.fill == crate::ui::theme::ACCENT_SOFT
+            && rect.rect.contains(label) && rect.rect.contains(close))),
+        "ID and close button must share one tab background"
+    );
+    let output = click_text(&mut app, &ctx, "TASK-002");
+    assert_history(&output, "SECOND TASK HISTORY");
+    let output = click_text(&mut app, &ctx, "Main Chat");
+    assert_history(&output, "MAIN HISTORY MARKER");
+    let output = click_text(&mut app, &ctx, "TASK-001");
+    assert_history(&output, "FIRST TASK HISTORY");
+    let output = click_text(&mut app, &ctx, "×");
+    assert_history(&output, "MAIN HISTORY MARKER");
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -354,21 +354,64 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 for key in tabs.keys.clone() {
                     ui.push_id(&key, |ui| {
                         let title = conversation_title(s, &key);
-                        let label = crate::core::context_build::clip(&title, 28);
+                        let label = s
+                            .items()
+                            .iter()
+                            .chain(s.synthetic_items())
+                            .chain(s.resolved_items())
+                            .find(|item| item.conversation_key() == key)
+                            .map(|item| item.id.clone())
+                            .unwrap_or_else(|| {
+                                if key.contains('/') {
+                                    task_key(&key)
+                                } else {
+                                    key.clone()
+                                }
+                            });
                         let selected = tabs.active.as_deref() == Some(key.as_str());
-                        let response = ui.selectable_label(selected, label).on_hover_text(&title);
+                        let mut select = false;
+                        let mut close = false;
+                        let tab = Frame::NONE
+                            .fill(if selected {
+                                theme::ACCENT_SOFT
+                            } else {
+                                theme::PANEL
+                            })
+                            .stroke(egui::Stroke::new(
+                                1.0,
+                                if selected {
+                                    theme::ACCENT
+                                } else {
+                                    theme::BORDER
+                                },
+                            ))
+                            .corner_radius(6)
+                            .inner_margin(egui::Margin::symmetric(5, 2))
+                            .show(ui, |ui| {
+                                ui.spacing_mut().item_spacing.x = 2.0;
+                                ui.horizontal(|ui| {
+                                    select = ui
+                                        .add(
+                                            egui::Button::new(
+                                                RichText::new(&label).color(theme::TEXT),
+                                            )
+                                            .frame(false),
+                                        )
+                                        .on_hover_text(format!("{title}\n{key}"))
+                                        .clicked();
+                                    close = ui
+                                        .add(egui::Button::new("×").frame(false))
+                                        .on_hover_text(format!("Close {label}"))
+                                        .clicked();
+                                });
+                            });
                         if selected && tabs.reveal_active {
-                            response.scroll_to_me(Some(egui::Align::Center));
+                            tab.response.scroll_to_me(Some(egui::Align::Center));
                         }
-                        if response.clicked() {
-                            tabs.active = Some(key.clone());
-                        }
-                        if ui
-                            .small_button("×")
-                            .on_hover_text(format!("Close {title}"))
-                            .clicked()
-                        {
+                        if close {
                             tabs.close(&key);
+                        } else if select {
+                            tabs.active = Some(key.clone());
                         }
                     });
                 }
@@ -954,9 +997,13 @@ fn task_card_activity_anchor(
     } else {
         let last_ms = progress
             .and_then(|p| {
-                p.telemetry
-                    .updated_ms
-                    .or_else(|| p.telemetry.samples.iter().map(|(bucket, _)| *bucket * 10_000).max())
+                p.telemetry.updated_ms.or_else(|| {
+                    p.telemetry
+                        .samples
+                        .iter()
+                        .map(|(bucket, _)| *bucket * 10_000)
+                        .max()
+                })
             })
             .unwrap_or(now_ms);
         ((last_ms / 60_000) + 1) * 6
@@ -991,7 +1038,8 @@ fn task_card_activity_band(
     );
     response.on_hover_text(CARD_ACTIVITY_HOVER);
     if active {
-        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs(1));
     }
 }
 
