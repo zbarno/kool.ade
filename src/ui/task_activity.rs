@@ -725,4 +725,58 @@ mod tests {
             "Observed updates / 10s · 10-minute window · peak 1/10s. Rolling live window."
         ));
     }
+
+    /// REQ-F19-3 guard: the All-activity / task-details `full` view retains
+    /// its header row, the "M SS · N updates" timing line, and the full
+    /// scrollable post stream while hosting NO chart — zero 60-point paths
+    /// and no solid-filled-rectangle cluster resembling an accent-bar
+    /// subchart, so at most one chart represents a task's activity at a time.
+    #[test]
+    fn full_view_keeps_header_timing_and_post_stream_without_any_subchart() {
+        let progress = LiveProgress {
+            telemetry: crate::harness::ActivityTelemetry {
+                started_ms: Some(1000),
+                finished_ms: Some(61_000),
+                updates: 3,
+                samples: vec![(100, 3)],
+                ..Default::default()
+            },
+            posts: vec![crate::harness::LivePost {
+                id: (1, 0),
+                kind: "step".into(),
+                text: "did a thing".into(),
+            }],
+            ..Default::default()
+        };
+        let mut output = egui::Context::default().run_ui(Default::default(), |ui| {
+            full(ui, &progress, false);
+        });
+        output.textures_delta.clear();
+        let texts = labels(&output.shapes);
+        assert!(
+            texts.iter().any(|text| text.contains("3 updates")),
+            "the \"M SS · N updates\" timing line survived, got {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|text| text == "Recorded activity"),
+            "the header row survived, got {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|text| text.contains("did a thing")),
+            "the full post stream survived via chat_pane::paint_progress, got {texts:?}"
+        );
+        assert!(
+            polylines(&output.shapes).is_empty(),
+            "no 60-point path: the subchart does not inhabit the full view"
+        );
+        let solid_rects = output
+            .shapes
+            .iter()
+            .filter(|c| matches!(&c.shape, egui::Shape::Rect(rect) if rect.fill.a() > 0))
+            .count();
+        assert!(
+            solid_rects < 15,
+            "fewer than 15 solid-filled rectangles (a bar cluster would flood this count); got {solid_rects}"
+        );
+    }
 }
