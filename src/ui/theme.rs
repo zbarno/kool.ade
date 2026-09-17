@@ -16,49 +16,50 @@ pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
 pub const WARNING: Color32 = Color32::from_rgb(255, 180, 84);
 pub const SUCCESS: Color32 = Color32::from_rgb(107, 212, 144);
 pub const PURPLE: Color32 = Color32::from_rgb(167, 139, 250);
+/// Assumption card hue (CHG-002 recorded default, overridable by a fresh
+/// word); DANGER red stays deliberately unclaimed as a card hue (stip. ii).
+pub const ASSUMPTION_LAVENDER: Color32 = Color32::from_rgb(190, 168, 255);
+/// Ownership card hue (CHG-002 recorded default, overridable by a fresh
+/// word); DANGER red stays deliberately unclaimed as a card hue (stip. ii).
+pub const OWNERSHIP_PINK: Color32 = Color32::from_rgb(232, 145, 190);
 
-/// Board categories retain text labels; red is reserved for activity.
+/// Centralised class-to-card-hue mapping (CHG-002 recorded defaults):
+/// Task-story (`None`) -> ACCENT sage, Question -> PURPLE, Ambiguity ->
+/// SUCCESS green, Assumption -> ASSUMPTION_LAVENDER, Ownership ->
+/// OWNERSHIP_PINK. Every card still prints its class header, and DANGER red
+/// is deliberately unclaimed so the red activity line stays singular on the
+/// very task cards it decorates.
 pub fn board_hue(kind: Option<crate::domain::ItemKind>) -> Color32 {
     use crate::domain::ItemKind::*;
     match kind {
-        None => Color32::from_rgb(116, 187, 235),
+        None => ACCENT,
         Some(Question) => PURPLE,
         Some(Ambiguity) => SUCCESS,
-        Some(Assumption) => WARNING,
-        Some(Ownership) => Color32::from_rgb(232, 145, 190),
+        Some(Assumption) => ASSUMPTION_LAVENDER,
+        Some(Ownership) => OWNERSHIP_PINK,
     }
 }
 
+/// Frame for a board card: corner radius 6, inner margin 10, a fill leaned
+/// toward the class hue (0.22 gamma blend active, 0.12 idle), and a
+/// class-keyed stroke. Active-state rule (CHG-002 stip. i): a running Task
+/// card already wears ACCENT as its base hue, so a colour promotion would be
+/// a no-op there - it earns the heavier 2.5 px stroke in addition to the fill
+/// shift. Every item class keeps the 1.0 px width but upgrades its stroke
+/// colour to ACCENT, which contrasts structurally against its base hue. Idle
+/// strokes stay on the class hue in every case.
 pub fn board_frame(kind: Option<crate::domain::ItemKind>, active: bool) -> egui::Frame {
     let hue = board_hue(kind);
+    let (stroke_px, stroke_color) = match (active, kind) {
+        (true, None) => (2.5, ACCENT),
+        (true, Some(_)) => (1.0, ACCENT),
+        (false, _) => (1.0, hue),
+    };
     egui::Frame::NONE
         .corner_radius(6)
         .inner_margin(10)
         .fill(PANEL.lerp_to_gamma(hue, if active { 0.22 } else { 0.12 }))
-        .stroke(Stroke::new(if active { 2.5 } else { 1.0 }, hue))
-}
-
-#[cfg(test)]
-#[test]
-fn board_categories_are_distinct_and_active_frames_keep_their_hue() {
-    use crate::domain::ItemKind::*;
-    let kinds = [
-        None,
-        Some(Question),
-        Some(Ambiguity),
-        Some(Assumption),
-        Some(Ownership),
-    ];
-    let hues = kinds.map(board_hue);
-    for (index, kind) in kinds.into_iter().enumerate() {
-        assert_ne!(hues[index], DANGER);
-        assert!(!hues[..index].contains(&hues[index]));
-        let idle = board_frame(kind, false);
-        let active = board_frame(kind, true);
-        assert_eq!(idle.stroke.color, active.stroke.color);
-        assert!(active.stroke.width > idle.stroke.width);
-        assert_ne!(active.fill, idle.fill);
-    }
+        .stroke(Stroke::new(stroke_px, stroke_color))
 }
 
 /// Base style applied once during creation.
@@ -130,11 +131,11 @@ impl crate::domain::ItemKind {
             crate::domain::ItemKind::Ambiguity => (Color32::from_rgb(24, 66, 56), SUCCESS),
             crate::domain::ItemKind::Assumption => (
                 Color32::from_rgb(56, 44, 80),
-                Color32::from_rgb(190, 168, 255),
+                ASSUMPTION_LAVENDER,
             ),
             crate::domain::ItemKind::Ownership => (
                 Color32::from_rgb(74, 38, 62),
-                Color32::from_rgb(232, 145, 190),
+                OWNERSHIP_PINK,
             ),
         }
     }
@@ -144,6 +145,141 @@ const PURPLE_DARK: Color32 = Color32::from_rgb(50, 40, 84);
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::domain::ItemKind::*;
+    use egui::Color32;
+
+    /// All five board discriminants return the CHG-002 recorded defaults
+    /// byte-for-byte (literal pins on purpose, so a future rebasing of the
+    /// ACCENT/PURPLE/etc palette constants fails loudly), and each item-kind
+    /// badge shares its foreground with the board hue of the same class.
+    #[test]
+    fn board_class_hues_match_recorded_defaults() {
+        let kinds = [
+            None,
+            Some(Question),
+            Some(Ambiguity),
+            Some(Assumption),
+            Some(Ownership),
+        ];
+        let recorded_defaults = [
+            Color32::from_rgb(218, 223, 212),
+            Color32::from_rgb(167, 139, 250),
+            Color32::from_rgb(107, 212, 144),
+            Color32::from_rgb(190, 168, 255),
+            Color32::from_rgb(232, 145, 190),
+        ];
+        assert_eq!(kinds.len(), recorded_defaults.len());
+        for (kind, expected) in kinds.into_iter().zip(recorded_defaults) {
+            assert_eq!(
+                board_hue(kind),
+                expected,
+                "unexpected hue for {:?}",
+                kind
+            );
+        }
+        assert_eq!(Question.badge_colors().1, board_hue(Some(Question)));
+        assert_eq!(Ambiguity.badge_colors().1, board_hue(Some(Ambiguity)));
+        assert_eq!(Assumption.badge_colors().1, board_hue(Some(Assumption)));
+        assert_eq!(Ownership.badge_colors().1, board_hue(Some(Ownership)));
+    }
+
+    /// Stipulation ii, machine-guarded: DANGER red is not a card hue. The
+    /// sentinel is pinned first so the guard cannot pass vacuously, and all
+    /// five current discriminants - the four ItemKind arms plus the Task
+    /// `None` arm - reject red; add any new ItemKind variant to this list
+    /// (whatever arm it reaches) to keep the guard exhaustive.
+    #[test]
+    fn no_card_hues_claim_danger() {
+        assert_eq!(DANGER, Color32::from_rgb(255, 107, 107));
+        for kind in [
+            None,
+            Some(Question),
+            Some(Ambiguity),
+            Some(Assumption),
+            Some(Ownership),
+        ] {
+            assert_ne!(
+                board_hue(kind),
+                DANGER,
+                "board_hue({:?}) must never claim DANGER red",
+                kind
+            );
+        }
+    }
+
+    /// Carry-forward of the incumbent's strongest surviving clause: no two
+    /// card hues may collide, catching a future single-arm typo that
+    /// reintroduces a duplicate even when both colliding values are
+    /// individually reasonable.
+    #[test]
+    fn board_hues_remain_pairwise_distinct() {
+        let kinds = [
+            None,
+            Some(Question),
+            Some(Ambiguity),
+            Some(Assumption),
+            Some(Ownership),
+        ];
+        let hues = kinds.map(board_hue);
+        for (index, kind) in kinds.into_iter().enumerate() {
+            assert!(
+                !hues[..index].contains(&hues[index]),
+                "duplicate card hue for {:?} at index {}",
+                kind,
+                index
+            );
+        }
+    }
+
+    /// Stipulation i + REQ-F20-2: every running card separates from its idle
+    /// twin in fill (0.22 vs 0.12 hue blend) AND in stroke (width or colour).
+    /// Specialisation: the running Task card earns the 2.5 px ACCENT stroke
+    /// over its 1.0 px idle (its base hue already equals ACCENT, so width is
+    /// the distinguishing channel), and every item class keeps 1.0 px while
+    /// promoting stroke colour to ACCENT against its idle class-hue stroke.
+    #[test]
+    fn board_frames_separate_active_from_idle_per_class() {
+        let kinds = [
+            None,
+            Some(Question),
+            Some(Ambiguity),
+            Some(Assumption),
+            Some(Ownership),
+        ];
+        for kind in kinds {
+            let idle = board_frame(kind, false);
+            let running = board_frame(kind, true);
+            assert_ne!(
+                running.fill, idle.fill,
+                "fill shift lost for {:?}",
+                kind
+            );
+            assert!(
+                running.stroke.width != idle.stroke.width
+                    || running.stroke.color != idle.stroke.color,
+                "running stroke indistinguishable from idle for {:?}",
+                kind
+            );
+        }
+        let idle_task = board_frame(None, false);
+        let running_task = board_frame(None, true);
+        assert_eq!(running_task.stroke.width, 2.5);
+        assert_eq!(idle_task.stroke.width, 1.0);
+        assert_eq!(running_task.stroke.color, ACCENT);
+        for kind in [
+            Some(Question),
+            Some(Ambiguity),
+            Some(Assumption),
+            Some(Ownership),
+        ] {
+            let idle = board_frame(kind, false);
+            let running = board_frame(kind, true);
+            assert_eq!(running.stroke.color, ACCENT);
+            assert_eq!(running.stroke.width, 1.0);
+            assert_eq!(idle.stroke.color, board_hue(kind));
+        }
+    }
 
     #[test]
     fn badge_impls_compile() {
