@@ -278,6 +278,12 @@ fn story_response(
     }
 }
 
+fn specification_h1_feature_id(spec: &str) -> Option<String> {
+    spec.lines()
+        .find(|line| line.starts_with('#'))
+        .and_then(|line| crate::core::workflow::feature_ids_in(line).into_iter().next())
+}
+
 pub fn generate(
     harness: &dyn AiHarness,
     request: &PlanningRequest,
@@ -358,6 +364,26 @@ pub fn generate(
             contract: crate::core::contract_snapshot::freeze(state)?,
             stories: cp.stories.clone(),
         };
+        // Defense in depth at publish: the batch must carry one consistent
+        // feature identity across brief, frozen specification and stamp. The
+        // prepare-stage guard covers fresh turns; this covers resumes and any
+        // refactor that loosens the front door.
+        let stamped = batch.feature_id.clone();
+        let declared = crate::core::workflow::feature_ids_in(&batch.brief.feature_name);
+        if let Some(problem) =
+            crate::core::workflow::brief_target_problem(&declared, stamped.as_deref(), &|_| true)
+        {
+            anyhow::bail!("{problem}");
+        }
+        if let (Some(spec_id), Some(stamped)) = (
+            specification_h1_feature_id(&batch.specification),
+            stamped.as_ref(),
+        ) && spec_id.as_str() != stamped
+        {
+            anyhow::bail!(
+                "Batch specification is the {spec_id} document, but the batch is stamped {stamped}; activate {spec_id} as the active feature and regenerate its stories"
+            );
+        }
         crate::artifacts::task_docs::save_progress(
             &state.repo_root,
             &format!(

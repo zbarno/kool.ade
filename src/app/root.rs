@@ -410,6 +410,10 @@ impl PacketApp {
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
             excluded.extend(project.queue.blocked.keys().cloned());
+            // Remember WHY a ticket is excluded so a parked queue can tell the
+            // operator which approval is missing or lapsed instead of sitting
+            // silent (the CHG-003 deadlock arrived invisibly this way).
+            let mut approval_notes = std::collections::BTreeSet::new();
             for doc in &project.task_documents {
                 if let Some(id) = doc
                     .text
@@ -421,7 +425,21 @@ impl PacketApp {
                         &project.state.workflow,
                         id,
                     ) {
+                        let reason = if project
+                            .state
+                            .workflow
+                            .approved_features
+                            .contains_key(id)
+                        {
+                            "approval lapsed after the feature document changed — re-run Approve feature for implementation"
+                        } else {
+                            "no recorded approval — run Approve feature for implementation"
+                        };
                         excluded.insert(doc.path.clone());
+                        approval_notes.insert(format!(
+                            "{0} (feature {id}): {reason}",
+                            doc.path
+                        ));
                     }
                 }
             }
@@ -439,13 +457,14 @@ impl PacketApp {
                     project.queue.running = false;
                     project.queue.current_ticket = None;
                     project.queue.in_flight.clear();
-                    project.queue.last_error = project
+                    let mut stall_notes = project
                         .queue
                         .blocked
                         .iter()
                         .map(|(ticket, error)| format!("{ticket}: {error}"))
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                        .collect::<Vec<_>>();
+                    stall_notes.extend(approval_notes);
+                    project.queue.last_error = stall_notes.join("\n");
                     if let Err(error) = project.queue.save(&project.state.repo_root) {
                         project.queue.last_error = error.to_string();
                     }
@@ -2771,6 +2790,79 @@ mod board_tests {
             assert!(p.active_implementations[first].cancellation_requested());
             assert!(!p.active_implementations[second].cancellation_requested());
         }
+    }
+
+    fn park_fixture_with_unapproved_feature(lapsed: bool) -> PacketApp {
+        let mut app = fixture();
+        // Queue locking and persistence run `git rev-parse` against the repo
+        // root, so promote the throwaway fixture directory to a real (bare
+        // minimum) repository before driving the auto queue.
+        let root = std::env::temp_dir().join("packet-board-ui-fixture-nonexistent");
+        std::fs::create_dir_all(&root).expect("fixture root");
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success(),
+            "fixture root must initialize as a git repository"
+        );
+        if let Screen::Connected(p) = &mut app.screen {
+            p.queue.running = true;
+            if lapsed {
+                p.state.workflow.approved_features
+                    .insert("CHG-999".into(), "fixture stale contract".into());
+            }
+            for doc in &mut p.task_documents {
+                doc.text.push_str("\nFeature ID: CHG-999\n");
+            }
+        }
+        app
+    }
+
+    #[test]
+    fn parked_auto_queue_names_the_missing_feature_approval() {
+        let _shield = crate::core::gitops::test_support::shield("auto-queue-park");
+        let mut app = park_fixture_with_unapproved_feature(false);
+        app.advance_auto_queue();
+        let Screen::Connected(p) = &app.screen else { panic!("screen disconnected") };
+        assert!(!p.queue.running, "queue must park, not spin");
+        assert!(
+            p.active_implementations.is_empty(),
+            "no worker may start for an unapproved feature"
+        );
+        assert!(
+            p.queue.last_error.contains("CHG-999"),
+            "park message must name the blocking feature id: {}",
+            p.queue.last_error
+        );
+        assert!(
+            p.queue.last_error.contains("no recorded approval")
+                && p.queue.last_error.contains("Approve feature for implementation"),
+            "park message must state the remedy: {}",
+            p.queue.last_error
+        );
+        assert!(
+            p.queue.last_error.contains("planning/tasks/fixture/001-task.md"),
+            "park message must name the affected tickets: {}",
+            p.queue.last_error
+        );
+    }
+
+    #[test]
+    fn parked_auto_queue_flags_lapsed_approvals_as_reapproval_targets() {
+        let _shield = crate::core::gitops::test_support::shield("auto-queue-park-lapsed");
+        let mut app = park_fixture_with_unapproved_feature(true);
+        app.advance_auto_queue();
+        let Screen::Connected(p) = &app.screen else { panic!("screen disconnected") };
+        assert!(!p.queue.running);
+        assert!(
+            p.queue.last_error.contains("approval lapsed after the feature document changed")
+                && p.queue.last_error.contains("re-run Approve feature for implementation"),
+            "lapsed approval must read as a re-approval target, not a wall: {}",
+            p.queue.last_error
+        );
     }
 
     #[test]

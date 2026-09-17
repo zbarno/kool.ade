@@ -250,6 +250,63 @@ impl Workflow {
     }
 }
 
+/// Scan `text` for stable `CHG-nnn` feature identifiers (three or more
+/// digits), de-duplicated and sorted. Prose that embeds no id (legacy MVP
+/// batches) yields an empty list and grandfathers through identity checks.
+pub fn feature_ids_in(text: &str) -> Vec<String> {
+    let mut ids = std::collections::BTreeSet::new();
+    let mut pos = 0;
+    while let Some(at) = text[pos..].find("CHG-") {
+        let start = pos + at;
+        let digits_at = start + 4;
+        let end = text[digits_at..]
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_digit())
+            .map(|(offset, _)| digits_at + offset + 1)
+            .last()
+            .unwrap_or(digits_at);
+        if end > digits_at {
+            let candidate = &text[start..end];
+            if crate::artifacts::product_docs::valid_feature_id(candidate) {
+                ids.insert(candidate.to_string());
+            }
+        }
+        pos = end.max(digits_at);
+    }
+    ids.into_iter().collect()
+}
+
+/// Judge a brief's declared feature identity (`declared`, de-duplicated)
+/// against the feature the batch would actually be stamped with (`stamped`,
+/// the active feature id). `feature_dir_exists` tests whether a candidate id
+/// has a feature document. Returns an actionable operator message when the
+/// two identities cannot both be honored; `None` means the guard passes.
+pub fn brief_target_problem(
+    declared: &[String],
+    stamped: Option<&str>,
+    feature_dir_exists: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    match declared {
+        [] => None,
+        [id] if !feature_dir_exists(id) => Some(format!(
+            "Brief references unknown feature {id}; record the feature specification under planning/features before generating tasks"
+        )),
+        [id] => match stamped {
+            Some(stamped) if *id == stamped => None,
+            Some(stamped) => Some(format!(
+                "Brief targets {id}, but the active feature is {stamped}; generation stamps every story with {stamped} and freezes its specification — conclude or activate {id} before generating its tasks"
+            )),
+            None => Some(format!(
+                "Brief references feature {id}, but no feature is active"
+            )),
+        },
+        _ => Some(format!(
+            "Brief feature name declares more than one feature id ({}); name exactly one",
+            declared.join(", ")
+        )),
+    }
+}
+
 pub fn confirms_generation(text: &str) -> bool {
     matches!(
         text.trim()
@@ -328,6 +385,25 @@ pub fn prepare(
             if !feature_approved(&state.repo_root, &workflow, id) {
                 return Err(vec![format!("{id} needs explicit implementation approval")]);
             }
+        }
+        // Identity guard: a batch may only be generated for the feature the
+        // interview is actually about. Drift between the brief's subject and
+        // the active feature once slipped a batch stamped with one identity
+        // while narrating another, deadlocking the implementation queue with
+        // no visible reason.
+        let declared = feature_ids_in(&brief.feature_name);
+        if let Some(problem) = brief_target_problem(
+            &declared,
+            feature_id.as_deref(),
+            &|id| {
+                crate::artifacts::product_docs::document_path(
+                    &state.repo_root,
+                    &format!("feature:{id}"),
+                )
+                .is_ok()
+            },
+        ) {
+            return Err(vec![problem]);
         }
         nt.task_batch = Some(TaskBatch {
             brief,
@@ -739,6 +815,105 @@ mod tests {
         assert!(!confirms_generation("yes but change the scope first"));
         assert!(!confirms_generation("not yet"));
         std::fs::remove_dir_all(s.repo_root).unwrap();
+    }
+
+    fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &str) -> String {
+        let dir = root
+            .join("planning/features")
+            .join(format!("{id}-fixture-{state_tag}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = format!(
+            "#{id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
+        );
+        std::fs::write(dir.join("specification.md"), &body).unwrap();
+        body
+    }
+
+    #[test]
+    fn brief_targeting_an_inactive_feature_cannot_generate_that_batch() {
+        let mut s = state("gen-target-mismatch");
+        let _inactive =
+            feature_document("gen-target-mismatch", &s.repo_root, "CHG-098", "Other feature");
+        let active =
+            feature_document("gen-target-mismatch", &s.repo_root, "CHG-097", "Active feature");
+        s.active_feature = Some(("CHG-097".into(), active.clone()));
+        s.workflow
+            .approved_features
+            .insert("CHG-097".into(), feature_contract(&active));
+        let mut b = brief();
+        b.feature_name = "Other feature (CHG-098)".into();
+        s.workflow.brief = Some(b);
+        s.workflow.reviewed_specification = Some(active);
+        let joined = generation(&s, vec![story()]).unwrap_err().join(" | ");
+        assert!(
+            joined.contains("targets CHG-098") && joined.contains("active feature is CHG-097"),
+            "guard must name both sides of the drift: {joined}"
+        );
+        assert!(!s.repo_root.join("planning/tasks").exists());
+        std::fs::remove_dir_all(s.repo_root).unwrap();
+    }
+
+    #[test]
+    fn brief_matching_the_active_feature_passes_the_identity_guard() {
+        let mut s = state("gen-target-match");
+        let active =
+            feature_document("gen-target-match", &s.repo_root, "CHG-097", "Active feature");
+        s.active_feature = Some(("CHG-097".into(), active.clone()));
+        s.workflow
+            .approved_features
+            .insert("CHG-097".into(), feature_contract(&active));
+        let mut b = brief();
+        b.feature_name = "Active feature (CHG-097)".into();
+        s.workflow.brief = Some(b);
+        s.workflow.reviewed_specification = Some(active);
+        if let Err(errors) = generation(&s, vec![story()]) {
+            let joined = errors.join(" | ");
+            assert!(
+                !joined.contains("Brief ") && !joined.contains("feature id"),
+                "identity guard must not trip on a matching target: {joined}"
+            );
+        }
+        std::fs::remove_dir_all(s.repo_root).unwrap();
+    }
+
+    #[test]
+    fn feature_id_scan_handles_legacy_prose_duplicates_and_short_ids() {
+        assert_eq!(
+            feature_ids_in("Packet MVP \u{2014} git-native desktop specification planner"),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            feature_ids_in("Cards (CHG-002)"),
+            vec!["CHG-002".to_string()]
+        );
+        assert_eq!(
+            feature_ids_in("A (CHG-002) and B (CHG-002)"),
+            vec!["CHG-002".to_string()]
+        );
+        assert_eq!(
+            feature_ids_in("bad CHG-0 short id"),
+            Vec::<String>::new()
+        );
+        let multi = vec!["CHG-001".to_string(), "CHG-002".to_string()];
+        assert_eq!(
+            brief_target_problem(&multi, Some("CHG-001"), &|_| true).as_deref(),
+            Some(
+                "Brief feature name declares more than one feature id (CHG-001, CHG-002); name exactly one"
+            )
+        );
+        let one = vec!["CHG-099".to_string()];
+        assert!(brief_target_problem(&one, Some("CHG-001"), &|_| true)
+            .unwrap()
+            .contains("targets CHG-099"));
+        assert!(brief_target_problem(&one, Some("CHG-001"), &|_| false)
+            .unwrap()
+            .contains("unknown feature CHG-099"));
+        assert!(
+            brief_target_problem(&one, None, &|_| true)
+                .unwrap()
+                .contains("no feature is active")
+        );
+        assert!(brief_target_problem(&[], Some("CHG-001"), &|_| false).is_none());
     }
 
     #[test]
