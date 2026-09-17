@@ -265,6 +265,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 s.set_auto_mode(auto_mode);
             }
             ui.label("When enabled, verified tasks merge automatically and the queue continues. Disable to use pull requests for future tasks.");
+            ui.label("To begin, send ‘start implementing’ in Main Chat. This approves the active feature and starts an eligible task. You can also approve the feature and use a task’s Implement action.");
             if !s.queue_status().is_empty() {
                 ui.separator();
                 ui.label(s.queue_status());

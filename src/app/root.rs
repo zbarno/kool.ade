@@ -44,6 +44,19 @@ enum Screen {
     Connected(Project),
 }
 
+/// Match complete, affirmative commands only: questions, quotations, negations,
+/// and conditional requests must remain ordinary conversation.
+fn implementation_request(text: &str) -> bool {
+    let normalized = text.trim().trim_end_matches(['.', '!']).to_ascii_lowercase();
+    let normalized = normalized.strip_prefix("please ").unwrap_or(&normalized);
+    matches!(normalized,
+        "start implementing" | "start implementation" | "begin implementation"
+        | "implement the tasks" | "start implementing the tasks"
+        | "start the implementation queue" | "resume implementation"
+        | "resume implementing" | "continue implementing"
+    )
+}
+
 enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
@@ -935,6 +948,10 @@ impl PacketApp {
     }
 
     fn start_turn(&mut self, text: &str) {
+        if implementation_request(text) {
+            self.start_implementation_from_chat(text);
+            return;
+        }
         let purpose = match &self.screen {
             Screen::Connected(p)
                 if p.active_implementations.is_empty()
@@ -946,6 +963,66 @@ impl PacketApp {
             _ => crate::core::workflow::TurnPurpose::Interview,
         };
         self.start_turn_with_purpose(text, purpose);
+    }
+
+    /// Explicit implementation requests are application actions, not interview
+    /// prompts. Record the user's authorization through the same approval path
+    /// as the feature button before dispatching through the normal task controls.
+    fn start_implementation_from_chat(&mut self, text: &str) {
+        let Screen::Connected(project) = &mut self.screen else { return };
+        if project.active_turn.is_some() {
+            return;
+        }
+        project.activity.manager = None;
+        project.remember_chat(vec![ChatMessage::new(ChatRole::User, text, None)]);
+        let prepared = (|| -> anyhow::Result<Option<String>> {
+            anyhow::ensure!(
+                project.task_documents.iter().any(|doc| !doc.path.ends_with("/README.md")),
+                "No implementation tasks exist yet. Generate the task stories first."
+            );
+            if let Some((id, _)) = &project.state.active_feature {
+                let id = id.clone();
+                if !crate::core::workflow::feature_approved(
+                    &project.state.repo_root, &project.state.workflow, &id,
+                ) {
+                    crate::core::workflow::approve_feature(
+                        &project.state.repo_root, &mut project.state.workflow, &id,
+                    )?;
+                    project.refresh_git();
+                }
+            }
+            let active = project.active_implementations.keys().cloned().collect();
+            crate::core::implementation_queue::next_ready_ticket(
+                &project.task_documents, &project.implementation_states, &active,
+            ).map_err(anyhow::Error::msg)
+        })();
+        let ticket = match prepared {
+            Ok(Some(ticket)) => ticket,
+            result => {
+                let message = match result {
+                    Err(error) => format!("Cannot start implementation: {error}"),
+                    _ if !project.active_implementations.is_empty() => "Implementation workers are already running.".into(),
+                    _ => "All available implementation tasks are complete.".into(),
+                };
+                project.remember_chat(vec![ChatMessage::new(ChatRole::System, message, None)]);
+                return;
+            }
+        };
+        self.implement_task(ticket.clone());
+        if let Screen::Connected(project) = &mut self.screen {
+            let message = if project.active_implementations.contains_key(&ticket) {
+                format!("Started implementation: {ticket}. {}", if project.queue.auto_mode {
+                    "Auto mode will continue with eligible tasks and merge verified changes."
+                } else {
+                    "Auto mode is off; this task will use the pull-request workflow."
+                })
+            } else if !project.queue.last_error.is_empty() {
+                format!("Cannot start implementation: {}", project.queue.last_error)
+            } else {
+                "All implementation worker slots are occupied; running workers retain their work.".into()
+            };
+            project.remember_chat(vec![ChatMessage::new(ChatRole::System, message, None)]);
+        }
     }
 
     fn start_turn_with_purpose(&mut self, text: &str, purpose: crate::core::workflow::TurnPurpose) {
@@ -2763,6 +2840,32 @@ mod board_tests {
     }
 
     #[test]
+    fn implementation_commands_require_an_explicit_affirmative_request() {
+        for text in ["start implementing", "Please implement the tasks!", "resume implementation"] {
+            assert!(implementation_request(text), "{text}");
+        }
+        for text in ["don't start implementing", "why won't you start implementing?",
+            "can we start implementing?", "if tests pass, start implementing",
+            "\"start implementing\"", "yes", "generate tasks"] {
+            assert!(!implementation_request(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn implementation_command_without_tasks_reports_the_blocker_without_a_planner_turn() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            p.task_documents.clear();
+        }
+        app.start_turn("start implementing");
+        let Screen::Connected(p) = &app.screen else { panic!("disconnected") };
+        assert!(p.active_turn.is_none());
+        assert!(p.active_implementations.is_empty());
+        assert!(!p.queue.running);
+        assert!(app.chat_messages().last().unwrap().text.contains("No implementation tasks exist"));
+    }
+
+    #[test]
     fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
         let mut app = fixture();
         let first = "planning/tasks/fixture/001-task.md";
@@ -2911,6 +3014,9 @@ mod board_tests {
         for doc in &docs {
             std::fs::write(repo.join(&doc.path), &doc.text).unwrap();
         }
+        let feature = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
+        std::fs::create_dir_all(repo.join("planning/features/CHG-001-fixture")).unwrap();
+        std::fs::write(repo.join("planning/features/CHG-001-fixture/specification.md"), feature).unwrap();
         std::fs::write(repo.join(".planner/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":3}]}).to_string()).unwrap();
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-qm", "baseline"]);
@@ -2970,7 +3076,20 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             project.implementation_states.clear();
             project.chat_slug = format!("auto-e2e-{}", std::process::id());
         }
-        app.implement_task(docs[0].path.clone());
+        // Exercise the user's actual chat action, including durable approval,
+        // worker dispatch, concurrent execution and integration into the remote.
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state.active_feature = Some(("CHG-001".into(), feature.into()));
+            assert!(!crate::core::workflow::feature_approved(&repo, &project.state.workflow, "CHG-001"));
+        }
+        app.start_turn("start implementing");
+        if let Screen::Connected(project) = &app.screen {
+            assert!(project.active_turn.is_none());
+            assert!(project.active_implementations.contains_key(&docs[0].path));
+            assert!(crate::core::workflow::feature_approved(&repo, &project.state.workflow, "CHG-001"));
+            let saved = crate::core::state::PlannerState::load(&repo).unwrap();
+            assert!(crate::core::workflow::feature_approved(&repo, &saved.workflow, "CHG-001"));
+        }
         let ctx = egui::Context::default();
         let deadline = Instant::now() + Duration::from_secs(40);
         let mut concurrent_chat = false;
@@ -3033,7 +3152,7 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             assert!(!progress.response.contains("Manager fixture"));
             assert!(!progress.response.contains("Planning fixture"));
         }
-        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "6");
+        assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "7");
         assert_eq!(
             git(&remote, &["show", "main:planning/local-approval.md"]),
             "approved locally"
