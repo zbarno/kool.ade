@@ -11,35 +11,13 @@ struct Reply {
 }
 
 fn split_reply(text: &str) -> Reply {
-    let text = text.replace("**Your next step:**", "Your next step:");
-    if let Some((summary, next)) = text.split_once("Your next step:") {
-        return Reply {
-            summary: summary.trim().into(),
-            next: Some(next.trim().into()).filter(|s: &String| !s.is_empty()),
-            no_reply: false,
-        };
-    }
-    let no_reply = text.trim_end().ends_with("No reply needed.");
-    let summary = text
-        .trim_end()
-        .trim_end_matches("No reply needed.")
-        .trim()
-        .to_owned();
-    // Older replies have no marker. Surface an explicit final question verbatim.
-    let next = (!no_reply)
-        .then(|| summary.lines().rev().find(|line| !line.trim().is_empty()))
-        .flatten()
-        .filter(|line| line.trim().ends_with('?') && line.chars().count() <= 280)
-        .map(|line| line.trim().to_string());
-    let summary = if next.as_deref() == Some(summary.as_str()) {
-        String::new()
-    } else {
-        summary
-    };
+    // Delegated to the shared tail classifier; the mapping onto the legacy
+    // struct is the byte-for-byte compatibility contract (asserted in tests).
+    let tail = crate::ui::reply_tail::parse_reply_tail(text);
     Reply {
-        summary,
-        next,
-        no_reply,
+        summary: tail.body,
+        next: tail.ask,
+        no_reply: tail.no_reply,
     }
 }
 
@@ -512,5 +490,51 @@ mod tests {
         assert!(reply.no_reply);
         assert_eq!(reply.summary, "SSO and MFA are confirmed.");
         assert_eq!(reply.next, None);
+    }
+
+    #[test]
+    fn adapter_maps_parsed_tails_bit_for_bit_onto_the_legacy_reply() {
+        // Compatibility contract: every legacy shape must come back through
+        // the shared classifier as exactly today's tuple.
+        for input in [
+            "SSO is recorded.\nYour next step: Should guests use SSO too?",
+            "SSO is recorded.\n**Your next step:** Should guests use SSO too?",
+            "Done here.\nYour next step:",
+            "Your next step:",
+            "SSO and MFA are confirmed.\nNo reply needed.",
+            "Anything else?",
+            "Patch landed.\nDeploy tonight?",
+            "Quiet workday.",
+        ] {
+            let tail = crate::ui::reply_tail::parse_reply_tail(input);
+            assert_eq!(
+                split_reply(input),
+                Reply {
+                    summary: tail.body,
+                    next: tail.ask,
+                    no_reply: tail.no_reply,
+                },
+                "legacy parity drifted for {input:?}"
+            );
+        }
+        // The unreleased digest shape maps body → summary and the first
+        // bullet → next, landing 1:1 on the card 'Your answer needed' line.
+        let input =
+            "Draft ready.\n\n---\n- Enable SSO for all guests?\n- Recommended: yes, effective Monday.";
+        let tail = crate::ui::reply_tail::parse_reply_tail(input);
+        assert_eq!(tail.kind, crate::ui::reply_tail::TailKind::Digest);
+        let reply = split_reply(input);
+        assert_eq!(
+            reply,
+            Reply {
+                summary: tail.body.clone(),
+                next: tail.ask.clone(),
+                no_reply: tail.no_reply,
+            }
+        );
+        assert_eq!(reply.summary, "Draft ready.");
+        assert_eq!(reply.next.as_deref(), Some(tail.bullets[0].as_str()));
+        assert_eq!(reply.next.as_deref(), Some("Enable SSO for all guests?"));
+        assert!(!reply.no_reply);
     }
 }
