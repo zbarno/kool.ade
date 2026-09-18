@@ -25,6 +25,27 @@ use super::{AiHarness, HarnessOutcome, PlanningRequest, TurnEnvelope};
 pub const PI_BINARY_ENV: &str = "PACKET_PI_BIN";
 /// Wall-clock budget for the availability probe.
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+/// Silence tolerance for a running pi process: when neither stdout nor
+/// stderr yields a line for this long, the run is presumed hung (deadlocked
+/// tool, wedged transport) and is killed. The 12 h `TURN_TIMEOUT` ceiling
+/// stays the hard budget; this converts a hung run from hours into minutes.
+pub const STALL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// Environment override (seconds) for the stall tolerance.
+pub const STALL_TIMEOUT_ENV: &str = "PACKET_HARNESS_STALL_SECS";
+
+pub fn configured_stall_timeout() -> Duration {
+    stall_timeout_from_raw(std::env::var(STALL_TIMEOUT_ENV).ok().as_deref())
+}
+
+/// Overrides above this (1 year) are treated as typos, not policies.
+const STALL_TIMEOUT_CAP: u64 = 365 * 24 * 3600;
+
+fn stall_timeout_from_raw(raw: Option<&str>) -> Duration {
+    raw.and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|seconds| (1..=STALL_TIMEOUT_CAP).contains(seconds))
+        .map(Duration::from_secs)
+        .unwrap_or(STALL_TIMEOUT)
+}
 /// Home-relative install sites scanned LAST by [`PiHarness::locate_binary`]
 /// (`$HOME/<site>/pi`, in this order, after `PACKET_PI_BIN` and `PATH`).
 /// SINGLE SOURCE for that tier: the F-16 in-app setup guide composes its
@@ -252,6 +273,9 @@ impl AiHarness for PiHarness {
             Some(req.prompt_body.clone()),
         )?;
         let deadline = Instant::now() + req.timeout;
+        let stall_limit = configured_stall_timeout();
+        let stall_secs = stall_limit.as_secs();
+        let mut last_output = Instant::now();
         let mut fold = EventFold::default();
         let mut stderr_tail: Vec<String> = Vec::new();
         let mut last_preview = super::LiveProgress::default();
@@ -286,8 +310,21 @@ impl AiHarness for PiHarness {
             // NOTE: `Pending` is NOT an error state — the first event from a
             // cold harness can lag well past one poll window.
             match task.poll_next(Duration::from_millis(200)) {
-                Err(crate::harness::pi_proc::PollState::Pending) => continue,
+                Err(crate::harness::pi_proc::PollState::Pending) => {
+                    if last_output.elapsed() >= stall_limit {
+                        task.kill();
+                        let _ = task.settle(Duration::from_secs(3));
+                        return Err(AppError::HarnessFailed {
+                            reason: format!(
+                                "harness stalled: pi produced no output for {stall_secs}s and was presumed hung"
+                            ),
+                            stderr_tail: tail(&stderr_tail),
+                        });
+                    }
+                    continue;
+                }
                 Ok(StreamEvt::Stdout(line)) => {
+                    last_output = Instant::now();
                     if let Some((_, file)) = diagnostics.as_mut() {
                         use std::io::Write;
                         writeln!(file, "{line}").map_err(|e| {
@@ -298,6 +335,7 @@ impl AiHarness for PiHarness {
                     preview_dirty = true;
                 }
                 Ok(StreamEvt::Stderr(line)) => {
+                    last_output = Instant::now();
                     stderr_tail.push(line);
                     if stderr_tail.len() > 100 {
                         stderr_tail.remove(0);
@@ -548,5 +586,29 @@ mod tests {
         if let Some(bin) = &rep.binary {
             assert!(bin.is_file(), "reported binary vanished: {bin:?}");
         }
+    }
+
+    #[test]
+    fn stall_timeout_defaults_and_parses_override() {
+        assert_eq!(stall_timeout_from_raw(None), STALL_TIMEOUT);
+        assert_eq!(stall_timeout_from_raw(Some("")), STALL_TIMEOUT);
+        assert_eq!(stall_timeout_from_raw(Some("garbage")), STALL_TIMEOUT);
+        assert_eq!(stall_timeout_from_raw(Some("0")), STALL_TIMEOUT);
+        assert_eq!(stall_timeout_from_raw(Some("-5")), STALL_TIMEOUT);
+        assert_eq!(stall_timeout_from_raw(Some("90")), Duration::from_secs(90));
+        assert_eq!(stall_timeout_from_raw(Some(" 120 ")), Duration::from_secs(120));
+        // Absurd overrides clamp to the 1-year cap boundary -> default.
+        assert_eq!(
+            stall_timeout_from_raw(Some(&(STALL_TIMEOUT_CAP + 1).to_string())),
+            STALL_TIMEOUT
+        );
+        assert_eq!(
+            stall_timeout_from_raw(Some(&u64::MAX.to_string())),
+            STALL_TIMEOUT
+        );
+        assert_eq!(
+            stall_timeout_from_raw(Some(&STALL_TIMEOUT_CAP.to_string())),
+            Duration::from_secs(STALL_TIMEOUT_CAP)
+        );
     }
 }

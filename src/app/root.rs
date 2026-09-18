@@ -169,6 +169,7 @@ impl PacketApp {
                                     .or_default()
                                     .update(p);
                             }
+                            project.activity.mark_ticket_dirty(ticket);
                         }
                         Some(crate::core::implementation::Event::Done(result)) => {
                             finished.push((ticket.clone(), result));
@@ -194,6 +195,7 @@ impl PacketApp {
                         });
                     }
                     project.save_task_activity(&ticket);
+                    project.activity.dirty_tickets.remove(&ticket);
                 }
                 project.refresh_implementations();
                 project.last_pr_refresh = None;
@@ -317,17 +319,16 @@ impl PacketApp {
             self.last_git_refresh = Instant::now();
         }
         if let Screen::Connected(project) = &mut self.screen {
-            if project
-                .activity
-                .last_save
-                .is_none_or(|last| last.elapsed() >= Duration::from_secs(2))
+            // Persist only tickets whose activity actually moved since the
+            // last flush, on a 2 s cadence (was: every active ticket, every
+            // 2 s, whether changed or not).
+            if !project.activity.dirty_tickets.is_empty()
+                && project
+                    .activity
+                    .last_save
+                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(2))
             {
-                for ticket in project
-                    .active_implementations
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                {
+                for ticket in project.activity.take_dirty_tickets() {
                     project.save_task_activity(&ticket);
                 }
                 project.activity.last_save = Some(Instant::now());
@@ -362,23 +363,26 @@ impl PacketApp {
                     Err(_) => project.remember_chat(vec![ChatMessage::new(ChatRole::System, "Project-manager update unavailable after retry; task work continues. You can still send a message.", None)]),
                 }
             }
-            if !project.active_implementations.is_empty()
-                && project.activity.pending.is_empty()
-                && project
-                    .activity
-                    .last_update
-                    .is_some_and(|last| last.elapsed() >= Duration::from_secs(120))
-            {
+            // Stalled-worker patrol: surfaced and acted upon at most once per
+            // cooldown period, so a queue stuck on hung workers cannot drive
+            // an endless stream of background manager LLM turns.
+            if super::manager::patrol_note_due(
+                project.active_implementations.len(),
+                project.activity.pending.len(),
+                project.activity.last_update,
+                project.activity.last_patrol_note,
+                Instant::now(),
+            ) {
                 project.activity.pending.push("The worker is still running. No completion is confirmed; review the current task states and help the user with the next eligible planning decision without inventing progress.".into());
+                project.activity.last_patrol_note = Some(Instant::now());
             }
-            if project.active_turn.is_none()
-                && project.activity.manager.is_none()
-                && !project.activity.pending.is_empty()
-                && project
-                    .activity
-                    .last_update
-                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(30))
-            {
+            if super::manager::patrol_manager_due(
+                project.active_turn.is_some(),
+                project.activity.manager.is_some(),
+                project.activity.pending.len(),
+                project.activity.last_update,
+                Instant::now(),
+            ) {
                 let events = std::mem::take(&mut project.activity.pending);
                 project.activity.manager = Some(super::manager::Manager::start(project, &events));
                 project.activity.last_update = Some(Instant::now());
@@ -630,6 +634,7 @@ impl PacketApp {
                             .entry(item_id.clone())
                             .or_default()
                             .update(update);
+                        project.activity.mark_ticket_dirty(&item_id);
                     }
                     Some(crate::core::investigation::Event::Done(result)) => {
                         finished = Some(result);
@@ -644,6 +649,7 @@ impl PacketApp {
                     progress.telemetry.finished_ms = Some(chrono::Utc::now().timestamp_millis());
                 }
                 project.save_task_activity(&item_id);
+                project.activity.dirty_tickets.remove(&item_id);
                 match result {
                     Ok((state, message)) => {
                         project.state = state;
@@ -717,6 +723,7 @@ impl PacketApp {
                 .entry(item_id.clone())
                 .or_default()
                 .activity = Some("Investigating repository evidence…".into());
+            project.activity.mark_ticket_dirty(&item_id);
             project.investigation = Some(crate::core::investigation::Controller::start(
                 project.state.clone(),
                 item_id,
@@ -1541,6 +1548,7 @@ impl Surface for PacketApp {
                 started_ms: Some(chrono::Utc::now().timestamp_millis()),
                 ..Default::default()
             };
+            p.activity.mark_ticket_dirty(&ticket);
             p.active_implementations.insert(
                 ticket.clone(),
                 crate::core::implementation::Controller::start_project(

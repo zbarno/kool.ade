@@ -1,14 +1,26 @@
 //! Independent project-manager updates; task workers never write into main chat.
 use crate::harness::{AiHarness, LiveProgress, PiHarness, PlanningRequest};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
+
+/// Cap on the SYNTHETIC stalled-worker note. A stuck queue previously fed
+/// itself: silence note -> manager turn -> re-arm ~2.5 min later -> endless
+/// LLM billing. Genuine milestone events (assignments, completions) still
+/// surface the manager on their own terms; only the manufactured
+/// "still running" note is subject to this cap.
+pub const PATROL_COOLDOWN: Duration = Duration::from_secs(30 * 60);
+/// Worker silence tolerated before a stalled-worker note is surfaced.
+const PATROL_NOTE_AFTER: Duration = Duration::from_secs(120);
+/// Minimum spacing between automatic manager patrols, measured from the
+/// previous patrol start (the watchdog's legacy pacing contract).
+const PATROL_MANAGER_AFTER: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub struct WorkspaceActivity {
@@ -19,6 +31,48 @@ pub struct WorkspaceActivity {
     pub pending: Vec<String>,
     pub last_update: Option<Instant>,
     pub last_save: Option<Instant>,
+    /// Tickets whose persisted activity may be stale (dirty-tracking gate
+    /// for the periodic `activity.json` rewrite).
+    pub dirty_tickets: HashSet<String>,
+    /// When the last synthetic stalled-worker patrol note was surfaced
+    /// (subject to [`PATROL_COOLDOWN`]).
+    pub last_patrol_note: Option<Instant>,
+}
+
+/// Pure gate: should a "worker still running" patrol note be surfaced?
+/// Clock is injected so tests stay wall-clock-free (house convention).
+pub fn patrol_note_due(
+    live_worker_count: usize,
+    pending_count: usize,
+    last_update: Option<Instant>,
+    last_note: Option<Instant>,
+    now: Instant,
+) -> bool {
+    live_worker_count > 0
+        && pending_count == 0
+        && last_update.is_none_or(|then| stale_by(then, now, PATROL_NOTE_AFTER))
+        && last_note.is_none_or(|then| stale_by(then, now, PATROL_COOLDOWN))
+}
+
+/// Pure gate: should an automatic manager patrol start? Driven exclusively
+/// by unconsumed pending events (real milestones, or the cooldown-capped
+/// synthetic stall note) plus patrol spacing — never by worker silence
+/// alone. See [`patrol_note_due`] for where `last_update` originates.
+pub fn patrol_manager_due(
+    has_active_turn: bool,
+    manager_running: bool,
+    pending_count: usize,
+    last_update: Option<Instant>,
+    now: Instant,
+) -> bool {
+    !has_active_turn
+        && !manager_running
+        && pending_count > 0
+        && last_update.is_none_or(|then| stale_by(then, now, PATROL_MANAGER_AFTER))
+}
+
+fn stale_by(then: Instant, now: Instant, by: Duration) -> bool {
+    now.checked_duration_since(then).is_some_and(|age| age >= by)
 }
 
 impl WorkspaceActivity {
@@ -35,6 +89,20 @@ impl WorkspaceActivity {
         let mut progress = LiveProgress::default();
         progress.telemetry.samples = buckets.into_iter().collect();
         self.overall = Some(progress);
+    }
+
+    /// Mark one ticket's persisted activity as potentially stale; the
+    /// periodic flush then rewrites only these tickets (instead of
+    /// every active ticket every 2 s whether changed or not).
+    pub fn mark_ticket_dirty(&mut self, ticket: &str) {
+        self.dirty_tickets.insert(ticket.to_owned());
+    }
+
+    /// Take out every dirty ticket for the periodic flush.
+    pub fn take_dirty_tickets(&mut self) -> Vec<String> {
+        let mut out: Vec<String> = std::mem::take(&mut self.dirty_tickets).into_iter().collect();
+        out.sort();
+        out
     }
 }
 
@@ -123,5 +191,100 @@ impl Manager {
 impl Drop for Manager {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `base` minus `ago` seconds.
+    fn ago(base: Instant, ago: u64) -> Instant {
+        base - Duration::from_secs(ago)
+    }
+
+    #[test]
+    fn patrol_note_gate_requires_silence_respects_cooldown() {
+        let now = Instant::now();
+        // No live work -> never.
+        assert!(!patrol_note_due(0, 0, None, None, now));
+        // Silent-with-history and live work -> due.
+        assert!(patrol_note_due(1, 0, None, None, now));
+        // An unsurfaced pending event suppresses a duplicate note.
+        assert!(!patrol_note_due(1, 1, None, None, now));
+        // Fresh patrol start (last_update is the patrol-spacing clock) -> wait.
+        assert!(!patrol_note_due(1, 0, Some(ago(now, 60)), None, now));
+        assert!(patrol_note_due(1, 0, Some(ago(now, 121)), None, now));
+        // Cooldown after a surfaced note (anti self-fed-loop cap).
+        assert!(!patrol_note_due(1, 0, Some(ago(now, 3_600)), Some(ago(now, 60)), now));
+        assert!(patrol_note_due(
+            1,
+            0,
+            Some(ago(now, 3_600)),
+            Some(ago(now, 1_801)),
+            now
+        ));
+    }
+
+    #[test]
+    fn patrol_manager_gate_tracks_legacy_spacing_contract() {
+        let now = Instant::now();
+        // Busy slots block the auto start.
+        assert!(!patrol_manager_due(true, false, 1, None, now));
+        assert!(!patrol_manager_due(false, true, 1, None, now));
+        // Nothing pending -> nothing to review.
+        assert!(!patrol_manager_due(false, false, 0, None, now));
+        // Pending with never-patrolled history -> immediately due (legacy).
+        assert!(patrol_manager_due(false, false, 1, None, now));
+        // Within 30 s of the previous patrol start -> spacing holds.
+        assert!(!patrol_manager_due(false, false, 1, Some(ago(now, 20)), now));
+        assert!(patrol_manager_due(false, false, 1, Some(ago(now, 31)), now));
+        // Many queued events do not change pacing.
+        assert!(patrol_manager_due(false, false, 9, Some(ago(now, 31)), now));
+    }
+
+    #[test]
+    fn patrol_cascade_note_feeds_manager_same_tick_then_spaces_out() {
+        let now = Instant::now();
+        // Silently stuck queue: the SYNTHETIC note gate opens...
+        assert!(patrol_note_due(2, 0, Some(ago(now, 600)), None, now));
+        // ...and the event it surfaces satisfies the manager gate the same
+        // tick (pending 0 -> 1), assuming a prior patrol spaced > 30 s back.
+        assert!(patrol_manager_due(false, false, 1, Some(ago(now, 31)), now));
+        // Patrol start stamps last_update (the only writer): the next
+        // manager round must respect the 30 s spacing...
+        assert!(!patrol_manager_due(false, false, 1, Some(now), now));
+        assert!(patrol_manager_due(false, false, 1, Some(ago(now, 31)), now));
+        // ...and the next SYNTHETIC note respects the 30 min cap even while
+        // the queue stays stuck and pending keeps accumulating.
+        assert!(!patrol_note_due(
+            2,
+            0,
+            Some(ago(now, 10_000)),
+            Some(ago(now, 1_000)),
+            now
+        ));
+        assert!(patrol_note_due(
+            2,
+            0,
+            Some(ago(now, 10_000)),
+            Some(ago(now, 1_801)),
+            now
+        ));
+    }
+
+    #[test]
+    fn dirty_ticket_tracking_collects_once_per_flush() {
+        let mut activity = WorkspaceActivity::default();
+        assert_eq!(activity.take_dirty_tickets(), Vec::<String>::new());
+        activity.mark_ticket_dirty("001-a");
+        activity.mark_ticket_dirty("002-b");
+        activity.mark_ticket_dirty("001-a");
+        let flushed = activity.take_dirty_tickets();
+        assert_eq!(flushed, vec!["001-a", "002-b"]);
+        // Flushed set empties; later dirtiness survives independently.
+        assert_eq!(activity.take_dirty_tickets(), Vec::<String>::new());
+        activity.mark_ticket_dirty("003-c");
+        assert_eq!(activity.take_dirty_tickets(), vec!["003-c"]);
     }
 }

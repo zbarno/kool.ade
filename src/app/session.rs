@@ -111,8 +111,24 @@ impl Project {
             if let Err(error) =
                 crate::core::implementation::save_activity(&self.state.repo_root, ticket, activity)
             {
-                self.activity.tasks.get_mut(ticket).unwrap().activity =
-                    Some(format!("Activity could not be saved: {error}"));
+                // Record the failure beside (not over) the last real status
+                // so a terminal snapshot does not reduce to infra noise.
+                const MARK: &str = "Activity could not be saved: ";
+                let previous = self
+                    .activity
+                    .tasks
+                    .get(ticket)
+                    .and_then(|progress| progress.activity.clone())
+                    .unwrap_or_default();
+                // Keep exactly ONE annotation slot: collapse any earlier
+                // failure note so repeated faults cannot stack diagnostics.
+                let head = previous.split(MARK).next().unwrap_or("").trim_end_matches('\n');
+                let rendered = if head.is_empty() {
+                    format!("{MARK}{error}")
+                } else {
+                    format!("{head}\n{MARK}{error}")
+                };
+                self.activity.tasks.get_mut(ticket).unwrap().activity = Some(rendered);
             }
         }
     }
