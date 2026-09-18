@@ -145,6 +145,13 @@ checking the saved commit against the remote history. Clean connected checkouts
 on the default branch are fast-forwarded; dirty or divergent checkouts remain
 untouched. Uncommitted drafts are never copied into task worktrees.
 
+Completed tasks tidy themselves up: once publication is confirmed, or a task's
+PR polls as merged, Packet removes that task's worktree and its integration
+worktree, deletes their directories, and drops the Packet-created task or
+integration branch where Git confirms it merged — a final step of the
+workflow. No manual worktree cleanup job is needed. In-flight, unpublished, or
+failed work keeps its worktree and diagnosis for resume.
+
 Disable **Auto mode** to stop launching queued tasks and use
 pull requests for future implementations. PR mode starts from the connected
 branch using the latest compatible remote commit, pushes a task branch, and

@@ -1150,3 +1150,16 @@ PR status is refreshed every minute while connected, including previous batches;
 OPEN, CLOSED, and MERGED map to review, attention, and completion. Errors preserve
 the last confirmed state. Merged and automatically published tasks cannot start a
 duplicate implementation. Status polling never rewrites tracked task documents.
+
+Completion closes the resource loop: when a task reaches its terminal done
+state — confirmed auto-publication, or a polled PR merge mapped to completion,
+the workflow performs a final cleanup step for that task only. Packet removes
+the task's worktree and its integration worktree, deletes their directories,
+and prunes stale worktree registrations. Local branches Packet created for the
+task or its publication are deleted only where Git confirms them merged. Tasks
+that are in flight, awaiting merge, in review, needs attention, paused, or
+terminal-failed keep their worktree and diagnosis, and cleanup never touches
+foreign checkouts, unconfirmed history, or any worktree that is dirty or
+divergent. A failed cleanup is logged as a diagnostic and leaves the worktree
+in place; it never reverses a confirmed publication or blocks queue
+advancement. No separate periodic cleanup job is required.

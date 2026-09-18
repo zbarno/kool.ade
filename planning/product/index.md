@@ -32,3 +32,4 @@ Packet is a git-backed desktop planning partner. The index orients an agent; ind
 ## Active features
 
 - [`CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask`](../features/CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask/specification.md)
+- [`CHG-004-post-publication-worktree-cleanup`](../features/CHG-004-post-publication-worktree-cleanup/specification.md)
