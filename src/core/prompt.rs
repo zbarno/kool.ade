@@ -80,6 +80,22 @@ product:05-functional-requirements or feature:CHG-001, never paths. Each content
 FULL changed document, not a patch. Do not return unchanged modules. The application
 validates every field and rejects the entire turn on invalid changes. Write nothing after
 the closing JSON fence.
+
+REPLY-TAIL DIGEST (display convention, not a machine contract)
+When your reply awaits the user's input — a decision or an answer — end the \
+assistant_message prose with an unlabeled digest: one line containing only ---, \
+then one to five short bullet lines, each beginning with '- ' and standing on its \
+own line. Bullet order is fixed: first the single thing you need from the user, \
+second your recommendation when you have one, then a pointer to the open item, \
+document or board card it concerns. Omit the recommendation or pointer lines when \
+they add nothing; never pad to reach five. When the decision is a choice among \
+distinct options (typically two to six), give every option its own bullet labeled \
+'Option 1', 'Option 2', ... so each option can be read and repeated on its own; for \
+a plain yes-or-no the option bullets may begin 'Yes — ' or 'No — '. Plain freeform \
+replies remain always valid: never invent a question, and never use the digest when \
+nothing is awaited — a closeout that asks for nothing (such as 'No reply needed.') \
+carries no digest. Keep each bullet to a single short line; the digest helps the \
+operator skim, nothing more.
 ";
 
 /// Render the complete per-turn prompt from the assembled context.
@@ -273,6 +289,59 @@ mod tests {
         ] {
             assert!(p.contains(needle), "missing {needle}");
         }
+    }
+
+    /// CHG-003: every turn's standing instructions carry the unlabeled
+    /// reply-tail digest emission contract. Each positive needle lies inside
+    /// ONE physical source line of the constant (continuation backslashes
+    /// glue wrap lines with no separator), so a careless re-wrap breaks the
+    /// pin by design.
+    #[test]
+    fn system_instructions_carry_the_unlabeled_digest_contract() {
+        for needle in [
+            // Heading; uppercased on purpose to avoid the pre-existing
+            // lowercase lane-digest wording in this file, and split into
+            // two adjacent literals so the heading keeps its exactly-once
+            // occurrence in this source file (the const line itself).
+            concat!("REPLY-TAIL ", "DIGEST (display convention"),
+            "awaits the user's input",
+            "one line containing only ---,",
+            "one to five short bullet lines,",
+            "each beginning with '- '",
+            "'Option 1', 'Option 2',",
+            "remain always valid",
+            "carries no digest.",
+        ] {
+            assert!(
+                SYSTEM_INSTRUCTIONS.contains(needle),
+                "instructions missing: {needle:?}"
+            );
+        }
+        // The RESPONSE CONTRACT closing survives, and its sentinel line
+        // occurs exactly once: the digest paragraph is APPENDED after it,
+        // never interleaved or reordering the const.
+        assert!(
+            SYSTEM_INSTRUCTIONS.contains("Write nothing after"),
+            "RESPONSE CONTRACT closing lost"
+        );
+        assert_eq!(
+            SYSTEM_INSTRUCTIONS.matches("the closing JSON fence.").count(),
+            1,
+            "'the closing JSON fence.' must occur exactly once"
+        );
+        // Const-tail integrity: the digest paragraph is the LAST section of
+        // the standing instructions and still ends with its final newline.
+        assert!(
+            SYSTEM_INSTRUCTIONS
+                .ends_with("the digest helps the operator skim, nothing more.\n"),
+            "digest paragraph must end the standing instructions"
+        );
+        // The retired task-mode line grammar never entered the standing
+        // instructions; only the new unlabeled digest is taught here.
+        assert!(
+            !SYSTEM_INSTRUCTIONS.contains("Your next step"),
+            "legacy emission order leaked into the standing instructions"
+        );
     }
 
     /// Golden: the standing instructions carry ALL FOUR D-14 rules, the
