@@ -12,6 +12,20 @@ pub const TEXT: Color32 = Color32::from_rgb(236, 234, 230);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(157, 157, 153);
 pub const ACCENT: Color32 = Color32::from_rgb(218, 223, 212);
 pub const ACCENT_SOFT: Color32 = Color32::from_rgb(66, 74, 64);
+/// At-a-glance digest backdrop (CHG-003, story 4): a deep muted sage
+/// strictly between BG (32,32,32) and the card's answer-needed
+/// ACCENT_SOFT (66,74,64). It tones into the answer-needed family — the
+/// card frame already signals "awaiting input" with ACCENT_SOFT — without
+/// claiming it, so the lifted tail block reads as a quiet echo of that cue
+/// on every chat surface.
+pub const DIGEST_BG: Color32 = Color32::from_rgb(48, 55, 47);
+/// Reserved for CHG-003's option-chip row, which lands in story 5: the chip
+/// fill. Held here (exported and dead-warning-free via the lib surface)
+/// so the chips ship theme-consistent without re-reviewing the palette.
+pub const CHIP_FILL: Color32 = Color32::from_rgb(58, 66, 55);
+/// Reserved for CHG-003's option-chip row, which lands in story 5: the chip
+/// border. Held here; unused until that story ships.
+pub const CHIP_BORDER: Color32 = Color32::from_rgb(96, 110, 92);
 pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
 pub const WARNING: Color32 = Color32::from_rgb(255, 180, 84);
 pub const SUCCESS: Color32 = Color32::from_rgb(107, 212, 144);
@@ -273,5 +287,33 @@ mod tests {
         let (a, b) = crate::domain::Priority::High.badge_colors();
         let (c, d) = crate::domain::ItemKind::Question.badge_colors();
         let _ = (a, b, c, d);
+    }
+
+    /// CHG-003 story 4: the digest backdrop and the reserved chip tints hold
+    /// their recorded literals, and the backdrop ranks between BG (lowest) and
+    /// the card's answer-needed frame ACCENT_SOFT (highest) on every channel
+    /// while differing from both — it echoes the answer-needed cue without
+    /// blurring into either neighbor.
+    #[test]
+    fn digest_backdrop_and_reserved_chip_tints_hold_recorded_positions() {
+        assert_eq!(DIGEST_BG, Color32::from_rgb(48, 55, 47));
+        assert_eq!(CHIP_FILL, Color32::from_rgb(58, 66, 55));
+        assert_eq!(CHIP_BORDER, Color32::from_rgb(96, 110, 92));
+        for (a, b) in [
+            (BG.r(), DIGEST_BG.r()),
+            (BG.g(), DIGEST_BG.g()),
+            (BG.b(), DIGEST_BG.b()),
+        ] {
+            assert!(a <= b, "DIGEST_BG must sit at or above BG");
+        }
+        for (mid, hi) in [
+            (DIGEST_BG.r(), ACCENT_SOFT.r()),
+            (DIGEST_BG.g(), ACCENT_SOFT.g()),
+            (DIGEST_BG.b(), ACCENT_SOFT.b()),
+        ] {
+            assert!(mid <= hi, "DIGEST_BG must sit at or below ACCENT_SOFT");
+        }
+        assert_ne!(DIGEST_BG, BG);
+        assert_ne!(DIGEST_BG, ACCENT_SOFT);
     }
 }

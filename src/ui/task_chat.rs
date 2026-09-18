@@ -52,12 +52,20 @@ pub(crate) fn board_column(base: usize, messages: &[ChatMessage], active: bool) 
     base
 }
 
-fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage]) {
+/// `follow_tail` mirrors the card's streaming state: while a reply streams,
+/// the view chases the newest message (historical behaviour); once idle,
+/// the history reads top-down so disclored earlier messages are never
+/// stranded above the sticky bottom by taller content such as a lifted
+/// digest block.
+fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage], follow_tail: bool) {
     egui::ScrollArea::vertical()
         .max_height(260.0)
-        .stick_to_bottom(true)
+        .stick_to_bottom(follow_tail)
         .show(ui, |ui| {
-            for message in messages {
+            // Same one-lift-per-transcript rule as the main pane: the
+            // freshest agent reply still owed an answer.
+            let lift_at = crate::ui::reply_tail::open_ask_index(messages);
+            for (index, message) in messages.iter().enumerate() {
                 let who = match message.role {
                     ChatRole::User => "You",
                     ChatRole::Agent => "Packet",
@@ -80,7 +88,24 @@ fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage]) {
                             // Agent prose renders as structured dark-theme
                             // Markdown; user and System lines keep today's
                             // plain label regime.
-                            crate::ui::markdown::paint(ui, readable.as_ref(), crate::ui::markdown::CHAT);
+                            if Some(index) == lift_at {
+                                // Lifted reply: the tail leaves the body and
+                                // floats as its own distinct block below.
+                                let tail =
+                                    crate::ui::reply_tail::parse_reply_tail(readable.as_ref());
+                                crate::ui::markdown::paint(
+                                    ui,
+                                    &tail.body,
+                                    crate::ui::markdown::CHAT,
+                                );
+                                crate::ui::reply_tail::paint_open_ask(ui, &tail);
+                            } else {
+                                crate::ui::markdown::paint(
+                                    ui,
+                                    readable.as_ref(),
+                                    crate::ui::markdown::CHAT,
+                                );
+                            }
                         } else {
                             ui.label(readable.as_ref());
                         }
@@ -431,7 +456,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
         }
         if expanded && !messages.is_empty() {
             ui.collapsing(format!("Conversation history ({})", messages.len()), |ui| {
-                transcript(ui, &messages)
+                transcript(ui, &messages, active)
             });
         } else if !expanded && !review {
             ui.horizontal_wrapped(|ui| {
@@ -462,7 +487,7 @@ mod tests {
         let ctx = egui::Context::default();
         ctx.set_visuals(theme::packet_visuals());
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            egui::CentralPanel::default().show(ui, |ui| transcript(ui, &messages));
+            egui::CentralPanel::default().show(ui, |ui| transcript(ui, &messages, false));
         });
         let texts: Vec<String> = output
             .shapes
@@ -575,5 +600,108 @@ mod tests {
         assert_eq!(reply.next.as_deref(), Some(tail.bullets[0].as_str()));
         assert_eq!(reply.next.as_deref(), Some("Enable SSO for all guests?"));
         assert!(!reply.no_reply);
+    }
+
+    /// Transcript lift (test plan 4b): a legacy 'Your next step:' final reply
+    /// floats its question verbatim and strongly inside the card transcript,
+    /// leaves no marker in any galley, and retires the moment a user answer
+    /// lands.
+    #[test]
+    fn transcript_lifts_legacy_asks_verbatim_and_retires_them_on_answer() {
+        const LEGACY: &str = "SSO is recorded.\nYour next step: Should guests use SSO too?";
+        const QUESTION: &str = "Should guests use SSO too?";
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+
+        fn backdrops(output: &egui::FullOutput) -> usize {
+            output
+                .shapes
+                .iter()
+                .filter(|clipped| match &clipped.shape {
+                    egui::Shape::Rect(rect) => rect.fill == theme::DIGEST_BG,
+                    _ => false,
+                })
+                .count()
+        }
+        fn texts_of(output: &egui::FullOutput) -> Vec<String> {
+            output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(shape) => Some((*shape.galley).text().to_owned()),
+                    _ => None,
+                })
+                .collect()
+        }
+        fn strong_spot(output: &egui::FullOutput, needle: &str) -> Option<bool> {
+            output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(shape) => Some(&*shape.galley),
+                    _ => None,
+                })
+                .find(|g| g.text() == needle)
+                .map(|g| {
+                    let section = g
+                        .job
+                        .sections
+                        .iter()
+                        .find(|s| s.byte_range.end.0 > s.byte_range.start.0)
+                        .expect("non-empty section");
+                    section.format.extra_letter_spacing.abs() > 1e-9
+                })
+        }
+
+        let user = ChatMessage::new(ChatRole::User, "Set up SSO.", None);
+        let agent = ChatMessage::new(ChatRole::Agent, LEGACY, None);
+
+        // Open: the question floats verbatim, unlabeled and strong.
+        let open_log = vec![user.clone(), agent.clone()];
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| transcript(ui, &open_log, false));
+        });
+        assert_eq!(
+            backdrops(&output),
+            1,
+            "legacy ask must float in the transcript"
+        );
+        let texts = texts_of(&output);
+        assert_eq!(
+            texts.iter().filter(|t| *t == QUESTION).count(),
+            1,
+            "question lifts verbatim exactly once: {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains("Your next step:")),
+            "marker leaked: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("SSO is recorded.")),
+            "transcript body must still render: {texts:?}"
+        );
+        assert!(
+            strong_spot(&output, QUESTION).unwrap_or(false),
+            "lifted row prints strongly"
+        );
+        output.textures_delta.clear();
+
+        // Answered: the lift disappears entirely.
+        let answered_log = vec![
+            user,
+            agent,
+            ChatMessage::new(ChatRole::User, "Yes, guests included.", None),
+        ];
+        let mut after = ctx.run_ui(egui::RawInput::default(), |ui| {
+            egui::CentralPanel::default().show(ui, |ui| transcript(ui, &answered_log, false));
+        });
+        assert_eq!(backdrops(&after), 0, "a user answer must retire the lift");
+        let after_texts = texts_of(&after);
+        assert_eq!(
+            after_texts.iter().filter(|t| *t == QUESTION).count(),
+            0,
+            "no lifted row may survive the answer: {after_texts:?}"
+        );
+        after.textures_delta.clear();
     }
 }

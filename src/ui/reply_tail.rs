@@ -1,8 +1,10 @@
 //! Shared reply-tail classifier. Operates on PRE-ENVELOPE reply prose only
 //! (what `message_text::readable` hands out) and NEVER rewrites message
 //! text: `ReplyTail::body` is a trimmed view of the supplied input and the
-//! lifted ask/bullets are verbatim fragments of it. Painting is the
-//! caller's concern; this module only decides the shape.
+//! lifted ask/bullets are verbatim fragments of it. This module also hosts
+//! the shared tail-block painter (`paint_open_ask`) and the per-pane
+//! selector (`open_ask_index`) deciding which stored agent message still
+//! owes the operator an answer.
 //!
 //! Classification order is fixed and legacy-first:
 //! `Your next step:` marker → `No reply needed.` closeout → the new
@@ -10,6 +12,9 @@
 //! degrades to the fallback/plain paths; a non-conforming tail is never
 //! partially lifted. The classifier is pure and linear over the input, so
 //! in-progress streaming prefixes classify deterministically.
+use crate::domain::chatlog::{ChatMessage, ChatRole};
+use crate::ui::theme;
+
 
 /// The shape detected at the end of a reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -27,6 +32,14 @@ pub enum TailKind {
     /// No recognisable tail marker.
     #[default]
     Plain,
+}
+
+impl TailKind {
+    /// Whether the tail awaits something from the operator. `NoReply` and
+    /// `Plain` never do.
+    pub const fn asks_input(self) -> bool {
+        matches!(self, Self::Digest | Self::NextStep | Self::FinalQuestion)
+    }
 }
 
 /// The classified reply tail with its lifted payloads extracted.
@@ -101,6 +114,101 @@ pub fn parse_reply_tail(prose: &str) -> ReplyTail {
         body: body.to_string(),
         ..Default::default()
     }
+}
+
+/// The index of the last stored agent reply whose outstanding ask is still
+/// open, or `None` when no reply is owed to the operator.
+///
+/// Rules, locked by the in-file selector table:
+///   * walk from the END (`rposition`) for the last `ChatRole::Agent` message;
+///   * ANY `ChatRole::User` message after it answers the ask, retiring the
+///     lift (a user answer stays an answer);
+///   * a `ChatRole::System` notice after it does NOT clear the lift — a
+///     proactive notice leaves the ask genuinely outstanding;
+///   * the candidate tail must itself classify as input-seeking via
+///     [`TailKind::asks_input`], so `No reply needed.` closes settle quietly.
+///
+/// Pure and stateless, allocating only for the single candidate message;
+/// callers evaluate it once per frame per pane, mirroring how the card's
+/// `split_reply` is recomputed today.
+pub fn open_ask_index(messages: &[ChatMessage]) -> Option<usize> {
+    let index = messages.iter().rposition(|m| m.role == ChatRole::Agent)?;
+    if messages[index + 1..]
+        .iter()
+        .any(|m| m.role == ChatRole::User)
+    {
+        return None;
+    }
+    let candidate = &messages[index];
+    let tail = parse_reply_tail(&crate::ui::message_text::readable(candidate));
+    tail.kind.asks_input().then_some(index)
+}
+
+/// Digit glyph size / line height of one digest row.
+const ROW_SIZE: f32 = 13.0;
+const ROW_LINE_HEIGHT: f32 = 20.0;
+
+/// Paints the at-a-glance digest block directly under a reply body: a 1 px
+/// [`theme::BORDER`] hairline, a small breather, and a rounded
+/// [`theme::DIGEST_BG`] backdrop holding at most [`MAX_DIGEST_BULLETS`
+/// bullet rows — the classified bullets when present, otherwise the single
+/// lifted ask (covering `NextStep` / `FinalQuestion`). Rows are UNLABELED:
+/// the first row is simply printed stronger so the ask leads without any
+/// label word. Full row text wraps at the constrained width with no
+/// ellipsis; the detector's five-row bound caps the height.
+///
+/// Kinds that do not ask for input (`NoReply`, `Plain`) return without
+/// painting anything, so the caller gets a stable zero-chrome guarantee.
+pub fn paint_open_ask(ui: &mut egui::Ui, tail: &ReplyTail) {
+    if !tail.kind.asks_input() {
+        return;
+    }
+    // (1) Hairline rule spanning the message column.
+    let origin = ui.cursor().min;
+    ui.painter().line_segment(
+        [origin, origin + egui::vec2(ui.available_width(), 0.0)],
+        egui::Stroke::new(1.0, theme::BORDER),
+    );
+    // (2) Breathing room between the rule and the backdrop.
+    ui.add_space(4.0);
+    // (3) The backdrop frame owning every row.
+    let rows: Box<[&str]> = if !tail.bullets.is_empty() {
+        tail.bullets.iter().map(String::as_str).collect()
+    } else {
+        match tail.ask.as_deref() {
+            Some(row) => vec![row].into_boxed_slice(),
+            // Defensive only: every input-seeking kind carries an ask.
+            None => return,
+        }
+    };
+    egui::Frame::NONE
+        .fill(theme::DIGEST_BG)
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(10, 7))
+        .show(ui, |ui| {
+            for (leading, row) in rows.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Label::new(
+                        egui::RichText::new('\u{2022}')
+                            .size(ROW_SIZE)
+                            .color(theme::TEXT_DIM),
+                    ));
+                    ui.add_space(6.0);
+                    let mut text = egui::RichText::new(*row)
+                        .size(ROW_SIZE)
+                        .line_height(Some(ROW_LINE_HEIGHT))
+                        .color(theme::TEXT);
+                    if leading == 0 {
+                        // Unlabeled lead: the first row IS the ask and its
+                        // stronger format says so. `.strong()` plus the
+                        // 0.01×size tracking that the in-tree Markdown fold
+                        // already uses to express bold in a galley.
+                        text = text.strong().extra_letter_spacing(0.01 * ROW_SIZE);
+                    }
+                    ui.add(egui::Label::new(text).wrap());
+                });
+            }
+        });
 }
 
 /// The Digest classification, or `None` when the tail does not fit the
@@ -405,5 +513,96 @@ mod tests {
         assert_eq!(parse_reply_tail(&five_block), dg("Deck.", &five_view));
         let six_block = format!("Deck.\n---\n{}", six.iter().map(|b| format!("- {b}")).collect::<Vec<_>>().join("\n"));
         assert_eq!(parse_reply_tail(&six_block), pl(six_block.as_str()));
+    }
+
+    /// `asks_input` partitions the five kinds exactly: the three input-seeking
+    /// shapes ask, the two settled shapes do not.
+    #[test]
+    fn asks_input_partitions_the_kinds() {
+        assert!(TailKind::Digest.asks_input());
+        assert!(TailKind::NextStep.asks_input());
+        assert!(TailKind::FinalQuestion.asks_input());
+        assert!(!TailKind::NoReply.asks_input());
+        assert!(!TailKind::Plain.asks_input());
+    }
+
+    /// Selector contract, vector-locked: last agent wins, a USER message after
+    /// it clears the lift, a SYSTEM notice after it preserves it, and the
+    /// candidate tail itself must still seek input.
+    #[test]
+    fn open_ask_selector_locks_last_agent_and_user_clears_system_preserves() {
+        const DIGEST: &str = "Draft ready.\n\n---\n- Which vendor shall we bind?\n- Recommended: Aurora, effective Monday.\n- Pointer: CLR-021 impact notes.";
+        const PLAIN: &str = "Quiet workday, nothing blocked.";
+        const NEXT_STEP: &str = "SSO is recorded.\nYour next step: Should guests use SSO too?";
+        const FINAL_Q: &str = "Patch landed.\nDeploy tonight?";
+        const NO_REPLY: &str = "SSO and MFA are confirmed.\nNo reply needed.";
+        let u = |text: &str| ChatMessage::new(ChatRole::User, text, None);
+        let a = |text: &str| ChatMessage::new(ChatRole::Agent, text, None);
+        let s = |text: &str| ChatMessage::new(ChatRole::System, text, None);
+
+        let vectors: Vec<(Vec<ChatMessage>, Option<usize>)> = vec![
+            (vec![], None),                                // empty log
+            (vec![u("Bind the vendor please.")], None),    // user only
+            (vec![a(PLAIN)], None),                        // agent plain
+            (vec![a(DIGEST)], Some(0)),                    // agent valid digest
+            (vec![a(DIGEST), u("Go with Aurora.")], None), // digest then user: answered
+            (
+                vec![a(DIGEST), s("Update: ledger synced.")], // digest then System notice: still open
+                Some(0),
+            ),
+            (
+                // older open digest, final agent plain
+                vec![u("one"), a(NEXT_STEP), u("two"), a(PLAIN)],
+                None,
+            ),
+            (
+                // digest then digest: LAST agent wins
+                vec![a(NEXT_STEP), a(DIGEST)],
+                Some(1),
+            ),
+            (vec![a(FINAL_Q)], Some(0)), // FinalQuestion-final log
+            (vec![a(NO_REPLY)], None),   // NoReply-final log
+            // Settled tail buried, reopened by a fresher seeking agent.
+            (vec![a(NO_REPLY), a(FINAL_Q)], Some(1)),
+            // A user answer after ANY settling noise still clears.
+            (vec![a(DIGEST), s("Update."), u("Go.")], None),
+        ];
+        for (messages, expected) in vectors {
+            assert_eq!(
+                open_ask_index(&messages),
+                expected,
+                "selector drifted for {messages:?}"
+            );
+        }
+    }
+
+    /// Exclusion contract: kinds that do not seek input paint ZERO tail
+    /// chrome — no backdrop fill, no BORDER hairline of any thickness.
+    #[test]
+    fn paint_open_ask_paints_zero_chrome_when_the_tail_does_not_seek_input() {
+        for prose in [
+            "All green, nothing blocked.",                  // Plain
+            "SSO and MFA are confirmed.\nNo reply needed.", // NoReply
+        ] {
+            let tail = parse_reply_tail(prose);
+            let ctx = egui::Context::default();
+            ctx.set_visuals(theme::packet_visuals());
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| paint_open_ask(ui, &tail));
+            });
+            let backdrops = output
+                .shapes
+                .iter()
+                .filter(|clipped| matches!(&clipped.shape, egui::Shape::Rect(r) if r.fill == theme::DIGEST_BG))
+                .count();
+            let hairlines = output
+                .shapes
+                .iter()
+                .filter(|clipped| matches!(&clipped.shape, egui::Shape::LineSegment { stroke, .. } if stroke.color == theme::BORDER))
+                .count();
+            assert_eq!(backdrops, 0, "no backdrop for {prose:?}");
+            assert_eq!(hairlines, 0, "no hairline for {prose:?}");
+            output.textures_delta.clear();
+        }
     }
 }

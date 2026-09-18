@@ -82,8 +82,11 @@ fn paint_with_hint(
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 let max_w = ui.available_width();
-                for m in messages {
-                    paint_message(ui, m, max_w);
+                // One lift per pane at most: the freshest stored agent reply
+                // still owed an answer (a later user message retires it).
+                let lift_at = crate::ui::reply_tail::open_ask_index(messages);
+                for (index, m) in messages.iter().enumerate() {
+                    paint_message(ui, m, max_w, Some(index) == lift_at);
                     ui.add_space(8.0);
                 }
                 if implementation_offer {
@@ -198,7 +201,7 @@ fn paint_with_hint(
     }
 }
 
-fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
+fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32, lift: bool) {
     let mine = m.role == ChatRole::User;
     let indent = if mine { 32.0 } else { 0.0 };
     ui.horizontal(|ui| {
@@ -236,7 +239,16 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32) {
                         // layout.rs and `readable` is idempotent on
                         // already-shielded prose, so the re-shield composes.
                         let shielded = crate::ui::message_text::readable(m);
-                        crate::ui::markdown::paint(ui, &shielded, crate::ui::markdown::CHAT);
+                        if lift {
+                            // Lifted reply: the tail leaves the body (it no
+                            // longer sits buried in the text) and paints as
+                            // its own distinct block directly underneath.
+                            let tail = crate::ui::reply_tail::parse_reply_tail(&shielded);
+                            crate::ui::markdown::paint(ui, &tail.body, crate::ui::markdown::CHAT);
+                            crate::ui::reply_tail::paint_open_ask(ui, &tail);
+                        } else {
+                            crate::ui::markdown::paint(ui, &shielded, crate::ui::markdown::CHAT);
+                        }
                     } else {
                         // User bubbles and System notices stay plain —
                         // only agent prose is Markdown-rendered.
@@ -652,5 +664,452 @@ mod tests {
             "fallback response must be marker-free: {texts:?}"
         );
         output.textures_delta.clear();
+    }
+
+    // ------------------------------------------------------------------
+    // CHG-003 story 4: the lifted at-a-glance digest block.
+    // ------------------------------------------------------------------
+
+    const DIGEST_FIXTURE: &str = "Draft ready.\n\n---\n\
+- Which vendor shall we bind?\n\
+- Recommended: Aurora, effective Monday.\n\
+- Pointer: CLR-021 impact notes.";
+    const DIGEST_ROWS: [&str; 3] = [
+        "Which vendor shall we bind?",
+        "Recommended: Aurora, effective Monday.",
+        "Pointer: CLR-021 impact notes.",
+    ];
+
+    /// Rectangles filled exactly [`theme::DIGEST_BG`] — the lifted backdrop.
+    fn digest_backdrops(output: &egui::FullOutput) -> usize {
+        output
+            .shapes
+            .iter()
+            .filter(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect) => rect.fill == theme::DIGEST_BG,
+                _ => false,
+            })
+            .count()
+    }
+
+    /// Line segments stroked in [`theme::BORDER`]: pane chrome (0 by design),
+    /// the Markdown `---` separator when the body keeps its rule, and the
+    /// one lift hairline.
+    fn border_lines(output: &egui::FullOutput) -> usize {
+        output
+            .shapes
+            .iter()
+            .filter(|clipped| match &clipped.shape {
+                egui::Shape::LineSegment { stroke, .. } => stroke.color == theme::BORDER,
+                _ => false,
+            })
+            .count()
+    }
+
+    /// Indices (walk order) of the galleys whose full text is `needle`.
+    fn galley_positions(output: &egui::FullOutput, needle: &str) -> Vec<usize> {
+        galleys(output)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, galley)| (galley.text() == needle).then_some(i))
+            .collect()
+    }
+
+    /// First non-empty section format of a galley.
+    fn lead_section_format(galley: &egui::Galley) -> egui::text::TextFormat {
+        galley
+            .job
+            .sections
+            .iter()
+            .find(|s| s.byte_range.end.0 > s.byte_range.start.0)
+            .map(|s| s.format.clone())
+            .expect("galley carries at least one non-empty section")
+    }
+
+    /// The main pane's own chrome, painted with inert empty messages: the
+    /// zero-point against which lift hairlines are counted.
+    fn main_chrome_border_lines() -> usize {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "", None),
+            ChatMessage::new(ChatRole::Agent, "", None),
+            ChatMessage::new(ChatRole::System, "", None),
+        ];
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        let count = border_lines(&output);
+        output.textures_delta.clear();
+        count
+    }
+
+    /// The same zero-point for the card-tab surface.
+    fn card_tab_chrome_border_lines() -> usize {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "", None),
+            ChatMessage::new(ChatRole::Agent, "", None),
+            ChatMessage::new(ChatRole::System, "", None),
+        ];
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint_task(ui, &messages, &mut draft, false);
+        });
+        let count = border_lines(&output);
+        output.textures_delta.clear();
+        count
+    }
+
+    /// BORDER lines the reply bodies themselves draw (Markdown `---`
+    /// separators). Mirrors the pane's own body choice per message: the
+    /// lifted reply paints `tail.body`, every other message paints its full
+    /// readable prose.
+    fn body_border_lines(messages: &[ChatMessage], lifted: Option<usize>) -> usize {
+        let mut total = 0;
+        for (i, m) in messages.iter().enumerate() {
+            if m.role != ChatRole::Agent {
+                continue;
+            }
+            let readable = crate::ui::message_text::readable(m);
+            let body = if Some(i) == lifted {
+                crate::ui::reply_tail::parse_reply_tail(&readable).body
+            } else {
+                readable.to_string()
+            };
+            let ctx = paint_ctx();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    crate::ui::markdown::paint(ui, &body, crate::ui::markdown::CHAT);
+                });
+            });
+            total += border_lines(&output);
+            output.textures_delta.clear();
+        }
+        total
+    }
+
+    /// Payload-order scan: every row of `rows` appears in exactly one galley,
+    /// and the rows ascend in walk order.
+    fn assert_rows_in_payload_order(output: &egui::FullOutput, rows: &[&str]) {
+        let mut previous = None;
+        for row in rows {
+            let spots = galley_positions(output, row);
+            assert_eq!(
+                spots.len(),
+                1,
+                "row {row:?} must appear exactly once: {spots:?}"
+            );
+            if let Some(prev) = previous {
+                assert!(prev < spots[0], "payload order broke before {row:?}");
+            }
+            previous = Some(spots[0]);
+        }
+    }
+
+    /// AC 1: a stored three-bullet digest floats its unlabeled block under
+    /// the Main Chat body — one DIGEST_BG backdrop, one lift hairline, the
+    /// three rows verbatim and ordered, lead row stronger, no markers or
+    /// labels anywhere.
+    #[test]
+    fn digest_reply_floats_an_unlabeled_lift_directly_under_the_main_chat_body() {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Bind the vendor please.", None),
+            ChatMessage::new(ChatRole::Agent, DIGEST_FIXTURE, None),
+        ];
+        assert_eq!(
+            crate::ui::reply_tail::open_ask_index(&messages),
+            Some(1),
+            "the digest reply must select as the open ask"
+        );
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        // (a) Exactly one lifted backdrop.
+        assert_eq!(
+            digest_backdrops(&output),
+            1,
+            "exactly one DIGEST_BG backdrop expected"
+        );
+        // (b) Hairline bookkeeping: pane chrome + body rules + the ONE lift
+        // rule. The lifted body no longer carries its '---', so the body
+        // reference contributes zero here.
+        let expected_lines = main_chrome_border_lines() + body_border_lines(&messages, Some(1)) + 1;
+        assert_eq!(
+            border_lines(&output),
+            expected_lines,
+            "lift must add exactly one BORDER hairline"
+        );
+        let texts = galley_texts(&output);
+        // The Markdown body renders only the pre-tail prose.
+        assert!(
+            texts.iter().any(|t| t == "Draft ready."),
+            "trimmed body must render: {texts:?}"
+        );
+        // (c) Every row floats exactly once, in payload order.
+        assert_rows_in_payload_order(&output, &DIGEST_ROWS);
+        // (d) The lead row carries a stronger TextFormat than the second.
+        let lead = galleys(&output)
+            .into_iter()
+            .find(|g| g.text() == DIGEST_ROWS[0])
+            .expect("lead row galley");
+        let second = galleys(&output)
+            .into_iter()
+            .find(|g| g.text() == DIGEST_ROWS[1])
+            .expect("second row galley");
+        let (lead_fmt, second_fmt) = (lead_section_format(lead), lead_section_format(second));
+        assert_ne!(lead_fmt, second_fmt, "lead row must be stronger");
+        assert!(
+            lead_fmt.extra_letter_spacing.abs() > 1e-9,
+            "lead row uses the tracked-bold convention (got {})",
+            lead_fmt.extra_letter_spacing
+        );
+        assert!(
+            second_fmt.extra_letter_spacing.abs() < f32::EPSILON,
+            "second row stays regular"
+        );
+        // (e) Purity: no rule glyphs, no bare list markers, no invented label
+        // words. (The rows are asserted byte-equal to the parsed payload
+        // above, which is the machine check that the painter printed nothing
+        // besides the ask/recommendation/pointer text itself.)
+        assert!(
+            !texts.iter().any(|t| t.contains("---")),
+            "rule glyphs leaked: {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.trim_start().starts_with("- ")),
+            "bare list markers leaked: {texts:?}"
+        );
+        assert!(
+            !texts
+                .iter()
+                .any(|t| t.starts_with("Ask:") || t.starts_with("Recommendation:")),
+            "the lift must stay unlabeled: {texts:?}"
+        );
+        output.textures_delta.clear();
+    }
+
+    /// AC 2: the instant a user answer follows the digest, zero backdrops and
+    /// no lift hairline — only the body-intrinsic rule of the still-printed
+    /// reply text may remain.
+    #[test]
+    fn a_user_answer_immediately_retires_the_lift() {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Bind the vendor please.", None),
+            ChatMessage::new(ChatRole::Agent, DIGEST_FIXTURE, None),
+            ChatMessage::new(ChatRole::User, "Go with Aurora.", None),
+        ];
+        assert_eq!(
+            crate::ui::reply_tail::open_ask_index(&messages),
+            None,
+            "an answered ask must deselect"
+        );
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        assert_eq!(
+            digest_backdrops(&output),
+            0,
+            "user answer must retire the backdrop"
+        );
+        let expected_lines = main_chrome_border_lines() + body_border_lines(&messages, None);
+        assert_eq!(
+            border_lines(&output),
+            expected_lines,
+            "no lift hairline may survive an answer (allowed: {})",
+            expected_lines
+        );
+        output.textures_delta.clear();
+    }
+
+    /// AC 3: the legacy 'Your next step:' reply lifts on Main Chat for the
+    /// first time — the question floats strongly and verbatim, the marker is
+    /// gone from every galley, and the body still renders.
+    #[test]
+    fn legacy_your_next_step_lifts_on_main_chat_with_no_marker_leak() {
+        const LEGACY: &str = "SSO is recorded.\nYour next step: Should guests use SSO too?";
+        const QUESTION: &str = "Should guests use SSO too?";
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Set up SSO.", None),
+            ChatMessage::new(ChatRole::Agent, LEGACY, None),
+        ];
+        assert_eq!(crate::ui::reply_tail::open_ask_index(&messages), Some(1));
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        assert_eq!(digest_backdrops(&output), 1, "legacy ask must float");
+        let texts = galley_texts(&output);
+        assert_eq!(
+            galley_positions(&output, QUESTION).len(),
+            1,
+            "question lifts verbatim exactly once: {texts:?}"
+        );
+        let lifted = galleys(&output)
+            .into_iter()
+            .find(|g| g.text() == QUESTION)
+            .expect("lifted question galley");
+        assert!(
+            lead_section_format(lifted).extra_letter_spacing.abs() > 1e-9,
+            "lifted legacy ask must print strongly"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains("Your next step:")),
+            "marker leaked: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("SSO is recorded.")),
+            "Markdown body must still render: {texts:?}"
+        );
+        assert_eq!(
+            border_lines(&output),
+            main_chrome_border_lines() + body_border_lines(&messages, Some(1)) + 1,
+            "one lift hairline for the legacy ask"
+        );
+        output.textures_delta.clear();
+    }
+
+    /// AC 4 negative battery: NoReply finals, marker-free plain finals,
+    /// answered digests and six-bullet overloads all paint the plain body
+    /// with ABSOLUTELY no tail chrome.
+    #[test]
+    fn non_asking_finals_paint_the_plain_body_with_zero_tail_chrome() {
+        const OVERLOAD: &str = "Deck.\n---\n- One\n- Two\n- Three\n- Four\n- Five\n- Six";
+        let u = |text: &str| ChatMessage::new(ChatRole::User, text, None);
+        let a = |text: &str| ChatMessage::new(ChatRole::Agent, text, None);
+        let cases: Vec<(&str, Vec<ChatMessage>)> = vec![
+            (
+                "NoReply-final",
+                vec![
+                    u("Confirm SSO."),
+                    a("SSO and MFA are confirmed.\nNo reply needed."),
+                ],
+            ),
+            (
+                "marker-free plain final",
+                vec![u("Status?"), a("All green, nothing blocked.")],
+            ),
+            (
+                "digest-then-user",
+                vec![
+                    u("Bind the vendor please."),
+                    a(DIGEST_FIXTURE),
+                    u("Go with Aurora."),
+                ],
+            ),
+            (
+                "six-bullet overload degrades to Plain",
+                vec![u("Deal breaker?"), a(OVERLOAD)],
+            ),
+        ];
+        let chrome = main_chrome_border_lines();
+        for (name, messages) in cases {
+            assert_eq!(
+                crate::ui::reply_tail::open_ask_index(&messages),
+                None,
+                "{name}: must not select"
+            );
+            let ctx = paint_ctx();
+            let mut draft = String::new();
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                paint(ui, &messages, &mut draft, false, None, None, false);
+            });
+            assert_eq!(
+                digest_backdrops(&output),
+                0,
+                "{name}: zero backdrops expected"
+            );
+            let allowed = chrome + body_border_lines(&messages, None);
+            assert_eq!(
+                border_lines(&output),
+                allowed,
+                "{name}: no lift hairline (allowed body/chrome lines: {allowed})"
+            );
+            output.textures_delta.clear();
+        }
+    }
+
+    /// AC 6: an intentionally broken envelope shields to plain prose and can
+    /// never feed the lift — no braces or envelope keys may reach a galley.
+    #[test]
+    fn broken_envelopes_shield_to_prose_and_can_never_feed_the_lift() {
+        const BROKEN: &str = "{\"assistant_message\":\"Draft ready.\\n\\n---\\n- Which vendor shal";
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Vendor question pending.", None),
+            ChatMessage::new(ChatRole::Agent, BROKEN, None),
+        ];
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        assert_eq!(digest_backdrops(&output), 0, "shield note must not lift");
+        assert_eq!(
+            border_lines(&output),
+            main_chrome_border_lines(),
+            "no hairline of any kind may come from the shield path"
+        );
+        let texts = galley_texts(&output);
+        assert!(
+            texts.iter().any(|t| t.contains("unreadable reply")),
+            "shield note must render as plain prose: {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains('{') || t.contains('}')),
+            "braces leaked into a galley: {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains("assistant_message")),
+            "envelope key leaked: {texts:?}"
+        );
+        output.textures_delta.clear();
+    }
+
+    /// AC 5: the card tab paints the identical lift at Main Chat parity —
+    /// same backdrop, same hairline, same rows in the same order.
+    #[test]
+    fn card_tabs_paint_the_identical_lift_as_main_chat() {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Bind the vendor please.", None),
+            ChatMessage::new(ChatRole::Agent, DIGEST_FIXTURE, None),
+        ];
+        assert_eq!(crate::ui::reply_tail::open_ask_index(&messages), Some(1));
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut main_out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint(ui, &messages, &mut draft, false, None, None, false);
+        });
+        let ctx = paint_ctx();
+        let mut draft = String::new();
+        let mut tab_out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            paint_task(ui, &messages, &mut draft, false);
+        });
+        // Identical findings on both surfaces.
+        assert_eq!(
+            digest_backdrops(&tab_out),
+            1,
+            "card tab must float the lift"
+        );
+        assert_eq!(
+            digest_backdrops(&tab_out),
+            digest_backdrops(&main_out),
+            "backdrop parity"
+        );
+        assert_rows_in_payload_order(&tab_out, &DIGEST_ROWS);
+        assert_rows_in_payload_order(&main_out, &DIGEST_ROWS);
+        // Tab hairline bookkeeping: tab chrome + lifted body rules + ONE rule.
+        assert_eq!(
+            border_lines(&tab_out),
+            card_tab_chrome_border_lines() + body_border_lines(&messages, Some(1)) + 1,
+            "card tab must add exactly one lift hairline"
+        );
+        assert!(border_lines(&main_out) >= 1, "main chat hairline present");
+        main_out.textures_delta.clear();
+        tab_out.textures_delta.clear();
     }
 }
