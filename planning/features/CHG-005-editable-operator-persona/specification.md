@@ -1,7 +1,7 @@
 # CHG-005: Editable Operator Persona
 
-**Status:** Draft
-**Directed by:** Operator request in Main Chat: build out a persona system that tweaks the main agent's persona, editable in the interface using standard markdown, with a shipped default given by the operator (concise; protective of the user, the system, then the project; inquisitive; creative). Follow-up ruling: scoping is 'Operator level'.
+**Status:** Ready
+**Directed by:** Operator request in Main Chat: build out a persona system that tweaks the main agent's persona, editable in the interface using standard markdown, with a shipped default given by the operator (concise; protective of the user, the system, then the project; inquisitive; creative). Follow-up ruling: scoping is 'Operator level'. Boundary ruling (CLR-022): Option 1 — subordinate overlay.
 **Bound:** Persona authoring, storage, and prompt injection only. Envelope schema, D-14 routing/veto, board protocols, worker queue, and the D-21 exit bar are untouched.
 
 ## Intent
@@ -19,9 +19,9 @@ Today the planner's voice is a constant compiled into the binary; tuning it mean
 
 ## Desired Behavior
 
-With the open boundary item (overlay vs wider override) still pending, the agreed shape is:
+The boundary is ruled Option 1 (CLR-022): the persona is a subordinate overlay, not a wider override. The agreed shape:
 
-- **Editor** — a **Persona** card in the Settings dialog: a standard-markdown text editor showing the current persona document (mirroring the MCP card's editing and save discipline), with a prominent **Restore default** action replacing the document with the shipped default. Empty or unreadable files fall back to the shipped default at injection, with a diagnostic — never a silent blank.
+- **Editor** — a **Persona** card in the Settings dialog: a standard-markdown text editor showing the current persona document (mirroring the MCP card's editing and save discipline), with a prominent **Restore default** action replacing the document with the shipped default, and a one-line notice that the persona tunes voice and principles while the application's protocol remains in force. Empty or unreadable files fall back to the shipped default at injection, with a diagnostic — never a silent blank.
 - **Shipped default** — the operator's four beats ('Inqsitive' normalized to 'Inquisitive'; orthographic fix only):
   - Concise
   - Protective of the User, then the System, then the Project
@@ -29,7 +29,7 @@ With the open boundary item (overlay vs wider override) still pending, the agree
   - Creative
 - **Operator-level storage** — the persona document persists in operator-local storage outside the repository (installation home, spanning projects; never committed, never synced into repos). Each machine/operator holds its own copy; cloning a project fresh changes nothing about the voice.
 - **Injection** — the saved persona is injected per turn into the assembled system instructions as a labeled operator-persona layer after the standing contract, in both conversation modes, effective from the next turn.
-- **Boundary** — PROVISIONAL pending the open item: the layer tunes voice, priorities, and behavioral disposition; the standing operating contract (envelope, routing/veto, board protocol, safety rails) stays in force and machine-enforced.
+- **Boundary** — RULED (Option 1, CLR-022): the layer tunes voice, priorities, and behavioral disposition only; the standing operating contract (envelope, routing/veto, board protocol, safety rails) stays in force, inviolate, and machine-enforced. Persona text may not legitimately request structural reshaping; machine legality is enforced application-side regardless of prompt text.
 
 ## Scope
 
@@ -37,7 +37,7 @@ In: the persona settings card (first-run seed, edit, save, restore default); ope
 
 Expected touch points (to be fixed at Ready): a seam in src/core/prompt.rs and src/core/turn.rs for loading and appending the layer; operator-home IO alongside the existing per-project stores in src/persistence/; the card painter beside the MCP card in src/app/dialogs.rs. No new crates; envelope and validation layers untouched.
 
-Out: per-project or repo-committed/shared personas (would contradict the operator-level ruling); persona libraries/pickers, per-conversation overrides, version history; multi-operator profiles (D-23 seats one operator; storage may reserve a seam, not design one); distributing personas over the deferred D-18 channel; auto-suggested personas.
+Out: per-project or repo-committed/shared personas (would contradict the operator-level ruling); persona libraries/pickers, per-conversation overrides, version history; multi-operator profiles (D-23 seats one operator; storage may reserve a seam, not design one); distributing personas over the deferred D-18 channel; auto-suggested personas; letting persona text reshape formats, sections, or workflow habits (declined with the Option 1 ruling).
 
 ## Affected Product Areas
 
@@ -48,30 +48,31 @@ Updates land at reconciliation (no current-truth changes now):
 - Module 05 (Functional Requirements): settings surface gains the persona-editor duty.
 - Module 07 (Data Model): operator-home persona document record.
 - Module 08 (Architecture): prompt-assembly seam in core; home IO in persistence; card in the settings dialog.
-- Module 10 (Decisions Log): the operator-level scoping and the boundary ruling recorded with the next free D-number at Ready/reconciliation.
+- Module 10 (Decisions Log): the operator-level scoping and the Option-1 boundary ruling recorded with the next free D-number at reconciliation.
 - Module 13 (Source Map): persona rows.
 
 ## Requirements
 
-Draft — wording freezes at Ready; numbering follows CHG-003's convention.
+Frozen at Ready; numbering follows CHG-003's convention.
 
-- **REQ-P1-1 (MUST).** A standard-markdown persona editor in the Settings dialog: view, edit, and save the persona document; Restore default reinstates the shipped default; first run seeds the shipped default.
+- **REQ-P1-1 (MUST).** A standard-markdown persona editor in the Settings dialog: view, edit, and save the persona document; Restore default reinstates the shipped default; first run seeds the shipped default. The card presents the document as guidance beneath the standing contract.
 - **REQ-P2-1 (MUST).** Persona persists at operator level — outside the repository, spanning projects, surviving relaunch — and is never written into any repository.
 - **REQ-P3-1 (MUST).** The saved persona is injected into every planning turn's system instructions in both conversation modes, effective from the next turn; a missing or unreadable file falls back to the shipped default with a diagnostic.
-- **REQ-P4-1 (MUST, provisional pending the boundary item).** The persona layer is subordinate to the standing contract: no persona text exempts the envelope, routing/veto, board protocol, or safety rails; application-side validation remains the sole legal authority.
+- **REQ-P4-1 (MUST).** The persona layer is a subordinate, additive overlay (Option 1, CLR-022): it tunes voice, priorities, and disposition only. No persona text exempts the envelope, routing/veto, board protocol, or safety rails; application-side validation remains the sole legal authority.
 - **REQ-ALL-1 (MUST).** D-34 bar met: full regression green, no NEW clippy warnings versus the baseline at the commit under verification on the pinned Rust 1.98 toolchain; no new dependencies.
 
 ## Decisions and Assumptions
 
 - DE-1 (confirmed — operator ruling): scoping is operator level, hence operator-local storage outside the repository, spanning projects.
 - DE-2 (confirmed — operator request): the shipped default is the four beats; 'Inqsitive' normalized to 'Inquisitive' as an orthographic fix.
-- AS-1: the persona colors ALL agent utterances (Main Chat and card chats) because both share one system-instruction assembly (src/core/turn.rs); per-surface voices are out of scope.
-- AS-2 (provisional — pending the boundary item): the overlay is additive and subordinate; the contract wins any conflict.
+- DE-3 (confirmed — operator ruling, CLR-022): the boundary is Option 1 — a subordinate overlay on top of the standing system contract. Persona text may legitimately request tone, priorities (user > system > project), and inquiring/creative disposition; envelope, routing/veto, board protocol, and safety rails stay inviolate. The wider-override option is declined: application-side validation already guarantees legality, so wider requests buy expressiveness only at the price of surprise fallbacks.
+- AS-1: the persona colors ALL agent utterances (Main Chat and card chats) because both share one system-instruction assembly (src/core/turn.rs); per-surface voices are of scope.
+- AS-2 (confirmed by DE-3): the overlay is additive and subordinate; the contract wins any conflict.
 - AS-3: single-operator installation (D-23); one persona file; future multi-operator seam not designed here.
 
 ## Acceptance Criteria
 
-Draft — sharpened at Ready:
+Frozen at Ready:
 
 - AC1: Settings → Persona shows the current document in a markdown editor; editing and saving persists; a relaunch shows the edited text and the repository diff stays clean.
 - AC2: A pristine install seeds the shipped four-beat default; Restore default brings the document back to the shipped text.
