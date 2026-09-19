@@ -35,7 +35,7 @@ The boundary is ruled Option 1 (CLR-022): the persona is a subordinate overlay, 
 
 In: the persona settings card (first-run seed, edit, save, restore default); operator-home file IO with fallback; per-turn injection covering both conversation modes; in-file unit tests (seed, save/load round trip, injection assembly, fallback, adversarial-boundary case); the D-34 no-new-warnings bar plus full regression.
 
-Expected touch points (to be fixed at Ready): a seam in src/core/prompt.rs and src/core/turn.rs for loading and appending the layer; operator-home IO alongside the existing per-project stores in src/persistence/; the card painter beside the MCP card in src/app/dialogs.rs. No new crates; envelope and validation layers untouched.
+Expected touch points: a seam in src/core/prompt.rs and src/core/turn.rs for loading and appending the layer; operator-home IO alongside the existing per-project stores in src/persistence/; the card painter beside the MCP card in src/app/dialogs.rs. No new crates; envelope and validation layers untouched.
 
 Out: per-project or repo-committed/shared personas (would contradict the operator-level ruling); persona libraries/pickers, per-conversation overrides, version history; multi-operator profiles (D-23 seats one operator; storage may reserve a seam, not design one); distributing personas over the deferred D-18 channel; auto-suggested personas; letting persona text reshape formats, sections, or workflow habits (declined with the Option 1 ruling).
 
