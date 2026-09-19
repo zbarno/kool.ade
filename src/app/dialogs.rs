@@ -9,6 +9,7 @@ use crate::core::gitops;
 use crate::domain::stakeholder::{CategoryOwners, Stakeholders};
 use crate::domain::user::{CurrentUser, IdentitySource};
 use crate::error::AppError;
+use crate::persistence::persona;
 use crate::ui::theme;
 
 // ---------------------------------------------------------------------------
@@ -663,6 +664,166 @@ impl DlgMcp {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Planner persona card (operator-level persona store, story 002 front end)
+// ---------------------------------------------------------------------------
+
+/// Mandated one-line subordination notice (boundary ruling CLR-022 / DE-3):
+/// the persona tunes the planner VOICE AND PRINCIPLES ONLY — the application
+/// envelope, routing, and safety rails stay in force. The copy is word-pinned
+/// by the test module below against later rephrases.
+pub const PERSONA_SUBORDINATION_NOTICE: &str = "Tunes the planner voice and principles only \u{2014} the application envelope, routing, and safety rails stay in force.";
+
+/// Outcome of [`DlgPersona::save`]: the buffer was already in sync (zero IO
+/// performed) or the store's bytes were rewritten to the buffer's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersonaSaveOutcome {
+    /// `document == base`: no write happened — no file touch at all.
+    Unchanged,
+    /// `persona.md` was atomically rewritten to the buffer's bytes.
+    Written,
+}
+
+/// Planner persona card hosted in the Workspace settings modal. Mirrors the
+/// [`DlgMcp`] discipline: raw free-text (standard markdown) editing, explicit
+/// save from the footer, a sticky amber warning, and an ok/failure feedback
+/// line — with every BUSINESS EFFECT confined to the effect methods below.
+/// Effects run on SAVE / RESTORE only; reads never heal or rewrite. The card
+/// itself carries no egui state: the hosting layout keeps it in session-
+/// volatile temp data (bind-on-open doctrine).
+#[derive(Clone, Default)]
+pub struct DlgPersona {
+    /// The editor buffer; bound to the file's live bytes on open.
+    pub document: String,
+    /// Baseline known-good bytes for unchanged-detection and the no-churn
+    /// short-circuit. Advanced ONLY after a successful write.
+    base: String,
+    /// First-run seed announcement (dim info line), naming the seeded file.
+    seeded_note: Option<String>,
+    /// Sticky amber line: the store's fallback diagnostic, verbatim. Cleared
+    /// only when a successful write establishes known-good bytes.
+    warning: Option<String>,
+    /// Feedback line colored green/red by the ok flag.
+    feedback: Option<(bool, String)>,
+}
+
+impl DlgPersona {
+    /// Bind the card to a store load. Pure with respect to the filesystem:
+    /// it clones strings and renders the persona path for the note — zero
+    /// disk IO, ever (the SEEDING write happens in the layout's first-ever
+    /// `load_persona` call, not here).
+    pub fn from_load(load: &persona::PersonaLoad) -> Self {
+        let path = persona::persona_path().display().to_string();
+        Self {
+            document: load.document.clone(),
+            base: load.document.clone(),
+            seeded_note: load
+                .seeded_now
+                .then(|| format!("First run: seeded {path} with the shipped four-beat default.")),
+            warning: load
+                .fell_back_to_default
+                .then(|| load.diagnostic.clone())
+                .flatten(),
+            feedback: None,
+        }
+    }
+
+    /// Explicit save (the ONLY effect path besides restore).
+    ///
+    /// An unedited buffer (`document == base`) short-circuits to
+    /// [`PersonaSaveOutcome::Unchanged`] before ANY IO — no write churn, no
+    /// mtime bump, no temp debris. Otherwise the store's pre-disk blank
+    /// guard surfaces as the friendly red line and every other failure kind
+    /// maps to an io-detail error carrying the OS message. On success `base`
+    /// advances and the notes/warning clear (bytes now known-good);
+    /// on failure the buffer stands as-is and the RED FEEDBACK LINE IS
+    /// ALREADY SET, so the modal stays open showing why.
+    pub fn save(&mut self) -> Result<PersonaSaveOutcome, AppError> {
+        if self.document == self.base {
+            return Ok(PersonaSaveOutcome::Unchanged);
+        }
+        match persona::save_persona(&self.document) {
+            Ok(()) => {
+                self.base = self.document.clone();
+                self.seeded_note = None;
+                self.warning = None;
+                self.feedback = Some((true, "Persona saved.".to_owned()));
+                Ok(PersonaSaveOutcome::Written)
+            }
+            Err(err) => {
+                let app_err = Self::map_save_error(&err);
+                self.feedback = Some((false, Self::error_text(&app_err)));
+                Err(app_err)
+            }
+        }
+    }
+
+    /// Prominent restore: stage the shipped constant, then persist it.
+    ///
+    /// Success clears the amber line and confirms green ("Restored the
+    /// shipped default persona."). A failure KEEPS the staged buffer in the
+    /// editor and sets the red line explaining the write failure, so the
+    /// operator sees the intent survived. This write is the ONLY sanctioned
+    /// healer of a corrupt/deleted file (story 001: reads never heal).
+    pub fn restore_default(&mut self) -> Result<(), AppError> {
+        self.stage_default();
+        match persona::save_persona(&self.document) {
+            Ok(()) => {
+                self.warning = None;
+                self.feedback = Some((true, "Restored the shipped default persona.".to_owned()));
+                Ok(())
+            }
+            Err(err) => {
+                let app_err = Self::map_save_error(&err);
+                let text = format!(
+                    "{} \u{2014} the staged default stays in the editor; make the home writable and press Restore default again.",
+                    Self::error_text(&app_err)
+                );
+                self.feedback = Some((false, text));
+                Err(app_err)
+            }
+        }
+    }
+
+    /// Pure staging half of a restore: point the buffer AND the baseline at
+    /// the shipped constant and drop the note/feedback. Private: nothing but
+    /// [`Self::restore_default`] may stage without persisting. The amber
+    /// `warning` is deliberately KEPT here — it clears only when the write
+    /// lands.
+    fn stage_default(&mut self) {
+        self.document = persona::SHIPPED_DEFAULT_PERSONA.to_string();
+        self.base = persona::SHIPPED_DEFAULT_PERSONA.to_string();
+        self.seeded_note = None;
+        self.feedback = None;
+    }
+
+    /// Store io → AppError mapping: the pre-disk blank guard becomes the
+    /// friendly string-detail line; every other kind carries the OS message
+    /// as an io-detail.
+    fn map_save_error(err: &std::io::Error) -> AppError {
+        if err.kind() == std::io::ErrorKind::InvalidData {
+            AppError::Other(
+                "Cannot save a blank persona \u{2014} the document must not be blank".to_owned(),
+            )
+        } else {
+            AppError::Io {
+                op: "save persona".to_owned(),
+                detail: err.to_string(),
+            }
+        }
+    }
+
+    /// One-line rendering of a mapped error for the red feedback line (keeps
+    /// the Other payload single rather than doubled through `Display`).
+    fn error_text(err: &AppError) -> String {
+        match err {
+            AppError::Other(message) => message.clone(),
+            AppError::Io { op, detail } => format!("{op}: {detail}"),
+            other => other.headline(),
+        }
+    }
+}
+
 /// Paint the MCP card; returns (save_pressed, close_pressed). Height budget
 /// (~360 px) fits the 640 px min window — no ScrollArea, unlike the grown
 /// settings card.
@@ -713,6 +874,97 @@ pub fn paint_mcp_card(ui: &mut egui::Ui, dlg: &mut DlgMcp) -> (bool, bool) {
         );
     }
     footers(ui, &dlg.feedback)
+}
+
+/// Paint the Planner persona card; returns (save_pressed, restore_pressed).
+/// Strictly inert — it reads card state and performs NO file IO; the effect
+/// methods own every mutation. Sizing mirrors [`paint_mcp_card`] (heading,
+/// dim one-liner, monospace multiline editor, 10.5pt char meter, action
+/// row). No Close control: the modal's X owns dismissal, and the shared
+/// [`footers`] helper stays byte-identical for the four pre-existing dialogs.
+pub fn paint_persona_card(ui: &mut egui::Ui, card: &mut DlgPersona) -> (bool, bool) {
+    ui.label(
+        RichText::new("Planner persona")
+            .size(13.0)
+            .strong()
+            .color(theme::TEXT),
+    );
+    ui.add_space(2.0);
+    // The pinned subordination notice (CLR-022 / DE-3 boundary ruling).
+    ui.label(
+        RichText::new(PERSONA_SUBORDINATION_NOTICE)
+            .weak()
+            .size(11.0),
+    );
+    // First-run seed announcement (dim info line), then the store's
+    // fallback diagnostic, VERBATIM, as the sticky amber warning.
+    if let Some(note) = &card.seeded_note {
+        ui.add_space(4.0);
+        ui.label(RichText::new(note).size(11.5).weak().color(theme::TEXT_DIM));
+    }
+    if let Some(warning) = &card.warning {
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(warning)
+                .size(11.5)
+                .weak()
+                .color(theme::WARNING),
+        );
+    }
+    ui.add_space(5.0);
+    // Raw free-text standard-markdown editor: nine desired rows, scrolls
+    // vertically; the height budget tracks the per-line pacing of the other
+    // in-file editors (~21 px/row), degrading to extra scroll in narrow
+    // windows — never horizontal clipping.
+    ui.add_sized(
+        egui::vec2(ui.available_width(), 190.0),
+        TextEdit::multiline(&mut card.document)
+            .font(egui::FontId::monospace(12.0))
+            .desired_width(f32::INFINITY)
+            .desired_rows(9),
+    );
+    ui.label(
+        RichText::new(format!("{} chars", card.document.chars().count()))
+            .size(10.5)
+            .weak()
+            .color(theme::TEXT_DIM),
+    );
+    if let Some((ok, msg)) = &card.feedback {
+        ui.add_space(8.0);
+        ui.label(RichText::new(msg).size(11.5).color(if *ok {
+            theme::SUCCESS
+        } else {
+            theme::DANGER
+        }));
+    }
+    let mut save_pressed = false;
+    let mut restore_pressed = false;
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        let restore = ui
+            .add(
+                egui::Button::new(RichText::new("Restore default").strong().color(theme::BG))
+                    .fill(theme::PANEL_ALT)
+                    .corner_radius(6.0),
+            )
+            .on_hover_text("Rewrite the editor with the shipped four-beat default and save it");
+        ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+            let save = ui
+                .add(
+                    egui::Button::new(RichText::new("Save").strong().color(theme::BG))
+                        .fill(theme::ACCENT_SOFT)
+                        .corner_radius(6.0),
+                )
+                .on_hover_text("Persist the editor text to persona.md in the operator home");
+            if save.clicked() {
+                save_pressed = true;
+            }
+        });
+        if restore.clicked() {
+            restore_pressed = true;
+        }
+    });
+    (save_pressed, restore_pressed)
 }
 
 fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool) {
@@ -1410,4 +1662,484 @@ mod ownership_picker_tests {
         assert_eq!(dlg.rows[0].members, "Morgan");
         assert_eq!(dlg.rows[1].members, "Morgan, platform, (owner TBD)");
     }
+}
+
+#[cfg(test)]
+mod persona_tests {
+    //! Planner persona card pins: pure mapping/effect tests (environment-free)
+    //! plus the single CONSOLIDATED disk-effect test (phases A–F under one
+    //! settled env claim over one pid-tagged parent temp home).
+
+    use super::*;
+    use crate::error::AppError;
+    use crate::persistence::persona::{self, PersonaLoad, SHIPPED_DEFAULT_PERSONA};
+    use std::time::Duration;
+
+    // ---- Environment discipline (env-touching test ONLY) ---------------
+    //
+    // PACKET_HOME is PROCESS-GLOBAL, and the other env-touching suites
+    // (persona, chat_store) hold THEIR OWN locks — so nothing external
+    // serializes us against THEM. A naive claim could therefore be straddled
+    // by a neighbour's microsecond env flip: our file reads would land in
+    // their home, their tripwires would fire on our value, and the resulting
+    // destructor panic aborts the whole run. Defence here is layered:
+    //   1. ONE short-lived claim for the ENTIRE disk-effect journey (minimal
+    //      exposed surface), reusing story 001's settle gate at claim time;
+    //   2. setup-theft detection (our value overwritten between set-var and
+    //      verify ⇒ abandon + retry, never panic at claim time);
+    //   3. a CHECKPOINT at every phase boundary detecting mid-journey flips;
+    //   4. a bounded RETRY LOOP turning a rare race into noise-free flake
+    //      absorption instead of a red run;
+    //   5. silent, exact pre-claim-value restoration on drop (a panic inside
+    //      a destructor would non-unwind-abort the process — forbidden).
+    static PERSONA_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    const CLAIM_SETTLE_WAITS_MS: [u64; 4] = [20, 50, 120, 240];
+    const CLAIM_SAMPLE_GAP_MICROS: u64 = 100;
+    const JOURNEY_ATTEMPTS: u32 = 3;
+
+    /// Lost the race to (or was raced by) a neighbouring env test.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Contested {
+        Unsettled,
+        StolenAtSetup,
+        FlippedMidJourney,
+    }
+
+    struct EnvClaim {
+        prior: Option<std::ffi::OsString>,
+        parent: std::path::PathBuf,
+        last_home: std::path::PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl EnvClaim {
+        fn begin(tag: &str) -> Result<Self, Contested> {
+            let _lock = match PERSONA_ENV_LOCK.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let mut settled = false;
+            for wait_ms in CLAIM_SETTLE_WAITS_MS {
+                std::thread::sleep(Duration::from_millis(wait_ms));
+                let before = std::env::var_os("PACKET_HOME");
+                std::thread::sleep(Duration::from_micros(CLAIM_SAMPLE_GAP_MICROS));
+                if before == std::env::var_os("PACKET_HOME") {
+                    settled = true;
+                    break;
+                }
+            }
+            if !settled {
+                drop(_lock);
+                return Err(Contested::Unsettled);
+            }
+            let prior = std::env::var_os("PACKET_HOME");
+            let parent = std::env::temp_dir()
+                .join(format!("packet_dialogs_persona_{tag}_{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&parent);
+            std::fs::create_dir_all(&parent).expect("phase parent must be creatable");
+            let home = parent.join("claim");
+            std::fs::create_dir_all(&home).unwrap();
+            // SAFETY: PERSONA_ENV_LOCK held; the settle gate ruled out an
+            // in-flight PACKET_HOME transition at claim time.
+            unsafe { std::env::set_var("PACKET_HOME", &home) };
+            if std::env::var_os("PACKET_HOME").as_deref() != Some(home.as_os_str()) {
+                // A neighbour snuck a flip into the claim handshake: undo
+                // ours, restore theirs-visible prior, and let the caller
+                // retry — NEVER panic while holding the claim.
+                Self::restore_env(prior.as_ref());
+                let _ = std::fs::remove_dir_all(&parent);
+                return Err(Contested::StolenAtSetup);
+            }
+            Ok(Self {
+                prior,
+                parent,
+                last_home: home,
+                _lock,
+            })
+        }
+
+        /// Phase-boundary heartbeat: our value still owned?
+        fn checkpoint(&self) -> Result<(), Contested> {
+            if std::env::var_os("PACKET_HOME").as_deref() == Some(self.last_home.as_os_str()) {
+                Ok(())
+            } else {
+                Err(Contested::FlippedMidJourney)
+            }
+        }
+
+        /// Point the claim at a fresh sibling child dir (one phase home).
+        fn new_phase(&mut self, tag: &str) -> std::path::PathBuf {
+            let dir = self.parent.join(tag);
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            // SAFETY: still under the held PERSONA_ENV_LOCK.
+            unsafe { std::env::set_var("PACKET_HOME", &dir) };
+            self.last_home = dir.clone();
+            dir
+        }
+
+        fn restore_env(prior: Option<&std::ffi::OsString>) {
+            // SAFETY: called with the PERSONA_ENV_LOCK held (setup failure
+            // path) or by Drop (the guard is still alive in both).
+            match prior {
+                Some(previous) => unsafe { std::env::set_var("PACKET_HOME", previous) },
+                None => unsafe { std::env::remove_var("PACKET_HOME") },
+            }
+        }
+    }
+
+    impl Drop for EnvClaim {
+        fn drop(&mut self) {
+            // Silent, exact, UNCONDITIONAL restoration of whatever preceded
+            // the claim. Panics are forbidden here: a panic during cleanup
+            // aborts the whole test process.
+            Self::restore_env(self.prior.as_ref());
+            let _ = std::fs::remove_dir_all(&self.parent);
+        }
+    }
+
+    fn fixture(document: &str, seeded_now: bool, fell_back: bool, diagnostic: Option<String>) -> PersonaLoad {
+        PersonaLoad {
+            document: document.to_owned(),
+            seeded_now,
+            fell_back_to_default: fell_back,
+            diagnostic,
+        }
+    }
+
+    // ---- Pure mapping/effect pins (NO env, NO disk) --------------------
+
+    /// Plain load: document bytes copied EXACTLY, base mirrored, every note
+    /// and feedback starts clean.
+    #[test]
+    fn from_load_plain_load_copies_bytes_mirrors_base_starts_clean() {
+        let text = "Stored text T\nline two\n";
+        let card = DlgPersona::from_load(&fixture(text, false, false, None));
+        assert_eq!(card.document, text);
+        assert_eq!(card.base, text);
+        assert_eq!(card.seeded_note, None);
+        assert_eq!(card.warning, None);
+        assert_eq!(card.feedback, None);
+    }
+
+    /// Seeded-now load: the first-run seed announces itself with the dim
+    /// INFO line NAMEING THE SEEDED FILE, and an incidental diagnostic is
+    /// ignored — seeding is a happy path, not a fallback (bytes exact,
+    /// warning stays clean).
+    #[test]
+    fn from_load_seeded_now_announces_named_file_without_warning() {
+        let card = DlgPersona::from_load(&fixture(
+            SHIPPED_DEFAULT_PERSONA,
+            true,
+            false,
+            Some("absent; shipped default seeded".to_owned()),
+        ));
+        assert_eq!(card.document, SHIPPED_DEFAULT_PERSONA);
+        assert_eq!(card.base, SHIPPED_DEFAULT_PERSONA);
+        let note = card
+            .seeded_note
+            .as_ref()
+            .expect("a first-run seed must announce itself");
+        assert!(
+            note.contains("persona.md"),
+            "the info line names the seeded file: {note:?}"
+        );
+        assert_eq!(card.warning, None, "seeding is a happy path, not a fallback");
+        assert_eq!(card.feedback, None);
+    }
+
+    /// Fallen-back load: the STORE DIAGNOSTIC becomes the sticky warning,
+    /// verbatim; no seed note, no feedback.
+    #[test]
+    fn from_load_fallen_back_load_lifts_diagnostic_verbatim_into_warning() {
+        let diagnostic =
+            "persona file /x/persona.md is not valid UTF-8; serving the shipped default";
+        let card = DlgPersona::from_load(&fixture(
+            SHIPPED_DEFAULT_PERSONA,
+            false,
+            true,
+            Some(diagnostic.to_owned()),
+        ));
+        assert_eq!(card.document, SHIPPED_DEFAULT_PERSONA);
+        assert_eq!(card.base, SHIPPED_DEFAULT_PERSONA);
+        assert_eq!(
+            card.warning.as_deref(),
+            Some(diagnostic),
+            "the store's diagnosis travels verbatim as the amber line"
+        );
+        assert_eq!(card.seeded_note, None);
+        assert_eq!(card.feedback, None);
+    }
+
+    /// Pure restore staging: buffer AND baseline jump to the shipped
+    /// constant; notes and feedback clear; the constant is the FIXED
+    /// spelling (the brief's 'Inqsitive' typo stays normalized).
+    #[test]
+    fn stage_default_stages_constant_and_clears_notes_and_feedback() {
+        let mut card = DlgPersona::from_load(&fixture(
+            "# Drifted voice\n\nedited\n",
+            true,
+            false,
+            Some("seed".to_owned()),
+        ));
+        card.feedback = Some((false, "prior failure".to_owned()));
+        card.stage_default();
+        assert_eq!(card.document, SHIPPED_DEFAULT_PERSONA);
+        assert_eq!(card.base, SHIPPED_DEFAULT_PERSONA);
+        assert_eq!(card.seeded_note, None);
+        assert_eq!(card.feedback, None);
+        assert!(
+            SHIPPED_DEFAULT_PERSONA.contains("Inquisitive"),
+            "shipped default keeps the normalized spelling"
+        );
+        assert!(
+            !SHIPPED_DEFAULT_PERSONA.contains("Inqsitive"),
+            "the brief's misspelling must stay normalized away"
+        );
+    }
+
+    /// No-op save short-circuits with ZERO IO, and blank buffers trip the
+    /// blank guard BEFORE any disk touch (the guard returns ahead of the
+    /// path lookup, so these legs need no home at all). The buffer stands
+    /// as-is after each refusal and the red line quotes the guard.
+    #[test]
+    fn unedited_save_short_circuits_and_blank_buffers_gate_before_disk() {
+        let mut card = DlgPersona::from_load(&fixture("Stored text T\n", false, false, None));
+        assert_eq!(card.save(), Ok(PersonaSaveOutcome::Unchanged));
+        assert_eq!(card.document, "Stored text T\n");
+        assert_eq!(card.feedback, None);
+        for (label, blank) in [
+            ("empty string", ""),
+            ("space plus tab plus newline", " \t\n"),
+            ("spaces only", "   "),
+        ] {
+            card.document = blank.to_owned();
+            let err = card.save().unwrap_err();
+            assert!(
+                matches!(&err, AppError::Other(msg) if msg.contains("must not be blank")),
+                "{label} must trip the blank guard with a friendly string error: {err:?}"
+            );
+            assert_eq!(card.document, blank, "{label}: the buffer stands as-is");
+            let (ok, msg) = card
+                .feedback
+                .as_ref()
+                .expect("{label}: the red feedback line is set");
+            assert!(!ok && msg.contains("must not be blank"), "{label}: {msg}");
+        }
+    }
+
+    /// Subordination copy pin: the mandated ONE-LINE notice keeps its load-
+    /// bearing words against later rephrases.
+    #[test]
+    fn subordination_notice_pins_one_line_with_voice_principles_and_rails() {
+        let notice = PERSONA_SUBORDINATION_NOTICE;
+        assert_eq!(notice.lines().count(), 1, "the notice is ONE line");
+        for word in ["voice", "principles", "rails"] {
+            assert!(notice.contains(word), "notice dropped '{word}': {notice}");
+        }
+    }
+
+    // ---- Consolidated disk effects: ONE claim, phases A–F --------------
+
+    /// Runs the full disk-effect journey under ONE claim:
+    /// A fresh home seeds (+ dim note names the live path);
+    /// B unmodified save is churn-free (mtime steady, no temp debris);
+    /// C a custom markdown document round-trips byte-exact;
+    /// D blank attempts are gated without disturbing the good bytes;
+    /// E a corrupt home warns verbatim, is untouched by the mere open, and
+    ///   Restore default heals it (amber clears, green confirms);
+    /// F a read-only home maps the io error to the red line with the staged
+    ///   buffer preserved and NOTHING written.
+    /// Contention with the other PACKET_HOME suites retrains as a quiet
+    /// re-attempt (see the layering notes above).
+    #[test]
+    fn persona_card_disk_effects_phases_a_through_f() {
+        for attempt in 1..=JOURNEY_ATTEMPTS {
+            let outcome = journey_phases_abcd_ef();
+            match outcome {
+                Ok(()) => return,
+                Err(_) if attempt < JOURNEY_ATTEMPTS => {
+                    std::thread::sleep(Duration::from_millis(u64::from(attempt) * 7));
+                }
+                Err(other) => panic!("disk-effect journey lost its ground: {other:?}"),
+            }
+        }
+        unreachable!()
+    }
+
+    fn journey_phases_abcd_ef() -> Result<(), Contested> {
+        let mut claim = EnvClaim::begin("journey")?;
+
+        // Phase A — FRESH home: opening is the first-run seed trigger; the
+        // dim note names the live persona.md path; constant bytes on disk.
+        let home_a = claim.new_phase("a_seed");
+        claim.checkpoint()?;
+        let load_a = persona::load_persona();
+        assert!(load_a.seeded_now, "fresh home must seed on first load");
+        let mut card = DlgPersona::from_load(&load_a);
+        assert_eq!(card.document, SHIPPED_DEFAULT_PERSONA);
+        let note = card
+            .seeded_note
+            .as_ref()
+            .expect("a healthy first-run seed announces itself");
+        let shown_path = persona::persona_path().display().to_string();
+        assert!(note.contains(&shown_path), "note {note:?} must name {shown_path}");
+        assert_eq!(card.warning, None);
+        assert_eq!(
+            std::fs::read(persona::persona_path()).unwrap(),
+            SHIPPED_DEFAULT_PERSONA.as_bytes(),
+            "seeded file equals the shipped default exactly"
+        );
+
+        // Phase B — UNMODIFIED card: save() is Unchanged with NO write
+        // churn (mtime unchanged) and the home lists exactly persona.md —
+        // no stale temp.
+        claim.checkpoint()?;
+        let mtime_b = std::fs::metadata(persona::persona_path())
+            .unwrap()
+            .modified()
+            .unwrap();
+        assert_eq!(card.save(), Ok(PersonaSaveOutcome::Unchanged));
+        assert_eq!(
+            std::fs::metadata(persona::persona_path()).unwrap().modified().unwrap(),
+            mtime_b,
+            "an in-sync save must not rewrite the file"
+        );
+        let mut names: Vec<String> = std::fs::read_dir(&home_a)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec!["persona.md".to_owned()],
+            "no temp debris after an in-sync save"
+        );
+
+        // Phase C — CUSTOM multi-line markdown (bullets, bold markers, an
+        // em dash): save() is Written, bytes equal exactly, notes/warning
+        // clear, and a second save confirms the baseline tracked the write.
+        claim.checkpoint()?;
+        let custom = "# Tuned Voice\n\n- **Bold beat** and `code`\n- Second beat \u{2014} an em dash\n\nProse paragraph.\n";
+        card.document = custom.to_owned();
+        assert_eq!(card.save(), Ok(PersonaSaveOutcome::Written));
+        assert_eq!(
+            std::fs::read(persona::persona_path()).unwrap(),
+            custom.as_bytes(),
+            "saved bytes must equal the buffer exactly"
+        );
+        assert_eq!(card.warning, None, "known-good bytes clear the warning");
+        assert_eq!(
+            card.save(),
+            Ok(PersonaSaveOutcome::Unchanged),
+            "the baseline must track the write"
+        );
+
+        // Phase D — WHITESPACE buffers: three blank attempts all refuse and
+        // the good bytes survive untouched; the red line cites the guard.
+        claim.checkpoint()?;
+        for blank in ["", " \t\n", "   "] {
+            card.document = blank.to_owned();
+            assert!(card.save().is_err(), "blank {blank:?} must be refused");
+        }
+        assert_eq!(
+            std::fs::read(persona::persona_path()).unwrap(),
+            custom.as_bytes(),
+            "blank attempts never reach the disk"
+        );
+        let (_, msg) = card
+            .feedback
+            .as_ref()
+            .expect("blank refusals set the red line");
+        assert!(msg.contains("must not be blank"), "{msg}");
+        card.document = custom.to_owned(); // re-stage the good text
+
+        // Phase E — CORRUPT home: the open warns verbatim WITHOUT healing;
+        // Restore default heals, the amber line clears, green confirms.
+        claim.new_phase("e_corrupt");
+        claim.checkpoint()?;
+        let corrupt: &[u8] = &[0xFF, 0xFE, 0xFD, 0xFC];
+        std::fs::write(persona::persona_path(), corrupt).unwrap();
+        let load_e = persona::load_persona();
+        assert!(load_e.fell_back_to_default, "corrupt bytes fall back");
+        let diag = load_e.diagnostic.clone().expect("fallback diagnosed");
+        let mut card = DlgPersona::from_load(&load_e);
+        assert_eq!(card.document, SHIPPED_DEFAULT_PERSONA);
+        assert_eq!(
+            card.warning.as_deref(),
+            Some(diag.as_str()),
+            "the store diagnostic is the amber line, verbatim"
+        );
+        assert_eq!(
+            std::fs::read(persona::persona_path()).unwrap(),
+            corrupt,
+            "the MERE OPEN must not heal the corrupt bytes"
+        );
+        card.restore_default().expect("restore heals a corrupt file");
+        assert_eq!(
+            std::fs::read(persona::persona_path()).unwrap(),
+            SHIPPED_DEFAULT_PERSONA.as_bytes(),
+            "restored bytes equal the shipped default exactly"
+        );
+        assert_eq!(card.warning, None, "successful restore clears the amber line");
+        let (ok, msg) = card
+            .feedback
+            .as_ref()
+            .expect("restore confirmation line");
+        assert!(ok, "{msg}");
+        assert!(msg.contains("Restored"), "{msg}");
+
+        // Phase F — READ-ONLY home (unix perms): the seed write fails, the
+        // load falls back with a diagnostic, and a save is refused with the
+        // MAPPED io error — red line citing the OS message, staged buffer
+        // preserved, NOTHING written (not even a temp file).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let home_f = claim.new_phase("f_ro");
+            claim.checkpoint()?;
+            assert!(
+                persona::load_persona().seeded_now,
+                "setup: the still-writable ro-home seeds first"
+            );
+            std::fs::remove_file(persona::persona_path()).unwrap();
+            std::fs::set_permissions(&home_f, std::fs::Permissions::from_mode(0o500)).unwrap();
+            let load_f = persona::load_persona();
+            assert!(
+                load_f.fell_back_to_default,
+                "unseedable absence reads as fallback"
+            );
+            let mut card = DlgPersona::from_load(&load_f);
+            assert_eq!(card.warning, load_f.diagnostic, "fallback diagnostic shown");
+            card.document = "# My voice\n".to_owned();
+            let err = card.save().expect_err("a read-only home must refuse the write");
+            match err {
+                AppError::Io { detail, .. } => assert!(
+                    detail.contains("Permission denied") || detail.contains("os error 13"),
+                    "the io detail must carry the OS message: {detail}"
+                ),
+                other => panic!("expected the mapped Io error, got: {other:?}"),
+            }
+            assert_eq!(card.document, "# My voice\n", "the staged buffer is preserved");
+            let (ok, msg) = card
+                .feedback
+                .as_ref()
+                .expect("red line set");
+            assert!(!ok && msg.contains("save persona"), "{msg}");
+            assert!(
+                !persona::persona_path().exists(),
+                "nothing may have been written into the ro home"
+            );
+            assert!(
+                std::fs::read_dir(&home_f).unwrap().next().is_none(),
+                "even a leftover temp file must not linger in the ro home"
+            );
+            std::fs::set_permissions(&home_f, std::fs::Permissions::from_mode(0o700)).unwrap();
+            claim.checkpoint()?;
+        }
+
+        Ok(())
+    }
+
 }
