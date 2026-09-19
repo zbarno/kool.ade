@@ -1,4 +1,8 @@
 //! A task's next action comes first; the transcript remains available on demand.
+//! CHG-003 story 5 offers tappable option chips in the answer-needed frame
+//! for digest bullets carrying recognisable options: a tap joins the full
+//! choice text into the task draft (newline-joined expanded, space-joined
+//! compact) without sending, and the card composer's caret pins at its end.
 use crate::domain::{Authority, ChatMessage, ChatRole, ItemStatus};
 use crate::ui::{Surface, theme};
 use egui::RichText;
@@ -127,37 +131,50 @@ fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage], follow_tail: bool) {
         });
 }
 
-fn composer(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool, answer: bool) {
+fn composer(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    key: &str,
+    expanded: bool,
+    answer: bool,
+    chip_fired: bool,
+) {
     let busy = s.task_reply_busy();
     let mut send = false;
     if let Some(draft) = s.task_draft(key) {
+        let salt = if answer { "task_answer_composer" } else { "task_context_composer" };
         let response = if expanded {
-            ui.add(
-                egui::TextEdit::multiline(draft)
-                    .desired_rows(4)
-                    .desired_width(f32::INFINITY)
-                    .hint_text(if answer {
-                        "Your answer…"
-                    } else {
-                        "Add a follow-up…"
-                    }),
-            )
+            egui::TextEdit::multiline(draft)
+                .desired_rows(4)
+                .desired_width(f32::INFINITY)
+                .hint_text(if answer {
+                    "Your answer…"
+                } else {
+                    "Add a follow-up…"
+                })
+                .id_salt(salt)
+                .show(ui)
         } else {
-            ui.add(
-                egui::TextEdit::singleline(draft)
-                    .desired_width(f32::INFINITY)
-                    .hint_text(if answer {
-                        "Your answer…"
-                    } else {
-                        "Add a follow-up…"
-                    }),
-            )
+            egui::TextEdit::singleline(draft)
+                .desired_width(f32::INFINITY)
+                .hint_text(if answer {
+                    "Your answer…"
+                } else {
+                    "Add a follow-up…"
+                })
+                .id_salt(salt)
+                .show(ui)
         };
+        if chip_fired {
+            // A chip tap landed this frame: park the caret behind the
+            // freshly joined option and hand the box back.
+            crate::ui::reply_tail::pin_caret_to_end(&response, ui.ctx(), draft);
+        }
         let enter = if expanded {
-            response.has_focus()
+            response.response.has_focus()
                 && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
         } else {
-            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+            response.response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
         };
         let enabled = !busy && !draft.trim().is_empty();
         let button = egui::Button::new(
@@ -195,6 +212,9 @@ fn composer(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool, a
 /// Returns true when the compact card requests the expanded discussion.
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) -> bool {
     let mut open = false;
+    // Flipped once per frame by a claimed chip tap; the frame's composer
+    // pins the caret behind the joined option exactly in that frame.
+    let mut chip_fired = false;
     ui.push_id(("task_conversation", key, expanded), |ui| {
         let messages = s.task_messages(key).to_vec();
         let item = s
@@ -354,6 +374,24 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 {
                     ui.label(&action);
                 }
+                if !active {
+                    // CHG-003 story 5: chips for the OPEN digest's option
+                    // bullets (2..=6, else the tail declines; a tap joins
+                    // the FULL choice text — newline expanded, space
+                    // compact — into the task draft and never sends).
+                    let choices = crate::ui::reply_tail::open_digest_choices(&messages);
+                    if let Some(hit) =
+                        crate::ui::reply_tail::paint_chip_row(ui, &choices, !s.task_reply_busy())
+                        && let Some(draft) = s.task_draft(key)
+                    {
+                        crate::ui::reply_tail::join_choice(
+                            draft,
+                            &choices[hit],
+                            if expanded { '\n' } else { ' ' },
+                        );
+                        chip_fired = true;
+                    }
+                }
                 if active && ui.small_button("Stop reply").clicked() {
                     s.cancel_task_reply(key);
                 }
@@ -433,7 +471,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                     }
                 }
                 if needs_answer || retry {
-                    composer(ui, s, key, expanded, true);
+                    composer(ui, s, key, expanded, true, chip_fired);
                 }
             });
         if !expanded && !reply.summary.is_empty() && !active {
@@ -452,7 +490,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             egui::CollapsingHeader::new("Add context")
                 .default_open(has_draft)
                 .open(has_draft.then_some(true))
-                .show(ui, |ui| composer(ui, s, key, expanded, false));
+                .show(ui, |ui| composer(ui, s, key, expanded, false, false));
         }
         if expanded && !messages.is_empty() {
             ui.collapsing(format!("Conversation history ({})", messages.len()), |ui| {
@@ -703,5 +741,414 @@ mod tests {
             "no lifted row may survive the answer: {after_texts:?}"
         );
         after.textures_delta.clear();
+    }
+
+    // ------------------------------------------------------------------
+    // CHG-003 story 5: tappable option chips on the answer-needed card.
+    // ------------------------------------------------------------------
+
+    use crate::domain::item::{ItemKind, OpenItem, Priority};
+    use crate::domain::user::CurrentUser;
+    use crate::ui::{HeaderAction, Intent, ToastQueue};
+
+    const CARD_DIGEST: &str = "Ready.\n\n---\n\
+- Which vendor shall we bind?\n\
+- Yes, bind Aurora effective Monday.\n\
+- No, keep Postman.";
+
+    /// Minimal Surface probe: an eligible Human-question item `CLR-001`
+    /// (category General → broadcast-eligible to the seated operator) with
+    /// controllable task transcript, draft, busyness and send accounting.
+    #[derive(Default)]
+    struct CardProbe {
+        items: Vec<OpenItem>,
+        messages: Vec<ChatMessage>,
+        main: Vec<ChatMessage>,
+        draft: String,
+        draft_present: bool,
+        busy: bool,
+        sent: u32,
+        user: CurrentUser,
+        stakes: crate::domain::Stakeholders,
+        toasts: ToastQueue,
+    }
+
+    impl CardProbe {
+        /// The standard open answer card: an eligible question whose latest
+        /// agent reply ends in a two-choice digest.
+        fn answer_card(question: &str, digest: &str) -> Self {
+            Self {
+                items: vec![OpenItem::new(
+                    "CLR-001".to_string(),
+                    Priority::High,
+                    ItemKind::Question,
+                    "General".to_string(),
+                    None,
+                    question.to_string(),
+                    "Vendor selection".to_string(),
+                )],
+                messages: vec![
+                    ChatMessage::new(ChatRole::User, "Pick a vendor.", None),
+                    ChatMessage::new(ChatRole::Agent, digest, None),
+                ],
+                user: CurrentUser::new("Operator", vec![]),
+                draft_present: true,
+                ..Self::default()
+            }
+        }
+    }
+
+    impl Surface for CardProbe {
+        fn session_title(&self) -> &str {
+            "card probe"
+        }
+        fn is_git_repo(&self) -> bool {
+            false
+        }
+        fn git_branch(&self) -> &str {
+            ""
+        }
+        fn git_head(&self) -> &str {
+            ""
+        }
+        fn git_dirty(&self) -> bool {
+            false
+        }
+        fn chat_messages(&self) -> &[ChatMessage] {
+            &self.main
+        }
+        fn chat_draft(&mut self) -> &mut String {
+            &mut self.draft
+        }
+        fn is_busy(&self) -> bool {
+            self.busy
+        }
+        fn conversation_busy(&self) -> bool {
+            self.busy
+        }
+        fn task_progress(&self, _ticket: &str) -> Option<&crate::harness::LiveProgress> {
+            None
+        }
+        fn cancel_task(&mut self) {}
+        fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief> {
+            None
+        }
+        fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument] {
+            &[]
+        }
+        fn implementation_state(
+            &self,
+            _ticket: &str,
+        ) -> Option<&crate::core::implementation::Implementation> {
+            None
+        }
+        fn implementation_active(&self, _ticket: &str) -> bool {
+            false
+        }
+        fn implement_task(&mut self, _ticket: String) {}
+        fn auto_mode(&self) -> bool {
+            false
+        }
+        fn set_auto_mode(&mut self, _enabled: bool) {}
+        fn queue_status(&self) -> &str {
+            ""
+        }
+        fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
+            None
+        }
+        fn items(&self) -> &[OpenItem] {
+            &self.items
+        }
+        fn synthetic_items(&self) -> &[OpenItem] {
+            &[]
+        }
+        fn items_len(&self) -> usize {
+            self.items.len()
+        }
+        fn current_user(&self) -> &CurrentUser {
+            &self.user
+        }
+        fn stakeholders(&self) -> &crate::domain::Stakeholders {
+            &self.stakes
+        }
+        fn next_question_id(&self) -> Option<&str> {
+            None
+        }
+        fn spec_text(&self) -> &str {
+            ""
+        }
+        fn spec_words(&self) -> usize {
+            0
+        }
+        fn toasts(&mut self) -> &mut ToastQueue {
+            &mut self.toasts
+        }
+        fn on_intent(&mut self, _intent: &Intent) {}
+        fn on_header_action(&mut self, _action: HeaderAction) {}
+        // The card-under-test hooks.
+        fn task_messages(&self, _key: &str) -> &[ChatMessage] {
+            &self.messages
+        }
+        fn task_draft(&mut self, key: &str) -> Option<&mut String> {
+            (key == "CLR-001" && self.draft_present).then_some(&mut self.draft)
+        }
+        fn send_task_reply(&mut self, _key: &str) {
+            self.sent += 1;
+        }
+    }
+
+    /// (rect, stroke colour) pairs for every chip-styled cell on the frame.
+    fn card_chip_cells(output: &egui::FullOutput) -> Vec<(egui::Rect, egui::Color32)> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == theme::CHIP_FILL
+                        && rect.corner_radius == egui::CornerRadius::same(10_u8)
+                    => Some((rect.rect, rect.stroke.color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Centre of the text shape whose full text equals `needle`.
+    fn card_point(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => Some(shape),
+                _ => None,
+            })
+            .find(|shape| shape.galley.text() == needle)
+            .map(|shape| shape.pos + shape.galley.mesh_bounds.center().to_vec2())
+    }
+
+    /// Walk-order position among TEXT galleys, for nesting assertions.
+    fn card_walk_index(output: &egui::FullOutput, needle: &str) -> Option<usize> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => Some(&**shape.galley),
+                _ => None,
+            })
+            .position(|text| text == needle)
+    }
+
+    /// Runs one card frame with the probe; returns the frame output.
+    fn card_frame(
+        ctx: &egui::Context,
+        probe: &mut CardProbe,
+        expanded: bool,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+            egui::CentralPanel::default().show(ui, |ui| {
+                let _ = paint(ui, probe, "CLR-001", expanded);
+            });
+        })
+    }
+
+    fn press_events(pos: egui::Pos2) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]
+    }
+
+    fn release_events(pos: egui::Pos2) -> Vec<egui::Event> {
+        vec![egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }]
+    }
+
+    /// AC1/AC3: the compact answer-needed card keeps its heading, action and
+    /// Send-answer affordance UNTOUCHED while the two chips nestle inside the
+    /// ACCENT_SOFT frame BETWEEN the action and the composer; a tap on the
+    /// second chip space-joins its FULL text into the task draft and never
+    /// invokes send_task_reply.
+    #[test]
+    fn collapsed_card_nested_chips_spacejoin_the_tapped_option_into_the_task_draft() {
+        let choices =
+            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST));
+        assert_eq!(choices.len(), 2, "the two bullets offer options");
+        let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
+        let no_label = crate::ui::reply_tail::choice_label(&choices[1]);
+
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+        let mut probe = CardProbe::answer_card(
+            "Binding vendor for the checkout rollout", // ≠ action → action label paints
+            CARD_DIGEST,
+        );
+        probe.draft = "Short answer:".to_string();
+
+        let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
+        let heading_spot = card_walk_index(&out, "Your answer needed")
+            .expect("the answer-needed heading survives");
+        let action_spot = card_walk_index(&out, "Which vendor shall we bind?")
+            .expect("the action row survives");
+        let send_spot = card_walk_index(&out, "Send answer").expect("the send affordance survives");
+        let yes_spot = card_walk_index(&out, &yes_label).expect("chip one projects");
+        let no_spot = card_walk_index(&out, &no_label).expect("chip two projects");
+        // Nesting: action, THEN chips, THEN the composer/send.
+        assert!(
+            action_spot < yes_spot && yes_spot < no_spot && no_spot < send_spot,
+            "chips interleave action → chips → composer ({} {} {})",
+            action_spot,
+            yes_spot,
+            send_spot
+        );
+        assert!(heading_spot < action_spot, "heading leads the frame");
+        let cells = card_chip_cells(&out);
+        assert_eq!(cells.len(), 2, "radius-10 CHIP_FILL cells, one per choice");
+        assert!(cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER), "resting strokes");
+        let no_point = card_point(&out, &no_label).expect("chip two centre");
+        out.textures_delta.clear();
+
+        // Gesture: move + press, then release — mirroring the pane e2e.
+        card_frame(&ctx, &mut probe, false, press_events(no_point)).textures_delta.clear();
+        card_frame(&ctx, &mut probe, false, release_events(no_point)).textures_delta.clear();
+
+        assert_eq!(probe.sent, 0, "a chip tap must never invoke send_task_reply");
+        assert_eq!(probe.messages.len(), 2, "no reply began on the task lane");
+        assert_eq!(
+            probe.draft, "Short answer: No, keep Postman.",
+            "compact card space-joins the FULL chosen text"
+        );
+
+        // DoD caret proof on the card composer: the focus request settles on
+        // the next frame, and a keystroke afterwards must LAND BEHIND the
+        // inserted option (caret pinned at the drafted end, not a stale
+        // midpoint).
+        card_frame(&ctx, &mut probe, false, Vec::new()).textures_delta.clear();
+        card_frame(
+            &ctx,
+            &mut probe,
+            false,
+            vec![egui::Event::Text("x".to_string())],
+        )
+        .textures_delta.clear();
+        assert_eq!(
+            probe.draft, "Short answer: No, keep Postman.x",
+            "the post-tap keystroke landed at the pinned END of the draft"
+        );
+    }
+
+    /// AC1 expanded mode: the multiline task composer receives a NEWLINE join
+    /// for the tapped choice (matching the existing task-chat join convention
+    /// the ticket prescribes for expanded drafts).
+    #[test]
+    fn expanded_card_nested_chips_newlinejoin_the_tapped_option() {
+        let choices =
+            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST));
+        assert_eq!(choices.len(), 2);
+        let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
+
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+        let mut probe = CardProbe::answer_card(
+            "Binding vendor for the checkout rollout",
+            CARD_DIGEST,
+        );
+        probe.draft = "Long rationale:".to_string();
+
+        let mut out = card_frame(&ctx, &mut probe, true, Vec::new());
+        assert!(
+            card_walk_index(&out, "Your answer needed").is_some(),
+            "expanded card keeps the heading"
+        );
+        let cells = card_chip_cells(&out);
+        assert_eq!(cells.len(), 2, "expanded frame nests the chips too");
+        let yes_point = card_point(&out, &yes_label).expect("chip one centre");
+        out.textures_delta.clear();
+
+        card_frame(&ctx, &mut probe, true, press_events(yes_point)).textures_delta.clear();
+        card_frame(&ctx, &mut probe, true, release_events(yes_point)).textures_delta.clear();
+
+        assert_eq!(probe.sent, 0, "expanded tap must not send either");
+        assert_eq!(
+            probe.draft, "Long rationale:\nYes, bind Aurora effective Monday.",
+            "expanded card newline-joins the FULL chosen text"
+        );
+    }
+
+    /// AC1 negative: a busy task lane DIMS the row (still two radius-10
+    /// cells) and swallows the tap — no draft mutation, no send attempt.
+    #[test]
+    fn busy_cards_dim_the_chips_and_swallow_taps() {
+        let choices =
+            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST));
+        let no_label = crate::ui::reply_tail::choice_label(&choices[1]);
+
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+        let mut probe = CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
+        probe.busy = true;
+        probe.draft = "Kept.".to_string();
+
+        let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
+        let cells = card_chip_cells(&out);
+        assert_eq!(cells.len(), 2, "busyness dims, it does not remove, the chips");
+        assert!(cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER), "no hover promotion while busy");
+        let no_point = card_point(&out, &no_label).expect("dimmed chip centre");
+        out.textures_delta.clear();
+
+        card_frame(&ctx, &mut probe, false, press_events(no_point)).textures_delta.clear();
+        card_frame(&ctx, &mut probe, false, release_events(no_point)).textures_delta.clear();
+
+        assert_eq!(probe.draft, "Kept.", "busy tap must leave the draft untouched");
+        assert_eq!(probe.sent, 0, "busy tap must not send");
+    }
+
+    /// AC1/AC3 discipline on the card surface: a legacy next-step final, a
+    /// single-choice digest, an answered digest and a plain final each paint
+    /// ZERO chips even though the frame itself still behaves (heading
+    /// intact); the control open two-choice digest renders both.
+    #[test]
+    fn cards_without_an_open_two_to_six_choice_digest_offer_no_chips() {
+        let u = |text: &str| ChatMessage::new(ChatRole::User, text, None);
+        let a = |text: &str| ChatMessage::new(ChatRole::Agent, text, None);
+        let cases: Vec<(&str, Vec<ChatMessage>)> = vec![
+            (
+                "legacy next-step final",
+                vec![
+                    u("Set up SSO."),
+                    a("SSO is recorded.\nYour next step: Should guests use SSO too?"),
+                ],
+            ),
+            ("single-choice digest", vec![u("Deal?"), a("Deal?\n---\n- Yes, take it.")]),
+            (
+                "answered digest (retry frame)",
+                vec![u("Pick a vendor."), a(CARD_DIGEST), u("Aurora, Monday.")],
+            ),
+            ("marker-free plain final", vec![u("Status?"), a("All green, nothing blocked.")]),
+        ];
+        for (name, messages) in cases {
+            let ctx = egui::Context::default();
+            ctx.set_visuals(theme::packet_visuals());
+            let mut probe = CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
+            probe.messages = messages;
+            let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
+            assert_eq!(card_chip_cells(&out).len(), 0, "{name}: zero chips");
+            out.textures_delta.clear();
+        }
+        // Control: the open two-choice digest offers its row.
+        let ctx = egui::Context::default();
+        ctx.set_visuals(theme::packet_visuals());
+        let mut probe = CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
+        let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
+        assert_eq!(card_chip_cells(&out).len(), 2, "open digest renders both cards' chips");
+        out.textures_delta.clear();
     }
 }

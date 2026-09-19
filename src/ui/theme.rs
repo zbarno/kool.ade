@@ -19,12 +19,16 @@ pub const ACCENT_SOFT: Color32 = Color32::from_rgb(66, 74, 64);
 /// claiming it, so the lifted tail block reads as a quiet echo of that cue
 /// on every chat surface.
 pub const DIGEST_BG: Color32 = Color32::from_rgb(48, 55, 47);
-/// Reserved for CHG-003's option-chip row, which lands in story 5: the chip
-/// fill. Held here (exported and dead-warning-free via the lib surface)
-/// so the chips ship theme-consistent without re-reviewing the palette.
+/// Fill of the CHG-003 option-chip row (shipped in story 5): a desaturated
+/// sage one step darker than ACCENT_SOFT so a chip bed sits visually inside
+/// the digest backdrop's tone family without competing with the answer-
+/// needed frame. Consumed by `reply_tail::paint_chip_row` on every chat
+/// surface that offers chips.
 pub const CHIP_FILL: Color32 = Color32::from_rgb(58, 66, 55);
-/// Reserved for CHG-003's option-chip row, which lands in story 5: the chip
-/// border. Held here; unused until that story ships.
+/// Resting border of the CHG-003 option-chip row (shipped in story 5):
+/// the outline every chip draws idle and disabled; `paint_chip_row`
+/// promotes a hovered ENABLED chip's border to ACCENT, leaving these chips
+/// the palette's only consumers of this constant.
 pub const CHIP_BORDER: Color32 = Color32::from_rgb(96, 110, 92);
 pub const DANGER: Color32 = Color32::from_rgb(255, 107, 107);
 pub const WARNING: Color32 = Color32::from_rgb(255, 180, 84);

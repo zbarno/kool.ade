@@ -1,5 +1,8 @@
 //! Left pane: restored conversation (from ~/.packet), the working-status
 //! strip while a turn runs, and the composer. Returns per-frame intents.
+//! CHG-003 story 5 adds tappable option-chip rows beneath lifted digest
+//! asks: a tap joins the full choice text into the draft (newline-joined),
+//! pins the caret at its end, and never sends.
 
 use egui::{Frame, Layout, RichText, TextEdit};
 
@@ -32,7 +35,10 @@ pub fn paint(
         progress,
         offer,
         implementation_offer,
-        "What are you building?",
+        &ComposeCopy {
+            composer_id: "main_chat_composer",
+            hint: "What are you building?",
+        },
     )
 }
 
@@ -50,8 +56,22 @@ pub fn paint_task(
         None,
         None,
         false,
-        "Reply about this task…",
+        &ComposeCopy {
+            composer_id: "task_tab_composer",
+            hint: "Reply about this task…",
+        },
     )
+}
+
+/// Surface-specific static composer copy. Kept as ONE private parameter
+/// (rather than two scalars) so [`paint_with_hint`] does not accrue
+/// additional parameters past the lint baseline it already carries.
+struct ComposeCopy {
+    /// `id_salt` giving the pane's composer editor a surface-distinct
+    /// widget id (Main Chat and task tabs never share a TextEdit id).
+    composer_id: &'static str,
+    /// Placeholder shown while the draft is empty.
+    hint: &'static str,
 }
 
 fn paint_with_hint(
@@ -62,11 +82,18 @@ fn paint_with_hint(
     progress: Option<&crate::harness::LiveProgress>,
     offer: Option<&crate::core::workflow::InterviewBrief>,
     implementation_offer: bool,
-    hint: &str,
+    compose: &ComposeCopy,
 ) -> Intent {
+    let ComposeCopy {
+        composer_id,
+        hint,
+    } = *compose;
     let mut cancel = false;
     let mut generate_tasks = false;
     let mut implement_tasks = false;
+    // Flipped once per frame by a claimed chip tap so the composer can pin
+    // the caret and re-grab focus right behind the inserted text.
+    let mut chip_fired = false;
 
     // ---------- message scroll ----------
     // RESERVE composer + (optionally) working-strip height UP FRONT:
@@ -86,7 +113,15 @@ fn paint_with_hint(
                 // still owed an answer (a later user message retires it).
                 let lift_at = crate::ui::reply_tail::open_ask_index(messages);
                 for (index, m) in messages.iter().enumerate() {
-                    paint_message(ui, m, max_w, Some(index) == lift_at);
+                    paint_message(
+                        ui,
+                        m,
+                        max_w,
+                        Some(index) == lift_at,
+                        draft,
+                        &mut chip_fired,
+                        !busy,
+                    );
                     ui.add_space(8.0);
                 }
                 if implementation_offer {
@@ -138,15 +173,20 @@ fn paint_with_hint(
         .corner_radius(22.0)
         .inner_margin(egui::Margin::symmetric(16, 12))
         .show(ui, |ui| {
-            let editor = ui.add_sized(
-                egui::vec2(ui.available_width(), 48.0),
-                TextEdit::multiline(draft)
-                    .hint_text(hint)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(2)
-                    .frame(egui::Frame::NONE)
-                    .interactive(editable),
-            );
+            let editor = TextEdit::multiline(draft)
+                .hint_text(hint)
+                .id_salt(composer_id)
+                .desired_width(f32::INFINITY)
+                .desired_rows(2)
+                .frame(egui::Frame::NONE)
+                .interactive(editable)
+                .show(ui);
+            if chip_fired {
+                // A chip tap landed its option this frame: park the caret at
+                // the end of the fresh text and hand the box back (typing
+                // continues behind the inserted option).
+                crate::ui::reply_tail::pin_caret_to_end(&editor, ui.ctx(), draft);
+            }
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Ctrl + Enter to send").size(10.5).weak());
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
@@ -186,7 +226,7 @@ fn paint_with_hint(
                 });
             });
             if editable
-                && editor.has_focus()
+                && editor.response.has_focus()
                 && !draft.trim().is_empty()
                 && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter))
             {
@@ -201,7 +241,15 @@ fn paint_with_hint(
     }
 }
 
-fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32, lift: bool) {
+fn paint_message(
+    ui: &mut egui::Ui,
+    m: &ChatMessage,
+    max_w: f32,
+    lift: bool,
+    draft: &mut String,
+    chip_fired: &mut bool,
+    interactive: bool,
+) {
     let mine = m.role == ChatRole::User;
     let indent = if mine { 32.0 } else { 0.0 };
     ui.horizontal(|ui| {
@@ -246,6 +294,17 @@ fn paint_message(ui: &mut egui::Ui, m: &ChatMessage, max_w: f32, lift: bool) {
                             let tail = crate::ui::reply_tail::parse_reply_tail(&shielded);
                             crate::ui::markdown::paint(ui, &tail.body, crate::ui::markdown::CHAT);
                             crate::ui::reply_tail::paint_open_ask(ui, &tail);
+                            // CHG-003 story 5: tappable chips for digest
+                            // bullets that carry recognisable options
+                            // (2..=6 matches, else the tail declines; a tap
+                            // joins the FULL choice text, never sends).
+                            let choices = crate::ui::reply_tail::digest_choices(&tail);
+                            if let Some(index) =
+                                crate::ui::reply_tail::paint_chip_row(ui, &choices, interactive)
+                            {
+                                crate::ui::reply_tail::join_choice(draft, &choices[index], '\n');
+                                *chip_fired = true;
+                            }
                         } else {
                             crate::ui::markdown::paint(ui, &shielded, crate::ui::markdown::CHAT);
                         }
@@ -1111,5 +1170,246 @@ mod tests {
         assert!(border_lines(&main_out) >= 1, "main chat hairline present");
         main_out.textures_delta.clear();
         tab_out.textures_delta.clear();
+    }
+
+    // ------------------------------------------------------------------
+    // CHG-003 story 5: tappable option chips in the Main Chat pane.
+    // ------------------------------------------------------------------
+
+    const CHOICE_DIGEST: &str = "Ready.\n\n---\n\
+- Which vendor shall we bind?\n\
+- Yes, bind Aurora effective Monday.\n\
+- No, keep Postman.";
+
+    /// (rect, stroke colour) pairs for every chip-styled cell: a RoundRect
+    /// filled exactly [`theme::CHIP_FILL`] with corner radius 10.0.
+    fn chip_cells(output: &egui::FullOutput) -> Vec<(egui::Rect, egui::Color32)> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == theme::CHIP_FILL
+                        && rect.corner_radius == egui::CornerRadius::same(10_u8)
+                    => Some((rect.rect, rect.stroke.color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Centre point of the galley whose ENTIRE text equals `needle`.
+    fn galley_point(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+        output
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => Some(shape),
+                _ => None,
+            })
+            .find(|shape| shape.galley.text() == needle)
+            .map(|shape| shape.pos + shape.galley.mesh_bounds.center().to_vec2())
+    }
+
+    /// Multi-frame driver holding the pane's state (messages, draft, busyness)
+    /// across simulated input frames.
+    struct ChipTapHarness {
+        ctx: egui::Context,
+        messages: Vec<ChatMessage>,
+        draft: String,
+        busy: bool,
+    }
+
+    impl ChipTapHarness {
+        fn new(messages: Vec<ChatMessage>, busy: bool) -> Self {
+            Self {
+                ctx: paint_ctx(),
+                messages,
+                draft: String::new(),
+                busy,
+            }
+        }
+
+        /// One frame of the main pane; returns (frame output, intent).
+        fn frame(&mut self, events: Vec<egui::Event>) -> (egui::FullOutput, Intent) {
+            let mut intent = Intent::default();
+            let output = self.ctx.run_ui(
+                egui::RawInput { events, ..Default::default() },
+                |ui| {
+                    intent = paint(ui, &self.messages, &mut self.draft, self.busy, None, None, false);
+                },
+            );
+            (output, intent)
+        }
+
+        /// Pointer moved → press → (frame) → release; returns the release frame.
+        fn click_at(&mut self, pos: egui::Pos2) -> (egui::FullOutput, Intent) {
+            let (mut press_out, press_intent) = self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ]);
+            assert!(!press_intent.send, "a PRESS must never send");
+            press_out.textures_delta.clear();
+            self.frame(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }])
+        }
+    }
+
+    /// AC1/AC2 end-to-end: tapping a digest chip joins the FULL bullet text
+    /// into the draft (newline-joined, exact), never sends, grabs the
+    /// composer, and parks the caret at the inserted end — a later keystroke
+    /// lands BEHIND the option text. The chips sit directly under the
+    /// lifted ask row.
+    #[test]
+    fn tapping_a_digest_chip_types_the_full_option_into_the_main_draft_without_sending() {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Pick a vendor.", None),
+            ChatMessage::new(ChatRole::Agent, CHOICE_DIGEST, None),
+        ];
+        assert_eq!(crate::ui::reply_tail::open_ask_index(&messages), Some(1));
+        let choices =
+            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CHOICE_DIGEST));
+        assert_eq!(choices.len(), 2, "the two bullets offer options");
+        let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
+        let no_label = crate::ui::reply_tail::choice_label(&choices[1]);
+
+        let mut run = ChipTapHarness::new(messages, false);
+        let (mut output, first_intent) = run.frame(Vec::new());
+        assert!(!first_intent.send, "idle frame sends nothing");
+        let cells = chip_cells(&output);
+        assert_eq!(cells.len(), 2, "two chips under the lifted digest");
+        assert!(
+            cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER),
+            "idle chip strokes rest on CHIP_BORDER"
+        );
+        // Placement: the chips follow the lifted ask row in walk order.
+        let ask_spots = galley_positions(&output, "Which vendor shall we bind?");
+        let yes_spots = galley_positions(&output, &yes_label);
+        assert_eq!(ask_spots.len(), 1, "ask row visible");
+        assert_eq!(yes_spots.len(), 1, "chip one visible");
+        assert!(ask_spots[0] < yes_spots[0], "chip row rides BELOW the lifted ask");
+        let yes_point = galley_point(&output, &yes_label).expect("chip one centre");
+        assert!(galley_point(&output, &no_label).is_some(), "chip two visible");
+        output.textures_delta.clear();
+
+        assert!(run.ctx.memory(|mem| mem.focused()).is_none(), "no focus before the tap");
+        let (mut release_out, intent) = run.click_at(yes_point);
+        release_out.textures_delta.clear();
+        assert!(!intent.send, "a chip tap must NOT fire the composer");
+        assert!(!intent.cancel && !intent.generate_tasks && !intent.implement_tasks);
+        assert_eq!(
+            run.draft, choices[0].text,
+            "the FULL bullet text joins the draft, byte for byte"
+        );
+
+        // The focus request settles on the next frame; typing afterwards
+        // must land behind the inserted option (caret pinned at the end).
+        let (mut settle_out, _) = run.frame(Vec::new());
+        settle_out.textures_delta.clear();
+        assert!(
+            run.ctx.memory(|mem| mem.focused()).is_some(),
+            "the composer holds focus after the tap"
+        );
+        let (mut typed_out, typed_intent) =
+            run.frame(vec![egui::Event::Text("x".to_string())]);
+        typed_out.textures_delta.clear();
+        assert!(!typed_intent.send);
+        assert_eq!(
+            run.draft,
+            format!("{}x", choices[0].text),
+            "the keystroke landed at the pinned END of the draft"
+        );
+    }
+
+    /// AC1 negative: while the lane is busy the chips still render (dimmed,
+    /// stroke resting) but taps are fully inert — no draft mutation, no send.
+    #[test]
+    fn busy_panels_render_chips_but_swallow_every_tap() {
+        let messages = vec![
+            ChatMessage::new(ChatRole::User, "Pick a vendor.", None),
+            ChatMessage::new(ChatRole::Agent, CHOICE_DIGEST, None),
+        ];
+        let choices =
+            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CHOICE_DIGEST));
+        let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
+
+        let mut run = ChipTapHarness::new(messages, true);
+        let (mut output, _) = run.frame(Vec::new());
+        let cells = chip_cells(&output);
+        assert_eq!(cells.len(), 2, "business dims the chips, it does not erase them");
+        assert!(
+            cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER),
+            "disabled chips keep the resting border (no hover-promotion affordance)"
+        );
+        output.textures_delta.clear();
+        let yes_point = galley_point(&output, &yes_label).expect("dimmed chip one centre");
+        let (mut release_out, intent) = run.click_at(yes_point);
+        release_out.textures_delta.clear();
+        assert!(!intent.send, "busy tap must not send");
+        assert!(run.draft.is_empty(), "busy tap must not mutate the draft");
+    }
+
+    /// Absence battery (AC1/AC3 discipline): answered digests, single-choice
+    /// digests, legacy next-step lifts and plain finals render NO chips —
+    /// while the still-valid lifts keep floating (backdrop survives the chip
+    /// gate declining). The control: an open two-choice digest renders both.
+    #[test]
+    fn chip_rows_appear_only_for_open_two_to_six_choice_digests() {
+        const ONE_CHOICE: &str = "Deal?\n---\n- Yes, take it.";
+        const LEGACY: &str = "SSO is recorded.\nYour next step: Should guests use SSO too?";
+        let u = |text: &str| ChatMessage::new(ChatRole::User, text, None);
+        let a = |text: &str| ChatMessage::new(ChatRole::Agent, text, None);
+        let cases: Vec<(&str, Vec<ChatMessage>, usize)> = vec![
+            (
+                "answered digest",
+                vec![u("Pick a vendor."), a(CHOICE_DIGEST), u("Aurora, Monday.")],
+                0, // no lift at all
+            ),
+            (
+                "single-choice digest (gate declined, lift survives)",
+                vec![u("Deal?"), a(ONE_CHOICE)],
+                1, // one DIGEST_BG backdrop, zero chips
+            ),
+            (
+                "legacy next-step (lift survives, no chips)",
+                vec![u("Set up SSO."), a(LEGACY)],
+                1,
+            ),
+            (
+                "marker-free plain final",
+                vec![u("Status?"), a("All green, nothing blocked.")],
+                0,
+            ),
+        ];
+        for (name, messages, backdrops_expected) in cases {
+            let mut run = ChipTapHarness::new(messages, false);
+            let (mut output, _) = run.frame(Vec::new());
+            assert_eq!(chip_cells(&output).len(), 0, "{name}: no chips at all");
+            assert_eq!(
+                digest_backdrops(&output),
+                backdrops_expected,
+                "{name}: lift backdrop expectations held"
+            );
+            output.textures_delta.clear();
+        }
+        // Control: the open two-choice digest DOES render its row.
+        let mut run = ChipTapHarness::new(
+            vec![
+                ChatMessage::new(ChatRole::User, "Pick a vendor.", None),
+                ChatMessage::new(ChatRole::Agent, CHOICE_DIGEST, None),
+            ],
+            false,
+        );
+        let (mut output, _) = run.frame(Vec::new());
+        assert_eq!(chip_cells(&output).len(), 2, "open digest renders both chips");
+        output.textures_delta.clear();
     }
 }
