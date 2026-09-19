@@ -1,36 +1,41 @@
 {
   "brief": {
-    "featureName": "Editable Operator Persona (markdown persona system with shipped default voice)",
-    "problem": "The planner's persona is a constant compiled into the binary (src/core/prompt.rs); tuning the agent's voice today means a source edit and a rebuild. The operator wants to own it themselves, in plain markdown, inside the application.",
-    "goal": "A markdown persona editor in the interface, persisted at operator level (local, spanning projects, never committed to repositories), injected into every turn in both Main Chat and card conversations, shipping the operator's four-beat default (concise; protective of user, then system, then project; inquisitive; creative) with a reset-to-default.",
-    "targetUsers": "The seated operator (Zachary Barno, sole seat per D-23) shaping the planner's voice on their machine, across all connected projects.",
-    "intendedOutcome": "Settings → Persona → edit markdown → save; the very next reply already speaks the tuned voice in every conversation, with no rebuild, no repository change, and a reset that restores the shipped default.",
+    "featureName": "Packet Self-Review and Enhancement Pipeline (CHG-006)",
+    "problem": "Packet's own improvement opportunities — quality-of-life friction, latent bugs, missed feature openings — surface only by operator accident, and even less when the operator is driving a DIFFERENT project in Packet; the accumulated trace of every project it plans (turns, rejections, conversations, checkpoints) is never harvested into prioritized self-improvement work.",
+    "goal": "A self-improvement loop in Packet: review its own logs plus the planning files of the project currently in front of it, have the LLM brainstorm generative and novel improvement candidates (new features, quality of life, bug fixes), evaluate them to identify the best, promote it as a new \"Enhancement\" type ToDo kanban card carrying an approval button alongside normal steering/conversation inputs, and on approval convert it into a CHG feature, break it into ordered tasks, and begin the standard implementation queue — even when the active project is not Packet.",
+    "targetUsers": "The seated operator (Zachary Barno, D-23), who increasingly works other projects through Packet and would otherwise lose track of Packet's own rough edges; every project operated through Packet indirectly benefits from each accepted improvement.",
+    "intendedOutcome": "From any project's seat: invoke a self-review, read a dated ranked ideation bundle with evidence pointers, see the winning idea land as an Enhancement ToDo card, click Approve, and watch the CHG spec plus task batch appear and the Auto queue implement it — no manual re-interview, no switching projects back to Packet.",
     "successCriteria": [
-      "A standard-markdown persona card in the Settings dialog: view, edit, and save the persona document, with restore-default.",
-      "First run seeds the shipped four-beat default: concise; protective of the user, then the system, then the project; inquisitive; creative.",
-      "Edits persist across relaunches at operator level — outside the git repository, spanning projects; repository clones carry no voice.",
-      "Effective from the next turn on, in both Main Chat and card conversations.",
-      "The standing operating contract survives: a malformed envelope is still rejected even when an adversarial persona directs otherwise.",
-      "D-34 bar: regression green, no new clippy warnings versus the pinned 1.98 baseline, no new crates."
+      "A self-review run collects a bounded, read-only corpus (Packet's planning artifacts and checkpoint history, operator-local $PACKET_HOME logs, Packet's own source) and returns a validated dated bundle of findings and candidate improvements, modifying no repository files.",
+      "Candidates are checked for novelty against the current product modules, shipped/active CHGs, and open items, with duplicates visibly demoted citing the conflict.",
+      "The ranked evaluation identifies a single best idea that is promoted to a new Enhancement-type ToDo kanban card carrying problem statement, evidence, and anticipated effect.",
+      "The Enhancement card offers an Approve button in addition to the normal steering/conversation inputs; declining from the card retires it with the reason recorded and no feature minted.",
+      "On approval — with any other project active — one validated turn mints the next CHG, writes its seeded feature document, records the implementation approval, generates the frozen ordered task batch in the Packet repository, and feeds it to the Auto implementation queue.",
+      "D-34 bar for the feature itself: full regression green, no new clippy warnings versus the pinned Rust 1.98 baseline, no new crates, offline-launch posture preserved."
     ],
     "inScope": [
-      "Markdown persona editor card in the existing Settings dialog (first-run seed, save, restore default).",
-      "Operator-local persona storage outside git (spans projects); fallback to the shipped default with a diagnostic on missing/corrupt file.",
-      "Per-turn injection of the edited persona as a labeled layer over the standing system instructions, both conversation modes.",
-      "Subordination guarantee: operator text never waives the application-enforced operating contract.",
-      "In-file tests: seed, save/load round trip, injection assembly, fallback, adversarial boundary; D-34 regression bar."
+      "Self-review run trigger and orchestration (manual action placement plus cadence hook(s) per the pending ruling; busy-state guards against live turns and Auto batches).",
+      "Review-context compiler: bounded Packet planning artifacts and checkpoint history, bounded operator-local $PACKET_HOME log samples, Packet repository source refs with configurable location.",
+      "Special Pi review/ideation turn type with its own validated envelope: structured findings plus a candidate pool spanning new features, QoL, and bug fixes.",
+      "Novelty/dedup checking (deterministic id/title scan plus LLM semantic judgement over product modules, feature history, and open items).",
+      "Evaluation pass with a shown ranking and single-winner promotion; winners keep their evidence trail.",
+      "New Enhancement kanban card class: domain kind, legend/color entry, ToDo spawning, Approve button plus normal conversation inputs, reasoned decline path.",
+      "Cross-repository approval pipeline: CHG mint, feature seeding, workflow.json approval record, ordered story generation, Auto-queue handoff — atomic and validated.",
+      "Private persistence of review bundles and declines under $PACKET_HOME; git-backed artifacts only through the standard pipeline; D-34-regression-tested."
     ],
     "outOfScope": [
-      "Per-project or repo-committed/shared personas (contradicted by the operator-level ruling).",
-      "Persona libraries/pickers, per-conversation overrides, version history.",
-      "Multi-operator persona profiles (one seated operator per D-23; storage may reserve a seam).",
-      "Distributing personas over the deferred D-18 channel; auto-suggested personas."
+      "Improving any repository other than Packet (other projects get improvements only from their own seats).",
+      "Implementing unapproved ideas, bypassing the verify/merge pipeline, or promoting multiple enhancements per run.",
+      "Distributing enhancement cards or review bundles over the deferred collaboration channel (D-18/D-22; D-31's artifacts-only surface unchanged).",
+      "Telemetry, cloud ideation, new crates, or semantic/vector index services.",
+      "Retrospective re-reviews of concluded features beyond what git history already retains."
     ],
     "constraints": [
-      "Scoping is operator level — operator ruling; storage must live outside the repository.",
-      "The shipped default is the operator's four beats (typo 'Inqsitive' normalized to 'Inquisitive').",
-      "Boundary ruled Option 1 (CLR-022, DE-3): the persona is a subordinate voice-and-principles overlay; envelope, routing/veto, board protocol, and safety rails stay inviolate.",
-      "No new crates; offline-minimal posture kept; envelope validation layer untouched."
+      "The loop improves the Packet project only; the active working project may be any other registered repository.",
+      "Explicit human approval precedes any implementation (D-29/FR-14 lineage); the exact approval-depth mechanism is pending CLR-024.",
+      "No new crates; offline-launch posture preserved (NFR-7); collection phases are strictly read-only.",
+      "Standing contracts stay inviolate: envelope/validation invariants, D-24 turn budget, D-34 warning bar.",
+      "CHG-005's batch is still implementing; CHG-006 task generation sequences behind it (single active feature at a time)."
     ],
     "readyForTasks": false
   },
