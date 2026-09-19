@@ -82,5 +82,19 @@
     "recommendation": "Take Option 1 — the subordinate overlay, framed in the editor as guidance ('your persona tunes voice and principles; the app's protocol remains') — because application-side validation already guarantees legality, so Option 2 buys expressiveness only at the price of frequent surprise fallbacks.",
     "evidence": "System prompt is assembled per turn from the SYSTEM_INSTRUCTIONS const (src/core/prompt.rs:12) joined with SPECIFICATION_POLICY and a mode tail (src/core/turn.rs), pushed to Pi as --append-system-prompt (src/harness/pi_harness.rs:233), and shared by both conversation modes; legality is enforced application-side in src/core/validation.rs regardless of prompt text. Operator's four beats as quoted in the request; scoping ruling 'Operator level' recorded as DE-1 in the draft.\n\nResolution outcome: Ruling recorded: Option 1 — the persona is a subordinate voice-and-principles overlay; envelope, routing/veto, board protocol, and safety rails stay inviolate. CLR-022 resolved; REQ-P4-1 and AS-2 de-provisionalized, DE-3 logs the ruling. CHG-005 advances to Ready — the board card now needs your explicit approval before implementation starts. No reply needed.",
     "status": "resolved"
+  },
+  {
+    "id": "CLR-023",
+    "priority": "blocking",
+    "authority": "human",
+    "kind": "question",
+    "category": "Product",
+    "assigned_to": "Product",
+    "question": "Self-review cadence (CHG-006): when does Packet run the review of its own logs and the active project's planning files? Option 1 — manual only: a \"Run self-review\" action the operator invokes on demand. Option 2 — manual, plus one automatic run shortly after each feature reconciliation, so suggestions surface without prompting. Both options keep every Enhancement card behind the human approval button.",
+    "reason": "It sets the final form of Scope item 1 — whether the feature needs scheduler wiring, automated busy-state guarding, and unexpected-model-spend policies before the spec can be finalized, and it changes the operator-facing promise (available on demand vs surfaces itself after milestones).",
+    "feature_id": "CHG-006",
+    "recommendation": "Option 1 (manual only) for the first cut: cheapest, fully predictable, zero surprise model spend; Option 2's post-reconciliation hook is a small layered follow-on once the manual path earns its keep.",
+    "evidence": "Queue and workspace controls already live in top bar / Workspace→Settings (README); D-30's Auto mode is the existing automation precedent but only for the implementation queue — no autonomous analytical runs exist; D-24's 12-hour turn budget means unattended runs need explicit scheduling policy.\n\nResolution outcome: Ruling recorded: Option 2 — the manual 'Run self-review' action stands, plus one automatic run firing after each feature reconciliation completes, mounted at the settlement observation the app already makes in src/app/root.rs::advance_reconciliation (alongside its existing probe/cooldown mechanics). Captured in the CHG-006 draft as DE-1 (ruled), a new REQ-S1-3 (exactly one auto-run per reconciliation, same busy-state guards, 'auto' flagging, at most one extra Pi turn), de-contingenced Scope item 1, and new AC-7 covering the auto cadence. Downstream of any run — manual or auto — everything still sits behind the card's explicit Approve button. CHG-005 story 001 continues in its worktree; its outcome lands at merge. Your one remaining decision on this feature is CLR-024 (approval depth) on the board card — answer it whenever convenient. No reply needed.",
+    "status": "resolved"
   }
 ]

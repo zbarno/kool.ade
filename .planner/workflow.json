@@ -4,7 +4,7 @@
     "problem": "Packet's own improvement opportunities — quality-of-life friction, latent bugs, missed feature openings — surface only by operator accident, and even less when the operator is driving a DIFFERENT project in Packet; the accumulated trace of every project it plans (turns, rejections, conversations, checkpoints) is never harvested into prioritized self-improvement work.",
     "goal": "A self-improvement loop in Packet: review its own logs plus the planning files of the project currently in front of it, have the LLM brainstorm generative and novel improvement candidates (new features, quality of life, bug fixes), evaluate them to identify the best, promote it as a new \"Enhancement\" type ToDo kanban card carrying an approval button alongside normal steering/conversation inputs, and on approval convert it into a CHG feature, break it into ordered tasks, and begin the standard implementation queue — even when the active project is not Packet.",
     "targetUsers": "The seated operator (Zachary Barno, D-23), who increasingly works other projects through Packet and would otherwise lose track of Packet's own rough edges; every project operated through Packet indirectly benefits from each accepted improvement.",
-    "intendedOutcome": "From any project's seat: invoke a self-review, read a dated ranked ideation bundle with evidence pointers, see the winning idea land as an Enhancement ToDo card, click Approve, and watch the CHG spec plus task batch appear and the Auto queue implement it — no manual re-interview, no switching projects back to Packet.",
+    "intendedOutcome": "From any project's seat: invoke a self-review (manually, or let it fire once automatically after a feature reconciliation), read a dated ranked ideation bundle with evidence pointers, see the winning idea land as an Enhancement ToDo card, click Approve, and watch the CHG spec plus task batch appear and the Auto queue implement it — no manual re-interview, no switching projects back to Packet.",
     "successCriteria": [
       "A self-review run collects a bounded, read-only corpus (Packet's planning artifacts and checkpoint history, operator-local $PACKET_HOME logs, Packet's own source) and returns a validated dated bundle of findings and candidate improvements, modifying no repository files.",
       "Candidates are checked for novelty against the current product modules, shipped/active CHGs, and open items, with duplicates visibly demoted citing the conflict.",
@@ -14,7 +14,7 @@
       "D-34 bar for the feature itself: full regression green, no new clippy warnings versus the pinned Rust 1.98 baseline, no new crates, offline-launch posture preserved."
     ],
     "inScope": [
-      "Self-review run trigger and orchestration (manual action placement plus cadence hook(s) per the pending ruling; busy-state guards against live turns and Auto batches).",
+      "Self-review run trigger and orchestration: manual 'Run self-review' action placement plus the post-reconciliation automatic trigger (DE-1 ruled cadence), with busy-state guards against live turns and Auto batches.",
       "Review-context compiler: bounded Packet planning artifacts and checkpoint history, bounded operator-local $PACKET_HOME log samples, Packet repository source refs with configurable location.",
       "Special Pi review/ideation turn type with its own validated envelope: structured findings plus a candidate pool spanning new features, QoL, and bug fixes.",
       "Novelty/dedup checking (deterministic id/title scan plus LLM semantic judgement over product modules, feature history, and open items).",
@@ -32,10 +32,10 @@
     ],
     "constraints": [
       "The loop improves the Packet project only; the active working project may be any other registered repository.",
-      "Explicit human approval precedes any implementation (D-29/FR-14 lineage); the exact approval-depth mechanism is pending CLR-024.",
-      "No new crates; offline-launch posture preserved (NFR-7); collection phases are strictly read-only.",
-      "Standing contracts stay inviolate: envelope/validation invariants, D-24 turn budget, D-34 warning bar.",
-      "CHG-005's batch is still implementing; CHG-006 task generation sequences behind it (single active feature at a time)."
+      "Explicit human approval (the card's Approve gesture) gates every CHG mint, task generation, and implementation — including for automatically triggered runs (D-29/FR-14 property unchanged).",
+      "Cadence is fixed by ruling DE-1: manual action plus one automatic run after each completed feature reconciliation; auto runs obey the same busy-state guards and consume at most one extra Pi turn per reconciliation.",
+      "Offline-launch posture preserved, no new crates (NFR-7); D-34's no-new-clippy-warnings bar applies to the feature itself.",
+      "Review bundles and declined candidates stay operator-local under $PACKET_HOME; no new collaboration or sharing surface (D-07, D-31)."
     ],
     "readyForTasks": false
   },
