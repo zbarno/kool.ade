@@ -1,2 +1,10 @@
 /target
 *.swp
+
+# Packet runtime state is machine-local and must not be committed. Immutable
+# implementation reports, responses, corrections, and verification evidence
+# under .kool-ade-packet remain trackable.
+.kool-ade-packet/**/run.lock
+.kool-ade-packet/**/activity.json
+.kool-ade-packet/**/state.json
+.kool-ade-packet/**/*.tmp

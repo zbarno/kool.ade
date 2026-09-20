@@ -1,0 +1,42 @@
+[
+  {
+    "command": "pv=$(cargo --version | cut -d\" \" -f2); rv=$(rustc --version | cut -d\" \" -f2); cv=$(cargo clippy --version | cut -d\" \" -f2); echo \"cargo=$pv rustc=$rv clippy=$cv\"; [ \"$pv\" = \"1.98.1\" ] && [ \"$rv\" = \"1.98.1\" ] && [ \"$cv\" = \"0.1.98\" ]",
+    "error": null,
+    "output": "cargo=1.98.1 rustc=1.98.1 clippy=0.1.98"
+  },
+  {
+    "command": "cd \"$PACKET_WORKTREE\" || exit 1; FA=f773b2de6e088f7a41826451a1f1cc506e141ffb; FB=6214a58bc747007129d820431375255625ec9396; V=df5e3d9fd6328b856c7eb55499c54c8a55a78d3f; [ \"$(git rev-parse $FA:Cargo.toml)\" = \"$(git rev-parse $FB:Cargo.toml)\" ] && [ \"$(git rev-parse $FA:Cargo.lock)\" = \"$(git rev-parse $FB:Cargo.lock)\" ] && [ \"$(git rev-parse $V:Cargo.toml)\" = \"$(git rev-parse $FB:Cargo.toml)\" ] && [ \"$(git rev-parse $V:Cargo.lock)\" = \"$(git rev-parse $FB:Cargo.lock)\" ] && { t=$(git cat-file blob $FB:Cargo.toml | sha256sum | cut -d\" \" -f1); l=$(git cat-file blob $FB:Cargo.lock | sha256sum | cut -d\" \" -f1); p=$(git cat-file blob $V:Cargo.lock | grep -c '^\\[\\[package\\]\\]'); echo \"toml_sha256=$t lock_sha256=$l packages=$p\"; [ \"$t\" = \"d5e06fd03f6bedf7827bd6ce2e3f47b1f5ce1972ecfdec8e8301046555e469d4\" ] && [ \"$l\" = \"141ae6c07c7de738619e584de7ee1f96f9fc147a05864c15313a33e474574cfb\" ] && [ \"$p\" = \"428\" ]; }",
+    "error": null,
+    "output": "toml_sha256=d5e06fd03f6bedf7827bd6ce2e3f47b1f5ce1972ecfdec8e8301046555e469d4 lock_sha256=141ae6c07c7de738619e584de7ee1f96f9fc147a05864c15313a33e474574cfb packages=428"
+  },
+  {
+    "command": "cd \"$PACKET_WORKTREE\" || exit 1; FA=f773b2de6e088f7a41826451a1f1cc506e141ffb; V=df5e3d9fd6328b856c7eb55499c54c8a55a78d3f; A=/tmp/.pktd34_a.$$; B=/tmp/.pktd34_b.$$; git merge-base --is-ancestor $FA $V; rc1=$?; git diff --name-only $FA..$V -- src Cargo.toml Cargo.lock | LC_ALL=C sort > \"$A\"; printf '%s\\n' src/app/dialogs.rs src/core/prompt.rs src/core/turn.rs src/core/validation.rs src/persistence.rs src/persistence/persona.rs src/ui/layout.rs | LC_ALL=C sort > \"$B\"; cp=$(git log --format=%s $FA..$V | grep -cE '^Implement 00[1-4] '); ok=$(cmp -s \"$A\" \"$B\" && echo Y || echo N); rm -f \"$A\" \"$B\"; echo \"ancestor_rc=$rc1 seven_path_set_equal=$ok persona_checkpoint_subjects=$cp\"; [ $rc1 -eq 0 ] && [ \"$ok\" = \"Y\" ] && [ \"$cp\" -ge 4 ]",
+    "error": null,
+    "output": "ancestor_rc=0 seven_path_set_equal=Y persona_checkpoint_subjects=4"
+  },
+  {
+    "command": "cd \"$PACKET_WORKTREE\" || exit 1; FA=f773b2de6e088f7a41826451a1f1cc506e141ffb; V=df5e3d9fd6328b856c7eb55499c54c8a55a78d3f; exp=$(printf 'M\\tsrc/app/dialogs.rs\\nM\\tsrc/core/prompt.rs\\nM\\tsrc/core/turn.rs\\nM\\tsrc/core/validation.rs\\nM\\tsrc/persistence.rs\\nA\\tsrc/persistence/persona.rs\\nM\\tsrc/ui/layout.rs'); act=$(git diff --name-status $FA..$V -- src); hv=$(git diff --name-only $FA..$V -- src/harness | wc -c); te=$(git diff --name-only $FA..$V -- tests examples | wc -c); echo \"name_status_matches_exact_A_plus_6M=$([ \"$act\" = \"$exp\" ] && echo Y || echo N) harness_changed_bytes=$hv tests_examples_changed_bytes=$te\"; [ \"$act\" = \"$exp\" ] && [ \"$hv\" = \"0\" ] && [ \"$te\" = \"0\" ]",
+    "error": null,
+    "output": "name_status_matches_exact_A_plus_6M=Y harness_changed_bytes=0 tests_examples_changed_bytes=0"
+  },
+  {
+    "command": "G=/tmp/d34_gate_df5e3d9; [ -f $G/added.lines ] && [ ! -s $G/added.lines ] && [ \"$(wc -l < $G/removed.lines)\" = \"0\" ] && [ \"$(wc -l < $G/pre.set)\" = \"60\" ] && [ \"$(wc -l < $G/post.set)\" = \"60\" ] && [ \"$(wc -l < $G/res2/anchor_pre.set)\" = \"60\" ] && [ \"$(cat $G/pre_raw.rc)\" = \"EXIT=0\" ] && [ \"$(cat $G/post_raw.rc)\" = \"EXIT=0\" ] && [ \"$(cat $G/res2/anchor_pre_raw.rc)\" = \"EXIT=0\" ] && cmp -s $G/pre.set $G/post.set && cmp -s $G/pre.set $G/res2/anchor_pre.set && awk -f $G/normalize.awk $G/pre_raw.stderr | LC_ALL=C sort -u | cmp -s - $G/pre.set && awk -f $G/normalize.awk $G/post_raw.stderr | LC_ALL=C sort -u | cmp -s - $G/post.set && awk -f $G/normalize.awk $G/res2/anchor_pre_raw.stderr | LC_ALL=C sort -u | cmp -s - $G/res2/anchor_pre.set && { n=$(comm -13 $G/pre.set $G/post.set | wc -c); echo \"added_lines_bytes=$n\"; [ \"$n\" = \"0\" ]; }",
+    "error": null,
+    "output": "added_lines_bytes=0"
+  },
+  {
+    "command": "G=/tmp/d34_gate_df5e3d9; sa=$(grep -E '^[[:space:]]*-->' $G/post_raw.stderr | grep -cF 'src/persistence/persona'); sb=$(grep -inE 'PersonaLoad|DlgPersona|PersonaSave|persona_layer|persona_path|persona_boundary|persona_injection|compose_system_instructions|TASK_CONVERSATION_MODE_NOTE|SHIPPED_DEFAULT_PERSONA|PERSONA_LAYER_INTRO|HOSTILE_PERSONA|fatal_classes' $G/post_raw.stderr | grep -Ec ':(warning|= help|= note)'); sz=$(comm -13 $G/synth_pre.set $G/synth_pre.set | wc -l); sy=$(comm -13 $G/synth_pre.set $G/synth_post.set); echo \"stageA_location_hits=$sa stageB_identifier_lines=$sb synth_control_zero=$sz synthetic_detected=[${sy}]\"; [ \"$sa\" = \"0\" ] && [ \"$sb\" = \"0\" ] && [ \"$sz\" = \"0\" ] && [ \"$sy\" = \"warning: SYNTHETIC ADDED WARNING @ src/persistence/persona.rs\" ]",
+    "error": null,
+    "output": "stageA_location_hits=0 stageB_identifier_lines=0 synth_control_zero=0 synthetic_detected=[warning: SYNTHETIC ADDED WARNING @ src/persistence/persona.rs]"
+  },
+  {
+    "command": "G=/tmp/d34_gate_df5e3d9; ok=$(grep -c '^test result: ok' $G/test_full.log); bf=$(grep -c '^test result: FAILED' $G/test_full.log); bok=$(grep -c '^test result: ok' $G/batteries.all.log); bbf=$(grep -c '^test result: FAILED' $G/batteries.all.log); echo \"suite_ok_sections=$ok suite_failed_sections=$bf battery_filters_ok=$bok battery_filters_failed=$bbf\"; [ \"$ok\" = \"6\" ] && [ \"$bf\" = \"0\" ] && [ \"$bok\" = \"7\" ] && [ \"$bbf\" = \"0\" ]",
+    "error": null,
+    "output": "suite_ok_sections=6 suite_failed_sections=0 battery_filters_ok=7 battery_filters_failed=0"
+  },
+  {
+    "command": "cd \"$PACKET_WORKTREE\" || exit 1; hd=$(git rev-parse HEAD); st=$(git status --porcelain | wc -c); wt=$(git worktree list | grep -c '/tmp/d34_'); rec=$(grep -c '^FINAL VERDICT: PASS$' /tmp/d34_gate_df5e3d9/RECORD.md); echo \"HEAD=$hd this_worktree_status_bytes=$st leftover_tmp_d34_worktrees=$wt record_PASS_lines=$rec\"; [ \"$hd\" = \"df5e3d9fd6328b856c7eb55499c54c8a55a78d3f\" ] && [ \"$st\" = \"0\" ] && [ \"$wt\" = \"0\" ] && [ \"$rec\" = \"1\" ]",
+    "error": null,
+    "output": "HEAD=df5e3d9fd6328b856c7eb55499c54c8a55a78d3f this_worktree_status_bytes=0 leftover_tmp_d34_worktrees=0 record_PASS_lines=1"
+  }
+]
