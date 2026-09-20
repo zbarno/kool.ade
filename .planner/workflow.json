@@ -31,11 +31,11 @@
       "Retrospective re-reviews of concluded features beyond what git history already retains."
     ],
     "constraints": [
-      "The loop improves the Packet project only; the active working project may be any other registered repository.",
-      "Explicit human approval (the card's Approve gesture) gates every CHG mint, task generation, and implementation — including for automatically triggered runs (D-29/FR-14 property unchanged).",
-      "Cadence is fixed by ruling DE-1: manual action plus one automatic run after each completed feature reconciliation; auto runs obey the same busy-state guards and consume at most one extra Pi turn per reconciliation.",
-      "Offline-launch posture preserved, no new crates (NFR-7); D-34's no-new-clippy-warnings bar applies to the feature itself.",
-      "Review bundles and declined candidates stay operator-local under $PACKET_HOME; no new collaboration or sharing surface (D-07, D-31)."
+      "The loop improves the Packet repository only; no other repository is ever a write target of generated ideas.",
+      "Every generated idea waits behind the card's single explicit human Approve click (DE-2 ruling); D-29/FR-14's no-implementation-without-explicit-approval property and D-14 routing/veto stay untouched.",
+      "The §12 MVP exit bar (D-20/D-21) and the deferred channel surface (D-18/D-22; D-31 artifacts-only) are untouched.",
+      "No new crates; NFR-7 offline-launch posture preserved; the change itself meets the D-34 bar on the pinned Rust 1.98 toolchain.",
+      "Review bundles and declined candidates persist operator-privately under $PACKET_HOME; git-backed artifacts enter only through the standard validated pipeline."
     ],
     "readyForTasks": false
   },
