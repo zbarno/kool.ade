@@ -1,4 +1,5 @@
 //! Workspace with persistent tabbed conversations beside the Kanban board.
+use crate::app::dialogs;
 use crate::ui::{Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
@@ -17,6 +18,8 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let mut settings_open = ui
         .ctx()
         .data_mut(|d| d.get_temp::<bool>(settings_id).unwrap_or(false));
+    // Prior-frame openness: drives the persona draft-drop on the close edge.
+    let settings_was_open = settings_open;
     Panel::top("packet_header")
         .exact_size(if compact { 78.0 } else { 108.0 })
         .frame(
@@ -254,7 +257,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
         });
     if settings_open {
         let mut open_batch = None;
-        let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 560.0, |ui| {
+        let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 640.0, |ui| {
             ui.heading("Implementation & queue");
             let mut parallel = s.max_parallel_tasks();
             if ui
@@ -277,6 +280,8 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             }
             ui.label("When enabled, verified tasks merge automatically and the queue continues. Disable to use pull requests for future tasks.");
             ui.label("To begin, send ‘start implementing’ in Main Chat. This approves the feature for the next eligible task and starts it. You can also select and approve a feature in Specifications, then use a task’s Implement action.");
+            ui.separator();
+            paint_persona_section(ui, s);
             if !s.queue_status().is_empty() {
                 ui.separator();
                 ui.label(s.queue_status());
@@ -304,8 +309,78 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             });
         }
     }
+    // Close edge: the modal went open → closed this frame. Drop the VOLATILE
+    // persona draft (its two session-lived temp slots) so the NEXT open
+    // re-binds to the live persona.md bytes — bind-on-open doctrine, no ghost
+    // draft (unsaved edits and diagnostics die with the modal on purpose).
+    //
+    // Deliberately SURGICAL removals, not an egui `IdTypeMap::clear()`:
+    // on egui 0.36 a clear() would wipe EVERY temporary and persisted value
+    // (the operator's open chat tabs, document views, widget state) — far
+    // beyond this ticket's purely-additive bounds. Only the two persona
+    // slots owe expiry here.
+    if settings_was_open && !settings_open {
+        ui.ctx().data_mut(|d| {
+            d.remove_temp::<bool>(egui::Id::new("packet_persona_was_closed"));
+            d.remove_temp::<dialogs::DlgPersona>(egui::Id::new("packet_persona_card"));
+        });
+    }
     ui.ctx()
         .data_mut(|d| d.insert_temp(settings_id, settings_open));
+}
+
+/// Planner persona section inside the Workspace settings modal (host glue
+/// only — the card model and painter live in [`crate::app::dialogs`]).
+///
+/// Lifecycle (bind-on-open):
+/// * the FIRST entry into a modal open-cycle constructs
+///   `DlgPersona::from_load(&persona::load_persona())` — that load IS the
+///   first-run seed trigger (story 001 owns the seed write itself);
+/// * later frames of the same cycle reuse the temp-slot draft, so unsaved
+///   edits survive redraws for the duration of the open;
+/// * when the modal closes, [`paint`] expunges the slots and the next open
+///   re-binds to the live file bytes — no stale draft resurrection.
+///
+/// Signals: save → Written (success toast) / Unchanged (info toast) /
+/// Err (card keeps the modal open with the red feedback line already set);
+/// restore → Ok (success toast) / Err (same keep-open red line).
+fn paint_persona_section(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    let card_slot = egui::Id::new("packet_persona_card");
+    let live_flag = egui::Id::new("packet_persona_was_closed");
+    // Flag absent or true == "was closed" == pristine: first entry of this
+    // open cycle. false == a live draft occupies the slot.
+    let live = ui.ctx().data_mut(|d| d.get_temp::<bool>(live_flag)) == Some(false);
+    let mut card = if live {
+        ui.ctx()
+            .data_mut(|d| d.remove_temp::<dialogs::DlgPersona>(card_slot))
+            .unwrap_or_else(|| {
+                dialogs::DlgPersona::from_load(&crate::persistence::persona::load_persona())
+            })
+    } else {
+        dialogs::DlgPersona::from_load(&crate::persistence::persona::load_persona())
+    };
+    let (save_pressed, restore_pressed) = dialogs::paint_persona_card(ui, &mut card);
+    if save_pressed {
+        match card.save() {
+            Ok(dialogs::PersonaSaveOutcome::Written) => s
+                .toasts()
+                .success("Persona saved \u{2014} effective from the next reply."),
+            Ok(dialogs::PersonaSaveOutcome::Unchanged) => {
+                s.toasts().info("Persona already in sync.")
+            }
+            // Err: the card already carries the red feedback line; the modal
+            // stays open (only its X dismisses).
+            Err(_) => {}
+        }
+    }
+    if restore_pressed && card.restore_default().is_ok() {
+        s.toasts().success("Persona default restored")
+    }
+    // Err path: red feedback already set on the card; modal stays open.
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(live_flag, false);
+        d.insert_temp(card_slot, card);
+    });
 }
 
 #[derive(Clone, Default)]
