@@ -113,6 +113,15 @@ No existing product ID is renumbered or silently redefined. Reconciliation will 
 - **Review during implementation:** Define repository identity and local checkout mapping format without committing machine paths. Reject ambiguous or unavailable repositories before generating/starting tasks; do not guess a target. Preserve the existing single-repository path when no manifest exists.
 - **Review during implementation:** The current per-file rename writes are not a multi-file transaction. The new logical-update contract requires an application-level staged transaction/recovery journal or equivalent mechanism so failure between files does not expose a partially accepted document set. This is a design obligation, not a claim about current behavior.
 
+
+### CLR-025 — Approved provisional decision
+
+> Approve: add a mirror-of-005 gate ticket to that task's batch, scoped to f773b2d's footprint (src/ plus tests/multi_repository_feature.rs plus the CHG-001 spec delta) on the pinned Rust 1.98 toolchain; treat f773b2d as pre-existing debt for CHG-005 purposes only.
+
+Evidence considered:
+
+> f773b2d = +885/−281 over 25 files; 18 src paths outside CHG-005's seven-path set; never captured by any clippy baseline or D-34 pass; CHG-005 gate record /tmp/d34_gate_df5e3d9/RECORD.md foreign-commit dossier; operator ruling in ticket 005 conversation: 'the other local changes are from another task, ignore those'.
+
 ## Acceptance Criteria
 
 The feature is complete only when all of the following are demonstrated with concrete artifacts and tests. The numbered list preserves the operator's acceptance bar.

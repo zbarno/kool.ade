@@ -110,5 +110,19 @@
     "recommendation": "Option 1: the card's Approve gesture IS the explicit human approval, recorded with the same contract-hash mechanism approve_feature uses, so FR-14's property (no task generation without explicit human approval) holds unchanged while delivering the requested one-click experience.",
     "evidence": "src/core/workflow.rs::approve_feature snapshots the feature contract into .planner/workflow.json and ::prepare refuses generation without that record; layout.rs:195 already establishes board-level feature approval as an accepted interaction pattern; the operator's request states approval leads directly to breakdown and implementation.\n\nResolution outcome: Ruling recorded: Option 1 — the card's Approve is the single formal implementation approval (now DE-2), recorded at mint time with the approve_feature contract-hash mechanism, so prepare's check is satisfied and no second step is needed. REQ-S4-1 restated, REQ-S4-3 added, AC-3 strengthened; CHG-006 advances to Ready with CLR-024 resolved. Starting implementation still requires your explicit approval of the Ready board card. No reply needed.",
     "status": "resolved"
+  },
+  {
+    "id": "CLR-025",
+    "priority": "high",
+    "authority": "review",
+    "kind": "question",
+    "category": "General",
+    "assigned_to": "General",
+    "question": "The foreign commit f773b2d ('feat: Enhance feature management and task handling', pushed mid-batch and extended by the in-flight task's working-tree changes) now rides master ungated. Will that task's batch carry a D-34-style gate ticket covering f773b2d's footprint — 23 src paths, its rewrite of tests/multi_repository_feature.rs, and its CHG-001 feature-doc delta — before that work releases?",
+    "reason": "Per the operator ruling recorded in CHG-005 DE-4, f773b2d is attributed to the other in-flight task and excluded from CHG-005's gate, so its warnings, test rewrites, and product-doc changes enter the shared tree without certification; releasing that work ungated would strand the next reconciliation with unverifiable current truth.",
+    "feature_id": "CHG-001",
+    "recommendation": "Approve: add a mirror-of-005 gate ticket to that task's batch, scoped to f773b2d's footprint (src/ plus tests/multi_repository_feature.rs plus the CHG-001 spec delta) on the pinned Rust 1.98 toolchain; treat f773b2d as pre-existing debt for CHG-005 purposes only.",
+    "evidence": "f773b2d = +885/−281 over 25 files; 18 src paths outside CHG-005's seven-path set; never captured by any clippy baseline or D-34 pass; CHG-005 gate record /tmp/d34_gate_df5e3d9/RECORD.md foreign-commit dossier; operator ruling in ticket 005 conversation: 'the other local changes are from another task, ignore those'.\n\nResolution outcome: Approved provisional decision CLR-025.",
+    "status": "resolved"
   }
 ]
