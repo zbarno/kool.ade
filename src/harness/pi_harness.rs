@@ -232,6 +232,8 @@ impl AiHarness for PiHarness {
             "--no-prompt-templates".into(),
             "--append-system-prompt".into(),
             req.system_instructions.clone(),
+            "--thinking".into(),
+            req.reasoning_level.clone(),
         ]);
 
         if req.read_only {

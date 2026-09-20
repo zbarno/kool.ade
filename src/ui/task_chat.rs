@@ -262,7 +262,9 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             });
         let implementation = s.implementation_state(key).cloned();
         let implementing = s.implementation_active(key);
-        let story = item.is_none() && key.starts_with("planning/tasks/");
+        let story = item.is_none()
+            && (key.starts_with("planning/tasks/")
+                || key.starts_with(".kool-ade-packet/planning/tasks/"));
         let implementation_column =
             crate::core::implementation::board_column(implementation.as_ref(), implementing);
         let needs_answer = !active

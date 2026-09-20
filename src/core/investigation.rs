@@ -138,6 +138,7 @@ fn run_with_settle_window(
         let request = PlanningRequest {
             implementation: false,
             read_only: true,
+            reasoning_level: "xhigh".into(),
             repo_root: state.repo_root.clone(),
             prompt_body: format!("{base}\n{correction}"),
             system_instructions: format!(

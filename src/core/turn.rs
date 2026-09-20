@@ -270,6 +270,7 @@ fn run_turn(
     let request = PlanningRequest {
         implementation: false,
         read_only: false,
+        reasoning_level: "xhigh".into(),
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),

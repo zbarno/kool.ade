@@ -45,17 +45,17 @@ pub struct Implementation {
     pub pr_check_error: Option<String>,
 }
 #[derive(Debug, Deserialize, Serialize)]
-struct Report {
-    status: String,
-    summary: String,
-    acceptance_criteria: Vec<Criterion>,
-    verification: Vec<String>,
-    remaining: Vec<String>,
+pub(crate) struct Report {
+    pub(crate) status: String,
+    pub(crate) summary: String,
+    pub(crate) acceptance_criteria: Vec<Criterion>,
+    pub(crate) verification: Vec<String>,
+    pub(crate) remaining: Vec<String>,
 }
 #[derive(Debug, Deserialize, Serialize)]
-struct Criterion {
-    criterion: String,
-    evidence: String,
+pub(crate) struct Criterion {
+    pub(crate) criterion: String,
+    pub(crate) evidence: String,
 }
 
 pub enum Event {
@@ -245,26 +245,57 @@ fn common(repo: &Path) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
+    // State belongs to the repository's Packet workspace, not to .git. This
+    // keeps resumable implementation evidence visible, portable, and backed
+    // up with the rest of the Packet artifacts.
+    Ok(repo
+        .join(crate::artifacts::packet::PACKET_IMPLEMENTATION_DIR)
+        .join(key(ticket)))
+}
+
+fn legacy_state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
     Ok(common(repo)?
         .join("packet-implementations")
         .join(key(ticket)))
 }
+
+fn migrate_legacy_state(repo: &Path, ticket: &str) -> anyhow::Result<()> {
+    let target = state_dir(repo, ticket)?;
+    let legacy = legacy_state_dir(repo, ticket)?;
+    if !target.exists() && legacy.exists() {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(legacy, target)?;
+    }
+    Ok(())
+}
 pub fn load_all(repo: &Path) -> Vec<Implementation> {
-    let Ok(common) = common(repo) else {
-        return Vec::new();
-    };
-    let Ok(entries) = fs::read_dir(common.join("packet-implementations")) else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
+    let mut records = Vec::new();
+    for root in [
+        repo.join(crate::artifacts::packet::PACKET_IMPLEMENTATION_DIR),
+        common(repo)
+            .ok()
+            .map(|p| p.join("packet-implementations"))
+            .unwrap_or_default(),
+    ] {
+        let Ok(entries) = fs::read_dir(root) else {
+            continue;
+        };
+        records.extend(entries.filter_map(Result::ok).filter_map(|entry| {
             serde_json::from_slice(&fs::read(entry.path().join("state.json")).ok()?).ok()
-        })
-        .collect()
+        }));
+    }
+    records
 }
 pub fn load(repo: &Path, ticket: &str) -> Option<Implementation> {
-    serde_json::from_slice(&fs::read(state_dir(repo, ticket).ok()?.join("state.json")).ok()?).ok()
+    let path = state_dir(repo, ticket).ok()?.join("state.json");
+    let path = if path.exists() {
+        path
+    } else {
+        legacy_state_dir(repo, ticket).ok()?.join("state.json")
+    };
+    serde_json::from_slice(&fs::read(path).ok()?).ok()
 }
 fn save(dir: &Path, state: &Implementation) -> anyhow::Result<()> {
     let temporary = dir.join("state.json.tmp");
@@ -399,11 +430,12 @@ pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
 fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
         ticket.starts_with("planning/tasks/")
-            && ticket.ends_with(".md")
-            && Path::new(ticket)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(|c: char| c.is_ascii_digit())),
+            || ticket.starts_with(".kool-ade-packet/planning/tasks/")
+                && ticket.ends_with(".md")
+                && Path::new(ticket)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with(|c: char| c.is_ascii_digit())),
         "Select a numbered task story"
     );
     anyhow::ensure!(
@@ -489,6 +521,7 @@ fn run_with_project_options(
         progress,
     };
     let text = read_ticket(planning_root, ticket)?;
+    migrate_legacy_state(planning_root, ticket)?;
     let dir = state_dir(planning_root, ticket)?;
     fs::create_dir_all(&dir)?;
     let lock = fs::OpenOptions::new()
@@ -792,7 +825,7 @@ fn prepare_verified(
             let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
             let report_path = dir.join(format!("{stamp}-report.json"));
             prompt.push_str(&format!("\n\nRECOVERY REPORT FILE: {}\nAfter verification, atomically write the same complete JSON report to this absolute file (temporary sibling then rename) before your final response. This preserves completion if the CLI loses its final message.\nYou may fix the root cause of encountered failures and add regression coverage in this worktree when necessary. Keep repairs focused, preserve checks, and do not commit them yourself: Packet verifies and commits the task and its recovery fixes together atomically.\n", report_path.display()));
-            let request = PlanningRequest { implementation: true, read_only: false, repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
+            let request = PlanningRequest { implementation: true, read_only: false, reasoning_level: "medium".into(), repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
             let outcome = match harness.execute(&request) {
                 Ok(outcome) => outcome,
                 Err(error) => {
@@ -939,6 +972,16 @@ fn prepare_verified(
             runner.git(&state.worktree, &["rev-parse", "HEAD"])? == head,
             "Agent changed commit history; refusing a non-atomic task commit"
         );
+        let pending_paths = runner.git(&state.worktree, &["diff", "--name-only"])?;
+        if !pending_paths.trim().is_empty() {
+            let adr = crate::artifacts::packet::publish_adr(
+                &state.worktree,
+                state,
+                &report,
+                &pending_paths,
+            )?;
+            runner.update(format!("Prepared ADR {}", adr.display()));
+        }
         runner.git(&state.worktree, &["add", "--all"])?;
         if !runner
             .git(&state.worktree, &["diff", "--cached", "--name-only"])?
@@ -2605,7 +2648,10 @@ mod activity_persist_trims {
         // Oversized post text bounded, tail preserved.
         let last = trimmed.posts.last().unwrap();
         assert!(last.text.chars().count() <= ACTIVITY_MAX_POST_CHARS + 1);
-        assert!(last.text.ends_with(&"x".repeat(ACTIVITY_MAX_POST_CHARS.min(10))));
+        assert!(
+            last.text
+                .ends_with(&"x".repeat(ACTIVITY_MAX_POST_CHARS.min(10)))
+        );
         // Long fields bounded to tail-with-marker.
         for field in [
             &trimmed.thoughts,
@@ -2614,7 +2660,9 @@ mod activity_persist_trims {
             trimmed.activity.as_deref().unwrap(),
         ] {
             assert!(field.chars().count() <= ACTIVITY_MAX_FIELD_CHARS + 1);
-            assert!(field.starts_with('\u{2026}') || field.chars().count() <= ACTIVITY_MAX_FIELD_CHARS);
+            assert!(
+                field.starts_with('\u{2026}') || field.chars().count() <= ACTIVITY_MAX_FIELD_CHARS
+            );
         }
         // Input snapshot untouched.
         assert_eq!(big.posts.len(), before_posts);

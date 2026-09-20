@@ -25,6 +25,8 @@ pub struct PlanningRequest {
     pub implementation: bool,
     /// Disable tools for independent project-manager status updates.
     pub read_only: bool,
+    /// Pi thinking level selected by the Packet role that owns this turn.
+    pub reasoning_level: String,
     /// Repository working directory the harness process must run in (§18).
     pub repo_root: std::path::PathBuf,
     /// Fully rendered prompt body (system instructions travel separately).

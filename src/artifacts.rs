@@ -25,4 +25,5 @@ pub mod task_docs;
 
 pub mod product_docs;
 
+pub mod packet;
 pub mod transaction;

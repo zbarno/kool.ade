@@ -288,12 +288,13 @@ struct ProgressBatch {
 
 fn progress_batches(repo: &Path) -> Vec<(String, ProgressBatch)> {
     let mut batches = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(repo.join("planning/tasks")) {
+    let task_dir = crate::artifacts::packet::task_dir(repo);
+    if let Ok(entries) = std::fs::read_dir(repo.join(&task_dir)) {
         for entry in entries.flatten() {
             if !entry.file_type().is_ok_and(|t| t.is_dir()) {
                 continue;
             }
-            let directory = format!("planning/tasks/{}", entry.file_name().to_string_lossy());
+            let directory = format!("{task_dir}/{}", entry.file_name().to_string_lossy());
             if safe_directory(repo, &directory).is_err() {
                 continue;
             }
@@ -333,7 +334,8 @@ pub fn save_progress(
     batch: &TaskBatch,
     total: usize,
 ) -> anyhow::Result<()> {
-    safe_directory(repo, "planning/tasks")?;
+    let task_dir = crate::artifacts::packet::task_dir(repo);
+    safe_directory(repo, &task_dir)?;
     let existing = progress_batches(repo)
         .into_iter()
         .find(|(_, p)| p.run == run);
@@ -341,10 +343,10 @@ pub fn save_progress(
         (directory, progress.feature_id)
     } else {
         let feature = batch_slug(batch);
-        let mut directory = format!("planning/tasks/{feature}");
+        let mut directory = format!("{task_dir}/{feature}");
         let mut revision = 2;
         while repo.join(&directory).exists() {
-            directory = format!("planning/tasks/{feature}-{revision:02}");
+            directory = format!("{task_dir}/{feature}-{revision:02}");
             revision += 1;
         }
         std::fs::create_dir(repo.join(&directory))?;
@@ -420,7 +422,8 @@ pub fn write_batch(
     batch: &TaskBatch,
     workflow: &mut Workflow,
 ) -> anyhow::Result<Vec<String>> {
-    safe_directory(repo, "planning/tasks")?;
+    let task_dir = crate::artifacts::packet::task_dir(repo);
+    safe_directory(repo, &task_dir)?;
     safe_directory(repo, ".planner")?;
     if let Some((directory, progress)) = progress_batches(repo).into_iter().find(|(_, p)| {
         p.total == batch.stories.len()
@@ -474,14 +477,15 @@ pub fn write_batch(
     }
 
     let feature = batch_slug(batch);
-    let mut directory = format!("planning/tasks/{feature}");
+    let mut directory = format!("{task_dir}/{feature}");
     let mut revision = 2;
     while std::fs::symlink_metadata(repo.join(&directory)).is_ok() {
-        directory = format!("planning/tasks/{feature}-{revision:02}");
+        directory = format!("{task_dir}/{feature}-{revision:02}");
         revision += 1;
     }
     let stage = repo.join(format!(
-        "planning/tasks/.packet-{}-{}",
+        "{}/.packet-{}-{}",
+        task_dir,
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
@@ -584,7 +588,10 @@ pub fn load_latest(repo: &Path, workflow: &Workflow) -> Vec<TaskDocument> {
         return Vec::new();
     };
     // Only app-generated directory names may be read from the metadata.
-    let Some(name) = batch.directory.strip_prefix("planning/tasks/") else {
+    let Some(name) = batch
+        .directory
+        .strip_prefix(&format!("{}/", crate::artifacts::packet::task_dir(repo)))
+        .or_else(|| batch.directory.strip_prefix("planning/tasks/")) else {
         return Vec::new();
     };
     if name.is_empty() || name.len() > 120 || !name.chars().all(|c| c.is_alphanumeric() || c == '-')

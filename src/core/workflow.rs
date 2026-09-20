@@ -730,7 +730,7 @@ mod tests {
         s = PlannerState::load(&s.repo_root).unwrap();
         assert!(s.workflow.ready(s.spec_text.as_deref()));
         assert!(
-            !s.repo_root.join("planning/tasks").exists(),
+            !s.repo_root.join(".kool-ade-packet/planning/tasks").exists(),
             "readiness must not generate files"
         );
         let mut second = story();
@@ -738,7 +738,7 @@ mod tests {
         second.dependencies = vec![1];
         let nt = generation(&s, vec![story(), second]).unwrap();
         let receipt = apply::apply(&mut s, &nt).unwrap();
-        let dir = s.repo_root.join("planning/tasks/saved-searches");
+        let dir = s.repo_root.join(".kool-ade-packet/planning/tasks/saved-searches");
         let task =
             std::fs::read_to_string(dir.join("001-persist-named-search-filters.md")).unwrap();
         assert!(task.contains(&story().intent));
@@ -791,7 +791,7 @@ mod tests {
         env = envelope();
         env.task_stories = Some(vec![story()]);
         assert!(validation::validate(&env, &s, &s.effective_user()).is_err());
-        assert!(!s.repo_root.join("planning/tasks").exists());
+        assert!(!s.repo_root.join(".kool-ade-packet/planning/tasks").exists());
         let nt = validation::validate(&envelope(), &s, &s.effective_user()).unwrap();
         apply::apply(&mut s, &nt).unwrap();
         assert!(
@@ -836,7 +836,7 @@ mod tests {
             joined.contains("targets CHG-098") && joined.contains("active feature is CHG-097"),
             "guard must name both sides of the drift: {joined}"
         );
-        assert!(!s.repo_root.join("planning/tasks").exists());
+        assert!(!s.repo_root.join(".kool-ade-packet/planning/tasks").exists());
         std::fs::remove_dir_all(s.repo_root).unwrap();
     }
 
@@ -920,7 +920,7 @@ mod tests {
         let mut task = story();
         task.scope_items = vec![2];
         assert!(generation(&s, vec![task]).is_err());
-        assert!(!s.repo_root.join("planning/tasks").exists());
+        assert!(!s.repo_root.join(".kool-ade-packet/planning/tasks").exists());
         std::fs::remove_dir_all(s.repo_root).unwrap();
     }
 
@@ -935,7 +935,7 @@ mod tests {
         )
         .unwrap();
         assert!(apply::apply(&mut s, &nt).is_err());
-        assert!(!s.repo_root.join("planning/tasks").exists());
+        assert!(!s.repo_root.join(".kool-ade-packet/planning/tasks").exists());
         assert!(
             !PlannerState::load(&s.repo_root)
                 .unwrap()
@@ -950,7 +950,7 @@ mod tests {
         apply::apply(&mut s, &nt).unwrap();
         let first = s
             .repo_root
-            .join("planning/tasks/saved-searches/001-persist-named-search-filters.md");
+            .join(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md");
         let original = std::fs::read(&first).unwrap();
         mark_ready(&mut s);
         let mut task = story();
@@ -959,7 +959,7 @@ mod tests {
         apply::apply(&mut s, &nt).unwrap();
         assert!(
             s.repo_root
-                .join("planning/tasks/saved-searches-02/001-persist-the-revised-search-record.md")
+                .join(".kool-ade-packet/planning/tasks/saved-searches-02/001-persist-the-revised-search-record.md")
                 .exists()
         );
         assert_eq!(std::fs::read(first).unwrap(), original);
@@ -984,7 +984,7 @@ mod tests {
             .is_err()
         );
         assert_eq!(
-            std::fs::read_dir(s.repo_root.join("planning/tasks"))
+            std::fs::read_dir(s.repo_root.join(".kool-ade-packet/planning/tasks"))
                 .unwrap()
                 .count(),
             0
@@ -999,7 +999,8 @@ mod tests {
         let mut s = state("symlink");
         mark_ready(&mut s);
         let nt = generation(&s, vec![story()]).unwrap();
-        std::os::unix::fs::symlink(std::env::temp_dir(), s.repo_root.join("planning/tasks"))
+        std::fs::create_dir_all(s.repo_root.join(".kool-ade-packet/planning")).unwrap();
+        std::os::unix::fs::symlink(std::env::temp_dir(), s.repo_root.join(".kool-ade-packet/planning/tasks"))
             .unwrap();
         assert!(apply::apply(&mut s, &nt).is_err());
         assert_eq!(
