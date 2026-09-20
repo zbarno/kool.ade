@@ -202,11 +202,11 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             .unwrap()
             .contains(api.to_str().unwrap())
     );
-    let first = std::fs::read_to_string(dir.join("001-persist-named-search-filters.md")).unwrap();
-    let second = std::fs::read_to_string(dir.join("002-build-the-saved-search-picker.md")).unwrap();
+    let first = std::fs::read_to_string(dir.join("CHG-001-TASK-persist-named-search-filters.md")).unwrap();
+    let second = std::fs::read_to_string(dir.join("CHG-001-TASK-build-the-saved-search-picker.md")).unwrap();
     assert!(first.contains("Repository: api"));
     assert!(second.contains("Repository: web"));
-    assert!(second.contains("001-persist-named-search-filters.md"));
+    assert!(second.contains("CHG-001-TASK-persist-named-search-filters.md"));
     assert!(!api.join("planning/tasks").exists());
     assert!(!web.join("planning/tasks").exists());
     let private = packet::persistence::project_dir(&packet::persistence::project_slug(

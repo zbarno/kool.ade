@@ -144,16 +144,22 @@ fn composer(
     if let Some(draft) = s.task_draft(key) {
         let salt = if answer { "task_answer_composer" } else { "task_context_composer" };
         let response = if expanded {
-            egui::TextEdit::multiline(draft)
-                .desired_rows(4)
-                .desired_width(f32::INFINITY)
-                .hint_text(if answer {
-                    "Your answer…"
-                } else {
-                    "Add a follow-up…"
+            egui::ScrollArea::vertical()
+                .id_salt((key, salt, "draft_scroll"))
+                .max_height(88.0)
+                .show(ui, |ui| {
+                    egui::TextEdit::multiline(draft)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY)
+                        .hint_text(if answer {
+                            "Your answer…"
+                        } else {
+                            "Add a follow-up…"
+                        })
+                        .id_salt(salt)
+                        .show(ui)
                 })
-                .id_salt(salt)
-                .show(ui)
+                .inner
         } else {
             egui::TextEdit::singleline(draft)
                 .desired_width(f32::INFINITY)
@@ -233,10 +239,12 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             .len()
                 == 1
         });
-        let reply = messages
+        let latest_reply = messages
             .iter()
             .rev()
-            .find(|m| m.role == ChatRole::Agent)
+            .find(|m| m.role == ChatRole::Agent);
+        let introduction = latest_reply.is_some_and(|m| m.id.starts_with("task-introduction:"));
+        let reply = latest_reply
             .map(|m| split_reply(&crate::ui::message_text::readable(m)))
             .unwrap_or_default();
         let active = s.task_chat_active(key);
@@ -265,7 +273,8 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             && !(story && (implementing || implementation_column >= 2))
             && eligible
             && !reply.no_reply
-            && (reply.next.is_some()
+            && ((reply.next.is_some()
+                && (!introduction || latest_reply.is_some_and(|m| m.text.contains("\n---\n"))))
                 || item
                     .as_ref()
                     .is_some_and(|i| i.authority == Authority::Human));
@@ -343,7 +352,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
         } else {
             ("No reply needed", "".to_string())
         };
-        if expanded && !reply.summary.is_empty() && !active {
+        if expanded && !reply.summary.is_empty() && !active && !introduction {
             ui.label(RichText::new("Latest update").small().weak());
             ui.label(crate::core::context_build::clip(&reply.summary, 420));
         }
@@ -485,7 +494,10 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 s.retry_task_chat_save();
             }
         }
-        if !needs_answer && !retry {
+        // A compact Kanban card only owns an input while Packet is explicitly
+        // asking for one. Free-form context remains available after opening
+        // the task's full conversation.
+        if expanded && !needs_answer && !retry {
             let has_draft = s.task_draft(key).is_some_and(|draft| !draft.is_empty());
             egui::CollapsingHeader::new("Add context")
                 .default_open(has_draft)
@@ -876,9 +888,6 @@ mod tests {
         }
         fn spec_text(&self) -> &str {
             ""
-        }
-        fn spec_words(&self) -> usize {
-            0
         }
         fn toasts(&mut self) -> &mut ToastQueue {
             &mut self.toasts

@@ -798,13 +798,13 @@ mod tests {
         git_stdout(&dir, &["add", "-A"]);
         git_stdout(&dir, &["commit", "-m", "Seed modular product"]);
         inputs.state = PlannerState::load(&dir).unwrap();
-        let feature = "# CHG-001: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave repeated searches.\n\n## Current Behavior\n\nNo saved searches observed.\n\n## Desired Behavior\n\nUsers can save searches.\n\n## Scope\n\nSearch UI only.\n\n## Affected Product Areas\n\n`product:05-functional-requirements`\n\n## Requirements\n\nSave and restore.\n\n## Decisions and Assumptions\n\nNone yet.\n\n## Acceptance Criteria\n\nA saved search reopens.\n";
+        let feature = "# F1: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave repeated searches.\n\n## Current Behavior\n\nNo saved searches observed.\n\n## Desired Behavior\n\nUsers can save searches.\n\n## Scope\n\nSearch UI only.\n\n## Affected Product Areas\n\n`product:05-functional-requirements`\n\n## Requirements\n\nSave and restore.\n\n## Decisions and Assumptions\n\nNone yet.\n\n## Acceptance Criteria\n\nA saved search reopens.\n";
         let env = TurnEnvelope {
             schema_version: Some(2),
             assistant_message: Some("Drafted saved searches.".into()),
             change_summary: Some("Draft saved searches".into()),
             document_updates: Some(vec![crate::harness::DocumentUpdate {
-                document_id: "feature:CHG-001".into(),
+                document_id: "feature:F1".into(),
                 content: feature.into(),
             }]),
             updated_specification: None,
@@ -835,7 +835,7 @@ mod tests {
                 let contract = crate::core::contract_snapshot::freeze(&state)
                     .unwrap()
                     .unwrap();
-                assert_eq!(contract.feature_id, "CHG-001");
+                assert_eq!(contract.feature_id, "F1");
                 assert!(
                     contract
                         .product_modules
@@ -847,7 +847,7 @@ mod tests {
         }
         assert_eq!(
             std::fs::read_to_string(
-                dir.join("planning/features/CHG-001-saved-searches/specification.md")
+                dir.join("planning/features/F1-saved-searches/specification.md")
             )
             .unwrap(),
             feature
@@ -855,11 +855,11 @@ mod tests {
         assert!(
             std::fs::read_to_string(dir.join("planning/product/index.md"))
                 .unwrap()
-                .contains("CHG-001-saved-searches")
+                .contains("F1-saved-searches")
         );
         assert_eq!(
             crate::artifacts::product_docs::next_feature_id(&dir),
-            "CHG-002"
+            "F2"
         );
         let _ = std::fs::remove_dir_all(dir);
     }

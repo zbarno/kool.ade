@@ -201,6 +201,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     let items_written = repo_relative_paths.iter().any(|p| p == OPEN_ITEMS_FILE);
     state.spec_text = spec_doc::load(&state.repo_root)?;
     state.active_feature = crate::artifacts::product_docs::active_feature(&state.repo_root);
+    state.active_features = crate::artifacts::product_docs::active_features(&state.repo_root);
     state.baseline_spec = state.spec_text.clone();
     state.baseline_items_md = items_md;
     if let Some(workflow) = &nt.workflow {

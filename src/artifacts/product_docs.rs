@@ -26,15 +26,25 @@ pub const MODULES: [&str; 13] = [
 ];
 
 pub fn valid_feature_id(id: &str) -> bool {
-    id.strip_prefix("CHG-")
-        .is_some_and(|digits| digits.len() >= 3 && digits.bytes().all(|b| b.is_ascii_digit()))
+    id.strip_prefix('F')
+        .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+        || id.strip_prefix("CHG-")
+            .is_some_and(|digits| digits.len() >= 3 && digits.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn directory_feature_id(name: &str) -> Option<&str> {
-    let rest = name.strip_prefix("CHG-")?;
-    let (digits, _) = rest.split_once('-')?;
-    let id = name.get(..4 + digits.len())?;
+    let separator = name.find('-')?;
+    let mut id = &name[..separator];
+    if id == "CHG" {
+        let rest = &name[separator + 1..];
+        let digits = rest.split_once('-')?.0;
+        id = name.get(..4 + digits.len())?;
+    }
     valid_feature_id(id).then_some(id)
+}
+
+fn feature_number(id: &str) -> Option<u32> {
+    id.strip_prefix('F').or_else(|| id.strip_prefix("CHG-"))?.parse().ok()
 }
 
 fn regular(path: &Path) -> anyhow::Result<bool> {
@@ -84,9 +94,7 @@ pub fn next_feature_id(repo: &Path) -> String {
     if let Ok(entries) = std::fs::read_dir(repo.join("planning/features")) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
-                if let Some(n) = directory_feature_id(name)
-                    .and_then(|id| id.strip_prefix("CHG-"))
-                    .and_then(|digits| digits.parse::<u32>().ok())
+                if let Some(n) = directory_feature_id(name).and_then(feature_number)
                 {
                     maximum = maximum.max(n);
                 }
@@ -108,9 +116,7 @@ pub fn next_feature_id(repo: &Path) -> String {
         if output.status.success() {
             for line in String::from_utf8_lossy(&output.stdout).lines() {
                 if let Some(name) = line.strip_prefix("planning/features/") {
-                    if let Some(n) = directory_feature_id(name)
-                        .and_then(|id| id.strip_prefix("CHG-"))
-                        .and_then(|digits| digits.parse::<u32>().ok())
+                    if let Some(n) = directory_feature_id(name).and_then(feature_number)
                     {
                         maximum = maximum.max(n);
                     }
@@ -118,7 +124,7 @@ pub fn next_feature_id(repo: &Path) -> String {
             }
         }
     }
-    format!("CHG-{:03}", maximum + 1)
+    format!("F{}", maximum + 1)
 }
 
 pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow::Result<PathBuf> {
@@ -160,7 +166,7 @@ pub fn refreshed_index_from(
         .split_once(marker)
         .map(|(prefix, _)| prefix)
         .ok_or_else(|| anyhow::anyhow!("Product index lacks active feature manifest"))?;
-    let mut entries = active_features(repo);
+    let mut entries = active_feature_directories(repo);
     for (id, content) in updates {
         if !id.starts_with("feature:") {
             continue;
@@ -381,18 +387,28 @@ pub fn render_product(repo: &Path) -> anyhow::Result<Option<String>> {
 }
 
 pub fn active_feature(repo: &Path) -> Option<(String, String)> {
-    let name = active_features(repo).into_iter().next()?;
-    let id = directory_feature_id(&name)?.to_string();
-    let body = std::fs::read_to_string(
-        repo.join("planning/features")
-            .join(&name)
-            .join("specification.md"),
-    )
-    .ok()?;
-    Some((id, body))
+    active_features(repo).into_iter().next()
 }
 
-fn active_features(repo: &Path) -> Vec<String> {
+/// Every feature that is still active. Feature status is independent, so
+/// several deltas may be planned or implemented at the same time.
+pub fn active_features(repo: &Path) -> Vec<(String, String)> {
+    active_feature_directories(repo)
+        .into_iter()
+        .filter_map(|name| {
+            let id = directory_feature_id(&name)?.to_string();
+            let body = std::fs::read_to_string(
+                repo.join("planning/features")
+                    .join(&name)
+                    .join("specification.md"),
+            )
+            .ok()?;
+            Some((id, body))
+        })
+        .collect()
+}
+
+fn active_feature_directories(repo: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(repo.join("planning/features")) else {
         return Vec::new();
     };
@@ -445,7 +461,7 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
                 std::fs::write(staged.join(name), body)?;
                 index.push_str(&format!("- [`{name}`]({name}) — {}\n", SECTIONS[n]));
             }
-            let features = active_features(repo);
+            let features = active_feature_directories(repo);
             index.push_str("\n## Active features\n\n");
             if features.is_empty() {
                 index.push_str("None.\n");
@@ -594,9 +610,32 @@ mod tests {
             "# CHG-1000: Old\n\n**Status:** Draft\n",
         )
         .unwrap();
-        assert_eq!(next_feature_id(&root), "CHG-1001");
+        assert_eq!(next_feature_id(&root), "F1001");
         assert!(document_path(&root, "feature:CHG-1000").unwrap().exists());
         assert_eq!(active_feature(&root).unwrap().0, "CHG-1000");
+        let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn every_nonterminal_feature_is_active_concurrently() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_active_features_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        for (directory, status) in [
+            ("CHG-001-first", "Ready"),
+            ("CHG-002-second", "Implementing"),
+            ("CHG-003-done", "Implemented"),
+        ] {
+            std::fs::create_dir_all(root.join("planning/features").join(directory)).unwrap();
+            std::fs::write(
+                root.join("planning/features").join(directory).join("specification.md"),
+                format!("# {}: Feature\n\n**Status:** {status}\n", directory.split('-').take(2).collect::<Vec<_>>().join("-")),
+            ).unwrap();
+        }
+        let features = active_features(&root);
+        assert_eq!(features.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), vec!["CHG-001", "CHG-002"]);
+        assert_eq!(active_feature(&root).unwrap().0, "CHG-001");
         let _ = std::fs::remove_dir_all(root);
     }
     #[test]

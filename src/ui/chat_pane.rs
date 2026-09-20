@@ -38,6 +38,7 @@ pub fn paint(
         &ComposeCopy {
             composer_id: "main_chat_composer",
             hint: "What are you building?",
+            context: None,
         },
     )
 }
@@ -47,6 +48,16 @@ pub fn paint_task(
     messages: &[ChatMessage],
     draft: &mut String,
     busy: bool,
+) -> Intent {
+    paint_task_with_context(ui, messages, draft, busy, None)
+}
+
+pub fn paint_task_with_context(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+    context: Option<&str>,
 ) -> Intent {
     paint_with_hint(
         ui,
@@ -59,6 +70,7 @@ pub fn paint_task(
         &ComposeCopy {
             composer_id: "task_tab_composer",
             hint: "Reply about this task…",
+            context,
         },
     )
 }
@@ -66,12 +78,13 @@ pub fn paint_task(
 /// Surface-specific static composer copy. Kept as ONE private parameter
 /// (rather than two scalars) so [`paint_with_hint`] does not accrue
 /// additional parameters past the lint baseline it already carries.
-struct ComposeCopy {
+struct ComposeCopy<'a> {
     /// `id_salt` giving the pane's composer editor a surface-distinct
     /// widget id (Main Chat and task tabs never share a TextEdit id).
     composer_id: &'static str,
     /// Placeholder shown while the draft is empty.
     hint: &'static str,
+    context: Option<&'a str>,
 }
 
 fn paint_with_hint(
@@ -87,6 +100,7 @@ fn paint_with_hint(
     let ComposeCopy {
         composer_id,
         hint,
+        context,
     } = *compose;
     let mut cancel = false;
     let mut generate_tasks = false;
@@ -109,6 +123,11 @@ fn paint_with_hint(
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
                 let max_w = ui.available_width();
+                if let Some(context) = context {
+                    ui.collapsing("Task context", |ui| {
+                        ui.label(context);
+                    });
+                }
                 // One lift per pane at most: the freshest stored agent reply
                 // still owed an answer (a later user message retires it).
                 let lift_at = crate::ui::reply_tail::open_ask_index(messages);
@@ -127,7 +146,7 @@ fn paint_with_hint(
                 if implementation_offer {
                     theme::card_frame().show(ui, |ui| {
                         ui.label(RichText::new("Ready to implement").strong());
-                        ui.label("Approve the active feature and start its next eligible task. Auto mode continues the queue.");
+                        ui.label("Approve the feature associated with the next eligible task and start implementation. Auto mode continues the queue.");
                         implement_tasks = ui.add_enabled(!busy, egui::Button::new("Implement tasks")).clicked();
                     });
                 } else if let Some(brief) = offer {
@@ -173,14 +192,21 @@ fn paint_with_hint(
         .corner_radius(22.0)
         .inner_margin(egui::Margin::symmetric(16, 12))
         .show(ui, |ui| {
-            let editor = TextEdit::multiline(draft)
-                .hint_text(hint)
-                .id_salt(composer_id)
-                .desired_width(f32::INFINITY)
-                .desired_rows(2)
-                .frame(egui::Frame::NONE)
-                .interactive(editable)
-                .show(ui);
+            let editor = egui::ScrollArea::vertical()
+                .id_salt((composer_id, "draft_scroll"))
+                .max_height(44.0)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    TextEdit::multiline(draft)
+                        .hint_text(hint)
+                        .id_salt(composer_id)
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(2)
+                        .frame(egui::Frame::NONE)
+                        .interactive(editable)
+                        .show(ui)
+                })
+                .inner;
             if chip_fired {
                 // A chip tap landed its option this frame: park the caret at
                 // the end of the fresh text and hand the box back (typing

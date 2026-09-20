@@ -85,10 +85,12 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat_store::append(&slug, &[welcome]).ok();
     }
     let task_documents = crate::artifacts::task_docs::load_latest(&canonical, &state.workflow);
+    let archived_tasks = crate::persistence::archived_tasks::load(&slug);
     let mut project = Project {
         task_chats: Default::default(),
         activity: Default::default(),
         task_documents,
+        archived_tasks,
         state,
         chat_slug: slug,
         chat,

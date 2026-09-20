@@ -37,6 +37,8 @@ pub trait Surface {
     fn task_messages(&self, _key: &str) -> &[ChatMessage] {
         &[]
     }
+    fn prepare_task_chat(&mut self, _key: &str) {}
+    fn task_chat_context(&self, _key: &str) -> Option<String> { None }
     fn task_draft(&mut self, _key: &str) -> Option<&mut String> {
         None
     }
@@ -82,6 +84,8 @@ pub trait Surface {
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
     fn implementation_offer(&self) -> bool { false }
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
+    fn task_archived(&self, _ticket: &str) -> bool { false }
+    fn archive_task(&mut self, _ticket: &str) {}
     fn implementation_state(
         &self,
         ticket: &str,
@@ -107,17 +111,13 @@ pub trait Surface {
     fn approve_review_item(&mut self, _id: &str) {}
     // ------- spec pane -------
     fn spec_text(&self) -> &str;
-    fn active_feature(&self) -> Option<(&str, &str)> {
-        None
+    fn active_features(&self) -> Vec<(&str, &str)> {
+        Vec::new()
     }
-    fn active_feature_approved(&self) -> bool {
+    fn feature_approved(&self, _id: &str) -> bool {
         false
     }
-    fn approve_active_feature(&mut self) {}
-    fn task_story_preview(&self) -> Option<&str> {
-        None
-    }
-    fn spec_words(&self) -> usize;
+    fn approve_feature(&mut self, _id: &str) {}
     // ------- services -------
     fn toasts(&mut self) -> &mut ToastQueue;
     fn on_intent(&mut self, intent: &Intent);

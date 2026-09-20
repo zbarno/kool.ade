@@ -9,6 +9,7 @@
 
 pub mod chat_store;
 pub mod task_chats;
+pub mod archived_tasks;
 
 mod home;
 

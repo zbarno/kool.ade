@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Implementation {
     pub ticket: String,
     pub ticket_text: String,

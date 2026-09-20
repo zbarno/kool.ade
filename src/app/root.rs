@@ -29,6 +29,9 @@ pub struct PacketApp {
     conn_path: String,
     conn_error: Option<String>,
     last_git_refresh: Instant,
+    display_refresh: Option<std::thread::JoinHandle<DisplayRefresh>>,
+    last_reconciliation_probe: Option<Instant>,
+    reconciliation_probe: Option<std::thread::JoinHandle<(crate::core::state::PlannerState, anyhow::Result<Option<crate::core::reconciliation::Candidate>>)>>,
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
     /// D-14 configuration stand-in shown off-project (welcome screen):
@@ -42,6 +45,16 @@ pub struct PacketApp {
 enum Screen {
     Welcome,
     Connected(Project),
+}
+
+struct DisplayRefresh {
+    repo: std::path::PathBuf,
+    workflow: crate::core::workflow::Workflow,
+    git: crate::core::gitops::GitSnapshot,
+    documents: Vec<crate::artifacts::task_docs::TaskDocument>,
+    implementations: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    previous_implementations: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    activity: Vec<(String, crate::harness::LiveProgress)>,
 }
 
 fn has_current_task_batch(project: &Project) -> bool {
@@ -100,6 +113,9 @@ impl Default for PacketApp {
                 .unwrap_or_default(),
             conn_error: None,
             last_git_refresh: Instant::now(),
+            display_refresh: None,
+            last_reconciliation_probe: None,
+            reconciliation_probe: None,
             cached_user: CurrentUser::new("", Vec::new()),
             fallback_stakes: crate::domain::Stakeholders::default(),
             synth: Vec::new(),
@@ -114,6 +130,7 @@ impl PacketApp {
         let mut outcome: Option<TurnOutcome> = None;
         if let Screen::Connected(project) = &mut self.screen {
             project.task_chats.ensure_loaded(&project.chat_slug);
+            project.activity.pending.extend(project.task_chats.take_updates());
             project.activity.ensure_overall();
             if let Some(ctrl) = &project.active_turn {
                 for _ in 0..64 {
@@ -301,22 +318,42 @@ impl PacketApp {
                 self.screen = Screen::Connected(project);
             }
         }
-        // Phase 3: periodic git refresh + cache re-derivation.
-        if self.last_git_refresh.elapsed() > Duration::from_secs(3) {
-            let caches = match &mut self.screen {
-                Screen::Connected(p) => {
-                    p.refresh_git();
-                    p.refresh_implementations();
-                    p.task_documents = crate::artifacts::task_docs::load_latest(
-                        &p.state.repo_root,
-                        &p.state.workflow,
-                    );
-                    Self::derive_caches(p)
+        // Poll only: repository subprocesses and reads must not stall input frames.
+        if self.display_refresh.as_ref().is_some_and(|job| job.is_finished()) {
+            if let Ok(result) = self.display_refresh.take().unwrap().join() {
+                if let Screen::Connected(p) = &mut self.screen {
+                    if p.state.repo_root == result.repo && p.state.workflow == result.workflow
+                        && p.implementation_states == result.previous_implementations {
+                        p.git = result.git;
+                        p.task_documents = result.documents;
+                        p.adopt_implementations(result.implementations);
+                        for (ticket, activity) in result.activity {
+                            p.activity.tasks.entry(ticket).or_insert(activity);
+                        }
+                        (self.cached_user, self.synth) = Self::derive_caches(p);
+                    }
                 }
-                Screen::Welcome => return,
-            };
-            (self.cached_user, self.synth) = caches;
+            }
             self.last_git_refresh = Instant::now();
+        }
+        if self.display_refresh.is_none() && self.last_git_refresh.elapsed() > Duration::from_secs(3) {
+            if let Screen::Connected(p) = &self.screen {
+                let repo = p.state.repo_root.clone();
+                let workflow = p.state.workflow.clone();
+                let previous_implementations = p.implementation_states.clone();
+                let ctx = ctx.clone();
+                self.display_refresh = Some(std::thread::spawn(move || {
+                    let git = crate::core::gitops::snapshot(&repo);
+                    let documents = crate::artifacts::task_docs::load_latest(&repo, &workflow);
+                    let implementations = crate::core::implementation::load_all(&repo)
+                        .into_iter().map(|s| (s.ticket.clone(), s)).collect::<std::collections::BTreeMap<_, _>>();
+                    let activity = implementations.keys().filter_map(|ticket| {
+                        crate::core::implementation::load_activity(&repo, ticket).map(|p| (ticket.clone(), p))
+                    }).collect();
+                    ctx.request_repaint();
+                    DisplayRefresh { repo, workflow, git, documents, implementations, previous_implementations, activity }
+                }));
+            }
         }
         if let Screen::Connected(project) = &mut self.screen {
             // Persist only tickets whose activity actually moved since the
@@ -590,7 +627,30 @@ impl PacketApp {
         if project.reconciliation_attempted.contains(feature_id) {
             return;
         }
-        match crate::core::reconciliation::candidate(&project.state) {
+        // Candidate discovery reads contracts and invokes Git for task records.
+        // An unfinished batch used to repeat this work on every keystroke.
+        let result = if self.reconciliation_probe.as_ref().is_some_and(|job| job.is_finished()) {
+            self.last_reconciliation_probe = Some(Instant::now());
+            let Ok((state, result)) = self.reconciliation_probe.take().unwrap().join() else { return; };
+            if state.repo_root != project.state.repo_root
+                || state.active_feature != project.state.active_feature
+                || state.workflow != project.state.workflow
+                || state.items != project.state.items {
+                return;
+            }
+            result
+        } else {
+            if self.reconciliation_probe.is_none()
+                && self.last_reconciliation_probe.is_none_or(|last| last.elapsed() >= Duration::from_secs(3)) {
+                let state = project.state.clone();
+                self.reconciliation_probe = Some(std::thread::spawn(move || {
+                    let result = crate::core::reconciliation::candidate(&state);
+                    (state, result)
+                }));
+            }
+            return;
+        };
+        match result {
             Ok(Some(candidate)) => {
                 project
                     .reconciliation_attempted
@@ -786,6 +846,8 @@ impl PacketApp {
                 );
                 if project.task_chats.active.is_none() {
                     project.next_question_id = normalized.next_question_id.clone();
+                } else if project.next_question_id.as_ref().is_some_and(|id| !project.state.items.iter().any(|item| &item.id == id)) {
+                    project.next_question_id = None;
                 }
                 let mut chat = vec![ChatMessage::new(
                     ChatRole::Agent,
@@ -814,6 +876,17 @@ impl PacketApp {
                     }
                 }
                 project.remember_turn_chat(chat);
+                if let Some(key) = project.task_chats.active.clone() {
+                    project.remember_turn_chat(vec![ChatMessage::new(
+                        ChatRole::System,
+                        format!("Task reply applied to planning artifacts. {}", if project.state.resolved_items.iter().any(|i| i.conversation_key() == key) {
+                            "This question is resolved."
+                        } else {
+                            "See the current task for any remaining questions."
+                        }),
+                        Some(key),
+                    )]);
+                }
                 project.refresh_git();
                 self.refresh_derived(project);
                 match &commit_result {
@@ -903,6 +976,7 @@ impl PacketApp {
             self.toasts.warning(error);
             return;
         }
+        project.activity.pending.push(format!("User replied in task {key}: {}", crate::core::context_build::clip(&text, 1600)));
         // append merges the current on-disk history under a lock, so the prompt
         // also sees replies saved by another window since the last refresh.
         let recent_chat = project
@@ -1056,12 +1130,15 @@ impl PacketApp {
             return;
         }
         project.activity.manager = None;
+        project.task_chats.refresh_now(&project.chat_slug);
+        project.activity.pending.extend(project.task_chats.take_updates());
+        let task_context = project.task_interaction_context(text);
         let recent = project.recent_chat_tuples(6, 1200);
         project.remember_chat(vec![ChatMessage::new(ChatRole::User, text, None)]);
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: format!(
-                "{text}\n\n[Application project context: active task worker={:?}; auto queue running={}; task count={}; recent task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
+                "{text}\n\n{task_context}\n\n[Application project context: active task worker={:?}; auto queue running={}; task count={}; recent task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
                 project.active_implementations.keys().collect::<Vec<_>>(),
                 project.queue.running,
                 project.implementation_states.len(),
@@ -1076,7 +1153,11 @@ impl PacketApp {
             recent_chat: recent,
             purpose,
         };
-        let ctrl = TurnController::start(inputs, Box::new(PiHarness));
+        #[cfg(test)]
+        let harness = self.task_harness.take().unwrap_or_else(|| Box::new(PiHarness));
+        #[cfg(not(test))]
+        let harness = Box::new(PiHarness);
+        let ctrl = TurnController::start(inputs, harness);
         project.active_turn = Some(std::sync::Arc::new(ctrl));
         project.live_progress = crate::harness::LiveProgress {
             activity: Some("Starting planner…".into()),
@@ -1199,6 +1280,25 @@ impl Surface for PacketApp {
                 .unwrap_or(&[]),
             _ => &[],
         }
+    }
+    fn task_chat_context(&self, key: &str) -> Option<String> {
+        let Screen::Connected(p) = &self.screen else { return None; };
+        let (mut context, _) = crate::core::task_conversation::presentation(&p.state, &p.task_documents, key)?;
+        if let Some(implementation) = p.implementation_states.get(key) {
+            context.push_str(&format!("\n\nImplementation: {}\n{}", implementation.status, crate::core::context_build::clip(&implementation.detail, 1600)));
+        }
+        Some(context)
+    }
+    fn prepare_task_chat(&mut self, key: &str) {
+        let Screen::Connected(p) = &mut self.screen else { return; };
+        if p.task_chats.messages.get(key).is_some_and(|messages| !messages.is_empty()) { return; }
+        p.task_chats.ensure_loaded(&p.chat_slug);
+        if p.task_chats.messages.get(key).is_some_and(|messages| !messages.is_empty()) { return; }
+        let Some((_, greeting)) = crate::core::task_conversation::presentation(&p.state, &p.task_documents, key) else { return; };
+        let mut message = ChatMessage::new(ChatRole::Agent, greeting, Some(key.into()));
+        // Stable identity makes simultaneous first opens merge to one greeting.
+        message.id = format!("task-introduction:{key}");
+        p.task_chats.remember_response(&p.chat_slug, key, vec![message]);
     }
     fn resolved_items(&self) -> &[OpenItem] {
         match &self.screen {
@@ -1568,6 +1668,28 @@ impl Surface for PacketApp {
         }
     }
 
+    fn task_archived(&self, ticket: &str) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.archived_tasks.contains(ticket))
+    }
+
+    fn archive_task(&mut self, ticket: &str) {
+        let result = {
+            let Screen::Connected(project) = &mut self.screen else { return };
+            if project.active_implementations.contains_key(ticket)
+                || !project.implementation_states.get(ticket).is_some_and(|state| state.status == "Done")
+            {
+                return;
+            }
+            let mut archived = project.archived_tasks.clone();
+            archived.insert(ticket.to_string());
+            crate::persistence::archived_tasks::save(&project.chat_slug, &archived)
+                .inspect(|()| project.archived_tasks = archived)
+        };
+        if let Err(error) = result {
+            self.toasts.danger(format!("Could not archive task: {error}"));
+        }
+    }
+
     fn items(&self) -> &[OpenItem] {
         match &self.screen {
             Screen::Connected(p) => p.state.items.as_slice(),
@@ -1645,34 +1767,29 @@ impl Surface for PacketApp {
         }
     }
 
-    fn active_feature(&self) -> Option<(&str, &str)> {
+    fn active_features(&self) -> Vec<(&str, &str)> {
         match &self.screen {
-            Screen::Connected(p) => p
-                .state
-                .active_feature
-                .as_ref()
-                .map(|(id, body)| (id.as_str(), body.as_str())),
-            Screen::Welcome => None,
+            Screen::Connected(p) => p.state.active_features.iter()
+                .map(|(id, body)| (id.as_str(), body.as_str())).collect(),
+            Screen::Welcome => Vec::new(),
         }
     }
-    fn active_feature_approved(&self) -> bool {
+    fn feature_approved(&self, id: &str) -> bool {
         match &self.screen {
-            Screen::Connected(p) => p.state.active_feature.as_ref().is_some_and(|(id, _)| {
-                crate::core::workflow::feature_approved(&p.state.repo_root, &p.state.workflow, id)
-            }),
+            Screen::Connected(p) => crate::core::workflow::feature_approved(
+                &p.state.repo_root, &p.state.workflow, id),
             Screen::Welcome => false,
         }
     }
-    fn approve_active_feature(&mut self) {
+    fn approve_feature(&mut self, id: &str) {
         if let Screen::Connected(p) = &mut self.screen {
-            let Some((id, _)) = p.state.active_feature.as_ref() else {
+            if !p.state.active_features.iter().any(|(feature_id, _)| feature_id == id) {
                 return;
-            };
-            let id = id.clone();
+            }
             match crate::core::workflow::approve_feature(
                 &p.state.repo_root,
                 &mut p.state.workflow,
-                &id,
+                id,
             ) {
                 Ok(_) => {
                     p.refresh_git();
@@ -1685,20 +1802,6 @@ impl Surface for PacketApp {
             }
         }
     }
-    fn task_story_preview(&self) -> Option<&str> {
-        match &self.screen {
-            Screen::Connected(p) => p
-                .task_documents
-                .iter()
-                .find(|doc| !doc.path.ends_with("/README.md"))
-                .map(|doc| doc.text.as_str()),
-            Screen::Welcome => None,
-        }
-    }
-    fn spec_words(&self) -> usize {
-        self.spec_text().split_whitespace().count()
-    }
-
     fn toasts(&mut self) -> &mut ToastQueue {
         &mut self.toasts
     }
@@ -2015,6 +2118,8 @@ mod board_tests {
     use super::*;
 
     pub(super) fn fixture() -> PacketApp {
+        static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let chat_slug = std::env::temp_dir().join(format!("packet-board-chat-{}-{}", std::process::id(), NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed))).to_string_lossy().into_owned();
         let root = std::env::temp_dir().join("packet-board-ui-fixture-nonexistent");
         let docs = ["First task", "Review task", "Merged task"]
             .iter()
@@ -2055,7 +2160,7 @@ mod board_tests {
                 task_chats: Default::default(),
                 activity: Default::default(),
                 state: crate::core::state::PlannerState::load(&root).unwrap(),
-                chat_slug: "unused".into(),
+                chat_slug,
                 chat: Vec::new(),
                 draft: String::new(),
                 queue: Default::default(),
@@ -2076,13 +2181,14 @@ mod board_tests {
                 next_question_id: None,
                 git: Default::default(),
                 task_documents: docs,
+                archived_tasks: Default::default(),
             }),
             ..Default::default()
         }
     }
 
     #[test]
-    fn board_renders_red_lines_for_every_card_and_sums_all_sources() {
+    fn board_shows_graph_only_for_running_cards_and_sums_all_sources() {
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
             for (key, count) in [
@@ -2108,6 +2214,10 @@ mod board_tests {
                 .or_default()
                 .telemetry
                 .samples = vec![(100, 7)];
+            p.active_implementations.insert(
+                "planning/tasks/fixture/001-task.md".into(),
+                crate::core::implementation::Controller::idle_fixture(),
+            );
         }
         assert_eq!(app.activity_samples(None), vec![(100, 17), (101, 1)]);
         assert_eq!(
@@ -2120,7 +2230,7 @@ mod board_tests {
         assert!(text_position(&output, "All activity").is_some());
         let red_lines = output.shapes.iter().filter(|shape| matches!(&shape.shape, egui::Shape::Path(path)
             if path.points.len() == 60 && path.stroke.color == egui::epaint::ColorMode::Solid(crate::ui::theme::DANGER))).count();
-        assert_eq!(red_lines, 4, "one overview and one per task card");
+        assert_eq!(red_lines, 2, "the overview and running card graphs are visible");
         // Starting another run must not erase the project's observed history.
         if let Screen::Connected(p) = &mut app.screen {
             p.activity.ensure_overall();
@@ -2128,6 +2238,34 @@ mod board_tests {
             p.activity.conversations.clear();
         }
         assert_eq!(app.activity_samples(None), vec![(100, 17), (101, 1)]);
+    }
+
+    #[test]
+    fn compact_task_cards_only_show_inputs_for_pending_answers() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Add context").is_none());
+        assert!(text_position(&output, "Your answer…").is_none());
+        assert!(text_position(&output, "Send answer").is_none());
+        assert!(text_position(&output, "Open conversation").is_some());
+    }
+
+    #[test]
+    fn done_task_can_be_archived_off_the_board() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Merged task").is_some());
+        assert!(text_position(&output, "Archive").is_some());
+        let output = click_text(&mut app, &ctx, "Archive");
+        assert!(text_position(&output, "Merged task").is_none());
+        let Screen::Connected(project) = &app.screen else { panic!("disconnected") };
+        let ticket = "planning/tasks/fixture/003-task.md";
+        assert!(project.archived_tasks.contains(ticket));
+        assert!(crate::persistence::archived_tasks::load(&project.chat_slug).contains(ticket));
     }
 
     pub(super) fn frame(
@@ -2227,6 +2365,45 @@ mod board_tests {
         assert!(chat.y < send.y && send.y < board.y);
         assert!(board.x < size.x && board.y < size.y);
         assert_eq!(output.viewport_output.len(), 1);
+    }
+
+    #[test]
+    fn long_drafts_keep_send_controls_inside_chat_panel() {
+        for size in [egui::vec2(360.0, 480.0), egui::vec2(1480.0, 900.0)] {
+            let mut app = fixture();
+            let ctx = egui::Context::default();
+            let draft = "A long wrapped draft with several words on every line.\n".repeat(150);
+            *app.chat_draft() = draft.clone();
+            for _ in 0..3 { frame_at(&mut app, &ctx, vec![], size); }
+            let output = frame_at(&mut app, &ctx, vec![], size);
+            let send = text_position(&output, "Ctrl + Enter to send").expect("send control remains visible");
+            assert!(send.y < size.y - 20.0, "send at {send:?}, viewport {size:?}");
+            if size.x < 960.0 {
+                let board = text_position(&output, "Board  3").unwrap();
+                assert!(send.y < board.y, "composer must stay above board");
+            }
+            assert_eq!(app.chat_draft(), &draft);
+        }
+    }
+
+    #[test]
+    fn pending_repository_refresh_does_not_block_ui_interactions() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        app.display_refresh = Some(std::thread::spawn(move || {
+            let _ = wait.recv();
+            panic!("test worker has no snapshot")
+        }));
+        app.last_git_refresh = Instant::now() - Duration::from_secs(10);
+        app.tick(0.016, &ctx);
+        frame(&mut app, &ctx, vec![]);
+        click_text(&mut app, &ctx, "Workspace");
+        let output = click_text(&mut app, &ctx, "Settings…");
+        assert!(text_position(&output, "Workspace settings").is_some());
+        assert!(!app.display_refresh.as_ref().unwrap().is_finished());
+        release.send(()).unwrap();
+        let _ = app.display_refresh.take().unwrap().join();
     }
 
     #[test]
@@ -2382,6 +2559,7 @@ mod board_tests {
     #[test]
     fn narrow_task_workspace_leads_with_action_and_discloses_description() {
         let mut app = fixture();
+        app.prepare_task_chat("planning/tasks/fixture/001-task.md");
         let ctx = egui::Context::default();
         let size = egui::vec2(360.0, 480.0);
         frame_at(&mut app, &ctx, vec![], size);
@@ -2402,28 +2580,36 @@ mod board_tests {
     }
 
     #[test]
-    fn document_switcher_displays_active_feature_product_and_task_story() {
+    fn document_switcher_displays_product_and_multiple_features_without_task_story_tab() {
         let mut app = fixture();
         if let Screen::Connected(project) = &mut app.screen {
             project.state.spec_text = Some("# Product\n\nProduct behavior marker".into());
             project.state.active_feature = Some((
                 "CHG-001".into(),
-                "# Feature\n\nFeature proposal marker".into(),
+                "# CHG-001: First feature\n\nFirst proposal marker".into(),
             ));
+            project.state.active_features = vec![
+                ("CHG-001".into(), "# CHG-001: First feature\n\nFirst proposal marker".into()),
+                ("CHG-002".into(), "# CHG-002: Second feature\n\nSecond proposal marker".into()),
+            ];
         }
         let ctx = egui::Context::default();
         ctx.data_mut(|data| data.insert_temp(egui::Id::new("packet_document_tab"), false));
         frame(&mut app, &ctx, vec![]);
-        let feature = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&feature, "Feature proposal marker").is_some());
-        assert!(text_position(&feature, "Product behavior marker").is_none());
-        let product = click_text(&mut app, &ctx, "Product Specification");
+        let product = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&product, "Product behavior marker").is_some());
-        assert!(text_position(&product, "Feature proposal marker").is_none());
-        let story = click_text(&mut app, &ctx, "Task Stories");
-        assert!(text_position(&story, "Unique story detail 0").is_some());
-        let feature_again = click_text(&mut app, &ctx, "Active Feature");
-        assert!(text_position(&feature_again, "Feature proposal marker").is_some());
+        assert!(text_position(&product, "Task Stories").is_none());
+        assert!(text_position(&product, "First proposal marker").is_none());
+        let first = click_text(&mut app, &ctx, "Features  2");
+        assert!(text_position(&first, "First proposal marker").is_some());
+        assert!(text_position(&first, "Product behavior marker").is_none());
+        ctx.data_mut(|data| data.insert_temp(
+            egui::Id::new("packet_selected_feature"),
+            "CHG-002".to_string(),
+        ));
+        let second = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&second, "Second proposal marker").is_some());
+        assert!(text_position(&second, "First proposal marker").is_none());
     }
 
     #[test]
@@ -2569,8 +2755,8 @@ mod board_tests {
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "LIVE ACTIVITY").is_some());
-        assert!(text_position(&output, "Checking the permissions test results").is_some());
+        assert!(text_position(&output, "LIVE ACTIVITY").is_none());
+        assert!(text_position(&output, "Checking the permissions test results").is_none());
         let click = |app: &mut PacketApp, pos: egui::Pos2| {
             for pressed in [true, false] {
                 frame(
@@ -2588,10 +2774,14 @@ mod board_tests {
                 );
             }
         };
-        click(
-            &mut app,
-            text_position(&output, "View all activity").unwrap(),
-        );
+        click(&mut app, text_position(&output, "First task").unwrap());
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        click(&mut app, text_position(&output, "Activity").unwrap());
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "LIVE ACTIVITY").is_some());
+        assert!(text_position(&output, "Checking the permissions test results").is_some());
+        click(&mut app, text_position(&output, "View all activity").unwrap());
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "TASK-001 / All activity").is_some());
@@ -2615,37 +2805,6 @@ mod board_tests {
             ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_task_activity")))
                 .is_none()
         );
-        click(&mut app, text_position(&output, "First task").unwrap());
-        frame(&mut app, &ctx, vec![]);
-        click_text(&mut app, &ctx, "Activity");
-        let output = frame(&mut app, &ctx, vec![]);
-        // Select the modal's activity action, not the card under its backdrop.
-        let pos = output
-            .shapes
-            .iter()
-            .rev()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(t) if t.galley.text() == "View all activity" => {
-                    Some(t.pos + t.galley.mesh_bounds.center().to_vec2())
-                }
-                _ => None,
-            })
-            .unwrap();
-        click(&mut app, pos);
-        frame(&mut app, &ctx, vec![]);
-        frame(
-            &mut app,
-            &ctx,
-            vec![egui::Event::Key {
-                key: egui::Key::Escape,
-                physical_key: None,
-                pressed: true,
-                repeat: false,
-                modifiers: Default::default(),
-            }],
-        );
-        frame(&mut app, &ctx, vec![]);
-        let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "TASK-001 / Task details").is_some());
     }
 
@@ -2840,7 +2999,7 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "In progress · 1").is_some());
-        assert!(text_position(&output, "Reading search source").is_some());
+        assert!(text_position(&output, "Reading search source").is_none());
         let details = click_text(&mut app, &ctx, &item.question);
         assert!(text_position(&details, "Agent investigation").is_none());
         click_text(&mut app, &ctx, "Activity");
@@ -3305,6 +3464,7 @@ mod tests {
             next_question_id: None,
             git: Default::default(),
             task_documents: Vec::new(),
+            archived_tasks: Default::default(),
         };
         // Connect: the git seat is projected — not the block's 'Bob',
         // not the project title.

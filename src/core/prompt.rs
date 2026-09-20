@@ -76,7 +76,7 @@ open_items_added, open_items_updated, open_items_resolved, and next_question_id.
 existing item field names, including authority, feature_id, recommendation, and evidence
 when relevant. Review-authority items require a provisional recommendation and should
 identify the active feature so the board can approve them directly. Document IDs are logical:
-product:05-functional-requirements or feature:CHG-001, never paths. Each content is the
+product:05-functional-requirements or feature:F10, never paths. Each content is the
 FULL changed document, not a patch. Do not return unchanged modules. The application
 validates every field and rejects the entire turn on invalid changes. Write nothing after
 the closing JSON fence.

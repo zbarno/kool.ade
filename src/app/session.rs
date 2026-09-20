@@ -42,9 +42,16 @@ pub struct Project {
     pub next_question_id: Option<String>,
     pub git: GitSnapshot,
     pub task_documents: Vec<crate::artifacts::task_docs::TaskDocument>,
+    pub archived_tasks: std::collections::BTreeSet<String>,
 }
 
 impl Project {
+    pub fn task_interaction_context(&self, focus: &str) -> String {
+        let context = self.task_chats.project_context(focus, 24000);
+        if context.is_empty() { return context; }
+        format!("{context}\nConversation storage status: {}\nComplete task conversation history: {}\n", self.task_chats.error.as_deref().unwrap_or("Saved"), crate::persistence::project_dir(&self.chat_slug).join("task-conversations.json").display())
+    }
+
     /// Snapshot the most recent chat for the turn's prompt context.
     pub fn recent_chat_tuples(&self, max_msgs: usize, clip_chars: usize) -> Vec<(String, String)> {
         let start = self.chat.len().saturating_sub(max_msgs);
@@ -72,6 +79,9 @@ impl Project {
 
     pub fn remember_turn_chat(&mut self, msgs: Vec<ChatMessage>) {
         if let Some(key) = self.task_chats.active.clone() {
+            self.activity.pending.push(format!("Task conversation {key} updated: {}", msgs.iter()
+                .map(|m| format!("{:?}: {}", m.role, crate::core::context_build::clip(&m.text, 1600)))
+                .collect::<Vec<_>>().join("\n")));
             self.task_chats
                 .remember_response(&self.chat_slug, &key, msgs);
         } else {
@@ -84,6 +94,22 @@ impl Project {
             .into_iter()
             .map(|state| (state.ticket.clone(), state))
             .collect::<std::collections::BTreeMap<_, _>>();
+        self.adopt_implementations(latest);
+        for ticket in self.implementation_states.keys() {
+            if !self.activity.tasks.contains_key(ticket) {
+                if let Some(activity) =
+                    crate::core::implementation::load_activity(&self.state.repo_root, ticket)
+                {
+                    self.activity.tasks.insert(ticket.clone(), activity);
+                }
+            }
+        }
+    }
+
+    pub fn adopt_implementations(
+        &mut self,
+        latest: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    ) {
         for (ticket, state) in &latest {
             if let Some(previous) = self.implementation_states.get(ticket) {
                 if previous.status != state.status || previous.pr_state != state.pr_state {
@@ -95,15 +121,6 @@ impl Project {
             }
         }
         self.implementation_states = latest;
-        for ticket in self.implementation_states.keys() {
-            if !self.activity.tasks.contains_key(ticket) {
-                if let Some(activity) =
-                    crate::core::implementation::load_activity(&self.state.repo_root, ticket)
-                {
-                    self.activity.tasks.insert(ticket.clone(), activity);
-                }
-            }
-        }
     }
 
     pub fn save_task_activity(&mut self, ticket: &str) {

@@ -32,6 +32,9 @@ pub struct PlannerState {
     /// Current specification Markdown, `None` before it existed.
     pub spec_text: Option<String>,
     pub active_feature: Option<(String, String)>,
+    /// All feature deltas that have not reached Implemented or Abandoned.
+    /// `active_feature` remains the current workflow focus for compatibility.
+    pub active_features: Vec<(String, String)>,
     pub repositories: crate::core::project_repos::ProjectManifest,
     /// Open-item queue (sorted per `items_io::sort_queue`).
     pub items: Vec<OpenItem>,
@@ -94,6 +97,7 @@ impl PlannerState {
             baseline_spec: spec.clone(),
             spec_text: spec,
             active_feature: crate::artifacts::product_docs::active_feature(repo),
+            active_features: crate::artifacts::product_docs::active_features(repo),
             repositories: crate::core::project_repos::ProjectManifest::load(repo)?,
             items,
             resolved_items: match std::fs::read(repo.join("planning/resolved-items.json")) {
@@ -156,6 +160,9 @@ impl PlannerState {
         }
         if previous.active_feature != current.active_feature {
             changed.push("active feature");
+        }
+        if previous.active_features != current.active_features {
+            changed.push("active features");
         }
         if previous.resolved_items != current.resolved_items {
             changed.push("resolved items");

@@ -250,28 +250,15 @@ impl Workflow {
     }
 }
 
-/// Scan `text` for stable `CHG-nnn` feature identifiers (three or more
-/// digits), de-duplicated and sorted. Prose that embeds no id (legacy MVP
+/// Scan `text` for stable `F<number>` and legacy `CHG-nnn` feature
+/// identifiers, de-duplicated and sorted. Prose that embeds no id (legacy MVP
 /// batches) yields an empty list and grandfathers through identity checks.
 pub fn feature_ids_in(text: &str) -> Vec<String> {
     let mut ids = std::collections::BTreeSet::new();
-    let mut pos = 0;
-    while let Some(at) = text[pos..].find("CHG-") {
-        let start = pos + at;
-        let digits_at = start + 4;
-        let end = text[digits_at..]
-            .char_indices()
-            .take_while(|(_, c)| c.is_ascii_digit())
-            .map(|(offset, _)| digits_at + offset + 1)
-            .last()
-            .unwrap_or(digits_at);
-        if end > digits_at {
-            let candidate = &text[start..end];
-            if crate::artifacts::product_docs::valid_feature_id(candidate) {
-                ids.insert(candidate.to_string());
-            }
+    for token in text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '-')) {
+        if crate::artifacts::product_docs::valid_feature_id(token) {
+            ids.insert(token.to_string());
         }
-        pos = end.max(digits_at);
     }
     ids.into_iter().collect()
 }
@@ -886,6 +873,7 @@ mod tests {
             feature_ids_in("Cards (CHG-002)"),
             vec!["CHG-002".to_string()]
         );
+        assert_eq!(feature_ids_in("Add IDs (F10)"), vec!["F10".to_string()]);
         assert_eq!(
             feature_ids_in("A (CHG-002) and B (CHG-002)"),
             vec!["CHG-002".to_string()]

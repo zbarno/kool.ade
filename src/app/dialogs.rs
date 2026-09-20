@@ -786,6 +786,7 @@ mod tests {
             next_question_id: None,
             git: Default::default(),
             task_documents: Vec::new(),
+            archived_tasks: Default::default(),
         }
     }
 

@@ -247,6 +247,10 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
             panic!()
         };
         let expected = p.task_chats.messages["CLR-001"].clone();
+        let manager_prompt = super::super::manager::Manager::prompt_body(p, &p.activity.pending);
+        assert!(manager_prompt.contains("Use corporate SSO"));
+        assert!(!manager_prompt.contains("Task reply applied to planning artifacts."));
+        assert!(manager_prompt.contains(if mode == "rejected" { "Turn rejected" } else { "Planning stopped" }));
         p.task_chats = Default::default();
         p.task_chats.ensure_loaded(&p.chat_slug);
         assert_eq!(p.task_chats.messages["CLR-001"], expected);
@@ -417,7 +421,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     click_text(&mut app, &ctx, "Send answer");
     assert_eq!(app.task_messages("CLR-001").len(), 1);
     complete(&mut app);
-    assert_eq!(app.task_messages("CLR-001").len(), 2);
+    assert_eq!(app.task_messages("CLR-001").len(), 3);
     assert_eq!(app.chat_messages().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "In progress · 1").is_some());
@@ -451,9 +455,9 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
         "open_items_resolved":["CLR-001"]
     }).to_string() }));
     click_last(&mut app, &ctx, "Send answer");
-    assert_eq!(app.task_messages("CLR-001").len(), 3);
-    complete(&mut app);
     assert_eq!(app.task_messages("CLR-001").len(), 4);
+    complete(&mut app);
+    assert_eq!(app.task_messages("CLR-001").len(), 6);
     assert_eq!(app.chat_messages().len(), 1);
     let captured = prompts.lock().unwrap();
     assert_eq!(captured.len(), 2);
@@ -462,6 +466,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
         assert!(!prompt.contains("OTHER TASK PRIVATE SENTINEL"));
     }
     assert!(captured[1].contains("Corporate SSO recorded. Any additional requirement?"));
+    drop(captured);
     let Screen::Connected(p) = &mut app.screen else {
         panic!()
     };
@@ -470,12 +475,87 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert_eq!(persisted.resolved_items[0].conversation_key(), "CLR-001");
     p.task_chats = Default::default();
     p.task_chats.ensure_loaded(&p.chat_slug);
-    assert_eq!(p.task_chats.messages["CLR-001"].len(), 4);
+    assert_eq!(p.task_chats.messages["CLR-001"].len(), 6);
     assert_eq!(p.task_chats.messages["CLR-002"].len(), 1);
+    let manager_prompt = super::super::manager::Manager::prompt_body(p, &p.activity.pending);
+    for fact in ["Use corporate SSO", "Require MFA as well", "This question is resolved.", "CLR-001"] {
+        assert!(manager_prompt.contains(fact), "manager missed {fact}");
+    }
+    assert!(p.activity.pending.iter().any(|event| event.contains("User replied in task CLR-001")));
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Done · 1").is_some());
     assert!(text_position(&output, "Corporate SSO with MFA is confirmed.").is_some());
+    let main_prompts = Arc::new(Mutex::new(Vec::new()));
+    app.task_harness = Some(Box::new(ReplyHarness {
+        prompts: main_prompts.clone(),
+        reply: serde_json::json!({"schema_version":1, "assistant_message":"The task conversation confirmed corporate SSO with MFA."}).to_string(),
+    }));
+    app.start_turn_with_purpose("What did we decide in CLR-001?", crate::core::workflow::TurnPurpose::Interview);
+    complete(&mut app);
+    let main_prompts = main_prompts.lock().unwrap();
+    assert_eq!(main_prompts.len(), 1);
+    for fact in ["Use corporate SSO", "Require MFA as well", "This question is resolved.", "OTHER TASK PRIVATE SENTINEL"] {
+        assert!(main_prompts[0].contains(fact), "main planner missed {fact}");
+    }
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn new_task_tabs_show_context_and_help_without_starting_a_model_turn() {
+    let mut app = fixture();
+    let key = "planning/tasks/fixture/001-task.md";
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "Open conversation");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Task context").is_some());
+    assert!(app.task_messages(key)[0].text.contains("How can I help you with First task?"));
+    assert!(!app.task_reply_busy());
+    assert!(app.chat_messages().is_empty());
+    let context = app.task_chat_context(key).unwrap();
+    assert!(context.contains("Unique story detail 0"));
+    assert!(!context.contains("Unique story detail 1"));
+    let expected = app.task_messages(key).to_vec();
+    app.prepare_task_chat(key);
+    assert_eq!(app.task_messages(key), expected);
+    let Screen::Connected(p) = &mut app.screen else { panic!() };
+    let slug = p.chat_slug.clone();
+    p.task_chats = Default::default();
+    app.prepare_task_chat(key);
+    assert_eq!(app.task_messages(key), expected);
+    std::fs::remove_dir_all(slug).unwrap();
+}
+
+#[test]
+fn question_opening_uses_current_context_and_resolved_items_offer_help() {
+    let mut app = fixture();
+    let key = "CLR-001";
+    let Screen::Connected(p) = &mut app.screen else { panic!() };
+    let mut item = OpenItem::new(key.into(), crate::domain::Priority::High,
+        crate::domain::ItemKind::Question, "General".into(), None,
+        "Which authentication provider?".into(), "Controls employee access".into());
+    item.evidence = "Corporate directory is available".into();
+    p.state.items.push(item.clone());
+    app.prepare_task_chat(key);
+    let greeting = &app.task_messages(key)[0].text;
+    assert!(greeting.contains("Controls employee access"));
+    assert!(greeting.contains("- Which authentication provider?"));
+    assert!(app.task_chat_context(key).unwrap().contains("Corporate directory is available"));
+    let Screen::Connected(p) = &mut app.screen else { panic!() };
+    p.task_documents[0].text.push_str("\nPending decision: CLR-001");
+    let task = p.task_documents[0].path.clone();
+    app.prepare_task_chat(&task);
+    assert!(app.task_messages(&task)[0].text.contains("- CLR-001: Which authentication provider?"));
+    let Screen::Connected(p) = &mut app.screen else { panic!() };
+    item.id = "CLR-002".into();
+    item.status = crate::domain::ItemStatus::Resolved;
+    p.state.resolved_items.push(item);
+    app.prepare_task_chat("CLR-002");
+    let greeting = &app.task_messages("CLR-002")[0].text;
+    assert!(greeting.contains("- How can I help you with this item?"));
+    assert!(!greeting.contains("- Which authentication provider?"));
+    let Screen::Connected(p) = &app.screen else { panic!() };
+    std::fs::remove_dir_all(&p.chat_slug).unwrap();
 }
 
 #[test]

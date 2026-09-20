@@ -1,6 +1,47 @@
 //! Focused prompts assembled from board identity and durable planning artifacts.
 use crate::core::{context_build::clip, state::PlannerState};
 
+/// Immediate opening copy from the current in-memory board. Opening a chat
+/// must not wait for a model or perform repository I/O on an input frame.
+pub fn presentation(
+    state: &PlannerState,
+    docs: &[crate::artifacts::task_docs::TaskDocument],
+    key: &str,
+) -> Option<(String, String)> {
+    use crate::domain::{Authority, ItemStatus};
+    let synthetic = crate::core::ownership::synthesize_for_state(state);
+    let item = state.items.iter().chain(&state.resolved_items).chain(&synthetic)
+        .find(|item| item.conversation_key() == key);
+    let user = state.effective_user();
+    let eligible = |item: &crate::domain::OpenItem| {
+        item.status == ItemStatus::Open && item.authority != Authority::Agent
+            && crate::core::routing::evaluate(item, &user, &state.config.stakeholders).is_eligible()
+    };
+    if let Some(item) = item {
+        let context = format!("{} · {}\n{}\n\nWhy this matters: {}\nRecommendation: {}\nRecorded evidence: {}\nStatus: {:?}",
+            item.id, item.kind, item.question, item.reason, item.recommendation, item.evidence, item.status);
+        let ask = if eligible(item) {
+            if item.is_ownership_gap() {
+                format!("Who should own {}? You can use this item's Assign ownership control.", item.category)
+            } else { item.question.clone() }
+        } else {
+            "How can I help you with this item?".into()
+        };
+        let greeting = format!("We’re discussing {}: {}\n\n{}\n\n---\n- {ask}", item.id, item.question, clip(&item.reason, 1200));
+        return Some((context, greeting));
+    }
+    let doc = docs.iter().find(|doc| doc.path == key && !doc.path.ends_with("/README.md"))?;
+    // Only explicitly related open questions belong in a task's introduction.
+    let pending = state.items.iter().filter(|item| eligible(item))
+        .filter(|item| tokens(&doc.text).any(|token| token == item.id)
+            || item.evidence.contains(&doc.path) || item.reason.contains(&doc.path))
+        .min_by_key(|item| (item.priority.rank(), &item.id));
+    let ask = pending.map(|item| format!("{}: {}", item.id, item.question))
+        .unwrap_or_else(|| format!("How can I help you with {}?", doc.title));
+    let next = if pending.is_some() { format!("---\n- {ask}") } else { ask };
+    Some((format!("{}\n{}", doc.path, doc.text), format!("We’re discussing {}. The task description and acceptance criteria are available in Task context.\n\n{next}", doc.title)))
+}
+
 fn tokens(text: &str) -> impl Iterator<Item = &str> {
     text.split(|c: char| !c.is_alphanumeric() && c != '-')
         .filter(|token| !token.is_empty())

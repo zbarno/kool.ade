@@ -24,15 +24,8 @@ pub struct Candidate {
 }
 
 fn numbered_story(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension == "md")
-        && path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| {
-                name.as_bytes()
-                    .get(..3)
-                    .is_some_and(|prefix| prefix.iter().all(u8::is_ascii_digit))
-            })
+    path.file_name().and_then(|name| name.to_str())
+        .is_some_and(crate::artifacts::task_docs::is_task_story_filename)
 }
 
 pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {

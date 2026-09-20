@@ -121,8 +121,36 @@ pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
     }
 }
 
-fn task_name(_feature: &str, index: usize, story: &TaskStory) -> String {
-    format!("{:03}-{}.md", index + 1, slug_with_limit(&story.title, 100))
+fn task_name(feature_id: Option<&str>, index: usize, story: &TaskStory) -> String {
+    match feature_id {
+        Some(id) => format!("{id}-TASK-{}.md", slug_with_limit(&story.title, 100)),
+        None => format!("{:03}-{}.md", index + 1, slug_with_limit(&story.title, 100)),
+    }
+}
+
+pub fn is_task_story_filename(name: &str) -> bool {
+    name.ends_with(".md")
+        && (name.starts_with(|c: char| c.is_ascii_digit())
+            || (name.starts_with('F') && name.contains("-TASK-")))
+}
+
+fn batch_slug(batch: &TaskBatch) -> String {
+    let name = batch.feature_id.as_deref()
+        .map(|id| batch.brief.feature_name.replace(id, ""))
+        .unwrap_or_else(|| batch.brief.feature_name.clone());
+    let slug = slug(&name);
+    batch.feature_id.as_deref()
+        .map(|id| format!("{id}-{slug}"))
+        .unwrap_or(slug)
+}
+
+fn ensure_unique_task_names(names: &[String]) -> anyhow::Result<()> {
+    let mut unique = std::collections::HashSet::new();
+    anyhow::ensure!(
+        names.iter().all(|name| unique.insert(name)),
+        "Task titles produce duplicate task IDs; use distinct concise titles"
+    );
+    Ok(())
 }
 
 fn list(out: &mut String, heading: &str, values: &[String], numbered: bool) {
@@ -142,9 +170,12 @@ fn list(out: &mut String, heading: &str, values: &[String], numbered: bool) {
 
 fn render(batch: &TaskBatch, index: usize, story: &TaskStory, names: &[String]) -> String {
     let b = &batch.brief;
+    let task_id = batch.feature_id.as_deref()
+        .map(|id| format!("{id}-TASK-{}", slug_with_limit(&story.title, 100)))
+        .unwrap_or_else(|| format!("{:03}", index + 1));
     let mut out = format!(
-        "# {:03} — {}\n\nFeature: {}\n\nStatus: Individually validated; see batch index for generation status.\n\n## Problem this ticket solves and why\n\n{}\n\n## Ticket goal — what changes when done\n\n{}\n\n## User story\n\n{}\n\n## Purpose\n\n{}\n\n## Specification references\n\nSource: [Approved specification](specification.md)\n\n## Implementation context\n\n{}\n",
-        index + 1,
+        "# {} — {}\n\nFeature: {}\n\nStatus: Individually validated; see batch index for generation status.\n\n## Problem this ticket solves and why\n\n{}\n\n## Ticket goal — what changes when done\n\n{}\n\n## User story\n\n{}\n\n## Purpose\n\n{}\n\n## Specification references\n\nSource: [Approved specification](specification.md)\n\n## Implementation context\n\n{}\n",
+        task_id,
         story.title.trim(),
         b.feature_name,
         story.intent,
@@ -185,10 +216,17 @@ fn render(batch: &TaskBatch, index: usize, story: &TaskStory, names: &[String]) 
         out.push_str("None. This task can start independently.\n");
     }
     for d in &story.dependencies {
-        out.push_str(&format!(
-            "- [Task {d:03}]({}) must be complete.\n",
-            names[d - 1]
-        ));
+        if batch.feature_id.is_some() {
+            out.push_str(&format!(
+                "- [{}]({}) must be complete.\n",
+                names[d - 1].trim_end_matches(".md"), names[d - 1]
+            ));
+        } else {
+            out.push_str(&format!(
+                "- [Task {d:03}]({}) must be complete.\n",
+                names[d - 1]
+            ));
+        }
     }
     list(
         &mut out,
@@ -244,6 +282,8 @@ struct ProgressBatch {
     brief: crate::core::workflow::InterviewBrief,
     specification: String,
     stories: Vec<TaskStory>,
+    #[serde(default)]
+    feature_id: Option<String>,
 }
 
 fn progress_batches(repo: &Path) -> Vec<(String, ProgressBatch)> {
@@ -297,10 +337,10 @@ pub fn save_progress(
     let existing = progress_batches(repo)
         .into_iter()
         .find(|(_, p)| p.run == run);
-    let directory = if let Some((directory, _)) = existing {
-        directory
+    let (directory, naming_id) = if let Some((directory, progress)) = existing {
+        (directory, progress.feature_id)
     } else {
-        let feature = slug(&batch.brief.feature_name);
+        let feature = batch_slug(batch);
         let mut directory = format!("planning/tasks/{feature}");
         let mut revision = 2;
         while repo.join(&directory).exists() {
@@ -308,14 +348,15 @@ pub fn save_progress(
             revision += 1;
         }
         std::fs::create_dir(repo.join(&directory))?;
-        directory
+        (directory, batch.feature_id.clone())
     };
     let names: Vec<_> = batch
         .stories
         .iter()
         .enumerate()
-        .map(|(i, s)| task_name("", i, s))
+        .map(|(i, s)| task_name(naming_id.as_deref(), i, s))
         .collect();
+    ensure_unique_task_names(&names)?;
     for (i, story) in batch.stories.iter().enumerate() {
         let path = repo.join(&directory).join(&names[i]);
         let expected = render(batch, i, story, &names);
@@ -366,6 +407,7 @@ pub fn save_progress(
             brief: batch.brief.clone(),
             specification: batch.specification.clone(),
             stories: batch.stories.clone(),
+            feature_id: naming_id,
         })?,
     )?;
     Ok(())
@@ -418,7 +460,7 @@ pub fn write_batch(
             .stories
             .iter()
             .enumerate()
-            .map(|(i, s)| format!("{directory}/{}", task_name("", i, s)))
+            .map(|(i, s)| format!("{directory}/{}", task_name(progress.feature_id.as_deref(), i, s)))
             .collect();
         paths.extend([
             format!("{directory}/README.md"),
@@ -431,7 +473,7 @@ pub fn write_batch(
         return Ok(paths);
     }
 
-    let feature = slug(&batch.brief.feature_name);
+    let feature = batch_slug(batch);
     let mut directory = format!("planning/tasks/{feature}");
     let mut revision = 2;
     while std::fs::symlink_metadata(repo.join(&directory)).is_ok() {
@@ -448,8 +490,9 @@ pub fn write_batch(
         .stories
         .iter()
         .enumerate()
-        .map(|(i, s)| task_name(&feature, i, s))
+        .map(|(i, s)| task_name(batch.feature_id.as_deref(), i, s))
         .collect();
+    ensure_unique_task_names(&names)?;
     let result = (|| -> anyhow::Result<Vec<String>> {
         let mut index = format!(
             "# {} — task stories\n\nGenerated after user approval of the interview and specification.\n\n## Goal\n\n{}\n\n## Intended users\n\n{}\n\n## Intended outcome\n\n{}\n\n[Approved specification](specification.md)\n\n## Implementation order\n\n",
@@ -563,8 +606,7 @@ pub fn load_latest(repo: &Path, workflow: &Workflow) -> Vec<TaskDocument> {
     let mut docs = Vec::new();
     for e in entries.flatten() {
         let filename = e.file_name().to_string_lossy().into_owned();
-        if !filename.ends_with(".md")
-            || !filename.starts_with(|c: char| c.is_ascii_digit())
+        if !is_task_story_filename(&filename)
             || !e.file_type().is_ok_and(|t| t.is_file())
         {
             continue;
@@ -597,4 +639,39 @@ pub fn load_latest(repo: &Path, workflow: &Workflow) -> Vec<TaskDocument> {
         }
     }
     docs
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn feature_tasks_carry_the_feature_id_in_file_heading_and_dependencies() {
+        let first = TaskStory { title: "Generate ID".into(), ..Default::default() };
+        let second = TaskStory {
+            title: "Use generated ID".into(),
+            dependencies: vec![1],
+            ..Default::default()
+        };
+        let batch = TaskBatch {
+            brief: crate::core::workflow::InterviewBrief {
+                feature_name: "Add ID to features (F10)".into(),
+                ..Default::default()
+            },
+            specification: String::new(),
+            feature_id: Some("F10".into()),
+            contract: None,
+            stories: vec![first.clone(), second.clone()],
+        };
+        let names = batch.stories.iter().enumerate()
+            .map(|(index, story)| task_name(batch.feature_id.as_deref(), index, story))
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["F10-TASK-generate-id.md", "F10-TASK-use-generated-id.md"]);
+        assert_eq!(batch_slug(&batch), "F10-add-id-to-features");
+        let rendered = render(&batch, 1, &second, &names);
+        assert!(rendered.starts_with("# F10-TASK-use-generated-id — Use generated ID"));
+        assert!(rendered.contains("[F10-TASK-generate-id](F10-TASK-generate-id.md)"));
+        assert!(names.iter().all(|name| is_task_story_filename(name)));
+        assert!(is_task_story_filename("001-legacy-task.md"));
+    }
 }
