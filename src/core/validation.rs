@@ -809,4 +809,129 @@ mod tests {
         assert_eq!(patch.category.as_deref(), Some("QA"));
         assert!(patch.assigned_to.is_none());
     }
+
+    // ── Option-1 boundary battery (ticket 004): fatal-class repeatability ──
+
+    /// Table over the fatal classes this verifier owns, proving the
+    /// machine planes are PERSONA-INDEPENDENT BY CONSTRUCTION: the
+    /// validator's entire input surface is (envelope, state, seated user,
+    /// purpose) — no channel carries instruction-channel (persona) text
+    /// into this plane. Each bad envelope is validated TWICE against the
+    /// SAME git-less, environment-independent state: the pinned fatal
+    /// fragment fires and the problem vector is byte-stable across
+    /// invocations. If a future refactor ever threads persona bytes (or
+    /// instruction-channel text generally) into validation, these pins —
+    /// and the sibling cross-file identity asserts elsewhere in the suite
+    /// — are the tripwire.
+    #[test]
+    fn fatal_classes_fire_twice_with_pinned_fragments_and_stable_vectors() {
+        use crate::domain::{CategoryOwners, Stakeholders};
+        use crate::core::workflow::TurnPurpose;
+
+        // Seated identity: a NON-MEMBER human seat, matching the routing
+        // veto case; the other cases are seat-insensitive.
+        let seated = CurrentUser::new("Packet Test", Vec::new());
+
+        /// Validates (envelope, state) twice and asserts: (1) the pinned
+        /// fragment fired, (2) repetition is byte-stable (deterministic),
+        /// (3) the verdict stayed REJECTED both times.
+        fn pin(
+            user: &CurrentUser,
+            label: &str,
+            fragment: &str,
+            build: impl Fn() -> (PlannerState, TurnEnvelope),
+        ) {
+            let (st, en) = build();
+            let first = validate_for_turn(&en, &st, user, TurnPurpose::Interview).unwrap_err();
+            assert!(
+                first.iter().any(|f| f.contains(fragment)),
+                "{label}: the pinned fatal fragment {fragment:?} did not fire; actual: {first:?}"
+            );
+            let second = validate_for_turn(&en, &st, user, TurnPurpose::Interview).unwrap_err();
+            assert_eq!(
+                second, first,
+                "{label}: the verifier must be deterministic — repeated calls on the same \
+                 inputs must produce byte-identical problem vectors"
+            );
+        }
+
+        // 1. Routing veto: the seated non-member is aimed at a question in
+        //    a lane sole-owned by someone else.
+        pin(
+            &seated,
+            "routing-veto",
+            "violates the routing law",
+            || {
+                let mut hi = item("CLR-001", ItemKind::Question, "Security", "Priya");
+                hi.priority = Priority::Blocking;
+                let mut st = base_state(vec![hi]);
+                st.config.stakeholders = Stakeholders::new(vec![
+                    CategoryOwners::new("Security", vec!["Priya".into()]),
+                    CategoryOwners::new("InfoSec", Vec::new()),
+                ]);
+                (st, env(Some("CLR-001")))
+            },
+        );
+
+        // 2. Human-authority demotion attempt: Agent cannot lower a Human item.
+        pin(&seated, "human-downgrade-attempt", "cannot be downgraded", || {
+            let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
+            let mut e = env(None);
+            e.open_items_updated = Some(vec![TurnItemUpdate {
+                id: Some("CLR-001".into()),
+                authority: Some("Agent".into()),
+                priority: None,
+                kind: None,
+                category: None,
+                assigned_to: None,
+                question: None,
+                reason: None,
+                feature_id: None,
+                recommendation: None,
+                evidence: None,
+            }]);
+            (st, e)
+        });
+
+        // 3. Resolve referencing an unknown id.
+        pin(&seated, "resolve-unknown-id", "references unknown id", || {
+            let mut e = env(None);
+            e.open_items_resolved = Some(vec!["CLR-999".into()]);
+            (base_state(vec![unassigned("CLR-001", ItemKind::Question, "General")]), e)
+        });
+
+        // 4. Blank updated_specification.
+        pin(&seated, "blank-updated-specification", "is blank", || {
+            let mut e = env(None);
+            e.updated_specification = Some("   \n  ".into());
+            (base_state(Vec::new()), e)
+        });
+
+        // 5. Unsupported schema_version (3 is declared but this build understands 1-2).
+        pin(&seated, "unsupported-schema-version", "unsupported schema_version", || {
+            let mut e = env(None);
+            e.schema_version = Some(3);
+            (base_state(Vec::new()), e)
+        });
+
+        // 6. New Review-kind item lacking a provisional recommendation.
+        pin(&seated, "review-without-recommendation", "requires a provisional recommendation", || {
+            let mut e = env(None);
+            e.open_items_added = Some(vec![TurnItem {
+                authority: Some("Review".into()),
+                id: Some("CLR-007".into()),
+                kind: Some("Question".into()),
+                category: Some("Security".into()),
+                assigned_to: Some("Priya".into()),
+                priority: Some("Normal".into()),
+                question: Some("recommend the cipher suite".into()),
+                reason: Some("crypto selection".into()),
+                resolution_note: None,
+                feature_id: None,
+                recommendation: None,
+                evidence: None,
+            }]);
+            (base_state(Vec::new()), e)
+        });
+    }
 }
