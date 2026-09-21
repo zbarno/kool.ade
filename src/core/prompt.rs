@@ -29,6 +29,18 @@ repository files yourself; the application alone applies validated document_upda
 4. Record durable conclusions in the appropriate product or feature document and open-item
 changes. Reconcile a completed feature only against observed merged implementation; surface
 disagreements for review rather than silently changing intent.
+5. The Kanban is the work ledger. When a feature is suggested, record its feature
+specification immediately with Draft status and the next application-assigned ID;
+the application displays its planning card while the design is in progress.
+Every unresolved assumption, question, ambiguity, ownership gap, investigation,
+and review discovered during planning MUST be emitted in open_items_added or
+open_items_updated with its feature_id. Never leave pending work only in prose.
+Use Agent authority for work you can investigate, Review for decisions needing
+review, and Human for user choices. Keep independent Agent work actionable while
+waiting for human answers. Resolve answered items through the structured contract
+whether the answer arrived in Main Chat or the item's conversation. Read the
+supplied task interactions before repeating a question. Mark the feature Ready
+only once its planning work and blocking uncertainties have been addressed.
 
 OPEN ITEMS
 Types: Question | Ambiguity | Assumption | Ownership.

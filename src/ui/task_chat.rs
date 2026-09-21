@@ -139,7 +139,7 @@ fn composer(
     answer: bool,
     chip_fired: bool,
 ) {
-    let busy = s.task_reply_busy();
+    let busy = s.task_chat_active(key);
     let mut send = false;
     if let Some(draft) = s.task_draft(key) {
         let salt = if answer { "task_answer_composer" } else { "task_context_composer" };
@@ -385,23 +385,20 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 {
                     ui.label(&action);
                 }
-                if !active {
-                    // CHG-003 story 5: chips for the OPEN digest's option
-                    // bullets (2..=6, else the tail declines; a tap joins
-                    // the FULL choice text — newline expanded, space
-                    // compact — into the task draft and never sends).
-                    let choices = crate::ui::reply_tail::open_digest_choices(&messages);
-                    if let Some(hit) =
-                        crate::ui::reply_tail::paint_chip_row(ui, &choices, !s.task_reply_busy())
-                        && let Some(draft) = s.task_draft(key)
-                    {
-                        crate::ui::reply_tail::join_choice(
-                            draft,
-                            &choices[hit],
-                            if expanded { '\n' } else { ' ' },
-                        );
-                        chip_fired = true;
-                    }
+                // CHG-003 story 5: chips remain visible while a reply is
+                // in flight, but are rendered as inert controls until it
+                // settles. A settled/answered card has no open choices.
+                let choices = crate::ui::reply_tail::open_digest_choices(&messages);
+                if let Some(hit) =
+                    crate::ui::reply_tail::paint_chip_row(ui, &choices, !s.task_chat_active(key))
+                    && let Some(draft) = s.task_draft(key)
+                {
+                    crate::ui::reply_tail::join_choice(
+                        draft,
+                        &choices[hit],
+                        if expanded { '\n' } else { ' ' },
+                    );
+                    chip_fired = true;
                 }
                 if active && ui.small_button("Stop reply").clicked() {
                     s.cancel_task_reply(key);
@@ -450,7 +447,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                         ui.label(&item.recommendation);
                         if ui
                             .add_enabled(
-                                !s.task_reply_busy(),
+                                !s.task_chat_active(key),
                                 egui::Button::new("Approve provisional decision"),
                             )
                             .clicked()
@@ -469,7 +466,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                             .is_some_and(|draft| draft.trim().is_empty());
                         if ui
                             .add_enabled(
-                                empty && !s.task_reply_busy(),
+                                empty && !s.task_chat_active(key),
                                 egui::Button::new("Retry last reply"),
                             )
                             .clicked()
@@ -838,6 +835,9 @@ mod tests {
             self.busy
         }
         fn conversation_busy(&self) -> bool {
+            self.busy
+        }
+        fn task_chat_active(&self, _key: &str) -> bool {
             self.busy
         }
         fn task_progress(&self, _ticket: &str) -> Option<&crate::harness::LiveProgress> {

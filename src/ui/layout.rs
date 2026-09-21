@@ -146,11 +146,11 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 "Board  {}",
                                 s.task_documents()
                                     .iter()
-                                    .filter(|d| !d.path.ends_with("/README.md"))
+                                    .filter(|d| !d.path.ends_with("/README.md") && !s.task_archived(&d.path))
                                     .count()
-                                    + s.items().len()
-                                    + s.synthetic_items().len()
-                                    + s.resolved_items().len()
+                                    + s.items().iter().chain(s.synthetic_items()).chain(s.resolved_items())
+                                        .filter(|i| !s.task_archived(i.conversation_key())).count()
+                                    + s.planning_work().iter().filter(|w| !s.task_archived(&w.key)).count()
                             ),
                         )
                         .clicked()
@@ -414,6 +414,7 @@ fn conversation_title(s: &dyn Surface, key: &str) -> String {
         .chain(s.resolved_items())
         .find(|item| item.conversation_key() == key)
         .map(|item| item.question.clone())
+        .or_else(|| s.planning_work().into_iter().find(|w| w.key == key).map(|w| w.title))
         .or_else(|| {
             s.task_documents()
                 .iter()
@@ -522,8 +523,11 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     readable
                 })
                 .collect::<Vec<_>>();
-            let busy = s.task_reply_busy();
+            let busy = s.task_chat_active(key);
             let active = s.task_chat_active(key);
+            if let Some(progress) = s.task_reply_progress(key).cloned() {
+                ui.collapsing("Reply activity", |ui| crate::ui::chat_pane::paint_progress(ui, &progress));
+            }
             if let Some(error) = s.task_chat_error() {
                 ui.colored_label(theme::WARNING, error);
                 if ui.button("Retry saving conversation").clicked() {
@@ -587,6 +591,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let id = egui::Id::new("packet_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
     let docs = s.task_documents().to_vec();
+    let work = s.planning_work();
     if viewport.width() >= 960.0 {
         ui.horizontal_wrapped(|ui| {
             for (kind, label) in [
@@ -638,6 +643,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     .iter()
                     .enumerate()
                 {
+                    let planning = work.iter().filter(|w| w.column == column && !s.task_archived(&w.key)).collect::<Vec<_>>();
                     let cards = docs
                         .iter()
                         .filter(|doc| {
@@ -648,8 +654,11 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                         .collect::<Vec<_>>();
                     let questions = items
                         .iter()
+                        .filter(|item| !s.task_archived(item.conversation_key()))
                         .filter(|item| crate::ui::task_chat::board_column(
-                            planning_column(item),
+                            if s.activity_active(item.conversation_key()) { 1 } else {
+                            planning_column(item)
+                            },
                             s.task_messages(item.conversation_key()),
                             s.task_chat_active(item.conversation_key()),
                         ) == column)
@@ -661,7 +670,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             ui.label(
                                 RichText::new(format!(
                                     "{label} · {}",
-                                    cards.len() + questions.len()
+                                    cards.len() + questions.len() + planning.len()
                                 ))
                                 .strong(),
                             );
@@ -670,6 +679,21 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 .id_salt(("task_board_column", column))
                                 .max_height(height - 32.0)
                                 .show(ui, |ui| {
+                                    for work in &planning {
+                                        board_card(ui, &work.key, None, work.column == 1, |ui| {
+                                            ui.label(RichText::new("Feature planning").color(theme::ACCENT));
+                                            ui.label(RichText::new(&work.title).strong());
+                                            ui.label(crate::core::context_build::clip(&work.detail, 180));
+                                            if ui.small_button("Open conversation").clicked() {
+                                                let mut tabs = ui.ctx().data_mut(|d| d.get_temp::<ChatTabs>(egui::Id::new("packet_chat_tabs"))).unwrap_or_default();
+                                                tabs.open(&work.key);
+                                                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("packet_chat_tabs"), tabs));
+                                            }
+                                            if column == 4 && ui.small_button("Archive").clicked() {
+                                                s.archive_task(&work.key);
+                                            }
+                                        });
+                                    }
                                     for item in questions {
                                         let active = s.activity_active(item.conversation_key());
                                         board_card(ui, &item.id, Some(item.kind), active, |ui| {
@@ -690,6 +714,9 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             });
                                             ui.label(RichText::new(&item.category).size(12.5).weak());
                                             if active { ui.label(RichText::new("● Active").color(theme::SUCCESS)); }
+                                            if column == 4 && ui.small_button("Archive").clicked() {
+                                                s.archive_task(item.conversation_key());
+                                            }
                                             if active {
                                                 crate::ui::task_activity::graph(
                                                     ui,
@@ -714,7 +741,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(&status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
                                                 ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).size(12.5).weak());
-                                                if status == "Done" && ui.small_button("Archive").clicked() {
+                                                if column == 4 && ui.small_button("Archive").clicked() {
                                                     s.archive_task(&doc.path);
                                                 }
                                             });
@@ -937,7 +964,7 @@ fn planning_column(item: &crate::domain::item::OpenItem) -> usize {
         3
     } else {
         match item.authority {
-            crate::domain::Authority::Agent => 1,
+            crate::domain::Authority::Agent => 0,
             crate::domain::Authority::Review => 2,
             crate::domain::Authority::Human => 0,
         }

@@ -84,7 +84,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat.push(welcome.clone());
         chat_store::append(&slug, &[welcome]).ok();
     }
-    let task_documents = crate::artifacts::task_docs::load_latest(&canonical, &state.workflow);
+    let task_documents = crate::artifacts::task_docs::load_board(&canonical, &state.workflow);
     let archived_tasks = crate::persistence::archived_tasks::load(&slug);
     let mut project = Project {
         task_chats: Default::default(),
@@ -96,6 +96,10 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat,
         draft: String::new(),
         active_turn: None,
+        task_turns: Default::default(),
+        task_live: Default::default(),
+        planning_work: crate::core::planning_work::load(&canonical).map_err(|e| crate::error::AppError::Other(e.to_string()))?,
+        active_planning_work: None,
         queue: crate::core::implementation_queue::Queue::load(&canonical)
             .map_err(|e| AppError::Other(e.to_string()))?,
         queue_lock: None,

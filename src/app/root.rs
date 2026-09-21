@@ -128,10 +128,26 @@ impl PacketApp {
     fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
         // Phase 1: drain pending turn events (borrows `self.screen` only).
         let mut outcome: Option<TurnOutcome> = None;
+        let mut task_outcomes = Vec::new();
         if let Screen::Connected(project) = &mut self.screen {
             project.task_chats.ensure_loaded(&project.chat_slug);
             project.activity.pending.extend(project.task_chats.take_updates());
             project.activity.ensure_overall();
+            for (key, ctrl) in &project.task_turns {
+                for _ in 0..64 {
+                    match ctrl.poll(Duration::ZERO) {
+                        Some(TurnEvt::Progress(progress)) => {
+                            project.task_live.entry(key.clone()).or_default().update(progress);
+                            project.activity.conversations.entry(key.clone()).or_default().update(Default::default());
+                        }
+                        Some(TurnEvt::Done(outcome)) => {
+                            task_outcomes.push((key.clone(), outcome));
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+            }
             if let Some(ctrl) = &project.active_turn {
                 for _ in 0..64 {
                     let Some(evt) = ctrl.poll(Duration::ZERO) else {
@@ -318,6 +334,22 @@ impl PacketApp {
                 self.screen = Screen::Connected(project);
             }
         }
+        for (key, outcome) in task_outcomes {
+            let slot = std::mem::replace(&mut self.screen, Screen::Welcome);
+            if let Screen::Connected(mut project) = slot {
+                project.task_turns.remove(&key);
+                project.task_live.remove(&key);
+                // Adoption routes messages to this conversation; preserve the
+                // independent Main Chat worker and its live output.
+                let main = project.active_turn.take();
+                let live = std::mem::take(&mut project.live_progress);
+                project.task_chats.active = Some(key);
+                self.adopt_turn(&mut project, outcome);
+                project.active_turn = main;
+                project.live_progress = live;
+                self.screen = Screen::Connected(project);
+            }
+        }
         // Poll only: repository subprocesses and reads must not stall input frames.
         if self.display_refresh.as_ref().is_some_and(|job| job.is_finished()) {
             if let Ok(result) = self.display_refresh.take().unwrap().join() {
@@ -344,7 +376,7 @@ impl PacketApp {
                 let ctx = ctx.clone();
                 self.display_refresh = Some(std::thread::spawn(move || {
                     let git = crate::core::gitops::snapshot(&repo);
-                    let documents = crate::artifacts::task_docs::load_latest(&repo, &workflow);
+                    let documents = crate::artifacts::task_docs::load_board(&repo, &workflow);
                     let implementations = crate::core::implementation::load_all(&repo)
                         .into_iter().map(|s| (s.ticket.clone(), s)).collect::<std::collections::BTreeMap<_, _>>();
                     let activity = implementations.keys().filter_map(|ticket| {
@@ -435,6 +467,7 @@ impl PacketApp {
         let period = match &self.screen {
             Screen::Connected(p)
                 if (p.active_turn.is_some()
+                    || !p.task_turns.is_empty()
                     || !p.active_implementations.is_empty()
                     || p.reconciliation.is_some()
                     || p.investigation.is_some()
@@ -571,7 +604,7 @@ impl PacketApp {
                     Ok((state, message)) => {
                         project.state = state;
                         project.reconciliation_cooldown_until = None;
-                        project.task_documents = crate::artifacts::task_docs::load_latest(
+                        project.task_documents = crate::artifacts::task_docs::load_board(
                             &project.state.repo_root,
                             &project.state.workflow,
                         );
@@ -765,6 +798,8 @@ impl PacketApp {
             .iter()
             .filter(|item| {
                 item.authority == crate::domain::Authority::Agent
+                    && item.status == crate::domain::ItemStatus::Open
+                    && !project.task_turns.contains_key(item.conversation_key())
                     && !project.investigation_attempted.contains(&item.id)
             })
             .min_by_key(|item| (item.priority.rank(), &item.id));
@@ -810,6 +845,25 @@ impl PacketApp {
     }
 
     fn adopt_turn(&mut self, project: &mut Project, outcome: TurnOutcome) {
+        {
+            let work_key = project.task_chats.active.clone().or_else(|| project.active_planning_work.take());
+            if let Some(key) = work_key {
+                if let Some(work) = project.planning_work.iter_mut().find(|w| w.key == key) {
+                    match &outcome {
+                        TurnOutcome::Applied { normalized, .. } => {
+                            work.feature = normalized.document_updates.iter()
+                                .find_map(|(id, _)| id.strip_prefix("feature:").map(str::to_owned)).or(work.feature.clone());
+                            work.column = if work.feature.is_some() { 1 } else { 4 };
+                            work.detail = normalized.assistant_message.clone();
+                        }
+                        _ => { work.column = 3; work.detail = "Planning needs attention; continue this request in its conversation.".into(); }
+                    }
+                }
+                if let Err(error) = crate::core::planning_work::save(&project.state.repo_root, &project.planning_work) {
+                    self.toasts.danger(format!("Cannot save planning board: {error}"));
+                }
+            }
+        }
         project.activity.ensure_overall();
         project
             .activity
@@ -839,8 +893,10 @@ impl PacketApp {
                 ..
             } => {
                 let previous_batches = project.state.workflow.task_batches.len();
-                project.state = state;
-                project.task_documents = crate::artifacts::task_docs::load_latest(
+                // Another worker may have committed since this outcome was
+                // queued. Adopt current disk truth, never an older snapshot.
+                project.state = crate::core::state::PlannerState::load(&state.repo_root).unwrap_or(state);
+                project.task_documents = crate::artifacts::task_docs::load_board(
                     &project.state.repo_root,
                     &project.state.workflow,
                 );
@@ -949,7 +1005,7 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if project.active_turn.is_some() {
+        if project.task_turns.contains_key(key) {
             return;
         }
         let text = project
@@ -988,11 +1044,6 @@ impl PacketApp {
             .filter(|m| m.id != sent_id)
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
-        if let Some(controller) = project.investigation.take() {
-            project.investigation_attempted.remove(&controller.item_id);
-            controller.cancel();
-        }
-        project.activity.manager = None;
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: text,
@@ -1000,7 +1051,6 @@ impl PacketApp {
             purpose: crate::core::workflow::TurnPurpose::Interview,
         };
         project.task_chats.drafts.remove(key);
-        project.task_chats.active = Some(key.into());
         #[cfg(test)]
         let harness = self
             .task_harness
@@ -1008,12 +1058,12 @@ impl PacketApp {
             .unwrap_or_else(|| Box::new(PiHarness));
         #[cfg(not(test))]
         let harness = Box::new(PiHarness);
-        project.active_turn = Some(std::sync::Arc::new(TurnController::start_scoped(
+        project.task_turns.insert(key.into(), std::sync::Arc::new(TurnController::start_scoped(
             inputs,
             harness,
             Some(key.into()),
         )));
-        project.live_progress = crate::harness::LiveProgress::default();
+        project.task_live.insert(key.into(), Default::default());
     }
 
     // ---------------------------------------------------------------- actions
@@ -1119,10 +1169,6 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if let Some(controller) = project.investigation.take() {
-            project.investigation_attempted.remove(&controller.item_id);
-            controller.cancel();
-        }
         if project.active_turn.is_some()
             || (!project.active_implementations.is_empty()
                 && purpose == crate::core::workflow::TurnPurpose::GenerateTasks)
@@ -1134,6 +1180,17 @@ impl PacketApp {
         project.activity.pending.extend(project.task_chats.take_updates());
         let task_context = project.task_interaction_context(text);
         let recent = project.recent_chat_tuples(6, 1200);
+        let key = format!("planning:{}", ChatMessage::new(ChatRole::User, text, None).id);
+        project.planning_work.push(crate::core::planning_work::Work {
+            key: key.clone(), title: format!("Plan {}", crate::core::context_build::clip(text, 100)),
+            request: text.into(), column: 1, feature: None, detail: "Planning in progress".into(),
+        });
+        if let Err(error) = crate::core::planning_work::save(&project.state.repo_root, &project.planning_work) {
+            project.planning_work.pop();
+            self.toasts.danger(format!("Cannot record planning work: {error}"));
+            return;
+        }
+        project.active_planning_work = Some(key);
         project.remember_chat(vec![ChatMessage::new(ChatRole::User, text, None)]);
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
@@ -1316,7 +1373,10 @@ impl Surface for PacketApp {
         self.submit_task_reply(key);
     }
     fn task_chat_active(&self, key: &str) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() && p.task_chats.active.as_deref() == Some(key))
+        matches!(&self.screen, Screen::Connected(p) if p.task_turns.contains_key(key))
+    }
+    fn task_reply_progress(&self, key: &str) -> Option<&crate::harness::LiveProgress> {
+        match &self.screen { Screen::Connected(p) => p.task_live.get(key), _ => None }
     }
     fn task_chat_error(&self) -> Option<&str> {
         match &self.screen {
@@ -1371,10 +1431,8 @@ impl Surface for PacketApp {
     }
     fn cancel_task_reply(&mut self, key: &str) {
         if let Screen::Connected(p) = &self.screen {
-            if p.task_chats.active.as_deref() == Some(key) {
-                if let Some(turn) = &p.active_turn {
-                    turn.request_cancel();
-                }
+            if let Some(turn) = p.task_turns.get(key) {
+                turn.request_cancel();
             }
         }
     }
@@ -1672,11 +1730,24 @@ impl Surface for PacketApp {
         matches!(&self.screen, Screen::Connected(p) if p.archived_tasks.contains(ticket))
     }
 
+    fn planning_work(&self) -> Vec<crate::core::planning_work::Work> {
+        match &self.screen {
+            Screen::Connected(p) => crate::core::planning_work::cards(&p.state, &p.planning_work),
+            _ => Vec::new(),
+        }
+    }
+
     fn archive_task(&mut self, ticket: &str) {
+        let done = self.planning_work().iter().any(|w| w.key == ticket && w.column == 4) || match &self.screen {
+            Screen::Connected(p) => p.state.resolved_items.iter().any(|item| item.conversation_key() == ticket)
+                || p.implementation_states.get(ticket).is_some_and(|state| state.status == "Done"),
+            _ => false,
+        };
         let result = {
             let Screen::Connected(project) = &mut self.screen else { return };
             if project.active_implementations.contains_key(ticket)
-                || !project.implementation_states.get(ticket).is_some_and(|state| state.status == "Done")
+                || project.task_turns.contains_key(ticket)
+                || !done
             {
                 return;
             }
@@ -1851,7 +1922,7 @@ impl Surface for PacketApp {
                     p.last_pr_refresh = None;
                     p.refresh_git();
                     p.refresh_implementations();
-                    p.task_documents = crate::artifacts::task_docs::load_latest(
+                    p.task_documents = crate::artifacts::task_docs::load_board(
                         &p.state.repo_root,
                         &p.state.workflow,
                     );
@@ -2177,6 +2248,10 @@ mod board_tests {
                 investigation_cooldown_until: None,
                 last_pr_refresh: None,
                 active_turn: None,
+                task_turns: Default::default(),
+                task_live: Default::default(),
+                planning_work: Default::default(),
+                active_planning_work: None,
                 live_progress: Default::default(),
                 next_question_id: None,
                 git: Default::default(),
@@ -2950,8 +3025,8 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         for label in [
-            "To do · 2",
-            "In progress · 1",
+            "To do · 3",
+            "In progress · 0",
             "In review · 2",
             "Needs attention · 1",
             "Done · 1",
@@ -2998,7 +3073,7 @@ mod board_tests {
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "In progress · 1").is_some());
+        assert!(text_position(&output, "To do · 1").is_some());
         assert!(text_position(&output, "Reading search source").is_none());
         let details = click_text(&mut app, &ctx, &item.question);
         assert!(text_position(&details, "Agent investigation").is_none());
@@ -3460,6 +3535,10 @@ mod tests {
             last_pr_refresh: None,
             implementation_states: Default::default(),
             active_turn: None,
+            task_turns: Default::default(),
+            task_live: Default::default(),
+            planning_work: Default::default(),
+            active_planning_work: None,
             live_progress: Default::default(),
             next_question_id: None,
             git: Default::default(),

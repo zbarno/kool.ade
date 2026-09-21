@@ -37,6 +37,10 @@ pub struct Project {
     pub investigation_cooldown_until: Option<std::time::Instant>,
     pub last_pr_refresh: Option<std::time::Instant>,
     pub active_turn: Option<Arc<TurnController>>,
+    pub task_turns: std::collections::BTreeMap<String, Arc<TurnController>>,
+    pub task_live: std::collections::BTreeMap<String, crate::harness::LiveProgress>,
+    pub planning_work: Vec<crate::core::planning_work::Work>,
+    pub active_planning_work: Option<String>,
     pub live_progress: crate::harness::LiveProgress,
     /// Which item the app decided to press the user with (routing verdict).
     pub next_question_id: Option<String>,

@@ -46,6 +46,7 @@ pub trait Surface {
     fn task_chat_active(&self, _key: &str) -> bool {
         false
     }
+    fn task_reply_progress(&self, _key: &str) -> Option<&crate::harness::LiveProgress> { None }
     fn task_reply_busy(&self) -> bool {
         self.conversation_busy()
     }
@@ -85,6 +86,7 @@ pub trait Surface {
     fn implementation_offer(&self) -> bool { false }
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
     fn task_archived(&self, _ticket: &str) -> bool { false }
+    fn planning_work(&self) -> Vec<crate::core::planning_work::Work> { Vec::new() }
     fn archive_task(&mut self, _ticket: &str) {}
     fn implementation_state(
         &self,

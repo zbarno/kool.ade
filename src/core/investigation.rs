@@ -29,11 +29,6 @@ fn validate_response(
             && envelope.interview.is_none()
             && envelope.task_stories.is_none()
             && envelope.task_outline.is_none()
-            && envelope
-                .open_items_added
-                .as_deref()
-                .unwrap_or_default()
-                .is_empty()
             && envelope.next_question_id.is_none(),
         "Investigation cannot alter unrelated workflow or ask the user"
     );
@@ -46,6 +41,8 @@ fn validate_response(
         item.authority == Authority::Agent,
         "Investigation item is no longer Agent authority"
     );
+    anyhow::ensure!(envelope.added().iter().all(|new| new.feature_id.is_some() && new.feature_id == item.feature_id),
+        "New investigation findings must belong to the same feature");
     let resolved = envelope.open_items_resolved.as_deref().unwrap_or_default();
     let updates = envelope.open_items_updated.as_deref().unwrap_or_default();
     let documents = envelope.document_updates.as_deref().unwrap_or_default();
@@ -127,7 +124,7 @@ fn run_with_settle_window(
     );
     let ctx = TurnContext::build(state, &request_text, &[]);
     let base = format!(
-        "{}\n=== AUTONOMOUS AGENT ITEM {} ===\nInvestigate this one item using read-only repository evidence. Do not ask the user. If the evidence or a safe reversible assumption resolves it, return document_updates with a full replacement of its related feature specification that records the finding and cites the source, and open_items_resolved=[\"{}\"]. Preserve other feature sections and approved intent. If it cannot safely be settled, return open_items_updated with only this item, authority Review or Human, and concrete evidence plus a provisional recommendation. Return no other item changes, no question, no task stories, no interview. All writes are application-validated.\n",
+        "{}\n=== AUTONOMOUS AGENT ITEM {} ===\nInvestigate this one item using read-only repository evidence. Do not ask the user. If the evidence or a safe reversible assumption resolves it, return document_updates with a full replacement of its related feature specification that records the finding and cites the source, and open_items_resolved=[\"{}\"]. Preserve other feature sections and approved intent. If it cannot safely be settled, return open_items_updated with only this item, authority Review or Human, and concrete evidence plus a provisional recommendation. Record newly discovered questions, assumptions and investigations in open_items_added with this same feature_id so they appear on the Kanban. Return no unrelated item changes, no question, no task stories, no interview. All writes are application-validated.\n",
         prompt::render_prompt(&ctx),
         item.id,
         item.id
@@ -137,7 +134,7 @@ fn run_with_settle_window(
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
         let request = PlanningRequest {
             implementation: false,
-            read_only: true,
+            read_only: false,
             reasoning_level: "xhigh".into(),
             repo_root: state.repo_root.clone(),
             prompt_body: format!("{base}\n{correction}"),
@@ -285,7 +282,7 @@ mod tests {
             &self,
             request: &PlanningRequest,
         ) -> Result<HarnessOutcome, crate::error::AppError> {
-            assert!(request.read_only && !request.implementation);
+            assert!(!request.read_only && !request.implementation);
             assert!(
                 request
                     .prompt_body

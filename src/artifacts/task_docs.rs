@@ -587,6 +587,24 @@ pub fn load_latest(repo: &Path, workflow: &Workflow) -> Vec<TaskDocument> {
     else {
         return Vec::new();
     };
+    load_batch(repo, batch, pending.is_some())
+}
+
+/// The board accounts for every batch, including interrupted generation.
+pub fn load_board(repo: &Path, workflow: &Workflow) -> Vec<TaskDocument> {
+    let mut docs = Vec::new();
+    for batch in &workflow.task_batches { docs.extend(load_batch(repo, batch, false)); }
+    for (directory, p) in progress_batches(repo) {
+        if !workflow.task_batches.iter().any(|b| b.directory == directory) {
+            docs.extend(load_batch(repo, &TaskBatchRef { feature: p.brief.feature_name, directory, count: p.stories.len() }, true));
+        }
+    }
+    docs.sort_by(|a, b| a.path.cmp(&b.path));
+    docs.dedup_by(|a, b| a.path == b.path);
+    docs
+}
+
+fn load_batch(repo: &Path, batch: &TaskBatchRef, pending: bool) -> Vec<TaskDocument> {
     // Only app-generated directory names may be read from the metadata.
     let Some(name) = batch
         .directory
@@ -633,7 +651,7 @@ pub fn load_latest(repo: &Path, workflow: &Workflow) -> Vec<TaskDocument> {
         }
     }
     docs.sort_by(|a, b| a.path.cmp(&b.path));
-    if pending.is_some() {
+    if pending {
         if let Ok(text) = std::fs::read_to_string(repo.join(&batch.directory).join("README.md")) {
             docs.insert(
                 0,

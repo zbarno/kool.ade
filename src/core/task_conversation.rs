@@ -8,6 +8,10 @@ pub fn presentation(
     docs: &[crate::artifacts::task_docs::TaskDocument],
     key: &str,
 ) -> Option<(String, String)> {
+    if key.starts_with("planning:") || key.starts_with("feature:") {
+        let context = crate::core::planning_work::context(state, key)?;
+        return Some((context, "Continue planning this feature here. Questions and assumptions are tracked on the board.".into()));
+    }
     use crate::domain::{Authority, ItemStatus};
     let synthetic = crate::core::ownership::synthesize_for_state(state);
     let item = state.items.iter().chain(&state.resolved_items).chain(&synthetic)
@@ -153,7 +157,7 @@ pub fn prompt(
     message: &str,
     history: &[(String, String)],
 ) -> Result<String, String> {
-    let docs = crate::artifacts::task_docs::load_latest(&state.repo_root, &state.workflow);
+    let docs = crate::artifacts::task_docs::load_board(&state.repo_root, &state.workflow);
     let synthetic = crate::core::ownership::synthesize_for_state(state);
     let mut subject = if let Some(item) = state
         .items
@@ -169,7 +173,10 @@ pub fn prompt(
     {
         format!("{}\n{}\n{}", doc.path, doc.title, doc.text)
     } else {
-        return Err(format!(
+        return crate::core::planning_work::context(state, key).map(|context| format!(
+            "Plan this feature using the same validated document and open-item contract. Record every question, ambiguity and assumption as an open item. Next feature ID: {}. Return document_updates and open-item changes; never write files directly.\n{context}\nConversation: {history:?}\nUser: {message}",
+            crate::artifacts::product_docs::next_feature_id(&state.repo_root)
+        )).ok_or_else(|| format!(
             "Board item {key} no longer exists; refresh the board."
         ));
     };

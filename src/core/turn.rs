@@ -126,7 +126,24 @@ impl TurnController {
         let worker_cancel = cancel.clone();
         let worker_evt_tx = evt_tx.clone();
         let worker = std::thread::spawn(move || {
-            let outcome = run_turn(&inputs, &*harness, &worker_cancel, act_tx, task.as_deref());
+            let budget = configured_turn_timeout();
+            let began = Instant::now();
+            let mut inputs = inputs;
+            let mut outcome = run_turn(&inputs, &*harness, &worker_cancel, act_tx.clone(), task.as_deref(), budget);
+            // Independent chats may finish against the same base. Re-plan
+            // against current artifacts after contention; never apply a stale
+            // replacement or ask the user to repeat already saved input.
+            for _ in 0..3 {
+                let drift = matches!(&outcome, TurnOutcome::Rejected { problems, .. }
+                    if problems.iter().any(|p| p.starts_with("Planning files changed on disk")));
+                if !drift || worker_cancel.load(Ordering::SeqCst) { break; }
+                let Some(remaining) = budget.checked_sub(began.elapsed()).filter(|d| !d.is_zero()) else { break };
+                let Ok(current) = PlannerState::load(&inputs.state.repo_root) else { break };
+                inputs.state = current;
+                let _ = act_tx.send(LiveProgress { activity: Some("Refreshing planning context after another conversation saved…".into()), ..Default::default() });
+                outcome = run_turn(&inputs, &*harness, &worker_cancel, act_tx.clone(), task.as_deref(), remaining);
+            }
+            drop(act_tx);
             let _ = forwarder.join();
             let _ = worker_evt_tx.send(TurnEvt::Done(outcome));
         });
@@ -173,6 +190,7 @@ fn run_turn(
     cancel: &Arc<AtomicBool>,
     progress_tx: Sender<LiveProgress>,
     task: Option<&str>,
+    timeout: Duration,
 ) -> TurnOutcome {
     let started = Instant::now();
     // Snapshot the planning repo AS FOUND ON DISK (one retry: a single
@@ -242,7 +260,8 @@ fn run_turn(
             ..Default::default()
         });
     }
-    let task_note = task.map(|_| prompt::TASK_CONVERSATION_MODE_NOTE);
+    let task_note = task.filter(|key| !key.starts_with("planning:") && !key.starts_with("feature:"))
+        .map(|_| prompt::TASK_CONVERSATION_MODE_NOTE);
     let mut prompt_body = if let Some(task) = task {
         match crate::core::task_conversation::prompt(
             &inputs.state,
@@ -274,7 +293,7 @@ fn run_turn(
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),
-        timeout: configured_turn_timeout(),
+        timeout,
         progress_tx,
         cancel: Arc::clone(cancel),
     };
@@ -308,8 +327,9 @@ fn run_turn(
             if let Some(task) = task {
                 let item_id = inputs.state.items.iter().find(|item| item.conversation_key() == task)
                     .map(|item| item.id.as_str()).unwrap_or(task);
-                if env.interview.is_some() || env.task_stories.is_some() || env.task_outline.is_some()
-                    || env.next_question_id.as_deref().is_some_and(|id| id != item_id) {
+                let feature_planning = task.starts_with("planning:") || task.starts_with("feature:");
+                if (!feature_planning && env.interview.is_some()) || env.task_stories.is_some() || env.task_outline.is_some()
+                    || (!feature_planning && env.next_question_id.as_deref().is_some_and(|id| id != item_id)) {
                     return TurnOutcome::Rejected {
                         problems: vec!["Task conversations cannot advance the project interview, generate tasks, or redirect the conversation to another item.".into()],
                         final_text: outcome.final_text, elapsed: started.elapsed(),
@@ -472,7 +492,7 @@ mod tests {
         // and the refused turn added no commit of its own.
         let text = std::fs::read_to_string(&spec_path).unwrap();
         assert!(text.contains("<!-- rival writer -->"));
-        assert_eq!(head_count(&dir), heads_before + 1);
+        assert_eq!(head_count(&dir), heads_before + 4, "Every bounded retry observes a new rival commit; none may be overwritten");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -487,6 +507,39 @@ mod tests {
             return 0;
         }
         String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+    }
+
+    #[test]
+    fn overlapping_conversations_retry_and_preserve_both_answers() {
+        struct Answer {
+            barrier: Arc<std::sync::Barrier>,
+            calls: std::sync::atomic::AtomicUsize,
+            id: String,
+        }
+        impl AiHarness for Answer {
+            fn label(&self) -> String { "concurrent fixture".into() }
+            fn check_available(&self) -> Result<String, AppError> { Ok(self.label()) }
+            fn execute(&self, _: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+                if self.calls.fetch_add(1, Ordering::SeqCst) == 0 { self.barrier.wait(); }
+                Ok(HarnessOutcome { final_text: serde_json::json!({
+                    "schema_version":1, "assistant_message":format!("Recorded {}", self.id),
+                    "open_items_updated":[{"id":self.id, "evidence":format!("Answer {}", self.id)}]
+                }).to_string(), envelope:None, stderr_tail:String::new() })
+            }
+        }
+        let (mut inputs, root) = inputs_for("concurrent_answers", "Record the answer");
+        inputs.state.items = ["CLR-001", "CLR-002"].iter().map(|id| crate::domain::OpenItem::new(
+            id.to_string(), crate::domain::Priority::Normal, ItemKind::Question, "General".into(), None,
+            "Which provider?".into(), "Access".into())).collect();
+        std::fs::write(root.join(crate::artifacts::OPEN_ITEMS_FILE), crate::artifacts::items_io::serialize(&inputs.state.items)).unwrap();
+        inputs.state = PlannerState::load(&root).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let controllers = ["CLR-001", "CLR-002"].map(|id| TurnController::start_scoped(inputs.clone(),
+            Box::new(Answer { barrier:barrier.clone(), calls:0.into(), id:id.into() }), Some(id.into())));
+        for controller in &controllers { assert!(matches!(drain(controller), TurnOutcome::Applied { .. })); }
+        let state = PlannerState::load(&root).unwrap();
+        for item in &state.items { assert_eq!(item.evidence, format!("Answer {}", item.id)); }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Acts as a rival writer: while the model is "running" it edits the spec
