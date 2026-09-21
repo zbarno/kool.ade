@@ -19,10 +19,14 @@ use crate::ui::{HeaderAction, Intent, Surface, ToastQueue};
 #[path = "conversation_tests.rs"]
 mod conversation_tests;
 
+#[path = "feature_approval.rs"]
+mod feature_approval;
+
 /// Root of the packet app.
 pub struct PacketApp {
     #[cfg(test)]
     task_harness: Option<Box<dyn crate::harness::AiHarness>>,
+    pending_feature_generation: Option<(std::path::PathBuf, String, String)>,
     screen: Screen,
     dialog: Option<Dialog>,
     toasts: ToastQueue,
@@ -58,6 +62,15 @@ struct DisplayRefresh {
 }
 
 fn has_current_task_batch(project: &Project) -> bool {
+    if let Some((id, _)) = &project.state.active_feature {
+        let tagged = project.task_documents.iter().filter(|doc| !doc.path.ends_with("/README.md"))
+            .filter_map(|doc| doc.text.lines().find_map(|line| line.strip_prefix("Feature ID: ")).map(|feature| (feature, doc)));
+        let docs = tagged.collect::<Vec<_>>();
+        if !docs.is_empty() {
+            return docs.iter().any(|(feature, doc)| feature == id && project.state.workflow.task_batches.iter()
+                .any(|batch| doc.path.starts_with(&format!("{}/", batch.directory))));
+        }
+    }
     project.task_documents.iter().any(|doc| !doc.path.ends_with("/README.md"))
         && project.state.workflow.brief.as_ref().is_none_or(|brief| {
             project.state.workflow.task_batches.last()
@@ -75,6 +88,7 @@ fn implementation_request(text: &str) -> bool {
         | "implement the tasks" | "start implementing the tasks"
         | "start the implementation queue" | "resume implementation"
         | "resume implementing" | "continue implementing"
+        | "lets implement" | "let's implement"
     )
 }
 
@@ -105,6 +119,7 @@ impl Default for PacketApp {
         Self {
             #[cfg(test)]
             task_harness: None,
+            pending_feature_generation: None,
             screen: Screen::Welcome,
             dialog: None,
             toasts,
@@ -328,10 +343,12 @@ impl PacketApp {
         // Phase 2: apply a completed turn. The project is detached first so
         // the `&mut self` work (caches, toasts) cannot alias `self.screen`.
         if let Some(o) = outcome {
+            let applied = matches!(&o, TurnOutcome::Applied { .. });
             let slot = std::mem::replace(&mut self.screen, Screen::Welcome);
             if let Screen::Connected(mut project) = slot {
                 self.adopt_turn(&mut project, o);
                 self.screen = Screen::Connected(project);
+                self.continue_feature_generation(applied);
             }
         }
         for (key, outcome) in task_outcomes {
@@ -1102,6 +1119,15 @@ impl PacketApp {
             }
             _ => crate::core::workflow::TurnPurpose::Interview,
         };
+        if purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
+            if let Screen::Connected(p) = &self.screen {
+                if let Some((id, _)) = &p.state.active_feature {
+                    let id = id.clone();
+                    self.approve_and_prepare_feature(&id);
+                    return;
+                }
+            }
+        }
         self.start_turn_with_purpose(text, purpose);
     }
 
@@ -1109,6 +1135,20 @@ impl PacketApp {
     /// prompts. Record the user's authorization through the same approval path
     /// as the feature button before dispatching through the normal task controls.
     fn start_implementation_from_chat(&mut self, text: &str) {
+        if let Screen::Connected(p) = &self.screen {
+            if !has_current_task_batch(p) {
+                if let Some((id, _)) = &p.state.active_feature {
+                    let id = id.clone();
+                    if self.available_feature_actions(None).iter().any(|action| action.id == id) {
+                        if let Screen::Connected(p) = &mut self.screen {
+                            p.remember_chat(vec![ChatMessage::new(ChatRole::User, text, None)]);
+                        }
+                        self.approve_and_prepare_feature(&id);
+                        return;
+                    }
+                }
+            }
+        }
         let Screen::Connected(project) = &mut self.screen else { return };
         if project.active_turn.is_some() {
             return;
@@ -1223,6 +1263,7 @@ impl PacketApp {
     }
 
     fn disconnect(&mut self) {
+        self.pending_feature_generation = None;
         if let Screen::Connected(p) = &mut self.screen {
             for ctrl in p.active_implementations.values() {
                 ctrl.request_cancel();
@@ -1852,32 +1893,21 @@ impl Surface for PacketApp {
             Screen::Welcome => false,
         }
     }
+    fn feature_actions(&self, conversation: Option<&str>) -> Vec<crate::ui::feature_approval::Action> {
+        self.available_feature_actions(conversation)
+    }
     fn approve_feature(&mut self, id: &str) {
-        if let Screen::Connected(p) = &mut self.screen {
-            if !p.state.active_features.iter().any(|(feature_id, _)| feature_id == id) {
-                return;
-            }
-            match crate::core::workflow::approve_feature(
-                &p.state.repo_root,
-                &mut p.state.workflow,
-                id,
-            ) {
-                Ok(_) => {
-                    p.refresh_git();
-                    self.toasts
-                        .success(format!("Approved {id} for implementation"));
-                }
-                Err(error) => self
-                    .toasts
-                    .danger(format!("Cannot approve feature: {error}")),
-            }
-        }
+        self.approve_and_prepare_feature(id);
     }
     fn toasts(&mut self) -> &mut ToastQueue {
         &mut self.toasts
     }
 
     fn on_intent(&mut self, intent: &Intent) {
+        if let Some(id) = &intent.approve_feature {
+            self.approve_feature(id);
+            return;
+        }
         if intent.implement_tasks {
             if self.implementation_offer() {
                 self.start_implementation_from_chat("implement the tasks");
@@ -1886,6 +1916,13 @@ impl Surface for PacketApp {
         }
         if intent.generate_tasks {
             if self.task_offer().is_some() {
+                if let Screen::Connected(p) = &self.screen {
+                    if let Some((id, _)) = &p.state.active_feature {
+                        let id = id.clone();
+                        self.approve_and_prepare_feature(&id);
+                        return;
+                    }
+                }
                 self.start_turn_with_purpose(
                     "Yes, proceed to task generation for the reviewed specification.",
                     crate::core::workflow::TurnPurpose::GenerateTasks,
@@ -1894,6 +1931,7 @@ impl Surface for PacketApp {
             return;
         }
         if intent.cancel {
+            self.pending_feature_generation = None;
             if let Screen::Connected(p) = &mut self.screen {
                 p.activity.manager = None;
                 if let Some(ctrl) = &p.active_turn {

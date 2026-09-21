@@ -9,6 +9,8 @@ pub const WORKFLOW_FILE: &str = ".planner/workflow.json";
 pub enum TurnPurpose {
     #[default]
     Interview,
+    /// Refresh a stale brief for an already authorized generation action.
+    ReviewForGeneration,
     GenerateTasks,
 }
 
@@ -204,6 +206,15 @@ pub fn approve_feature(
     workflow: &mut Workflow,
     id: &str,
 ) -> anyhow::Result<String> {
+    approve_feature_if_current(repo, workflow, id, None)
+}
+
+pub fn approve_feature_if_current(
+    repo: &std::path::Path,
+    workflow: &mut Workflow,
+    id: &str,
+    expected_contract: Option<&str>,
+) -> anyhow::Result<String> {
     // Writer section: this read-modify-commit of workflow.json shares the
     // planning index with background turns/reconciliation.
     let guard = crate::core::writer_gate::acquire();
@@ -216,6 +227,10 @@ pub fn approve_feature(
     );
     let contract = feature_contract(&text);
     anyhow::ensure!(!contract.trim().is_empty(), "Feature contract is empty");
+    anyhow::ensure!(expected_contract.is_none_or(|expected| expected == contract),
+        "The feature changed since it was displayed. Refresh and review its current specification.");
+    // Another conversation may have saved a brief or another approval since display.
+    *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
     workflow.approved_features.insert(id.to_string(), contract);
     crate::artifacts::task_docs::save_workflow(repo, workflow)?;
     let result = crate::core::gitops::commit(
@@ -460,7 +475,11 @@ pub fn prepare(
                 }
                 workflow.reviewed_specification = Some(spec.to_owned());
                 nt.next_question_id = None;
-                nt.assistant_message.push_str(&format!("\n\nThe goal and scope for {} are ready to break down. Would you like to proceed to task generation? Choose Generate task stories, reply yes, or keep refining the plan.", brief.feature_name));
+                if purpose == TurnPurpose::ReviewForGeneration {
+                    nt.assistant_message.push_str("\n\nThe task plan is ready. The application will now check the approved contract and continue task generation.");
+                } else {
+                    nt.assistant_message.push_str(&format!("\n\nThe goal and scope for {} are ready to break down. Would you like to proceed to task generation? Choose Generate task stories, reply yes, or keep refining the plan.", brief.feature_name));
+                }
             }
             workflow.brief = Some(brief.clone());
         }

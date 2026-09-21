@@ -201,17 +201,16 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             ui.selectable_value(&mut selected, Some(id.clone()), title);
                         }
                     });
-                if selected.as_deref().is_some_and(|id| s.feature_approved(id)) {
-                    ui.label(RichText::new("Approved for implementation").color(theme::SUCCESS));
-                } else if selected.is_some() && ui
-                    .add_enabled(
-                        !s.is_busy(),
-                        egui::Button::new("Approve feature for implementation"),
-                    )
-                    .clicked()
+                if let Some(action) = s.feature_actions(None).into_iter()
+                    .find(|action| selected.as_deref() == Some(action.id.as_str()))
                 {
-                    s.approve_feature(selected.as_deref().unwrap());
+                    if ui.add_enabled(!s.conversation_busy(), egui::Button::new(action.label())).clicked() {
+                        s.approve_feature(&action.id);
+                    }
+                } else if selected.as_deref().is_some_and(|id| s.feature_approved(id)) {
+                    ui.label(RichText::new("Approved for implementation").color(theme::SUCCESS));
                 }
+
             }
             ui.ctx().data_mut(|d| d.insert_temp(selected_id, selected.clone()));
             let document = if view == 1 {
@@ -511,6 +510,7 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
         if let Some(key) = tabs.active.as_deref() {
             s.prepare_task_chat(key);
             let context = s.task_chat_context(key);
+            let actions = s.feature_actions(Some(key));
             let title = conversation_title(s, key);
             ui.add(egui::Label::new(RichText::new(&title).strong()).truncate())
                 .on_hover_text(title);
@@ -535,7 +535,10 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 }
             }
             if let Some(draft) = s.task_draft(key) {
-                let intent = crate::ui::chat_pane::paint_task_with_context(ui, &messages, draft, busy, context.as_deref());
+                let intent = crate::ui::chat_pane::paint_task_with_actions(ui, &messages, draft, busy, context.as_deref(), &actions);
+                if let Some(id) = &intent.approve_feature {
+                    s.approve_feature(id);
+                }
                 if intent.send {
                     s.send_task_reply(key);
                 }
@@ -565,16 +568,18 @@ fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
     let busy = s.conversation_busy();
     let offer = s.task_offer().cloned();
     let implementation_offer = s.implementation_offer();
-    let intent = crate::ui::chat_pane::paint(
+    let actions = s.feature_actions(None);
+    let intent = crate::ui::chat_pane::paint_with_actions(
         ui,
         &msgs,
         s.chat_draft(),
         busy,
         progress.as_ref(),
-        offer.as_ref(),
-        implementation_offer,
+        crate::ui::chat_pane::Actions {
+            task_offer: offer.as_ref(), implementation_offer, features: &actions,
+        },
     );
-    if intent.send || intent.cancel || intent.generate_tasks || intent.implement_tasks {
+    if intent.send || intent.cancel || intent.generate_tasks || intent.implement_tasks || intent.approve_feature.is_some() {
         s.on_intent(&intent);
     }
 }
@@ -1191,7 +1196,7 @@ fn task_key(path: &str) -> String {
         .next()
         .unwrap_or(path)
         .trim_end_matches(".md");
-    if name.starts_with('F') && name.contains("-TASK-") {
+    if name.split_once("-TASK-").is_some_and(|(id, _)| crate::artifacts::product_docs::valid_feature_id(id)) {
         return name.to_owned();
     }
     let prefix = name.split('-').next().unwrap_or(name);

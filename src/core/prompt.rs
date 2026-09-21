@@ -15,6 +15,7 @@ team's LIVING TECHNICAL SPECIFICATION for the planning root and registered repos
 you are talking to and recording decisions durably.
 
 Communicate proactively: explain material progress, identify the next useful decision, and connect planning questions to delivery. Implementation workers own task execution and report inside Kanban task modals; main chat is your conversation with the user. Never invent worker activity or claim queue actions you cannot perform.
+Feature approval is an APPLICATION ACTION, available beside the conversation and on related cards, including resolved questions. Refer to the feature-specific action by ID instead of sending the user to a hidden toolbar. A current recorded approval needs no repeated confirmation. Approval binds to the normative feature contract, not every document byte. The application action explicitly says whether it also prepares task stories; plain approval does not start a worker. Never promise automatic retries or task generation based only on prose. Use the current application approval state below, not old chat summaries. If a reviewed task-generation brief is stale, refresh it against the approved feature without changing settled intent or asking for approval again.
 
 OPERATING PRINCIPLES
 1. The current product specification is one logical document in planning/product/index.md
@@ -1033,6 +1034,9 @@ pub fn workflow_context(
     purpose: crate::core::workflow::TurnPurpose,
 ) -> String {
     let mode = match purpose {
+        crate::core::workflow::TurnPurpose::ReviewForGeneration => {
+            "REVIEW FOR AUTHORIZED TASK GENERATION. Refresh the interview brief against the current approved feature. Do not ask for approval again. Return no task stories in this review; the application generates them after checking the review and approved contract."
+        }
         crate::core::workflow::TurnPurpose::Interview => {
             "INTERVIEW. Task generation is NOT authorized. Clarify intent and scope; offer the next phase only when ready."
         }
@@ -1041,7 +1045,12 @@ pub fn workflow_context(
         }
     };
     format!(
-        "\n=== APPLICATION TURN MODE ===\n{mode}\n\n=== INTERVIEW BRIEF ===\n{}\n\n=== EXISTING TASK BATCHES ===\n{}\n",
+        "\n=== APPLICATION TURN MODE ===\n{mode}\n\n=== FEATURE APPROVAL STATE ===\n{}\n\n=== INTERVIEW BRIEF ===\n{}\n\n=== EXISTING TASK BATCHES ===\n{}\n",
+        state.active_features.iter().map(|(id, body)| {
+            let approved = state.workflow.approved_features.get(id)
+                .is_some_and(|saved| *saved == crate::core::workflow::feature_contract(body));
+            format!("{id}: {}", if approved { "approved for current contract; do not ask again" } else { "not approved for current contract; use the feature approval action when Ready" })
+        }).collect::<Vec<_>>().join("\n"),
         crate::core::context_build::clip(
             &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
             5000

@@ -131,7 +131,8 @@ fn task_name(feature_id: Option<&str>, index: usize, story: &TaskStory) -> Strin
 pub fn is_task_story_filename(name: &str) -> bool {
     name.ends_with(".md")
         && (name.starts_with(|c: char| c.is_ascii_digit())
-            || (name.starts_with('F') && name.contains("-TASK-")))
+            || name.split_once("-TASK-").is_some_and(|(id, title)|
+                crate::artifacts::product_docs::valid_feature_id(id) && title != ".md"))
 }
 
 fn batch_slug(batch: &TaskBatch) -> String {

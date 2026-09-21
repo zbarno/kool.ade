@@ -35,7 +35,7 @@ impl AiHarness for FixtureHarness {
         } else {
             assert!(req.prompt_body.contains("The user explicitly approved"));
             if req.prompt_body.contains("ONLY detailed story 2 of 2") {
-                let directory = req.repo_root.join("planning/tasks/saved-searches");
+                let directory = req.repo_root.join(".kool-ade-packet/planning/tasks/saved-searches");
                 assert!(
                     directory
                         .join("001-persist-named-search-filters.md")
@@ -194,7 +194,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
         };
         assert!(commit_result.is_ok());
         assert!(state.workflow.ready(state.spec_text.as_deref()));
-        assert!(!root.join("planning/tasks").exists());
+        assert!(!root.join(".kool-ade-packet/planning/tasks").exists());
         let outcome = run(state, true, failure_mode);
         if failure_mode == 6 {
             let TurnOutcome::HarnessFailed { error, .. } = outcome else {
@@ -203,13 +203,13 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             assert!(error.detail().contains("after 3 attempts"));
             assert!(
                 !root
-                    .join("planning/tasks/saved-searches/001-persist-named-search-filters.md")
+                    .join(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md")
                     .exists()
             );
         } else if failure_mode == 1 || failure_mode == 2 {
             assert!(matches!(outcome, TurnOutcome::HarnessFailed { .. }));
             let first =
-                root.join("planning/tasks/saved-searches/001-persist-named-search-filters.md");
+                root.join(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md");
             let saved = std::fs::read_to_string(&first).unwrap();
             let reloaded = PlannerState::load(&root).unwrap();
             assert!(
@@ -219,7 +219,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             if failure_mode == 1 {
                 let manifest: serde_json::Value = serde_json::from_str(
                     &std::fs::read_to_string(
-                        root.join("planning/tasks/saved-searches/.packet-progress.json"),
+                        root.join(".kool-ade-packet/planning/tasks/saved-searches/.packet-progress.json"),
                     )
                     .unwrap(),
                 )
@@ -253,9 +253,9 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 "retry must resume the second story with one model call"
             );
             assert_eq!(std::fs::read_to_string(first).unwrap(), saved);
-            assert!(!root.join("planning/tasks/saved-searches-02").exists());
+            assert!(!root.join(".kool-ade-packet/planning/tasks/saved-searches-02").exists());
             assert!(
-                std::fs::read_to_string(root.join("planning/tasks/saved-searches/README.md"))
+                std::fs::read_to_string(root.join(".kool-ade-packet/planning/tasks/saved-searches/README.md"))
                     .unwrap()
                     .contains("Status: Complete")
             );
@@ -277,13 +277,13 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 .unwrap();
             let paths = String::from_utf8(tracked.stdout).unwrap();
             assert!(
-                paths.contains("planning/tasks/saved-searches/001-persist-named-search-filters.md")
+                paths.contains(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md")
             );
             assert!(
                 paths
-                    .contains("planning/tasks/saved-searches/002-build-the-saved-search-picker.md")
+                    .contains(".kool-ade-packet/planning/tasks/saved-searches/002-build-the-saved-search-picker.md")
             );
-            assert!(paths.contains("planning/tasks/saved-searches/specification.md"));
+            assert!(paths.contains(".kool-ade-packet/planning/tasks/saved-searches/specification.md"));
         }
         std::fs::remove_dir_all(root).unwrap();
     }

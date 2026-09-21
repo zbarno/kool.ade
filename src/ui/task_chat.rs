@@ -438,6 +438,10 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                         }
                     }
                 }
+                let actions = s.feature_actions(Some(key));
+                if let Some(id) = super::feature_approval::paint(ui, &actions, s.conversation_busy()) {
+                    s.approve_feature(&id);
+                }
                 if ownership && ui.button("Assign ownership").clicked() {
                     s.on_header_action(crate::ui::HeaderAction::Stakeholders);
                 }

@@ -3,6 +3,7 @@
 //! decoupled from pixels.
 
 pub mod chat_pane;
+pub mod feature_approval;
 pub mod items_pane;
 pub mod layout;
 pub mod markdown;
@@ -84,6 +85,7 @@ pub trait Surface {
     fn set_max_parallel_tasks(&mut self, _count: usize) {}
     fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief>;
     fn implementation_offer(&self) -> bool { false }
+    fn feature_actions(&self, _conversation: Option<&str>) -> Vec<feature_approval::Action> { Vec::new() }
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
     fn task_archived(&self, _ticket: &str) -> bool { false }
     fn planning_work(&self) -> Vec<crate::core::planning_work::Work> { Vec::new() }

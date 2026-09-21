@@ -16,6 +16,13 @@ pub struct Intent {
     pub cancel: bool,
     pub generate_tasks: bool,
     pub implement_tasks: bool,
+    pub approve_feature: Option<String>,
+}
+
+pub struct Actions<'a> {
+    pub task_offer: Option<&'a crate::core::workflow::InterviewBrief>,
+    pub implementation_offer: bool,
+    pub features: &'a [super::feature_approval::Action],
 }
 
 pub fn paint(
@@ -27,18 +34,32 @@ pub fn paint(
     offer: Option<&crate::core::workflow::InterviewBrief>,
     implementation_offer: bool,
 ) -> Intent {
+    paint_with_actions(ui, messages, draft, busy, progress, Actions {
+        task_offer: offer, implementation_offer, features: &[],
+    })
+}
+
+pub fn paint_with_actions(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+    progress: Option<&crate::harness::LiveProgress>,
+    actions: Actions<'_>,
+) -> Intent {
     paint_with_hint(
         ui,
         messages,
         draft,
         busy,
         progress,
-        offer,
-        implementation_offer,
+        actions.task_offer,
+        actions.implementation_offer,
         &ComposeCopy {
             composer_id: "main_chat_composer",
             hint: "What are you building?",
             context: None,
+            actions: actions.features,
         },
     )
 }
@@ -59,6 +80,17 @@ pub fn paint_task_with_context(
     busy: bool,
     context: Option<&str>,
 ) -> Intent {
+    paint_task_with_actions(ui, messages, draft, busy, context, &[])
+}
+
+pub fn paint_task_with_actions(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+    context: Option<&str>,
+    actions: &[super::feature_approval::Action],
+) -> Intent {
     paint_with_hint(
         ui,
         messages,
@@ -71,6 +103,7 @@ pub fn paint_task_with_context(
             composer_id: "task_tab_composer",
             hint: "Reply about this task…",
             context,
+            actions,
         },
     )
 }
@@ -85,6 +118,7 @@ struct ComposeCopy<'a> {
     /// Placeholder shown while the draft is empty.
     hint: &'static str,
     context: Option<&'a str>,
+    actions: &'a [super::feature_approval::Action],
 }
 
 fn paint_with_hint(
@@ -101,10 +135,12 @@ fn paint_with_hint(
         composer_id,
         hint,
         context,
+        actions,
     } = *compose;
     let mut cancel = false;
     let mut generate_tasks = false;
     let mut implement_tasks = false;
+    let mut approve_feature = None;
     // Flipped once per frame by a claimed chip tap so the composer can pin
     // the caret and re-grab focus right behind the inserted text.
     let mut chip_fired = false;
@@ -143,7 +179,10 @@ fn paint_with_hint(
                     );
                     ui.add_space(8.0);
                 }
-                if implementation_offer {
+                approve_feature = super::feature_approval::paint(ui, actions, busy);
+                if actions.iter().any(|action| action.prepare_tasks) {
+                    // Feature actions already provide the applicable next step.
+                } else if implementation_offer {
                     theme::card_frame().show(ui, |ui| {
                         ui.label(RichText::new("Ready to implement").strong());
                         ui.label("Approve the feature associated with the next eligible task and start implementation. Auto mode continues the queue.");
@@ -264,6 +303,7 @@ fn paint_with_hint(
         cancel,
         generate_tasks,
         implement_tasks,
+        approve_feature,
     }
 }
 
