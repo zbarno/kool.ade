@@ -26,28 +26,3 @@ Provisional (board-reviewable): Option 2 for the attested cases — the publishe
 ### Evidence
 src/core/implementation.rs: auto-publish runs `merge --squash <task_head>` in the integration worktree then one atomic fast-forward push; the task branch `packet/<key>` is created at record construction and no branch-deletion path exists anywhere in implementation.rs / implementation_queue.rs / reconciliation.rs (read-only audit). `git branch -d` semantics: refuses unless the commit is an ancestor of the merge destination — a squash descendant is not. Operator pain statement: one pair of directories PLUS local branches per finished task; manual pass after every merge/PR.
 
-## CLR-028
-
-**Priority:** Normal
-**Authority:** Agent
-**Type:** Ambiguity
-**Category:** Development
-**Feature:** CHG-004
-**Assigned To:** Development
-**Status:** Open
-
-### Question
-"Divergent" operational definition for the CHG-004 R4 skip guard. Proposed deterministic predicate: a candidate worktree is removable only if `git status --porcelain` is empty AND its HEAD commit remains reachable from at least one surviving ref after branch handling (a kept-not-merged branch or a remote-tracking ref); "divergent" otherwise. Git's own refusal at `git worktree remove` (dirty, locked) remains the final guard — never `--force`. A candidate whose directory is already absent degenerates to registration pruning plus diagnostic and counts as handled for AC4.
-
-
-### Reason
-AC4 must simulate dirty and missing-directory states with a crisp, testable pass/fail predicate, and the predicate must not recompute ancestry (the ruling delegates to Git). Locking the wording now keeps the implementation stories mechanical rather than interpretive.
-
-
-### Recommendation
-Adopt the predicate as stated: clean status + post-branching reachability + Git refusal as final guard; missing directory degenerates to prune+diagnose, not failure.
-
-
-### Evidence
-Feature R4/AC4; `git worktree remove` without `--force` refuses dirty worktrees natively; missing-directory states are realistic because the operator already ran a manual cleanup pass at the time of the ruling, which can strand registrations without directories. Agent-resolvable during story writing; recorded so the plan is auditable.
-
