@@ -26,31 +26,6 @@ Provisional (board-reviewable): Option 2 for the attested cases — the publishe
 ### Evidence
 src/core/implementation.rs: auto-publish runs `merge --squash <task_head>` in the integration worktree then one atomic fast-forward push; the task branch `packet/<key>` is created at record construction and no branch-deletion path exists anywhere in implementation.rs / implementation_queue.rs / reconciliation.rs (read-only audit). `git branch -d` semantics: refuses unless the commit is an ancestor of the merge destination — a squash descendant is not. Operator pain statement: one pair of directories PLUS local branches per finished task; manual pass after every merge/PR.
 
-## CLR-027
-
-**Priority:** Normal
-**Authority:** Agent
-**Type:** Assumption
-**Category:** Development
-**Feature:** CHG-004
-**Assigned To:** Development
-**Status:** Open
-
-### Question
-Exclusive-ownership assumption (CHG-004): cleanup resolves candidates solely from the task's recorded worktree/branch metadata and its documented sibling naming (`<key>`, `<key>-integration-<base[:12]>`, `packet/<key>`, `packet/integration/<key>/<base[:12]>`) inside `<checkout-parent>/.packet-worktrees/<project-slug>/`, assuming Packet exclusively owns that subtree for the connected project. Nothing found incidentally in the roots (other tools, another Packet instance, manual directories) is ever a candidate. Proposed enforcement: before removing, confirm each candidate is registered in `git worktree list` at the recorded path; any registration/path mismatch aborts that item with a diagnostic instead of removing.
-
-
-### Reason
-Makes 'never touches foreign checkouts' operable rather than aspirational: without the guard, a coincidental occupant of the worktrees roots could be swept by an otherwise harmless done step, and the operator has a history of manual passes sharing those roots.
-
-
-### Recommendation
-Adopt the record-only candidate rule plus the worktree-list path-match guard as written; reversible at story review.
-
-
-### Evidence
-Record construction in src/core/implementation.rs: root = repo parent + .packet-worktrees + project slug; branch `packet/<key>`; integration sibling derived from the state.worktree file-name plus branch `packet/integration/<key>/<base[:12]>`. The feature's Decisions and Assumptions already assume exclusive ownership; this item converts it into an enforcement strategy. Resolvable from evidence at story-writing time; no user input needed.
-
 ## CLR-028
 
 **Priority:** Normal

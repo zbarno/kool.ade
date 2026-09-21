@@ -124,5 +124,19 @@
     "recommendation": "Approve: add a mirror-of-005 gate ticket to that task's batch, scoped to f773b2d's footprint (src/ plus tests/multi_repository_feature.rs plus the CHG-001 spec delta) on the pinned Rust 1.98 toolchain; treat f773b2d as pre-existing debt for CHG-005 purposes only.",
     "evidence": "f773b2d = +885/−281 over 25 files; 18 src paths outside CHG-005's seven-path set; never captured by any clippy baseline or D-34 pass; CHG-005 gate record /tmp/d34_gate_df5e3d9/RECORD.md foreign-commit dossier; operator ruling in ticket 005 conversation: 'the other local changes are from another task, ignore those'.\n\nResolution outcome: Approved provisional decision CLR-025.",
     "status": "resolved"
+  },
+  {
+    "id": "CLR-027",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "Development",
+    "assigned_to": "Development",
+    "question": "Exclusive-ownership assumption (CHG-004): cleanup resolves candidates solely from the task's recorded worktree/branch metadata and its documented sibling naming (`<key>`, `<key>-integration-<base[:12]>`, `packet/<key>`, `packet/integration/<key>/<base[:12]>`) inside `<checkout-parent>/.packet-worktrees/<project-slug>/`, assuming Packet exclusively owns that subtree for the connected project. Nothing found incidentally in the roots (other tools, another Packet instance, manual directories) is ever a candidate. Proposed enforcement: before removing, confirm each candidate is registered in `git worktree list` at the recorded path; any registration/path mismatch aborts that item with a diagnostic instead of removing.",
+    "reason": "Makes 'never touches foreign checkouts' operable rather than aspirational: without the guard, a coincidental occupant of the worktrees roots could be swept by an otherwise harmless done step, and the operator has a history of manual passes sharing those roots.",
+    "feature_id": "CHG-004",
+    "recommendation": "Adopt the record-only candidate rule plus the worktree-list path-match guard as written; reversible at story review.",
+    "evidence": "Record construction in src/core/implementation.rs: root = repo parent + .packet-worktrees + project slug; branch `packet/<key>`; integration sibling derived from the state.worktree file-name plus branch `packet/integration/<key>/<base[:12]>`. The feature's Decisions and Assumptions already assume exclusive ownership; this item converts it into an enforcement strategy. Resolvable from evidence at story-writing time; no user input needed.\n\nResolution outcome: Investigated CLR-027 read-only and it resolves: the exclusive-ownership assumption is operationally sound — Packet creates the worktrees root itself (src/core/implementation.rs:578–581), persisted Implementation records carry exact worktree paths and branches for the task and each per-(task,base) integration sibling (:23–29, :1215, :1221–1230), and task keys embed a 16-hex FNVA1A64 fingerprint so foreign name collisions are negligible. I confirmed the record-scoped candidate rule and adopted the proposed guard with sharpened edges: one parsed `git worktree list` snapshot per cleanup; per-candidate match of recorded path (lexically normalized) and recorded branch; mismatch or a present-but-unregistered directory aborts that item with a diagnostic and removes nothing; a gone registration with an absent directory degenerates to `git worktree prune` plus diagnostic (prune only strips missing-dir registrations). The codebase already uses the mirror idiom (identity-mismatch 'refusing to modify' guards at :715–722, :1274–1277), and no removal path exists yet, so the guard is additive. Change recorded in the CHG-004 spec (Desired Behavior, R4, Decisions, AC5); CLR-027 resolved. Remaining human item on this feature: CLR-026 (branch reclamation under squash).",
+    "status": "resolved"
   }
 ]
