@@ -1,6 +1,9 @@
 //! Secondary dialogs: reference-doc import and stakeholder/identity
 //! settings. Business effects (files, commits) run on SAVE only.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
 use egui::{Layout, RichText, TextEdit};
 
 use crate::app::session::Project;
@@ -1476,16 +1479,773 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&root);
     }
-}
 
-fn expand_tilde(raw: &str) -> String {
-    if let Some(rest) = raw.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{home}/{rest}");
+    // ---- CHG-003 workspace browser (unit + egui-frame driven) --------------
+    //
+    // House rules honoured: tests in this #[cfg(test)] module; unique-name
+    // fixtures under std::env::temp_dir(); git spawned only where genuinely
+    // needed. Frames drive the real production modal chrome through
+    // egui::Context::run_ui — no winit/GPU involvement (F-16/F-23).
+
+    fn sw_fixture(tag: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() % 1_000_000_000_000u128)
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "swtest-{}-{}-{:03}-{tag}",
+            std::process::id(),
+            nanos,
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).expect("fixture dir created");
+        dir
+    }
+
+    fn sw_git_init(dir: &Path) {
+        let st = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["init", "-q"])
+            .status()
+            .expect("ambient git CLI available for fixture setup");
+        assert!(st.success(), "git init must succeed in {dir:?}");
+    }
+
+    fn sw_stems(rows: &[DirRow]) -> Vec<String> {
+        rows.iter()
+            .map(|r| {
+                if r.up {
+                    String::from("..")
+                } else {
+                    r.path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                }
+            })
+            .collect()
+    }
+
+    fn sw_click(pos: egui::Pos2) -> Vec<egui::Event> {
+        let btn = egui::PointerButton::Primary;
+        let mods = egui::Modifiers::default();
+        vec![
+            egui::Event::PointerButton {
+                pos,
+                button: btn,
+                pressed: true,
+                modifiers: mods,
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: btn,
+                pressed: false,
+                modifiers: mods,
+            },
+        ]
+    }
+
+    fn sw_frame(w: f32, h: f32, events: Vec<egui::Event>, time: Option<f64>) -> egui::RawInput {
+        let mut input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+            events,
+            ..Default::default()
+        };
+        if let Some(time) = time {
+            input.time = Some(time);
         }
+        input
+    }
+
+    /// Paint one browse frame inside the real production modal chrome.
+    /// Returns (shapes-out, modal_closed, choose_pressed, cancel_pressed).
+    fn sw_run_frame(
+        ctx: &egui::Context,
+        dlg: &mut DlgBrowse,
+        input: egui::RawInput,
+    ) -> (egui::FullOutput, bool, bool, bool) {
+        let mut closed = false;
+        let mut choose = false;
+        let mut cancel = false;
+        let mut out = ctx.run_ui(input, |ui| {
+            closed = crate::ui::overlays::show_modal(ui, true, "Choose a workspace folder", 560.0, |
+                ui,
+            | {
+                (choose, cancel) = paint_browse_card(ui, dlg);
+            });
+        });
+        out.textures_delta.clear(); // no GPU consumer in-process
+        (out, closed, choose, cancel)
+    }
+
+    /// Consume a frame's first pass: a brand-new `egui::Context` emits only
+    /// `Shape::Noop` placeholders on its very first frame (fonts and pass
+    /// state still settling), so geometry/text lookups are unreliable there.
+    /// Every frame-driven test spends one thrown-away idle frame here first —
+    /// the same discipline the overlays modal tests apply (they locate panel
+    /// geometry only from their third frame on).
+    fn sw_warm(ctx: &egui::Context, dlg: &mut DlgBrowse) {
+        sw_run_frame(ctx, dlg, sw_frame(1280.0, 800.0, Vec::new(), None));
+    }
+
+    /// Centre of a whole-word text shape (row labels, buttons). Colours can
+    /// be colour-managed at paint time, so text — never fill — anchors hits.
+    fn sw_text_pos(out: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+        out.shapes.iter().find_map(|sl| match &sl.shape {
+            egui::Shape::Text(t) if t.galley.text() == needle => {
+                Some(t.pos + t.galley.mesh_bounds.center().to_vec2())
+            }
+            _ => None,
+        })
+    }
+
+    /// Rect of the accent-filled “Choose folder” button — the only rounded-six
+    /// wide rect painted inside this modal (colour-independent predicate).
+    fn sw_choose_rect(out: &egui::FullOutput) -> egui::Rect {
+        let mut acc = Vec::new();
+        for shape_like in out.shapes.iter() {
+            let egui::Shape::Rect(r) = &shape_like.shape else {
+                continue;
+            };
+            if (r.corner_radius.nw as f32 - 6.0).abs() < 0.51 && r.rect.size().x > 60.0 {
+                acc.push(r.rect);
+            }
+        }
+        assert!(!acc.is_empty(), "Choose-folder button rect missing from painted shapes");
+        acc[0]
+    }
+
+    #[test]
+    fn sw_seed_resolution_falls_back_stepwise() {
+        let fx = sw_fixture("seeds");
+        let adir = fx.join("adir");
+        std::fs::create_dir_all(&adir).unwrap();
+        let loose = fx.join("notes.txt");
+        std::fs::write(&loose, "loose file").unwrap();
+        let home = fx.join("home");
+        std::fs::create_dir_all(home.join("work").join("proj")).unwrap();
+        let proj = home.join("work").join("proj");
+
+        // existing dir -> canonical self
+        let (cur, sel) = resolve_seed(&adir.to_string_lossy(), Some(&home), Path::new("/"));
+        assert_eq!(cur, std::fs::canonicalize(&adir).unwrap());
+        assert_eq!(sel, cur);
+
+        // lone file -> its parent dir
+        let (cur, sel) = resolve_seed(&loose.to_string_lossy(), Some(&home), Path::new("/"));
+        assert_eq!(cur, std::fs::canonicalize(&fx).unwrap());
+        assert_eq!(sel, cur);
+
+        // tilde expands against the given home
+        let (cur, sel) = resolve_seed("~/work/proj", Some(&home), Path::new("/"));
+        assert_eq!(cur, std::fs::canonicalize(&proj).unwrap());
+        assert_eq!(sel, cur);
+
+        // nonsense -> $HOME (also: blank seeds take the same path)
+        let ph = std::fs::canonicalize(&home).unwrap();
+        let (cur, sel) = resolve_seed("/definitely-not-a-real-dir-zz", Some(&home), Path::new("/"));
+        assert_eq!(cur, ph);
+        assert_eq!(sel, cur);
+        let (blank_cur, _) = resolve_seed("   ", Some(&home), Path::new("/"));
+        assert_eq!(blank_cur, ph);
+
+        // no home configured -> filesystem root
+        let (cur, sel) = resolve_seed("/definitely-not-a-real-dir-zz", None, Path::new("/"));
+        assert_eq!(cur, std::fs::canonicalize("/").unwrap());
+        assert_eq!(sel, cur);
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+
+    #[test]
+    fn sw_listing_sorts_case_insensitive_keeps_dotdirs_excludes_files() {
+        let fx = sw_fixture("list");
+        for d in [".github", "beta", "Alpha", "alpha"] {
+            std::fs::create_dir_all(fx.join(d)).unwrap();
+        }
+        std::fs::write(fx.join("README.md"), "doc").unwrap();
+        std::fs::write(fx.join(".DS_Store"), "junk").unwrap();
+
+        let dlg = DlgBrowse::seeded(fx.to_string_lossy().into_owned());
+        let fx_c = std::fs::canonicalize(&fx).unwrap();
+        assert_eq!(dlg.current, fx_c);
+        // selection defaults to the browsed dir -> valid on frame 1
+        assert_eq!(dlg.selection(), fx_c);
+
+        let got = sw_stems(&dlg.rows);
+        assert!(matches!(got.first().map(String::as_str), Some("..")), "up row leads: {got:?}");
+        let rest: Vec<_> = got.into_iter().skip(1).collect();
+        // case-insensitive alpha order with raw-name tie-break; dot-dirs
+        // kept; regular files excluded
+        assert_eq!(rest, vec![".github", "Alpha", "alpha", "beta"]);
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+
+    #[test]
+    fn sw_git_marking_and_down_up_navigation() {
+        let fx = sw_fixture("nav");
+        std::fs::create_dir_all(fx.join("plainB")).unwrap();
+        let repo = fx.join("repoA");
+        std::fs::create_dir_all(repo.join("nested")).unwrap();
+        sw_git_init(&repo);
+
+        let fx_c = std::fs::canonicalize(&fx).unwrap();
+        let repo_c = std::fs::canonicalize(&repo).unwrap();
+
+        let mut dlg = DlgBrowse::seeded(fx.to_string_lossy().into_owned());
+        let both = [String::from("plainB"), String::from("repoA")];
+        assert_eq!(sw_stems(&dlg.rows)[1..], both[..], "both dirs listed once");
+        // only the true working tree earns the badge
+        let by_flag: Vec<_> = dlg
+            .rows
+            .iter()
+            .filter(|r| !r.up)
+            .map(|r| (sw_name_of(r), r.git))
+            .collect();
+        assert!(by_flag.contains(&(String::from("repoA"), true)), "repoA flagged: {by_flag:?}");
+        assert!(by_flag.contains(&(String::from("plainB"), false)), "plainB unflagged: {by_flag:?}");
+
+        // descend into the work tree — selection follows (spec §5); the
+        // dot-dir `.git` itself is listed (kept, dot-dirs are visible) but
+        // inherits the badge
+        dlg.descend_into(repo_c.clone());
+        assert_eq!(dlg.current, repo_c);
+        assert_eq!(dlg.selection(), repo_c);
+        assert!(sw_stems(&dlg.rows)[1..] == [".git", "nested"]
+            || sw_stems(&dlg.rows)[1..] == ["nested", ".git"],
+            "unexpected rows after descending: {:?}", sw_stems(&dlg.rows));
+        // everything visible below a work tree carries the badge too
+        assert!(dlg.rows.iter().all(|r| r.up || r.git));
+
+        // descend once more, then climb back two levels via up-lands
+        let nested_c = std::fs::canonicalize(repo.join("nested")).unwrap();
+        dlg.descend_into(nested_c);
+        let up = dlg.rows.iter().find(|r| r.up).expect("up row present below /").path.clone();
+        assert_eq!(up, repo_c);
+        dlg.descend_into(up.clone());
+        assert_eq!(dlg.current, repo_c);
+        dlg.ascend();
+        assert_eq!(dlg.current, fx_c);
+        assert_eq!(dlg.selection(), fx_c);
+        // revisit: cached verdicts give the identical listing
+        let flagged: Vec<bool> = dlg.rows.iter().map(|r| r.git).collect();
+        assert_eq!(flagged, vec![false, false, true]);
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+
+    fn sw_name_of(row: &DirRow) -> String {
+        row.path
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn sw_filesystem_root_has_no_up_row_but_lists_dirs() {
+        let dlg = DlgBrowse::seeded(String::from("/"));
+        assert!(dlg.rows.iter().all(|r| !r.up), "no up row at the filesystem root");
+        assert!(!dlg.rows.is_empty(), "the root still lists its subdirectories");
+        assert!(dlg.rows.iter().all(|r| r.path.starts_with("/")));
+    }
+
+    #[test]
+    fn sw_vanished_current_degrades_to_read_error_plus_up_row() {
+        let fx = sw_fixture("ghost");
+        let target = fx.join("target");
+        std::fs::create_dir_all(target.join("inner")).unwrap();
+        let target_c = std::fs::canonicalize(&target).unwrap();
+
+        let mut dlg = DlgBrowse::seeded(target.to_string_lossy().into_owned());
+        assert_eq!(dlg.current, target_c);
+
+        // the browsed folder ceases to exist behind the open browser
+        std::fs::remove_dir_all(&target).unwrap();
+        assert!(!dlg.current.exists());
+        dlg.refresh_rows();
+
+        assert!(dlg.read_error.is_some(), "operator-visible note surfaced");
+        assert!(
+            dlg.rows.iter().all(|r| r.up),
+            "phantom rows purged, up row remains: {:?}",
+            sw_stems(&dlg.rows)
+        );
+        // choose-folder eligibility predicate: vanished selection -> disable
+        assert!(!dlg.selection().exists());
+
+        // climbing out lands in a readable dir and clears the note
+        let up = dlg.rows.iter().find(|r| r.up).expect("up row offered").path.clone();
+        dlg.descend_into(up);
+        assert!(dlg.read_error.is_none());
+        assert_eq!(dlg.current, std::fs::canonicalize(&fx).unwrap());
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+
+    #[test]
+    fn sw_modal_open_on_first_frame_escape_dismisses_without_chosing() {
+        let fx = sw_fixture("esc");
+        std::fs::create_dir_all(fx.join("aa")).unwrap();
+        let fx_c = std::fs::canonicalize(&fx).unwrap();
+        let mut dlg = DlgBrowse::seeded(fx.to_string_lossy().into_owned());
+        let ctx = egui::Context::default();
+        sw_warm(&ctx, &mut dlg); // first pass of a fresh context is placeholders only
+
+        // idle frame: nothing pressed — modal renders open
+        let (_out, closed, choose, cancel) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, Vec::new(), None));
+        assert!(!closed, "modal stays open on its first frame");
+        assert!(!choose && !cancel, "idle frame reports no buttons");
+
+        // next frame: Escape — dismissed, nothing chosen
+        let (_out, closed, choose, cancel) = sw_run_frame(
+            &ctx,
+            &mut dlg,
+            sw_frame(
+                1280.0,
+                800.0,
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    modifiers: Default::default(),
+                    pressed: true,
+                    repeat: false,
+                }],
+                None,
+            ),
+        );
+        assert!(closed, "Escape closes the modal");
+        assert!(!choose && !cancel);
+        assert_eq!(dlg.selection(), fx_c, "escape never alters the selection");
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+
+    #[test]
+    fn sw_single_click_selects_then_choose_reports_that_selection() {
+        let fx = sw_fixture("single");
+        std::fs::create_dir_all(fx.join("plainB")).unwrap();
+        let repo = fx.join("repoA");
+        std::fs::create_dir_all(&repo).unwrap();
+        sw_git_init(&repo);
+        let fx_c = std::fs::canonicalize(&fx).unwrap();
+        let repo_c = std::fs::canonicalize(&repo).unwrap();
+
+        let mut dlg = DlgBrowse::seeded(fx.to_string_lossy().into_owned());
+        let ctx = egui::Context::default();
+        sw_warm(&ctx, &mut dlg); // fresh-context first pass carries no real geometry
+
+        // Primed frame locates both row labels and the Choose button (their
+        // centred meshes sit comfortably inside the clickable bands; layout
+        // is state-free, so measured positions survive into acting frames).
+        let (out, closed, choose, cancel) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, Vec::new(), None));
+        assert!(!closed && !choose && !cancel);
+        let plain_at = sw_text_pos(&out, "plainB").expect("plainB row label painted");
+        let repo_at = sw_text_pos(&out, "repoA").expect("repoA row label painted");
+        assert_ne!(plain_at, repo_at);
+        let choose_at = sw_choose_rect(&out).center();
+
+        // ONE click on the repoA row: selection moves there, nothing else.
+        let (_o, closed, choose, cancel) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, sw_click(repo_at), None));
+        assert!(!closed && !choose && !cancel);
+        assert_eq!(dlg.selection(), repo_c, "single click selects");
+        assert_eq!(dlg.current, fx_c, "single click does not descend");
+
+        // Press Choose folder (measured on the primed frame — button layout
+        // is state-free, so the rect holds for the acting frame).
+        let (_o3, closed, choose, cancel) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, sw_click(choose_at), None));
+        assert!(!closed, "choose does not dismiss through the modal hook");
+        assert!(choose, "Choose folder reports the pressed action");
+        assert!(!cancel);
+        assert_eq!(dlg.selection(), repo_c);
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+
+    #[test]
+    fn sw_double_click_pair_descends_selection_follows() {
+        let fx = sw_fixture("dbl");
+        let repo = fx.join("repoA");
+        std::fs::create_dir_all(repo.join("deep")).unwrap();
+        sw_git_init(&repo);
+        let fx_c = std::fs::canonicalize(&fx).unwrap();
+        let repo_c = std::fs::canonicalize(&repo).unwrap();
+        let deep_c = std::fs::canonicalize(repo.join("deep")).unwrap();
+
+        let mut dlg = DlgBrowse::seeded(fx.to_string_lossy().into_owned());
+        let ctx = egui::Context::default();
+        sw_warm(&ctx, &mut dlg); // fresh-context first pass carries no real geometry
+
+        // Measured view: the rooted listing exposes repoA (green).
+        let (out, closed, choose, _canc) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, Vec::new(), Some(1100.0)));
+        assert!(!closed && !choose);
+        let hit = sw_text_pos(&out, "repoA").expect("repoA row label painted");
+
+        // Double-click part one: selects, does not navigate.
+        let (_o, closed, choose, _canc) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, sw_click(hit), Some(1200.0)));
+        assert!(!closed && !choose);
+        assert_eq!(dlg.current, fx_c, "a lone first click must not navigate");
+        assert_eq!(dlg.selection(), repo_c, "the first click selects the row");
+
+        // Part two, 120 ms later (well under the double-click gap): descend,
+        // and the selection tracks the entered folder.
+        let (_o, closed, choose, _canc) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, sw_click(hit), Some(1200.12)));
+        assert!(!closed && !choose);
+        assert_eq!(dlg.current, repo_c, "paired second click descended");
+        assert_eq!(dlg.selection(), repo_c, "the entered path became the selection");
+
+        // Travel the pointer out of the list, then measure the descended
+        // view: a '..' row points straight back at the enclosing folder and
+        // `deep` is listed.
+        let park = egui::Event::PointerMoved(egui::pos2(8.0, 8.0));
+        let (_o, closed, choose, _canc) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, vec![park], Some(1300.0)));
+        assert!(!closed && !choose);
+        let (out, closed, choose, _canc) =
+            sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, Vec::new(), Some(1400.0)));
+        assert!(!closed && !choose);
+        let up = dlg.rows.iter().find(|r| r.up).expect("up row present below root");
+        assert_eq!(up.path, fx_c, "up row points back at the enclosing folder");
+        let dh = sw_text_pos(&out, "deep").expect("deep row label painted");
+
+        // Nested descend: double-click `deep`; state checks only thereafter
+        // (no further shape probes — the listing is verified via fields).
+        sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, sw_click(dh), Some(1500.0)));
+        sw_run_frame(&ctx, &mut dlg, sw_frame(1280.0, 800.0, sw_click(dh), Some(1500.12)));
+        assert_eq!(dlg.current, deep_c, "nested double-click descended");
+        assert_eq!(dlg.selection(), deep_c, "selection tracked the nested descent");
+        let up = dlg.rows.iter().find(|r| r.up).expect("up row present in deep");
+        assert_eq!(up.path, repo_c, "up row walks back to the enclosing work tree");
+
+        let _ = std::fs::remove_dir_all(&fx);
+    }
+}
+/// Pure form of [`expand_tilde`]: expand a leading `~/` against the
+/// supplied home directory (no environment access).
+fn expand_tilde_against(raw: &str, home: Option<&str>) -> String {
+    if let (Some(rest), Some(home)) = (raw.strip_prefix("~/"), home) {
+        return format!("{home}/{rest}");
     }
     raw.to_string()
 }
+
+fn expand_tilde(raw: &str) -> String {
+    expand_tilde_against(raw, std::env::var("HOME").ok().as_deref())
+}
+
+// ---------------------------------------------------------------------------
+// Workspace folder browser (initial-screen “Browse…” button)
+// ---------------------------------------------------------------------------
+
+/// One selectable line of the browser listing.
+struct DirRow {
+    path: PathBuf,
+    up: bool, // synthetic ".." row, never a real subdirectory
+    git: bool, // live `gitops::is_work_tree` mark (memoized in `DlgBrowse`)
+}
+
+/// Directory browser seeded from the connect screen's path field.
+///
+/// Writes nothing itself: the caller copies [`DlgBrowse::selection`] into
+/// `PacketApp::conn_path`. Whether a folder is an acceptable workspace stays
+/// entirely with `welcome::attempt_connect` — the browser marks git working
+/// trees green but rejects nothing (uninitialized and non-git folders remain
+/// choosable, reproducing today's InvalidRepo banner only on Open).
+pub struct DlgBrowse {
+    current: PathBuf,
+    selected: PathBuf,
+    rows: Vec<DirRow>,
+    read_error: Option<String>,
+    git_cache: HashMap<PathBuf, bool>,
+}
+
+impl DlgBrowse {
+    /// Seed from the operator's current path field: an existing directory (or
+    /// its closest surviving ancestor), else `$HOME`, else `/` — see
+    /// [`resolve_seed`].
+    pub fn seeded(seed: String) -> Self {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let (current, selected) = resolve_seed(&seed, home.as_deref(), Path::new("/"));
+        let mut dlg = Self {
+            current,
+            selected,
+            rows: Vec::new(),
+            read_error: None,
+            git_cache: HashMap::new(),
+        };
+        dlg.refresh_rows();
+        dlg
+    }
+
+    /// The chosen folder. Always an existing directory, so "Choose folder"
+    /// is valid from frame one.
+    pub fn selection(&self) -> &Path {
+        &self.selected
+    }
+
+    /// Reload the listing of `current`:
+    /// subdirectories only (symlinks followed), dot-dirs INCLUDED (deliberate
+    /// v1 presentation: no exclusion rule), sorted case-insensitively by
+    /// name, a synthetic up row PREPENDed unless we stand at the filesystem
+    /// root (or a symlink loop would cycle). Each subdirectory gets ONE live
+    /// `gitops::is_work_tree` probe, memoized by absolute path for the
+    /// dialog's life — never probed per paint. Unreadable directories degrade
+    /// to a dim notice (`read_error`) with an empty list instead of panicking.
+    pub(crate) fn refresh_rows(&mut self) {
+        self.rows.clear();
+        self.read_error = None;
+        let entries = match std::fs::read_dir(&self.current) {
+            Ok(rd) => rd.filter_map(Result::ok).collect::<Vec<_>>(),
+            Err(e) => {
+                self.read_error = Some(e.to_string());
+                Vec::new()
+            }
+        };
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        for entry in entries {
+            let p = entry.path();
+            if p.is_dir() {
+                dirs.push(p);
+            }
+        }
+        dirs.sort_by(|a, b| {
+            cmp_names_ci(
+                a.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                b.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+            )
+        });
+        for p in dirs {
+            // Canonicalize gives the cache a stable key and drops links that
+            // rotted between listing and use.
+            let Ok(abs) = std::fs::canonicalize(&p) else {
+                continue;
+            };
+            let git = *self
+                .git_cache
+                .entry(abs.clone())
+                .or_insert_with(|| gitops::is_work_tree(&abs));
+            self.rows.push(DirRow {
+                path: abs,
+                up: false,
+                git,
+            });
+        }
+        if let Some(up) = up_landing(&self.current) {
+            self.rows.insert(0, DirRow {
+                path: up,
+                up: true,
+                git: false,
+            });
+        }
+    }
+
+    /// Move the listing into `target`; on success `selected` re-anchors to
+    /// the new current. A failed navigation (folder vanished mid-flight) is
+    /// a no-op aside from re-degrading the listing.
+    pub(crate) fn descend_into(&mut self, target: PathBuf) {
+        let Ok(next) = std::fs::canonicalize(&target) else {
+            self.refresh_rows();
+            return;
+        };
+        if !next.is_dir() || next == self.current {
+            // Already viewing it (Enter confirms): selected := current.
+            self.selected = self.current.clone();
+            self.refresh_rows();
+            return;
+        }
+        self.current = next;
+        self.selected = self.current.clone();
+        self.refresh_rows();
+    }
+
+    /// Ascend to the parent folder (the up row); `selected` := new current.
+    /// Terminates at the filesystem root; the canonical-equality guard also
+    /// kills symlinked-parent cycles.
+    pub(crate) fn ascend(&mut self) {
+        let Some(parent) = self.current.parent().map(Path::to_path_buf) else {
+            return;
+        };
+        let Ok(next) = std::fs::canonicalize(&parent) else {
+            return;
+        };
+        if next == self.current {
+            return;
+        }
+        self.current = next;
+        self.selected = self.current.clone();
+        self.refresh_rows();
+    }
+}
+
+/// Case-insensitive name order with the raw name as a deterministic
+/// tiebreak (equal stems are impossible in one directory, but two entries
+/// may still compare equal when lowercased on odd locales).
+fn cmp_names_ci(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase()
+        .cmp(&b.to_lowercase())
+        .then_with(|| a.cmp(b))
+}
+
+/// Parent landing spot for the up row: `Some(canonical(parent))` when the
+/// parent exists and differs from `current`'s own canonical form (omitted at
+/// `/` and inside symlink loops). If `current` vanished, the parent still
+/// lands the operator somewhere readable.
+fn up_landing(current: &Path) -> Option<PathBuf> {
+    let parent = current.parent()?;
+    let parent_canon = std::fs::canonicalize(parent).ok()?;
+    let differs = match std::fs::canonicalize(current) {
+        Ok(current_canon) => current_canon != parent_canon,
+        Err(_) => true,
+    };
+    differs.then_some(parent_canon)
+}
+
+/// Pure seed-resolution ladder (unit-tested without touching the
+/// environment):
+/// the trimmed, `~`-expanded seed (against `home`)
+/// (a) exists as a dir → canonicalize it;
+/// (b) else its parent exists as a dir → canonicalize the parent;
+/// (c) else `home`, when set and a dir → canonicalize it;
+/// (d) else canonicalize `root` (the app passes `/`).
+/// Every outcome is `(existing_directory, the_same)`, so the browser opens
+/// on a directory where Choose is already valid.
+pub(crate) fn resolve_seed(seed: &str, home: Option<&Path>, root: &Path) -> (PathBuf, PathBuf) {
+    let expanded = expand_tilde_against(seed.trim(), home.and_then(Path::to_str));
+    let candidate = Path::new(expanded.as_str());
+    let fallback = home
+        .filter(|h| h.is_dir())
+        .and_then(|h| h.canonicalize().ok())
+        .or_else(|| root.canonicalize().ok());
+    let resolved = if candidate.is_dir() {
+        candidate.canonicalize().ok()
+    } else if candidate.is_file() {
+        // A loose FILE: land in its parent directory.
+        candidate.parent().and_then(|p| p.canonicalize().ok())
+    } else {
+        None
+    }
+    .or(fallback);
+    match resolved {
+        Some(dir) => (dir.clone(), dir),
+        // Defensive: only reachable when canonicalizing `/` itself fails.
+        None => (root.to_path_buf(), root.to_path_buf()),
+    }
+}
+
+/// Paint the browse card body; returns `(choose_pressed, cancel_pressed)`,
+/// the `(save, close)` tuple convention of the house cards. Single click
+/// SELECTS; double click (or Enter, which re-confirms the current folder)
+/// DESCENDS; the up row ascends. No button here initiates a connect.
+pub fn paint_browse_card(ui: &mut egui::Ui, dlg: &mut DlgBrowse) -> (bool, bool) {
+    // Cheap liveness probe: if `current` ceased to exist while the modal sat
+    // open, re-degrade once to the "cannot read" notice.
+    if !dlg.current.is_dir() {
+        dlg.refresh_rows();
+    }
+
+    ui.label(
+        RichText::new("Directories only. Green names sit inside a git working tree.")
+            .weak()
+            .size(11.0),
+    );
+    ui.add_space(6.0);
+
+    // Swap the rows out so navigation inside the loop can reborrow `dlg`.
+    // Remembers the view so a mid-loop descent/ascend (which re-lists into
+    // `dlg.rows`) is not clobbered by restoring the stale snapshot.
+    let view_before = dlg.current.clone();
+    let rows = std::mem::take(&mut dlg.rows);
+    for row in &rows {
+        let name = if row.up {
+            String::from("..")
+        } else {
+            row.path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| row.path.display().to_string())
+        };
+        let label = RichText::new(name).color(if row.git {
+            theme::SUCCESS
+        } else {
+            theme::TEXT
+        });
+        let response = ui.selectable_label(dlg.selected == row.path, label);
+        if response.double_clicked() {
+            if row.up {
+                dlg.ascend();
+            } else {
+                dlg.descend_into(row.path.clone());
+            }
+        } else if response.clicked() {
+            dlg.selected = row.path.clone();
+        }
+    }
+    // If the loop navigated, `dlg.rows` already holds the fresh listing —
+    // putting the pre-navigation snapshot back would freeze the view on the
+    // old directory. Otherwise restore the snapshot verbatim.
+    if dlg.current == view_before {
+        dlg.rows = rows;
+    }
+
+    if ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)) {
+        dlg.descend_into(dlg.current.clone());
+    }
+
+    if let Some(error) = &dlg.read_error {
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(format!("Cannot read this folder: {error}"))
+                .weak()
+                .size(11.0)
+                .color(theme::TEXT_DIM),
+        );
+    }
+
+    ui.add_space(10.0);
+    let full = dlg.selected.to_string_lossy().into_owned();
+    ui.add(
+        egui::Label::new(
+            RichText::new(full.clone())
+                .font(egui::FontId::monospace(12.5))
+                .color(theme::TEXT_DIM),
+        )
+        .truncate(),
+    )
+    .on_hover_text(full);
+    ui.add_space(10.0);
+
+    let can_choose = dlg.selected.exists() && dlg.selected.is_dir();
+    let mut choose = false;
+    let mut cancel = false;
+    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+        let choose_btn = ui.add_enabled(
+            can_choose,
+            egui::Button::new(RichText::new("Choose folder").strong().color(theme::BG))
+                .fill(theme::ACCENT_SOFT)
+                .corner_radius(6.0),
+        );
+        if choose_btn.clicked() {
+            choose = true;
+        }
+        if ui.button(RichText::new("Cancel").weak()).clicked() {
+            cancel = true;
+        }
+        ui.add_space(4.0);
+    });
+    (choose, cancel)
+}
+
+
 
 #[cfg(test)]
 mod mcp_tests {

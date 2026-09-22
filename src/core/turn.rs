@@ -617,12 +617,79 @@ mod tests {
     }
 
     fn drain(controller: &TurnController) -> TurnOutcome {
+        // `poll` returning None is an ordinary quiescent timeout while the
+        // controller's keepalive sender holds the channel open, so it must not
+        // be treated as a vanished turn. True vanishing is detected directly
+        // via the worker handle; a bounded run of idle probes catches a
+        // wedged worker (same shape as the persona-home probe budgets).
+        const IDLE_BUDGET: usize = 8;
+        let mut idle = 0usize;
         loop {
             match controller.poll(Duration::from_millis(250)) {
-                Some(TurnEvt::Progress(_)) => {}
-                Some(TurnEvt::Done(o)) => return o,
-                None => panic!("turn vanished"),
+                Some(TurnEvt::Done(outcome)) => return outcome,
+                Some(TurnEvt::Progress(_)) => idle = 0,
+                None => {
+                    idle += 1;
+                    if controller.worker.as_ref().is_some_and(|h| h.is_finished()) {
+                        // The worker may have enqueued its terminal event
+                        // moments before it exited; `Finished` proves the
+                        // send completed, so drain once before deciding the
+                        // turn truly vanished.
+                        match controller.poll(Duration::ZERO) {
+                            Some(TurnEvt::Done(outcome)) => return outcome,
+                            Some(TurnEvt::Progress(_)) => {}
+                            None => {
+                                panic!("turn vanished: worker exited without delivering a terminal outcome")
+                            }
+                        }
+                    } else {
+                        assert!(
+                            idle < IDLE_BUDGET,
+                            "turn vanished: no terminal event within {IDLE_BUDGET} idle probes"
+                        );
+                    }
+                }
             }
+        }
+    }
+
+    #[test]
+    fn quiescence_longer_than_one_poll_interval_is_not_a_vanished_turn() {
+        // Regression: `drain` used to declare the turn vanished on the first
+        // 250ms idle poll, but a loaded machine lets the worker sit quiet
+        // longer than one poll interval before it emits anything. Quiescence
+        // is not death; only the worker handle proving the turn gone is.
+        struct SilentUntilLate(ScriptedHarness);
+        impl AiHarness for SilentUntilLate {
+            fn label(&self) -> String {
+                "silent-until-late".into()
+            }
+            fn check_available(&self) -> Result<String, AppError> {
+                Ok("test".into())
+            }
+            fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+                // Stay silent across two or more 250ms poll intervals.
+                std::thread::sleep(Duration::from_millis(700));
+                self.0.execute(req)
+            }
+        }
+        let (inputs, _) = inputs_for("silent_quiet", "Quietly note the decision.");
+        let env: TurnEnvelope = serde_json::from_value(serde_json::json!({
+            "schema_version": 1,
+            "assistant_message": "Quietly noted.",
+            "change_summary": "note decision",
+        }))
+        .unwrap();
+        let c = TurnController::start(
+            inputs,
+            Box::new(SilentUntilLate(ScriptedHarness {
+                canned: Some(env),
+                raw: None,
+            })),
+        );
+        match drain(&c) {
+            TurnOutcome::Applied { .. } => {}
+            other => panic!("expected an applied turn, got {other:?}"),
         }
     }
 

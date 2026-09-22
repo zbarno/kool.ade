@@ -9,10 +9,12 @@ pub enum HeaderAction {
     Stakeholders,
     McpServers,
     CopySpec,
+    OpenWorkspace,
     Disconnect,
 }
 
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
+    s.drain_task_chat_saves();
     let compact = ui.ctx().content_rect().width() < 960.0;
     let settings_id = egui::Id::new("packet_workspace_settings_open");
     let mut settings_open = ui
@@ -51,6 +53,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             ("Stakeholders & ownership", HeaderAction::Stakeholders),
                             ("MCP servers", HeaderAction::McpServers),
                             ("Refresh repository", HeaderAction::Refresh),
+                            ("Open workspace", HeaderAction::OpenWorkspace),
                             ("Disconnect", HeaderAction::Disconnect),
                         ] {
                             if ui.button(label).clicked() {

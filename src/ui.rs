@@ -56,6 +56,10 @@ pub trait Surface {
         None
     }
     fn retry_task_chat_save(&mut self) {}
+    /// Best-effort per-frame flush of unsaved task-conversation replies; a
+    /// no-op unless a previous save failed, so a transient store hiccup does
+    /// not strand the last remembered reply.
+    fn drain_task_chat_saves(&mut self) {}
     fn chat_draft(&mut self) -> &mut String;
     fn is_busy(&self) -> bool;
     fn conversation_busy(&self) -> bool;

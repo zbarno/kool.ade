@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use eframe::{App, Frame};
 
-use crate::app::dialogs::{self, DlgImport, DlgMcp, DlgSettings};
+use crate::app::dialogs::{self, DlgBrowse, DlgImport, DlgMcp, DlgSettings};
 use crate::app::session::{self, Project};
 use crate::app::welcome;
 use crate::core::turn::{TurnController, TurnEvt, TurnOutcome};
@@ -28,6 +28,11 @@ pub struct PacketApp {
     task_harness: Option<Box<dyn crate::harness::AiHarness>>,
     pending_feature_generation: Option<(std::path::PathBuf, String, String)>,
     screen: Screen,
+    /// Test-only spawn seam: when `Some`, [`Self::open_workspace`] launches
+    /// this binary instead of resolving the running executable. Shipping
+    /// code never writes it (`Default` installs `None`); only `#[cfg(test)]`
+    /// fixtures aim it at a benign helper.
+    spawn_target_override: Option<std::path::PathBuf>,
     dialog: Option<Dialog>,
     toasts: ToastQueue,
     conn_path: String,
@@ -96,6 +101,7 @@ enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
     Mcp(DlgMcp),
+    Browse(DlgBrowse),
 }
 
 /// Native window options for [`eframe::run_native`]. The minimum stays below
@@ -121,6 +127,7 @@ impl Default for PacketApp {
             task_harness: None,
             pending_feature_generation: None,
             screen: Screen::Welcome,
+            spawn_target_override: None,
             dialog: None,
             toasts,
             conn_path: std::env::current_dir()
@@ -1312,6 +1319,28 @@ impl PacketApp {
         self.screen = Screen::Welcome;
     }
 
+    /// Workspace menu 'Open workspace': spawn a DETACHED sibling Packet
+    /// process that boots to the initial (Welcome) screen.
+    ///
+    /// Deliberate contract contrast with [`Self::disconnect`]: this hands
+    /// out a second window and touches NONE of this session — no
+    /// `request_cancel` on the active turn or implementations, no
+    /// `screen`/`dialog`/`synth`/`queue` mutation. Spawn + toast only.
+    pub fn open_workspace(&mut self) {
+        let target: Result<std::path::PathBuf, String> = self
+            .spawn_target_override
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(crate::app::spawn::resolve_self_executable);
+        match target {
+            Ok(bin) => match crate::app::spawn::spawn_sibling(&bin) {
+                Ok(()) => self.toasts.info("Opening a new Packet window"),
+                Err(message) => self.toasts.warning(message),
+            },
+            Err(message) => self.toasts.warning(message),
+        }
+    }
+
     fn copy_spec_to_clipboard(&mut self) {
         let Screen::Connected(p) = &self.screen else {
             return;
@@ -1511,6 +1540,11 @@ impl Surface for PacketApp {
     fn retry_task_chat_save(&mut self) {
         if let Screen::Connected(p) = &mut self.screen {
             p.task_chats.retry_save(&p.chat_slug);
+        }
+    }
+    fn drain_task_chat_saves(&mut self) {
+        if let Screen::Connected(p) = &mut self.screen {
+            p.task_chats.drain_if_pending(&p.chat_slug);
         }
     }
 
@@ -2018,6 +2052,7 @@ impl Surface for PacketApp {
                 }
             }
             HeaderAction::CopySpec => self.copy_spec_to_clipboard(),
+            HeaderAction::OpenWorkspace => self.open_workspace(),
             HeaderAction::Disconnect => self.disconnect(),
         }
     }
@@ -2046,17 +2081,28 @@ impl App for PacketApp {
         match &mut self.screen {
             Screen::Welcome => {
                 let slot = std::cell::RefCell::new(false);
+                let browse_slot = std::cell::RefCell::new(false);
                 egui::CentralPanel::default().show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space((ui.available_height() * 0.30).max(20.0));
                         crate::ui::theme::card_frame().show(ui, |ui| {
-                            *slot.borrow_mut() =
-                                welcome::paint(ui, &mut self.conn_path, self.conn_error.as_deref());
+                            *slot.borrow_mut() = welcome::paint(
+                                ui,
+                                &mut self.conn_path,
+                                self.conn_error.as_deref(),
+                                &mut browse_slot.borrow_mut(),
+                            );
                         });
                     });
                 });
                 if *slot.borrow() {
                     self.submit_connect();
+                } else if *browse_slot.borrow() {
+                    // Fresh browser each open, seeded from the CURRENT field
+                    // contents; choosing later writes back without
+                    // auto-connecting (submit_connect stays the authority).
+                    self.dialog =
+                        Some(Dialog::Browse(DlgBrowse::seeded(self.conn_path.clone())));
                 }
             }
             Screen::Connected(_) => {
@@ -2069,7 +2115,7 @@ impl App for PacketApp {
             self.render_dialog(ui, dialog);
         }
 
-        self.toasts.show(&ui.ctx());
+        self.toasts.show(ui.ctx());
     }
 }
 
@@ -2143,6 +2189,35 @@ impl PacketApp {
                 // (a malformed save must survive its own successful feedback).
                 if !closed && !*close_slot.borrow() && d.keep_open {
                     self.dialog = Some(Dialog::Mcp(d));
+                }
+            }
+            Dialog::Browse(mut d) => {
+                let choose_slot = std::cell::RefCell::new(false);
+                let cancel_slot = std::cell::RefCell::new(false);
+                let closed = crate::ui::overlays::show_modal(
+                    ui,
+                    true,
+                    "Choose a workspace folder",
+                    560.0,
+                    |ui| {
+                        let (choose, cancel) = dialogs::paint_browse_card(ui, &mut d);
+                        *choose_slot.borrow_mut() = choose;
+                        *cancel_slot.borrow_mut() = cancel;
+                    },
+                );
+                // Choosing writes ONLY `conn_path` (an absolute canonical
+                // path): no connect attempt, no toast, and `conn_error`
+                // keeps describing the last ATTEMPTED connect. The Open
+                // button / Enter via submit_connect remains the single
+                // connect authority. The defensive Welcome guard mirrors
+                // the arms that only push from that screen.
+                if *choose_slot.borrow() && matches!(self.screen, Screen::Welcome) {
+                    self.conn_path = d.selection().to_string_lossy().into_owned();
+                }
+                // Standard put-back: reopen unless closed (X/Escape),
+                // cancelled, or positively completed (Choose).
+                if !closed && !*cancel_slot.borrow() && !*choose_slot.borrow() {
+                    self.dialog = Some(Dialog::Browse(d));
                 }
             }
         }
@@ -2551,6 +2626,222 @@ mod board_tests {
         assert!(!app.display_refresh.as_ref().unwrap().is_finished());
         release.send(()).unwrap();
         let _ = app.display_refresh.take().unwrap().join();
+    }
+
+    /// Turns in `execute` suspend until their cancel flag flips: a faithful
+    /// stand-in for an in-flight planner turn whose worker must survive the
+    /// sibling spawn completely untouched.
+    struct HangingTurnHarness;
+    impl crate::harness::AiHarness for HangingTurnHarness {
+        fn label(&self) -> String {
+            "hanging-fixture 0".into()
+        }
+        fn check_available(&self) -> Result<String, crate::AppError> {
+            Ok("present".into())
+        }
+        fn execute(
+            &self,
+            request: &crate::harness::PlanningRequest,
+        ) -> Result<crate::harness::HarnessOutcome, crate::AppError> {
+            while !request.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(crate::AppError::Other(String::from("fixture turn cancelled")))
+        }
+    }
+
+    /// All on-screen text, galley-concatenated without separators so a
+    /// phrase spanning a toast's soft line wrap still matches as a whole.
+    fn canvas_text(output: &egui::FullOutput) -> String {
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Paint ONE SETTLED frame with the app's toast layer included — the
+    /// test helper paints `layout::paint` directly, bypassing
+    /// `PacketApp::ui`, so the same `toasts.show(..)` call is replayed
+    /// INSIDE the layout pass, in the same order the native app uses it.
+    /// A freshly introduced toast area needs one settle pass before its
+    /// content reaches the paint output, so one pass is discarded and the
+    /// settled second pass is returned.
+    fn frame_toasting(app: &mut PacketApp, ctx: &egui::Context) -> egui::FullOutput {
+        let paint_one_pass = |
+            app: &mut PacketApp,
+            ctx: &egui::Context,
+        | -> egui::FullOutput {
+            for theme in [egui::Theme::Dark, egui::Theme::Light] {
+                ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
+            }
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1800.0, 900.0),
+                    )),
+                    events: vec![],
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::layout::paint(ui, app);
+                    app.toasts().show(ui.ctx());
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let _ = paint_one_pass(app, ctx);
+        paint_one_pass(app, ctx)
+    }
+
+    // Mirrors the production pattern deliberately: the live turn is held in a
+    // non-Send/non-Sync `Arc<TurnController>` (three tolerated instances
+    // already sit in this file's baseline), and the assertion needs exactly
+    // that Arc's identity.
+    #[allow(clippy::arc_with_non_send_sync)]
+    #[test]
+    fn open_workspace_spawns_a_detached_sibling_without_touching_the_session() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+
+        // Benign spawn target (unit-test pick of record: a trivial no-op
+        // present on the Linux target hosts).
+        const HARMLESS: [&str; 2] = ["/usr/bin/true", "/bin/true"];
+        let target = HARMLESS
+            .iter()
+            .copied()
+            .find(|cand| std::path::Path::new(cand).is_file())
+            .unwrap_or_else(|| panic!("no trivial no-op utility on this Linux host"));
+        app.spawn_target_override = Some(target.into());
+
+        // Fake in-flight work: a real-but-suspended turn plus an active
+        // implementation, alongside an unsent composer draft.
+        let ticket = "planning/tasks/fixture/001-task.md".to_string();
+        let running = {
+            let Screen::Connected(project) = &mut app.screen else {
+                panic!("fixture must be connected")
+            };
+            project.draft = "unsent draft must survive the sibling spawn".to_string();
+            project.active_implementations.insert(
+                ticket.clone(),
+                crate::core::implementation::Controller::idle_fixture(),
+            );
+            std::sync::Arc::new(TurnController::start(
+                crate::core::turn::TurnInputs {
+                    state: project.state.clone(),
+                    user_message: "Please continue".into(),
+                    recent_chat: Vec::new(),
+                    purpose: crate::core::workflow::TurnPurpose::Interview,
+                },
+                Box::new(HangingTurnHarness),
+            ))
+        };
+        {
+            let Screen::Connected(project) = &mut app.screen else {
+                panic!("fixture must be connected")
+            };
+            project.active_turn = Some(running.clone());
+            project.live_progress = crate::harness::LiveProgress {
+                activity: Some("Planning…".into()),
+                ..Default::default()
+            };
+        }
+        let draft_before = app.chat_draft().clone();
+
+        // Click 1: Workspace → 'Open workspace'.
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let output = frame_toasting(&mut app, &ctx);
+        let painted = canvas_text(&output);
+        assert!(
+            painted.contains("Opening a new") && painted.contains("Packet window"),
+            "success toast expected, saw: {}",
+            painted.chars().take(400).collect::<String>()
+        );
+        assert!(!painted.contains("Turn aborted"), "no 'Turn aborted' toast allowed");
+        assert!(
+            matches!(app.screen, Screen::Connected(_)),
+            "the invoking window must stay Connected"
+        );
+        assert_eq!(app.chat_draft(), &draft_before, "composer draft must be untouched");
+        {
+            let Screen::Connected(project) = &app.screen else {
+                panic!("fixture must be connected")
+            };
+            assert!(
+                std::sync::Arc::ptr_eq(&running, project.active_turn.as_ref().unwrap_or_else(|| {
+                    panic!("the in-flight turn must still be registered")
+                })),
+                "same controller still registered"
+            );
+            assert!(!running.cancel_requested(), "no cancel request may reach the turn");
+            assert!(
+                !project
+                    .active_implementations
+                    .get(&ticket)
+                    .unwrap()
+                    .cancellation_requested(),
+                "no cancel request may reach the implementations"
+            );
+        }
+
+        // Click 2: repeat invocation spawns again with no shared-state
+        // collision — the parent never waits on either Child.
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let repainted = canvas_text(&frame_toasting(&mut app, &ctx));
+        assert!(repainted.contains("Opening a new") && repainted.contains("Packet window"));
+        assert!(!running.cancel_requested(), "repeat click must not cancel either");
+        assert!(matches!(app.screen, Screen::Connected(_)));
+        assert_eq!(app.chat_draft(), &draft_before);
+    }
+
+    #[test]
+    fn open_workspace_spawn_failure_warns_with_path_and_leaves_the_session_usable() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        if let Screen::Connected(project) = &mut app.screen {
+            project.draft = "draft survives a failed spawn".to_string();
+        }
+        let missing = std::env::temp_dir().join(format!("packet-sib-{}", std::process::id()));
+        assert!(!missing.exists(), "test pre-condition");
+        // Single word-group (no interior spaces), so it survives the toast's
+        // soft line wrapping intact.
+        let token = format!("packet-sib-{}", std::process::id());
+        app.spawn_target_override = Some(missing);
+
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let output = frame_toasting(&mut app, &ctx);
+        let painted = canvas_text(&output);
+        assert!(painted.contains(&token), "warning toast must embed the failing binary path");
+        assert!(
+            !(painted.contains("Opening a new") && painted.contains("Packet window")),
+            "no success toast on failure"
+        );
+        assert!(matches!(app.screen, Screen::Connected(_)), "screen stays Connected");
+        assert_eq!(app.chat_draft(), "draft survives a failed spawn");
+
+        // Retry: the same graceful failure repeats (repeat-request stability,
+        // no zombie half-interaction).
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let output = frame_toasting(&mut app, &ctx);
+        let painted = canvas_text(&output);
+        assert!(painted.contains(&token), "retry warning must embed the path again");
+        assert!(
+            !(painted.contains("Opening a new") && painted.contains("Packet window")),
+            "no success toast on failure retry"
+        );
+        assert!(matches!(app.screen, Screen::Connected(_)));
+        assert_eq!(app.chat_draft(), "draft survives a failed spawn");
     }
 
     #[test]
@@ -3654,5 +3945,406 @@ mod tests {
             "checkpoint subject: {log}"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- CHG-003 welcome screen ↔ workspace-browser dialog -----------------
+    //
+    // House practice (F-16): the app pump needs an eframe::Frame (GPU
+    // object), so tests drive the two production pieces directly —
+    // `welcome::paint` for the button and `PacketApp::render_dialog` for
+    // the dialog contract — exactly how the other dialogs are exercised in
+    // this codebase.
+
+    /// Route one frame of the PARKED dialog through the production router.
+    fn sw_route(
+        ctx: &egui::Context,
+        app: &mut PacketApp,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        let mut parked = Some(app.dialog.take().expect("a dialog is parked for this route"));
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
+        }
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400.0, 900.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| app.render_dialog(ui, parked.take().expect("parked dialog for this route")),
+        );
+        // No GPU consumer in-process: drain textures before the output dies.
+        out.textures_delta.clear();
+        out
+    }
+
+    /// Locate a whole-word text shape; centre position of its mesh.
+    fn sw_text_pos(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+        output.shapes.iter().find_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else {
+                return None;
+            };
+            (text.galley.text() == needle)
+                .then(|| text.pos + text.galley.mesh_bounds.center().to_vec2())
+        })
+    }
+
+    /// Consume a fresh context's first pass, which paints placeholder (Noop)
+    /// shapes only. Call once per `egui::Context` before trusting geometry —
+    /// the same warm-up discipline the overlays modal tests apply. Leaves the
+    /// parked dialog parked (idle frame).
+    fn sw_warm_route(ctx: &egui::Context, app: &mut PacketApp) {
+        let _out = sw_route(ctx, app, Vec::new());
+    }
+
+    /// One-frame click (move -> press -> release) at an absolute position.
+    fn sw_route_click_at(ctx: &egui::Context, app: &mut PacketApp, pos: egui::Pos2) {
+        let btn = egui::PointerButton::Primary;
+        let mods = Default::default();
+        let _ = sw_route(
+            ctx,
+            app,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton { pos, button: btn, pressed: true, modifiers: mods },
+                egui::Event::PointerButton { pos, button: btn, pressed: false, modifiers: mods },
+            ],
+        );
+    }
+
+    /// Locate `label` by its painted text, then click it in one frame. The
+    /// locating frame assumes the context has already been warmed.
+    fn sw_route_click_by_label(ctx: &egui::Context, app: &mut PacketApp, label: &str) {
+        let out = sw_route(ctx, app, Vec::new());
+        let pos = sw_text_pos(&out, label)
+            .unwrap_or_else(|| panic!("no \u{2018}{label}\u{2019} painted in the dialog frame"));
+        sw_route_click_at(ctx, app, pos);
+    }
+
+    /// Centre of the modal\u{2019}s top-right close box (28x28, 17px in from the
+    /// panel edges: 16 padding + 1 stroke).
+    fn sw_close_pos(panel: egui::Rect) -> egui::Pos2 {
+        egui::Pos2::new(panel.max.x - 31.0, panel.min.y + 31.0)
+    }
+
+    /// The \u{201c}Choose folder\u{201d} button: the modal\u{2019}s rounded-6 rect wider than a
+    /// fist (colour-independent predicate; the panel frame rounds at 12).
+    fn sw_choose_rect(out: &egui::FullOutput) -> egui::Rect {
+        out.shapes
+            .iter()
+            .find_map(|sl| match &sl.shape {
+                egui::Shape::Rect(r) => ((r.corner_radius.nw as f32 - 6.0).abs() < 0.51
+                    && r.rect.size().x > 60.0)
+                    .then_some(r.rect),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("Choose-folder button rect missing from painted shapes"))
+    }
+
+    #[test]
+    fn sw_welcome_browse_button_signals_request_when_clicked() {
+        let mut conn = String::new();
+        let mut req = false;
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0));
+
+        let mut idle = |req_out: &mut bool| {
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events: vec![],
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::app::welcome::paint(ui, &mut conn, None, req_out);
+                },
+            );
+            out.textures_delta.clear(); // headless: no GPU consumer
+            out
+        };
+
+        // A fresh context\u{2019}s first pass is placeholders only: burn it,
+        // then probe for the Browse button \u{2014} the only ~96x42 rect on the bare
+        // welcome surface.
+        idle(&mut req);
+        assert!(!req, "an idle frame makes no request");
+        let out = idle(&mut req);
+        let btn = out
+            .shapes
+            .iter()
+            .find_map(|sl| match &sl.shape {
+                egui::Shape::Rect(r) => (((r.rect.size().x - 96.0).abs() < 2.01)
+                    && ((r.rect.size().y - 42.0).abs() < 2.01))
+                    .then_some(r.rect),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("Browse button rect missing from painted shapes"));
+        assert!(btn.intersects(screen), "the button sits inside the viewport");
+        let pos = btn.center();
+
+        // Acting frame: press+release on the button in a single frame.
+        let mut req2 = false;
+        let btn_evt = egui::PointerButton::Primary;
+        let mods = Default::default();
+        let mut acted = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                events: vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton { pos, button: btn_evt, pressed: true, modifiers: mods },
+                    egui::Event::PointerButton { pos, button: btn_evt, pressed: false, modifiers: mods },
+                ],
+                ..Default::default()
+            },
+            |ui| {
+                crate::app::welcome::paint(ui, &mut conn, None, &mut req2);
+            },
+        );
+        acted.textures_delta.clear(); // headless: no GPU consumer
+        assert!(req2, "clicking Browse\u{2026} raises the one-shot request flag");
+    }
+
+    #[test]
+    fn sw_browse_choice_writes_conn_path_only_then_existing_submit_connects() {
+        // Serialize ambient-environment mutations (git hierarchy + per-user
+        // state root) behind the house lock while this test runs a REAL
+        // connect inside a sandbox.
+        let _guard = crate::core::gitops::test_support::shield("sw-browse-glue");
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() % 1_000_000_000_000u128)
+            .unwrap_or(0);
+        let root = std::env::temp_dir().join(format!("swglue-{}-{nanos}", std::process::id()));
+        let pkg_home = root.join("pkghome");
+        std::fs::create_dir_all(&pkg_home).unwrap();
+        // SAFETY: the shield is held; no other test observes the per-user
+        // state root while this one runs.
+        unsafe { std::env::set_var("PACKET_HOME", &pkg_home); }
+
+        let ws = root.join("ws");
+        std::fs::create_dir_all(ws.join("plain")).unwrap();
+        let repo = ws.join("site-app");
+        std::fs::create_dir_all(&repo).unwrap();
+        let repo_s = repo.to_string_lossy().into_owned();
+        let st = std::process::Command::new("git")
+            .args(["-C", &repo_s, "init", "-q"])
+            .status()
+            .unwrap();
+        assert!(st.success(), "git init fixture failed");
+        for (k, v) in [
+            ("user.name", "Sw Glue Test"),
+            ("user.email", "sw-glue@example.invalid"),
+            ("commit.gpgsign", "false"),
+        ] {
+            let c = std::process::Command::new("git")
+                .args(["-C", &repo_s, "config", k, v])
+                .status()
+                .unwrap();
+            assert!(c.success(), "git config {k} failed");
+        }
+        // A mature worktree, the way existing operators' repos look: its
+        // product specification was ALREADY migrated to modules and
+        // checkpointed, so the (unchanged) connect pipeline's
+        // bootstrap/migrate checkpoint deals only in files that exist.
+        std::fs::create_dir_all(repo.join("planning")).unwrap();
+        let template = crate::artifacts::spec_doc::bootstrap_template("Site App");
+        std::fs::write(repo.join("planning/specification.md"), &template).unwrap();
+        crate::artifacts::product_docs::migrate(&repo, &template)
+            .expect("fixture pre-migration failed");
+        for verb in [
+            &["add", "-A"][..],
+            &["commit", "-q", "-m", "baseline: mature workspace"][..],
+        ] {
+            let c = std::process::Command::new("git")
+                .args(["-C", &repo_s])
+                .args(verb)
+                .status()
+                .unwrap();
+            assert!(c.success(), "fixture git step {:?} failed", verb);
+        }
+        let ws_s = ws.to_string_lossy().into_owned();
+        let repo_c = std::fs::canonicalize(&repo).unwrap();
+
+        let mut app = PacketApp {
+            conn_path: ws_s.clone(),
+            conn_error: Some(String::from("prior-error-note")),
+            ..Default::default()
+        };
+
+        let ctx = egui::Context::default();
+
+        // Park the dialog the way the welcome arm does: a fresh browser
+        // seeded from the CURRENT field contents. Burn the fresh context\u{2019}s
+        // placeholder-only first pass, then idle: the router re-parks and
+        // nothing else moves.
+        app.dialog = Some(Dialog::Browse(
+            crate::app::dialogs::DlgBrowse::seeded(app.conn_path.clone()),
+        ));
+        sw_warm_route(&ctx, &mut app);
+        let out = sw_route(&ctx, &mut app, Vec::new());
+        assert!(app.dialog.is_some(), "an idle dialog frame parks the modal back");
+        assert_eq!(app.conn_path, ws_s, "idle frame never touches conn_path");
+        assert_eq!(app.conn_error.as_deref(), Some("prior-error-note"));
+
+        // Drive the AC: the seeded workspace lists its children (site-app, a
+        // git working tree); single-click it to select, then press
+        // \u{201c}Choose folder\u{201d}. Selection writes nothing until Choose.
+        let site = sw_text_pos(&out, "site-app")
+            .expect("the browser lists the seeded workspace contents");
+        let choose_at = sw_choose_rect(&out).center();
+        sw_route_click_at(&ctx, &mut app, site);
+        assert!(app.dialog.is_some(), "selecting alone keeps the browser open");
+        assert_eq!(app.conn_path, ws_s, "a single-click select is not written back");
+        sw_route_click_at(&ctx, &mut app, choose_at);
+        assert!(app.dialog.is_none(), "a chosen dialog is consumed, not parked back");
+        assert_eq!(
+            app.conn_path,
+            repo_c.to_string_lossy(),
+            "the chosen canonical path lands in the field verbatim"
+        );
+        assert_eq!(
+            app.conn_error.as_deref(),
+            Some("prior-error-note"),
+            "choose never touches conn_error"
+        );
+        assert!(matches!(app.screen, Screen::Welcome), "choose never navigates or connects");
+
+        // From here the flow is the PRE-EXISTING submit path, unchanged:
+        // Open/Enter on this field connects exactly like a hand-typed path.
+        app.submit_connect();
+        assert!(
+            matches!(app.screen, Screen::Connected(ref p) if p.state.title == "site-app"),
+            "submit_connect proceeds normally after a browse choice (err={:?})",
+            app.conn_error
+        );
+        assert!(app.conn_error.is_none());
+        // The connect persisted chat state under the ISOLATED per-user root,
+        // proving the full pipeline ran inside the sandbox.
+        let chatted = std::fs::read_dir(pkg_home.join("projects")).map(|d| {
+            d.filter_map(Result::ok).any(|e| {
+                std::fs::read_dir(e.path())
+                    .map(|f| f.flatten().any(|f| f.file_name() == "chat.jsonl"))
+                    .unwrap_or(false)
+            })
+        }).unwrap_or(false);
+        assert!(chatted, "connected session persisted chat state under PACKET_HOME");
+
+        // Reject paths (fresh app): Cancel, the close \u{2715}, and Escape all
+        // consume the dialog leaving the field byte-identical.
+        let mut app2 = PacketApp {
+            conn_path: ws_s.clone(),
+            conn_error: Some(String::from("prior-error-note")),
+            ..Default::default()
+        };
+
+        app2.dialog = Some(Dialog::Browse(crate::app::dialogs::DlgBrowse::seeded(ws_s.clone())));
+        sw_route_click_by_label(&ctx, &mut app2, "Cancel");
+        assert!(app2.dialog.is_none());
+        assert_eq!(app2.conn_path, ws_s, "Cancel leaves the typed path untouched");
+        assert_eq!(app2.conn_error.as_deref(), Some("prior-error-note"));
+
+        // Closing the modal \u{2715} (unlabeled X-shape): click its derived centre.
+        app2.dialog = Some(Dialog::Browse(crate::app::dialogs::DlgBrowse::seeded(ws_s.clone())));
+        let out = sw_route(&ctx, &mut app2, Vec::new());
+        let panel = out
+            .shapes
+            .iter()
+            .find_map(|sl| match &sl.shape {
+                egui::Shape::Rect(r) => (
+                    (r.corner_radius.nw as f32 - 12.0).abs() < 1.01 && r.stroke.width >= 1.0
+                )
+                .then_some(r.rect),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("modal panel frame missing from shapes"));
+        sw_route_click_at(&ctx, &mut app2, sw_close_pos(panel));
+        assert!(app2.dialog.is_none(), "the close \u{2715} dismisses the modal");
+        assert_eq!(app2.conn_path, ws_s, "close \u{2715} leaves the typed path untouched");
+
+        app2.dialog = Some(Dialog::Browse(crate::app::dialogs::DlgBrowse::seeded(ws_s.clone())));
+        let _ = sw_route(
+            &ctx,
+            &mut app2,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                modifiers: Default::default(),
+                pressed: true,
+                repeat: false,
+            }],
+        );
+        assert!(app2.dialog.is_none());
+        assert_eq!(app2.conn_path, ws_s, "Escape leaves the typed path untouched");
+
+        // SAFETY: restore ambient state before teardown.
+        unsafe { std::env::remove_var("PACKET_HOME"); }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sw_browse_choice_on_plain_folder_then_open_shows_legacy_invalid_repo_banner() {
+        // AC4: choosing a NON-git folder travels the SAME write path as a
+        // git tree (canonical PathBuf -> lossy String into conn_path) — the
+        // browser neither enables nor disables it. Only the operator's
+        // subsequent Open, through the UNCHANGED submit_connect ->
+        // welcome::attempt_connect pipeline, reproduces the legacy
+        // InvalidRepo banner.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() % 1_000_000_000_000u128)
+            .unwrap_or(0);
+        let ws = std::env::temp_dir()
+            .join(format!("swplain-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(ws.join("plainB")).unwrap();
+        let ws_s = ws.to_string_lossy().into_owned();
+        let plain_c = std::fs::canonicalize(ws.join("plainB")).unwrap();
+
+        let mut app = PacketApp {
+            conn_path: ws_s.clone(),
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        app.dialog = Some(Dialog::Browse(
+            crate::app::dialogs::DlgBrowse::seeded(ws_s.clone()),
+        ));
+        sw_warm_route(&ctx, &mut app);
+
+        // Seeded listing shows plainB; single-click selects, Choose inserts.
+        let out = sw_route(&ctx, &mut app, Vec::new());
+        let hit = sw_text_pos(&out, "plainB").expect("plainB row painted");
+        sw_route_click_at(&ctx, &mut app, hit);
+        assert!(app.dialog.is_some(), "selecting keeps the browser open");
+        assert_eq!(app.conn_path, ws_s, "a select writes nothing back");
+        let out = sw_route(&ctx, &mut app, Vec::new());
+        sw_route_click_at(&ctx, &mut app, sw_choose_rect(&out).center());
+        assert!(app.dialog.is_none(), "choose consumes the dialog");
+        assert_eq!(
+            app.conn_path,
+            plain_c.to_string_lossy(),
+            "the non-git folder is inserted IDENTICALLY to a git tree"
+        );
+        assert!(matches!(app.screen, Screen::Welcome), "choose never navigates");
+
+        // The single connect authority runs on the operator's Open: the
+        // pre-existing banner surfaces, unchanged.
+        app.submit_connect();
+        assert!(
+            matches!(app.screen, Screen::Welcome),
+            "Open refused the non-git folder: still the initial screen"
+        );
+        let err = app.conn_error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("no .git directory found"),
+            "legacy InvalidRepo banner reproduced (got: {err})"
+        );
+        assert!(
+            err.contains(plain_c.to_str().unwrap_or("")),
+            "banner names the chosen path (got: {err})"
+        );
+        let _ = std::fs::remove_dir_all(&ws);
     }
 }
