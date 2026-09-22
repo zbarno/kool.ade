@@ -3,6 +3,7 @@
 pub mod dialogs;
 pub mod root;
 pub mod session;
+pub mod spawn;
 pub mod welcome;
 
 pub use root::{PacketApp, options};

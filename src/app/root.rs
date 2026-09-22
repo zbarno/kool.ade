@@ -28,6 +28,11 @@ pub struct PacketApp {
     task_harness: Option<Box<dyn crate::harness::AiHarness>>,
     pending_feature_generation: Option<(std::path::PathBuf, String, String)>,
     screen: Screen,
+    /// Test-only spawn seam: when `Some`, [`Self::open_workspace`] launches
+    /// this binary instead of resolving the running executable. Shipping
+    /// code never writes it (`Default` installs `None`); only `#[cfg(test)]`
+    /// fixtures aim it at a benign helper.
+    spawn_target_override: Option<std::path::PathBuf>,
     dialog: Option<Dialog>,
     toasts: ToastQueue,
     conn_path: String,
@@ -121,6 +126,7 @@ impl Default for PacketApp {
             task_harness: None,
             pending_feature_generation: None,
             screen: Screen::Welcome,
+            spawn_target_override: None,
             dialog: None,
             toasts,
             conn_path: std::env::current_dir()
@@ -1281,6 +1287,28 @@ impl PacketApp {
         self.screen = Screen::Welcome;
     }
 
+    /// Workspace menu 'Open workspace': spawn a DETACHED sibling Packet
+    /// process that boots to the initial (Welcome) screen.
+    ///
+    /// Deliberate contract contrast with [`Self::disconnect`]: this hands
+    /// out a second window and touches NONE of this session — no
+    /// `request_cancel` on the active turn or implementations, no
+    /// `screen`/`dialog`/`synth`/`queue` mutation. Spawn + toast only.
+    pub fn open_workspace(&mut self) {
+        let target: Result<std::path::PathBuf, String> = self
+            .spawn_target_override
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(crate::app::spawn::resolve_self_executable);
+        match target {
+            Ok(bin) => match crate::app::spawn::spawn_sibling(&bin) {
+                Ok(()) => self.toasts.info("Opening a new Packet window"),
+                Err(message) => self.toasts.warning(message),
+            },
+            Err(message) => self.toasts.warning(message),
+        }
+    }
+
     fn copy_spec_to_clipboard(&mut self) {
         let Screen::Connected(p) = &self.screen else {
             return;
@@ -1480,6 +1508,11 @@ impl Surface for PacketApp {
     fn retry_task_chat_save(&mut self) {
         if let Screen::Connected(p) = &mut self.screen {
             p.task_chats.retry_save(&p.chat_slug);
+        }
+    }
+    fn drain_task_chat_saves(&mut self) {
+        if let Screen::Connected(p) = &mut self.screen {
+            p.task_chats.drain_if_pending(&p.chat_slug);
         }
     }
 
@@ -1984,6 +2017,7 @@ impl Surface for PacketApp {
                 }
             }
             HeaderAction::CopySpec => self.copy_spec_to_clipboard(),
+            HeaderAction::OpenWorkspace => self.open_workspace(),
             HeaderAction::Disconnect => self.disconnect(),
         }
     }
@@ -2517,6 +2551,222 @@ mod board_tests {
         assert!(!app.display_refresh.as_ref().unwrap().is_finished());
         release.send(()).unwrap();
         let _ = app.display_refresh.take().unwrap().join();
+    }
+
+    /// Turns in `execute` suspend until their cancel flag flips: a faithful
+    /// stand-in for an in-flight planner turn whose worker must survive the
+    /// sibling spawn completely untouched.
+    struct HangingTurnHarness;
+    impl crate::harness::AiHarness for HangingTurnHarness {
+        fn label(&self) -> String {
+            "hanging-fixture 0".into()
+        }
+        fn check_available(&self) -> Result<String, crate::AppError> {
+            Ok("present".into())
+        }
+        fn execute(
+            &self,
+            request: &crate::harness::PlanningRequest,
+        ) -> Result<crate::harness::HarnessOutcome, crate::AppError> {
+            while !request.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(crate::AppError::Other(String::from("fixture turn cancelled")))
+        }
+    }
+
+    /// All on-screen text, galley-concatenated without separators so a
+    /// phrase spanning a toast's soft line wrap still matches as a whole.
+    fn canvas_text(output: &egui::FullOutput) -> String {
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Paint ONE SETTLED frame with the app's toast layer included — the
+    /// test helper paints `layout::paint` directly, bypassing
+    /// `PacketApp::ui`, so the same `toasts.show(..)` call is replayed
+    /// INSIDE the layout pass, in the same order the native app uses it.
+    /// A freshly introduced toast area needs one settle pass before its
+    /// content reaches the paint output, so one pass is discarded and the
+    /// settled second pass is returned.
+    fn frame_toasting(app: &mut PacketApp, ctx: &egui::Context) -> egui::FullOutput {
+        let paint_one_pass = |
+            app: &mut PacketApp,
+            ctx: &egui::Context,
+        | -> egui::FullOutput {
+            for theme in [egui::Theme::Dark, egui::Theme::Light] {
+                ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
+            }
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1800.0, 900.0),
+                    )),
+                    events: vec![],
+                    ..Default::default()
+                },
+                |ui| {
+                    crate::ui::layout::paint(ui, app);
+                    app.toasts().show(ui.ctx());
+                },
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let _ = paint_one_pass(app, ctx);
+        paint_one_pass(app, ctx)
+    }
+
+    // Mirrors the production pattern deliberately: the live turn is held in a
+    // non-Send/non-Sync `Arc<TurnController>` (three tolerated instances
+    // already sit in this file's baseline), and the assertion needs exactly
+    // that Arc's identity.
+    #[allow(clippy::arc_with_non_send_sync)]
+    #[test]
+    fn open_workspace_spawns_a_detached_sibling_without_touching_the_session() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+
+        // Benign spawn target (unit-test pick of record: a trivial no-op
+        // present on the Linux target hosts).
+        const HARMLESS: [&str; 2] = ["/usr/bin/true", "/bin/true"];
+        let target = HARMLESS
+            .iter()
+            .copied()
+            .find(|cand| std::path::Path::new(cand).is_file())
+            .unwrap_or_else(|| panic!("no trivial no-op utility on this Linux host"));
+        app.spawn_target_override = Some(target.into());
+
+        // Fake in-flight work: a real-but-suspended turn plus an active
+        // implementation, alongside an unsent composer draft.
+        let ticket = "planning/tasks/fixture/001-task.md".to_string();
+        let running = {
+            let Screen::Connected(project) = &mut app.screen else {
+                panic!("fixture must be connected")
+            };
+            project.draft = "unsent draft must survive the sibling spawn".to_string();
+            project.active_implementations.insert(
+                ticket.clone(),
+                crate::core::implementation::Controller::idle_fixture(),
+            );
+            std::sync::Arc::new(TurnController::start(
+                crate::core::turn::TurnInputs {
+                    state: project.state.clone(),
+                    user_message: "Please continue".into(),
+                    recent_chat: Vec::new(),
+                    purpose: crate::core::workflow::TurnPurpose::Interview,
+                },
+                Box::new(HangingTurnHarness),
+            ))
+        };
+        {
+            let Screen::Connected(project) = &mut app.screen else {
+                panic!("fixture must be connected")
+            };
+            project.active_turn = Some(running.clone());
+            project.live_progress = crate::harness::LiveProgress {
+                activity: Some("Planning…".into()),
+                ..Default::default()
+            };
+        }
+        let draft_before = app.chat_draft().clone();
+
+        // Click 1: Workspace → 'Open workspace'.
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let output = frame_toasting(&mut app, &ctx);
+        let painted = canvas_text(&output);
+        assert!(
+            painted.contains("Opening a new") && painted.contains("Packet window"),
+            "success toast expected, saw: {}",
+            painted.chars().take(400).collect::<String>()
+        );
+        assert!(!painted.contains("Turn aborted"), "no 'Turn aborted' toast allowed");
+        assert!(
+            matches!(app.screen, Screen::Connected(_)),
+            "the invoking window must stay Connected"
+        );
+        assert_eq!(app.chat_draft(), &draft_before, "composer draft must be untouched");
+        {
+            let Screen::Connected(project) = &app.screen else {
+                panic!("fixture must be connected")
+            };
+            assert!(
+                std::sync::Arc::ptr_eq(&running, project.active_turn.as_ref().unwrap_or_else(|| {
+                    panic!("the in-flight turn must still be registered")
+                })),
+                "same controller still registered"
+            );
+            assert!(!running.cancel_requested(), "no cancel request may reach the turn");
+            assert!(
+                !project
+                    .active_implementations
+                    .get(&ticket)
+                    .unwrap()
+                    .cancellation_requested(),
+                "no cancel request may reach the implementations"
+            );
+        }
+
+        // Click 2: repeat invocation spawns again with no shared-state
+        // collision — the parent never waits on either Child.
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let repainted = canvas_text(&frame_toasting(&mut app, &ctx));
+        assert!(repainted.contains("Opening a new") && repainted.contains("Packet window"));
+        assert!(!running.cancel_requested(), "repeat click must not cancel either");
+        assert!(matches!(app.screen, Screen::Connected(_)));
+        assert_eq!(app.chat_draft(), &draft_before);
+    }
+
+    #[test]
+    fn open_workspace_spawn_failure_warns_with_path_and_leaves_the_session_usable() {
+        let mut app = fixture();
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        if let Screen::Connected(project) = &mut app.screen {
+            project.draft = "draft survives a failed spawn".to_string();
+        }
+        let missing = std::env::temp_dir().join(format!("packet-sib-{}", std::process::id()));
+        assert!(!missing.exists(), "test pre-condition");
+        // Single word-group (no interior spaces), so it survives the toast's
+        // soft line wrapping intact.
+        let token = format!("packet-sib-{}", std::process::id());
+        app.spawn_target_override = Some(missing);
+
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let output = frame_toasting(&mut app, &ctx);
+        let painted = canvas_text(&output);
+        assert!(painted.contains(&token), "warning toast must embed the failing binary path");
+        assert!(
+            !(painted.contains("Opening a new") && painted.contains("Packet window")),
+            "no success toast on failure"
+        );
+        assert!(matches!(app.screen, Screen::Connected(_)), "screen stays Connected");
+        assert_eq!(app.chat_draft(), "draft survives a failed spawn");
+
+        // Retry: the same graceful failure repeats (repeat-request stability,
+        // no zombie half-interaction).
+        click_text(&mut app, &ctx, "Workspace");
+        click_text(&mut app, &ctx, "Open workspace");
+        let output = frame_toasting(&mut app, &ctx);
+        let painted = canvas_text(&output);
+        assert!(painted.contains(&token), "retry warning must embed the path again");
+        assert!(
+            !(painted.contains("Opening a new") && painted.contains("Packet window")),
+            "no success toast on failure retry"
+        );
+        assert!(matches!(app.screen, Screen::Connected(_)));
+        assert_eq!(app.chat_draft(), "draft survives a failed spawn");
     }
 
     #[test]

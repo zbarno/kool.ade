@@ -4,29 +4,44 @@ use super::*;
 #[test]
 fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() {
     let mut app = fixture();
-    let root = std::env::temp_dir().join(format!("packet-concurrent-chats-{}", chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+    let root = std::env::temp_dir().join(format!(
+        "packet-concurrent-chats-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
     std::fs::create_dir_all(&root).unwrap();
     if let Screen::Connected(p) = &mut app.screen {
         p.state = crate::core::state::PlannerState::load(&root).unwrap();
         p.state.bootstrap_missing().unwrap();
         p.chat_slug = root.join("runtime").to_string_lossy().into_owned();
         for id in ["CLR-001", "CLR-002"] {
-            p.state.items.push(OpenItem::new(id.into(), crate::domain::Priority::High,
-                crate::domain::ItemKind::Question, "General".into(), None,
-                format!("Question {id}?"), "Planning".into()));
+            p.state.items.push(OpenItem::new(
+                id.into(),
+                crate::domain::Priority::High,
+                crate::domain::ItemKind::Question,
+                "General".into(),
+                None,
+                format!("Question {id}?"),
+                "Planning".into(),
+            ));
         }
     }
     for key in ["CLR-001", "CLR-002"] {
-        app.task_harness = Some(Box::new(StoppedHarness { wait_for_cancel: true }));
+        app.task_harness = Some(Box::new(StoppedHarness {
+            wait_for_cancel: true,
+        }));
         *app.task_draft(key).unwrap() = format!("Answer for {key}");
         app.submit_task_reply(key);
         assert!(app.task_chat_active(key));
         assert!(!app.conversation_busy());
     }
-    app.task_harness = Some(Box::new(StoppedHarness { wait_for_cancel: true }));
+    app.task_harness = Some(Box::new(StoppedHarness {
+        wait_for_cancel: true,
+    }));
     app.start_turn("Add a search feature");
     assert!(app.conversation_busy());
-    let Screen::Connected(p) = &app.screen else { panic!() };
+    let Screen::Connected(p) = &app.screen else {
+        panic!()
+    };
     assert_eq!(p.task_turns.len(), 2);
     assert!(p.active_turn.is_some());
     assert_eq!(crate::core::planning_work::load(&root).unwrap().len(), 1);
@@ -35,28 +50,48 @@ fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() 
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Plan Add a search feature").is_some());
     app.cancel_task_reply("CLR-001");
-    let Screen::Connected(p) = &app.screen else { panic!() };
+    let Screen::Connected(p) = &app.screen else {
+        panic!()
+    };
     assert!(p.task_turns["CLR-001"].cancel_requested());
     assert!(!p.task_turns["CLR-002"].cancel_requested());
     assert!(!p.active_turn.as_ref().unwrap().cancel_requested());
     app.cancel_task_reply("CLR-002");
     complete(&mut app);
     complete(&mut app);
-    let Screen::Connected(p) = &app.screen else { panic!() };
-    assert!(p.active_turn.is_some(), "Task completion must preserve the main worker");
+    let Screen::Connected(p) = &app.screen else {
+        panic!()
+    };
+    assert!(
+        p.active_turn.is_some(),
+        "Task completion must preserve the main worker"
+    );
     p.active_turn.as_ref().unwrap().request_cancel();
     drop(app);
 }
 
 #[test]
 fn all_resolved_planning_kinds_have_persistent_archive_controls() {
-    for kind in [crate::domain::ItemKind::Question, crate::domain::ItemKind::Assumption,
-        crate::domain::ItemKind::Ambiguity, crate::domain::ItemKind::Ownership] {
+    for kind in [
+        crate::domain::ItemKind::Question,
+        crate::domain::ItemKind::Assumption,
+        crate::domain::ItemKind::Ambiguity,
+        crate::domain::ItemKind::Ownership,
+    ] {
         let mut app = fixture();
-        let Screen::Connected(p) = &mut app.screen else { panic!() };
+        let Screen::Connected(p) = &mut app.screen else {
+            panic!()
+        };
         p.task_documents.clear();
-        let mut item = OpenItem::new("CLR-001".into(), crate::domain::Priority::Normal,
-            kind, "General".into(), None, "Resolved planning work".into(), "Answered".into());
+        let mut item = OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::Normal,
+            kind,
+            "General".into(),
+            None,
+            "Resolved planning work".into(),
+            "Answered".into(),
+        );
         item.status = crate::domain::ItemStatus::Resolved;
         p.state.resolved_items = vec![item];
         let ctx = egui::Context::default();
@@ -65,8 +100,13 @@ fn all_resolved_planning_kinds_have_persistent_archive_controls() {
         assert!(text_position(&output, "Archive").is_some(), "{kind}");
         click_text(&mut app, &ctx, "Archive");
         let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "Resolved planning work").is_none(), "{kind}");
-        let Screen::Connected(p) = &app.screen else { panic!() };
+        assert!(
+            text_position(&output, "Resolved planning work").is_none(),
+            "{kind}"
+        );
+        let Screen::Connected(p) = &app.screen else {
+            panic!()
+        };
         assert!(crate::persistence::archived_tasks::load(&p.chat_slug).contains("CLR-001"));
         assert_eq!(p.state.resolved_items.len(), 1);
     }
@@ -321,7 +361,11 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
         let manager_prompt = super::super::manager::Manager::prompt_body(p, &p.activity.pending);
         assert!(manager_prompt.contains("Use corporate SSO"));
         assert!(!manager_prompt.contains("Task reply applied to planning artifacts."));
-        assert!(manager_prompt.contains(if mode == "rejected" { "Turn rejected" } else { "Planning stopped" }));
+        assert!(manager_prompt.contains(if mode == "rejected" {
+            "Turn rejected"
+        } else {
+            "Planning stopped"
+        }));
         p.task_chats = Default::default();
         p.task_chats.ensure_loaded(&p.chat_slug);
         assert_eq!(p.task_chats.messages["CLR-001"], expected);
@@ -364,7 +408,10 @@ fn complete(app: &mut PacketApp) {
             started.elapsed() < Duration::from_secs(10),
             "focused turn did not finish"
         );
-        match key.as_ref().and_then(|key| project.task_turns.get(key)).or(project.active_turn.as_ref())
+        match key
+            .as_ref()
+            .and_then(|key| project.task_turns.get(key))
+            .or(project.active_turn.as_ref())
             .expect("reply must start a turn")
             .poll(Duration::from_millis(20))
         {
@@ -377,7 +424,11 @@ fn complete(app: &mut PacketApp) {
         project.task_live.remove(key);
     }
     project.task_chats.active = key.clone();
-    let main = if key.is_some() { project.active_turn.take() } else { None };
+    let main = if key.is_some() {
+        project.active_turn.take()
+    } else {
+        None
+    };
     let live = std::mem::take(&mut project.live_progress);
     app.adopt_turn(&mut project, outcome);
     project.active_turn = main;
@@ -557,10 +608,20 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert_eq!(p.task_chats.messages["CLR-001"].len(), 6);
     assert_eq!(p.task_chats.messages["CLR-002"].len(), 1);
     let manager_prompt = super::super::manager::Manager::prompt_body(p, &p.activity.pending);
-    for fact in ["Use corporate SSO", "Require MFA as well", "This question is resolved.", "CLR-001"] {
+    for fact in [
+        "Use corporate SSO",
+        "Require MFA as well",
+        "This question is resolved.",
+        "CLR-001",
+    ] {
         assert!(manager_prompt.contains(fact), "manager missed {fact}");
     }
-    assert!(p.activity.pending.iter().any(|event| event.contains("User replied in task CLR-001")));
+    assert!(
+        p.activity
+            .pending
+            .iter()
+            .any(|event| event.contains("User replied in task CLR-001"))
+    );
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Done · 1").is_some());
     assert!(text_position(&output, "Corporate SSO with MFA is confirmed.").is_some());
@@ -569,14 +630,180 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
         prompts: main_prompts.clone(),
         reply: serde_json::json!({"schema_version":1, "assistant_message":"The task conversation confirmed corporate SSO with MFA."}).to_string(),
     }));
-    app.start_turn_with_purpose("What did we decide in CLR-001?", crate::core::workflow::TurnPurpose::Interview);
+    app.start_turn_with_purpose(
+        "What did we decide in CLR-001?",
+        crate::core::workflow::TurnPurpose::Interview,
+    );
     complete(&mut app);
     let main_prompts = main_prompts.lock().unwrap();
     assert_eq!(main_prompts.len(), 1);
-    for fact in ["Use corporate SSO", "Require MFA as well", "This question is resolved.", "OTHER TASK PRIVATE SENTINEL"] {
+    for fact in [
+        "Use corporate SSO",
+        "Require MFA as well",
+        "This question is resolved.",
+        "OTHER TASK PRIVATE SENTINEL",
+    ] {
         assert!(main_prompts[0].contains(fact), "main planner missed {fact}");
     }
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
+    // Incident regression: one save hiccups and queues the final agent reply
+    // as pending; unpainted-panel retry paths may never run, and a later
+    // TaskChats replacement (relaunch-style) must not drop the reply. The
+    // per-frame paint drain must deliver it once the store unlocks.
+    let root = std::env::temp_dir().join(format!(
+        "packet-stranded-drain-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    let repo = root.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.name", "Fixture"],
+        vec!["config", "user.email", "fixture@example.test"],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .current_dir(&repo)
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let mut app = fixture();
+    let question = "Which database engine?";
+    if let Screen::Connected(p) = &mut app.screen {
+        p.state = crate::core::state::PlannerState::load(&repo).unwrap();
+        p.state.bootstrap_missing().unwrap();
+        p.state.items = vec![OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            Some("All".into()),
+            question.into(),
+            "Storage choice".into(),
+        )];
+        p.task_documents.clear();
+        p.chat_slug = root.join("runtime").to_string_lossy().into_owned();
+    }
+    app.task_harness = Some(Box::new(ReplyHarness {
+        prompts: Arc::new(Mutex::new(Vec::new())),
+        reply: serde_json::json!({
+            "schema_version":1, "assistant_message":"Postgres chosen and noted.",
+            "open_items_updated":[{"id":"CLR-001","evidence":"Operator picked Postgres."}]
+        })
+        .to_string(),
+    }));
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "Your answer…");
+    frame(&mut app, &ctx, vec![egui::Event::Text("Postgres".into())]);
+    assert_eq!(app.task_draft("CLR-001").unwrap(), "Postgres");
+    click_text(&mut app, &ctx, question);
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
+    );
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "Send answer");
+    complete(&mut app);
+    assert!(
+        app.task_messages("CLR-001")
+            .iter()
+            .any(|m| m.text == "Postgres chosen and noted.")
+    );
+    let persisted_len =
+        persisted_len_helper(&app, crate::persistence::task_chats::TaskChats::default());
+    // Straddle: hold the store lock ourselves, then let one agent reply fail
+    // into the pending queue — memory shows it, disk does not.
+    let slug = match &app.screen {
+        Screen::Connected(p) => p.chat_slug.clone(),
+        _ => panic!("expected connected screen"),
+    };
+    let lock = {
+        let dir = crate::persistence::project_dir(&slug);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("task-conversations.lock"))
+            .unwrap();
+        file.lock().unwrap();
+        file
+    };
+    let memory_len;
+    {
+        let Screen::Connected(p) = &mut app.screen else {
+            panic!()
+        };
+        p.task_chats.remember_response(
+            &p.chat_slug,
+            "CLR-001",
+            vec![ChatMessage::new(
+                ChatRole::Agent,
+                "Stranded late reply",
+                None,
+            )],
+        );
+        assert!(
+            p.task_chats
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("Another window")),
+            "expected the reply to fail into the pending queue, got {:?}",
+            p.task_chats.error
+        );
+        memory_len = p.task_chats.messages["CLR-001"].len();
+    }
+    assert_eq!(memory_len, persisted_len + 1);
+    // Frames while the store is locked keep the reply pending, invisible to a
+    // fresh reader (a relaunched window).
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        persisted_len_helper(&app, crate::persistence::task_chats::TaskChats::default()),
+        persisted_len
+    );
+    drop(lock);
+    // The next painted frame drains the queue, so even a hard instance swap
+    // now reads the complete history.
+    frame(&mut app, &ctx, vec![]);
+    {
+        let Screen::Connected(p) = &mut app.screen else {
+            panic!()
+        };
+        p.task_chats = Default::default();
+        p.task_chats.ensure_loaded(&p.chat_slug);
+        assert_eq!(p.task_chats.messages["CLR-001"].len(), memory_len);
+        assert!(
+            p.task_chats.messages["CLR-001"]
+                .iter()
+                .any(|m| m.text == "Stranded late reply")
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+fn persisted_len_helper(
+    app: &PacketApp,
+    mut store: crate::persistence::task_chats::TaskChats,
+) -> usize {
+    let Screen::Connected(p) = &app.screen else {
+        panic!()
+    };
+    store.ensure_loaded(&p.chat_slug);
+    store.messages["CLR-001"].len()
 }
 
 #[test]
@@ -588,7 +815,11 @@ fn new_task_tabs_show_context_and_help_without_starting_a_model_turn() {
     click_text(&mut app, &ctx, "Open conversation");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Task context").is_some());
-    assert!(app.task_messages(key)[0].text.contains("How can I help you with First task?"));
+    assert!(
+        app.task_messages(key)[0]
+            .text
+            .contains("How can I help you with First task?")
+    );
     assert!(!app.task_reply_busy());
     assert!(app.chat_messages().is_empty());
     let context = app.task_chat_context(key).unwrap();
@@ -597,7 +828,9 @@ fn new_task_tabs_show_context_and_help_without_starting_a_model_turn() {
     let expected = app.task_messages(key).to_vec();
     app.prepare_task_chat(key);
     assert_eq!(app.task_messages(key), expected);
-    let Screen::Connected(p) = &mut app.screen else { panic!() };
+    let Screen::Connected(p) = &mut app.screen else {
+        panic!()
+    };
     let slug = p.chat_slug.clone();
     p.task_chats = Default::default();
     app.prepare_task_chat(key);
@@ -609,23 +842,45 @@ fn new_task_tabs_show_context_and_help_without_starting_a_model_turn() {
 fn question_opening_uses_current_context_and_resolved_items_offer_help() {
     let mut app = fixture();
     let key = "CLR-001";
-    let Screen::Connected(p) = &mut app.screen else { panic!() };
-    let mut item = OpenItem::new(key.into(), crate::domain::Priority::High,
-        crate::domain::ItemKind::Question, "General".into(), None,
-        "Which authentication provider?".into(), "Controls employee access".into());
+    let Screen::Connected(p) = &mut app.screen else {
+        panic!()
+    };
+    let mut item = OpenItem::new(
+        key.into(),
+        crate::domain::Priority::High,
+        crate::domain::ItemKind::Question,
+        "General".into(),
+        None,
+        "Which authentication provider?".into(),
+        "Controls employee access".into(),
+    );
     item.evidence = "Corporate directory is available".into();
     p.state.items.push(item.clone());
     app.prepare_task_chat(key);
     let greeting = &app.task_messages(key)[0].text;
     assert!(greeting.contains("Controls employee access"));
     assert!(greeting.contains("- Which authentication provider?"));
-    assert!(app.task_chat_context(key).unwrap().contains("Corporate directory is available"));
-    let Screen::Connected(p) = &mut app.screen else { panic!() };
-    p.task_documents[0].text.push_str("\nPending decision: CLR-001");
+    assert!(
+        app.task_chat_context(key)
+            .unwrap()
+            .contains("Corporate directory is available")
+    );
+    let Screen::Connected(p) = &mut app.screen else {
+        panic!()
+    };
+    p.task_documents[0]
+        .text
+        .push_str("\nPending decision: CLR-001");
     let task = p.task_documents[0].path.clone();
     app.prepare_task_chat(&task);
-    assert!(app.task_messages(&task)[0].text.contains("- CLR-001: Which authentication provider?"));
-    let Screen::Connected(p) = &mut app.screen else { panic!() };
+    assert!(
+        app.task_messages(&task)[0]
+            .text
+            .contains("- CLR-001: Which authentication provider?")
+    );
+    let Screen::Connected(p) = &mut app.screen else {
+        panic!()
+    };
     item.id = "CLR-002".into();
     item.status = crate::domain::ItemStatus::Resolved;
     p.state.resolved_items.push(item);
@@ -633,7 +888,9 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
     let greeting = &app.task_messages("CLR-002")[0].text;
     assert!(greeting.contains("- How can I help you with this item?"));
     assert!(!greeting.contains("- Which authentication provider?"));
-    let Screen::Connected(p) = &app.screen else { panic!() };
+    let Screen::Connected(p) = &app.screen else {
+        panic!()
+    };
     std::fs::remove_dir_all(&p.chat_slug).unwrap();
 }
 

@@ -350,7 +350,20 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
         .write(true)
         .open(dir.join("run.lock"))?;
     if lock.try_lock().is_err() {
-        return Ok(());
+        // A concurrent implementation can hold this lock for minutes, so never
+        // block. Brief platform stalls have, however, been observed to stretch
+        // short critical sections past a single immediate attempt; give the
+        // holder a bounded moment to finish before falling back to the
+        // deliberate no-op.
+        for delay_ms in [10u64, 20, 20, 20] {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            if lock.try_lock().is_ok() {
+                break;
+            }
+        }
+        if lock.try_lock().is_err() {
+            return Ok(());
+        }
     }
     let mut state: Implementation = serde_json::from_slice(&fs::read(dir.join("state.json"))?)?;
     let target_repo = target_repository(repo, ticket)?;
@@ -1768,7 +1781,8 @@ mod tests {
                 .unwrap();
             assert!(
                 output.status.success(),
-                "{}",
+                "git {} failed: {}",
+                args.join(" "),
                 String::from_utf8_lossy(&output.stderr)
             );
             String::from_utf8(output.stdout).unwrap().trim().into()
@@ -1809,7 +1823,12 @@ mod tests {
                     .current_dir(&repo)
                     .output()
                     .unwrap();
-                assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+                assert!(
+                    o.status.success(),
+                    "git {} failed: {}",
+                    args.join(" "),
+                    String::from_utf8_lossy(&o.stderr)
+                );
             };
             git(&["init", "-q", "-b", "main"]);
             git(&["config", "user.name", "Fixture"]);
@@ -2057,22 +2076,32 @@ mod tests {
             cancel: Arc::new(AtomicBool::new(false)),
             progress,
         };
+        let started = Instant::now();
         refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
+        // The deliberate no-op must stay bounded: a held lock may add at most
+        // the short settle budget, never an unbounded block.
+        assert!(started.elapsed() < Duration::from_secs(2));
         assert_eq!(fs::read(dir.join("state.json")).unwrap(), before);
     }
     #[test]
     fn blocked_or_failed_verification_never_creates_pr() {
         for mode in ["blocked", "fail"] {
             let s = Sandbox::new();
-            assert!(s.run(mode, Arc::new(AtomicUsize::new(0))).is_err());
-            assert!(!s.root.join("pr-created").exists());
+            let outcome = s.run(mode, Arc::new(AtomicUsize::new(0)));
             assert!(
-                load(&s.repo, &s.ticket)
-                    .unwrap()
-                    .worktree
-                    .join("implemented.txt")
-                    .exists()
+                outcome.is_err(),
+                "mode {mode} must fail: {:?}",
+                outcome.ok()
             );
+            assert!(!s.root.join("pr-created").exists());
+            let Some(state) = load(&s.repo, &s.ticket) else {
+                panic!(
+                    "mode {mode}: run failed ({outcome:?}) before persisting workflow state; \n\
+                     a git/io-level infrastructure fault is suspected rather than the \n\
+                     verification mode under test"
+                );
+            };
+            assert!(state.worktree.join("implemented.txt").exists());
         }
     }
     #[test]
