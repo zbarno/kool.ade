@@ -1,1 +1,18 @@
-[]
+[
+  {
+    "key": "planning:65c03fe5ff399-1a-1826873",
+    "title": "Plan i guess story level",
+    "request": "i guess story level",
+    "column": 1,
+    "feature": "CHG-004",
+    "detail": "Taking 'story level' as your call on decomposition grain — locked into CHG-004's Decisions: the implementation batch breaks down into small, independently verifiable stories (same shape as the CHG-001 through CHG-003 batches), not one monolithic ticket. That closes the last open half of the CHG-004 interview: intent, scope, constraints, and acceptance are settled, the Option-2 branch ruling stands, zero items are open, and approval is on record against the current contract. I've marked the interview ready, so the task-generation offer follows next. Your call on that prompt decides whether the batch gets written.\n\nThe goal and scope for Post-Publication Worktree Cleanup (CHG-004) are ready to break down. Would you like to proceed to task generation? Choose Generate task stories, reply yes, or keep refining the plan."
+  },
+  {
+    "key": "planning:65c0f6bb4ae09-6-4095762",
+    "title": "Plan Option 1 — Generate: break CHG-004 down at the standing story-level grain (reply\n[…truncated…]",
+    "request": "Option 1 — Generate: break CHG-004 down at the standing story-level grain (reply yes or choose \"Generate task stories\"; the next turn produces the batch)",
+    "column": 4,
+    "feature": null,
+    "detail": "Generate recorded — and that closes the loop on CHG-004: the approval is already on the ledger, the spec sits Ready, open items are at zero, and the document itself pins the grain at story level per your ruling. One-breath recap of the settled intent: when a task reaches terminal-done — confirmed auto-publication or a polled MERGED PR — the workflow reclaims that task's worktrees (directories, registrations, and every per-base integration sibling) and its Packet-created local branches: Git's strict merged check first, attested deletion only under the full four-limb conjunction, and anything less kept with a recorded reason. Dirty, non-terminal, or foreign candidates are never touched, and a cleanup failure stays a pure diagnostic that cannot slow publication or the queue. The story batch enters the auto queue behind the two stories currently in flight; each arrives independently verifiable. No further decisions needed from you until a story raises its hand.\n\nThe goal and scope for Post-Publication Worktree Cleanup (CHG-004) are ready to break down. Would you like to proceed to task generation? Choose Generate task stories, reply yes, or keep refining the plan."
+  }
+]

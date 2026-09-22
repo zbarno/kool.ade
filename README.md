@@ -164,6 +164,13 @@ reopening a running queue resumes unfinished work. Stopping a task pauses new
 starts and cancels only that worker; other running workers are preserved. A terminal
 failure blocks that task and its dependents but lets unrelated work continue.
 Its worktree and diagnosis remain available; Resume restarts recovery.
+Auto mode also recognizes previously parked publication-divergence and explicit
+verification-only no-change failures and schedules one automatic resume. That
+retry budget persists across restarts, and explicit cancellation suppresses it.
+Divergent local history is preserved: Auto workers use the remote base and repair
+integration conflicts in isolated worktrees before rerunning verification.
+Verification-only contracts that explicitly require zero repository changes can
+complete with verified evidence without creating an empty commit or PR.
 Queue, ticket, and publication locks prevent competing Packet windows
 from publishing or advancing the same work concurrently.
 

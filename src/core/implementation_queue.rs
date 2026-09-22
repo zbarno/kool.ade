@@ -17,6 +17,8 @@ pub struct Queue {
     pub max_parallel: usize,
     pub blocked: BTreeMap<String, String>,
     pub last_error: String,
+    pub recovery_paused: bool,
+    pub recovery_attempts: BTreeMap<String, usize>,
 }
 impl Default for Queue {
     fn default() -> Self {
@@ -28,6 +30,8 @@ impl Default for Queue {
             max_parallel: 3,
             blocked: Default::default(),
             last_error: String::new(),
+            recovery_paused: false,
+            recovery_attempts: Default::default(),
         }
     }
 }
@@ -40,6 +44,39 @@ fn directory(repo: &Path) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(result.stdout)?.trim()))
 }
 impl Queue {
+    /// Retry known orchestration failures once, preserving a durable budget
+    /// across restarts. Worker-level correction limits still apply.
+    pub fn recoverable_tickets(&self, docs: &[TaskDocument]) -> Vec<String> {
+        if !self.auto_mode || self.recovery_paused {
+            return Vec::new();
+        }
+        self.blocked
+            .iter()
+            .filter_map(|(ticket, error)| {
+                let doc = docs.iter().find(|doc| &doc.path == ticket)?;
+                let recoverable = error.contains("diverged before publication")
+                    || (error
+                        .contains("No implementation changes relative to the starting commit")
+                        && crate::core::implementation::permits_evidence_only_completion(
+                            &doc.text,
+                        ));
+                (recoverable && self.recovery_attempts.get(ticket).copied().unwrap_or(0) < 1)
+                    .then(|| ticket.clone())
+            })
+            .collect()
+    }
+
+    pub fn schedule_recovery(&mut self, tickets: &[String]) {
+        for ticket in tickets {
+            self.blocked.remove(ticket);
+            *self.recovery_attempts.entry(ticket.clone()).or_default() += 1;
+        }
+        if !tickets.is_empty() {
+            self.running = true;
+            self.last_error.clear();
+        }
+    }
+
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
         match fs::read(directory(repo)?.join("packet-queue.json")) {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
@@ -162,6 +199,31 @@ mod tests {
     fn done(ticket: &str) -> Implementation {
         serde_json::from_value(serde_json::json!({"ticket":ticket,"ticket_text":"","branch":"task","base":"main","base_commit":"base","worktree":"fixture","status":"Done","detail":"","pr_url":null,"verified_head":"head"})).unwrap()
     }
+    #[test]
+    fn known_orchestration_failures_recover_once_but_external_blockers_do_not() {
+        let docs = vec![doc(1, "None"), doc(2, "None")];
+        let mut queue = Queue::default();
+        queue.blocked.insert(docs[0].path.clone(), "Local main and freshly fetched origin/main diverged before publication; verified work is preserved".into());
+        queue.blocked.insert(
+            docs[1].path.clone(),
+            "Credentials require human intervention".into(),
+        );
+        queue.recovery_paused = true;
+        assert!(queue.recoverable_tickets(&docs).is_empty());
+        queue.recovery_paused = false;
+        let tickets = queue.recoverable_tickets(&docs);
+        assert_eq!(tickets, vec![docs[0].path.clone()]);
+        queue.schedule_recovery(&tickets);
+        assert!(queue.running);
+        queue
+            .blocked
+            .insert(docs[0].path.clone(), "diverged before publication".into());
+        let restored: Queue =
+            serde_json::from_str(&serde_json::to_string(&queue).unwrap()).unwrap();
+        assert!(restored.recoverable_tickets(&docs).is_empty());
+        assert!(restored.blocked.contains_key(&docs[1].path));
+    }
+
     #[test]
     fn queue_advances_in_order_and_waits_for_dependencies() {
         let docs = vec![

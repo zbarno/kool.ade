@@ -568,6 +568,14 @@ fn run_with_project_options(
             .is_ok()
         {
             remote
+        } else if auto_merge
+            && runner
+                .git(repo, &["merge-base", "--is-ancestor", &remote, &local])
+                .is_err()
+        {
+            // Auto workers start from current remote truth, leaving divergent
+            // local development history intact in the operator's checkout.
+            remote
         } else {
             runner.git(repo, &["merge-base", "--is-ancestor", &remote, &local])
                 .map_err(|_| anyhow::anyhow!("Local {base} and freshly fetched origin/{base} have diverged. Reconcile the branch before implementing; no work was discarded."))?;
@@ -1198,19 +1206,16 @@ fn auto_publish(
             }
         }
         let local = runner.git(repo, &["rev-parse", "HEAD"])?;
+        // Integrate on fetched remote truth when histories diverge. The task's
+        // verified branch is squash-merged below, with conflicts repaired and
+        // verification rerun in isolation. Never rewrite the user's checkout.
         let integration_base = if runner
-            .git(repo, &["merge-base", "--is-ancestor", &local, &remote])
+            .git(repo, &["merge-base", "--is-ancestor", &remote, &local])
             .is_ok()
         {
-            remote.clone()
-        } else {
-            runner
-                .git(repo, &["merge-base", "--is-ancestor", &remote, &local])
-                .map_err(|_| anyhow::anyhow!(
-                    "Local {} and freshly fetched origin/{} diverged before publication; verified work is preserved",
-                    state.base, state.base
-                ))?;
             local
+        } else {
+            remote.clone()
         };
         let integration_dir = dir.join(format!("integration-{integration_base}"));
         fs::create_dir_all(&integration_dir)?;
@@ -1522,6 +1527,13 @@ pub(crate) fn permits_evidence_only_completion(ticket: &str) -> bool {
     ]
     .iter()
     .all(|statement| contract.contains(statement))
+        || ([
+            "pure verification",
+            "commits no bytes",
+            "this ticket itself changed no repository file",
+        ]
+        .iter()
+        .all(|statement| contract.contains(statement)))
 }
 fn pr_body(state: &Implementation, report: &Report) -> String {
     let mut text = format!(
@@ -1927,6 +1939,20 @@ mod tests {
                 .is_empty()
         );
     }
+    #[test]
+    fn verification_contract_completes_without_product_changes() {
+        let s = Sandbox::new();
+        fs::write(s.repo.join(&s.ticket), "# Verify regression\n\nThis ticket is pure verification, commits no bytes.\n\n## Acceptance criteria\n\n- Repository remains unchanged.\n\nThis ticket itself changed no repository file.\n").unwrap();
+        let result = s
+            .run("evidence_only", Arc::new(AtomicUsize::new(0)))
+            .unwrap();
+        assert_eq!(result.status, "Done");
+        assert!(result.pr_url.is_none());
+        assert!(!permits_evidence_only_completion(
+            "Implement a feature with pure verification."
+        ));
+    }
+
     #[test]
     fn cancelled_worktree_is_reviewed_and_resumed() {
         let s = Sandbox::new();
@@ -2366,6 +2392,38 @@ mod tests {
     }
 
     #[test]
+    fn auto_mode_starts_on_remote_when_local_history_diverged() {
+        let s = Sandbox::new();
+        let remote = s.advance_remote();
+        fs::write(s.repo.join("local-only.txt"), "local work").unwrap();
+        s.git(&s.repo, &["add", "local-only.txt"]);
+        s.git(&s.repo, &["commit", "-qm", "local work"]);
+        let local = s.git(&s.repo, &["rev-parse", "HEAD"]);
+        let (tx, _rx) = mpsc::channel();
+        let result = run_with_options(
+            &s.repo,
+            &s.ticket,
+            &Fixture {
+                mode: "complete",
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+            Arc::new(AtomicBool::new(false)),
+            tx,
+            "must-not-run-gh",
+            true,
+        )
+        .unwrap();
+        assert_eq!(result.status, "Done");
+        assert_eq!(result.base_commit, remote);
+        assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), local);
+        assert_eq!(
+            fs::read_to_string(s.repo.join("local-only.txt")).unwrap(),
+            "local work"
+        );
+        assert!(!result.worktree.join("local-only.txt").exists());
+    }
+
+    #[test]
     fn auto_mode_includes_remote_changes_that_arrive_during_implementation() {
         struct Advancing<'a> {
             sandbox: &'a Sandbox,
@@ -2383,6 +2441,17 @@ mod tests {
                 req: &PlanningRequest,
             ) -> Result<crate::harness::HarnessOutcome, AppError> {
                 self.sandbox.advance_remote();
+                fs::write(
+                    self.sandbox.repo.join("local-only.txt"),
+                    "preserved local work",
+                )
+                .unwrap();
+                self.sandbox
+                    .git(&self.sandbox.repo, &["add", "local-only.txt"]);
+                self.sandbox.git(
+                    &self.sandbox.repo,
+                    &["commit", "-qm", "local work during implementation"],
+                );
                 Fixture {
                     mode: "complete",
                     calls: self.calls.clone(),
@@ -2408,6 +2477,14 @@ mod tests {
         .unwrap();
         assert_eq!(result.status, "Done");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            fs::read_to_string(s.repo.join("local-only.txt")).unwrap(),
+            "preserved local work"
+        );
+        assert!(
+            s.git(&s.repo, &["log", "-1", "--format=%s"])
+                .contains("local work during implementation")
+        );
         assert_eq!(
             s.git(&s.root.join("remote.git"), &["show", "main:upstream.txt"]),
             "latest upstream"

@@ -286,9 +286,11 @@ impl PacketApp {
                     Err(error) => {
                         project.queue.blocked.insert(ticket.clone(), error.clone());
                         project.queue.last_error = error.clone();
-                        format!(
-                            "The task needs attention after automatic recovery. Its work is preserved. Open its card for the failure details and Resume action."
-                        )
+                        if project.queue.recoverable_tickets(&project.task_documents).contains(&ticket) {
+                            "Recoverable orchestration failure; automatically resuming preserved task work.".into()
+                        } else {
+                            format!("The task needs attention after automatic recovery. Its work is preserved. Failure: {error}")
+                        }
                     }
                 };
                 if project.queue_lock.is_some() {
@@ -499,6 +501,26 @@ impl PacketApp {
 
     fn advance_auto_queue(&mut self) {
         let next = if let Screen::Connected(project) = &mut self.screen {
+            let recovery = project.queue.recoverable_tickets(&project.task_documents);
+            if !recovery.is_empty() {
+                if project.queue_lock.is_none() {
+                    match crate::core::implementation_queue::Queue::acquire(
+                        &project.state.repo_root,
+                    ) {
+                        Ok(lock) => project.queue_lock = Some(lock),
+                        Err(_) => return,
+                    }
+                }
+                let previous = project.queue.clone();
+                project.queue.schedule_recovery(&recovery);
+                if let Err(error) = project.queue.save(&project.state.repo_root) {
+                    project.queue = previous;
+                    project.queue.last_error =
+                        format!("Cannot persist automatic recovery: {error}");
+                    return;
+                }
+                project.activity.pending.push(format!("Automatically resuming {} task(s) after recoverable orchestration failures; preserved work and verification will be reused.", recovery.len()));
+            }
             if !project.queue.auto_mode
                 || !project.queue.running
                 || project.active_turn.is_some()
@@ -584,7 +606,16 @@ impl PacketApp {
                     None
                 }
                 Err(error) => {
-                    project.queue.last_error = error;
+                    let mut reasons = vec![error];
+                    reasons.extend(
+                        project
+                            .queue
+                            .blocked
+                            .iter()
+                            .map(|(ticket, error)| format!("{ticket}: {error}")),
+                    );
+                    reasons.extend(approval_notes);
+                    project.queue.last_error = reasons.join("\n");
                     if project.active_implementations.is_empty() {
                         project.queue.running = false;
                         let _ = project.queue.save(&project.state.repo_root);
@@ -1499,6 +1530,7 @@ impl Surface for PacketApp {
     fn cancel_task(&mut self) {
         if let Screen::Connected(p) = &mut self.screen {
             p.queue.running = false;
+            p.queue.recovery_paused = true;
             if p.queue_lock.is_some() {
                 if let Err(error) = p.queue.save(&p.state.repo_root) {
                     p.queue.last_error = error.to_string();
@@ -1512,6 +1544,7 @@ impl Surface for PacketApp {
     fn cancel_task_for(&mut self, ticket: &str) {
         if let Screen::Connected(p) = &mut self.screen {
             p.queue.running = false;
+            p.queue.recovery_paused = true;
             if let Some(ctrl) = p.active_implementations.get(ticket) {
                 ctrl.request_cancel();
             }
@@ -1711,6 +1744,7 @@ impl Surface for PacketApp {
             }
             if p.queue.auto_mode {
                 p.queue.running = true;
+                p.queue.recovery_paused = false;
             }
             p.queue.in_flight.insert(ticket.clone());
             p.queue.blocked.remove(&ticket);
@@ -3417,6 +3451,7 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             project.state = crate::core::state::PlannerState::load(&repo).unwrap();
             project.task_documents = docs.clone();
             project.queue.max_parallel = 2;
+            project.queue.blocked.insert(docs[1].path.clone(), "Local main and freshly fetched origin/main diverged before publication; verified work is preserved".into());
             project.implementation_states.clear();
             project.chat_slug = format!("auto-e2e-{}", std::process::id());
         }
@@ -3471,6 +3506,8 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
         }
         if let Screen::Connected(project) = &app.screen {
             assert_eq!(max_workers, 2, "Independent implementations must overlap");
+            assert_eq!(project.queue.recovery_attempts.get(&docs[1].path), Some(&1));
+            assert!(project.queue.blocked.is_empty());
             assert!(
                 project.queue.last_error.is_empty(),
                 "{}",
