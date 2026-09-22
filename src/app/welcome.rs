@@ -137,7 +137,16 @@ fn expand_home(raw: &str) -> OsString {
 }
 
 /// Paint the centered card on the connect screen.
-pub fn paint(card_ui: &mut egui::Ui, path: &mut String, error: Option<&str>) -> bool {
+///
+/// Sets `*browse_requested` when the 'Browse…' button beside the path field
+/// is clicked; the caller opens the directory browser. Returning `true`
+/// means the existing Open/Enter submit should run.
+pub fn paint(
+    card_ui: &mut egui::Ui,
+    path: &mut String,
+    error: Option<&str>,
+    browse_requested: &mut bool,
+) -> bool {
     card_ui.set_width(460.0);
     card_ui.add_space(12.0);
     card_ui.label(
@@ -159,13 +168,22 @@ pub fn paint(card_ui: &mut egui::Ui, path: &mut String, error: Option<&str>) -> 
             .color(theme::TEXT_DIM),
     );
     card_ui.add_space(4.0);
-    card_ui.add_sized(
-        egui::vec2(card_ui.available_width(), 42.0),
-        TextEdit::singleline(path)
-            .hint_text("/path/to/my/project")
-            .desired_width(f32::INFINITY)
-            .font(egui::FontId::monospace(12.5)),
-    );
+    card_ui.horizontal(|ui| {
+        ui.add_sized(
+            egui::vec2(ui.available_width(), 42.0),
+            TextEdit::singleline(path)
+                .hint_text("/path/to/my/project")
+                .desired_width(f32::INFINITY)
+                .font(egui::FontId::monospace(12.5)),
+        );
+        let browse = ui.add_sized(
+            egui::vec2(96.0, 42.0),
+            egui::Button::new(RichText::new("Browse…").size(13.0)),
+        );
+        if browse.clicked() {
+            *browse_requested = true;
+        }
+    });
     card_ui.add_space(6.0);
     let submit = card_ui.add_sized(
         egui::vec2(card_ui.available_width(), 44.0),
