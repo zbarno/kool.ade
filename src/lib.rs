@@ -27,3 +27,6 @@ pub const PRODUCT_TAGLINE: &str = "Git-native specification planner";
 
 /// Prefix used for open-item identifiers (CLR-001, CLR-002, ...).
 pub const ITEM_ID_PREFIX: &str = "CLR";
+
+/// Local panic and startup error reports.
+pub mod diagnostics;

@@ -1,0 +1,27 @@
+[
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline --lib -- app::welcome core::gitops sw_ >/tmp/chg3sw3.v1.log 2>&1; grep \"^test result\" /tmp/chg3sw3.v1.log",
+    "error": null,
+    "output": "test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 403 filtered out; finished in 0.43s"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline >/tmp/chg3sw3.v2.log 2>&1; grep \"^test result\" /tmp/chg3sw3.v2.log; test \"$(grep -c '; 0 failed;' /tmp/chg3sw3.v2.log)\" -ge 6; grep -q \"^test result: ok\\. 446 passed\" /tmp/chg3sw3.v2.log; grep -q \"Running tests/multi_repository_feature\" /tmp/chg3sw3.v2.log; grep -q \"Running tests/task_workflow\" /tmp/chg3sw3.v2.log",
+    "error": null,
+    "output": "test result: ok. 446 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.56s\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.45s\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; touch src/lib.rs; cargo clippy --offline --all-targets --quiet >/tmp/chg3sw3.v3.raw 2>&1; grep -E '^warning' /tmp/chg3sw3.v3.raw | sort | uniq -c | sort -rn >/tmp/chg3sw3.v3.after; test -s /tmp/clippy.sw3.before; diff /tmp/clippy.sw3.before /tmp/chg3sw3.v3.after; test \"$(grep -cE 'parse_github_url|perform_clone|clone_repo|CloneJob|conn_github' /tmp/chg3sw3.v3.after)\" = \"0\"; echo \"D-34 clippy delta EMPTY; no new-symbol warnings\"",
+    "error": null,
+    "output": "D-34 clippy delta EMPTY; no new-symbol warnings"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline --lib -- app::welcome::tests::perform_clone >/tmp/chg3sw3.v4.log 2>&1; grep \"\\.\\.\\. ok$\" /tmp/chg3sw3.v4.log; test \"$(grep -c '\\.\\.\\. ok$' /tmp/chg3sw3.v4.log)\" -eq 7; grep \"^test result\" /tmp/chg3sw3.v4.log",
+    "error": null,
+    "output": "test app::welcome::tests::perform_clone_destination_occupied_by_a_file_is_invalid_repo ... ok\ntest app::welcome::tests::perform_clone_preexisting_directory_fast_paths_and_connect_diagnoses_it ... ok\ntest app::welcome::tests::perform_clone_healthy_existing_tree_fast_paths_without_retouching ... ok\ntest app::welcome::tests::perform_clone_sweeps_stale_scratch_before_cloning ... ok\ntest app::welcome::tests::perform_clone_local_source_feeds_the_full_connect_pipeline ... ok\ntest app::welcome::tests::perform_clone_plain_repo_connects_identically_to_a_typed_path ... ok\ntest app::welcome::tests::perform_clone_without_home_errors_locate_home ... ok\ntest result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 439 filtered out; finished in 0.13s"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; git status --porcelain; test -z \"$(git diff --name-only -- Cargo.toml Cargo.lock)\"; test \"$(git diff --name-only)\" = \"$(printf 'src/app/root.rs\\nsrc/app/welcome.rs\\nsrc/core/gitops.rs')\"; git diff --stat",
+    "error": null,
+    "output": "M src/app/root.rs\n M src/app/welcome.rs\n M src/core/gitops.rs\n?? .kool-ade-packet/implementation/chg-003-task-clone-a-pasted-github-url-on-the-initial-sc-31796ad561a67d26/\n src/app/root.rs    |  823 +++++++++++++++++++++++++++++++++++++++-\n src/app/welcome.rs | 1074 ++++++++++++++++++++++++++++++++++++++++++++++++++--\n src/core/gitops.rs |   94 +++++\n 3 files changed, 1961 insertions(+), 30 deletions(-)"
+  }
+]

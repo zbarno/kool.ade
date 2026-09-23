@@ -743,6 +743,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if ui.add(egui::Button::new(RichText::new(&doc.title).strong()).frame(false).wrap()).clicked() {
                                                 selected_path = Some(doc.path.clone());
                                             }
+                                            paint_task_failure(ui, s, &doc.path);
                                             if task_conversation(ui, s, &doc.path, false) { selected_path = Some(doc.path.clone()); }
                                             ui.add_space(4.0);
                                             let status = s.implementation_state(&doc.path).map(|r| r.status.clone()).unwrap_or_else(|| if active { "Starting".into() } else { crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)].into() });
@@ -950,6 +951,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
 }
 
 fn task_board_column(s: &dyn Surface, key: &str) -> usize {
+    if !s.implementation_active(key) && s.implementation_failure(key).is_some() { return 3; }
     let base = crate::core::implementation::board_column(
         s.implementation_state(key),
         s.implementation_active(key),
@@ -1043,6 +1045,11 @@ fn paint_task_properties(
                 });
             }
             if record.status == "Done" {
+                if let Some(at) = &record.cleanup.completed_at {
+                    ui.label(format!("Worktree cleanup completed: {at}. Verification evidence retained."));
+                } else {
+                    ui.label("Worktree cleanup pending; retried automatically while this project is open.");
+                }
                 if let Some(commit) = &record.merged_commit {
                     ui.label(format!(
                         "Merged into {} · {}",
@@ -1219,6 +1226,37 @@ fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded
     false
 }
 
+fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &str) {
+    if s.implementation_active(ticket) { return; }
+    let record = s.implementation_state(ticket);
+    if let Some(error) = record.and_then(|r| r.cleanup.error.as_deref()) {
+        ui.colored_label(egui::Color32::LIGHT_RED, "Cleanup needs attention");
+        ui.label(card_summary(error)).on_hover_text(error);
+        ui.collapsing("Cleanup details", |ui| {
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| { ui.label(error); });
+            if ui.small_button("Copy cleanup failure").clicked() { ui.ctx().copy_text(error.to_owned()); }
+        });
+        ui.label("Task completed. Worktrees are preserved where cleanup was unsafe or failed. Cleanup retries automatically every minute while this project is open.");
+    }
+    let failure = s.implementation_failure(ticket).or_else(|| {
+        record.filter(|r| r.status == "Needs attention").map(|r| r.detail.as_str())
+    });
+    let interrupted = record.is_some_and(|r| matches!(r.status.as_str(),
+        "Preparing" | "Implementing" | "Verifying" | "Interrupted" | "Waiting to merge" | "Publishing" | "Ready for PR"));
+    if let Some(error) = failure {
+        ui.colored_label(egui::Color32::LIGHT_RED, "Needs attention");
+        ui.label(card_summary(error)).on_hover_text(error);
+        ui.collapsing("Failure details", |ui| {
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| { ui.label(error); });
+            if ui.small_button("Copy failure").clicked() { ui.ctx().copy_text(error.to_owned()); }
+        });
+        ui.label("Resolve the reported cause, then Resume implementation. Existing work is preserved.");
+    } else if interrupted {
+        ui.colored_label(egui::Color32::LIGHT_RED, "Interrupted — no worker is running");
+        ui.label("Resume implementation to continue preserved work.");
+    }
+}
+
 fn paint_task_details(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
@@ -1239,6 +1277,7 @@ fn paint_task_details(
         crate::ui::spec_viewer::render(ui, Some(&doc.text));
         return;
     }
+    paint_task_failure(ui, s, &doc.path);
     task_conversation(ui, s, &doc.path, true);
     ui.add_space(12.0);
     ui.collapsing("Task description & acceptance criteria", |ui| {

@@ -133,6 +133,7 @@ mod tests {
             pr_checked_at: None,
             pr_check_attempted_at: None,
             pr_check_error: None,
+            cleanup: Default::default(),
         };
         let report = Report {
             status: "complete".into(),

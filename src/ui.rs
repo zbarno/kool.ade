@@ -98,6 +98,7 @@ pub trait Surface {
         &self,
         ticket: &str,
     ) -> Option<&crate::core::implementation::Implementation>;
+    fn implementation_failure(&self, _ticket: &str) -> Option<&str> { None }
     fn implementation_active(&self, ticket: &str) -> bool;
     fn implement_task(&mut self, ticket: String);
     fn auto_mode(&self) -> bool;

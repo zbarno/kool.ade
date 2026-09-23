@@ -1,0 +1,37 @@
+[
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline --lib -- app::welcome core::gitops sw_ >/tmp/chg3sw3.i1.log 2>&1; grep \"^test result: ok\\. 43 passed\" /tmp/chg3sw3.i1.log",
+    "error": null,
+    "output": "test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 406 filtered out; finished in 0.50s"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline >/tmp/chg3sw3.i2.log 2>&1; grep -q \"^test result: ok\\. 449 passed\" /tmp/chg3sw3.i2.log; grep -q \"Running tests/multi_repository_feature\" /tmp/chg3sw3.i2.log; grep -q \"Running tests/task_workflow\" /tmp/chg3sw3.i2.log; test \"$(grep -c \"; 0 failed;\" /tmp/chg3sw3.i2.log)\" -ge 6",
+    "error": null,
+    "output": ""
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline --lib -- app::welcome::tests::perform_clone >/tmp/chg3sw3.i4.log 2>&1; test \"$(grep -c \"\\.\\.\\. ok$\" /tmp/chg3sw3.i4.log)\" -eq 7; grep \"^test result: ok\\. 7 passed\" /tmp/chg3sw3.i4.log",
+    "error": null,
+    "output": "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 442 filtered out; finished in 0.13s"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; touch src/lib.rs; cargo clippy --offline --all-targets --quiet >/tmp/chg3sw3.i3.raw 2>&1; grep -E \"^warning\" /tmp/chg3sw3.i3.raw | sort | uniq -c | sort -rn >/tmp/chg3sw3.i3.after; test -s /tmp/clippy.sw3.before; diff /tmp/clippy.sw3.before /tmp/chg3sw3.i3.after; test \"$(grep -cE \"parse_github_url|perform_clone|clone_repo|CloneJob|conn_github|GithubTarget|tracked_in_head\" /tmp/chg3sw3.i3.after)\" = \"0\"",
+    "error": null,
+    "output": ""
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; test -z \"$(git diff --name-only -- Cargo.toml Cargo.lock)\"; test -z \"$(git diff --cached --name-only -- Cargo.toml Cargo.lock)\"; test \"$(git diff HEAD --name-only -- src)\" = \"$(printf 'src/app/root.rs\\nsrc/app/welcome.rs\\nsrc/core/gitops.rs')\"; test \"$(git diff --name-only)\" = \"$(printf 'src/app/root.rs\\nsrc/app/welcome.rs\\nsrc/core/gitops.rs')\"",
+    "error": null,
+    "output": ""
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo build --offline --bin packet >/tmp/chg3sw3.i6.log 2>&1; test -x target/debug/packet",
+    "error": null,
+    "output": ""
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; timeout 10 cargo run --offline >/tmp/chg3sw3.i7.log 2>&1 || rc=$?; test \"${rc:-124}\" -eq 124; test \"$(grep -ci panic /tmp/chg3sw3.i7.log || true)\" = \"0\"",
+    "error": null,
+    "output": ""
+  }
+]

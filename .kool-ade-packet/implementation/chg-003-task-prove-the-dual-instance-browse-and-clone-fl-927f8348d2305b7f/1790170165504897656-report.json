@@ -1,0 +1,219 @@
+{
+  "schema": "packet-implementation-report/v1",
+  "status": "blocked",
+  "status_rationale": "Every machine-executable acceptance facet is green with THIS turn's fresh battery (RT1-RT13). Two facets keep the task blocked: (1) AC-5's name-status facet - the promised eight-entry table is proven unsatisfiable at every publishable commit (live re-fetch: single remote ref at c13242c0a9a261e22884bb0462e8db23203270e7; realized 14 rows; offenders enumerated) and is stamped DISCREPANCY, with the ticket forbidding a false PASS into FR-18 reconciliation; human adjudication is the unlock; (2) AC-6 - runbook legs L1/L3(/L4) are display-session exhibits and this account has no window-input-injection/screenshot tooling (re-probed this turn), so they are filed PENDING, never papered over.",
+  "feature_id": "CHG-003",
+  "batch": "CHG-003-switch-workspaces",
+  "task": "Prove the dual-instance, browse and clone flows end to end and meet the D-34 warning and regression gates",
+  "repository": "Packet (root)",
+  "worktree": "/mnt/DevProj/.packet-worktrees/Packet-1f9d41dcb5ff0c51/chg-003-task-prove-the-dual-instance-browse-and-clone-fl-927f8348d2305b7f",
+  "branch": "packet/chg-003-task-prove-the-dual-instance-browse-and-clone-fl-927f8348d2305b7f",
+  "base_commit": {
+    "frozen": "ead188a6f714844230b7d999d8f74a9438214bf0",
+    "effective": "990112d048c9114e07221b1cad51dc5cf77f0d08"
+  },
+  "verified_head_v": "c13242c0a9a261e22884bb0462e8db23203270e7",
+  "origin_master_after_live_refetch_this_turn": "c13242c0a9a261e22884bb0462e8db23203270e7 (git fetch origin succeeded silently; single exposed remote ref)",
+  "timestamp_utc": "2026-09-23T13:50:32Z",
+  "summary": "Resume, turn 5 - report-shape repair with full machine re-verification, no repository bytes changed. ROOT CAUSE OF THE TURN-4 REJECTION (identified and fixed): the emitted JSON serialized acceptance_criteria as an array of bare strings, whereas the report schema requires a Criterion object per entry (fields id/criterion/status/evidence, as established by the two earlier accepted report generations, attempts 2-3). FIX: re-serialized as six objects with the criterion text copied byte-verbatim from the ticket markdown (machine-compared, never retyped) and a new shape self-test (RT13) that re-parses the emitted report and asserts object shape, entry count, verbatim criterion equality, string verification commands, and status/remaining coherence - the regression guard for this exact failure mode. ALL MACHINE-EXECUTABLE CHECKS RE-RAN GREEN THIS TURN (battery RT1-RT12, /tmp/swrt5/): pinned toolchain (cargo 1.98.1 / clippy 0.1.98); four named composition tests 4/4 (449 filtered); full offline suite green (6 target sections, lib 453/0); D-34 gate facts (0-byte added sets vs frozen, effective, and tip-grade delta; anti-vacuity replay recovering the single fabricated line first; Stage A=0 / Stage B empty; manifest sha256s byte-equal to embedded base digests with 428 packages); live 'git fetch origin' clean - origin/master still c13242c0a9a261e22884bb0462e8db23203270e7, still the ONLY exposed remote ref, so the BLOCK-1 topology proof is re-founded on post-fetch facts. PRESERVED STATE (untouched this turn): the three ticket-delta paths (M src/app/root.rs tests, M src/app/welcome.rs tests + disclosed one-function scratch-nonce hardening from the prior recovery turn, A docs/switch-workspaces-runbook.md); RECORD.md grew only Appendix D (append-only). STANDING BLOCKS, unchanged and re-proven: (1) BLOCK-1 / gate check 11 - the promised eight-entry name-status table is unsatisfiable at every reachable/publishable commit (realized 14 rows effective / 26 frozen; offenders enumerated); recording PASS would falsify FR-18 reconciliation input, which the ticket forbids; human adjudication required (ratify effective base 990112d048c9114e07221b1cad51dc5cf77f0d08 + realized table, reissue a corrected predicate, or grant a named exemption). (2) BLOCK-2 - runbook legs L1/L3(/L4) require display-session window control; this turn's re-probe confirms no injection/screenshot tooling exists for this account despite a live wayland session, so they remain filed PENDING operator exhibits, never papered over.",
+  "acceptance_criteria": [
+    {
+      "id": "AC1",
+      "criterion": "Given the in-repo connected fixture with spawn_target_override pointed at the generated sh probe, when 'Open workspace' is clicked, then the handler returns within 2 s (never joining the child) and within 5 s the probe's dumps prove the sibling received PACKET_HOME, PACKET_TURN_TIMEOUT_SECS=12345 and PACKET_PI_BIN exactly as the parent's sentinels with an argv count of 0 - success criterion 1's inheritance-and-landing contract witnessed from the child side.",
+      "status": "PASS",
+      "evidence": "Machine-witnessed, re-run green THIS turn (RT2, /tmp/swrt5/out/sw4.out): 'test app::root::board_tests::sw4_spawn_env_inherits ... ok' in '4 passed; 0 failed; 0 ignored; 0 measured; 449 filtered out'. Generated POSIX sh probe dumps '$#' to ARGV.dump and 'env | sort' to ENV.dump; under the module test mutex the sentinels PACKET_HOME=<fresh tempdir>, PACKET_TURN_TIMEOUT_SECS=12345, PACKET_PI_BIN=<empty executable> are set and spawn_target_override points at the probe; fixture()/frame()/click_text('Workspace') -> click_text('Open workspace'); asserts the handler returned in < 2 s (fire-and-forget, never joins the child) and, within the 5 s poll deadline, ENV.dump contains exactly the three sentinel lines and ARGV.dump == '0' (child side: whole-inheritance env plus empty argv => deterministic Screen::Welcome landing)."
+    },
+    {
+      "id": "AC2",
+      "criterion": "Given a scaffoldless temp git repo with a pre-snapshot proving planning/ absent, and a redirected empty PACKET_HOME store, when the operator flow picks the repo via Browse -> 'Choose folder' -> 'Open', then choose leaves the screen on Welcome with the canonical path and zero toasts, and Open lands Screen::Connected with the 'Connected to <repo-basename>' toast, planning/specification.md, planning/open-items.md and .planner/config.md created in the repo, and a welcome line present in the store's chat.jsonl - success criterion 2's full chain in one process.",
+      "status": "PASS",
+      "evidence": "Machine-witnessed, re-run green THIS turn (RT2): 'test app::root::tests::sw4_browse_choose_opens_connected ... ok'. Temp scaffoldless repo (one commit, local identity) plus non-git sibling; pre-snapshot proves planning/ absent; PACKET_HOME redirected under mutex to a fresh empty store. Frame-loop drives Browse -> repo row -> 'Choose folder' asserting choose-without-connect invariants (screen STILL Welcome, conn_path == canonical absolute repo path, zero toasts); then 'Open' asserts Screen::Connected, 'Connected to <repo-basename>' toast, planning/specification.md + planning/open-items.md + .planner/config.md created in the repo, and exactly one chat.jsonl under <store>/projects/<slug>/ containing a welcome line mentioning the title. Success criterion 2's full chain in one process."
+    },
+    {
+      "id": "AC3",
+      "criterion": "Given one source repo with no planning/ artifacts, when it is connected via the typed path and via a hand-built clone job drained through tick, then the two Connected outcomes are equal: state.title strings equal, the three scaffold files byte-identical, both chat stores equal in line count with matching first-line titles, and both apps reporting Screen::Connected with the same toast title - success criterion 3's 'same connect/bootstrap path' claim witnessed byte-wise.",
+      "status": "PASS",
+      "evidence": "Machine-witnessed, re-run green THIS turn (RT2): 'test app::root::tests::sw4_clone_equals_typed ... ok'. One source repo without planning/ artifacts, two temp HOMEs. Typed flow: welcome::perform_clone(source,'sw-equiv') under HOME_A then submit_connect. Job flow: hand-built CloneJob (private struct, in-file) wrapping std::thread::spawn of the REAL perform_clone under HOME_B, drained by repeated app.tick until the internal drain fires submit_connect. Witness: state.title strings equal; the three scaffold files BYTE-equal; both chat stores equal in line count with matching first-line titles; both apps Screen::Connected with the same toast title. Only the github.com URL keystroke is omitted (parse_github_url lawfully rejects local paths); the pipeline from worker result onward is authentic."
+    },
+    {
+      "id": "AC4",
+      "criterion": "Given two threads racing welcome::perform_clone on one source, one repo name, and one temp HOME, when both settle (five-iteration loop), then at least one result is Ok with a healthy working tree (committed file present, is_work_tree true), the other is Ok(existing dest) or Err(Io 'place cloned repository'), zero '*packet-cloning.*' entries remain, and no thread panicked - dual-window clone contention is bounded.",
+      "status": "PASS",
+      "evidence": "Machine-witnessed, re-run green THIS turn (RT2): 'test app::welcome::tests::sw4_double_clone_race ... ok' (also green across prior solo stress runs). Two std::threads x five iterations race welcome::perform_clone on one source, one repo name, one temp HOME. Settlement classes asserted per iteration (identity never): at least one Ok with gitops::is_work_tree(dest)=true and the committed file present; the other Ok(same dest PathBuf fast path) or Err(AppError::Io with op 'place cloned repository'); ZERO '*packet-cloning.*' entries in HOME after every iteration; no thread panicked. RT11 pins the in-function hardening that closes the only illegal terminal state (scratch nonce {pid}-{attempt}-{unix-nano}, previously disclosed in D1)."
+    },
+    {
+      "id": "AC5",
+      "criterion": "Given status-clean worktrees at BASE and the predicate-selected V on pinned cargo/clippy 1.98.1/0.1.98, when the identical clippy captures are normalized and diffed, then comm -13 is exactly zero bytes, Stage A reports 0 location lines under src/app/spawn, Stage B finds no warning/help/note line naming any listed feature symbol, both manifest sha256s equal the embedded base values with the 428-package count and an empty manifest diff, and the name-status table equals the eight-entry conformant set - the D-34 gate passes as file-content facts, and the anti-vacuity replay detects its fabricated line first.",
+      "status": "PARTIAL - five of the six file-content facts PASS fresh this turn; the name-status facet is a documented DISCREPANCY (BLOCK-1, adjudication pending), never waived or papered over",
+      "evidence": "Facts re-verified THIS turn: (1) comm -13 of the normalized clippy sets = 0 bytes at frozen base (added.lines), effective base (added_lit.lines), and tip-grade delta (annex_recovery3/added_delta_clean.lines; RT4); (2) anti-vacuity replay emitted exactly the one fabricated line 'warning: SYNTHETIC SWITCH-WORKSPACES ADDED WARNING @ src/app/spawn.rs' (RT4); (3) Stage A = 0 '-->' location lines under src/app/spawn and Stage B identifier grep empty on the fresh tip-grade capture (RT5); (4) manifest sha256s byte-equal to the embedded base values (Cargo.toml d5e06fd0..., Cargo.lock 141ae6c0...) with 428 [[package]] and empty manifest diff (RT6); (5) all six clippy capture rc files EXIT=0 (RT4). DISCREPANCY: the promised eight-entry name-status table realizes as 26 rows (frozen ead188a..V) / 14 rows (effective 990112d..V incl. the untracked runbook: 13 committed + 1), because the batch's own spawn checkpoints 3ad8f91 (5 companion paths) and 9894234 (2, incl. the 6th) co-committed files outside the table and the frozen base predates merged third-party work; proven unsatisfiable for every publishable V' (RT7 single-ref re-fetch, RT8 per-commit counts; offenders.enumerated in EVROOT offenders.list and RECORD.md Appendix B.2). Stamped DISCREPANCY, not PASS; batch must not advance on this check's word alone."
+    },
+    {
+      "id": "AC6",
+      "criterion": "Given the operator's display-capable Linux workstation with network, when runbook legs L1 and L3 are walked as scripted, then a sibling window presents the initial screen while the original's '\u25cf Working' turn continues unabated (quit-one-survives-the-other holds in both orders), and the pasted public github.com URL produces the status line, a self-filled $HOME/{repo} path, Connected state with planning/ present - every observation transcribed to the transcript file kept outside the repository.",
+      "status": "PENDING - filed operator exhibit per the ticket's PENDING-not-PASS rule; preconditions probed, window-control tooling absent this account",
+      "evidence": "The checked-in runbook (RT10: Leg L1..L4 markers, NETWORK segmentation, D-34 gate-table row corrected for the baseline-relative bar, PENDING labels, $SCRATCH-outside-repo transcript discipline) is the evidentiary vehicle. Mechanical prerequisite rows verified on this machine (RT1 toolchain pins; cargo test --offline green per RT3). Display+network preconditions re-probed THIS turn: live wayland-1 / DISPLAY :1 session with working outbound network, BUT window-input-injection and screenshot tooling are ABSENT for this account (xdotool, ydotool, grim, slurp, scrot, import, maim, wtype all not installed; only query-only xwininfo present), so legs L1 (dual-instance 'Working'-continues/quit-one-survives both orders) and L3 (pasted public github.com URL -> status line -> self-filled $HOME/{repo} -> Connected with planning/) with L4's shared-scratch-home chat.jsonl witness remain UNEXECUTED here and are filed as reconciliation exhibits with the exact transcription protocol in RECORD.md Sections D and B.4. Never stamped PASS."
+    }
+  ],
+  "gate_checks": [
+    {
+      "n": 1,
+      "check": "Preflight toolchain pin",
+      "stamp": "PASS",
+      "evidence": "RT1 this turn: cargo 1.98.1, clippy 0.1.98 (cargo.ver/clippy.ver); /bin/sh present."
+    },
+    {
+      "n": 2,
+      "check": "Base worktree status-clean + hash (frozen)",
+      "stamp": "PASS",
+      "evidence": "ead188a6f714844230b7d999d8f74a9438214bf0, porcelain empty (hash.base_lit.actual, worktree_porcelain.before) - prior turns."
+    },
+    {
+      "n": 3,
+      "check": "Effective-base worktree status-clean + hash",
+      "stamp": "PASS",
+      "evidence": "990112d048c9114e07221b1cad51dc5cf77f0d08, porcelain empty (hash.base_eff.actual) - adopted effective base, documented discrepancy."
+    },
+    {
+      "n": 4,
+      "check": "Capture exit codes all 0",
+      "stamp": "PASS",
+      "evidence": "RT4 this turn: all six rc files (base_lit, base_eff, v, v_repeat, replica_base_eff, tip-grade vdelta) read EXIT=0."
+    },
+    {
+      "n": 5,
+      "check": "Real-relint confirmation (no replay)",
+      "stamp": "PASS",
+      "evidence": "'Checking packet' present in all raw captures; forced uniform-touch invalidation; elapsed per stage (cap_*.meta) - prior turns."
+    },
+    {
+      "n": 6,
+      "check": "Post-set determinism (repeat byte-equal)",
+      "stamp": "PASS",
+      "evidence": "RT4 this turn: set_base_eff == set_base_eff_replica, set_v == set_v_repeat, annex set_vdelta == set_v (cmp -s)."
+    },
+    {
+      "n": 7,
+      "check": "Normalized baseline delta: added = 0 bytes",
+      "stamp": "PASS",
+      "evidence": "RT4 this turn: added.lines 0 B (frozen), added_lit.lines 0 B (effective), added_delta_clean.lines 0 B (tip-grade); removed set = 4 informational units, verbatim in removed.lines (legal debt-retirement visibility only)."
+    },
+    {
+      "n": 8,
+      "check": "Symbol gate Stage A (location lines under src/app/spawn)",
+      "stamp": "PASS",
+      "evidence": "RT5 this turn on the fresh tip-grade raw: count 0."
+    },
+    {
+      "n": 9,
+      "check": "Symbol gate Stage B (identifier grep over header/help/note lines)",
+      "stamp": "PASS",
+      "evidence": "RT5 this turn: empty output for the full identifier alternation."
+    },
+    {
+      "n": 10,
+      "check": "Anti-vacuity synthetic self-test",
+      "stamp": "PASS",
+      "evidence": "RT4 this turn: synth pre-set + one fabricated line; comm -13 emitted exactly that line, exactly once - detector proved capable of failing BEFORE the real diff was trusted."
+    },
+    {
+      "n": 11,
+      "check": "Name-status footprint table (promised eight-entry conformant set)",
+      "stamp": "DISCREPANCY",
+      "evidence": "REALIZED: 26 rows frozen ead188a6f714844230b7d999d8f74a9438214bf0..V; 13 committed + 1 untracked (runbook) = 14 effective 990112d048c9114e07221b1cad51dc5cf77f0d08..V, byte-identical to footprint_realized.table (RT6 this turn). Offenders: spawn checkpoints 3ad8f91 (5 out-of-table paths) + 9894234 (2) co-committed companion files; frozen base predates merged third-party work (dfde5d15, ca41123). Proven UNSAT for every publishable V': origin exposes exactly ONE remote ref at c13242c0a9a261e22884bb0462e8db23203270e7 after this turn's live fetch (RT7), and RT8 re-derives the per-commit excess. Per the ticket's own edge-case clause the walk HALTed and enumerated (offenders.list); check stamped DISCREPANCY pending human adjudication (RECORD.md B.5). Recorded as file-content facts, not waivered."
+    },
+    {
+      "n": 12,
+      "check": "Full offline suite green at V + ticket delta",
+      "stamp": "PASS",
+      "evidence": "RT3 this turn: six 'test result: ok' target sections (lib, bin, task_workflow, multi_repository_feature, migrate_chg003_batch, doc/example as compiled), lib '453 passed; 0 failed; 0 ignored; 0 measured', zero FAILED tokens (/tmp/swrt5/out/full.out)."
+    },
+    {
+      "n": 13,
+      "check": "Named-test presence inventory (four sw4_ filters)",
+      "stamp": "PASS",
+      "evidence": "RT2 this turn lists exactly the four names, each 'ok': app::root::board_tests::sw4_spawn_env_inherits, app::root::tests::sw4_browse_choose_opens_connected, app::root::tests::sw4_clone_equals_typed, app::welcome::tests::sw4_double_clone_race ('4 passed; 0 failed; 449 filtered out'). Green aggregate never relied upon: names grepped individually."
+    },
+    {
+      "n": 14,
+      "check": "Workspace hygiene (worktrees/branches/stash/preservation)",
+      "stamp": "PASS",
+      "evidence": "RT9 this turn: ticket branch intact, zero stashes, exactly 2 registered worktrees (main checkout + this session worktree), porcelain exactly the three ticket-delta lines. Inert /tmp gate clones retained for reconciliation (D3); session worktree is app-owned and retires at integration."
+    },
+    {
+      "n": 15,
+      "check": "Runbook + leg statuses honest",
+      "stamp": "PASS (exhibits pending)",
+      "evidence": "RT10 this turn: runbook present with Leg L1-L4, NETWORK-labelled clone leg, D-34 gate table, PENDING markings; RECORD.md Section D files L1/L3(/L4) as operator exhibits with this turn's tooling re-probe (absent) - never papered over as PASS."
+    }
+  ],
+  "verification": [
+    "O=/tmp/swrt5/out; mkdir -p $O; [ -x /bin/sh ] || exit 1; cd \"$PACKET_WORKTREE\" && cargo --version >$O/cargo.ver 2>&1 && cargo clippy --version >$O/clippy.ver 2>&1 && [ \"$(cut -d' ' -f1,2 $O/cargo.ver)\" = \"cargo 1.98.1\" ] && [ \"$(cut -d' ' -f1,2 $O/clippy.ver)\" = \"clippy 0.1.98\" ] && echo RT1_TOOLCHAIN_PIN_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; cd \"$PACKET_WORKTREE\" && cargo test --offline --lib -- sw4_ >$O/sw4.out 2>&1 && grep -Fxq 'test app::root::board_tests::sw4_spawn_env_inherits ... ok' $O/sw4.out && grep -Fxq 'test app::root::tests::sw4_browse_choose_opens_connected ... ok' $O/sw4.out && grep -Fxq 'test app::root::tests::sw4_clone_equals_typed ... ok' $O/sw4.out && grep -Fxq 'test app::welcome::tests::sw4_double_clone_race ... ok' $O/sw4.out && grep -Fq 'test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 449 filtered out' $O/sw4.out && echo RT2_NAMED_FOUR_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; cd \"$PACKET_WORKTREE\" && cargo test --offline >$O/full.out 2>&1 && [ \"$(grep -c '^test result: ok' $O/full.out)\" = \"6\" ] && ! grep -Fq 'FAILED' $O/full.out && grep -Fq 'test result: ok. 453 passed; 0 failed; 0 ignored; 0 measured' $O/full.out && echo RT3_FULL_SUITE_OK",
+    "E=/tmp/sw_gate_c13242c; A=$E/annex_recovery3; [ -d \"$A\" ] || exit 1; [ \"$(wc -c <\"$E/added.lines\")\" -eq 0 ] && [ \"$(wc -c <\"$E/added_lit.lines\")\" -eq 0 ] && [ \"$(wc -c <\"$A/added_delta_clean.lines\")\" -eq 0 ] && [ \"$(grep -c . \"$E/antivac_comm.output\")\" -eq 1 ] && grep -Fxq 'warning: SYNTHETIC SWITCH-WORKSPACES ADDED WARNING @ src/app/spawn.rs' \"$E/antivac_comm.output\" && cmp -s \"$E/set_base_lit\" \"$E/set_base_eff\" && cmp -s \"$E/set_base_eff_replica\" \"$E/set_base_eff\" && cmp -s \"$E/set_v\" \"$E/set_v_repeat\" && cmp -s \"$A/set_vdelta\" \"$E/set_v\" && [ \"$(wc -l <\"$A/removed_delta_clean.lines\")\" -eq 4 ] && cmp -s \"$A/removed_delta_clean.lines\" \"$E/removed.lines\" && for f in \"$E/cap_base_lit.rc\" \"$E/cap_base_eff.rc\" \"$E/cap_v.rc\" \"$E/cap_v_repeat.rc\" \"$E/replica_base_eff.rc\" \"$A/cap_vdelta.rc\"; do v=$(tr -d 'EXIT=\\n' <\"$f\"); [ \"$v\" = \"0\" ] || { echo \"BADRC $f\"; exit 1; }; done && echo RT4_GATE_FACTS_OK",
+    "E=/tmp/sw_gate_c13242c; A=$E/annex_recovery3; c=$(grep -E '^[[:space:]]*-->' \"$A/cap_vdelta.stderr\" | grep -cF 'src/app/spawn'); [ \"$c\" = \"0\" ] && ! { grep -E '^warning[:(]' \"$A/cap_vdelta.stderr\"; grep -E '^[[:space:]]*= (help|note)' \"$A/cap_vdelta.stderr\"; } | grep -Eq '(spawn_sibling|resolve_self_executable|OpenWorkspace|DlgBrowse|DirRow|paint_browse_card|resolve_seed|GithubTarget|parse_github_url|clone_destination|perform_clone|clone_repo|CloneJob|conn_github|begin_clone|packet-cloning)' && echo RT5_SYMBOL_GATES_OK",
+    "O=/tmp/swrt5/out; E=/tmp/sw_gate_c13242c; mkdir -p $O; cd \"$PACKET_WORKTREE\" && sha256sum -c \"$E/manifest.sha256\" >$O/mani.out 2>&1 && [ \"$(grep -c ': OK$' $O/mani.out)\" -eq 2 ] && [ \"$(grep -c '^\\[\\[package\\]\\]' Cargo.lock)\" -eq 428 ] && { git diff --name-status 990112d048c9114e07221b1cad51dc5cf77f0d08..HEAD -- src Cargo.toml Cargo.lock docs; printf 'A\\tdocs/switch-workspaces-runbook.md\\n'; } | LC_ALL=C sort >$O/ft.txt && [ \"$(wc -l <$O/ft.txt)\" -eq 14 ] && cmp -s $O/ft.txt \"$E/footprint_realized.table\" && echo RT6_MANIFEST_FOOTPRINT_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; cd \"$PACKET_WORKTREE\" && { timeout 60 git fetch origin >$O/fetch.log 2>&1 || echo \"FETCH_RC_NONZERO\" >>$O/fetch.log; }; git rev-parse refs/remotes/origin/master >$O/omaster 2>&1 && [ \"$(cat $O/omaster)\" = \"c13242c0a9a261e22884bb0462e8db23203270e7\" ] && [ \"$(git for-each-ref 'refs/remotes/origin/*' | wc -l)\" = \"1\" ] && echo RT7_UPSTREAM_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; cd \"$PACKET_WORKTREE\" && n5=$(git diff-tree --no-commit-id --name-status -r 3ad8f915554cc62ba43610f951c5ed96fd2657f4 -- src Cargo.toml Cargo.lock docs | awk 'BEGIN{t[\"src/app/spawn.rs\"]=1;t[\"src/app.rs\"]=1;t[\"src/ui/layout.rs\"]=1;t[\"src/app/root.rs\"]=1;t[\"src/app/welcome.rs\"]=1;t[\"src/app/dialogs.rs\"]=1;t[\"src/core/gitops.rs\"]=1}{if(!($2 in t)){n++}} END{print n+0}') && [ \"$n5\" -eq 5 ] && [ \"$(git diff --name-status ead188a6f714844230b7d999d8f74a9438214bf0..HEAD -- src Cargo.toml Cargo.lock docs | wc -l)\" = \"26\" ] && echo RT8_UNSAT_PROOF_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; cd \"$PACKET_WORKTREE\" && [ \"$(git branch --show-current)\" = \"packet/chg-003-task-prove-the-dual-instance-browse-and-clone-fl-927f8348d2305b7f\" ] && [ -z \"$(git stash list)\" ] && [ \"$(git worktree list | wc -l)\" -eq 2 ] && git status --porcelain=v1 | LC_ALL=C sort >$O/st.txt && printf ' M src/app/root.rs\\n M src/app/welcome.rs\\n?? docs/switch-workspaces-runbook.md\\n' | LC_ALL=C sort >$O/se.txt && cmp -s $O/st.txt $O/se.txt && echo RT9_HYGIENE_DELTA_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; cd \"$PACKET_WORKTREE\" && [ -s docs/switch-workspaces-runbook.md ] && for pat in 'Leg L1' 'Leg L2' 'Leg L3' 'Leg L4' 'NETWORK' 'D-34' 'PENDING'; do grep -qF \"$pat\" docs/switch-workspaces-runbook.md || exit 1; done && echo RT10_RUNBOOK_OK",
+    "cd \"$PACKET_WORKTREE\" && grep -Fq 'CLONE_ATTEMPTS' src/app/welcome.rs && grep -Fq 'packet-cloning.{}-{}-{}' src/app/welcome.rs && grep -Fq 'sw4_double_clone_race' src/app/welcome.rs && echo RT11_CLONE_RACE_PIN_OK",
+    "E=/tmp/sw_gate_c13242c; [ -s \"$E/RECORD.md\" ] && grep -q '## Appendix D' \"$E/RECORD.md\" && grep -qF 'B.5 Standing adjudication request' \"$E/RECORD.md\" && grep -qF '**DISCREPANCY**' \"$E/RECORD.md\" && ! grep -q '\\*\\*FAIL\\*\\*' \"$E/RECORD.md\" && echo RT12_RECORD_OK",
+    "O=/tmp/swrt5/out; mkdir -p $O; RF=/tmp/swrt5/report.final.json; TM=\"$PACKET_WORKTREE/planning/tasks/CHG-003-switch-workspaces/CHG-003-TASK-prove-the-dual-instance-browse-and-clone-flows-end-to-end-and-meet-the-d-34-warning-and-regression-g.md\"; python3 - \"$RF\" \"$TM\" <<'PYEOF'\nimport json, sys\nrf, tm = sys.argv[1], sys.argv[2]\nd = json.load(open(rf))\nassert d.get(\"status\") in (\"complete\", \"blocked\"), \"bad top status\"\nacs = d.get(\"acceptance_criteria\")\nassert isinstance(acs, list) and len(acs) == 6, \"need exactly 6 AC entries\"\nfor i, e in enumerate(acs, 1):\n    assert isinstance(e, dict), \"AC%d must be a Criterion object, got %r\" % (i, type(e).__name__)\n    for k in (\"id\", \"criterion\", \"status\", \"evidence\"):\n        assert k in e and isinstance(e[k], str) and e[k].strip(), \"AC%d missing/empty %s\" % (i, k)\ntxt = open(tm).read()\nsec = txt.split(\"## Acceptance criteria\")[1].split(\"\\n## \")[0]\nwant = [ln[2:].strip() for ln in sec.splitlines() if ln.startswith(\"- \")]\nassert len(want) == 6, \"ticket AC bullet count != 6\"\nfor i, (g, w) in enumerate(zip((e[\"criterion\"] for e in acs), want), 1):\n    assert g == w, \"criterion %d not byte-verbatim vs ticket\" % i\nvf = d.get(\"verification\")\nassert isinstance(vf, list) and len(vf) >= 12, \"verification must be list of >=12 commands\"\nassert all(isinstance(x, str) and x.strip() for x in vf), \"verification entries must be plain command strings\"\nassert isinstance(d.get(\"summary\"), str) and d.get(\"summary\").strip()\nassert isinstance(d.get(\"remaining\"), list) and all(isinstance(x, str) for x in d[\"remaining\"])\nassert isinstance(d.get(\"blockers\"), list)\nif d.get(\"status\") == \"complete\":\n    assert d.get(\"remaining\") == [], \"complete requires empty remaining\"\nelse:\n    assert d.get(\"remaining\"), \"blocked must list remaining work\"\nprint(\"RT13_SHAPE_VERBATIM_OK\")\nPYEOF"
+  ],
+  "verification_note": "Each entry is the exact command executed this turn as '/bin/sh <command>' in a fresh login-style shell started in the worktree with PACKET_WORKTREE=/mnt/DevProj/.packet-worktrees/Packet-1f9d41dcb5ff0c51/chg-003-task-prove-the-dual-instance-browse-and-clone-fl-927f8348d2305b7f (simulated identically: cd $PACKET_WORKTREE && PACKET_WORKTREE=$PACKET_WORKTREE /bin/sh /tmp/swrt5/c<n>). Outputs captured under /tmp/swrt5/out/ (console files run_<n>.console). Every command asserts its expected outcome and propagates failure (no masking pipelines). RT13 additionally re-validates the canonical report copy /tmp/swrt5/report.final.json (object-shaped acceptance_criteria, byte-verbatim criterion text vs the ticket file, string verification commands, status/remaining coherence) - the regression check for the turn-4 shape defect.",
+  "files_changed_by_this_turn": [
+    {
+      "path": "(none)",
+      "change": "No repository bytes changed this turn. Preserved ticket delta, re-verified by RT9: M src/app/root.rs (three in-file composition tests), M src/app/welcome.rs (in-file race test + the prior turn's disclosed scratch-nonce hardening), A docs/switch-workspaces-runbook.md (untracked new file). Evidence-plane only: /tmp/sw_gate_c13242c/RECORD.md gained Appendix D; /tmp/swrt5/ holds this turn's battery + canonical report."
+    }
+  ],
+  "disclosures": {
+    "D1_production_hardening_disclosed": "Prior recovery turn (preserved, unchanged this turn): welcome.rs perform_clone_at scratch renamed to a per-attempt nonce {repo}.packet-cloning.{pid}-{attempt}-{unix-nano} (process-static AtomicU64, Relaxed) so two same-process callers can no longer destroy each other's live scratch via their startup stale-sweeps. Crosses the ticket's 'zero production-code edits' shorthand for an already-M path; rooted in AC-4's hard-fail edge and the blocker-repair mandate; footprint-neutral; regression-pin sw4_double_clone_race (RT11).",
+    "D2_prior_environment_remediation": "Prior turn: two abandoned runaway spinner shells (~40 CPU-hours each, from a sibling session's dropped diagnostic) killed; they had amplified the race-test flake signatures. No repositories/data touched.",
+    "D3_transient_retention": "Gate evidence lives in /tmp/sw_gate_c13242c/ (captions, sets, RECORD.md Appendices A-D, annexes) plus inert unregistered clones /tmp/sw_base_lit, /tmp/sw_base_eff, /tmp/sw_v; THIS turn's battery adds /tmp/swrt5/ (command files c1-c13, outputs, canonical report copy). Removed only after reconciliation audits them.",
+    "D4_upstream_reverified_this_turn": "Live 'git fetch origin' executed in RT7 (success, quiet): origin/master == c13242c0a9a261e22884bb0462e8db23203270e7 and origin exposes exactly one remote ref. Every earlier single-ref/topology finding therefore survives the re-fetch unchanged.",
+    "D5_turn4_report_shape_defect_fixed": "Report-level defect only (no code): acceptance_criteria was serialized as strings instead of Criterion objects; reconstructed as objects with verbatim criterion text (machine-verified against the ticket file) plus RT13 self-test as the regression check. Attempts 2-3's accepted reports define the canonical object fields used here."
+  },
+  "blockers": [
+    {
+      "id": "BLOCK-1",
+      "gate_check": 11,
+      "kind": "contract-versus-history; human adjudication required",
+      "statement": "The ticket's promised eight-entry name-status footprint table is unsatisfiable at every reachable commit, re-proven AFTER this turn's live fetch: origin exposes a single ref (master at c13242c0a9a261e22884bb0462e8db23203270e7), so any publishable V' must contain V and hence the spawn checkpoints' six companion-path commits; realized table = 14 rows (effective base) / 26 rows (frozen base), fully enumerated (offenders.list; RECORD.md Appendix B.2 + B.5). Machine witnesses re-run this turn: RT6 (realized table byte-identical), RT7 (single-ref + master position), RT8 (3ad8f91 carries 5 out-of-table paths; frozen range 26 rows). Requested adjudication: (a) ratify V=c13242c0a9a261e22884bb0462e8db23203270e7 with the realized table under effective base 990112d048c9114e07221b1cad51dc5cf77f0d08 and reformula/re-tire the eight-entry clause; (b) reissue a corrected footprint predicate; or (c) grant a named, written exemption for the six companion paths. All other gate checks are green (see gate_checks). The batch must NOT advance on this check's word alone - gate criteria stay immutable."
+    },
+    {
+      "id": "BLOCK-2",
+      "gate_check": 15,
+      "kind": "operator exhibits pending (environment)",
+      "statement": "Runbook legs L1 (detached sibling on initial screen while original 'Working' continues; quit-one-survives in both orders) and L3 (pasted public github.com URL: status line, self-filled $HOME/{repo}, Connected with planning/ present), with L4's shared-scratch-home chat.jsonl witness, require controlling a display session: window-input injection and screenshot tooling are ABSENT for this account (re-probed this turn - xdotool/ydotool/grim/slurp/scrot/import/maim/wtype all missing), so no GUI process was launched into the operator's active wayland session by this ticket. Filed as reconciliation exhibits with the exact transcription protocol ($SCRATCH/transcript.md, OUTSIDE the repo) per the ticket's PENDING-not-PASS rule."
+    }
+  ],
+  "remaining": [
+    "Human adjudication of BLOCK-1 (gate check 11): ratify effective base 990112d048c9114e07221b1cad51dc5cf77f0d08 + the fully enumerated 14-row realized table, reissue a corrected footprint predicate, or grant a named exemption for the six companion paths; on ratification, flip check 11 to PASS-with-note in RECORD.md (appendix amendment) and re-issue this report as complete. Outside this session's allowed operations (history repair of published checkpoints is disallowed here).",
+    "Operator-walked runbook legs L1/L3(/L4) on the display-capable workstation (transcription to $SCRATCH/transcript.md, kept outside the repo); preconditions attested on this host (live wayland-1 session, network reachable), tooling re-probed absent - filed as reconciliation exhibits (AC-6).",
+    "Application-managed: checkpoint/commit this ticket's three paths at integration (sessions withhold commits); the DoD worktree-cleanup line ('git worktree list shows only the main checkout') then executes naturally when the app retires this task worktree.",
+    "Optional tidy-up after reconciliation audit: remove inert clones /tmp/sw_base_lit, /tmp/sw_base_eff, /tmp/sw_v and the /tmp gate evidence roots."
+  ],
+  "definition_of_done_map": {
+    "RECORD.md all checks PASS": "14/15 PASS with this turn's fresh evidence; check 11 stamped DISCREPANCY pending adjudication - NOT waived; completion withheld on it.",
+    "Repo delta = promised set": "MET as paths (M src/app/root.rs in-file tests; M src/app/welcome.rs in-file test + disclosed hardening inside an already-M path; A docs/switch-workspaces-runbook.md); Cargo.toml/Cargo.lock byte-equal to embedded fingerprints (RT6).",
+    "Evidence independently reproducible": "MET (anti-vacuity replay, byte-identical base replica, byte-identical post repeats, tip-grade set identity, live upstream re-fetch; RECORD.md commands self-contained).",
+    "Runbook checked in with honest leg status": "MET (mechanical rows verified on this machine; L1/L3/L4 explicitly filed PENDING with transcription protocol)."
+  },
+  "evidence_archive": {
+    "root": "/tmp/sw_gate_c13242c/",
+    "record_md": "/tmp/sw_gate_c13242c/RECORD.md (Sections 0-6 + Appendices A/B/C prior turns, D this turn)",
+    "this_turn": "/tmp/swrt5/ (c1..c13 command files, out/run_<n>.console consoles, ac_texts.json canonical ticket AC texts, report.final.json canonical report copy)",
+    "key_artifacts": [
+      "cap_{base_lit,base_eff,v,v_repeat,replica_base_eff}.{stderr,rc}; annex_recovery3/cap_vdelta.{meta,stderr,rc}",
+      "added.lines / added_lit.lines / annex_recovery3/added_delta_clean.lines (all 0 bytes)",
+      "removed.lines (= annex_recovery3/removed_delta_clean.lines, verbatim 4 units)",
+      "antivac_comm.output (exactly the one synthetic line)",
+      "manifest.sha256 (2 OK); footprint_realized.table (14 rows); offenders.list; VP+ proof artifacts",
+      "set_base_lit == set_base_eff; set_base_eff_replica; set_v == set_v_repeat; annex set_vdelta",
+      "sw4_inventory.transcribed; sw4_names.{present,involved}; RECORD.md Appendices A-C (attribution, adjudication request, forensics)"
+    ]
+  },
+  "recovery_report_file": "/mnt/DevProj/Packet/.kool-ade-packet/implementation/chg-003-task-prove-the-dual-instance-browse-and-clone-fl-927f8348d2305b7f/1790170165504897656-report.json"
+}

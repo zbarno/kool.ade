@@ -231,7 +231,7 @@ impl AiHarness for PiHarness {
             "--no-skills".into(),
             "--no-prompt-templates".into(),
             "--append-system-prompt".into(),
-            req.system_instructions.clone(),
+            format!("PROCESS OWNERSHIP — mandatory for every tool call: Packet is the supervising application (PID {}). Never signal or terminate Packet, its ancestors, other operator windows, or unrelated workers. Do not use pkill/killall, command-name or command-line matching, or machine-wide process sweeps to select kill targets. Test cleanup may stop only processes you launched and recorded for that test run. For detached GUI children, require a unique inherited run marker plus the exact executable and test display; verify ownership before each signal and use pidfds where available to avoid PID reuse. Inspect existing cleanup helpers before running them; repair broad process matching first. If ownership cannot be established, preserve the process and report it. A private test display alone does not isolate processes or authorize killing other app instances.\n\n{}", std::process::id(), req.system_instructions),
             "--thinking".into(),
             req.reasoning_level.clone(),
         ]);
@@ -428,6 +428,47 @@ fn extract_version(out: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn tool_harness_receives_supervisor_identity_and_process_ownership_rules() {
+        use std::{fs, sync::{Arc, atomic::AtomicBool, mpsc}};
+        use std::os::unix::fs::PermissionsExt;
+        let _shield = crate::core::gitops::test_support::shield("process-ownership-prompt");
+        let root = std::env::temp_dir().join(format!("packet-ownership-prompt-{}-{}", std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        fs::create_dir_all(&root).unwrap();
+        let script = root.join("pi");
+        fs::write(&script, r#"#!/bin/sh
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = --append-system-prompt ]; then
+        shift
+        printf '%s' "$1" > "$(dirname "$0")/received-system.txt"
+    fi
+    shift
+done
+cat >/dev/null
+printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"fixture completed"}]}]}'
+"#).unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        let previous = std::env::var_os(PI_BINARY_ENV);
+        unsafe { std::env::set_var(PI_BINARY_ENV, &script); }
+        let (progress_tx, _rx) = mpsc::channel();
+        let outcome = PiHarness.execute(&PlanningRequest {
+            implementation: false, read_only: false, reasoning_level: "low".into(),
+            repo_root: root.clone(), prompt_body: "test".into(),
+            system_instructions: "Custom persona remains intact".into(),
+            timeout: Duration::from_secs(5), progress_tx,
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+        unsafe { match previous { Some(value) => std::env::set_var(PI_BINARY_ENV, value), None => std::env::remove_var(PI_BINARY_ENV) } }
+        assert_eq!(outcome.unwrap().final_text, "fixture completed");
+        let sent = fs::read_to_string(root.join("received-system.txt")).unwrap();
+        assert!(sent.ends_with("Custom persona remains intact"));
+        assert!(sent.contains(&format!("PID {}", std::process::id())));
+        assert!(sent.contains("Do not use pkill/killall"));
+        assert!(sent.contains("unique inherited run marker"));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn version_extraction_handles_shapes() {

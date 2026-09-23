@@ -254,8 +254,10 @@ impl PacketApp {
                 }
                 project.refresh_implementations();
                 project.last_pr_refresh = None;
-                let text = match result {
+                let cleanup_note = result.as_ref().ok().and_then(|record| record.cleanup.error.clone());
+                let mut text = match result {
                     Ok(record) => {
+                        project.implementation_states.insert(ticket.clone(), record.clone());
                         if !record.auto_merge || record.status != "Done" {
                             project.queue.running = false;
                         }
@@ -300,10 +302,13 @@ impl PacketApp {
                         }
                     }
                 };
+                if let Some(error) = cleanup_note {
+                    text.push_str(&format!("\nTask completed, but worktree cleanup needs attention: {error}. Cleanup will retry automatically."));
+                }
                 if project.queue_lock.is_some() {
                     if let Err(error) = project.queue.save(&project.state.repo_root) {
                         project.queue.running = false;
-                        project.queue.last_error = format!("Cannot save queue: {error}");
+                        project.queue.last_error.push_str(&format!("\nCannot save queue: {error}. Check disk space and permissions; this failure may not survive a restart."));
                     }
                 }
                 if !project.queue.running && project.active_implementations.is_empty() {
@@ -315,13 +320,19 @@ impl PacketApp {
             }
         }
         if let Screen::Connected(project) = &mut self.screen {
-            if project
-                .pr_refresh
-                .as_ref()
-                .is_some_and(|refresh| refresh.finished())
-            {
+            if let Some(errors) = project.pr_refresh.as_ref().and_then(|refresh| refresh.poll()) {
                 project.pr_refresh = None;
                 project.refresh_implementations();
+                if errors.is_empty() && project.queue.last_error.starts_with("Task maintenance failed for ") {
+                    project.queue.last_error.clear();
+                }
+                for (ticket, error) in errors {
+                    if let Some(state) = project.implementation_states.get_mut(&ticket) {
+                        if state.status == "Done" { state.cleanup.error = Some(error.clone()); }
+                        else { state.pr_check_error = Some(error.clone()); }
+                    }
+                    project.queue.last_error = format!("Task maintenance failed for {ticket}: {error}");
+                }
             }
             if project.pr_refresh.is_none()
                 && project
@@ -332,10 +343,11 @@ impl PacketApp {
                     .implementation_states
                     .values()
                     .filter(|state| {
-                        state.pr_url.is_some() && state.pr_state.as_deref() != Some("MERGED")
+                        (state.status != "Done" && state.pr_url.is_some() && state.pr_state.as_deref() != Some("MERGED"))
+                            || (state.status == "Done" && state.cleanup.completed_at.is_none())
                     })
                     .collect::<Vec<_>>();
-                states.sort_by_key(|state| &state.pr_check_attempted_at);
+                states.sort_by_key(|state| if state.status == "Done" { &state.cleanup.attempted_at } else { &state.pr_check_attempted_at });
                 let tickets = states
                     .into_iter()
                     .map(|state| state.ticket.clone())
@@ -1670,6 +1682,12 @@ impl Surface for PacketApp {
             _ => None,
         }
     }
+    fn implementation_failure(&self, ticket: &str) -> Option<&str> {
+        match &self.screen {
+            Screen::Connected(p) => p.queue.blocked.get(ticket).map(String::as_str),
+            _ => None,
+        }
+    }
     fn implementation_active(&self, ticket: &str) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(ticket))
     }
@@ -2370,6 +2388,7 @@ mod board_tests {
                 pr_checked_at: None,
                 pr_check_attempted_at: None,
                 pr_check_error: None,
+                cleanup: Default::default(),
             };
             states.insert(record.ticket.clone(), record);
         }
@@ -2407,6 +2426,35 @@ mod board_tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn completed_task_shows_cleanup_failure_without_reopening_implementation() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            let record = p.implementation_states.get_mut("planning/tasks/fixture/003-task.md").unwrap();
+            record.cleanup.error = Some("Worktree contains local changes".into());
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Done · 1").is_some());
+        assert!(text_position(&output, "Cleanup needs attention").is_some());
+        assert!(text_position(&output, "Worktree contains local changes").is_some());
+    }
+
+    #[test]
+    fn failed_task_without_saved_state_shows_cause_on_board() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            p.queue.blocked.insert(p.task_documents[0].path.clone(), "No space left on device".into());
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Needs attention · 1").is_some());
+        assert!(text_position(&output, "No space left on device").is_some());
+        assert!(text_position(&output, "Failure details").is_some());
     }
 
     #[test]

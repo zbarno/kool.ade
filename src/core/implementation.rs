@@ -1,5 +1,7 @@
 //! Resumable ticket implementation. Git worktrees and runtime records are kept
 //! independently from planning state; only verified results proceed to a PR.
+pub mod cleanup;
+
 use crate::harness::{AiHarness, LiveProgress, PiHarness, PlanningRequest};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -43,6 +45,8 @@ pub struct Implementation {
     pub pr_check_attempted_at: Option<String>,
     #[serde(default)]
     pub pr_check_error: Option<String>,
+    #[serde(default)]
+    pub cleanup: cleanup::Cleanup,
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Report {
@@ -63,14 +67,18 @@ pub enum Event {
     Done(Result<Implementation, String>),
 }
 pub struct Controller {
+    #[cfg(test)]
+    _keep_alive: Option<Sender<Event>>,
     rx: Receiver<Event>,
     cancel: Arc<AtomicBool>,
 }
 impl Controller {
     #[cfg(test)]
     pub(crate) fn idle_fixture() -> Self {
+        let (tx, rx) = mpsc::channel();
         Self {
-            rx: mpsc::channel().1,
+            _keep_alive: Some(tx),
+            rx,
             cancel: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -109,12 +117,18 @@ impl Controller {
                 auto_merge,
             );
             let _ = forward.join();
-            let _ = tx.send(Event::Done(result.map_err(|e| e.to_string())));
+            let _ = tx.send(Event::Done(result.map_err(|e| format!("{e:#}"))));
         });
-        Self { rx, cancel }
+        Self { rx, cancel, #[cfg(test)] _keep_alive: None }
     }
     pub fn poll(&self) -> Option<Event> {
-        self.rx.try_recv().ok()
+        match self.rx.try_recv() {
+            Ok(event) => Some(event),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(Event::Done(Err(
+                "Implementation worker stopped without a result. Work is preserved; inspect the task failure and Resume implementation.".into(),
+            ))),
+        }
     }
     pub fn request_cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
@@ -163,7 +177,7 @@ impl Runner {
         loop {
             if let Err(e) = self.remaining() {
                 child.kill();
-                return Err(e);
+                anyhow::bail!("{e}\nCommand: {program} {}\nWorking directory: {}\nstdout:\n{output}\nstderr:\n{error}", args.join(" "), cwd.display());
             }
             use crate::harness::pi_proc::{PollState, StreamEvt};
             match child.poll_next(Duration::from_millis(100)) {
@@ -178,7 +192,23 @@ impl Runner {
             }
         }
     }
+    fn check_storage(&self, cwd: &Path) -> anyhow::Result<()> {
+        #[cfg(unix)]
+        {
+            let existing = cwd.ancestors().find(|path| path.is_dir())
+                .ok_or_else(|| anyhow::anyhow!("Cannot locate filesystem for {}", cwd.display()))?;
+            let output = self.command(existing, "df", &["-Pk", "."])?;
+            let available = output.lines().last()
+                .and_then(|line| line.split_whitespace().nth(3))
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine available disk space for {}", cwd.display()))?;
+            anyhow::ensure!(available >= 1024 * 1024,
+                "Insufficient disk space at {}: {} MiB available; at least 1 GiB is required to start implementation or verification. Free rebuildable build caches, then Resume implementation. Existing work is preserved.", cwd.display(), available / 1024);
+        }
+        Ok(())
+    }
     fn verify(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
+        self.check_storage(cwd)?;
         let path = cwd
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Non-UTF8 worktree path"))?;
@@ -307,7 +337,7 @@ fn save(dir: &Path, state: &Implementation) -> anyhow::Result<()> {
 /// Refresh in a worker: GitHub outages must not block the UI or erase the
 /// last confirmed state. The implementation lock prevents stale writes.
 pub struct PrRefresh {
-    rx: Receiver<()>,
+    rx: Receiver<Vec<(String, String)>>,
     cancel: Arc<AtomicBool>,
 }
 impl PrRefresh {
@@ -323,18 +353,25 @@ impl PrRefresh {
                 cancel: worker_cancel,
                 progress,
             };
+            let mut errors = Vec::new();
             for ticket in tickets {
                 if runner.remaining().is_err() {
                     break;
                 }
-                let _ = refresh_pr(&repo, &ticket, &runner);
+                if let Err(error) = refresh_pr(&repo, &ticket, &runner) {
+                    errors.push((ticket, format!("{error:#}")));
+                }
             }
-            let _ = tx.send(());
+            let _ = tx.send(errors);
         });
         Self { rx, cancel }
     }
-    pub fn finished(&self) -> bool {
-        !matches!(self.rx.try_recv(), Err(mpsc::TryRecvError::Empty))
+    pub fn poll(&self) -> Option<Vec<(String, String)>> {
+        match self.rx.try_recv() {
+            Ok(errors) => Some(errors),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(vec![(String::new(), "Task maintenance worker stopped unexpectedly; retrying on the next refresh".into())]),
+        }
     }
 }
 impl Drop for PrRefresh {
@@ -344,10 +381,13 @@ impl Drop for PrRefresh {
 }
 
 fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> {
-    let dir = state_dir(repo, ticket)?;
+    let current = state_dir(repo, ticket)?;
+    let dir = if current.join("state.json").exists() { current } else { legacy_state_dir(repo, ticket)? };
     let lock = fs::OpenOptions::new()
         .read(true)
         .write(true)
+        .create(true)
+        .truncate(false)
         .open(dir.join("run.lock"))?;
     if lock.try_lock().is_err() {
         // A concurrent implementation can hold this lock for minutes, so never
@@ -367,6 +407,10 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
     }
     let mut state: Implementation = serde_json::from_slice(&fs::read(dir.join("state.json"))?)?;
     let target_repo = target_repository(repo, ticket)?;
+    if state.status == "Done" && (state.merged_commit.is_some() || state.pr_url.is_none()) {
+        cleanup::run(&target_repo, &dir, &mut state, runner);
+        return save(&dir, &state);
+    }
     let Some(url) = state.pr_url.clone() else {
         return Ok(());
     };
@@ -409,6 +453,7 @@ fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> 
         }
         Err(error) => state.pr_check_error = Some(error.to_string()),
     }
+    cleanup::run(&target_repo, &dir, &mut state, runner);
     save(&dir, &state)
 }
 
@@ -623,6 +668,7 @@ fn run_with_project_options(
             pr_checked_at: None,
             pr_check_attempted_at: None,
             pr_check_error: None,
+            cleanup: Default::default(),
         }
     };
     if state.pr_url.is_none() && state.merged_commit.is_none() {
@@ -632,7 +678,9 @@ fn run_with_project_options(
         return Ok(state);
     }
     save(&dir, &state)?;
-    let result = execute(planning_root, repo, &dir, &mut state, harness, &runner);
+    let result = runner.check_storage(&dir)
+        .and_then(|_| runner.check_storage(&state.worktree))
+        .and_then(|_| execute(planning_root, repo, &dir, &mut state, harness, &runner));
     if let Err(error) = result {
         state.status = if runner.cancel.load(Ordering::SeqCst) {
             "Interrupted"
@@ -640,11 +688,23 @@ fn run_with_project_options(
             "Needs attention"
         }
         .into();
-        state.detail = error.to_string();
-        let _ = save(&dir, &state);
+        state.detail = format!("{error:#}");
+        if let Err(save_error) = save(&dir, &state) {
+            anyhow::bail!("{}\nCould not persist the failed task state at {}: {save_error:#}. Check available disk space and permissions, then Resume implementation.", state.detail, dir.display());
+        }
         return Err(error);
     }
-    save(&dir, &state)?;
+    // Completion is already durable. Reclamation has its own bounded budget
+    // and records failure without turning a published task back into a failure.
+    let cleanup_runner = Runner {
+        gh: runner.gh.clone(), deadline: Instant::now() + Duration::from_secs(120),
+        cancel: runner.cancel.clone(), progress: runner.progress.clone(),
+    };
+    cleanup::run(repo, &dir, &mut state, &cleanup_runner);
+    if let Err(error) = save(&dir, &state) {
+        if state.status != "Done" { return Err(error); }
+        state.cleanup.error = Some(format!("Could not save cleanup outcome: {error:#}. {}", state.cleanup.error.as_deref().unwrap_or("Cleanup will be checked again on the next refresh.")));
+    }
     Ok(state)
 }
 
@@ -852,7 +912,8 @@ fn prepare_verified(
                 Err(error) => {
                     runner.remaining()?;
                     let detail = error.detail();
-                    fs::write(dir.join(format!("{stamp}-harness-error.txt")), &detail)?;
+                    fs::write(dir.join(format!("{stamp}-harness-error.txt")), &detail)
+                        .map_err(|write_error| anyhow::anyhow!("Harness failed: {detail}\nCould not save diagnostics at {}: {write_error}. Check available disk space and permissions before resuming.", dir.display()))?;
                     if let Ok(report) = fs::read_to_string(&report_path) {
                         crate::harness::HarnessOutcome {
                             final_text: report,
@@ -1569,6 +1630,21 @@ mod tests {
     use crate::error::AppError;
     use std::sync::atomic::AtomicUsize;
     #[test]
+    fn disconnected_worker_reports_failure_instead_of_waiting_forever() {
+        let mut controller = Controller::idle_fixture();
+        assert!(controller.poll().is_none());
+        controller._keep_alive.take();
+        assert!(matches!(controller.poll(), Some(Event::Done(Err(message))) if message.contains("stopped without a result")));
+    }
+
+    #[test]
+    fn completed_worker_delivers_result_before_disconnect() {
+        let controller = Controller::idle_fixture();
+        controller._keep_alive.as_ref().unwrap().send(Event::Done(Err("original cause".into()))).unwrap();
+        assert!(matches!(controller.poll(), Some(Event::Done(Err(message))) if message == "original cause"));
+    }
+
+    #[test]
     fn implementation_context_uses_only_frozen_affected_product_modules() {
         let root = std::env::temp_dir().join(format!(
             "packet_implementation_context_{}-{}",
@@ -1952,11 +2028,10 @@ mod tests {
         assert_eq!(result.merged_commit.as_deref(), Some(base.as_str()));
         assert!(result.pr_url.is_none());
         assert!(!s.root.join("pr-created").exists());
-        assert_eq!(s.git(&result.worktree, &["rev-parse", "HEAD"]), base);
-        assert!(
-            s.git(&result.worktree, &["status", "--porcelain"])
-                .is_empty()
-        );
+        assert!(result.cleanup.completed_at.is_some(), "{:?}", result.cleanup);
+        assert!(!result.worktree.exists());
+        assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), base);
+        assert!(state_dir(&s.repo, &s.ticket).unwrap().join("verified-report.json").exists());
     }
     #[test]
     fn verification_contract_completes_without_product_changes() {
@@ -2262,6 +2337,135 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
+    fn cleanup_runner() -> Runner {
+        let (progress, _rx) = mpsc::channel();
+        Runner { gh: "unused".into(), deadline: Instant::now() + Duration::from_secs(30),
+            cancel: Arc::new(AtomicBool::new(false)), progress }
+    }
+
+    // Produce a completed record without invoking automatic cleanup: models an
+    // older Packet version leaving a merged PR's worktree behind.
+    fn completed_cleanup_fixture(s: &Sandbox) -> Implementation {
+        let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+        let head = state.verified_head.as_deref().unwrap();
+        s.git(&s.repo, &["push", "origin", &format!("{head}:refs/heads/main")]);
+        state.status = "Done".into();
+        state.pr_state = Some("MERGED".into());
+        state.merged_commit = state.verified_head.clone();
+        save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
+        state
+    }
+
+    #[test]
+    fn cleanup_reclaims_ignored_builds_keeps_evidence_and_is_idempotent() {
+        let s = Sandbox::new();
+        let state = completed_cleanup_fixture(&s);
+        fs::write(common(&s.repo).unwrap().join("info/exclude"), "target/\n").unwrap();
+        fs::create_dir_all(state.worktree.join("target/debug")).unwrap();
+        fs::write(state.worktree.join("target/debug/build-cache"), vec![0u8; 1024 * 1024]).unwrap();
+        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        let evidence = fs::read(dir.join("verified-report.json")).unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        let done = load(&s.repo, &s.ticket).unwrap();
+        assert!(done.cleanup.completed_at.is_some(), "{:?}", done.cleanup);
+        assert!(!state.worktree.exists());
+        assert_eq!(fs::read(dir.join("verified-report.json")).unwrap(), evidence);
+        assert_eq!(done.status, "Done");
+        assert_eq!(board_column(Some(&done), false), 4);
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert_eq!(load(&s.repo, &s.ticket).unwrap().cleanup, done.cleanup);
+    }
+
+    #[test]
+    fn cleanup_of_merged_pr_and_legacy_completed_state_survives_restart() {
+        let s = Sandbox::new();
+        let mut state = completed_cleanup_fixture(&s);
+        state.status = "PR created".into();
+        state.pr_state = Some("OPEN".into());
+        save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
+        fs::write(&s.gh, format!("#!/bin/sh\nprintf '%s\\n' '{{\"state\":\"MERGED\",\"mergeCommit\":{{\"oid\":\"{}\"}}}}'\n", state.merged_commit.as_deref().unwrap())).unwrap();
+        let current = state_dir(&s.repo, &s.ticket).unwrap();
+        let legacy = legacy_state_dir(&s.repo, &s.ticket).unwrap();
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::rename(&current, &legacy).unwrap();
+        fs::remove_file(legacy.join("run.lock")).unwrap();
+        let mut runner = cleanup_runner();
+        runner.gh = s.gh.to_string_lossy().into();
+        refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
+        let done = load(&s.repo, &s.ticket).unwrap();
+        assert_eq!(done.status, "Done");
+        assert!(done.cleanup.completed_at.is_some(), "{:?}", done.cleanup);
+        assert!(!state.worktree.exists());
+        assert!(legacy.join("verified-report.json").exists());
+    }
+
+    #[test]
+    fn cleanup_never_reclaims_an_unpublished_completion_commit() {
+        let s = Sandbox::new();
+        let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+        state.status = "Done".into();
+        state.merged_commit = state.verified_head.clone();
+        save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        let preserved = load(&s.repo, &s.ticket).unwrap();
+        assert!(preserved.cleanup.error.unwrap().contains("not in origin"));
+        assert!(state.worktree.join("implemented.txt").exists());
+    }
+
+    #[test]
+    fn cleanup_preserves_changes_and_retries_after_they_are_resolved() {
+        let s = Sandbox::new();
+        let state = completed_cleanup_fixture(&s);
+        let draft = state.worktree.join("unsaved-draft.txt");
+        fs::write(&draft, "keep this").unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        let failed = load(&s.repo, &s.ticket).unwrap();
+        assert!(failed.cleanup.error.as_deref().unwrap().contains("local changes"));
+        assert_eq!(fs::read_to_string(&draft).unwrap(), "keep this");
+        assert_eq!(failed.status, "Done");
+        fs::rename(&draft, s.root.join("saved-draft.txt")).unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert!(load(&s.repo, &s.ticket).unwrap().cleanup.completed_at.is_some());
+        assert!(!state.worktree.exists());
+    }
+
+    #[test]
+    fn cleanup_preserves_changed_head_and_locked_worktree() {
+        let s = Sandbox::new();
+        let state = completed_cleanup_fixture(&s);
+        s.git(&s.repo, &["worktree", "lock", state.worktree.to_str().unwrap()]);
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert!(load(&s.repo, &s.ticket).unwrap().cleanup.error.is_some());
+        assert!(state.worktree.exists());
+        s.git(&s.repo, &["worktree", "unlock", state.worktree.to_str().unwrap()]);
+        s.git(&state.worktree, &["commit", "--allow-empty", "-qm", "new local work"]);
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert!(load(&s.repo, &s.ticket).unwrap().cleanup.error.unwrap().contains("changed HEAD"));
+        assert!(state.worktree.exists());
+    }
+
+    #[test]
+    fn cleanup_preserves_wrong_identity_missing_publication_and_active_work() {
+        let s = Sandbox::new();
+        let mut state = completed_cleanup_fixture(&s);
+        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        let lock = fs::OpenOptions::new().read(true).write(true).open(dir.join("run.lock")).unwrap();
+        lock.lock().unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert!(state.worktree.exists());
+        assert!(load(&s.repo, &s.ticket).unwrap().cleanup.attempted_at.is_none());
+        drop(lock);
+        state.worktree = s.repo.clone();
+        save(&dir, &state).unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert!(load(&s.repo, &s.ticket).unwrap().cleanup.error.unwrap().contains("allocation"));
+        assert!(s.repo.join(&s.ticket).exists());
+        state.merged_commit = None;
+        save(&dir, &state).unwrap();
+        refresh_pr(&s.repo, &s.ticket, &cleanup_runner()).unwrap();
+        assert!(load(&s.repo, &s.ticket).unwrap().cleanup.error.unwrap().contains("No confirmed"));
+    }
+
     #[test]
     fn publication_targets_the_origin_repository() {
         assert_eq!(
@@ -2390,6 +2594,10 @@ mod tests {
         let mut result = run().unwrap();
         assert_eq!(result.status, "Done");
         assert!(result.pr_url.is_none());
+        assert!(result.cleanup.completed_at.is_some(), "{:?}", result.cleanup);
+        assert!(!result.worktree.exists());
+        let worktrees = s.git(&s.repo, &["worktree", "list", "--porcelain"]);
+        assert_eq!(worktrees.lines().filter(|line| line.starts_with("worktree ")).count(), 1);
         let merged = result.merged_commit.clone().unwrap();
         let remote = s.root.join("remote.git");
         assert_eq!(s.git(&remote, &["rev-parse", "refs/heads/main"]), merged);

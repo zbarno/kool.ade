@@ -1,0 +1,12 @@
+[
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline --lib -- app::welcome core::gitops sw_ >/tmp/chg3sw3.v1.log 2>&1; grep \"^test result\" /tmp/chg3sw3.v1.log",
+    "error": null,
+    "output": "test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 406 filtered out; finished in 0.46s"
+  },
+  {
+    "command": "set -eu; cd \"$PACKET_WORKTREE\"; cargo test --offline >/tmp/chg3sw3.v2.log 2>&1; grep \"^test result\" /tmp/chg3sw3.v2.log; test \"$(grep -c '; 0 failed;' /tmp/chg3sw3.v2.log)\" -ge 6; grep -q \"^test result: ok\\. 446 passed\" /tmp/chg3sw3.v2.log; grep -q \"Running tests/multi_repository_feature\" /tmp/chg3sw3.v2.log; grep -q \"Running tests/task_workflow\" /tmp/chg3sw3.v2.log",
+    "error": "/bin/sh failed:\nstdout:\n\nstderr:\n",
+    "output": null
+  }
+]

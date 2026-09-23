@@ -145,12 +145,24 @@ checking the saved commit against the remote history. Clean connected checkouts
 on the default branch are fast-forwarded; dirty or divergent checkouts remain
 untouched. Uncommitted drafts are never copied into task worktrees.
 
-Completed tasks tidy themselves up: once publication is confirmed, or a task's
-PR polls as merged, Packet removes that task's worktree and its integration
-worktree, deletes their directories, and drops the Packet-created task or
-integration branch where Git confirms it merged — a final step of the
-workflow. No manual worktree cleanup job is needed. In-flight, unpublished, or
-failed work keeps its worktree and diagnosis for resume.
+Completed tasks tidy themselves up after publication or a merged PR is confirmed.
+Packet checks that the completion commit is still in the remote base branch,
+then removes clean task and integration worktrees, including their ignored build
+output. Changed, unverified, locked, or mismatched worktrees are preserved.
+Verification reports remain in the implementation evidence directory, and private
+Git refs retain verified commits. Task branches are deleted only when Git can
+safely delete them; squash-merged branches may remain without their build output.
+
+Cleanup runs off the UI thread. Pending cleanup, including tasks completed by
+older Packet versions, retries on project open and every minute while the project
+is open. A cleanup failure leaves the task Done and shows **Cleanup needs
+attention** with copyable details on its card. Resolve the reported cause; the
+next maintenance pass retries automatically. In-flight, unpublished, and failed
+tasks retain their worktrees for resume. No cleanup runs while Packet is closed.
+
+For a one-time maintenance pass without opening the desktop, run
+`cargo run --offline --example cleanup_completed -- /absolute/planning/repository`.
+This uses the same locks, publication checks, and preservation rules as the app.
 
 Disable **Auto mode** to stop launching queued tasks and use
 pull requests for future implementations. PR mode starts from the connected
