@@ -36,9 +36,21 @@ pub struct PacketApp {
     dialog: Option<Dialog>,
     toasts: ToastQueue,
     conn_path: String,
+    /// Pasted GitHub URL on the connect card. Per-launch state only (no
+    /// persistence); preserved across a FAILED connect so the operator can
+    /// fix a typo, cleared only after a successful connect.
+    conn_github: String,
     conn_error: Option<String>,
     last_git_refresh: Instant,
     display_refresh: Option<std::thread::JoinHandle<DisplayRefresh>>,
+    /// In-flight GitHub clone worker (spawned by [`Self::begin_clone`],
+    /// drained at the top of [`Self::tick`]). `None` when idle.
+    clone_job: Option<CloneJob>,
+    /// Test-only seam: when `Some`, [`Self::begin_clone`] hands the worker
+    /// THIS computation instead of the real `welcome::perform_clone`, so
+    /// dispatch can be proven hermetically (no network, no real git
+    /// process). Shipping code never writes it (`Default` installs `None`).
+    clone_computation_override: Option<CloneWorkerCalc>,
     last_reconciliation_probe: Option<Instant>,
     reconciliation_probe: Option<std::thread::JoinHandle<(crate::core::state::PlannerState, anyhow::Result<Option<crate::core::reconciliation::Candidate>>)>>,
     /// Cached routing identity (rebuilt after connect/adoption/settings).
@@ -65,6 +77,27 @@ struct DisplayRefresh {
     previous_implementations: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
     activity: Vec<(String, crate::harness::LiveProgress)>,
 }
+
+/// One in-flight GitHub clone launched from the connect card. The worker
+/// owns the FETCH only; validation, bootstrap and hydration still belong
+/// to the single connect authority ([`PacketApp::submit_connect`]).
+struct CloneJob {
+    /// Badge text for the card's status line: "github.com/{owner}/{repo}".
+    url_display: String,
+    /// Repository segment as pasted (drives the "Cloning {repo} …" line).
+    repo: String,
+    join: std::thread::JoinHandle<Result<std::path::PathBuf, crate::error::AppError>>,
+}
+
+/// Signature of the stand-in computation for the clone worker (see
+/// [`PacketApp::clone_computation_override`]): canonical url + repo
+/// segment -> the destination placed on success. Behind an Arc so a test
+/// fixture can be shared with the spawned thread.
+type CloneWorkerCalc = std::sync::Arc<
+    dyn Fn(String, String) -> Result<std::path::PathBuf, crate::error::AppError>
+        + Send
+        + Sync,
+>;
 
 fn has_current_task_batch(project: &Project) -> bool {
     if let Some((id, _)) = &project.state.active_feature {
@@ -133,9 +166,12 @@ impl Default for PacketApp {
             conn_path: std::env::current_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
+            conn_github: String::new(),
             conn_error: None,
             last_git_refresh: Instant::now(),
             display_refresh: None,
+            clone_job: None,
+            clone_computation_override: None,
             last_reconciliation_probe: None,
             reconciliation_probe: None,
             cached_user: CurrentUser::new("", Vec::new()),
@@ -148,6 +184,37 @@ impl Default for PacketApp {
 // ------------------------------------------------------------------------ tick
 impl PacketApp {
     fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
+        // Clone job: drain BEFORE Phase 1's screen borrow so a finished
+        // worker can refill `conn_path` and drive submit_connect — the
+        // single connect authority. Unfinished workers ride back until
+        // they settle (poll rhythm: take → is_finished → put back).
+        if let Some(job) = self.clone_job.take() {
+            if job.join.is_finished() {
+                match job.join.join() {
+                    Err(_) => {
+                        self.conn_error =
+                            Some("The clone worker stopped unexpectedly. Try again.".into());
+                    }
+                    Ok(Err(e)) => {
+                        // Failed clone: `conn_github` is PRESERVED so the
+                        // operator can correct and retry; no connect runs.
+                        self.conn_error = Some(Self::conn_banner(&e));
+                    }
+                    Ok(Ok(dest)) => {
+                        // Defensive: no navigation exists out of Welcome
+                        // while a job runs, so a non-Welcome screen can
+                        // only mean something odd — discard silently.
+                        if matches!(self.screen, Screen::Welcome) {
+                            self.conn_error = None;
+                            self.conn_path = dest.to_string_lossy().into_owned();
+                            self.submit_connect();
+                        }
+                    }
+                }
+            } else {
+                self.clone_job = Some(job);
+            }
+        }
         // Phase 1: drain pending turn events (borrows `self.screen` only).
         let mut outcome: Option<TurnOutcome> = None;
         let mut task_outcomes = Vec::new();
@@ -1134,6 +1201,60 @@ impl PacketApp {
     }
 
     // ---------------------------------------------------------------- actions
+    /// Start a GitHub clone of `raw` (the connect card's URL field). Runs
+    /// synchronously: a blank value is a silent no-op, an unparseable URL
+    /// sets the banner and spawns NOTHING (no thread, no subprocess —
+    /// quirk-bearing strings never reach git), and a valid target hands the
+    /// CANONICAL rebuilt url to a background worker that clones into
+    /// `$HOME/{repo}`.
+    fn begin_clone(&mut self, raw: &str) {
+        let url = raw.trim();
+        if url.is_empty() {
+            return;
+        }
+        // Defense in depth: the busy card already steals every signal (the
+        // primary guard); refuse here too so a stray duplicate can never
+        // leak the in-flight JoinHandle nor double-book the scratch name.
+        if self.clone_job.is_some() {
+            return;
+        }
+        match welcome::parse_github_url(url) {
+            Err(detail) => {
+                self.conn_error = Some(format!("Can't clone that URL\n{detail}"));
+            }
+            Ok(target) => {
+                let url_display = format!("github.com/{}/{}", target.owner, target.repo);
+                let canonical = target.url.clone();
+                let repo = target.repo.clone();
+                let job_repo = repo.clone();
+                let join = if let Some(compute) = self.clone_computation_override.clone() {
+                    std::thread::spawn(move || compute(canonical, job_repo))
+                } else {
+                    std::thread::spawn(move || welcome::perform_clone(&canonical, &job_repo))
+                };
+                self.clone_job = Some(CloneJob {
+                    url_display,
+                    repo,
+                    join,
+                });
+            }
+        }
+    }
+
+    /// The card's 'Clone' entry point: feed the FIELD's value (trimmed) to
+    /// [`Self::begin_clone`].
+    fn begin_clone_from_field(&mut self) {
+        let raw = self.conn_github.trim().to_string();
+        self.begin_clone(&raw);
+    }
+
+    /// Single banner formatter for every connect/clone failure (headline
+    /// over detail) so the submit path and the clone-completion path
+    /// cannot drift apart.
+    fn conn_banner(e: &crate::error::AppError) -> String {
+        format!("{}\n{}", e.headline(), e.detail())
+    }
+
     fn submit_connect(&mut self) {
         if self.conn_path.trim().is_empty() {
             return;
@@ -1145,10 +1266,13 @@ impl PacketApp {
                 self.conn_error = None;
                 let title = project.state.title.clone();
                 self.screen = Screen::Connected(project);
+                // Success: forget the pasted URL (per-launch state only).
+                // A FAILED connect preserves it for typo correction.
+                self.conn_github.clear();
                 self.toasts.success(format!("Connected to {title}"));
             }
             Err(e) => {
-                self.conn_error = Some(format!("{}\n{}", e.headline(), e.detail()));
+                self.conn_error = Some(Self::conn_banner(&e));
             }
         }
     }
@@ -2100,6 +2224,12 @@ impl App for PacketApp {
             Screen::Welcome => {
                 let slot = std::cell::RefCell::new(false);
                 let browse_slot = std::cell::RefCell::new(false);
+                let clone_slot = std::cell::RefCell::new(false);
+                // In-flight badge for the card: ("github.com/{o}/{r}", repo).
+                let cloning = self
+                    .clone_job
+                    .as_ref()
+                    .map(|j| (j.url_display.as_str(), j.repo.as_str()));
                 egui::CentralPanel::default().show(ui, |ui| {
                     ui.vertical_centered(|ui| {
                         ui.add_space((ui.available_height() * 0.30).max(20.0));
@@ -2107,14 +2237,21 @@ impl App for PacketApp {
                             *slot.borrow_mut() = welcome::paint(
                                 ui,
                                 &mut self.conn_path,
+                                &mut self.conn_github,
                                 self.conn_error.as_deref(),
                                 &mut browse_slot.borrow_mut(),
+                                &mut clone_slot.borrow_mut(),
+                                cloning,
+                                None,
+                                None,
                             );
                         });
                     });
                 });
                 if *slot.borrow() {
                     self.submit_connect();
+                } else if *clone_slot.borrow() {
+                    self.begin_clone_from_field();
                 } else if *browse_slot.borrow() {
                     // Fresh browser each open, seeded from the CURRENT field
                     // contents; choosing later writes back without
@@ -4095,6 +4232,8 @@ mod tests {
     #[test]
     fn sw_welcome_browse_button_signals_request_when_clicked() {
         let mut conn = String::new();
+        let mut gh = String::new();
+        let mut clone_flag = false;
         let mut req = false;
         let ctx = egui::Context::default();
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0));
@@ -4107,7 +4246,17 @@ mod tests {
                     ..Default::default()
                 },
                 |ui| {
-                    crate::app::welcome::paint(ui, &mut conn, None, req_out);
+                    crate::app::welcome::paint(
+                        ui,
+                        &mut conn,
+                        &mut gh,
+                        None,
+                        req_out,
+                        &mut clone_flag,
+                        None,
+                        None,
+                        None,
+                    );
                 },
             );
             out.textures_delta.clear(); // headless: no GPU consumer
@@ -4135,6 +4284,7 @@ mod tests {
 
         // Acting frame: press+release on the button in a single frame.
         let mut req2 = false;
+        let mut clone2 = false;
         let btn_evt = egui::PointerButton::Primary;
         let mods = Default::default();
         let mut acted = ctx.run_ui(
@@ -4148,7 +4298,17 @@ mod tests {
                 ..Default::default()
             },
             |ui| {
-                crate::app::welcome::paint(ui, &mut conn, None, &mut req2);
+                crate::app::welcome::paint(
+                    ui,
+                    &mut conn,
+                    &mut gh,
+                    None,
+                    &mut req2,
+                    &mut clone2,
+                    None,
+                    None,
+                    None,
+                );
             },
         );
         acted.textures_delta.clear(); // headless: no GPU consumer
@@ -4394,5 +4554,662 @@ mod tests {
             "banner names the chosen path (got: {err})"
         );
         let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    // =================================================================
+    // CHG-003: GitHub URL clone (wiring + card behaviour)
+    // =================================================================
+
+    /// Controllable stand-in for the clone worker: `compute` runs only
+    /// after the gate receives. Deterministic settle-between-ticks;
+    /// the join handle lets the ticker observe real settlement state.
+    fn gated_worker<F>(
+        compute: F,
+    ) -> (
+        std::thread::JoinHandle<Result<std::path::PathBuf, crate::error::AppError>>,
+        std::sync::mpsc::Sender<()>,
+    )
+    where
+        F: FnOnce() -> Result<std::path::PathBuf, crate::error::AppError> + Send + 'static,
+    {
+        let (gate_tx, gate_rx) = std::sync::mpsc::channel::<()>();
+        let join = std::thread::spawn(move || {
+            let _ = gate_rx.recv();
+            compute()
+        });
+        (join, gate_tx)
+    }
+
+    /// Poll (≤5s) until the ticker sees its job's worker as settled.
+    fn await_settle(app: &PacketApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app
+            .clone_job
+            .as_ref()
+            .is_some_and(|j| !j.join.is_finished())
+        {
+            assert!(std::time::Instant::now() < deadline, "worker never settled");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// mkrepo-style source shaped like a VANILLA GitHub repository: init
+    /// -b main, LOCAL identity, one committed baseline and DELIBERATELY
+    /// no planning/ — the connect pipeline must bootstrap + migrate it
+    /// exactly as it does for a hand-typed path into the same tree.
+    fn swcl_repo(tag: &str) -> std::path::PathBuf {
+        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let repo = std::env::temp_dir().join(format!("swcl_{tag}_{seq}_{}", std::process::id()));
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(
+                status.success(),
+                "git {args:?} failed building the {tag} repo"
+            );
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["config", "user.name", "SW Clone Test"]);
+        git(&["config", "user.email", "sw-clone@example.invalid"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(repo.join("README.md"), "# Cloned by SW test\n").unwrap();
+        git(&["add", "README.md"]);
+        git(&["commit", "-q", "-m", "baseline"]);
+        repo
+    }
+
+    fn sw_cl_job(
+        join: std::thread::JoinHandle<Result<std::path::PathBuf, crate::error::AppError>>,
+    ) -> CloneJob {
+        CloneJob {
+            url_display: "github.com/acme/site".into(),
+            repo: "site".into(),
+            join,
+        }
+    }
+
+    #[test]
+    fn sw_clone_ticket_one_unsettled_worker_rides_back_next_tick() {
+        let (join, gate) =
+            gated_worker(|| -> Result<std::path::PathBuf, crate::error::AppError> {
+                Err(crate::error::AppError::Other(
+                    "abandoned at teardown".into(),
+                ))
+            });
+        let mut app = PacketApp {
+            conn_github: "https://github.com/acme/site".into(),
+            ..Default::default()
+        };
+        app.clone_job = Some(sw_cl_job(join));
+        let ctx = egui::Context::default();
+
+        // Worker still fetching: the ticket picks the job UP and puts it
+        // back (poll rhythm), and NO action is taken meanwhile.
+        app.tick(0.016, &ctx);
+        assert!(app.clone_job.is_some(), "unsettled worker rides back");
+        assert!(
+            matches!(app.screen, Screen::Welcome),
+            "no navigation while in flight"
+        );
+        assert!(app.conn_error.is_none(), "no premature error");
+        assert_eq!(
+            app.conn_github, "https://github.com/acme/site",
+            "field preserved in flight"
+        );
+
+        // Second ticket while still unsettled: same behaviour repeats.
+        app.tick(0.016, &ctx);
+        assert!(app.clone_job.is_some(), "second tick: still riding back");
+
+        // Gate release (late) so the thread parks out harmlessly.
+        let _ = gate.send(());
+    }
+
+    #[test]
+    fn sw_clone_ticket_two_success_flows_into_submit_connect_and_connected() {
+        // Serialise the ambient-env mutations (git hierarchy + per-user
+        // state root) behind the house lock while a REAL connect runs.
+        let _shield = crate::core::gitops::test_support::shield("sw-clone-ok");
+        let state_home = std::env::temp_dir().join(format!("swcl_state_ok_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&state_home);
+        std::fs::create_dir_all(&state_home).unwrap();
+        // SAFETY: GIT_HIERARCHY_LOCK is held; only this test touches the
+        // per-user state root during the body. The prior value (if any)
+        // is restored at the end of the body.
+        let prev_state_home = std::env::var_os("PACKET_HOME");
+        unsafe {
+            std::env::set_var("PACKET_HOME", &state_home);
+        }
+
+        let dest = swcl_repo("ok");
+        let dest_for_worker = dest.clone();
+        let (join, gate) = gated_worker(move || Ok(dest_for_worker));
+        let mut app = PacketApp {
+            conn_github: "https://github.com/acme/site".into(),
+            ..Default::default()
+        };
+        app.clone_job = Some(sw_cl_job(join));
+        let ctx = egui::Context::default();
+
+        app.tick(0.016, &ctx); // unsettled: rides back (proven in test one)
+        gate.send(()).unwrap();
+        await_settle(&app);
+
+        // TICK TWO: job settled -> join -> refill conn_path -> submit_connect
+        // (the single connect authority) -> Connected.
+        app.tick(0.016, &ctx);
+        assert!(app.clone_job.is_none(), "settled worker is consumed");
+        let Screen::Connected(project) = &app.screen else {
+            panic!(
+                "expected Connected after a successful clone (err={:?})",
+                app.conn_error
+            );
+        };
+        let expected_title = dest
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        assert_eq!(
+            project.state.title, expected_title,
+            "title from the repo name"
+        );
+        assert_eq!(
+            app.conn_path,
+            dest.to_string_lossy().into_owned(),
+            "worker output filled conn_path (flow-through)"
+        );
+        assert!(app.conn_github.is_empty(), "success FORGETS the pasted URL");
+        assert!(app.conn_error.is_none());
+        assert!(
+            dest.join(crate::artifacts::product_docs::INDEX).exists(),
+            "the connect pipeline bootstrapped + migrated the cloned repo"
+        );
+
+        // Restore the ambient state root (prior value, or absence).
+        unsafe {
+            match prev_state_home {
+                Some(prev) => std::env::set_var("PACKET_HOME", prev),
+                None => std::env::remove_var("PACKET_HOME"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dest);
+        let _ = std::fs::remove_dir_all(&state_home);
+    }
+
+    #[test]
+    fn sw_clone_ticket_three_failed_clone_raises_git_banner_and_preserves_field() {
+        let (join, gate) = gated_worker(|| {
+            Err(crate::error::AppError::Git {
+                cmd: "clone https://github.com/acme/ghost-repo.git".into(),
+                detail: "fatal: repository 'https://github.com/acme/ghost-repo.git/' not found"
+                    .into(),
+            })
+        });
+        let mut app = PacketApp {
+            conn_github: "https://github.com/acme/ghost-repo".into(),
+            ..Default::default()
+        };
+        app.clone_job = Some(CloneJob {
+            url_display: "github.com/acme/ghost-repo".into(),
+            repo: "ghost-repo".into(),
+            join,
+        });
+        let ctx = egui::Context::default();
+
+        app.tick(0.016, &ctx);
+        gate.send(()).unwrap();
+        await_settle(&app);
+        app.tick(0.016, &ctx);
+
+        assert!(app.clone_job.is_none());
+        assert!(
+            matches!(app.screen, Screen::Welcome),
+            "failure NEVER navigates"
+        );
+        assert_eq!(
+            app.conn_github, "https://github.com/acme/ghost-repo",
+            "field preserved for correction + retry"
+        );
+        let err = app.conn_error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("git clone https://github.com/acme/ghost-repo.git failed"),
+            "headline line rides in the banner (got: {err})"
+        );
+        assert!(
+            err.contains("not found"),
+            "detail line rides in the banner (got: {err})"
+        );
+
+        // AC retry: the failed SETTLE left the slot vacant and the field
+        // intact, so a pressed Clone dispatches AGAIN — proven with a
+        // second gated (network-free) worker occupying the same cycle.
+        let (join2, gate2) = gated_worker(|| {
+            Err(crate::error::AppError::Git {
+                cmd: "clone https://github.com/acme/ghost-repo.git".into(),
+                detail: "retry round: still unreachable".into(),
+            })
+        });
+        app.clone_job = Some(CloneJob {
+            url_display: "github.com/acme/ghost-repo".into(),
+            repo: "ghost-repo".into(),
+            join: join2,
+        });
+        app.tick(0.016, &ctx);
+        gate2.send(()).unwrap();
+        await_settle(&app);
+        app.tick(0.016, &ctx);
+        assert!(app.clone_job.is_none(), "second failure also settles");
+        assert!(matches!(app.screen, Screen::Welcome), "still on Welcome");
+        assert!(
+            app.conn_error
+                .as_deref()
+                .is_some_and(|e| e.contains("retry round")),
+            "retry-round banner rendered (got: {:?})",
+            app.conn_error
+        );
+    }
+
+    #[test]
+    fn sw_clone_ticket_four_panicked_worker_reports_stopped_unexpectedly() {
+        let (join, gate) =
+            gated_worker(|| -> Result<std::path::PathBuf, crate::error::AppError> {
+                panic!("simulated out-of-memory kill in the fetch")
+            });
+        let mut app = PacketApp {
+            conn_github: "https://github.com/acme/site".into(),
+            ..Default::default()
+        };
+        app.clone_job = Some(sw_cl_job(join));
+        let ctx = egui::Context::default();
+
+        app.tick(0.016, &ctx); // rides back while unwound
+        gate.send(()).unwrap();
+        await_settle(&app);
+        app.tick(0.016, &ctx);
+
+        assert!(app.clone_job.is_none());
+        assert!(matches!(app.screen, Screen::Welcome));
+        assert_eq!(
+            app.conn_error.as_deref(),
+            Some("The clone worker stopped unexpectedly. Try again.")
+        );
+    }
+
+    #[test]
+    fn sw_begin_clone_blank_is_noop_and_unparsable_urls_spawn_nothing() {
+        let mut app = PacketApp {
+            conn_github: "   ".into(),
+            ..Default::default()
+        };
+        app.begin_clone_from_field();
+        assert!(app.clone_job.is_none(), "blank input spawns nothing");
+        assert!(app.conn_error.is_none(), "blank input is a silent no-op");
+
+        let mut app = PacketApp {
+            conn_github: "  notaurl  ".into(),
+            ..Default::default()
+        };
+        app.begin_clone_from_field();
+        assert!(
+            app.clone_job.is_none(),
+            "an unparseable URL spawns no worker/process"
+        );
+        let err = app.conn_error.as_deref().unwrap_or("");
+        assert!(
+            err.starts_with("Can't clone that URL"),
+            "framing line (got: {err})"
+        );
+        assert!(
+            err.contains("https://github.com/octocat/hello-world"),
+            "names the canonical shape + example (got: {err})"
+        );
+        assert_eq!(
+            app.conn_github, "  notaurl  ",
+            "field untouched for correction"
+        );
+
+        // Host mismatch gets its own guidance, still no worker.
+        let mut app = PacketApp {
+            conn_github: "https://gitee.com/o/r".into(),
+            ..Default::default()
+        };
+        app.begin_clone_from_field();
+        assert!(app.clone_job.is_none());
+        let err = app.conn_error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("got gitee.com"),
+            "distinct host guidance (got: {err})"
+        );
+    }
+
+    #[test]
+    fn sw_begin_clone_valid_url_dispatches_worker_hermetically() {
+        // Proves the dispatch link (parse-success → thread launch → job
+        // recorded) WITHOUT escaping the test: the computation seam stands
+        // in for the real perform_clone, capturing exactly what a worker
+        // would receive — the CANONICAL rebuilt url (never the raw string),
+        // with the .git suffix normalized in and segment case preserved.
+        use std::sync::{Arc, Mutex};
+        let dest = std::env::temp_dir().join(format!(
+            "swcl_dispatch_{}_widget", std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dest);
+        std::fs::create_dir_all(&dest).unwrap();
+        let captured: Arc<Mutex<(String, String)>> = Arc::new(Mutex::default());
+        let cap2 = captured.clone();
+        let dest_for_seam = dest.clone();
+        let mut app = PacketApp {
+            conn_github: "  https://github.com/Acme/Widget.git \n".into(),
+            ..Default::default()
+        };
+        app.clone_computation_override = Some(Arc::new(move |source: String, repo: String| {
+            *cap2.lock().unwrap() = (source, repo);
+            Ok(dest_for_seam.clone())
+        }));
+
+        app.begin_clone_from_field(); // trims before parsing (raw had padding)
+        let Some(job) = app.clone_job.as_ref() else {
+            panic!("valid URL must dispatch a worker (err={:?})", app.conn_error);
+        };
+        assert_eq!(job.url_display, "github.com/Acme/Widget", "badge uses owner/repo");
+        assert_eq!(job.repo, "Widget", "segment case preserved as pasted");
+
+        // Duplicate submission WHILE IN-FLIGHT: the occupied slot refuses
+        // (defense in depth behind the busy card's input-steal) and the
+        // recorded operation stays untouched. The capture below doubles as
+        // proof no second worker computation ever ran.
+        app.conn_github = "https://github.com/Late/Arrival".into();
+        app.begin_clone_from_field();
+        let job_after_dup = app
+            .clone_job
+            .as_ref()
+            .expect("duplicate must be refused, slot intact");
+        assert_eq!(job_after_dup.url_display, "github.com/Acme/Widget");
+        assert!(
+            app.conn_error.is_none(),
+            "duplicate refused silently (no banner churn)"
+        );
+
+        let settled = app.clone_job.take().unwrap().join.join().unwrap().unwrap();
+        assert_eq!(settled, dest, "worker result flows back undistorted");
+        let (source, repo) = (*captured.lock().unwrap()).clone();
+        assert_eq!(
+            source, "https://github.com/Acme/Widget.git",
+            "worker receives the CANONICAL rebuilt url (not the raw paste)"
+        );
+        assert_eq!(repo, "Widget");
+        let _ = std::fs::remove_dir_all(&dest);
+    }
+
+    // ---- Connect-card paint simulation (AC7: in-flight freeze) --------
+
+    /// One paint-frame driver for the connect card, standing in for the
+    /// Welcome arm (fresh per-frame flag cells approximated by resets in
+    /// the test bodies).
+    struct SwCardSim {
+        path: String,
+        github: String,
+        err: Option<String>,
+        browse: bool,
+        clone_req: bool,
+        submitted: bool,
+        cloning: Option<(String, String)>,
+        /// Field hit-geometry captured inside `paint` every frame — the
+        /// reliable ground truth for scripted clicks (painted fills are
+        /// theme-dependent; hit geometry is not).
+        path_probe: (egui::Id, egui::Rect),
+        url_probe: (egui::Id, egui::Rect),
+    }
+
+    impl SwCardSim {
+        fn frame(&mut self, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1400.0, 900.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    self.submitted = welcome::paint(
+                        ui,
+                        &mut self.path,
+                        &mut self.github,
+                        self.err.as_deref(),
+                        &mut self.browse,
+                        &mut self.clone_req,
+                        self.cloning.as_ref().map(|(u, r)| (u.as_str(), r.as_str())),
+                        Some(&mut self.path_probe),
+                        Some(&mut self.url_probe),
+                    );
+                },
+            );
+            out.textures_delta.clear();
+            out
+        }
+
+        fn click(&mut self, ctx: &egui::Context, pos: egui::Pos2) {
+            let btn = egui::PointerButton::Primary;
+            let mods = Default::default();
+            self.frame(
+                ctx,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: btn,
+                        pressed: true,
+                        modifiers: mods,
+                    },
+                    egui::Event::PointerButton {
+                        pos,
+                        button: btn,
+                        pressed: false,
+                        modifiers: mods,
+                    },
+                ],
+            );
+        }
+    }
+
+    fn sw_enter_event() -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            modifiers: Default::default(),
+            pressed: true,
+            repeat: false,
+        }
+    }
+
+    /// The two field hit-rects straight from the in-paint probe (path
+    /// first, URL second) — immune to theme-dependent painted fills.
+    fn sw_card_fields(sim: &SwCardSim) -> (egui::Rect, egui::Rect) {
+        let (path_id, path_rect) = &sim.path_probe;
+        let (url_id, url_rect) = &sim.url_probe;
+        assert_ne!(*path_id, egui::Id::NULL, "path field was not painted");
+        assert_ne!(*url_id, egui::Id::NULL, "url field was not painted");
+        for (r, what) in [(path_rect, "path"), (url_rect, "url")] {
+            assert!(
+                r.height() > 30.0 && r.width() > 100.0,
+                "{what} field rect looks degenerate: {r:?}"
+            );
+        }
+        (*path_rect, *url_rect)
+    }
+
+    #[test]
+    fn sw_clone_card_freezes_in_flight_and_scopes_enter_per_focus() {
+        let ctx = egui::Context::default();
+        let mut sim = SwCardSim {
+            path: String::new(),
+            github: String::new(),
+            err: None,
+            browse: false,
+            clone_req: false,
+            submitted: false,
+            cloning: None,
+            path_probe: (egui::Id::NULL, egui::Rect::NOTHING),
+            url_probe: (egui::Id::NULL, egui::Rect::NOTHING),
+        };
+
+        // Burn the fresh context's placeholder frame, then an idle probe.
+        sim.frame(&ctx, vec![]);
+        let out = sim.frame(&ctx, vec![]);
+        assert!(!sim.submitted, "idle card returns false");
+        assert!(!sim.browse && !sim.clone_req, "idle card raises nothing");
+        assert!(
+            sw_text_pos(&out, "Or paste a GitHub URL").is_some(),
+            "row caption painted"
+        );
+        assert!(sw_text_pos(&out, "Clone").is_some(), "Clone button painted");
+        assert!(
+            sw_text_pos(&out, "Open workspace").is_some(),
+            "existing Open button intact"
+        );
+        let (path_field, url_field) = sw_card_fields(&sim);
+
+        // Bare window-level Enter with NO field focused: inert (retired
+        // global hook).
+        sim.browse = false;
+        sim.clone_req = false;
+        sim.submitted = false;
+        sim.frame(&ctx, vec![sw_enter_event()]);
+        assert!(
+            !sim.submitted && !sim.clone_req && !sim.browse,
+            "focus-less Enter changes nothing"
+        );
+
+        // URL field focused + Enter: requests a clone, does NOT submit.
+        sim.click(&ctx, url_field.center());
+        assert_eq!(
+            ctx.memory(|m| m.focused()),
+            Some(sim.url_probe.0),
+            "click focused the URL field"
+        );
+        sim.clone_req = false;
+        sim.submitted = false;
+        sim.frame(&ctx, vec![sw_enter_event()]);
+        assert!(!sim.submitted, "URL-field Enter must not submit");
+        assert!(sim.clone_req, "URL-field Enter requests a clone");
+
+        // Path field focused + Enter: submits only when non-empty.
+        sim.click(&ctx, path_field.center());
+        assert_eq!(
+            ctx.memory(|m| m.focused()),
+            Some(sim.path_probe.0),
+            "click focused the PATH field"
+        );
+        sim.clone_req = false;
+        sim.submitted = false;
+        sim.frame(&ctx, vec![sw_enter_event()]);
+        assert!(
+            !sim.submitted && !sim.clone_req,
+            "empty path + focused Enter is inert (incumbent guard)"
+        );
+        // Enter already SURRENDED focus (single-line TextEdit behaviour —
+        // the retired global shortcut's deliberate casualty): refill and
+        // re-focus before the submitting Enter.
+        sim.path = "/tmp/somewhere".into();
+        sim.click(&ctx, path_field.center());
+        sim.submitted = false;
+        sim.frame(&ctx, vec![sw_enter_event()]);
+        assert!(sim.submitted, "path-field Enter submits the connect");
+
+        // Clone button rect (110x42) is the card's unique tall outline.
+        let out = sim.frame(&ctx, vec![]);
+        let clone_btn = out
+            .shapes
+            .iter()
+            .find_map(|sl| match &sl.shape {
+                egui::Shape::Rect(r) => ((r.rect.size().x - 110.0).abs() < 2.01
+                    && (r.rect.size().y - 42.0).abs() < 2.01)
+                    .then_some(r.rect),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("Clone button rect (110x42) missing"));
+
+        // Empty-URL guard: the control is disabled, so a click on it
+        // raises nothing (ticket: mirrors the path field's empty-silence;
+        // the parser's complaints belong to non-empty malformations).
+        sim.clone_req = false;
+        sim.submitted = false;
+        sim.click(&ctx, clone_btn.center());
+        assert!(
+            !sim.clone_req && !sim.submitted,
+            "disabled (empty-URL) Clone click raises nothing"
+        );
+
+        // Mouse path: once the field holds a URL, clicking Clone activates.
+        sim.github = "https://github.com/acme/widget".into();
+        sim.frame(&ctx, vec![]); // repaint so the control re-enables
+        sim.clone_req = false;
+        sim.submitted = false;
+        sim.click(&ctx, clone_btn.center());
+        assert!(sim.clone_req, "Clone click raises the one-shot request");
+
+        assert!(!sim.submitted, "Clone click does not submit");
+
+        // IN FLIGHT: every input returns false, flags are forced clean,
+        // and the status line names the repo.
+        sim.cloning = Some(("github.com/acme/widget".into(), "widget".into()));
+        sim.clone_req = true; // hostile sticky flag: paint must force it low
+        sim.browse = true;
+        sim.submitted = false;
+        let out = sim.frame(&ctx, vec![sw_enter_event()]);
+        assert!(!sim.submitted, "busy card returns false on Enter");
+        assert!(!sim.clone_req, "busy card forces the clone flag LOW");
+        assert!(!sim.browse, "busy card forces the browse flag LOW");
+        assert!(
+            sw_text_pos(&out, "Cloning widget from GitHub…").is_some(),
+            "in-flight status line painted"
+        );
+        sim.cloning = None;
+    }
+
+    #[test]
+    fn sw_clone_ticket_five_unparseable_past_surfaces_readable_banner_and_spawns_nothing() {
+        // AC guard: invalid pastes show a readable error near the URL
+        // field and NEVER spawn a clone worker.
+        let mut app = PacketApp {
+            conn_github: "notaurl".into(),
+            ..Default::default()
+        };
+        app.begin_clone_from_field();
+        assert!(app.clone_job.is_none(), "no worker spawned for junk");
+        let err = app.conn_error.as_deref().unwrap_or("");
+        assert!(
+            err.starts_with("Can't clone that URL"),
+            "readable error surfaced near the field (got: {err})"
+        );
+
+        let mut wrong_host = PacketApp {
+            conn_github: "https://gitlab.example.com/acme/site".into(),
+            ..Default::default()
+        };
+        wrong_host.begin_clone_from_field();
+        assert!(
+            wrong_host.clone_job.is_none(),
+            "non-GitHub host spawns nothing"
+        );
+        assert!(wrong_host.conn_error.is_some(), "host diagnostic surfaced");
+
+        let mut blank = PacketApp {
+            conn_github: "   ".into(),
+            ..Default::default()
+        };
+        blank.begin_clone_from_field();
+        assert!(
+            blank.clone_job.is_none() && blank.conn_error.is_none(),
+            "blank paste is fully inert"
+        );
     }
 }

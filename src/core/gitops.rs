@@ -52,6 +52,48 @@ pub fn is_work_tree(cwd: &Path) -> bool {
     code == 0
 }
 
+/// True when `relative` is known to the repository rooted at `cwd`
+/// (`git ls-files --error-unmatch`, dispatched through [`run`] so the
+/// NFR-5 vector-argument/no-shell guarantee stays centralized). Probe
+/// failure counts as `false` (caller treats the path as unstaged), which
+/// errs toward NOT checkpointing a path the index cannot attest.
+pub fn tracked_in_head(cwd: &Path, relative: &str) -> bool {
+    match run(cwd, &["ls-files", "--error-unmatch", relative]) {
+        Ok((code, _, _)) => code == 0,
+        Err(_) => false,
+    }
+}
+
+/// Clone `source` (a remote URL or a local path) into `dest` via the
+/// system `git` CLI.
+///
+/// Dispatched through [`run`] so the NFR-5 vector-argument/no-shell
+/// guarantee stays centralized; `cwd` is `dest.parent()`, which callers
+/// guarantee exists (git refuses to create the parent itself). A nonzero
+/// exit surfaces as [`AppError::Git`] carrying git's trimmed stderr (or
+/// stdout when stderr is blank).
+pub fn clone_repo(source: &str, dest: &Path) -> Result<(), AppError> {
+    let parent = dest.parent().ok_or_else(|| AppError::Io {
+        op: "prepare clone destination".into(),
+        detail: "the clone destination has no parent directory".into(),
+    })?;
+    let dest_arg = dest.to_string_lossy().into_owned();
+    let (code, out, err) = run(parent, &["clone", source, &dest_arg])?;
+    if code != 0 {
+        let detail = err.trim();
+        let detail = if detail.is_empty() {
+            out.trim()
+        } else {
+            detail
+        };
+        return Err(AppError::Git {
+            cmd: format!("clone {source}"),
+            detail: detail.to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Gather branch/head/dirty/last-subject. Individual probe failures degrade
 /// gracefully to blanks rather than breaking the UI.
 pub fn snapshot(cwd: &Path) -> GitSnapshot {
@@ -298,6 +340,58 @@ mod tests {
         assert!(log.contains("planner: establish initial specification"));
         assert!(!sha.is_empty());
         let _ = fs::remove_dir_all(&repo);
+    }
+
+    // ---- clone_repo -------------------------------------------------------
+
+    #[test]
+    fn clone_repo_clones_local_source_into_dest() {
+        let source = mkrepo("clonesrc");
+        let dest = source.with_file_name(format!(
+            "{}_cloned",
+            source
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("repo")
+        ));
+        clone_repo(source.to_str().unwrap(), &dest).unwrap();
+        assert!(is_work_tree(&dest), "the clone is a working tree");
+        assert_eq!(
+            fs::read_to_string(dest.join("a.txt")).unwrap(),
+            "one",
+            "committed files arrived"
+        );
+        let _ = fs::remove_dir_all(&dest);
+        let _ = fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn clone_repo_missing_source_errors_git() {
+        let dir = fresh_dir("clonesrcmiss");
+        let missing = dir.join("never-init-as-repo");
+        let dest = dir.join("cloned");
+        match clone_repo(missing.to_str().unwrap(), &dest) {
+            Err(AppError::Git { cmd, detail }) => {
+                assert!(cmd.starts_with("clone "), "cmd labels the clone: {cmd}");
+                assert!(!detail.trim().is_empty(), "git's stderr tail rides along");
+            }
+            other => panic!("expected Git error for a nonexistent source, got {other:?}"),
+        }
+        assert!(
+            !dest.exists(),
+            "no half-made destination for a failed clone"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clone_repo_missing_dest_parent_errors() {
+        let dir = fresh_dir("clonparent");
+        let source = mkrepo("clonparent-src");
+        let dest = dir.join("does-not-exist").join("deeper").join("clone");
+        assert!(clone_repo(source.to_str().unwrap(), &dest).is_err());
+        let _ = fs::remove_dir_all(&source);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
