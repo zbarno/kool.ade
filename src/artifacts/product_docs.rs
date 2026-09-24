@@ -8,7 +8,8 @@ use crate::core::specification::SECTIONS;
 
 pub const PRODUCT_DIR: &str = "planning/product";
 pub const INDEX: &str = "planning/product/index.md";
-pub const LEGACY_ARCHIVE: &str = "planning/archive/specification-pre-modules.md";
+pub const LEGACY_ARCHIVE: &str = ".kool-ade-packet/planning/archive/specification-pre-modules.md";
+const OLD_LEGACY_ARCHIVE: &str = "planning/archive/specification-pre-modules.md";
 pub const MODULES: [&str; 13] = [
     "01-vision.md",
     "02-scope.md",
@@ -490,11 +491,22 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
         }
     }
     let old = repo.join("planning/specification.md");
-    let archive_dir = repo.join("planning/archive");
+    if repo.join("planning/archive").exists() {
+        crate::artifacts::task_docs::safe_directory(repo, "planning/archive")?;
+    }
+    let previous_archive = repo.join(OLD_LEGACY_ARCHIVE);
+    if regular(&previous_archive)? {
+        anyhow::ensure!(
+            !regular(&old)? && !regular(&repo.join(LEGACY_ARCHIVE))?,
+            "Conflicting legacy specification archives; preserve both and resolve before migration"
+        );
+        crate::artifacts::task_docs::safe_directory(repo, ".kool-ade-packet/planning/archive")?;
+        std::fs::rename(&previous_archive, repo.join(LEGACY_ARCHIVE))?;
+        changes.push(OLD_LEGACY_ARCHIVE.into());
+        changes.push(LEGACY_ARCHIVE.into());
+    }
     if regular(&old)? {
-        if !real_dir(&archive_dir)? {
-            std::fs::create_dir(&archive_dir)?;
-        }
+        crate::artifacts::task_docs::safe_directory(repo, ".kool-ade-packet/planning/archive")?;
         let archive = repo.join(LEGACY_ARCHIVE);
         anyhow::ensure!(
             !regular(&archive)?,
@@ -518,6 +530,11 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
         {
             changes.push("planning/specification.md".into());
         }
+        if tracked(repo, OLD_LEGACY_ARCHIVE)
+            && !changes.iter().any(|path| path == OLD_LEGACY_ARCHIVE)
+        {
+            changes.push(OLD_LEGACY_ARCHIVE.into());
+        }
     }
     Ok(changes)
 }
@@ -525,6 +542,53 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn archive_relocation_preserves_evidence_and_retries_checkpoint_paths() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_archive_relocation_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(root.join("planning")).unwrap();
+        let source = crate::artifacts::spec_doc::bootstrap_template("Demo");
+        std::fs::write(root.join("planning/specification.md"), &source).unwrap();
+        migrate(&root, &source).unwrap();
+        std::fs::create_dir_all(root.join("planning/archive")).unwrap();
+        std::fs::rename(root.join(LEGACY_ARCHIVE), root.join(OLD_LEGACY_ARCHIVE)).unwrap();
+        for args in [vec!["init", "-q"], vec!["add", "."]] {
+            assert!(std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success());
+        }
+        // A collision must not discard either historical record.
+        std::fs::write(root.join(LEGACY_ARCHIVE), "other evidence").unwrap();
+        assert!(migrate(&root, &source).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join(OLD_LEGACY_ARCHIVE)).unwrap(),
+            source
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(LEGACY_ARCHIVE)).unwrap(),
+            "other evidence"
+        );
+        std::fs::remove_file(root.join(LEGACY_ARCHIVE)).unwrap();
+        let paths = migrate(&root, &source).unwrap();
+        assert!(paths.contains(&OLD_LEGACY_ARCHIVE.to_string()));
+        assert!(paths.contains(&LEGACY_ARCHIVE.to_string()));
+        assert!(!root.join(OLD_LEGACY_ARCHIVE).exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join(LEGACY_ARCHIVE)).unwrap(),
+            source
+        );
+        let retry = migrate(&root, &source).unwrap();
+        assert!(retry.contains(&OLD_LEGACY_ARCHIVE.to_string()));
+        assert!(retry.contains(&LEGACY_ARCHIVE.to_string()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn migration_preserves_all_thirteen_sections_and_stable_ids() {
         let root =

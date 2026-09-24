@@ -12,7 +12,7 @@
 | `.planner/config.md` | Category owners and optional identity fallback | F-17 settings / planner |
 | `.planner/mcp.json` | Harness MCP advertisement | F-18 editor |
 | `planning/imports/` | Reference documents | Operator import |
-| `planning/archive/specification-pre-modules.md` | Pre-migration single-file evidence | Migration only |
+| `.kool-ade-packet/planning/archive/specification-pre-modules.md` | Pre-migration single-file evidence | Migration only |
 | `$PACKET_HOME/projects/<slug>/` | Private chat, checkpoints, checkout mapping | Local Packet process |
 | Git common directory | Transaction journal, queue, implementation records/worktrees metadata | Packet workflow |
 

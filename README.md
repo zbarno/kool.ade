@@ -4,6 +4,9 @@ A native desktop planner with a conversation and a living specification for your
 
 Run with `cargo run --offline` (once dependencies have been downloaded).
 
+See [the artifact layout and cleanup review](docs/artifact-layout.md) for current
+specifications, Packet working artifacts, configuration, and published decisions.
+
 ## Conversations on the board
 
 Conversations stay in a persistent tabbed panel to the left of the Kanban (above it
