@@ -845,19 +845,19 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             "Owner: {}",
                             item.assigned_to.as_deref().unwrap_or("Unassigned")
                         ));
-                        ui.label(&item.reason);
+                        ui.add(egui::Label::new(&item.reason).wrap());
                         if let Some(feature) = &item.feature_id {
                             ui.label(format!("Feature: {feature}"));
                         }
                         if !item.evidence.is_empty() {
                             ui.separator();
                             ui.label(RichText::new("Evidence").strong());
-                            ui.label(&item.evidence);
+                            ui.add(egui::Label::new(&item.evidence).wrap());
                         }
                         if !item.recommendation.is_empty() {
                             ui.separator();
-                            ui.label(RichText::new("Packet's recommendation").strong());
-                            ui.label(&item.recommendation);
+                            ui.label(RichText::new("Recommended next step").strong());
+                            ui.add(egui::Label::new(&item.recommendation).wrap());
                         }
                     });
                     ui.collapsing("Activity", |ui| {
@@ -871,23 +871,34 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             ui.separator();
                             ui.heading("Agent investigation");
                             if let Some(activity) = &progress.activity {
-                                ui.label(activity);
+                                ui.add(egui::Label::new(activity).wrap());
                             }
                             ui.label(format!("Activity updates: {}", progress.telemetry.updates));
                             if !progress.response.trim().is_empty() {
-                                ui.collapsing("Latest output", |ui| {
-                                    ui.label(crate::core::context_build::clip(
-                                        &progress.response,
-                                        4000,
-                                    ));
-                                });
+                                ui.label(RichText::new("Latest result").strong());
+                                egui::ScrollArea::vertical()
+                                    .max_height(240.0)
+                                    .show(ui, |ui| {
+                                        crate::ui::markdown::paint(
+                                            ui,
+                                            &crate::core::context_build::clip(
+                                                &progress.response,
+                                                4000,
+                                            ),
+                                            crate::ui::markdown::CHAT,
+                                        )
+                                    });
                             }
                             if !progress.thoughts.trim().is_empty() {
-                                ui.collapsing("Worker thoughts", |ui| {
-                                    ui.label(crate::core::context_build::clip(
-                                        &progress.thoughts,
-                                        4000,
-                                    ));
+                                ui.collapsing("Worker notes", |ui| {
+                                    crate::ui::markdown::paint(
+                                        ui,
+                                        &crate::core::context_build::clip(
+                                            &progress.thoughts,
+                                            4000,
+                                        ),
+                                        crate::ui::markdown::CHAT,
+                                    );
                                 });
                             }
                         }
@@ -1245,12 +1256,16 @@ fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &str) {
         "Preparing" | "Implementing" | "Verifying" | "Interrupted" | "Waiting to merge" | "Publishing" | "Ready for PR"));
     if let Some(error) = failure {
         ui.colored_label(egui::Color32::LIGHT_RED, "Needs attention");
-        ui.label(card_summary(error)).on_hover_text(error);
+        ui.label(failure_summary(error)).on_hover_text(error);
         ui.collapsing("Failure details", |ui| {
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| { ui.label(error); });
+            egui::ScrollArea::vertical()
+                .max_height(240.0)
+                .show(ui, |ui| {
+                    crate::ui::markdown::paint(ui, error, crate::ui::markdown::CHAT);
+                });
             if ui.small_button("Copy failure").clicked() { ui.ctx().copy_text(error.to_owned()); }
         });
-        ui.label("Resolve the reported cause, then Resume implementation. Existing work is preserved.");
+        ui.label("Open failure details for evidence. Resume implementation after the listed action is complete.");
     } else if interrupted {
         ui.colored_label(egui::Color32::LIGHT_RED, "Interrupted — no worker is running");
         ui.label("Resume implementation to continue preserved work.");
@@ -1308,6 +1323,13 @@ fn card_summary(text: &str) -> String {
     } else {
         format!("{}…", flat.chars().take(160).collect::<String>())
     }
+}
+
+fn failure_summary(text: &str) -> String {
+    text.split_once("### Next action(s)")
+        .and_then(|(_, next)| next.lines().find(|line| !line.trim().is_empty()))
+        .map(|line| format!("Next: {}", card_summary(line.trim().trim_start_matches("- "))))
+        .unwrap_or_else(|| card_summary(text))
 }
 
 #[cfg(test)]

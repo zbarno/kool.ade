@@ -7,7 +7,7 @@
 | `planning/product/index.md`, `01`–`13-*.md` | Current product identity, module manifest, and thirteen logical sections | Validated planner application |
 | `planning/features/CHG-*/specification.md` | Feature delta, lifecycle, accepted intent, implementation references | Validated planner application |
 | `planning/open-items.md` | Actionable uncertainty with stable `CLR-` IDs | Validated item serializer |
-| `planning/tasks/<batch>/` | Immutable approved task stories and scoped `contract.json` | Task generator |
+| `.kool-ade-packet/planning/tasks/<batch>/` | Immutable approved task stories and scoped `contract.json` | Task generator |
 | `.planner/project.json` | Stable repository IDs, roles, remote identities | Planning root |
 | `.planner/config.md` | Category owners and optional identity fallback | F-17 settings / planner |
 | `.planner/mcp.json` | Harness MCP advertisement | F-18 editor |

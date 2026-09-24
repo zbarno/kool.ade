@@ -87,7 +87,7 @@ stable identity instead of failing generation.
 Example output:
 
 ```text
-planning/tasks/saved-searches/
+.kool-ade-packet/planning/tasks/saved-searches/
   README.md
   specification.md
   001-persist-named-search-filters.md

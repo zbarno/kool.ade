@@ -5,6 +5,7 @@ pub mod cleanup;
 use crate::harness::{AiHarness, LiveProgress, PiHarness, PlanningRequest};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -726,6 +727,59 @@ fn scoped_product_context(planning_root: &Path, ticket: &str) -> anyhow::Result<
     Ok(Some(context))
 }
 
+/// Collect objective history evidence for explicit commit references in a
+/// ticket before a worker starts. Exact-footprint requirements often name an
+/// older checkpoint; this makes the changes already present at the task base
+/// visible and reviewable before implementation or recovery begins.
+fn history_preflight_context(
+    runner: &Runner,
+    worktree: &Path,
+    base_commit: &str,
+    ticket_text: &str,
+) -> anyhow::Result<String> {
+    let anchors = ticket_text
+        .split(|c: char| !c.is_ascii_hexdigit())
+        .filter(|token| (7..=40).contains(&token.len()))
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    let mut evidence = format!(
+        "Task base: {base_commit}\nTicket commit references: {}\n",
+        anchors.len()
+    );
+    for anchor in anchors.iter().take(20) {
+        let Ok(resolved) = runner.git(
+            worktree,
+            &["rev-parse", "--verify", &format!("{anchor}^{{commit}}")],
+        ) else {
+            evidence.push_str(&format!("\n{anchor}: not a resolvable commit in this checkout\n"));
+            continue;
+        };
+        let common = runner.git(worktree, &["merge-base", &resolved, base_commit]);
+        match common {
+            Ok(common) if common == resolved => {
+                let paths = runner.git(worktree, &["diff", "--name-status", &resolved, base_commit])?;
+                evidence.push_str(&format!(
+                    "\n{anchor} resolves to {resolved} and is an ancestor of the task base.\nChanged paths from that checkpoint to the task base (git diff --name-status):\n{}\n",
+                    if paths.is_empty() { "(none)" } else { paths.as_str() }
+                ));
+            }
+            Ok(common) => evidence.push_str(&format!(
+                "\n{anchor} resolves to {resolved}, but is not an ancestor of the task base (merge base {common}).\n"
+            )),
+            Err(_) => evidence.push_str(&format!(
+                "\n{anchor} resolves to {resolved}, but shares no reachable history with the task base.\n"
+            )),
+        }
+    }
+    if anchors.len() > 20 {
+        evidence.push_str(&format!(
+            "\nOnly the first 20 of {} ticket references are shown.\n",
+            anchors.len()
+        ));
+    }
+    Ok(evidence)
+}
+
 fn completed_dependency_context(
     planning_root: &Path,
     ticket: &str,
@@ -882,6 +936,15 @@ fn prepare_verified(
             ));
             let status = runner.git(&state.worktree, &["status", "--short"])?;
             let log = runner.git(&state.worktree, &["log", "-5", "--oneline"])?;
+            let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
+            let history_evidence = history_preflight_context(
+                runner,
+                &state.worktree,
+                &state.base_commit,
+                &state.ticket_text,
+            )?;
+            let history_evidence_path = dir.join(format!("{stamp}-history-preflight.txt"));
+            fs::write(&history_evidence_path, &history_evidence)?;
             let mut prompt = format!(
                 "Implement this ticket in the CURRENT working directory, a dedicated Git worktree. This may be a RESUME: inspect git status, existing diffs, commits, untracked files, tests and repository instructions FIRST. Preserve and complete existing work; do not restart, reset, clean, discard or overwrite unrelated changes. Verify prerequisites and dependencies; report blocked if unavailable. Implement only this ticket's scope. Run the required checks and repair failures. Do not change branches, create worktrees, commit, push, create PRs or merge; Packet owns those steps. Do not modify the original checkout.\n\nTICKET PATH: {}\nTICKET CONTENT:\n{}\n\nAPPROVED SPECIFICATION:\n{}\n\nAFFECTED PRODUCT MODULES (FROZEN AT TASK APPROVAL):\n{}\n\nCURRENT STATUS:\n{}\nRECENT COMMITS:\n{}\n\nReturn a complete JSON object with status (complete or blocked), summary, acceptance_criteria (array of objects with criterion copied verbatim from the ticket and concrete evidence), verification (array of runnable POSIX /bin/sh commands; each runs in a NEW shell starting in this worktree, with PACKET_WORKTREE set to its absolute path; no shell variables or cwd changes carry between commands), remaining (array of unresolved work). Complete requires every ticket criterion met, meaningful checks passing, and remaining empty. Use actual commands without placeholder paths. Before changing directories, capture paths or use \"$PACKET_WORKTREE/Cargo.toml\"; $(pwd) after cd refers to the NEW directory. Do not use Bash-only syntax. When testing commands yourself, export PACKET_WORKTREE to this worktree path before invoking /bin/sh. Execute exactly the commands you report using /bin/sh. Assert expected outcomes and preserve command exit failures: capture output to a file, then check it, rather than masking a failed command with a successful pipeline or command substitution. Never claim success from an exit code alone or invent results. Do not include prose outside the JSON.",
                 state.ticket,
@@ -894,6 +957,12 @@ fn prepare_verified(
                 status,
                 log
             );
+            prompt.insert_str(0, "FEASIBILITY PREFLIGHT — before edits or expensive checks, compare every requirement about an exact file list, commit footprint, history, or frozen baseline against the actual base commit and reachable history. If a requirement is already impossible because published commits contain forbidden changes, or would require rewriting history or out-of-scope files, stop and report blocked before implementation. Name the exact conflicting requirement, show the smallest concrete evidence, and make the remaining item a decision for the person who owns the contract (for example: approve the realized footprint, revise the predicate, or authorize history repair). Do not spend recovery turns repeating checks that cannot change this fact. Distinguish this from a code or test defect that can be repaired in this worktree.\n\n");
+            prompt.push_str(&format!(
+                "\n\nMECHANICALLY COLLECTED HISTORY PREFLIGHT (also saved at {}):\n{}\nCompare any ticket-stated exact footprint with these reachable-history facts before editing. Explicitly say whether the expected table describes cumulative feature history or this ticket's changes from its task base.\n",
+                history_evidence_path.display(), history_evidence
+            ));
+            prompt.push_str("Write summary for an operator: lead with the outcome in plain language, then state the next step as an action with its owner. Define uncommon gate jargon on first use. Make each remaining entry start with the responsible person or role and a verb (for example, `Adjudicator: approve ...` or `Operator: run ...`); name the exact artifact or command and expected result.\n");
             if let Some(dependencies) = &state.completed_dependency_context {
                 prompt.push_str(&format!(
                     "\n\nCOMPLETED DEPENDENCY CONTRACTS:\n{dependencies}"
@@ -901,9 +970,8 @@ fn prepare_verified(
             }
 
             if !feedback.is_empty() {
-                prompt.push_str(&format!("\n\nPREVIOUS STOP / CORRECTION REQUIRED:\n{feedback}\nContinue in this same worktree. Treat this as a correction history: keep earlier fixes and address the newest failure without reintroducing older ones. Inspect and preserve existing work. Correct the report or implementation and rerun affected checks. Copy acceptance criterion text EXACTLY, including any spelling mistakes; do not edit the ticket to satisfy this check. Return the full JSON report, not just the correction. Do not weaken or bypass failing checks. Report blocked for prerequisites that require human intervention.\nPrevious response (possibly truncated):\n{previous_response}"));
+                prompt.push_str(&format!("\n\nPREVIOUS STOP / CORRECTION REQUIRED:\n{feedback}\nContinue in this same worktree. Treat this as a correction history: keep earlier fixes and address the newest failure without reintroducing older ones. Inspect and preserve existing work. Correct the report or implementation and rerun affected checks. Copy acceptance criterion text EXACTLY, including any spelling mistakes; do not edit the ticket to satisfy this check. Return the full JSON report, not just the correction. Do not weaken or bypass failing checks. Before repeating recovery, check whether the failure is a fixed contradiction in the frozen base/history; if so, preserve the evidence and report the exact human decision needed instead of repeating machine checks. Report blocked for prerequisites or decisions that require human intervention.\nPrevious response (possibly truncated):\n{previous_response}"));
             }
-            let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
             let report_path = dir.join(format!("{stamp}-report.json"));
             prompt.push_str(&format!("\n\nRECOVERY REPORT FILE: {}\nAfter verification, atomically write the same complete JSON report to this absolute file (temporary sibling then rename) before your final response. This preserves completion if the CLI loses its final message.\nYou may fix the root cause of encountered failures and add regression coverage in this worktree when necessary. Keep repairs focused, preserve checks, and do not commit them yourself: Packet verifies and commits the task and its recovery fixes together atomically.\n", report_path.display()));
             let request = PlanningRequest { implementation: true, read_only: false, reasoning_level: "medium".into(), repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
@@ -1547,9 +1615,13 @@ fn title(ticket: &str) -> String {
 fn validate_report(report: &Report, ticket: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         report.status == "complete" && report.remaining.is_empty(),
-        "Implementation is not complete: {}. Remaining: {}",
+        "## Implementation blocked\n\n### What is complete\n\n{}\n\n### Next action(s)\n\n- {}",
         report.summary,
-        report.remaining.join("; ")
+        if report.remaining.is_empty() {
+            "Review the report and choose Resume implementation.".to_owned()
+        } else {
+            report.remaining.join("\n- ")
+        }
     );
     anyhow::ensure!(
         !report.summary.trim().is_empty()

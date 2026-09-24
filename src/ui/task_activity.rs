@@ -226,18 +226,48 @@ pub fn full(ui: &mut egui::Ui, progress: &LiveProgress, active: bool) {
         }
     });
     if let Some(activity) = &progress.activity {
-        ui.label(activity);
+        ui.add(egui::Label::new(RichText::new(activity).weak()).wrap());
     }
-    ui.separator();
-    let height = (ui.ctx().content_rect().height() - 290.0).max(140.0);
-    egui::ScrollArea::vertical()
-        .id_salt("full_task_activity_stream")
-        .max_height(height)
-        .auto_shrink([false, false])
-        .stick_to_bottom(true)
-        .show(ui, |ui| {
-            crate::ui::chat_pane::paint_progress(ui, progress);
+    if !progress.response.trim().is_empty() {
+        ui.add_space(6.0);
+        ui.heading("Latest result");
+        egui::ScrollArea::vertical()
+            .max_height(260.0)
+            .show(ui, |ui| {
+                crate::ui::markdown::paint(ui, progress.response.trim(), crate::ui::markdown::CHAT)
+            });
+    } else if let Some(post) = progress
+        .posts
+        .iter()
+        .rev()
+        .find(|post| post.kind != "thinking")
+    {
+        ui.add_space(6.0);
+        ui.heading("Latest update");
+        if post.kind == "assistant" {
+            crate::ui::markdown::paint(ui, post.text.trim(), crate::ui::markdown::CHAT);
+        } else {
+            ui.add(egui::Label::new(RichText::new(&post.text).monospace()).wrap());
+        }
+    }
+    if !progress.thoughts.trim().is_empty() {
+        ui.collapsing("Worker notes", |ui| {
+            crate::ui::markdown::paint(ui, progress.thoughts.trim(), crate::ui::markdown::CHAT);
         });
+    }
+    if !progress.posts.is_empty() || !progress.response.trim().is_empty() {
+        ui.collapsing("Full activity log", |ui| {
+            let height = (ui.ctx().content_rect().height() - 290.0).max(140.0);
+            egui::ScrollArea::vertical()
+                .id_salt("full_task_activity_stream")
+                .max_height(height)
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .show(ui, |ui| {
+                    crate::ui::chat_pane::paint_progress(ui, progress)
+                });
+        });
+    }
 }
 
 #[cfg(test)]

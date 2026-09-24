@@ -1,0 +1,25 @@
+
+
+# SUMMARY
+## Findings
+Late-stage recovery turn for CHG-003 (dual-instance/browse/clone gate). Diagnosed, not papered over: **all machine-executable gates are green; the sole standing failure is gate check 11** — the ticket's exact eight-row name-status footprint table is mathematically unsatisfiable at every reachable commit. Root cause: the batch's own **published** checkpoint `3ad8f91` (2026‑09‑21, two days before this ticket began) carried 5 off‑table rows, plus 1 via `9894234` — a contract‑vs‑history mismatch, not a code defect, and unreachable by any in‑session operation.
+
+During re‑validation this turn surfaced and fixed **three real integrity defects**: (1) an inverted‑operand `comm` assertion that had vacuously "passed" (box `comm` proven stock‑conformant by toy fixture; verifier now uses flag‑independent awk set algebra); (2) the adjudication record cited last turn **had never persisted** — destructively swept, re‑derived mechanically, and regenerated in‑tree at `planning/tasks/CHG-003-switch-workspaces/reconcile-record.md`; (3) defender‑style dry runs of all nine reported commands (which caught both).
+
+## WHAT CHANGED
+- **Zero implementation bytes changed** (M `src/app/root.rs`, M `src/app/welcome.rs` untouched since prior turns; no commits/resets/branches/signals; main checkout read‑only accessed; supervisor PID 1082107 sole live instance, untouched).
+- **NEW** `planning/tasks/CHG-003-switch-workspaces/reconcile-record.md` — canonical adjudication record: approachable‑repair‑path proof (L.1), definitive 6‑row offender blame table (L.2), eight‑row minims (L.3), 4‑option adjudication ledger + fill‑in verdict block (L.4), audit‑command inventory (L.5), cross‑turn errata (L.6), comm‑semantics erratum (L.7).
+- **NEW** `docs/switch-workspaces-runbook.md` (prior turn, unmodified this turn).
+- **Delivered report** (sha256 `e7a73be2…`, atomically renamed to the required `.kool-ade-packet/.../1790217819055250328-report.json`): status **blocked**, 6 Criteria objects (criterion text extracted byte‑verbatim from the ticket file at build time), 9 runnable POSIX‑sh verification commands (**every one actually executed via `/bin/sh` and passing**), 3 remaining items.
+- Guarding artifacts persisted in `/tmp/sw_gate_c13242c/scripts/` (`check_report.sh` + `build_report_t14.py` + `MANIFEST.sha256`); consoles archived under `/tmp/swrt14_verify/`.
+
+## REVIEW FINDINGS AND REMEDIATION
+Sub‑agent spawn isn't available in this harness; compensated with an adversarial independent pass: re‑execution of every reported command fresh from the JSON (caught the D‑34 failure mid‑chain and the vacuous comm line), NC1/NC2 negative controls re‑exercised on the delivered artifact, and independent flag‑free recomputation of all set facts (added=0/0, removed=4 verbatim, common=56=|V| — all unchanged). All Critical/High findings remediated; no open items.
+
+## WHAT REMAINS
+- **BLOCK‑1 (human)**: adjudicate check 11 via record Appendix L.4 (options a–d + flip procedure); nothing further is machine‑addressable.
+- **BLOCK‑2 (operator)**: walk runbook legs L1/L3(L4) on the display station; file PENDING‑not‑PASS exhibits (preconditions attested this host).
+- Application‑managed: commit the 4 ticket paths, retire worktree + /tmp evidence after reconciliation.
+
+## NEXT STEPS
+Present `reconcile-record.md` Appendix L.4 to the adjudicator; on option selection, fill the VERDICT block and re‑run the report's 9 verification commands (all self‑contained).
