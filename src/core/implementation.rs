@@ -529,14 +529,13 @@ pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
 }
 fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
-        ticket.starts_with("planning/tasks/")
-            || ticket.starts_with(".kool-ade-packet/planning/tasks/")
-                && ticket.ends_with(".md")
-                && Path::new(ticket)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with(|c: char| c.is_ascii_digit())),
-        "Select a numbered task story"
+        (ticket.starts_with("planning/tasks/")
+            || ticket.starts_with(".kool-ade-packet/planning/tasks/"))
+            && Path::new(ticket)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(crate::artifacts::task_docs::is_task_story_filename),
+        "Select a generated task story (numbered or feature-ID filename)"
     );
     anyhow::ensure!(
         Path::new(ticket)
@@ -2175,6 +2174,44 @@ mod tests {
         assert_eq!(resumed.base_commit, state.base_commit);
         assert!(!resumed.worktree.join("upstream.txt").exists());
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn feature_named_workspace_ticket_resumes_preserved_work() {
+        let mut s = Sandbox::new();
+        let ticket = ".kool-ade-packet/planning/tasks/feature/CHG-003-TASK-verify-workspace.md";
+        fs::create_dir_all(s.repo.join(ticket).parent().unwrap()).unwrap();
+        fs::rename(s.repo.join(&s.ticket), s.repo.join(ticket)).unwrap();
+        s.ticket = ticket.into();
+        s.git(&s.repo, &["add", "."]);
+        s.git(&s.repo, &["commit", "-qm", "feature-named ticket"]);
+        s.git(&s.repo, &["push", "-q", "origin", "main"]);
+        let calls = Arc::new(AtomicUsize::new(0));
+        assert!(s.run("cancel", calls.clone()).is_err());
+        let mut state = load(&s.repo, ticket).unwrap();
+        state.status = "Needs attention".into();
+        save(&state_dir(&s.repo, ticket).unwrap(), &state).unwrap();
+        let resumed = s.run("resume", calls.clone()).unwrap();
+        assert_eq!(resumed.worktree, state.worktree);
+        assert_eq!(resumed.base_commit, state.base_commit);
+        assert_eq!(resumed.status, "PR created");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn implementation_uses_board_filename_rules_in_both_task_roots() {
+        let s = Sandbox::new();
+        for root in ["planning/tasks", ".kool-ade-packet/planning/tasks"] {
+            fs::create_dir_all(s.repo.join(root).join("validation")).unwrap();
+            for name in ["001-task.md", "CHG-003-TASK-verify.md", "F10-TASK-verify.md",
+                "README.md", "specification.md", "001-task.txt", "invalid-TASK-verify.md"] {
+                let path = format!("{root}/validation/{name}");
+                fs::write(s.repo.join(&path), "# Fixture task").unwrap();
+                assert_eq!(read_ticket(&s.repo, &path).is_ok(),
+                    crate::artifacts::task_docs::is_task_story_filename(name), "{path}");
+            }
+        }
+        assert!(read_ticket(&s.repo, "planning/tasks/../001-task.md").is_err());
     }
 
     #[test]

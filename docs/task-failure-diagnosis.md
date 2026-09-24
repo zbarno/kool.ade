@@ -6,6 +6,20 @@ Before implementation and verification, Packet checks for at least 1 GiB of avai
 
 If a worker exits without returning a result, Packet reports a failure and releases its queue slot. If saving error evidence or task state also fails, the in-memory failure includes both the original cause and the persistence failure. Copy that failure before closing Packet when storage is unavailable.
 
+## Feature-named task resume
+
+Task loading and implementation use the same filename rules: numbered stories,
+`F<number>-TASK-*.md`, and `CHG-nnn-TASK-*.md` work in both supported task roots.
+Previously, Resume rejected feature-named stories after relocation into
+`.kool-ade-packet/planning/tasks/` with “Select a numbered task story”, before
+starting a worker. Target-validation errors now also appear as a notification
+and on the affected card, rather than only in the queue status.
+
+Resuming preserves the existing worktree, partial implementation, and acceptance
+criteria. It does not resolve a previously reported human decision or external
+verification requirement. The workspace-verification task's saved gate mismatch
+and pending operator-run demonstration remain separate from the filename defect.
+
 ## September 22 investigation
 
 The development volume had zero available bytes. The most recent CHG-003 dual-instance verification task retained an Implementing state, an empty harness-error file, and empty state/activity temporary files. Its recorded activity reported linker bus errors and missing command output before it stopped. Disk exhaustion is directly established; the individual linker errors were not independently reproduced.

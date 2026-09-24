@@ -7,6 +7,8 @@ fn main() -> anyhow::Result<()> {
     let states = packet::core::implementation::load_board_states(&repo);
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for doc in docs.iter().filter(|doc| !doc.path.ends_with("/README.md")) {
+        // Exercise the same read-only ticket/target validation as Resume.
+        packet::core::implementation::target_repository(&repo, &doc.path)?;
         let record = states.get(&doc.path);
         let status = record.map(|state| state.status.as_str()).unwrap_or("To do");
         *counts.entry(status.into()).or_default() += 1;

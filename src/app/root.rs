@@ -1892,7 +1892,10 @@ impl Surface for PacketApp {
                 match crate::core::implementation::target_repository(&p.state.repo_root, &ticket) {
                     Ok(target) => target,
                     Err(error) => {
-                        p.queue.last_error = format!("Cannot start {ticket}: {error}");
+                        let message = format!("Cannot start {ticket}: {error}");
+                        p.queue.last_error = message.clone();
+                        p.queue.blocked.insert(ticket.clone(), message.clone());
+                        self.toasts.danger(message);
                         return;
                     }
                 };
@@ -3651,6 +3654,46 @@ mod board_tests {
         assert!(project.active_implementations.is_empty());
         assert!(!project.queue.running);
         assert!(project.queue.last_error.contains("needs explicit approval"));
+    }
+
+    #[test]
+    fn resume_dispatch_accepts_feature_named_workspace_story() {
+        let _shield = crate::core::gitops::test_support::shield("resume-feature-ticket");
+        let root = std::env::temp_dir().join(format!("packet-resume-dispatch-{}-{}",
+            std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let ticket = ".kool-ade-packet/planning/tasks/demo/CHG-003-TASK-verify.md";
+        std::fs::create_dir_all(root.join(ticket).parent().unwrap()).unwrap();
+        std::fs::write(root.join(ticket), "# Verify workspace\n").unwrap();
+        assert!(std::process::Command::new("git").args(["init", "-q", "-b", "main"])
+            .current_dir(&root).status().unwrap().success());
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            let mut record = p.implementation_states.values().next().unwrap().clone();
+            record.ticket = ticket.into();
+            record.ticket_text = "# Verify workspace\n".into();
+            record.status = "Needs attention".into();
+            record.pr_url = None;
+            p.state = crate::core::state::PlannerState::load(&root).unwrap();
+            p.task_documents = vec![crate::artifacts::task_docs::TaskDocument {
+                path: ticket.into(), title: "Verify workspace".into(), text: record.ticket_text.clone(),
+            }];
+            p.implementation_states = [(ticket.into(), record)].into();
+            p.queue.blocked.insert(ticket.into(), "Previous failure".into());
+        }
+        app.implement_task(ticket.into());
+        let Screen::Connected(p) = &mut app.screen else { panic!("disconnected") };
+        assert!(p.active_implementations.contains_key(ticket), "{}", p.queue.last_error);
+        assert!(!p.queue.blocked.contains_key(ticket));
+        let controller = p.active_implementations.remove(ticket).unwrap();
+        controller.request_cancel();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if matches!(controller.poll(), Some(crate::core::implementation::Event::Done(_))) { break; }
+            assert!(Instant::now() < deadline, "fixture worker failed to stop");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // No remote is configured: this dispatch test cannot launch Pi or publish.
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
