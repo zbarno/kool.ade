@@ -94,10 +94,7 @@ impl Project {
     }
 
     pub fn refresh_implementations(&mut self) {
-        let latest = crate::core::implementation::load_all(&self.state.repo_root)
-            .into_iter()
-            .map(|state| (state.ticket.clone(), state))
-            .collect::<std::collections::BTreeMap<_, _>>();
+        let latest = crate::core::implementation::load_board_states(&self.state.repo_root);
         self.adopt_implementations(latest);
         for ticket in self.implementation_states.keys() {
             if !self.activity.tasks.contains_key(ticket) {

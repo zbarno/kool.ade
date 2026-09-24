@@ -279,15 +279,56 @@ fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
     // State belongs to the repository's Packet workspace, not to .git. This
     // keeps resumable implementation evidence visible, portable, and backed
     // up with the rest of the Packet artifacts.
-    Ok(repo
-        .join(crate::artifacts::packet::PACKET_IMPLEMENTATION_DIR)
-        .join(key(ticket)))
+    Ok(record_directory(&repo.join(crate::artifacts::packet::PACKET_IMPLEMENTATION_DIR), repo, ticket))
 }
 
 fn legacy_state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
-    Ok(common(repo)?
-        .join("packet-implementations")
-        .join(key(ticket)))
+    Ok(record_directory(&common(repo)?.join("packet-implementations"), repo, ticket))
+}
+
+// A directory move changes board paths, not implementation/worktree identity.
+// Only adopt the old record when its frozen ticket still matches exactly.
+fn record_directory(root: &Path, repo: &Path, ticket: &str) -> PathBuf {
+    let direct = root.join(key(ticket));
+    if direct.join("state.json").exists() { return direct; }
+    if let Some(old) = ticket.strip_prefix(".kool-ade-packet/") {
+        if old.starts_with("planning/tasks/") && !repo.join(old).exists() {
+            let candidate = root.join(key(old));
+            if let Ok(bytes) = fs::read(candidate.join("state.json")) {
+                if let Ok(record) = serde_json::from_slice::<Implementation>(&bytes) {
+                    if record.ticket == old && board_ticket(repo, &record) == ticket {
+                        return candidate;
+                    }
+                }
+            }
+        }
+    }
+    direct
+}
+
+fn board_ticket(repo: &Path, state: &Implementation) -> String {
+    if state.ticket.starts_with("planning/tasks/") && !repo.join(&state.ticket).exists() {
+        let relocated = format!(".kool-ade-packet/{}", state.ticket);
+        if fs::read_to_string(repo.join(&relocated)).is_ok_and(|text| text == state.ticket_text) {
+            return relocated;
+        }
+    }
+    state.ticket.clone()
+}
+
+/// Keep original evidence identities while indexing state by current board paths.
+pub fn load_board_states(repo: &Path) -> std::collections::BTreeMap<String, Implementation> {
+    let mut result = std::collections::BTreeMap::new();
+    for state in load_all(repo) {
+        let ticket = board_ticket(repo, &state);
+        // An explicit record for the current path wins over a historical alias.
+        if !result.contains_key(&ticket)
+            || (ticket == state.ticket
+                && result.get(&ticket).is_some_and(|previous: &Implementation| previous.ticket != ticket)) {
+            result.insert(ticket, state);
+        }
+    }
+    result
 }
 
 fn migrate_legacy_state(repo: &Path, ticket: &str) -> anyhow::Result<()> {
@@ -595,7 +636,8 @@ fn run_with_project_options(
     let mut state = if dir.join("state.json").exists() {
         let state: Implementation = serde_json::from_slice(&fs::read(dir.join("state.json"))?)?;
         anyhow::ensure!(
-            state.ticket == ticket && state.ticket_text == text,
+            (state.ticket == ticket || board_ticket(planning_root, &state) == ticket)
+                && state.ticket_text == text,
             "Ticket changed since implementation started. Review the existing worktree before starting a revised ticket."
         );
         state
@@ -2426,6 +2468,51 @@ mod tests {
         state.merged_commit = state.verified_head.clone();
         save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
         state
+    }
+
+    #[test]
+    fn relocated_completed_tickets_keep_board_state_and_original_evidence_identity() {
+        for legacy_storage in [false, true] {
+            let s = Sandbox::new();
+            let done = completed_cleanup_fixture(&s);
+            let original_dir = state_dir(&s.repo, &s.ticket).unwrap();
+            let storage = if legacy_storage {
+                let legacy = legacy_state_dir(&s.repo, &s.ticket).unwrap();
+                fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+                fs::rename(&original_dir, &legacy).unwrap();
+                legacy
+            } else { original_dir };
+            let before = fs::read(storage.join("state.json")).unwrap();
+            let relocated = format!(".kool-ade-packet/{}", s.ticket);
+            fs::create_dir_all(s.repo.join(&relocated).parent().unwrap()).unwrap();
+            fs::rename(s.repo.join(&s.ticket), s.repo.join(&relocated)).unwrap();
+
+            let board = load_board_states(&s.repo);
+            let record = board.get(&relocated).expect("relocated task remains completed");
+            assert_eq!(record.status, "Done");
+            assert_eq!(record.ticket, s.ticket, "cleanup and evidence keep original identity");
+            assert_eq!(record.merged_commit, done.merged_commit);
+            assert_eq!(board_column(Some(record), false), 4);
+            let docs = vec![crate::artifacts::task_docs::TaskDocument {
+                path: relocated.clone(), title: "Moved completed task".into(),
+                text: done.ticket_text.clone(),
+            }];
+            assert!(crate::core::implementation_queue::next_ready_ticket(
+                &docs, &board, &Default::default()
+            ).unwrap().is_none(), "completed work must not be reimplemented");
+            assert_eq!(load(&s.repo, &relocated).unwrap().status, "Done");
+            assert_eq!(fs::read(storage.join("state.json")).unwrap(), before);
+            refresh_pr(&s.repo, &relocated, &cleanup_runner()).unwrap();
+            assert!(load(&s.repo, &relocated).unwrap().cleanup.completed_at.is_some(),
+                "relocated lookup retains the original cleanup ownership identity");
+
+            fs::write(s.repo.join(&relocated), "# Revised task contract").unwrap();
+            assert!(!load_board_states(&s.repo).contains_key(&relocated));
+            assert!(load(&s.repo, &relocated).is_none(), "revised work cannot inherit Done");
+            fs::write(s.repo.join(&relocated), &done.ticket_text).unwrap();
+            fs::write(s.repo.join(&s.ticket), &done.ticket_text).unwrap();
+            assert!(!load_board_states(&s.repo).contains_key(&relocated), "two existing tasks are distinct");
+        }
     }
 
     #[test]

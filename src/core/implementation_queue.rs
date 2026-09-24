@@ -79,9 +79,35 @@ impl Queue {
 
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
         match fs::read(directory(repo)?.join("packet-queue.json")) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Ok(bytes) => {
+                let mut queue: Self = serde_json::from_slice(&bytes)?;
+                queue.relocate_tickets(repo);
+                Ok(queue)
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(error) => Err(error.into()),
+        }
+    }
+    fn relocate_tickets(&mut self, repo: &Path) {
+        let current = |ticket: String| {
+            let relocated = format!(".kool-ade-packet/{ticket}");
+            if ticket.starts_with("planning/tasks/") && !repo.join(&ticket).exists()
+                && repo.join(&relocated).is_file() {
+                relocated
+            } else { ticket }
+        };
+        self.current_ticket = self.current_ticket.take().map(&current);
+        self.in_flight = std::mem::take(&mut self.in_flight).into_iter().map(&current).collect();
+        let mut blocked = BTreeMap::<String, String>::new();
+        for (ticket, reason) in std::mem::take(&mut self.blocked) {
+            blocked.entry(current(ticket)).and_modify(|prior| {
+                if *prior != reason { prior.push_str(&format!("\n{reason}")); }
+            }).or_insert(reason);
+        }
+        self.blocked = blocked;
+        for (ticket, attempts) in std::mem::take(&mut self.recovery_attempts) {
+            let saved = self.recovery_attempts.entry(current(ticket)).or_default();
+            *saved = (*saved).max(attempts);
         }
     }
     pub fn save(&self, repo: &Path) -> anyhow::Result<()> {
@@ -187,6 +213,34 @@ pub fn next_ready_ticket(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn relocated_queue_keeps_blockers_and_retry_budgets() {
+        let root = std::env::temp_dir().join(format!("packet-queue-relocated-{}-{}",
+            std::process::id(), chrono::Utc::now().timestamp_nanos_opt().unwrap()));
+        let old = "planning/tasks/demo/001-task.md";
+        let new = format!(".kool-ade-packet/{old}");
+        fs::create_dir_all(root.join(&new).parent().unwrap()).unwrap();
+        fs::write(root.join(&new), "# Task").unwrap();
+        let mut queue = Queue::default();
+        queue.current_ticket = Some(old.into());
+        queue.in_flight.insert(old.into());
+        queue.blocked.insert(old.into(), "Original blocker".into());
+        queue.blocked.insert(new.clone(), "New blocker".into());
+        queue.recovery_attempts.insert(old.into(), 2);
+        queue.recovery_attempts.insert(new.clone(), 1);
+        queue.relocate_tickets(&root);
+        assert_eq!(queue.current_ticket.as_deref(), Some(new.as_str()));
+        assert!(queue.in_flight.contains(&new));
+        assert_eq!(queue.blocked.len(), 1);
+        assert!(queue.blocked[&new].contains("Original blocker"));
+        assert!(queue.blocked[&new].contains("New blocker"));
+        assert_eq!(queue.recovery_attempts[&new], 2);
+        assert!(!queue.running);
+        queue.relocate_tickets(&root);
+        assert_eq!(queue.recovery_attempts[&new], 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn doc(n: usize, dependencies: &str) -> TaskDocument {
         TaskDocument {
             path: format!("planning/tasks/fixture/{n:03}-task.md"),

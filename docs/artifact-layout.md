@@ -40,3 +40,14 @@ document describes chat rendering. This pre-existing ID reuse does not establish
 that chat rendering is complete: identify historical work by its full ticket path
 and implementation commit. No feature was marked complete or re-approved during
 this cleanup.
+
+Task moves preserve implementation identity. On connect and background refresh,
+the board matches a missing `planning/tasks/...` path to its relocated
+`.kool-ade-packet/planning/tasks/...` file only when the frozen ticket text matches
+exactly. Original state, worktree names, merge evidence, and cleanup ownership are
+retained. Explicit state for the new path takes precedence. Queue blockers and
+retry budgets follow relocated paths without restarting the queue.
+
+For a read-only task status audit, run
+`cargo run --offline --example task_status -- /absolute/path/to/repository`.
+The audit lists current board paths, preserved evidence identities, and totals.

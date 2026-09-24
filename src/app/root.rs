@@ -408,16 +408,16 @@ impl PacketApp {
             {
                 let mut states = project
                     .implementation_states
-                    .values()
-                    .filter(|state| {
+                    .iter()
+                    .filter(|(_, state)| {
                         (state.status != "Done" && state.pr_url.is_some() && state.pr_state.as_deref() != Some("MERGED"))
                             || (state.status == "Done" && state.cleanup.completed_at.is_none())
                     })
                     .collect::<Vec<_>>();
-                states.sort_by_key(|state| if state.status == "Done" { &state.cleanup.attempted_at } else { &state.pr_check_attempted_at });
+                states.sort_by_key(|(_, state)| if state.status == "Done" { &state.cleanup.attempted_at } else { &state.pr_check_attempted_at });
                 let tickets = states
                     .into_iter()
-                    .map(|state| state.ticket.clone())
+                    .map(|(ticket, _)| ticket.clone())
                     .collect::<Vec<_>>();
                 if !tickets.is_empty() {
                     project.pr_refresh = Some(crate::core::implementation::PrRefresh::start(
@@ -482,8 +482,7 @@ impl PacketApp {
                 self.display_refresh = Some(std::thread::spawn(move || {
                     let git = crate::core::gitops::snapshot(&repo);
                     let documents = crate::artifacts::task_docs::load_board(&repo, &workflow);
-                    let implementations = crate::core::implementation::load_all(&repo)
-                        .into_iter().map(|s| (s.ticket.clone(), s)).collect::<std::collections::BTreeMap<_, _>>();
+                    let implementations = crate::core::implementation::load_board_states(&repo);
                     let activity = implementations.keys().filter_map(|ticket| {
                         crate::core::implementation::load_activity(&repo, ticket).map(|p| (ticket.clone(), p))
                     }).collect();
