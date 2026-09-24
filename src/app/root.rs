@@ -634,6 +634,10 @@ impl PacketApp {
             // silent (the CHG-003 deadlock arrived invisibly this way).
             let mut approval_notes = std::collections::BTreeSet::new();
             for doc in &project.task_documents {
+                if project.implementation_states.get(&doc.path)
+                    .is_some_and(|state| state.status == "Done") {
+                    continue;
+                }
                 if let Some(id) = doc
                     .text
                     .lines()
@@ -3860,6 +3864,8 @@ mod board_tests {
             "park message must name the affected tickets: {}",
             p.queue.last_error
         );
+        assert!(!p.queue.last_error.contains("planning/tasks/fixture/003-task.md"),
+            "completed tasks must not produce stale approval blockers: {}", p.queue.last_error);
     }
 
     #[test]

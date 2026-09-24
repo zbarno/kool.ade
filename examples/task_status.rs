@@ -10,6 +10,18 @@ fn main() -> anyhow::Result<()> {
         // Exercise the same read-only ticket/target validation as Resume.
         packet::core::implementation::target_repository(&repo, &doc.path)?;
         let record = states.get(&doc.path);
+        if let Some(board) = record {
+            let loaded = packet::core::implementation::load(&repo, &doc.path)
+                .ok_or_else(|| anyhow::anyhow!("Board shows a record but Resume cannot load {}", doc.path))?;
+            anyhow::ensure!(loaded == *board, "Board and Resume disagree for {}", doc.path);
+            anyhow::ensure!(loaded.ticket_text == doc.text, "Frozen ticket changed: {}", doc.path);
+            if loaded.status != "Done" {
+                anyhow::ensure!(loaded.worktree.join(".git").is_file(),
+                    "Preserved worktree is missing: {}", loaded.worktree.display());
+                packet::core::implementation::completed_dependency_context(&repo, &doc.path, &doc.text)?;
+                println!("Resume lookup and merged dependencies verified; preserved worktree: {}", loaded.worktree.display());
+            }
+        }
         let status = record.map(|state| state.status.as_str()).unwrap_or("To do");
         *counts.entry(status.into()).or_default() += 1;
         println!("{status}\t{}", doc.path);

@@ -28,6 +28,16 @@ criteria. It does not resolve a previously reported human decision or external
 verification requirement. The workspace-verification task's saved gate mismatch
 and pending operator-run demonstration remain separate from the filename defect.
 
+Partially migrated repositories can have a current ticket path inside `state.json`
+while the containing implementation directory still uses the old path's hash.
+Resume and dependency loading recognize either recorded path in that original
+directory, provided the old ticket file is absent and the frozen ticket text
+matches exactly. This preserves the existing worktree instead of attempting a new
+implementation and incorrectly reporting that merged dependencies have no record.
+The `task_status` audit now checks per-ticket Resume lookup against board lookup
+and checks merged dependency records for unfinished work; listing board state
+alone is insufficient to establish that a task can resume.
+
 ## September 22 investigation
 
 The development volume had zero available bytes. The most recent CHG-003 dual-instance verification task retained an Implementing state, an empty harness-error file, and empty state/activity temporary files. Its recorded activity reported linker bus errors and missing command output before it stopped. Disk exhaustion is directly established; the individual linker errors were not independently reproduced.

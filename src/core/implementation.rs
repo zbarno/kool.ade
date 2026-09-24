@@ -296,7 +296,9 @@ fn record_directory(root: &Path, repo: &Path, ticket: &str) -> PathBuf {
             let candidate = root.join(key(old));
             if let Ok(bytes) = fs::read(candidate.join("state.json")) {
                 if let Ok(record) = serde_json::from_slice::<Implementation>(&bytes) {
-                    if record.ticket == old && board_ticket(repo, &record) == ticket {
+                    if (record.ticket == old || record.ticket == ticket)
+                        && fs::read_to_string(repo.join(ticket))
+                            .is_ok_and(|text| text == record.ticket_text) {
                         return candidate;
                     }
                 }
@@ -834,7 +836,7 @@ fn history_preflight_context(
     Ok(evidence)
 }
 
-fn completed_dependency_context(
+pub fn completed_dependency_context(
     planning_root: &Path,
     ticket: &str,
     ticket_text: &str,
@@ -2614,6 +2616,57 @@ mod tests {
             fs::write(s.repo.join(&s.ticket), &done.ticket_text).unwrap();
             assert!(!load_board_states(&s.repo).contains_key(&relocated), "two existing tasks are distinct");
         }
+    }
+
+    #[test]
+    fn rewritten_ticket_path_in_old_state_directory_resumes_original_worktree() {
+        for legacy_storage in [false, true] {
+            let mut s = Sandbox::new();
+            let calls = Arc::new(AtomicUsize::new(0));
+            assert!(s.run("cancel", calls.clone()).is_err());
+            let original_dir = state_dir(&s.repo, &s.ticket).unwrap();
+            let mut state = load(&s.repo, &s.ticket).unwrap();
+            let storage = if legacy_storage {
+                let legacy = legacy_state_dir(&s.repo, &s.ticket).unwrap();
+                fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+                fs::rename(&original_dir, &legacy).unwrap();
+                legacy
+            } else { original_dir };
+            let relocated = format!(".kool-ade-packet/{}", s.ticket);
+            fs::create_dir_all(s.repo.join(&relocated).parent().unwrap()).unwrap();
+            fs::rename(s.repo.join(&s.ticket), s.repo.join(&relocated)).unwrap();
+            // Reproduce the real partial migration: JSON was rewritten but
+            // its containing directory, branch, and worktree kept old hashes.
+            state.ticket = relocated.clone();
+            save(&storage, &state).unwrap();
+            let before = fs::read(storage.join("state.json")).unwrap();
+            assert_eq!(load(&s.repo, &relocated).unwrap().worktree, state.worktree);
+            assert_eq!(fs::read(storage.join("state.json")).unwrap(), before);
+            s.ticket = relocated;
+            let resumed = s.run("resume", calls.clone()).unwrap();
+            assert_eq!(resumed.worktree, state.worktree);
+            assert_eq!(resumed.branch, state.branch);
+            assert_eq!(resumed.base_commit, state.base_commit);
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+        }
+    }
+
+    #[test]
+    fn rewritten_dependency_record_is_loaded_from_original_directory() {
+        let s = Sandbox::new();
+        let mut state = completed_cleanup_fixture(&s);
+        let storage = state_dir(&s.repo, &s.ticket).unwrap();
+        let relocated = format!(".kool-ade-packet/{}", s.ticket);
+        fs::create_dir_all(s.repo.join(&relocated).parent().unwrap()).unwrap();
+        fs::rename(s.repo.join(&s.ticket), s.repo.join(&relocated)).unwrap();
+        state.ticket = relocated.clone();
+        save(&storage, &state).unwrap();
+        let ticket = ".kool-ade-packet/planning/tasks/feature/CHG-003-TASK-verify.md";
+        let text = "## Dependencies\n- [Completed work](001-implement-ticket-behavior.md)\n";
+        let context = completed_dependency_context(&s.repo, ticket, text).unwrap().unwrap();
+        assert!(context.contains(state.merged_commit.as_deref().unwrap()));
+        fs::write(s.repo.join(&relocated), "# Changed contract").unwrap();
+        assert!(completed_dependency_context(&s.repo, ticket, text).is_err());
     }
 
     #[test]
