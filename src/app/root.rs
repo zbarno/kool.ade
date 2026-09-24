@@ -713,7 +713,7 @@ impl PacketApp {
             None
         };
         if let Some(ticket) = next {
-            self.implement_task(ticket.clone());
+            self.start_implementation(ticket.clone(), false);
             if let Screen::Connected(p) = &mut self.screen {
                 if !p.active_implementations.contains_key(&ticket) {
                     p.queue.blocked.insert(ticket, p.queue.last_error.clone());
@@ -1516,6 +1516,133 @@ fn clipboard_put(text: &str) {
 }
 
 // ------------------------------------------------------------------- Surface
+impl PacketApp {
+    fn start_implementation(&mut self, ticket: String, manual: bool) {
+        if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
+        {
+            return;
+        }
+        if let Screen::Connected(p) = &mut self.screen {
+            if p.implementation_states
+                .get(&ticket)
+                .is_some_and(|state| state.pr_url.is_some() || state.status == "Done")
+            {
+                return;
+            }
+            if !p
+                .task_documents
+                .iter()
+                .any(|d| d.path == ticket && !d.path.ends_with("/README.md"))
+            {
+                return;
+            }
+            if let Some(doc) = p.task_documents.iter().find(|d| d.path == ticket) {
+                if let Some(id) = doc
+                    .text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Feature ID: "))
+                {
+                    if !crate::core::workflow::feature_approved(
+                        &p.state.repo_root,
+                        &p.state.workflow,
+                        id,
+                    ) {
+                        p.queue.last_error =
+                            format!("{id} needs explicit approval before implementation");
+                        return;
+                    }
+                }
+            }
+            let target_repo =
+                match crate::core::implementation::target_repository(&p.state.repo_root, &ticket) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        let message = format!("Cannot start {ticket}: {error}");
+                        p.queue.last_error = message.clone();
+                        p.queue.blocked.insert(ticket.clone(), message.clone());
+                        self.toasts.danger(message);
+                        return;
+                    }
+                };
+            let selected = p
+                .task_documents
+                .iter()
+                .find(|doc| doc.path == ticket)
+                .unwrap();
+            if let Err(error) = crate::core::implementation_queue::next_ticket(
+                std::slice::from_ref(selected),
+                &p.implementation_states,
+            ) {
+                p.queue.last_error = error;
+                return;
+            }
+            if p.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
+                    Ok(lock) => p.queue_lock = Some(lock),
+                    Err(error) => {
+                        p.queue.last_error = error.to_string();
+                        return;
+                    }
+                }
+            }
+            if p.queue.auto_mode {
+                p.queue.running = true;
+                p.queue.recovery_paused = false;
+            }
+            if manual {
+                p.queue.recovery_attempts.remove(&ticket);
+                p.queue.recovery_paused = false;
+            }
+            p.queue.in_flight.insert(ticket.clone());
+            p.queue.blocked.remove(&ticket);
+            p.queue.last_error.clear();
+            if let Err(error) = p.queue.save(&p.state.repo_root) {
+                p.queue.running = false;
+                p.queue.last_error = error.to_string();
+                p.queue.in_flight.remove(&ticket);
+                if p.active_implementations.is_empty() {
+                    p.queue_lock = None;
+                }
+                return;
+            }
+            p.activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
+            p.remember_chat(vec![ChatMessage::new(
+                ChatRole::System,
+                format!(
+                    "Assigned {ticket}; the worker will verify and {}.",
+                    if p.queue.auto_mode {
+                        "merge atomically into the default branch, then continue the queue"
+                    } else {
+                        "create a pull request"
+                    }
+                ),
+                None,
+            )]);
+            p.activity.tasks.entry(ticket.clone()).or_default().activity =
+                Some("Starting implementation…".into());
+            p.activity
+                .tasks
+                .entry(ticket.clone())
+                .or_default()
+                .telemetry = crate::harness::ActivityTelemetry {
+                started_ms: Some(chrono::Utc::now().timestamp_millis()),
+                ..Default::default()
+            };
+            p.activity.mark_ticket_dirty(&ticket);
+            p.active_implementations.insert(
+                ticket.clone(),
+                crate::core::implementation::Controller::start_project(
+                    p.state.repo_root.clone(),
+                    target_repo,
+                    ticket,
+                    p.queue.auto_mode,
+                ),
+            );
+        }
+    }
+
+}
+
 impl Surface for PacketApp {
     fn session_title(&self) -> &str {
         match &self.screen {
@@ -1853,123 +1980,7 @@ impl Surface for PacketApp {
         }
     }
     fn implement_task(&mut self, ticket: String) {
-        if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
-        {
-            return;
-        }
-        if let Screen::Connected(p) = &mut self.screen {
-            if p.implementation_states
-                .get(&ticket)
-                .is_some_and(|state| state.pr_url.is_some() || state.status == "Done")
-            {
-                return;
-            }
-            if !p
-                .task_documents
-                .iter()
-                .any(|d| d.path == ticket && !d.path.ends_with("/README.md"))
-            {
-                return;
-            }
-            if let Some(doc) = p.task_documents.iter().find(|d| d.path == ticket) {
-                if let Some(id) = doc
-                    .text
-                    .lines()
-                    .find_map(|line| line.strip_prefix("Feature ID: "))
-                {
-                    if !crate::core::workflow::feature_approved(
-                        &p.state.repo_root,
-                        &p.state.workflow,
-                        id,
-                    ) {
-                        p.queue.last_error =
-                            format!("{id} needs explicit approval before implementation");
-                        return;
-                    }
-                }
-            }
-            let target_repo =
-                match crate::core::implementation::target_repository(&p.state.repo_root, &ticket) {
-                    Ok(target) => target,
-                    Err(error) => {
-                        let message = format!("Cannot start {ticket}: {error}");
-                        p.queue.last_error = message.clone();
-                        p.queue.blocked.insert(ticket.clone(), message.clone());
-                        self.toasts.danger(message);
-                        return;
-                    }
-                };
-            let selected = p
-                .task_documents
-                .iter()
-                .find(|doc| doc.path == ticket)
-                .unwrap();
-            if let Err(error) = crate::core::implementation_queue::next_ticket(
-                std::slice::from_ref(selected),
-                &p.implementation_states,
-            ) {
-                p.queue.last_error = error;
-                return;
-            }
-            if p.queue_lock.is_none() {
-                match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
-                    Ok(lock) => p.queue_lock = Some(lock),
-                    Err(error) => {
-                        p.queue.last_error = error.to_string();
-                        return;
-                    }
-                }
-            }
-            if p.queue.auto_mode {
-                p.queue.running = true;
-                p.queue.recovery_paused = false;
-            }
-            p.queue.in_flight.insert(ticket.clone());
-            p.queue.blocked.remove(&ticket);
-            p.queue.last_error.clear();
-            if let Err(error) = p.queue.save(&p.state.repo_root) {
-                p.queue.running = false;
-                p.queue.last_error = error.to_string();
-                p.queue.in_flight.remove(&ticket);
-                if p.active_implementations.is_empty() {
-                    p.queue_lock = None;
-                }
-                return;
-            }
-            p.activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
-            p.remember_chat(vec![ChatMessage::new(
-                ChatRole::System,
-                format!(
-                    "Assigned {ticket}; the worker will verify and {}.",
-                    if p.queue.auto_mode {
-                        "merge atomically into the default branch, then continue the queue"
-                    } else {
-                        "create a pull request"
-                    }
-                ),
-                None,
-            )]);
-            p.activity.tasks.entry(ticket.clone()).or_default().activity =
-                Some("Starting implementation…".into());
-            p.activity
-                .tasks
-                .entry(ticket.clone())
-                .or_default()
-                .telemetry = crate::harness::ActivityTelemetry {
-                started_ms: Some(chrono::Utc::now().timestamp_millis()),
-                ..Default::default()
-            };
-            p.activity.mark_ticket_dirty(&ticket);
-            p.active_implementations.insert(
-                ticket.clone(),
-                crate::core::implementation::Controller::start_project(
-                    p.state.repo_root.clone(),
-                    target_repo,
-                    ticket,
-                    p.queue.auto_mode,
-                ),
-            );
-        }
+        self.start_implementation(ticket, true);
     }
 
     fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument] {
@@ -3679,11 +3690,13 @@ mod board_tests {
             }];
             p.implementation_states = [(ticket.into(), record)].into();
             p.queue.blocked.insert(ticket.into(), "Previous failure".into());
+            p.queue.recovery_attempts.insert(ticket.into(), 1);
         }
         app.implement_task(ticket.into());
         let Screen::Connected(p) = &mut app.screen else { panic!("disconnected") };
         assert!(p.active_implementations.contains_key(ticket), "{}", p.queue.last_error);
         assert!(!p.queue.blocked.contains_key(ticket));
+        assert!(!p.queue.recovery_attempts.contains_key(ticket));
         let controller = p.active_implementations.remove(ticket).unwrap();
         controller.request_cancel();
         let deadline = Instant::now() + Duration::from_secs(5);

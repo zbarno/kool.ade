@@ -527,6 +527,19 @@ pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
         _ => 3,
     }
 }
+fn resume_failure_context(detail: &str) -> String {
+    // Also unwrap legacy errors whose complete correction histories were nested
+    // on every resume. Keep only the newest diagnostic in the active prompt.
+    let start = detail.rfind("\nAttempt ").into_iter()
+        .chain(detail.rfind("\nHarness failure ")).max();
+    let latest = start.map(|index| &detail[index + 1..]).unwrap_or(detail);
+    let latest = latest.rsplit_once("Latest failure: ").map(|(_, tail)| tail)
+        .unwrap_or(latest);
+    let latest = latest.split("\nAUTOMATIC BLOCKER RECOVERY REQUIRED").next().unwrap_or(latest);
+    let latest = latest.split("\nSELF-REPAIR REQUIRED").next().unwrap_or(latest);
+    crate::core::context_build::clip(latest, 4000)
+}
+
 fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
         (ticket.starts_with("planning/tasks/")
@@ -940,8 +953,15 @@ fn prepare_verified(
     }
     if !already_verified {
         // Report and verification corrections each have a limit of three; all share the original deadline.
-        // Keep the last failure durable so manual resume has the same feedback.
-        let mut feedback = state.detail.clone();
+        // Prior-run evidence is context, never part of this run's retry accounting.
+        let prior_detail = state.detail.clone();
+        if !prior_detail.is_empty() {
+            fs::write(dir.join(format!("{}-resume-context.txt",
+                chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default())), &prior_detail)?;
+        }
+        let prior_failure = resume_failure_context(&prior_detail);
+        let mut feedback = String::new();
+        state.detail = "Starting a fresh attempt budget; previous work and evidence are preserved.".into();
         let mut previous_response = String::new();
         let specification = state
             .approved_specification
@@ -1010,6 +1030,9 @@ fn prepare_verified(
                 ));
             }
 
+            if !prior_failure.is_empty() {
+                prompt.push_str(&format!("\n\nPREVIOUS STOP / CORRECTION REQUIRED (prior run, context only):\n{prior_failure}\nThis run has a fresh report, verification, harness, and self-repair budget. Prior attempts do not consume it. Preserve previous work; do not treat previous retry exhaustion as a current blocker. Actual unmet prerequisites and acceptance checks still apply.\n"));
+            }
             if !feedback.is_empty() {
                 prompt.push_str(&format!("\n\nPREVIOUS STOP / CORRECTION REQUIRED:\n{feedback}\nContinue in this same worktree. Treat this as a correction history: keep earlier fixes and address the newest failure without reintroducing older ones. Inspect and preserve existing work. Correct the report or implementation and rerun affected checks. Copy acceptance criterion text EXACTLY, including any spelling mistakes; do not edit the ticket to satisfy this check. Return the full JSON report, not just the correction. Do not weaken or bypass failing checks. Before repeating recovery, check whether the failure is a fixed contradiction in the frozen base/history; if so, preserve the evidence and report the exact human decision needed instead of repeating machine checks. Report blocked for prerequisites or decisions that require human intervention.\nPrevious response (possibly truncated):\n{previous_response}"));
             }
@@ -1040,7 +1063,8 @@ fn prepare_verified(
                         }
                         anyhow::ensure!(
                             harness_failures <= 5,
-                            "Harness recovery exhausted; no working agent response is available to repair further. {feedback}"
+                            "Harness recovery exhausted after {harness_failures} failures in this run. Latest failure: {detail}. Full diagnostics are preserved in {}",
+                            dir.display()
                         );
                         runner.update(format!("Recovering harness failure {harness_failures}; existing work preserved…"));
                         continue;
@@ -1145,7 +1169,8 @@ fn prepare_verified(
             if *corrections > 3 {
                 anyhow::ensure!(
                     healing_attempts < 2,
-                    "Automatic correction limit and self-repair attempts exhausted for {phase}. Correction history: {feedback}"
+                    "Automatic correction limit and self-repair attempts exhausted for {phase} in this run ({attempt} attempts). Latest failure: {failure}\nFull correction evidence is preserved in {}. Resume implementation starts a fresh attempt budget.",
+                    dir.display()
                 );
                 healing_attempts += 1;
                 feedback.push_str("\nSELF-REPAIR REQUIRED: ordinary retries are exhausted. Diagnose and fix the root cause in this worktree, add a regression check that reproduces the failure, and rerun the complete verification. Preserve existing task work and checks. Packet will commit the verified repair atomically with this task.\n");
@@ -1850,6 +1875,11 @@ mod tests {
             let call = self.calls.fetch_add(1, Ordering::SeqCst);
             assert!(req.implementation);
             assert!(req.prompt_body.contains("RESUME"));
+            if self.mode == "fresh_budget" {
+                assert!(req.prompt_body.contains("fresh report, verification, harness, and self-repair budget"));
+                assert!(!req.prompt_body.contains("Automatic correction limit and self-repair attempts exhausted"));
+                assert!(!req.prompt_body.contains("Correction history: Correction history:"));
+            }
             if self.mode.starts_with("repair_") && call > 0 {
                 assert!(
                     req.prompt_body
@@ -2426,6 +2456,40 @@ mod tests {
             assert!(state.worktree.join("implemented.txt").exists());
             assert!(state.detail.contains(error_text));
         }
+    }
+
+    #[test]
+    fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
+        let s = Sandbox::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let first = s.run("fail", calls.clone()).unwrap_err().to_string();
+        let original = load(&s.repo, &s.ticket).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 6);
+        let second = s.run("fail", calls.clone()).unwrap_err().to_string();
+        assert_eq!(calls.load(Ordering::SeqCst), 12, "resume gets all six attempts again");
+        assert_eq!(second.matches("Automatic correction limit").count(), 1);
+        assert!(!second.contains("Correction history:"));
+        assert!(second.contains("Latest failure:"));
+        assert!(!s.root.join("pr-created").exists());
+        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        assert!(fs::read_dir(&dir).unwrap().flatten().any(|entry|
+            entry.file_name().to_string_lossy().ends_with("-resume-context.txt")
+                && fs::read_to_string(entry.path()).unwrap() == first));
+        let resumed = s.run("fresh_budget", Arc::new(AtomicUsize::new(0))).unwrap();
+        assert_eq!(resumed.worktree, original.worktree);
+        assert_eq!(resumed.base_commit, original.base_commit);
+        assert_eq!(resumed.status, "PR created");
+    }
+
+    #[test]
+    fn legacy_nested_exhaustion_keeps_only_latest_actionable_context() {
+        let legacy = "Automatic correction limit. Correction history: Automatic correction limit. Correction history:\nAttempt 1 (report): missing field verification\nAttempt 6 (report): latest missing field status\nSELF-REPAIR REQUIRED: old instruction";
+        let context = resume_failure_context(legacy);
+        assert!(context.contains("latest missing field status"));
+        assert!(!context.contains("exhaust"));
+        assert!(!context.contains("Correction history"));
+        assert!(!context.contains("old instruction"));
+        assert!(!context.contains("missing field verification"));
     }
 
     #[test]
