@@ -30,11 +30,33 @@ pub(super) fn failure_actions(text: &str) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, messages: &[ChatMessage]) {
-    let choices = crate::ui::reply_tail::open_digest_choices(messages);
+pub(super) fn paint(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    key: &str,
+    messages: &[ChatMessage],
+    blocker_choices: &[super::blocker::Choice],
+) {
+    let choices = if blocker_choices.is_empty() {
+        crate::ui::reply_tail::open_digest_choices(messages)
+    } else {
+        Vec::new()
+    };
     let busy = s.task_chat_active(key);
     ui.push_id(("task_detail_reply", key), |ui| {
-        if !choices.is_empty() {
+        if !blocker_choices.is_empty() {
+            ui.label(RichText::new("Choose one option").small().strong());
+            ui.horizontal_wrapped(|ui| {
+                for choice in blocker_choices {
+                    if ui.add_enabled(!busy, egui::Button::new(&choice.label).wrap())
+                        .on_hover_text(&choice.detail).clicked()
+                        && let Some(draft) = s.task_draft(key) {
+                        *draft = format!("I choose option ({}): {}. Please record this decision in the VERDICT block.",
+                            choice.code, choice.label.split_once(" · ").map(|(_, label)| label).unwrap_or(&choice.label));
+                    }
+                }
+            });
+        } else if !choices.is_empty() {
             ui.label(RichText::new("Choose an option").small().strong());
             ui.horizontal_wrapped(|ui| {
                 for choice in &choices {
@@ -49,7 +71,9 @@ pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, messages:
             });
         }
         ui.label(
-            RichText::new(if choices.is_empty() {
+            RichText::new(if !blocker_choices.is_empty() {
+                "Review or explain your decision"
+            } else if choices.is_empty() {
                 "Reply to this task"
             } else {
                 "Add detail or edit your answer"
@@ -67,7 +91,9 @@ pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, messages:
                 .show(ui);
             let enabled = !busy && !draft.trim().is_empty();
             send = ui
-                .add_enabled(enabled, egui::Button::new("Send response"))
+                .add_enabled(enabled, egui::Button::new(if blocker_choices.is_empty() {
+                    "Send response"
+                } else { "Send decision" }))
                 .on_hover_text("Send to this task's conversation")
                 .clicked()
                 || (enabled
@@ -75,7 +101,11 @@ pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, messages:
                     && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter)));
         }
         if send {
-            s.send_task_reply(key);
+            if blocker_choices.is_empty() {
+                s.send_task_reply(key);
+            } else {
+                s.send_implementation_decision(key);
+            }
         }
         if busy {
             ui.label(
@@ -86,7 +116,11 @@ pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, messages:
         }
         if messages.last().is_some_and(|m| m.role == ChatRole::User) {
             ui.label(
-                RichText::new("Your response is saved in this task's conversation.")
+                RichText::new(if blocker_choices.is_empty() {
+                    "Your response is saved in this task's conversation."
+                } else {
+                    "Decision saved. Resume after the remaining steps are complete."
+                })
                     .small()
                     .weak(),
             );

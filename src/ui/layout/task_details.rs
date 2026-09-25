@@ -1,5 +1,6 @@
 //! State, reply, and activity for the task modal.
 use super::*;
+mod blocker;
 mod reply;
 
 pub(super) fn paint(
@@ -32,8 +33,17 @@ pub(super) fn paint(
                 .filter(|r| r.status == "Needs attention")
                 .map(|r| r.detail.clone())
         });
+    let blocker = failure.as_deref().and_then(blocker::parse);
     let messages = s.task_messages(ticket).to_vec();
     let open_ask = crate::ui::reply_tail::open_ask_index(&messages);
+    let decision_sent = blocker
+        .as_ref()
+        .is_some_and(|plan| !plan.choices.is_empty())
+        && messages
+            .iter()
+            .rev()
+            .find(|m| m.role == crate::domain::ChatRole::User)
+            .is_some_and(|m| m.text.starts_with("I choose option ("));
     let column = task_board_column(s, ticket);
     let status = if column == 4 && cleanup_error.is_some() {
         "Done · cleanup needs attention"
@@ -111,7 +121,16 @@ pub(super) fn paint(
                     ui.label("Worker is starting.");
                 }
             } else if let Some(error) = &failure {
-                reply::full_message(ui, error, "implementation_failure");
+                if let Some(plan) = &blocker {
+                    ui.label(if decision_sent {
+                        "Decision saved for Packet. Complete any remaining external checks, then resume."
+                    } else { &plan.summary });
+                } else {
+                    ui.label(failure_summary(error));
+                }
+                ui.collapsing("Full report", |ui| {
+                    reply::full_message(ui, error, "implementation_failure");
+                });
             } else if let Some(error) = &cleanup_error {
                 reply::full_message(ui, error, "cleanup_failure");
             } else if let Some(index) = open_ask {
@@ -160,7 +179,27 @@ pub(super) fn paint(
             } else if column == 4 {
                 ui.label("No action needed.");
             } else {
-                if let Some(error) = &failure {
+                if let Some(plan) = &blocker {
+                    if decision_sent {
+                        ui.label("Decision saved in this task's conversation.");
+                    }
+                    for step in plan
+                        .steps
+                        .iter()
+                        .filter(|step| !decision_sent || !step.starts_with("Adjudicator:"))
+                    {
+                        ui.add(egui::Label::new(step).wrap());
+                    }
+                    if !plan.choices.is_empty() {
+                        if decision_sent {
+                            ui.collapsing("Change decision", |ui| {
+                                reply::paint(ui, s, ticket, &messages, &plan.choices);
+                            });
+                        } else {
+                            reply::paint(ui, s, ticket, &messages, &plan.choices);
+                        }
+                    }
+                } else if let Some(error) = &failure {
                     let actions = reply::failure_actions(error);
                     if actions.is_empty() {
                         ui.label("Review the failure, then resume the preserved work.");
@@ -222,7 +261,11 @@ pub(super) fn paint(
                 .weak(),
         );
     }
-    if !active && column != 4 && (open_ask.is_some() || failure.is_some()) {
+    if !active
+        && column != 4
+        && (open_ask.is_some() || failure.is_some())
+        && blocker.as_ref().is_none_or(|plan| plan.choices.is_empty())
+    {
         ui.add_space(10.0);
         egui::Frame::NONE
             .fill(theme::ACCENT_SOFT)
@@ -230,7 +273,7 @@ pub(super) fn paint(
             .inner_margin(12)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                reply::paint(ui, s, ticket, &messages);
+                reply::paint(ui, s, ticket, &messages, &[]);
             });
     }
     ui.add_space(12.0);

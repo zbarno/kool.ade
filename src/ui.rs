@@ -44,6 +44,9 @@ pub trait Surface {
         None
     }
     fn send_task_reply(&mut self, _key: &str) {}
+    fn send_implementation_decision(&mut self, key: &str) {
+        self.send_task_reply(key);
+    }
     fn task_chat_active(&self, _key: &str) -> bool {
         false
     }

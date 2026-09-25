@@ -96,6 +96,15 @@ impl Controller {
         ticket: String,
         auto_merge: bool,
     ) -> Self {
+        Self::start_project_with_context(planning_root, target_repo, ticket, auto_merge, None)
+    }
+    pub fn start_project_with_context(
+        planning_root: PathBuf,
+        target_repo: PathBuf,
+        ticket: String,
+        auto_merge: bool,
+        user_context: Option<String>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -116,6 +125,7 @@ impl Controller {
                 progress,
                 "gh",
                 auto_merge,
+                user_context.as_deref(),
             );
             let _ = forward.join();
             let _ = tx.send(Event::Done(result.map_err(|e| format!("{e:#}"))));
@@ -612,7 +622,7 @@ fn run_with_options(
     auto_merge: bool,
 ) -> anyhow::Result<Implementation> {
     run_with_project_options(
-        repo, repo, ticket, harness, cancel, progress, gh, auto_merge,
+        repo, repo, ticket, harness, cancel, progress, gh, auto_merge, None,
     )
 }
 fn run_with_project_options(
@@ -624,6 +634,7 @@ fn run_with_project_options(
     progress: Sender<LiveProgress>,
     gh: &str,
     auto_merge: bool,
+    user_context: Option<&str>,
 ) -> anyhow::Result<Implementation> {
     anyhow::ensure!(
         target_repository(planning_root, ticket)?.canonicalize()? == repo.canonicalize()?,
@@ -738,7 +749,7 @@ fn run_with_project_options(
     save(&dir, &state)?;
     let result = runner.check_storage(&dir)
         .and_then(|_| runner.check_storage(&state.worktree))
-        .and_then(|_| execute(planning_root, repo, &dir, &mut state, harness, &runner));
+        .and_then(|_| execute(planning_root, repo, &dir, &mut state, harness, &runner, user_context));
     if let Err(error) = result {
         state.status = if runner.cancel.load(Ordering::SeqCst) {
             "Interrupted"
@@ -902,6 +913,7 @@ fn prepare_verified(
     state: &mut Implementation,
     harness: &dyn AiHarness,
     runner: &Runner,
+    user_context: Option<&str>,
 ) -> anyhow::Result<()> {
     runner.update("Preparing implementation worktree…");
     if state.worktree.exists() {
@@ -1037,7 +1049,11 @@ fn prepare_verified(
                 "\n\nMECHANICALLY COLLECTED HISTORY PREFLIGHT (also saved at {}):\n{}\nCompare any ticket-stated exact footprint with these reachable-history facts before editing. Explicitly say whether the expected table describes cumulative feature history or this ticket's changes from its task base.\n",
                 history_evidence_path.display(), history_evidence
             ));
-            prompt.push_str("Write summary for an operator: lead with the outcome in plain language, then state the next step as an action with its owner. Define uncommon gate jargon on first use. Make each remaining entry start with the responsible person or role and a verb (for example, `Adjudicator: approve ...` or `Operator: run ...`); name the exact artifact or command and expected result.\n");
+            prompt.push_str("Write summary for an operator in at most 400 characters: state the outcome and why work is paused, without test inventories or repeated evidence. Keep detailed proof in acceptance_criteria, verification, and the saved report. Make each remaining entry start with the responsible person or role and a verb (for example, `Adjudicator: choose ...` or `Operator: run ...`); name the artifact and result briefly. If a decision has alternatives, list 2-6 concise, lettered options `(a)`, `(b)`, etc. Separate human steps from Packet's follow-up.\n");
+            if let Some(input) = user_context.filter(|input| !input.trim().is_empty()) {
+                prompt.push_str(&format!("\n\nLATEST SUBMITTED USER RESPONSE FOR THIS TASK:\n{}\nThis is a user-supplied decision or observation, not proof that the ledger was changed or external checks were run. Apply only what it explicitly authorizes; verify any required decision-maker identity, inspect the relevant artifacts, and keep unmet requirements blocked.\n",
+                    crate::core::context_build::clip(input, 4000)));
+            }
             if let Some(dependencies) = &state.completed_dependency_context {
                 prompt.push_str(&format!(
                     "\n\nCOMPLETED DEPENDENCY CONTRACTS:\n{dependencies}"
@@ -1285,8 +1301,9 @@ fn execute(
     state: &mut Implementation,
     harness: &dyn AiHarness,
     runner: &Runner,
+    user_context: Option<&str>,
 ) -> anyhow::Result<()> {
-    prepare_verified(repo, dir, state, harness, runner)?;
+    prepare_verified(repo, dir, state, harness, runner, user_context)?;
     if state.status == "Done" {
         return Ok(());
     }
@@ -1584,7 +1601,7 @@ fn auto_publish(
                     .detail
                     .push_str(&format!("\nIntegration verification failure: {error}"));
                 save(&integration_dir, &integration)?;
-                prepare_verified(repo, &integration_dir, &mut integration, harness, runner)?;
+                prepare_verified(repo, &integration_dir, &mut integration, harness, runner, None)?;
             } else {
                 runner.git(&integration.worktree, &["add", "--all"])?;
                 if !runner
@@ -3054,6 +3071,32 @@ mod tests {
         assert_eq!(run().unwrap().status, "Done");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(!s.root.join("pr-created").exists());
+    }
+
+    #[test]
+    fn resumed_worker_receives_the_submitted_task_decision() {
+        struct Capture {
+            prompt: Arc<std::sync::Mutex<String>>,
+        }
+        impl AiHarness for Capture {
+            fn label(&self) -> String { "capture".into() }
+            fn check_available(&self) -> Result<String, AppError> { Ok("capture".into()) }
+            fn execute(&self, req: &PlanningRequest) -> Result<crate::harness::HarnessOutcome, AppError> {
+                *self.prompt.lock().unwrap() = req.prompt_body.clone();
+                Fixture { mode: "complete", calls: Arc::new(AtomicUsize::new(0)) }.execute(req)
+            }
+        }
+        let s = Sandbox::new();
+        let prompt = Arc::new(std::sync::Mutex::new(String::new()));
+        let (tx, _rx) = mpsc::channel();
+        run_with_project_options(&s.repo, &s.repo, &s.ticket,
+            &Capture { prompt: prompt.clone() }, Arc::new(AtomicBool::new(false)),
+            tx, "must-not-run-gh", true,
+            Some("I choose option (b): reissue the corrected footprint predicate.")).unwrap();
+        let recorded = prompt.lock().unwrap();
+        assert!(recorded.contains("LATEST SUBMITTED USER RESPONSE FOR THIS TASK"));
+        assert!(recorded.contains("I choose option (b): reissue the corrected footprint predicate."));
+        assert!(recorded.contains("not proof that the ledger was changed"));
     }
 
     #[test]

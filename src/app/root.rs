@@ -22,6 +22,8 @@ mod conversation_tests;
 #[path = "feature_approval.rs"]
 mod feature_approval;
 
+mod implementation_decision;
+
 /// Root of the packet app.
 pub struct PacketApp {
     #[cfg(test)]
@@ -1660,13 +1662,18 @@ impl PacketApp {
                 ..Default::default()
             };
             p.activity.mark_ticket_dirty(&ticket);
+            p.task_chats.ensure_loaded(&p.chat_slug);
+            let user_name = p.state.effective_user().name;
+            let user_context = p.task_chats.messages.get(&ticket)
+                .and_then(|messages| implementation_decision::latest_context(messages, &user_name));
             p.active_implementations.insert(
                 ticket.clone(),
-                crate::core::implementation::Controller::start_project(
+                crate::core::implementation::Controller::start_project_with_context(
                     p.state.repo_root.clone(),
                     target_repo,
                     ticket,
                     p.queue.auto_mode,
+                    user_context,
                 ),
             );
         }
@@ -1765,6 +1772,9 @@ impl Surface for PacketApp {
     }
     fn send_task_reply(&mut self, key: &str) {
         self.submit_task_reply(key);
+    }
+    fn send_implementation_decision(&mut self, key: &str) {
+        self.submit_implementation_decision(key);
     }
     fn task_chat_active(&self, key: &str) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.task_turns.contains_key(key))
@@ -2651,8 +2661,11 @@ mod board_tests {
         for label in ["CURRENT STATE", "YOUR NEXT STEP", "Activity", "Resume after action", "Reply to this task", "Send response"] {
             assert!(text_position(&output, label).is_some(), "missing {label}");
         }
-        assert!(text_position(&output, "• Adjudicator: approve the corrected footprint.").is_some());
-        assert!(text_position(&output, "• Operator: record the display demonstration.").is_some());
+        assert!(text_position(&output, "Adjudicator: approve the corrected footprint.").is_some());
+        assert!(text_position(&output, "Operator: record the display demonstration.").is_some());
+        assert!(text_position(&output, "Full report").is_some());
+        assert!(text_position(&output, "Full report: saved-report.json").is_none());
+        let output = click_text(&mut app, &ctx, "Full report");
         assert!(text_position(&output, "Copy full message").is_some());
         assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
             egui::Shape::Text(text) if text.galley.text().contains("Full report: saved-report.json"))),
@@ -2681,6 +2694,42 @@ mod board_tests {
         if let Screen::Connected(p) = &app.screen {
             assert_eq!(p.task_chats.drafts.get(key).map(String::as_str),
                 Some("Yes, use the existing adapter."));
+        }
+    }
+
+    #[test]
+    fn external_blocker_offers_decision_buttons_instead_of_report_paragraphs() {
+        let mut app = fixture();
+        let key = "planning/tasks/fixture/001-task.md";
+        if let Screen::Connected(p) = &mut app.screen {
+            p.queue.blocked.insert(key.into(), "## Waiting for user action\n\nRESULT: BLOCKED after a lengthy verification summary.\n\n### Next action(s)\n\n- Adjudicator: pick one remedy in L.4 - (a) ratify the effective base 990112d with the realized table, (b) reissue the corrected footprint predicate, (c) sanction explicit exemptions for off-table rows, or (d) authorize out-of-session pre-publication history repair - and fill the VERDICT block; expected result: gate closes.\n- Operator: walk L1, L3 and L4 on the display workstation; expected result: exhibits.\n- Packet (application): commit and reconcile after both actions.\n\nFull report: report.json".into());
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = click_text(&mut app, &ctx, "First task");
+        for label in ["Implementation is paused for a decision and desktop checks.",
+            "Adjudicator: choose one remedy below and send your decision.",
+            "Operator: run GUI checks L1, L3 and L4 on a Linux desktop; save the transcript outside the repository.",
+            "a · Ratify effective base", "b · Correct the footprint rule",
+            "c · Approve named exceptions", "d · Authorize history repair", "Send decision"] {
+            assert!(text_position(&output, label).is_some(), "missing {label}");
+        }
+        assert!(text_position(&output, "Packet (application): commit and reconcile after both actions.").is_none());
+        click_text(&mut app, &ctx, "b · Correct the footprint rule");
+        if let Screen::Connected(p) = &app.screen {
+            assert!(p.task_chats.drafts.get(key).unwrap().starts_with("I choose option (b): Correct the footprint rule"));
+        }
+        let output = click_text(&mut app, &ctx, "Send decision");
+        assert!(text_position(&output, "Decision saved for Packet. Complete any remaining external checks, then resume.").is_some());
+        assert!(text_position(&output, "Change decision").is_some());
+        if let Screen::Connected(p) = &app.screen {
+            assert!(p.task_turns.is_empty(), "decision should not start a planner turn");
+            assert!(p.task_chats.drafts.get(key).is_none_or(String::is_empty));
+            assert!(p.task_chats.messages[key].last().is_some_and(|m|
+                m.role == ChatRole::User && m.text.contains("option (b)")));
+            let mut saved = crate::persistence::task_chats::TaskChats::default();
+            saved.ensure_loaded(&p.chat_slug);
+            assert!(saved.messages[key].last().is_some_and(|m| m.text.contains("option (b)")));
         }
     }
 
