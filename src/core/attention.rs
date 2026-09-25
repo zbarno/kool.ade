@@ -148,10 +148,6 @@ fn validate(brief: &Brief, report: &Report) -> anyhow::Result<()> {
         !brief.after.trim().is_empty() && brief.after.chars().count() <= 500,
         "Explanation needs a brief, concrete follow-up"
     );
-    anyhow::ensure!(
-        brief.options.len() <= 8 && brief.steps.len() <= 8,
-        "Explanation contains too many options or steps"
-    );
     for step in &brief.steps {
         anyhow::ensure!(
             !step.owner.trim().is_empty()
@@ -175,11 +171,7 @@ fn validate(brief: &Brief, report: &Report) -> anyhow::Result<()> {
             "Explanation has an incomplete or duplicate option"
         );
     }
-    let remaining = report.remaining.join("\n");
-    let source_ids = ('a'..='h')
-        .filter(|code| remaining.contains(&format!("({code})")))
-        .map(|code| code.to_string())
-        .collect::<BTreeSet<_>>();
+    let source_ids = explicit_choice_ids(report);
     if !source_ids.is_empty() {
         anyhow::ensure!(
             ids == source_ids,
@@ -191,6 +183,48 @@ fn validate(brief: &Brief, report: &Report) -> anyhow::Result<()> {
         "Explanation omits every human action"
     );
     Ok(())
+}
+
+/// Keep generated buttons tied to IDs explicitly listed in a human choice.
+/// IDs are discovered from the report instead of assuming a fixed number of
+/// lettered options; ordinary parentheticals outside choice instructions are
+/// ignored.
+fn explicit_choice_ids(report: &Report) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
+    for line in report.remaining.join("\n").lines() {
+        let lower = line.to_ascii_lowercase();
+        if ![
+            "choose",
+            "pick",
+            "select",
+            "options",
+            "alternatives",
+            "remedies",
+        ]
+        .iter()
+        .any(|cue| lower.contains(cue))
+        {
+            continue;
+        }
+        let mut rest = line;
+        while let Some(open) = rest.find('(') {
+            rest = &rest[open + 1..];
+            let Some(close) = rest.find(')') else {
+                break;
+            };
+            let candidate = rest[..close].trim();
+            if !candidate.is_empty()
+                && candidate.len() <= 24
+                && candidate
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+            {
+                ids.insert(candidate.to_ascii_lowercase());
+            }
+            rest = &rest[close + 1..];
+        }
+    }
+    ids
 }
 
 fn run(

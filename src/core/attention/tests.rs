@@ -33,6 +33,38 @@ fn source_choice_ids_must_match_generated_options() {
 }
 
 #[test]
+fn source_choices_are_dynamic_and_not_limited_to_eight_letters() {
+    let ids = ('a'..='j').map(|id| id.to_string()).collect::<Vec<_>>();
+    let alternatives = ids
+        .iter()
+        .map(|id| format!("({id}) option {id}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let report = Report {
+        status: "blocked".into(),
+        summary: "A decision is needed".into(),
+        acceptance_criteria: vec![],
+        verification: vec![],
+        remaining: vec![format!("Owner: choose one: {alternatives}")],
+    };
+    let brief = Brief {
+        problem: "The task needs one of the listed choices before it can continue.".into(),
+        options: ids
+            .into_iter()
+            .map(|id| OptionBrief {
+                label: format!("Option {id}"),
+                meaning: format!("Choose the {id} path."),
+                consequence: format!("The {id} path will be used."),
+                id,
+            })
+            .collect(),
+        steps: vec![],
+        after: "Packet continues after the choice is recorded.".into(),
+    };
+    assert!(validate(&brief, &report).is_ok());
+}
+
+#[test]
 fn ordinary_failure_uses_its_own_detail_as_source() {
     use crate::{
         error::AppError,

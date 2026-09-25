@@ -58,12 +58,33 @@ fn referenced_documents(root: &Path, report: &Report) -> String {
 
 fn prompt(report: &Report, documents: &str, correction: &str) -> String {
     format!(
-        "Explain this saved implementation blocker to a non-technical project owner. Use ONLY the report and referenced documents below as facts. State the concrete mismatch, why the worker cannot fix it alone, and what human action remains. For every real alternative, explain in plain words what it does AND what changes or risks if chosen. Preserve every option ID exactly; do not add, merge, recommend, or silently select options. Include human steps separately from Packet's later follow-up, but do not repeat the choice as a step when options are present. If evidence does not establish a consequence, say so rather than guessing. Avoid unexplained acronyms and long test inventories. Keep the problem to 2-4 short sentences and each option's meaning/consequence to 1-2 short sentences. Return ONLY JSON with exactly this shape:\n{{\"problem\":\"...\",\"options\":[{{\"id\":\"a\",\"label\":\"...\",\"meaning\":\"...\",\"consequence\":\"...\"}}],\"steps\":[{{\"owner\":\"Operator\",\"action\":\"...\"}}],\"after\":\"...\"}}\nUse options=[] when there are no choices. The option labels and consequences must be specific to THIS report, not a generic template.\n\nSAVED REPORT SUMMARY:\n{}\n\nREMAINING ACTIONS:\n{}\n\nREFERENCED DOCUMENTS:\n{}\n{}",
+        "Explain this saved implementation blocker to a non-technical project owner. Use ONLY the report and referenced documents below as facts. State the concrete mismatch, why the worker cannot fix it alone, and what human action remains. For every real alternative, explain in plain words what it does AND what changes or risks if chosen. Preserve every explicit option ID exactly; do not add, merge, recommend, or silently select options. Include human steps separately from Packet's later follow-up, but do not repeat the choice as a step when options are present. If evidence does not establish a consequence, say so rather than guessing. Avoid unexplained acronyms, command syntax, and long test inventories. Use recorded acceptance evidence to make the explanation specific; do not turn it into a test report. Keep the problem to 2-4 short sentences and each option's meaning/consequence to 1-2 short sentences. Return ONLY JSON with exactly this shape:\n{{\"problem\":\"...\",\"options\":[{{\"id\":\"a\",\"label\":\"...\",\"meaning\":\"...\",\"consequence\":\"...\"}}],\"steps\":[{{\"owner\":\"Operator\",\"action\":\"...\"}}],\"after\":\"...\"}}\nUse options=[] when there are no choices. The option labels and consequences must be specific to THIS report, not a generic template.\n\nSAVED REPORT STATUS:\n{}\n\nSAVED REPORT SUMMARY:\n{}\n\nACCEPTANCE CRITERIA AND RECORDED EVIDENCE:\n{}\n\nREMAINING ACTIONS:\n{}\n\nREFERENCED DOCUMENTS:\n{}\n{}",
+        crate::core::context_build::clip(&report.status, 200),
         crate::core::context_build::clip(&report.summary, 12000),
+        acceptance_context(report),
         crate::core::context_build::clip(&report.remaining.join("\n"), 18000),
         documents,
         correction
     )
+}
+
+fn acceptance_context(report: &Report) -> String {
+    let entries = report
+        .acceptance_criteria
+        .iter()
+        .map(|criterion| {
+            format!(
+                "- Requirement: {}\n  Recorded evidence: {}",
+                crate::core::context_build::clip(&criterion.criterion, 1800),
+                crate::core::context_build::clip(&criterion.evidence, 1800)
+            )
+        })
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        "No acceptance criterion evidence was recorded.".to_owned()
+    } else {
+        crate::core::context_build::clip(&entries.join("\n"), 12000)
+    }
 }
 
 pub(super) fn context(repo: &Path, ticket: &str, report: &Report) -> (std::path::PathBuf, String) {
@@ -127,13 +148,18 @@ mod tests {
         let report = Report {
             status: "blocked".into(),
             summary: "Published history conflicts with the file list".into(),
-            acceptance_criteria: vec![],
+            acceptance_criteria: vec![crate::core::implementation::Criterion {
+                criterion: "The frozen-base table has eight paths".into(),
+                evidence: "The published base contains 26 paths, including 19 added later.".into(),
+            }],
             verification: vec![],
             remaining: vec!["Adjudicator: choose (a) accept or (b) revise".into()],
         };
         let text = prompt(&report, "ledger", "");
         assert!(text.contains("what changes or risks if chosen"));
-        assert!(text.contains("Preserve every option ID exactly"));
+        assert!(text.contains("Preserve every explicit option ID exactly"));
         assert!(text.contains("ledger"));
+        assert!(text.contains("The frozen-base table has eight paths"));
+        assert!(text.contains("published base contains 26 paths"));
     }
 }
