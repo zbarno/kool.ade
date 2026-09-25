@@ -1,0 +1,25 @@
+
+
+# SUMMARY
+
+## Findings
+The four-flow behavioral contract is proven mechanically; the gate check 11 blocker is formally established and preserved:
+- **Behavioral:** sw4 filter 4/4 (env inheritance incl. argc 0 / non-blocking spawn; browse choose→Connect→bootstrap+witness; byte-exact clone parity under dual HOMEs; double-click coalescing class/zeros/variance). Offline full suite: rc 0, 6 `test result: ok`, lib 453/0, zero failures/panics.
+- **D-34 gate:** archived evidence re-derived bit-for-bit this session — 5/5 raw streams re-normalize byte-identical, added set 0 B (two independent methods), removals match archived verbatim (56 B, comm cardinality 56=56), anti-vacuity recovers the exact synthetic, symbols Stage A=B=0, all 5 captures recorded exit 0 (disclosed `EXIT=0` vs `0` print-format split), manifest digests = ticket base, 428 pkgs, clean worktree, payload anchored at +952/−9 in the two permitted files.
+- **Check 11 (discrepancy, standing):** canonical 8-row table is `{A spawn.rs; A runbook; M app.rs; M src/ui/layout.rs; M root; M welcome; M dialogs; M src/core/gitops.rs}`. All 7 committed rows are present in both ranges; the runbook row is by-design untracked (appears in no diff); frozen `ead188a..V` = 26 rows (7 promised + **19** off-table), effective `990112d..V` = 13 rows (7 + **6** off-table); the 6 off-table rows trace to published, origin-master-ancestor checkpoints `3ad8f91` (5 files) and `9894234` (1 file); **0 of 31** frozen descendants realize the committed septuple exactly; smallest frozen range over the 3-story carrier pool = 26 (min promised-septuple superset = 13). The exact-table gate is mathematically unsatisfiable by any reachable commit — remediable only by the four ledgered adjudications (ratify effective base, reissue predicate, named exemption, directed history repair).
+- **Topology re-verified live (fetch rc 0):** 5 remote refs; `origin/master=e3758f6` descended from V; both offenders published to origin/master; supervisor process (1 match) with `DISPLAY=:1` attested.
+
+## WHAT CHANGED
+- `1790257374969967778-report.json` (atomic write): status `blocked`; 6 byte-verbatim criteria; **9 self-contained POSIX-sh verification commands**, each `sh -n`-clean and executed to its own `VERIFYnn_…_OK` marker (exit 0) against the final bytes; 3 actionable remaining items; operators_summary; blockers.
+- `reconcile-record.md`: Appendix I (independent re-derivation, count forensics, capture-format disclosure, offender attribution) + Addendum I.6 (verbatim conformant-table pinning).
+- No commits, pushes, signals, or worktrees created/deleted; HEAD `c13242c` with the 4 pre-existing entries.
+
+## REVIEW FINDINGS AND REMEDIATIONS
+Independent-pass note: no sub-agent launcher is available in this session (tools: read/bash/edit/write), so independence was achieved mechanically rather than by persona — every report claim was re-derived by fresh extraction scripts (criteria verbatim-checked against the ticket file; the ticket's own shape checker with `--negctl` rejected both deliberate malformed variants); all quantitative assertions come from commands re-authored and re-executed this session, with hand arithmetic cross-checks (26/19/13/6, 5/1 blame, 0/31, min 26 — all match). Two genuine bugs were caught and fixed this way (bad `$( … )` escaping; wrong table paths/statuses in my reconstruction) before final sign-off. No outstanding Critical/High/Medium findings.
+
+## WHAT REMAINS
+- Operator: walk runbook L1/L3(/L4) on the live host; supply transcript → closes AC-6 (host prereqs already attested: supervisor proc, DISPLAY=:1, network rc 0).
+- Adjudicator: pick one of the four remediations for check 11 (Appendix L.4; Addendum I.6 supplies the unambiguous table text).
+
+## NEXT STEPS
+Once the operator transcript lands: convert its attachment to a `remaining_action` closure, flip report status to success only after the adjudicated check-11 remedy is recorded — otherwise the report stands as delivered (`blocked` with full evidence chain).
