@@ -30,12 +30,52 @@ pub(super) fn failure_actions(text: &str) -> Vec<&str> {
         .unwrap_or_default()
 }
 
+fn paint_blocker_choice(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    key: &str,
+    busy: bool,
+    choice: &crate::core::attention::OptionBrief,
+) {
+    egui::Frame::NONE
+        .fill(theme::PANEL_ALT)
+        .corner_radius(6)
+        .inner_margin(10)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            if ui
+                .add_enabled(
+                    !busy,
+                    egui::Button::new(
+                        RichText::new(format!("{} · {}", choice.id, choice.label)).strong(),
+                    )
+                    .wrap(),
+                )
+                .on_hover_text(&choice.meaning)
+                .clicked()
+                && let Some(draft) = s.task_draft(key)
+            {
+                *draft = format!("I choose option ({}): {}.", choice.id, choice.label);
+            }
+            ui.add(egui::Label::new(&choice.meaning).wrap());
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!("If chosen: {}", choice.consequence))
+                        .small()
+                        .color(theme::TEXT_DIM),
+                )
+                .wrap(),
+            );
+        });
+    ui.add_space(6.0);
+}
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
     key: &str,
     messages: &[ChatMessage],
-    blocker_choices: &[super::blocker::Choice],
+    blocker_choices: &[crate::core::attention::OptionBrief],
 ) {
     let choices = if blocker_choices.is_empty() {
         crate::ui::reply_tail::open_digest_choices(messages)
@@ -45,17 +85,18 @@ pub(super) fn paint(
     let busy = s.task_chat_active(key);
     ui.push_id(("task_detail_reply", key), |ui| {
         if !blocker_choices.is_empty() {
-            ui.label(RichText::new("Choose one option").small().strong());
-            ui.horizontal_wrapped(|ui| {
-                for choice in blocker_choices {
-                    if ui.add_enabled(!busy, egui::Button::new(&choice.label).wrap())
-                        .on_hover_text(&choice.detail).clicked()
-                        && let Some(draft) = s.task_draft(key) {
-                        *draft = format!("I choose option ({}): {}. Please record this decision in the VERDICT block.",
-                            choice.code, choice.label.split_once(" · ").map(|(_, label)| label).unwrap_or(&choice.label));
+            ui.label(RichText::new("Choose one option").strong());
+            if ui.available_width() >= 660.0 {
+                ui.columns(2, |columns| {
+                    for (index, choice) in blocker_choices.iter().enumerate() {
+                        paint_blocker_choice(&mut columns[index % 2], s, key, busy, choice);
                     }
+                });
+            } else {
+                for choice in blocker_choices {
+                    paint_blocker_choice(ui, s, key, busy, choice);
                 }
-            });
+            }
         } else if !choices.is_empty() {
             ui.label(RichText::new("Choose an option").small().strong());
             ui.horizontal_wrapped(|ui| {
@@ -91,9 +132,14 @@ pub(super) fn paint(
                 .show(ui);
             let enabled = !busy && !draft.trim().is_empty();
             send = ui
-                .add_enabled(enabled, egui::Button::new(if blocker_choices.is_empty() {
-                    "Send response"
-                } else { "Send decision" }))
+                .add_enabled(
+                    enabled,
+                    egui::Button::new(if blocker_choices.is_empty() {
+                        "Send response"
+                    } else {
+                        "Send decision"
+                    }),
+                )
                 .on_hover_text("Send to this task's conversation")
                 .clicked()
                 || (enabled
@@ -121,8 +167,8 @@ pub(super) fn paint(
                 } else {
                     "Decision saved. Resume after the remaining steps are complete."
                 })
-                    .small()
-                    .weak(),
+                .small()
+                .weak(),
             );
         }
         if let Some(error) = s.task_chat_error() {

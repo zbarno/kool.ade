@@ -1,6 +1,6 @@
 //! State, reply, and activity for the task modal.
 use super::*;
-mod blocker;
+mod activity;
 mod reply;
 
 pub(super) fn paint(
@@ -33,12 +33,16 @@ pub(super) fn paint(
                 .filter(|r| r.status == "Needs attention")
                 .map(|r| r.detail.clone())
         });
-    let blocker = failure.as_deref().and_then(blocker::parse);
+    let attention = failure
+        .as_deref()
+        .and_then(|detail| s.task_attention(ticket, detail));
+    let brief = match &attention {
+        Some(crate::core::attention::View::Ready(brief)) => Some(brief),
+        _ => None,
+    };
     let messages = s.task_messages(ticket).to_vec();
     let open_ask = crate::ui::reply_tail::open_ask_index(&messages);
-    let decision_sent = blocker
-        .as_ref()
-        .is_some_and(|plan| !plan.choices.is_empty())
+    let decision_sent = brief.is_some_and(|brief| !brief.options.is_empty())
         && messages
             .iter()
             .rev()
@@ -121,12 +125,28 @@ pub(super) fn paint(
                     ui.label("Worker is starting.");
                 }
             } else if let Some(error) = &failure {
-                if let Some(plan) = &blocker {
-                    ui.label(if decision_sent {
-                        "Decision saved for Packet. Complete any remaining external checks, then resume."
-                    } else { &plan.summary });
-                } else {
-                    ui.label(failure_summary(error));
+                match &attention {
+                    Some(crate::core::attention::View::Ready(brief)) => {
+                        ui.add(egui::Label::new(&brief.problem).wrap());
+                        if decision_sent {
+                            ui.label("Decision saved for Packet.");
+                        }
+                    }
+                    Some(crate::core::attention::View::Loading) => {
+                        ui.label("Preparing a plain-language explanation of this blocker…");
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(200));
+                    }
+                    Some(crate::core::attention::View::Error(message)) => {
+                        ui.colored_label(theme::WARNING, "Could not prepare the explanation.");
+                        ui.label(message);
+                        if ui.small_button("Retry explanation").clicked() {
+                            s.retry_task_attention(ticket, error);
+                        }
+                    }
+                    None => {
+                        ui.label(failure_summary(error));
+                    }
                 }
                 ui.collapsing("Full report", |ui| {
                     reply::full_message(ui, error, "implementation_failure");
@@ -179,26 +199,25 @@ pub(super) fn paint(
             } else if column == 4 {
                 ui.label("No action needed.");
             } else {
-                if let Some(plan) = &blocker {
+                if let Some(brief) = brief {
                     if decision_sent {
                         ui.label("Decision saved in this task's conversation.");
                     }
-                    for step in plan
-                        .steps
-                        .iter()
-                        .filter(|step| !decision_sent || !step.starts_with("Adjudicator:"))
-                    {
-                        ui.add(egui::Label::new(step).wrap());
+                    for step in &brief.steps {
+                        ui.add(egui::Label::new(format!("{}: {}", step.owner, step.action)).wrap());
                     }
-                    if !plan.choices.is_empty() {
+                    if !brief.options.is_empty() {
                         if decision_sent {
                             ui.collapsing("Change decision", |ui| {
-                                reply::paint(ui, s, ticket, &messages, &plan.choices);
+                                reply::paint(ui, s, ticket, &messages, &brief.options);
                             });
                         } else {
-                            reply::paint(ui, s, ticket, &messages, &plan.choices);
+                            reply::paint(ui, s, ticket, &messages, &brief.options);
                         }
                     }
+                    ui.label(RichText::new(&brief.after).small().weak());
+                } else if matches!(&attention, Some(crate::core::attention::View::Loading | crate::core::attention::View::Error(_))) {
+                    ui.label("The full report contains the original actions while Packet prepares a clearer explanation.");
                 } else if let Some(error) = &failure {
                     let actions = reply::failure_actions(error);
                     if actions.is_empty() {
@@ -238,33 +257,11 @@ pub(super) fn paint(
                 }
             }
         });
-    ui.add_space(14.0);
-    ui.label(RichText::new("Activity").strong().size(16.0));
-    let samples = s.activity_samples(Some(ticket));
-    crate::ui::task_activity::graph(ui, &samples, s.activity_active(ticket), 76.0);
-    if let Some(progress) = s.task_progress(ticket) {
-        ui.label(RichText::new(crate::ui::task_activity::preview(progress)).small());
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                RichText::new(crate::ui::task_activity::timing(progress, active))
-                    .small()
-                    .weak(),
-            );
-            if ui.small_button("View all activity").clicked() {
-                *activity_path = Some(ticket.clone());
-            }
-        });
-    } else {
-        ui.label(
-            RichText::new("No worker activity recorded yet.")
-                .small()
-                .weak(),
-        );
-    }
+    activity::paint(ui, s, ticket, active, activity_path);
     if !active
         && column != 4
         && (open_ask.is_some() || failure.is_some())
-        && blocker.as_ref().is_none_or(|plan| plan.choices.is_empty())
+        && brief.is_none_or(|brief| brief.options.is_empty())
     {
         ui.add_space(10.0);
         egui::Frame::NONE

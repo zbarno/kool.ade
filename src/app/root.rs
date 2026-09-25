@@ -23,6 +23,7 @@ mod conversation_tests;
 mod feature_approval;
 
 mod implementation_decision;
+mod attention;
 
 /// Root of the packet app.
 pub struct PacketApp {
@@ -57,6 +58,9 @@ pub struct PacketApp {
     reconciliation_probe: Option<std::thread::JoinHandle<(crate::core::state::PlannerState, anyhow::Result<Option<crate::core::reconciliation::Candidate>>)>>,
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
+    attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
+    #[cfg(test)]
+    attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
     /// D-14 configuration stand-in shown off-project (welcome screen):
     /// an empty map means every category classifies as unowned, so the
     /// pane degrades gracefully until a project connects.
@@ -177,6 +181,9 @@ impl Default for PacketApp {
             last_reconciliation_probe: None,
             reconciliation_probe: None,
             cached_user: CurrentUser::new("", Vec::new()),
+            attention: Default::default(),
+            #[cfg(test)]
+            attention_fixture: Default::default(),
             fallback_stakes: crate::domain::Stakeholders::default(),
             synth: Vec::new(),
         }
@@ -186,6 +193,7 @@ impl Default for PacketApp {
 // ------------------------------------------------------------------------ tick
 impl PacketApp {
     fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
+        self.poll_attention(ctx);
         // Clone job: drain BEFORE Phase 1's screen borrow so a finished
         // worker can refill `conn_path` and drive submit_connect — the
         // single connect authority. Unfinished workers ride back until
@@ -1293,6 +1301,7 @@ impl PacketApp {
         }
         match welcome::attempt_connect(&self.conn_path) {
             Ok(mut project) => {
+                self.attention.clear();
                 self.refresh_derived(&project);
                 project.remember_chat(vec![session::welcome_message(&project.state.title)]);
                 self.conn_error = None;
@@ -1979,6 +1988,12 @@ impl Surface for PacketApp {
             _ => None,
         }
     }
+    fn task_attention(&mut self, ticket: &str, detail: &str) -> Option<crate::core::attention::View> {
+        self.attention_view(ticket, detail)
+    }
+    fn retry_task_attention(&mut self, ticket: &str, detail: &str) {
+        self.retry_attention(ticket, detail);
+    }
     fn implementation_active(&self, ticket: &str) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(ticket))
     }
@@ -2651,18 +2666,27 @@ mod board_tests {
     #[test]
     fn task_details_show_full_state_and_inline_reply() {
         let mut app = fixture();
+        let key = "planning/tasks/fixture/001-task.md";
         if let Screen::Connected(p) = &mut app.screen {
             p.queue.blocked.insert(p.task_documents[0].path.clone(),
                 "## Waiting for user action\n\nThe published history conflicts with the gate.\n\n### Next action(s)\n\n- Adjudicator: approve the corrected footprint.\n- Operator: record the display demonstration.\n\nFull report: saved-report.json".into());
         }
+        app.attention_fixture.insert(key.into(), crate::core::attention::Brief {
+            problem: "The published history conflicts with the required file list.".into(),
+            options: Vec::new(),
+            steps: vec![crate::core::attention::HumanStep {
+                owner: "Operator".into(), action: "Record the display demonstration.".into(),
+            }],
+            after: "Resume once the required review is complete.".into(),
+        });
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = click_text(&mut app, &ctx, "First task");
         for label in ["CURRENT STATE", "YOUR NEXT STEP", "Activity", "Resume after action", "Reply to this task", "Send response"] {
             assert!(text_position(&output, label).is_some(), "missing {label}");
         }
-        assert!(text_position(&output, "Adjudicator: approve the corrected footprint.").is_some());
-        assert!(text_position(&output, "Operator: record the display demonstration.").is_some());
+        assert!(text_position(&output, "The published history conflicts with the required file list.").is_some());
+        assert!(text_position(&output, "Operator: Record the display demonstration.").is_some());
         assert!(text_position(&output, "Full report").is_some());
         assert!(text_position(&output, "Full report: saved-report.json").is_none());
         let output = click_text(&mut app, &ctx, "Full report");
@@ -2698,29 +2722,44 @@ mod board_tests {
     }
 
     #[test]
-    fn external_blocker_offers_decision_buttons_instead_of_report_paragraphs() {
+    fn generated_attention_brief_explains_an_unseen_blocker_and_sends_its_choice() {
         let mut app = fixture();
         let key = "planning/tasks/fixture/001-task.md";
         if let Screen::Connected(p) = &mut app.screen {
-            p.queue.blocked.insert(key.into(), "## Waiting for user action\n\nRESULT: BLOCKED after a lengthy verification summary.\n\n### Next action(s)\n\n- Adjudicator: pick one remedy in L.4 - (a) ratify the effective base 990112d with the realized table, (b) reissue the corrected footprint predicate, (c) sanction explicit exemptions for off-table rows, or (d) authorize out-of-session pre-publication history repair - and fill the VERDICT block; expected result: gate closes.\n- Operator: walk L1, L3 and L4 on the display workstation; expected result: exhibits.\n- Packet (application): commit and reconcile after both actions.\n\nFull report: report.json".into());
+            p.queue.blocked.insert(key.into(), "## Waiting for user action\n\nA provider quota stopped the job.\n\n### Next action(s)\n\n- Account owner: choose (a) wait or (b) request more capacity.\n\nFull report: report.json".into());
         }
+        app.attention_fixture.insert(key.into(), crate::core::attention::Brief {
+            problem: "The provider has reached its daily request limit, so the job cannot continue today.".into(),
+            options: vec![
+                crate::core::attention::OptionBrief { id: "a".into(), label: "Wait for reset".into(),
+                    meaning: "Use the existing quota after it refreshes.".into(),
+                    consequence: "There is no account change, but the task remains paused until tomorrow.".into() },
+                crate::core::attention::OptionBrief { id: "b".into(), label: "Request higher quota".into(),
+                    meaning: "Ask the provider to raise the account limit.".into(),
+                    consequence: "This may require account approval or added cost; the task remains paused until capacity is granted.".into() },
+            ],
+            steps: vec![crate::core::attention::HumanStep {
+                owner: "Account owner".into(), action: "Choose how to get more capacity.".into(),
+            }],
+            after: "Packet can retry once capacity is available.".into(),
+        });
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = click_text(&mut app, &ctx, "First task");
-        for label in ["Implementation is paused for a decision and desktop checks.",
-            "Adjudicator: choose one remedy below and send your decision.",
-            "Operator: run GUI checks L1, L3 and L4 on a Linux desktop; save the transcript outside the repository.",
-            "a · Ratify effective base", "b · Correct the footprint rule",
-            "c · Approve named exceptions", "d · Authorize history repair", "Send decision"] {
+        for label in ["The provider has reached its daily request limit, so the job cannot continue today.",
+            "Account owner: Choose how to get more capacity.", "a · Wait for reset", "b · Request higher quota",
+            "If chosen: There is no account change, but the task remains paused until tomorrow.",
+            "If chosen: This may require account approval or added cost; the task remains paused until capacity is granted.",
+            "Packet can retry once capacity is available.", "Send decision"] {
             assert!(text_position(&output, label).is_some(), "missing {label}");
         }
-        assert!(text_position(&output, "Packet (application): commit and reconcile after both actions.").is_none());
-        click_text(&mut app, &ctx, "b · Correct the footprint rule");
+        click_text(&mut app, &ctx, "b · Request higher quota");
         if let Screen::Connected(p) = &app.screen {
-            assert!(p.task_chats.drafts.get(key).unwrap().starts_with("I choose option (b): Correct the footprint rule"));
+            assert_eq!(p.task_chats.drafts.get(key).map(String::as_str),
+                Some("I choose option (b): Request higher quota."));
         }
         let output = click_text(&mut app, &ctx, "Send decision");
-        assert!(text_position(&output, "Decision saved for Packet. Complete any remaining external checks, then resume.").is_some());
+        assert!(text_position(&output, "Decision saved for Packet.").is_some());
         assert!(text_position(&output, "Change decision").is_some());
         if let Screen::Connected(p) = &app.screen {
             assert!(p.task_turns.is_empty(), "decision should not start a planner turn");

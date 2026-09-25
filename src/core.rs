@@ -12,6 +12,7 @@
 //! * `turn` — the threaded turn pipeline driving the UI
 
 pub mod apply;
+pub mod attention;
 pub mod board_actions;
 pub mod context_build;
 pub mod contract_snapshot;

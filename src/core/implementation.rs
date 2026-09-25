@@ -285,7 +285,7 @@ fn common(repo: &Path) -> anyhow::Result<PathBuf> {
     anyhow::ensure!(output.status.success(), "Cannot locate Git metadata");
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
-fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
     // State belongs to the repository's Packet workspace, not to .git. This
     // keeps resumable implementation evidence visible in the local workspace.
     // Git ignores this directory; moving a live workspace requires a separate
