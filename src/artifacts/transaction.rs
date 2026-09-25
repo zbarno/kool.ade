@@ -38,7 +38,8 @@ fn path(repo: &Path, rel: &str) -> anyhow::Result<PathBuf> {
         "Invalid planning artifact path"
     );
     anyhow::ensure!(
-        rel.starts_with("planning/") || rel == ".planner/workflow.json",
+        rel.starts_with(&format!("{}/", crate::artifacts::layout::legacy::PLANNING))
+            || rel == crate::artifacts::layout::legacy::WORKFLOW,
         "Path is outside planning artifacts"
     );
     let mut candidate = repo.to_path_buf();

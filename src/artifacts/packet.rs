@@ -8,34 +8,36 @@
 use std::path::{Path, PathBuf};
 
 use crate::core::implementation::{Implementation, Report};
+use crate::artifacts::layout::{ArtifactLayout, canonical, legacy};
 
-pub const PACKET_DIR: &str = ".kool-ade-packet";
-pub const PACKET_PLANNING_DIR: &str = ".kool-ade-packet/planning";
-pub const PACKET_IMPLEMENTATION_DIR: &str = ".kool-ade-packet/implementation";
-pub const PACKET_TASKS_DIR: &str = ".kool-ade-packet/planning/tasks";
-pub const ADR_DIR: &str = "adr";
+pub const PACKET_DIR: &str = canonical::ROOT;
+pub const PACKET_PLANNING_DIR: &str = canonical::PLANNING;
+pub const PACKET_IMPLEMENTATION_DIR: &str = canonical::IMPLEMENTATION;
+pub const PACKET_TASKS_DIR: &str = canonical::TASKS;
+pub const ADR_DIR: &str = legacy::ADR;
 
 /// Existing repositories retain their historical task tree until an
 /// explicit migration is requested. Fresh repositories start in the Packet
 /// workspace, so no new planning artifact is written to the legacy root.
 pub fn task_dir(repo: &Path) -> String {
-    if repo.join("planning/tasks").is_dir() {
-        "planning/tasks".into()
-    } else {
-        PACKET_TASKS_DIR.into()
-    }
+    ArtifactLayout::new(repo)
+        .active_tasks_root()
+        .strip_prefix(repo)
+        .unwrap_or_else(|_| Path::new(PACKET_TASKS_DIR))
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn packet_root(repo: &Path) -> PathBuf {
-    repo.join(PACKET_DIR)
+    ArtifactLayout::new(repo).packet_root()
 }
 
 pub fn planning_root(repo: &Path) -> PathBuf {
-    repo.join(PACKET_PLANNING_DIR)
+    ArtifactLayout::new(repo).planning_root()
 }
 
 pub fn implementation_root(repo: &Path) -> PathBuf {
-    repo.join(PACKET_IMPLEMENTATION_DIR)
+    ArtifactLayout::new(repo).implementation_root()
 }
 
 /// Convert the approved ticket and verified implementation evidence into an
@@ -55,7 +57,7 @@ pub(crate) fn publish_adr(
         .trim_start_matches('#')
         .trim();
     let slug = crate::artifacts::task_docs::slug(title);
-    let dir = repo.join(ADR_DIR);
+    let dir = ArtifactLayout::new(repo).legacy_adr_root();
     std::fs::create_dir_all(&dir)?;
     let mut path = dir.join(format!("implement-{slug}.md"));
     let content = render_adr(title, state, report, changed_paths);

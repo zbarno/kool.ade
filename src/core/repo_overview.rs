@@ -110,7 +110,10 @@ fn truncate_chars(s: &str, cap: usize) -> String {
 }
 
 fn is_skipped(name: &str) -> bool {
-    SKIP_DIRS.contains(&name) || (name.starts_with('.') && name != ".planner")
+    SKIP_DIRS.contains(&name)
+        || (name.starts_with('.')
+            && name != std::path::Path::new(crate::artifacts::layout::legacy::CONFIG)
+                .file_name().unwrap().to_string_lossy())
 }
 
 fn tree_walk(root: &Path) -> Vec<String> {
@@ -154,7 +157,8 @@ fn walk_into(root: &Path, dir: &Path, depth: u32, out: &mut Vec<String>) {
 /// repo root so agents can grab exact filenames for imports (§6).
 fn list_planning(repo: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    for base in [repo.join("planning"), repo.join(".planner")] {
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    for base in [layout.legacy_planning_root(), layout.legacy_config_root()] {
         if base.is_dir() {
             rec_list(&base, repo, &mut out);
         }

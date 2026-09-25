@@ -83,19 +83,21 @@ pub fn safe_directory(repo: &Path, relative: &str) -> anyhow::Result<()> {
 }
 
 pub fn save_workflow(repo: &Path, workflow: &Workflow) -> anyhow::Result<()> {
-    safe_directory(repo, ".planner")?;
-    let target = repo.join(WORKFLOW_FILE);
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    safe_directory(repo, crate::artifacts::layout::legacy::CONFIG)?;
+    let target = layout.legacy_workflow();
     if let Ok(meta) = std::fs::symlink_metadata(&target) {
         anyhow::ensure!(
             meta.is_file() && !meta.file_type().is_symlink(),
             "Workflow must be a regular file"
         );
     }
-    let tmp = repo.join(format!(
-        ".planner/.workflow-{}-{}.tmp",
+    let run = format!(
+        "{}-{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
+    );
+    let tmp = layout.legacy_workflow_temporary(&run);
     let result = (|| -> anyhow::Result<()> {
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new()
@@ -114,7 +116,7 @@ pub fn save_workflow(repo: &Path, workflow: &Workflow) -> anyhow::Result<()> {
 }
 
 pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
-    match std::fs::read_to_string(repo.join(WORKFLOW_FILE)) {
+    match std::fs::read_to_string(crate::artifacts::layout::ArtifactLayout::new(repo).legacy_workflow()) {
         Ok(text) => Ok(serde_json::from_str(&text)?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Workflow::default()),
         Err(e) => Err(e.into()),
@@ -425,7 +427,7 @@ pub fn write_batch(
 ) -> anyhow::Result<Vec<String>> {
     let task_dir = crate::artifacts::packet::task_dir(repo);
     safe_directory(repo, &task_dir)?;
-    safe_directory(repo, ".planner")?;
+    safe_directory(repo, crate::artifacts::layout::legacy::CONFIG)?;
     if let Some((directory, progress)) = progress_batches(repo).into_iter().find(|(_, p)| {
         p.total == batch.stories.len()
             && p.brief == batch.brief
@@ -610,7 +612,7 @@ fn load_batch(repo: &Path, batch: &TaskBatchRef, pending: bool) -> Vec<TaskDocum
     let Some(name) = batch
         .directory
         .strip_prefix(&format!("{}/", crate::artifacts::packet::task_dir(repo)))
-        .or_else(|| batch.directory.strip_prefix("planning/tasks/")) else {
+        .or_else(|| batch.directory.strip_prefix(&format!("{}/", crate::artifacts::layout::legacy::TASKS))) else {
         return Vec::new();
     };
     if name.is_empty() || name.len() > 120 || !name.chars().all(|c| c.is_alphanumeric() || c == '-')

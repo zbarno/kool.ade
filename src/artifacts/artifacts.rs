@@ -6,20 +6,11 @@
 
 use std::path::{Path, PathBuf};
 
-/// Repository-relative directory holding human-facing planning documents.
-pub const PLANNING_DIR: &str = "planning";
-/// `planning/specification.md` — the current complete specification.
-pub const SPEC_FILE: &str = "planning/specification.md";
-/// `planning/open-items.md` — the serialized open-item queue.
-pub const OPEN_ITEMS_FILE: &str = "planning/open-items.md";
-/// `planning/imports/` — user-imported reference documents.
-pub const IMPORTS_DIR: &str = "planning/imports";
-/// Repository-local planner configuration directory.
-pub const CONFIG_DIR: &str = ".planner";
-/// `.planner/config.md` — stakeholders + current user.
-pub const CONFIG_FILE: &str = ".planner/config.md";
-/// `.planner/mcp.json` — MCP servers advertised to the planning session.
-pub const MCP_CONFIG_FILE: &str = ".planner/mcp.json";
+pub use super::layout::legacy::{
+    CONFIG as CONFIG_DIR, IMPORTS as IMPORTS_DIR, MCP_CONFIG as MCP_CONFIG_FILE,
+    OPEN_ITEMS as OPEN_ITEMS_FILE, PLANNING as PLANNING_DIR,
+    PROJECT_CONFIG as CONFIG_FILE, SPECIFICATION as SPEC_FILE,
+};
 
 /// Absolute path for a repository-relative artifact.
 pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {

@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const PROJECT_FILE: &str = ".planner/project.json";
+pub const PROJECT_FILE: &str = crate::artifacts::layout::legacy::PROJECT_MANIFEST;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Repository {
@@ -19,7 +19,8 @@ pub struct ProjectManifest {
 }
 impl ProjectManifest {
     pub fn load(planning_root: &Path) -> anyhow::Result<Self> {
-        let path = planning_root.join(PROJECT_FILE);
+        let path = crate::artifacts::layout::ArtifactLayout::new(planning_root)
+            .legacy_project_manifest();
         let contents = match std::fs::read_to_string(&path) {
             Ok(contents) => contents,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

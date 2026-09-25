@@ -11,6 +11,7 @@
 pub mod config_io;
 pub mod imports_io;
 pub mod items_io;
+pub mod layout;
 pub mod mcp_io;
 pub mod spec_doc;
 

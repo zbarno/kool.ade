@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-pub const FILE: &str = ".kool-ade-packet/planning/work.json";
+pub const FILE: &str = crate::artifacts::layout::canonical::WORK;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Work {
@@ -24,7 +24,10 @@ pub fn load(repo: &Path) -> anyhow::Result<Vec<Work>> {
 }
 
 pub fn save(repo: &Path, work: &[Work]) -> anyhow::Result<()> {
-    crate::artifacts::task_docs::safe_directory(repo, ".kool-ade-packet/planning")?;
+    crate::artifacts::task_docs::safe_directory(
+        repo,
+        crate::artifacts::layout::canonical::PLANNING,
+    )?;
     let path = repo.join(FILE);
     anyhow::ensure!(!std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()), "Linked planning work ledger");
     crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(work)?)

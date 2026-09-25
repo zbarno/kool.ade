@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 
 use crate::core::specification::SECTIONS;
 
-pub const PRODUCT_DIR: &str = "planning/product";
-pub const INDEX: &str = "planning/product/index.md";
-pub const LEGACY_ARCHIVE: &str = ".kool-ade-packet/planning/archive/specification-pre-modules.md";
-const OLD_LEGACY_ARCHIVE: &str = "planning/archive/specification-pre-modules.md";
+pub const PRODUCT_DIR: &str = crate::artifacts::layout::legacy::PRODUCT;
+pub const INDEX: &str = crate::artifacts::layout::legacy::PRODUCT_INDEX;
+pub const LEGACY_ARCHIVE: &str = crate::artifacts::layout::canonical::LEGACY_SPEC_ARCHIVE;
+const OLD_LEGACY_ARCHIVE: &str = crate::artifacts::layout::legacy::SPEC_ARCHIVE;
 pub const MODULES: [&str; 13] = [
     "01-vision.md",
     "02-scope.md",
@@ -86,13 +86,16 @@ fn tracked(repo: &Path, relative: &str) -> bool {
 
 pub fn module_path(repo: &Path, number: usize) -> anyhow::Result<PathBuf> {
     anyhow::ensure!((1..=13).contains(&number), "Invalid product module number");
-    Ok(repo.join(PRODUCT_DIR).join(MODULES[number - 1]))
+    Ok(crate::artifacts::layout::ArtifactLayout::new(repo)
+        .legacy_product_module(MODULES[number - 1])
+        .expect("application-owned product module name is a single path component"))
 }
 
 /// A logical document ID never becomes an agent-selected path.
 pub fn next_feature_id(repo: &Path) -> String {
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
     let mut maximum = 0u32;
-    if let Ok(entries) = std::fs::read_dir(repo.join("planning/features")) {
+    if let Ok(entries) = std::fs::read_dir(layout.legacy_features_root()) {
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str() {
                 if let Some(n) = directory_feature_id(name).and_then(feature_number)
@@ -109,14 +112,14 @@ pub fn next_feature_id(repo: &Path) -> String {
             "--name-only",
             "--pretty=format:",
             "--",
-            "planning/features",
+            crate::artifacts::layout::legacy::FEATURES,
         ])
         .current_dir(repo)
         .output()
     {
         if output.status.success() {
             for line in String::from_utf8_lossy(&output.stdout).lines() {
-                if let Some(name) = line.strip_prefix("planning/features/") {
+                if let Some(name) = line.strip_prefix(&format!("{}/", crate::artifacts::layout::legacy::FEATURES)) {
                     if let Some(n) = directory_feature_id(name).and_then(feature_number)
                     {
                         maximum = maximum.max(n);
@@ -145,15 +148,20 @@ pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow:
         .find_map(|line| line.strip_prefix(&format!("# {feature_id}: ")))
         .ok_or_else(|| anyhow::anyhow!("Feature title missing"))?;
     let slug = crate::artifacts::task_docs::slug(title);
-    let root = repo.join("planning/features");
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    let root = layout.legacy_features_root();
     let _ = real_dir(&root)?;
-    let dir = root.join(format!("{feature_id}-{slug}"));
+    let dir = layout
+        .legacy_feature_directory(&format!("{feature_id}-{slug}"))
+        .ok_or_else(|| anyhow::anyhow!("Invalid application-assigned feature path"))?;
     anyhow::ensure!(!dir.exists(), "Feature directory already exists");
     Ok(dir.join("specification.md"))
 }
 
 pub fn refreshed_index(repo: &Path, updates: &[(String, String)]) -> anyhow::Result<String> {
-    let index = std::fs::read_to_string(repo.join(INDEX))?;
+    let index = std::fs::read_to_string(
+        crate::artifacts::layout::ArtifactLayout::new(repo).legacy_product_index(),
+    )?;
     refreshed_index_from(repo, &index, updates)
 }
 
@@ -162,6 +170,7 @@ pub fn refreshed_index_from(
     index: &str,
     updates: &[(String, String)],
 ) -> anyhow::Result<String> {
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
     let marker = "## Active features";
     let prefix = index
         .split_once(marker)
@@ -192,9 +201,10 @@ pub fn refreshed_index_from(
         result.push_str("None.\n");
     } else {
         for name in entries {
-            result.push_str(&format!(
-                "- [`{name}`](../features/{name}/specification.md)\n"
-            ));
+            let link = layout
+                .legacy_feature_link(&name)
+                .ok_or_else(|| anyhow::anyhow!("Invalid feature link"))?;
+            result.push_str(&format!("- [`{name}`]({link})\n"));
         }
     }
     Ok(result)
@@ -234,7 +244,7 @@ pub fn preserved_ids(old: &str, new: &str) -> anyhow::Result<()> {
 
 pub fn document_path(repo: &Path, id: &str) -> anyhow::Result<PathBuf> {
     if id == "product:index" {
-        return Ok(repo.join(INDEX));
+        return Ok(crate::artifacts::layout::ArtifactLayout::new(repo).legacy_product_index());
     }
     if let Some(name) = id.strip_prefix("product:") {
         if let Some(n) = MODULES
@@ -246,7 +256,8 @@ pub fn document_path(repo: &Path, id: &str) -> anyhow::Result<PathBuf> {
     }
     if let Some(id) = id.strip_prefix("feature:") {
         anyhow::ensure!(valid_feature_id(id), "Invalid feature document ID");
-        let root = repo.join("planning/features");
+        let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+        let root = layout.legacy_features_root();
         anyhow::ensure!(real_dir(&root)?, "Feature directory does not exist");
         let mut matches = std::fs::read_dir(&root)?
             .map(|entry| entry.map(|e| e.path()))
@@ -264,7 +275,9 @@ pub fn document_path(repo: &Path, id: &str) -> anyhow::Result<PathBuf> {
         );
         let dir = matches.remove(0);
         anyhow::ensure!(real_dir(&dir)?, "Feature directory is not a real directory");
-        return Ok(dir.join("specification.md"));
+        return Ok(layout
+            .legacy_feature_specification(dir.file_name().and_then(|n| n.to_str()).unwrap())
+            .expect("existing feature directory name is one path component"));
     }
     anyhow::bail!("Unknown logical document ID: {id}")
 }
@@ -394,30 +407,27 @@ pub fn active_feature(repo: &Path) -> Option<(String, String)> {
 /// Every feature that is still active. Feature status is independent, so
 /// several deltas may be planned or implemented at the same time.
 pub fn active_features(repo: &Path) -> Vec<(String, String)> {
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
     active_feature_directories(repo)
         .into_iter()
         .filter_map(|name| {
             let id = directory_feature_id(&name)?.to_string();
-            let body = std::fs::read_to_string(
-                repo.join("planning/features")
-                    .join(&name)
-                    .join("specification.md"),
-            )
-            .ok()?;
+            let body = std::fs::read_to_string(layout.legacy_feature_specification(&name)?).ok()?;
             Some((id, body))
         })
         .collect()
 }
 
 fn active_feature_directories(repo: &Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(repo.join("planning/features")) else {
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    let Ok(entries) = std::fs::read_dir(layout.legacy_features_root()) else {
         return Vec::new();
     };
     let mut entries = entries
         .flatten()
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
-            let path = entry.path().join("specification.md");
+            let path = layout.legacy_feature_specification(&name)?;
             let body = std::fs::read_to_string(path).ok()?;
             if body.contains("**Status:** Implemented") || body.contains("**Status:** Abandoned") {
                 return None;
@@ -433,12 +443,13 @@ fn active_feature_directories(repo: &Path) -> Vec<String> {
 /// remains available until that rename succeeds, then moves to the archive.
 /// A second call is safe after a crash at either boundary.
 pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
-    let planning = repo.join("planning");
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    let planning = layout.legacy_planning_root();
     anyhow::ensure!(
         real_dir(&planning)?,
         "Planning directory is not a real directory"
     );
-    let product = repo.join(PRODUCT_DIR);
+    let product = layout.legacy_product_root();
     let mut changes = Vec::new();
     if !real_dir(&product)? {
         let parts = split_legacy(legacy)?;
@@ -468,9 +479,10 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
                 index.push_str("None.\n");
             } else {
                 for feature in features {
-                    index.push_str(&format!(
-                        "- [`{feature}`](../features/{feature}/specification.md)\n"
-                    ));
+                    let link = layout
+                        .legacy_feature_link(&feature)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid feature link"))?;
+                    index.push_str(&format!("- [`{feature}`]({link})\n"));
                 }
             }
             std::fs::write(staged.join("index.md"), index)?;
@@ -490,45 +502,45 @@ pub fn migrate(repo: &Path, legacy: &str) -> anyhow::Result<Vec<String>> {
             changes.extend(MODULES.iter().map(|name| format!("{PRODUCT_DIR}/{name}")));
         }
     }
-    let old = repo.join("planning/specification.md");
-    if repo.join("planning/archive").exists() {
-        crate::artifacts::task_docs::safe_directory(repo, "planning/archive")?;
+    let old = layout.legacy_specification();
+    if layout.legacy_archive_root().exists() {
+        crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::legacy::ARCHIVE)?;
     }
-    let previous_archive = repo.join(OLD_LEGACY_ARCHIVE);
+    let previous_archive = layout.legacy_spec_archive();
     if regular(&previous_archive)? {
         anyhow::ensure!(
-            !regular(&old)? && !regular(&repo.join(LEGACY_ARCHIVE))?,
+            !regular(&old)? && !regular(&layout.canonical_spec_archive())?,
             "Conflicting legacy specification archives; preserve both and resolve before migration"
         );
-        crate::artifacts::task_docs::safe_directory(repo, ".kool-ade-packet/planning/archive")?;
-        std::fs::rename(&previous_archive, repo.join(LEGACY_ARCHIVE))?;
+        crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::canonical::ARCHIVE)?;
+        std::fs::rename(&previous_archive, layout.canonical_spec_archive())?;
         changes.push(OLD_LEGACY_ARCHIVE.into());
         changes.push(LEGACY_ARCHIVE.into());
     }
     if regular(&old)? {
-        crate::artifacts::task_docs::safe_directory(repo, ".kool-ade-packet/planning/archive")?;
-        let archive = repo.join(LEGACY_ARCHIVE);
+        crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::canonical::ARCHIVE)?;
+        let archive = layout.canonical_spec_archive();
         anyhow::ensure!(
             !regular(&archive)?,
             "Legacy archive already exists while old specification remains"
         );
         std::fs::rename(old, archive)?;
-        changes.push("planning/specification.md".into());
+        changes.push(crate::artifacts::layout::legacy::SPECIFICATION.into());
         changes.push(LEGACY_ARCHIVE.into());
     }
     if repo.join(".git").exists()
-        && regular(&repo.join(LEGACY_ARCHIVE))?
+        && regular(&layout.canonical_spec_archive())?
         && !tracked(repo, LEGACY_ARCHIVE)
     {
         if !changes.iter().any(|path| path == LEGACY_ARCHIVE) {
             changes.push(LEGACY_ARCHIVE.into());
         }
-        if tracked(repo, "planning/specification.md")
+        if tracked(repo, crate::artifacts::layout::legacy::SPECIFICATION)
             && !changes
                 .iter()
-                .any(|path| path == "planning/specification.md")
+                .any(|path| path == crate::artifacts::layout::legacy::SPECIFICATION)
         {
-            changes.push("planning/specification.md".into());
+            changes.push(crate::artifacts::layout::legacy::SPECIFICATION.into());
         }
         if tracked(repo, OLD_LEGACY_ARCHIVE)
             && !changes.iter().any(|path| path == OLD_LEGACY_ARCHIVE)

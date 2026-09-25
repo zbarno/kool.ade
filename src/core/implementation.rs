@@ -290,7 +290,11 @@ pub(crate) fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
     // keeps resumable implementation evidence visible in the local workspace.
     // Git ignores this directory; moving a live workspace requires a separate
     // backup of these files.
-    Ok(record_directory(&repo.join(crate::artifacts::packet::PACKET_IMPLEMENTATION_DIR), repo, ticket))
+    Ok(record_directory(
+        &crate::artifacts::layout::ArtifactLayout::new(repo).implementation_root(),
+        repo,
+        ticket,
+    ))
 }
 
 fn legacy_state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
@@ -302,9 +306,9 @@ fn legacy_state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
 fn record_directory(root: &Path, repo: &Path, ticket: &str) -> PathBuf {
     let direct = root.join(key(ticket));
     if direct.join("state.json").exists() { return direct; }
-    if let Some(old) = ticket.strip_prefix(".kool-ade-packet/") {
-        if old.starts_with("planning/tasks/") && !repo.join(old).exists() {
-            let candidate = root.join(key(old));
+    if let Some(old) = crate::artifacts::layout::ArtifactLayout::legacy_task_path_from_packet(ticket) {
+        if !repo.join(&old).exists() {
+            let candidate = root.join(key(&old));
             if let Ok(bytes) = fs::read(candidate.join("state.json")) {
                 if let Ok(record) = serde_json::from_slice::<Implementation>(&bytes) {
                     if (record.ticket == old || record.ticket == ticket)
@@ -320,11 +324,12 @@ fn record_directory(root: &Path, repo: &Path, ticket: &str) -> PathBuf {
 }
 
 fn board_ticket(repo: &Path, state: &Implementation) -> String {
-    if state.ticket.starts_with("planning/tasks/") && !repo.join(&state.ticket).exists() {
-        let relocated = format!(".kool-ade-packet/{}", state.ticket);
-        if fs::read_to_string(repo.join(&relocated)).is_ok_and(|text| text == state.ticket_text) {
-            return relocated;
-        }
+    if !repo.join(&state.ticket).exists()
+        && let Some(relocated) =
+            crate::artifacts::layout::ArtifactLayout::relocated_task_path(&state.ticket)
+        && fs::read_to_string(repo.join(&relocated)).is_ok_and(|text| text == state.ticket_text)
+    {
+        return relocated;
     }
     state.ticket.clone()
 }
@@ -555,8 +560,7 @@ fn resume_failure_context(detail: &str) -> String {
 
 fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     anyhow::ensure!(
-        (ticket.starts_with("planning/tasks/")
-            || ticket.starts_with(".kool-ade-packet/planning/tasks/"))
+        crate::artifacts::layout::ArtifactLayout::is_task_ticket_path(ticket)
             && Path::new(ticket)
                 .file_name()
                 .and_then(|n| n.to_str())

@@ -138,7 +138,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     let mut changes = Vec::new();
     if !nt.resolved.is_empty() {
         changes.push((
-            "planning/resolved-items.json".into(),
+            crate::artifacts::layout::legacy::RESOLVED_ITEMS.into(),
             serde_json::to_string_pretty(&state.resolved_items)?,
         ));
     }
@@ -197,7 +197,8 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     let spec_written = repo_relative_paths.iter().any(|p| p == SPEC_FILE)
         || repo_relative_paths
             .iter()
-            .any(|p| p.starts_with("planning/product/") || p.starts_with("planning/features/"));
+            .any(|p| p.starts_with(&format!("{}/", crate::artifacts::layout::legacy::PRODUCT))
+                || p.starts_with(&format!("{}/", crate::artifacts::layout::legacy::FEATURES)));
     let items_written = repo_relative_paths.iter().any(|p| p == OPEN_ITEMS_FILE);
     state.spec_text = spec_doc::load(&state.repo_root)?;
     state.active_feature = crate::artifacts::product_docs::active_feature(&state.repo_root);

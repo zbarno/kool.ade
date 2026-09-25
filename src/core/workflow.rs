@@ -3,7 +3,7 @@ use crate::core::{state::PlannerState, validation::NormalizedTurn};
 use crate::harness::TurnEnvelope;
 use serde::{Deserialize, Serialize};
 
-pub const WORKFLOW_FILE: &str = ".planner/workflow.json";
+pub const WORKFLOW_FILE: &str = crate::artifacts::layout::legacy::WORKFLOW;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TurnPurpose {

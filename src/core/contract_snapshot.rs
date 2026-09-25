@@ -23,7 +23,8 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
         crate::core::project_repos::ProjectManifest::load(&state.repo_root)? == state.repositories,
         "Project repository manifest changed during generation"
     );
-    let config = std::fs::read_to_string(state.repo_root.join(crate::artifacts::CONFIG_FILE))?;
+    let layout = crate::artifacts::layout::ArtifactLayout::new(&state.repo_root);
+    let config = std::fs::read_to_string(layout.legacy_project_config())?;
     anyhow::ensure!(
         crate::artifacts::config_io::parse(&config).map_err(anyhow::Error::msg)? == state.config,
         "Planning configuration changed during generation"
@@ -34,7 +35,11 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
         if feature.contains(name) || feature.contains(&format!("product:{id}")) {
             product_modules.insert(
                 id.to_string(),
-                std::fs::read_to_string(state.repo_root.join("planning/product").join(name))?,
+                std::fs::read_to_string(
+                    layout
+                        .legacy_product_module(name)
+                        .expect("product module names are application-owned single components"),
+                )?,
             );
         }
     }

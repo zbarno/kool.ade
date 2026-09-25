@@ -90,11 +90,15 @@ impl Queue {
     }
     fn relocate_tickets(&mut self, repo: &Path) {
         let current = |ticket: String| {
-            let relocated = format!(".kool-ade-packet/{ticket}");
-            if ticket.starts_with("planning/tasks/") && !repo.join(&ticket).exists()
-                && repo.join(&relocated).is_file() {
+            if !repo.join(&ticket).exists()
+                && let Some(relocated) =
+                    crate::artifacts::layout::ArtifactLayout::relocated_task_path(&ticket)
+                && repo.join(&relocated).is_file()
+            {
                 relocated
-            } else { ticket }
+            } else {
+                ticket
+            }
         };
         self.current_ticket = self.current_ticket.take().map(&current);
         self.in_flight = std::mem::take(&mut self.in_flight).into_iter().map(&current).collect();

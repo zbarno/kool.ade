@@ -58,7 +58,7 @@ impl DlgImport {
             gitops::commit(
                 &proj.state.repo_root,
                 "planner: import reference material",
-                &[format!("planning/{IMPORTS_DIR}")],
+                &[IMPORTS_DIR.to_string()],
             )
             .map_err(|e| {
                 AppError::Other(format!("imports were staged but checkpoint failed: {e}"))

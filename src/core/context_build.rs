@@ -217,7 +217,8 @@ pub fn clip(s: &str, cap: usize) -> String {
 /// Imports are whatever sits under `planning/imports/` except the companion
 /// sidecars the importer writes (.txt.md companions, .bin-note.md notes).
 fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
-    let base = crate::artifacts::repo_artifact(&state.repo_root, "planning/imports");
+    let layout = crate::artifacts::layout::ArtifactLayout::new(&state.repo_root);
+    let base = layout.legacy_imports_root();
     let mut rows = Vec::new();
     if base.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&base) {
@@ -235,7 +236,7 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
                 }
                 let bytes = std::fs::metadata(e.path()).ok().map(|m| m.len() as usize);
                 rows.push(ImportRow {
-                    path: format!("planning/imports/{name}"),
+                    path: layout.legacy_import_relative(&name).unwrap_or_default(),
                     bytes,
                 });
             }

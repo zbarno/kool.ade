@@ -100,7 +100,9 @@ impl PlannerState {
             active_features: crate::artifacts::product_docs::active_features(repo),
             repositories: crate::core::project_repos::ProjectManifest::load(repo)?,
             items,
-            resolved_items: match std::fs::read(repo.join("planning/resolved-items.json")) {
+            resolved_items: match std::fs::read(
+                crate::artifacts::layout::ArtifactLayout::new(repo).legacy_resolved_items(),
+            ) {
                 Ok(bytes) => serde_json::from_slice(&bytes)?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
                 Err(error) => return Err(error.into()),

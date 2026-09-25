@@ -1,7 +1,7 @@
 # Packet Hardening and Architecture Remediation
 
 **Status:** In progress  
-**Current phase:** Phase 1 — introduce one artifact layout authority  
+**Current phase:** Phase 2 — complete the `.kool-ade-packet` migration
 **Last checked:** 2026-09-25  
 **Source plan:** [Full user-provided plan](source-plan.md)  
 **Initial code baseline:** `eb001368949d`
@@ -13,7 +13,7 @@ Phase 0 is recorded in [remediation-baseline.md](../../archive/remediation-basel
 | ID | Task | Status |
 | --- | --- | --- |
 | P0 | [Establish green baseline](source-plan.md#4-phase-0-establish-a-green-baseline) | Complete |
-| P1 | [Introduce a single artifact layout authority](source-plan.md#5-phase-1-introduce-a-single-artifact-layout-authority) | In progress |
+| P1 | [Introduce a single artifact layout authority](source-plan.md#5-phase-1-introduce-a-single-artifact-layout-authority) | Complete |
 | P2 | [Complete the `.kool-ade-packet` migration](source-plan.md#6-phase-2-complete-the-kool-ade-packet-migration) | Not assessed |
 | P3 | [Fix Git index isolation](source-plan.md#7-phase-3-fix-git-index-isolation) | Not assessed |
 | P4 | [Replace stringly typed workflow state](source-plan.md#8-phase-4-replace-stringly-typed-workflow-state) | Not assessed |
@@ -46,3 +46,8 @@ Phase 0 is recorded in [remediation-baseline.md](../../archive/remediation-basel
 - Update this table and add concrete evidence whenever a phase changes state.
 - Treat all source-plan acceptance criteria and the definition of done as binding. Do not mark the initiative complete while any final matrix item is unverified.
 - The current repository still uses legacy root `planning/`, `.planner/`, `adr/`, and `SPECIFICATION.md` paths alongside `.kool-ade-packet/`; this is an observed starting condition, not a completed migration.
+
+## Phase evidence
+
+- **P1 — artifact layout authority:** `src/artifacts/layout.rs` now owns canonical and legacy project paths and validates dynamic path components. Runtime artifact paths in the named modules route through it; remaining direct examples are test fixtures or explanatory text. `cargo test --offline --all-targets --quiet -- --test-threads=1` passed 487 tests (one one-shot migration test intentionally ignored); layout containment tests and targeted formatting checks pass. Existing legacy path selection remains active for the upcoming migration phase.
+- **Issue-specific blocker explanations:** production explanations are generated from each task's saved report and referenced documents. The generator now also receives recorded acceptance evidence, and explicit option IDs are discovered from the report without an `a`–`h` ceiling. Focused tests and the full serial suite pass. The sample quota explanation remains test-only fixture data.
