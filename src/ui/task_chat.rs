@@ -131,6 +131,16 @@ fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage], follow_tail: bool) {
         });
 }
 
+/// Show the durable discussion without a second composer in task details.
+pub fn paint_history(ui: &mut egui::Ui, s: &dyn Surface, key: &str) {
+    let messages = s.task_messages(key);
+    if messages.is_empty() {
+        ui.label("No discussion yet.");
+    } else {
+        transcript(ui, messages, s.task_chat_active(key));
+    }
+}
+
 fn composer(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,

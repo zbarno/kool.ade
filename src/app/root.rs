@@ -2639,7 +2639,7 @@ mod board_tests {
     }
 
     #[test]
-    fn task_details_show_external_actions_before_failure_evidence() {
+    fn task_details_show_full_state_and_inline_reply() {
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
             p.queue.blocked.insert(p.task_documents[0].path.clone(),
@@ -2648,26 +2648,40 @@ mod board_tests {
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = click_text(&mut app, &ctx, "First task");
-        for label in ["CURRENT STATE", "NEXT ACTION", "Activity", "Resume after action"] {
+        for label in ["CURRENT STATE", "YOUR NEXT STEP", "Activity", "Resume after action", "Reply to this task", "Send response"] {
             assert!(text_position(&output, label).is_some(), "missing {label}");
         }
         assert!(text_position(&output, "• Adjudicator: approve the corrected footprint.").is_some());
         assert!(text_position(&output, "• Operator: record the display demonstration.").is_some());
-        assert!(text_position(&output, "Full report: saved-report.json").is_none());
-        let pos = output.shapes.iter().rev().find_map(|shape| {
-            if let egui::Shape::Text(text) = &shape.shape {
-                (text.galley.text() == "Failure details")
-                    .then_some(text.pos + text.galley.mesh_bounds.center().to_vec2())
-            } else { None }
-        }).unwrap();
-        for pressed in [true, false] {
-            frame(&mut app, &ctx, vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() },
-            ]);
+        assert!(text_position(&output, "Copy full message").is_some());
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Text(text) if text.galley.text().contains("Full report: saved-report.json"))),
+            "the complete failure text must be rendered, not shortened to a summary");
+    }
+
+    #[test]
+    fn task_details_offer_open_options_in_the_reply_box() {
+        let mut app = fixture();
+        let key = "planning/tasks/fixture/001-task.md";
+        if let Screen::Connected(p) = &mut app.screen {
+            p.task_chats.messages.insert(key.into(), vec![ChatMessage::new(
+                ChatRole::Agent,
+                "Ready.\n\n---\n- Which approach?\n- Yes, use the existing adapter.\n- No, replace the adapter.",
+                Some(key.into()),
+            )]);
         }
-        let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "Full report: saved-report.json").is_some());
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = click_text(&mut app, &ctx, "First task");
+        for label in ["Which approach?", "Choose an option", "Yes, use the existing adapter.",
+            "No, replace the adapter.", "Send response"] {
+            assert!(text_position(&output, label).is_some(), "missing {label}");
+        }
+        click_text(&mut app, &ctx, "Yes, use the existing adapter.");
+        if let Screen::Connected(p) = &app.screen {
+            assert_eq!(p.task_chats.drafts.get(key).map(String::as_str),
+                Some("Yes, use the existing adapter."));
+        }
     }
 
     #[test]
@@ -3267,7 +3281,7 @@ mod board_tests {
         let action = text_position(&output, "Implement & continue queue").unwrap();
         assert!(action.x > 0.0 && action.x < size.x && action.y > 0.0 && action.y < size.y);
         assert!(text_position(&output, "CURRENT STATE").is_some());
-        assert!(text_position(&output, "NEXT ACTION").is_some());
+        assert!(text_position(&output, "YOUR NEXT STEP").is_some());
         assert!(text_position(&output, "Activity").is_some());
         assert!(text_position(&output, "Unique story detail 0").is_none());
     }
