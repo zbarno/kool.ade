@@ -204,8 +204,8 @@ preserves cancellation. Valid explicit blockers, inability to run the agent,
 exhausted recovery, and expired budgets still stop safely; recovery does not bypass
 checks, credentials, or branch protection. Task changes and verified recovery
 fixes are committed together atomically. Response files, failure history, and
-verification evidence remain under `packet-implementations`; Pi event streams
-remain under `packet-harness` in Git metadata.
+verification evidence remain locally under `.kool-ade-packet/implementation/`,
+which Git ignores. Pi event streams remain under `packet-harness` in Git metadata.
 
 Verification commands run in independent POSIX `/bin/sh` processes starting at
 the worktree. `$PACKET_WORKTREE` supplies its absolute path even after `cd`;

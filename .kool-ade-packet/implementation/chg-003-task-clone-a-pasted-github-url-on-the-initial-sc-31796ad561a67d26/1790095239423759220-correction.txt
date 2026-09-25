@@ -1,1 +1,0 @@
-No complete JSON implementation report. Return JSON with status, summary, acceptance_criteria, verification, and remaining.

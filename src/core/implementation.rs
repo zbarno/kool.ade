@@ -277,8 +277,9 @@ fn common(repo: &Path) -> anyhow::Result<PathBuf> {
 }
 fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
     // State belongs to the repository's Packet workspace, not to .git. This
-    // keeps resumable implementation evidence visible, portable, and backed
-    // up with the rest of the Packet artifacts.
+    // keeps resumable implementation evidence visible in the local workspace.
+    // Git ignores this directory; moving a live workspace requires a separate
+    // backup of these files.
     Ok(record_directory(&repo.join(crate::artifacts::packet::PACKET_IMPLEMENTATION_DIR), repo, ticket))
 }
 
@@ -975,6 +976,11 @@ fn prepare_verified(
                     .and_then(|p| fs::read_to_string(p).ok())
             })
             .unwrap_or_default();
+        let specification = if specification_matches_task(&state.ticket_text, &specification) {
+            specification
+        } else {
+            "The saved feature specification names a different feature. Use the ticket and its approved product context; inspect the planning artifacts before making changes.".into()
+        };
         let mut attempt = 0;
         let mut report_corrections = 0;
         let mut verification_corrections = 0;
@@ -1006,8 +1012,14 @@ fn prepare_verified(
                 &state.base_commit,
                 &state.ticket_text,
             )?;
-            let history_evidence_path = dir.join(format!("{stamp}-history-preflight.txt"));
-            fs::write(&history_evidence_path, &history_evidence)?;
+            // This is a snapshot of the immutable base/history contract. A
+            // fresh timestamped copy on every correction adds no evidence.
+            let history_evidence_path = dir.join("history-preflight.txt");
+            if fs::read_to_string(&history_evidence_path).ok().as_deref()
+                != Some(history_evidence.as_str())
+            {
+                fs::write(&history_evidence_path, &history_evidence)?;
+            }
             let mut prompt = format!(
                 "Implement this ticket in the CURRENT working directory, a dedicated Git worktree. This may be a RESUME: inspect git status, existing diffs, commits, untracked files, tests and repository instructions FIRST. Preserve and complete existing work; do not restart, reset, clean, discard or overwrite unrelated changes. Verify prerequisites and dependencies; report blocked if unavailable. Implement only this ticket's scope. Run the required checks and repair failures. Do not change branches, create worktrees, commit, push, create PRs or merge; Packet owns those steps. Do not modify the original checkout.\n\nTICKET PATH: {}\nTICKET CONTENT:\n{}\n\nAPPROVED SPECIFICATION:\n{}\n\nAFFECTED PRODUCT MODULES (FROZEN AT TASK APPROVAL):\n{}\n\nCURRENT STATUS:\n{}\nRECENT COMMITS:\n{}\n\nReturn a complete JSON object with status (complete or blocked), summary, acceptance_criteria (array of objects with criterion copied verbatim from the ticket and concrete evidence), verification (array of runnable POSIX /bin/sh commands; each runs in a NEW shell starting in this worktree, with PACKET_WORKTREE set to its absolute path; no shell variables or cwd changes carry between commands), remaining (array of unresolved work). Complete requires every ticket criterion met, meaningful checks passing, and remaining empty. Use actual commands without placeholder paths. Before changing directories, capture paths or use \"$PACKET_WORKTREE/Cargo.toml\"; $(pwd) after cd refers to the NEW directory. Do not use Bash-only syntax. When testing commands yourself, export PACKET_WORKTREE to this worktree path before invoking /bin/sh. Execute exactly the commands you report using /bin/sh. Assert expected outcomes and preserve command exit failures: capture output to a file, then check it, rather than masking a failed command with a successful pipeline or command substitution. Never claim success from an exit code alone or invent results. Do not include prose outside the JSON.",
                 state.ticket,
@@ -1074,10 +1086,6 @@ fn prepare_verified(
                 }
             };
             runner.remaining()?;
-            fs::write(
-                dir.join(format!("{stamp}-response.txt")),
-                &outcome.final_text,
-            )?;
             runner.remaining()?;
             let final_is_report =
                 crate::harness::pi_extract::extract_json_object(&outcome.final_text)
@@ -1090,6 +1098,12 @@ fn prepare_verified(
                     .filter(|text| !text.trim().is_empty())
                     .unwrap_or_else(|| outcome.final_text.clone())
             };
+            if final_is_report && !report_path.exists() {
+                fs::write(&report_path, &report_text)?;
+            }
+            if outcome.final_text != report_text || !final_is_report {
+                fs::write(dir.join(format!("{stamp}-response.txt")), &outcome.final_text)?;
+            }
             let parsed = crate::harness::pi_extract::extract_json_object(&report_text)
                 .ok_or_else(|| anyhow::anyhow!("No complete JSON implementation report. Return JSON with status, summary, acceptance_criteria, verification, and remaining."))
                 .and_then(|json| serde_json::from_str::<Report>(&json).map_err(Into::into));
@@ -1106,6 +1120,12 @@ fn prepare_verified(
             match parsed {
                 Err(error) => failure = Some(error.to_string()),
                 Ok(report) => {
+                    if external_blocker(&report) {
+                        let detail = external_blocker_detail(&report, &report_path);
+                        state.detail = detail.clone();
+                        save(dir, state)?;
+                        anyhow::bail!("{detail}");
+                    }
                     if let Err(error) = validate_report(&report, &state.ticket_text) {
                         failure = Some(error.to_string());
                     } else {
@@ -1729,6 +1749,52 @@ fn validate_report(report: &Report, ticket: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A blocked report is terminal for this run when the remaining work needs a
+/// decision or an exhibit outside the implementation worktree. Retrying Pi
+/// cannot change either fact; the saved report is the recovery checkpoint.
+fn external_blocker(report: &Report) -> bool {
+    report.status == "blocked"
+        && report.remaining.iter().any(|item| {
+            let owner = item.trim_start().split_once(':').map(|(owner, _)| owner.trim());
+            matches!(owner, Some("Adjudicator" | "Contract owner" | "Human"))
+                || (owner == Some("Operator") && ["workstation", "display", "network", "transcript"]
+                    .iter().any(|word| item.to_ascii_lowercase().contains(word)))
+        })
+}
+
+fn specification_matches_task(ticket: &str, specification: &str) -> bool {
+    let feature = ticket.lines().find_map(|line| line.strip_prefix("Feature: "));
+    let title = specification.lines().find_map(|line| line.strip_prefix("# "));
+    match (feature, title) {
+        (Some(feature), Some(title)) => title.to_ascii_lowercase().contains(&feature.to_ascii_lowercase()),
+        _ => true,
+    }
+}
+
+fn external_blocker_detail(report: &Report, report_path: &Path) -> String {
+    format!(
+        "## Waiting for user action\n\n{}\n\n### Next action(s)\n\n- {}\n\nFull report: {}\n\nResume implementation after these actions are complete.",
+        report.summary,
+        report.remaining.join("\n- "),
+        report_path.display()
+    )
+}
+
+/// Recover an external checkpoint after a process stopped before it could
+/// update state.json. Only the newest report counts; older blockers cannot
+/// override later successful work.
+pub fn latest_external_blocker(repo: &Path, ticket: &str) -> Option<String> {
+    let dir = state_dir(repo, ticket).ok()?;
+    let path = fs::read_dir(dir).ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.file_name().and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("-report.json") && name != "verified-report.json"))
+        .max()?;
+    let report: Report = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+    external_blocker(&report).then(|| external_blocker_detail(&report, &path))
+}
+
 /// Recognize the deliberately narrow contract used by audit/demonstration
 /// tickets. Requiring all three independent statements prevents an ordinary
 /// implementation task from turning a no-op report into a successful result.
@@ -1940,7 +2006,7 @@ mod tests {
             if self.mode == "healing" && call >= 4 {
                 assert!(req.prompt_body.contains("SELF-REPAIR REQUIRED"));
             }
-            let status = if self.mode == "blocked" || (self.mode == "repair_blocked" && call == 0) {
+            let status = if matches!(self.mode, "blocked" | "external_blocked") || (self.mode == "repair_blocked" && call == 0) {
                 "blocked"
             } else {
                 "complete"
@@ -1962,9 +2028,11 @@ mod tests {
             };
             let mut report = serde_json::json!({"status":status,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":criterion,"evidence":"Created the required evidence and checked its exact contents."}],"verification":[verification],"remaining":[]});
             if status == "blocked" {
-                report["remaining"] = serde_json::json!([
-                    "Repair the local conductor and rerun the acceptance check."
-                ]);
+                report["remaining"] = if self.mode == "external_blocked" {
+                    serde_json::json!(["Adjudicator: approve the revised contract before resuming."])
+                } else {
+                    serde_json::json!(["Repair the local conductor and rerun the acceptance check."])
+                };
             }
             if call == 0 && self.mode == "repair_criterion" {
                 report["acceptance_criteria"][0]["criterion"] =
@@ -2389,6 +2457,50 @@ mod tests {
         }
     }
     #[test]
+    fn external_decision_stops_after_one_report_and_preserves_work() {
+        let s = Sandbox::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let result = s.run("external_blocked", calls.clone());
+        assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let state = load(&s.repo, &s.ticket).unwrap();
+        assert_eq!(state.status, "Needs attention");
+        assert!(state.detail.contains("Adjudicator: approve the revised contract"));
+        assert!(state.worktree.join("implemented.txt").exists());
+        assert!(!s.root.join("pr-created").exists());
+    }
+    #[test]
+    fn feature_id_collision_does_not_inject_another_features_specification() {
+        assert!(!specification_matches_task(
+            "# Task\n\nFeature: Switch Workspaces\n",
+            "# CHG-003: Readable Chat Replies\n"
+        ));
+        assert!(specification_matches_task(
+            "# Task\n\nFeature: Switch Workspaces\n",
+            "# CHG-003: Switch Workspaces\n"
+        ));
+    }
+    #[test]
+    fn newest_saved_report_controls_interrupted_blocker_recovery() {
+        let s = Sandbox::new();
+        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        let blocked = serde_json::json!({
+            "status":"blocked", "summary":"The history needs a decision.",
+            "acceptance_criteria":[], "verification":[],
+            "remaining":["Adjudicator: approve the realized footprint."]
+        });
+        fs::write(dir.join("001-report.json"), blocked.to_string()).unwrap();
+        assert!(latest_external_blocker(&s.repo, &s.ticket).unwrap()
+            .contains("approve the realized footprint"));
+        let complete = serde_json::json!({
+            "status":"complete", "summary":"Done", "acceptance_criteria":[],
+            "verification":[], "remaining":[]
+        });
+        fs::write(dir.join("002-report.json"), complete.to_string()).unwrap();
+        assert!(latest_external_blocker(&s.repo, &s.ticket).is_none());
+    }
+    #[test]
     fn automatic_corrections_preserve_work_and_publish_only_after_verification() {
         for mode in [
             "repair_markdown",
@@ -2407,12 +2519,15 @@ mod tests {
                 .unwrap()
                 .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
                 .collect::<Vec<_>>();
+            let incomplete_response = matches!(mode, "repair_markdown" | "repair_schema");
             assert_eq!(
-                files
-                    .iter()
-                    .filter(|name| name.ends_with("-response.txt"))
-                    .count(),
-                2
+                files.iter().filter(|name| name.ends_with("-report.json") && *name != "verified-report.json").count(),
+                if incomplete_response { 1 } else { 2 }
+            );
+            assert_eq!(
+                files.iter().filter(|name| name.ends_with("-response.txt")).count(),
+                usize::from(incomplete_response),
+                "only incomplete final responses need a separate copy"
             );
             assert_eq!(
                 files

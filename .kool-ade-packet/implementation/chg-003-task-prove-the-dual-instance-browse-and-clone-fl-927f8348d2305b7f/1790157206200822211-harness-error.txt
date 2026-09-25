@@ -1,2 +1,0 @@
-harness stalled: pi produced no output for 600s and was presumed hung
-stderr:

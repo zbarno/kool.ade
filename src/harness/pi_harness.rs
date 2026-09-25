@@ -387,11 +387,48 @@ impl AiHarness for PiHarness {
         }
         let envelope = extract_json_object(&final_text)
             .and_then(|obj| serde_json::from_str::<TurnEnvelope>(&obj).ok());
+        // Keep a raw stream through the run so a crash or failed invocation
+        // leaves a readable diagnostic at the path named in its error. Once a
+        // final answer exists, archive that stream losslessly. Compression is
+        // best effort: the raw file remains if gzip is unavailable or fails.
+        if let Some((path, file)) = diagnostics.take() {
+            drop(file);
+            let _ = compress_completed_events(&path);
+        }
         Ok(HarnessOutcome {
             final_text,
             envelope,
             stderr_tail: tail(&stderr_tail),
         })
+    }
+}
+
+fn compress_completed_events(path: &Path) -> std::io::Result<()> {
+    let archived = path.with_extension("jsonl.gz");
+    let temp = path.with_extension("jsonl.gz.tmp");
+    let output = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+    let result = std::process::Command::new("gzip")
+        .arg("-c")
+        .arg(path)
+        .stdout(std::process::Stdio::from(output))
+        .stderr(std::process::Stdio::null())
+        .status();
+    match result {
+        Ok(status) if status.success() => {
+            if let Err(error) = std::fs::rename(&temp, &archived) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(error);
+            }
+            std::fs::remove_file(path)
+        }
+        Ok(status) => {
+            let _ = std::fs::remove_file(&temp);
+            Err(std::io::Error::other(format!("gzip exited with {status}")))
+        }
+        Err(error) => {
+            let _ = std::fs::remove_file(&temp);
+            Err(error)
+        }
     }
 }
 
@@ -428,6 +465,29 @@ fn extract_version(out: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn completed_event_log_is_lossless_and_raw_log_is_removed_only_after_archive() {
+        if std::process::Command::new("gzip").arg("--version").output().is_err() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "packet-event-archive-{}-{}", std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw = dir.join("events.jsonl");
+        let contents = "{\"type\":\"message_update\"}\n".repeat(100);
+        std::fs::write(&raw, &contents).unwrap();
+        compress_completed_events(&raw).unwrap();
+        assert!(!raw.exists());
+        let archived = raw.with_extension("jsonl.gz");
+        let decoded = std::process::Command::new("gzip").arg("-dc")
+            .arg(&archived).output().unwrap();
+        assert!(decoded.status.success());
+        assert_eq!(decoded.stdout, contents.as_bytes());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[cfg(unix)]
     #[test]

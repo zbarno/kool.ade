@@ -623,6 +623,33 @@ impl PacketApp {
                     }
                 }
             }
+            // A process can stop after Pi saved a blocked report but before
+            // Packet records the terminal state. Recover that checkpoint
+            // before the durable Auto queue selects the same ticket again.
+            let interrupted = project.queue.in_flight.iter()
+                .filter(|ticket| !project.active_implementations.contains_key(*ticket))
+                .filter(|ticket| project.implementation_states.get(*ticket)
+                    .is_some_and(|state| state.status != "Done"))
+                .cloned().collect::<Vec<_>>();
+            let mut recovered = false;
+            for ticket in interrupted {
+                if let Some(detail) = crate::core::implementation::latest_external_blocker(
+                    &project.state.repo_root, &ticket,
+                ) {
+                    project.queue.in_flight.remove(&ticket);
+                    project.queue.blocked.insert(ticket.clone(), detail);
+                    recovered = true;
+                    project.activity.pending.push(format!(
+                        "{ticket}: restored the saved external blocker; user action is required before resuming."
+                    ));
+                }
+            }
+            if recovered {
+                if let Err(error) = project.queue.save(&project.state.repo_root) {
+                    project.queue.last_error = format!("Cannot persist recovered task checkpoints: {error}");
+                    return;
+                }
+            }
             let mut excluded = project
                 .active_implementations
                 .keys()
@@ -2612,6 +2639,38 @@ mod board_tests {
     }
 
     #[test]
+    fn task_details_show_external_actions_before_failure_evidence() {
+        let mut app = fixture();
+        if let Screen::Connected(p) = &mut app.screen {
+            p.queue.blocked.insert(p.task_documents[0].path.clone(),
+                "## Waiting for user action\n\nThe published history conflicts with the gate.\n\n### Next action(s)\n\n- Adjudicator: approve the corrected footprint.\n- Operator: record the display demonstration.\n\nFull report: saved-report.json".into());
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        let output = click_text(&mut app, &ctx, "First task");
+        for label in ["CURRENT STATE", "NEXT ACTION", "Activity", "Resume after action"] {
+            assert!(text_position(&output, label).is_some(), "missing {label}");
+        }
+        assert!(text_position(&output, "• Adjudicator: approve the corrected footprint.").is_some());
+        assert!(text_position(&output, "• Operator: record the display demonstration.").is_some());
+        assert!(text_position(&output, "Full report: saved-report.json").is_none());
+        let pos = output.shapes.iter().rev().find_map(|shape| {
+            if let egui::Shape::Text(text) = &shape.shape {
+                (text.galley.text() == "Failure details")
+                    .then_some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+            } else { None }
+        }).unwrap();
+        for pressed in [true, false] {
+            frame(&mut app, &ctx, vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() },
+            ]);
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Full report: saved-report.json").is_some());
+    }
+
+    #[test]
     fn board_shows_graph_only_for_running_cards_and_sums_all_sources() {
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
@@ -3207,16 +3266,10 @@ mod board_tests {
         let output = frame_at(&mut app, &ctx, vec![], size);
         let action = text_position(&output, "Implement & continue queue").unwrap();
         assert!(action.x > 0.0 && action.x < size.x && action.y > 0.0 && action.y < size.y);
+        assert!(text_position(&output, "CURRENT STATE").is_some());
+        assert!(text_position(&output, "NEXT ACTION").is_some());
+        assert!(text_position(&output, "Activity").is_some());
         assert!(text_position(&output, "Unique story detail 0").is_none());
-        assert!(text_position(&output, "Technical details").is_some());
-        click_text_at(
-            &mut app,
-            &ctx,
-            "Task description & acceptance criteria",
-            size,
-        );
-        let output = frame_at(&mut app, &ctx, vec![], size);
-        assert!(text_position(&output, "Unique story detail 0").is_some());
     }
 
     #[test]
@@ -3417,9 +3470,7 @@ mod board_tests {
         click(&mut app, text_position(&output, "First task").unwrap());
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        click(&mut app, text_position(&output, "Activity").unwrap());
-        let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "LIVE ACTIVITY").is_some());
+        assert!(text_position(&output, "Activity").is_some());
         assert!(text_position(&output, "Checking the permissions test results").is_some());
         click(&mut app, text_position(&output, "View all activity").unwrap());
         frame(&mut app, &ctx, vec![]);
@@ -3645,7 +3696,7 @@ mod board_tests {
         click_text(&mut app, &ctx, "Activity");
         let details = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&details, "Agent investigation").is_some());
-        assert!(text_position(&details, "Worker thoughts").is_some());
+        assert!(text_position(&details, "Worker notes").is_some());
         assert!(
             app.live_progress().is_none(),
             "Item worker output must stay out of main chat"

@@ -410,34 +410,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                         ui.label(crate::core::context_build::clip(&previous.text, 400));
                     }
                 }
-                if expanded && story && !active && !retry && !needs_answer {
-                    if implementing {
-                        if ui.button("Stop task and pause queue").clicked() {
-                            s.cancel_task_for(key);
-                        }
-                    } else if let Some(url) =
-                        implementation.as_ref().and_then(|r| r.pr_url.as_ref())
-                    {
-                        ui.hyperlink_to("Open PR", url);
-                    } else if implementation_column != 4 {
-                        let label = if implementation.is_some() {
-                            "Resume implementation"
-                        } else if s.auto_mode() {
-                            "Implement & continue queue"
-                        } else {
-                            "Implement"
-                        };
-                        if ui
-                            .add_enabled(
-                                s.implementation_capacity(),
-                                egui::Button::new(label).fill(theme::ACCENT_SOFT),
-                            )
-                            .clicked()
-                        {
-                            s.implement_task(key.to_string());
-                        }
-                    }
-                }
                 let actions = s.feature_actions(Some(key));
                 if let Some(id) = super::feature_approval::paint(ui, &actions, s.conversation_busy()) {
                     s.approve_feature(&id);

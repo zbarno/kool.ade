@@ -1,6 +1,6 @@
 # Repository artifact layout
 
-Reviewed against the checked-out implementation on 2026-09-24.
+Reviewed against the checked-out implementation on 2026-09-25.
 
 | Location | Purpose and disposition |
 | --- | --- |
@@ -13,7 +13,7 @@ Reviewed against the checked-out implementation on 2026-09-24.
 | `.kool-ade-packet/planning/tasks/` | Approved task stories and frozen contracts. Retained as immutable implementation inputs. |
 | `.kool-ade-packet/planning/work.json` | Persistent planning-work cards. Retained. |
 | `.kool-ade-packet/planning/archive/` | Superseded pre-modular specification, moved from `planning/archive/` without altering its contents. Historical evidence, not current authority. |
-| `.kool-ade-packet/implementation/` | Implementation responses, corrections, reports, and verification evidence. Retained, including failed attempts. Machine-local state and locks remain ignored by Git. |
+| `.kool-ade-packet/implementation/` | Local implementation state, reports, responses, corrections, and verification evidence. Retained for resume and audit, including failed attempts, but ignored by Git. Back up this directory separately when moving a live Packet workspace. |
 | `adr/` | Published implementation decisions. All three existing records reference commits reachable from this checkout and existing task files. Retained unchanged. |
 | `docs/` | Maintainer guidance, runbooks, and explicitly historical acceptance evidence. |
 | `SPECIFICATION.md` | Original MVP design reference. Historical scaffolding; current product authority is `planning/product/`. Existing source references still use its numbered sections. |
