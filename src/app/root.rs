@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use eframe::{App, Frame};
 
-use crate::app::dialogs::{self, DlgBrowse, DlgImport, DlgMcp, DlgSettings};
+#[cfg(test)]
+use crate::app::dialogs::DlgBrowse;
+use crate::app::dialogs::{self, DlgImport, DlgMcp, DlgSettings};
 use crate::app::session::{self, Project};
 use crate::app::welcome;
 use crate::core::implementation::{ImplementationStatus, PullRequestState};
@@ -190,6 +192,7 @@ enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
     Mcp(DlgMcp),
+    #[cfg(test)]
     Browse(DlgBrowse),
 }
 
@@ -2012,10 +2015,29 @@ impl App for PacketApp {
                 } else if *clone_slot.borrow() {
                     self.begin_clone_from_field();
                 } else if *browse_slot.borrow() {
-                    // Fresh browser each open, seeded from the CURRENT field
-                    // contents; choosing later writes back without
-                    // auto-connecting (submit_connect stays the authority).
-                    self.dialog = Some(Dialog::Browse(DlgBrowse::seeded(self.conn_path.clone())));
+                    // Start the native folder chooser at the current field's
+                    // directory, or its parent when the field is a file path.
+                    let current = std::path::PathBuf::from(self.conn_path.trim());
+                    let start = if current.is_dir() {
+                        Some(current.clone())
+                    } else {
+                        current
+                            .parent()
+                            .filter(|parent| parent.is_dir())
+                            .map(std::path::Path::to_path_buf)
+                    }
+                    .or_else(|| std::env::current_dir().ok());
+                    let mut picker = rfd::FileDialog::new().set_title("Choose a workspace folder");
+                    if let Some(start) = start {
+                        picker = picker.set_directory(start);
+                    }
+                    // Cancel leaves the field untouched. Selecting a folder
+                    // only fills the field; Open workspace remains the
+                    // single place that attempts a connection.
+                    if let Some(path) = picker.pick_folder() {
+                        let path = path.canonicalize().unwrap_or(path);
+                        self.conn_path = path.to_string_lossy().into_owned();
+                    }
                 }
             }
             Screen::Connected(_) => {
@@ -2104,6 +2126,7 @@ impl PacketApp {
                     self.dialog = Some(Dialog::Mcp(d));
                 }
             }
+            #[cfg(test)]
             Dialog::Browse(mut d) => {
                 let choose_slot = std::cell::RefCell::new(false);
                 let cancel_slot = std::cell::RefCell::new(false);
