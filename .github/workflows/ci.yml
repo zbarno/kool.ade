@@ -25,6 +25,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes bubblewrap
+      - name: Enable Bubblewrap namespaces on the disposable runner
+        run: |
+          # GitHub-hosted Ubuntu VMs are discarded after the job. Ubuntu's
+          # AppArmor user-namespace restriction otherwise prevents bwrap from
+          # bringing up loopback inside the isolated network namespace.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --ro-bind / / -- /bin/true
       - name: Check formatting
         run: cargo +1.98.1 fmt --all --check
       - name: Run all tests

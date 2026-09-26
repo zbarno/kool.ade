@@ -88,13 +88,12 @@ impl Runner {
             }
         }
     }
-    pub(super) fn check_storage(&self, cwd: &Path) -> anyhow::Result<()> {
+    pub(super) fn check_storage(&self, _cwd: &Path) -> anyhow::Result<()> {
         #[cfg(unix)]
         {
-            let existing = cwd
-                .ancestors()
-                .find(|path| path.is_dir())
-                .ok_or_else(|| anyhow::anyhow!("Cannot locate filesystem for {}", cwd.display()))?;
+            let existing = _cwd.ancestors().find(|path| path.is_dir()).ok_or_else(|| {
+                anyhow::anyhow!("Cannot locate filesystem for {}", _cwd.display())
+            })?;
             let output = self.command(existing, "df", &["-Pk", "."])?;
             let available = output
                 .lines()
@@ -104,13 +103,13 @@ impl Runner {
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "Cannot determine available disk space for {}",
-                        cwd.display()
+                        _cwd.display()
                     )
                 })?;
             anyhow::ensure!(
                 available >= 1024 * 1024,
                 "Insufficient disk space at {}: {} MiB available; at least 1 GiB is required to start implementation or verification. Free rebuildable build caches, then Resume implementation. Existing work is preserved.",
-                cwd.display(),
+                _cwd.display(),
                 available / 1024
             );
         }

@@ -137,8 +137,16 @@ fn replace_file(source: &Path, target: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
-        let source = source.encode_wide().chain(Some(0)).collect::<Vec<_>>();
-        let target = target.encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        let source = source
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
+        let target = target
+            .as_os_str()
+            .encode_wide()
+            .chain(Some(0))
+            .collect::<Vec<_>>();
         const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
         const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
         #[link(name = "kernel32")]
@@ -166,9 +174,9 @@ fn replace_file(source: &Path, target: &Path) -> std::io::Result<()> {
     }
 }
 
-pub(crate) fn sync_parent_directory(path: &Path) -> std::io::Result<()> {
+pub(crate) fn sync_parent_directory(_path: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
-    File::open(parent_dir(path))?.sync_all()?;
+    File::open(parent_dir(_path))?.sync_all()?;
     Ok(())
 }
 
