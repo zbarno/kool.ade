@@ -1,0 +1,308 @@
+use super::*;
+
+#[test]
+fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
+    use crate::domain::{ArtifactIdentity, ItemKind, OpenItem, Priority};
+
+    let root = repo("stable-identities");
+    let batch_dir = format!(
+        "{}/F7-saved-searches",
+        crate::artifacts::layout::canonical::TASKS
+    );
+    let task_path = format!("{batch_dir}/F7-TASK-save-a-search.md");
+    let feature = "# F7: Saved searches\n\n## Intent\n\nSave named searches.\n";
+    let task = "# F7-TASK-save-a-search — Add a saved search\n\nFeature: Saved searches\n\n## Dependencies\n\nNone.\n\n## Acceptance criteria\n\n- A saved search can be reopened.\n".to_string();
+    let adr = format!(
+        "# Persist saved searches locally\n\n- Ticket: `{task_path}`\n\n## Context\n\nUsers want named searches.\n\n## Decision\n\nKeep the first version local.\n"
+    );
+
+    let feature_path = root
+        .join(crate::artifacts::layout::canonical::CHANGES)
+        .join("F7-saved-searches/specification.md");
+    fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    fs::write(&feature_path, feature).unwrap();
+    let batch_path = root.join(&batch_dir);
+    fs::create_dir_all(&batch_path).unwrap();
+    fs::write(
+        batch_path.join("README.md"),
+        "# Saved searches — task stories\n\n- [Add a saved search](F7-TASK-save-a-search.md)\n",
+    )
+    .unwrap();
+    fs::write(
+        batch_path.join("specification.md"),
+        "Approved specification.\n",
+    )
+    .unwrap();
+    fs::write(root.join(&task_path), &task).unwrap();
+    let state_dir = crate::core::implementation::state_dir(&root, &task_path).unwrap();
+    fs::create_dir_all(&state_dir).unwrap();
+    let state = crate::core::implementation::Implementation {
+        ticket: task_path.clone(),
+        task_uid: None,
+        ticket_text: task.clone(),
+        approved_specification: None,
+        approved_product_context: None,
+        completed_dependency_context: None,
+        branch: "packet/saved-search".into(),
+        base: "main".into(),
+        base_commit: "base".into(),
+        worktree: root.join("worktree"),
+        status: crate::core::implementation::ImplementationStatus::Blocked,
+        detail: "Preserve this existing task work.".into(),
+        pr_url: None,
+        verified_head: None,
+        auto_merge: false,
+        merged_commit: None,
+        pr_state: None,
+        pr_checked_at: None,
+        pr_check_attempted_at: None,
+        pr_check_error: None,
+        independent_check: None,
+        cleanup: Default::default(),
+    };
+    fs::write(
+        state_dir.join("state.json"),
+        crate::core::implementation::serialize_state(&state).unwrap(),
+    )
+    .unwrap();
+
+    let workflow_path = root.join(crate::artifacts::layout::canonical::WORKFLOW);
+    fs::create_dir_all(workflow_path.parent().unwrap()).unwrap();
+    fs::write(
+        &workflow_path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "brief": null,
+            "reviewedSpecification": null,
+            "taskBatches": [{
+                "feature": "Saved searches",
+                "directory": batch_dir,
+                "count": 1
+            }],
+            "approvedFeatures": {"F7": "frozen contract"}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut open_item = OpenItem::new(
+        "CLR-101".into(),
+        Priority::High,
+        ItemKind::Question,
+        "Product".into(),
+        None,
+        "Should searches sync between devices?".into(),
+        "The first feature draft does not define syncing.".into(),
+    );
+    open_item.uid = None;
+    open_item.feature_id = Some("F7".into());
+    open_item.feature_uid = None;
+    fs::write(
+        root.join(crate::artifacts::layout::canonical::OPEN_ITEMS),
+        crate::artifacts::items_io::serialize(&[open_item]),
+    )
+    .unwrap();
+    let mut resolved_item = OpenItem::new(
+        "CLR-102".into(),
+        Priority::Normal,
+        ItemKind::Question,
+        "Product".into(),
+        None,
+        "Should the first release include sync?".into(),
+        "This was answered during the migration fixture setup.".into(),
+    );
+    resolved_item.uid = None;
+    resolved_item.feature_id = Some("F7".into());
+    resolved_item.feature_uid = None;
+    fs::write(
+        root.join(crate::artifacts::layout::canonical::RESOLVED_ITEMS),
+        serde_json::to_vec_pretty(&vec![resolved_item]).unwrap(),
+    )
+    .unwrap();
+    let decision_path = root
+        .join(crate::artifacts::layout::canonical::DECISIONS)
+        .join("persist-searches.md");
+    fs::create_dir_all(decision_path.parent().unwrap()).unwrap();
+    fs::write(&decision_path, adr).unwrap();
+    fs::write(
+        root.join(crate::artifacts::layout::canonical::MANIFEST),
+        r#"{"schemaVersion":2,"product":"Packet"}"#,
+    )
+    .unwrap();
+    commit_all(&root, "schema two project");
+
+    let changed = run(&root).unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join(crate::artifacts::layout::canonical::MANIFEST)).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["schemaVersion"], 3);
+
+    let feature_id = ArtifactIdentity::from_markdown(&fs::read_to_string(feature_path).unwrap())
+        .unwrap()
+        .unwrap();
+    let readme = fs::read_to_string(batch_path.join("README.md")).unwrap();
+    let batch_id = ArtifactIdentity::from_markdown(&readme).unwrap().unwrap();
+    assert_eq!(
+        batch_id.parent_uid.as_deref(),
+        Some(feature_id.uid.as_str())
+    );
+    let workflow: crate::core::workflow::Workflow =
+        serde_json::from_slice(&fs::read(workflow_path).unwrap()).unwrap();
+    assert_eq!(workflow.task_batches[0].identity.as_ref(), Some(&batch_id));
+
+    let task_markdown = fs::read_to_string(root.join(&task_path)).unwrap();
+    let task_id = ArtifactIdentity::from_markdown(&task_markdown)
+        .unwrap()
+        .unwrap();
+    assert_eq!(task_id.display_id, "F7-TASK-save-a-search");
+    assert_eq!(task_id.parent_uid.as_deref(), Some(batch_id.uid.as_str()));
+    let migrated_state = crate::core::implementation::load(&root, &task_path).unwrap();
+    assert_eq!(
+        migrated_state.task_uid.as_deref(),
+        Some(task_id.uid.as_str())
+    );
+    let decision = fs::read_to_string(decision_path).unwrap();
+    let decision_id = ArtifactIdentity::from_markdown(&decision).unwrap().unwrap();
+    assert_eq!(decision_id.display_id, "ADR-001");
+    assert_eq!(
+        decision_id.parent_uid.as_deref(),
+        Some(task_id.uid.as_str())
+    );
+
+    let open_items = crate::artifacts::items_io::parse(
+        &fs::read_to_string(root.join(crate::artifacts::layout::canonical::OPEN_ITEMS)).unwrap(),
+    )
+    .unwrap();
+    assert!(open_items[0].uid.is_some());
+    assert_eq!(
+        open_items[0].feature_uid.as_deref(),
+        Some(feature_id.uid.as_str())
+    );
+    let resolved: Vec<OpenItem> = serde_json::from_slice(
+        &fs::read(root.join(crate::artifacts::layout::canonical::RESOLVED_ITEMS)).unwrap(),
+    )
+    .unwrap();
+    assert!(resolved[0].uid.is_some());
+    assert_eq!(
+        resolved[0].feature_uid.as_deref(),
+        Some(feature_id.uid.as_str())
+    );
+
+    for path in [
+        crate::artifacts::layout::canonical::CHANGES.to_owned(),
+        crate::artifacts::layout::canonical::WORKFLOW.to_owned(),
+        crate::artifacts::layout::canonical::OPEN_ITEMS.to_owned(),
+        crate::artifacts::layout::canonical::RESOLVED_ITEMS.to_owned(),
+        crate::artifacts::layout::canonical::DECISIONS.to_owned(),
+    ] {
+        assert!(
+            changed
+                .iter()
+                .any(|changed_path| changed_path.starts_with(&path))
+        );
+    }
+    let first_head = git_ok(&root, &["rev-parse", "HEAD"]);
+    assert!(run(&root).unwrap().is_empty());
+    assert_eq!(git_ok(&root, &["rev-parse", "HEAD"]), first_head);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn story_only_batch_gets_durable_batch_identity_and_workflow_entry() {
+    use crate::domain::ArtifactIdentity;
+
+    let root = repo("story-only-batch");
+    let directory = format!(
+        "{}/imported-stories",
+        crate::artifacts::layout::canonical::TASKS
+    );
+    let ticket = format!("{directory}/001-recover-work.md");
+    fs::create_dir_all(root.join(&directory)).unwrap();
+    fs::write(
+        root.join(&ticket),
+        "# Recover imported work\n\nPreserve the existing implementation.\n",
+    )
+    .unwrap();
+    commit_all(&root, "story without batch metadata");
+
+    run(&root).unwrap();
+    let readme = fs::read_to_string(root.join(&directory).join("README.md")).unwrap();
+    let batch_id = ArtifactIdentity::from_markdown(&readme).unwrap().unwrap();
+    let task = fs::read_to_string(root.join(&ticket)).unwrap();
+    let task_id = ArtifactIdentity::from_markdown(&task).unwrap().unwrap();
+    assert_eq!(task_id.parent_uid.as_deref(), Some(batch_id.uid.as_str()));
+    let workflow = crate::artifacts::task_docs::load_workflow(&root).unwrap();
+    assert_eq!(workflow.task_batches.len(), 1);
+    assert_eq!(workflow.task_batches[0].identity.as_ref(), Some(&batch_id));
+    assert_eq!(
+        crate::artifacts::task_docs::load_board(&root, &workflow).len(),
+        1
+    );
+    assert!(run(&root).unwrap().is_empty());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn duplicate_uids_abort_identity_migration_before_writes() {
+    use crate::domain::ArtifactIdentity;
+
+    let root = repo("identity-conflict");
+    let shared = ArtifactIdentity::new("F9", "Saved exports");
+    let feature_markdown = format!(
+        "# F9: Saved exports\n\n<!-- packet-artifact-id:v1 {} -->\n\n## Intent\n\nExport saved searches.\n",
+        serde_json::to_string(&shared).unwrap()
+    );
+    let feature_path = root
+        .join(crate::artifacts::layout::canonical::CHANGES)
+        .join("F9-saved-exports/specification.md");
+    fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    fs::write(&feature_path, &feature_markdown).unwrap();
+
+    let batch_dir = format!(
+        "{}/F9-saved-exports",
+        crate::artifacts::layout::canonical::TASKS
+    );
+    let batch_path = root.join(&batch_dir);
+    fs::create_dir_all(&batch_path).unwrap();
+    fs::write(
+        batch_path.join("README.md"),
+        "# Saved exports — task stories\n",
+    )
+    .unwrap();
+    let task_path = format!("{batch_dir}/001-export.md");
+    let mut duplicate = shared;
+    duplicate.display_id = "001-export".into();
+    duplicate.title = "Export saved searches".into();
+    let task_markdown = format!(
+        "# Export saved searches\n\n<!-- packet-artifact-id:v1 {} -->\n\n## Acceptance criteria\n\n- An export can be downloaded.\n",
+        serde_json::to_string(&duplicate).unwrap()
+    );
+    fs::write(root.join(&task_path), &task_markdown).unwrap();
+    let workflow_path = root.join(crate::artifacts::layout::canonical::WORKFLOW);
+    fs::create_dir_all(workflow_path.parent().unwrap()).unwrap();
+    fs::write(
+        &workflow_path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "taskBatches": [{"feature":"Saved exports","directory":batch_dir,"count":1}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let manifest_path = root.join(crate::artifacts::layout::canonical::MANIFEST);
+    fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+    fs::write(&manifest_path, r#"{"schemaVersion":2,"product":"Packet"}"#).unwrap();
+    commit_all(&root, "conflicting identities");
+
+    let error = run(&root).unwrap_err().to_string();
+    assert!(error.contains("shared by feature:") && error.contains("task:"));
+    assert_eq!(fs::read_to_string(feature_path).unwrap(), feature_markdown);
+    assert_eq!(
+        fs::read_to_string(root.join(&task_path)).unwrap(),
+        task_markdown
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["schemaVersion"], 2);
+    assert!(!common_dir(&root).unwrap().join(PENDING_NAME).exists());
+    let _ = fs::remove_dir_all(root);
+}

@@ -1,7 +1,7 @@
 //! The external-AI-harness boundary (SPECIFICATION.md §14–§15).
 //!
 //! Named-file module layout:
-//! * `harness.rs`      — trait, request/outcome/envelope types
+//! * `api.rs`          — trait, request/outcome/envelope types
 //! * `pi_harness.rs`   — the Pi CLI implementation (only MVP backend)
 //! * `pi_proc.rs`      — child-process supervision primitives
 //! * `pi_events.rs`    — NDJSON event-stream folding
@@ -12,11 +12,14 @@ pub mod pi_events;
 pub mod pi_extract;
 pub mod pi_harness;
 pub mod pi_proc;
+pub(crate) mod pi_sandbox;
+pub mod responses;
 
-pub use harness::{
-    ActivityTelemetry, AiHarness, DocumentUpdate, HarnessOutcome, LivePost, LiveProgress,
-    PlanningRequest, TurnEnvelope, TurnItem, TurnItemUpdate,
+pub use api::{
+    ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,
+    LivePost, LiveProgress, PlanningRequest, RequestedAction, RetrievalPlan, ToolAccess,
+    TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use pi_harness::PiHarness;
 
-mod harness;
+mod api;

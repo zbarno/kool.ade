@@ -79,8 +79,7 @@ fn compact(slug: &str) -> std::io::Result<()> {
             text.push('\n');
         }
     }
-    crate::artifacts::atomic_write(&chat_path(slug), &text)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    crate::artifacts::atomic_write(&chat_path(slug), &text).map_err(std::io::Error::other)
 }
 
 /// Quarantine unrecoverable lines (best-effort diagnostic aid).
@@ -134,7 +133,7 @@ mod tests {
     fn torn_trailing_line_is_skipped_not_fatal() {
         let (_h, _env) = use_tmp_home("torn");
         let m = ChatMessage::new(ChatRole::User, "good", None);
-        append("proj-b", &[m.clone()]).unwrap();
+        append("proj-b", std::slice::from_ref(&m)).unwrap();
         let path = chat_path("proj-b");
         let mut f = OpenOptions::new().append(true).open(&path).unwrap();
         write!(f, "{{\"id\":\"x\",\"role\":").unwrap(); // torn write

@@ -48,6 +48,12 @@ conversation history keeps it there after reopening Packet. Failed or interrupte
 replies show **Needs attention** until retried; explicit blockers, review, and
 completed states take precedence. Discussion alone never marks a task Done.
 
+An architectural decision record is created when a user approves a planning choice
+that the planner identifies as durable and consequential. Routine choices do not
+create ADRs, and task completion does not create one. Implementation reports,
+verification commands, and acceptance evidence stay in the separate implementation
+evidence directory.
+
 Task conversations use the item's durable content, referenced specification
 sections, related tasks, and current implementation state. They do not inherit
 Main Chat or other task histories, and cannot start project interviews or generate
@@ -56,7 +62,7 @@ questions remain available on the board with their outcomes and conversation.
 
 Histories persist per project under `~/.packet/projects/<slug>/task-conversations.json`
 (or `PACKET_HOME`), separately from Main Chat. Shared resolved-item outcomes live
-in `planning/resolved-items.json` and are checkpointed in Git. A failed history
+in `.kool-ade-packet/planning/resolved-items.json` and are checkpointed in Git. A failed history
 save keeps the agent reply visible and offers **Retry saving conversation**;
 keep the window open until the retry succeeds.
 
@@ -99,11 +105,10 @@ Example output:
 
 Stories lead with the specific problem the ticket solves, why it matters, and the
 observable outcome delivered by that ticket alone. The product context remains in
-the linked approved specification. Stories also include user stories, scope references, dependencies,
-implementation context, technical contracts, affected files, ordered implementation
-steps, observable acceptance criteria, test plans, edge cases, verification commands,
-rollout notes, and definitions of done. Open **Task stories** in the document panel
-to review the latest batch.
+the linked approved specification. Each story carries the context, affected area,
+steps, acceptance criteria, tests, and verification needed for its own work. Design,
+edge cases, and rollout details appear when that issue calls for them. Open
+**Task stories** in the document panel to review the latest batch.
 
 Readiness survives reopening the repository. Each validated story is saved immediately
 under the feature directory and appears in the Task stories panel during generation.
@@ -113,31 +118,34 @@ stories and the specification. Private checkpoints let an unchanged plan resume 
 the unfinished story without rewriting completed files. User edits to saved stories
 stop generation for review instead of being overwritten. A
 changed plan, configuration, or tracked checkout starts a fresh run. Immutable
-attempt and validation records are kept beside checkpoints for diagnosis. Stories
-must meet section-specific detail checks and a 450-word minimum; the prompt asks
-for task-specific detail, typically 700–1400 words, rather than filler. These checks
-validate structure and depth, not the correctness of every implementation decision.
-Earlier batches remain intact; regenerated batches use directories
+attempt and validation records are kept beside checkpoints for diagnosis. Task detail
+scales with its actual complexity: a small change can stay concise, while a risky
+migration can include the relevant design, compatibility, failure, and recovery work.
+Required task meaning and verification are checked without minimum word counts;
+irrelevant optional sections stay out of the generated story. Earlier batches remain
+intact; regenerated batches use directories
 such as `saved-searches-02`. Task generation creates plans, not implementation changes.
 
 ## Implement a ticket
 
-**Auto mode is enabled by default** on the Task stories board. Click
-**Implement & continue queue** (or **Resume implementation**) to start. Packet
-implements the selected story in its preserved worktree, verifies it, and merges
-it into origin's default branch (`main` or `master`) without creating a PR. It then
-fills available worker slots with independent stories in the current batch.
-Linked dependencies must be merged before a dependent story starts. Waiting tasks
-and open PRs do not prevent unrelated ready tasks from starting. Each worker has
-its own worktree, progress, cancellation, and verification. Generating stories
-alone does not start implementation.
+**Build approved changes automatically** is enabled by default; **Publish verified
+changes automatically** is off. Click **Implement & continue queue** (or
+**Resume implementation**) to start approved work. Packet builds in preserved,
+isolated worktrees and verifies each task. Verified work stays local until you
+choose to share it for review or enable automatic publication. Dependencies must
+be merged before a dependent task starts; unrelated ready tasks can use other
+worker slots. Each worker has its own worktree, progress, cancellation, and
+verification. Generating stories alone does not start implementation.
 
 **Workspace → Settings… → Concurrent tasks** controls the pool (default **3**,
-range **1–8**). Lowering the limit does not interrupt running workers. You can also
-start another eligible task manually while workers are active.
+range **1–8**). The same settings separately control automatic planning,
+implementation, publication, and whether to wait for independent project checks.
+Lowering the limit does not interrupt running workers. You can also start another
+eligible task manually while workers are active.
 
-Auto publication is serialized per target repository, even when implementation
-runs concurrently. Verified tasks show **Waiting to merge** until the coordinator
+When **Publish verified changes automatically** is enabled, publication is
+serialized per target repository, even when implementation runs concurrently.
+Verified tasks show **Waiting to merge** until the coordinator
 can integrate them. Publication uses a separate integration worktree based on the latest remote
 default branch. Packet squash-merges the task there, reruns its checks, asks the
 agent to resolve conflicts or fix integration failures when needed, and publishes
@@ -167,20 +175,20 @@ For a one-time maintenance pass without opening the desktop, run
 `cargo run --offline --example cleanup_completed -- /absolute/planning/repository`.
 This uses the same locks, publication checks, and preservation rules as the app.
 
-Disable **Auto mode** to stop launching queued tasks and use
-pull requests for future implementations. PR mode starts from the connected
-branch using the latest compatible remote commit, pushes a task branch, and
-creates or reuses a GitHub PR. It requires an authenticated `gh` CLI; Auto mode
-requires Git commit identity and push access, but does not invoke `gh` for
-publication. Branch protection and unavailable credentials remain real blockers.
+Automatic planning investigates Agent-owned questions; it does not create tasks
+or start builds. Automatic building continues only explicitly approved work.
+Automatic publication is a separate permission and is disabled by default.
+Sharing a verified task for review requires an authenticated `gh` CLI. Automatic
+publication requires Git commit identity and push access, but does not invoke
+`gh`. Branch protection and unavailable credentials remain real blockers.
 
 Queue settings and in-flight tasks persist under Git's private metadata, so
 reopening a running queue resumes unfinished work. Stopping a task pauses new
 starts and cancels only that worker; other running workers are preserved. A terminal
 failure blocks that task and its dependents but lets unrelated work continue.
 Its worktree and diagnosis remain available; Resume restarts recovery.
-Auto mode also recognizes previously parked publication-divergence and explicit
-verification-only no-change failures and schedules one automatic resume. That
+Automatic building also recognizes previously parked publication-divergence and
+explicit verification-only no-change failures and schedules one automatic resume. That
 retry budget persists across restarts, and explicit cancellation suppresses it.
 Divergent local history is preserved: Auto workers use the remote base and repair
 integration conflicts in isolated worktrees before rerunning verification.
@@ -233,14 +241,18 @@ closing it returns to the item or board you were viewing.
 
 ### Living specification contract
 
-The planner maintains one coherent current specification with the thirteen ordered
-sections defined in [the authoring policy](docs/living-specification-policy.md).
-Material revisions preserve stable identifiers, explicitly supersede decisions,
-separate confirmed intent from repository observations, and retain the accepted
-acceptance bar. Git carries detailed history; revision notes stay compact.
+The planner maintains one coherent current specification. It has six required
+concepts—Overview, Users and Outcomes, Current Capabilities, Architecture and
+Constraints, Decisions, and Quality and Acceptance—plus concise optional modules
+when the project needs them. The authoring rules live in
+[the planner policy](docs/planner-policy.md). Material revisions preserve stable
+identifiers, explicitly supersede decisions, separate confirmed intent from
+repository observations, and retain the accepted acceptance bar. Git carries
+detailed history; revision notes stay compact.
 
-Every planning turn receives this policy. Changed specification responses must
-have the required title and section structure before any artifacts are written.
-Existing documents remain readable; their next material revision must use the new
-layout. Structural validation does not certify factual accuracy or semantic
-preservation. Task batches retain their frozen approved specification snapshots.
+Every planning turn receives this policy. Responses use strict operation-specific
+schemas, and changed documents must have a title before any artifacts are written.
+Existing numbered specifications migrate into the six required concepts while
+retaining useful project-specific modules. Structural validation does not certify
+factual accuracy or semantic preservation. Task batches retain their frozen
+approved specification snapshots.

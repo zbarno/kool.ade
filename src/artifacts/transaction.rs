@@ -37,9 +37,10 @@ fn path(repo: &Path, rel: &str) -> anyhow::Result<PathBuf> {
             .all(|c| matches!(c, std::path::Component::Normal(_))),
         "Invalid planning artifact path"
     );
+    let canonical = crate::artifacts::layout::canonical::PLANNING;
     anyhow::ensure!(
-        rel.starts_with(&format!("{}/", crate::artifacts::layout::legacy::PLANNING))
-            || rel == crate::artifacts::layout::legacy::WORKFLOW,
+        rel.starts_with(&format!("{canonical}/"))
+            || rel == crate::artifacts::layout::canonical::WORKFLOW,
         "Path is outside planning artifacts"
     );
     let mut candidate = repo.to_path_buf();
@@ -63,6 +64,7 @@ fn transaction_lock(repo: &Path) -> anyhow::Result<fs::File> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(lock)?;
     file.lock()?;
     Ok(file)
@@ -74,7 +76,8 @@ fn restore(repo: &Path, entries: &[Entry]) -> anyhow::Result<()> {
             Some(before) => crate::artifacts::atomic_write(&target, before)?,
             None => {
                 if target.exists() {
-                    fs::remove_file(target)?;
+                    fs::remove_file(&target)?;
+                    crate::artifacts::sync_parent_directory(&target)?;
                 }
             }
         }
@@ -83,17 +86,7 @@ fn restore(repo: &Path, entries: &[Entry]) -> anyhow::Result<()> {
 }
 
 pub fn recover(repo: &Path) -> anyhow::Result<bool> {
-    let _lock = transaction_lock(repo)?;
-    let journal = journal_path(repo)?;
-    let text = match fs::read_to_string(&journal) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(e.into()),
-    };
-    let state: Journal = serde_json::from_str(&text)?;
-    restore(repo, &state.entries)?;
-    fs::remove_file(journal)?;
-    Ok(true)
+    crate::artifacts::migration::recover_transaction(repo)
 }
 
 pub fn apply(repo: &Path, changes: &[(String, String)]) -> anyhow::Result<Vec<String>> {
@@ -131,29 +124,10 @@ fn apply_with_limit(
         return Ok(Vec::new());
     }
     let journal = journal_path(repo)?;
-    let staged = journal.with_extension(format!(
-        "{}-{}.tmp",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
     let serialized = serde_json::to_vec(&Journal {
         entries: entries.clone(),
     })?;
-    let write = (|| -> anyhow::Result<()> {
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&staged)?;
-        file.write_all(&serialized)?;
-        file.sync_all()?;
-        fs::rename(&staged, &journal)?;
-        Ok(())
-    })();
-    if staged.exists() {
-        let _ = fs::remove_file(&staged);
-    }
-    write?;
+    crate::artifacts::atomic_create_bytes(&journal, &serialized)?;
     let result = (|| -> anyhow::Result<()> {
         for (n, entry) in entries.iter().enumerate() {
             if fail_after == Some(n) {
@@ -165,10 +139,12 @@ fn apply_with_limit(
     })();
     if let Err(error) = result {
         restore(repo, &entries)?;
-        fs::remove_file(journal)?;
+        fs::remove_file(&journal)?;
+        crate::artifacts::sync_parent_directory(&journal)?;
         return Err(error);
     }
-    fs::remove_file(journal)?;
+    fs::remove_file(&journal)?;
+    crate::artifacts::sync_parent_directory(&journal)?;
     Ok(entries.into_iter().map(|e| e.path).collect())
 }
 
@@ -179,7 +155,7 @@ mod tests {
     fn interrupted_document_set_restores_original_bytes() {
         let root = std::env::temp_dir().join(format!("packet_tx_{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("planning/product")).unwrap();
+        fs::create_dir_all(root.join(".kool-ade-packet/planning/product")).unwrap();
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
@@ -188,13 +164,19 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        let a = root.join("planning/product/01-vision.md");
-        let b = root.join("planning/product/02-scope.md");
+        let a = root.join(".kool-ade-packet/planning/product/01-vision.md");
+        let b = root.join(".kool-ade-packet/planning/product/02-scope.md");
         fs::write(&a, "old a").unwrap();
         fs::write(&b, "old b").unwrap();
         let changes = vec![
-            ("planning/product/01-vision.md".into(), "new a".into()),
-            ("planning/product/02-scope.md".into(), "new b".into()),
+            (
+                ".kool-ade-packet/planning/product/01-vision.md".into(),
+                "new a".into(),
+            ),
+            (
+                ".kool-ade-packet/planning/product/02-scope.md".into(),
+                "new b".into(),
+            ),
         ];
         assert!(apply_with_limit(&root, &changes, Some(1)).is_err());
         assert_eq!(fs::read_to_string(a).unwrap(), "old a");
@@ -210,7 +192,7 @@ mod tests {
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        fs::create_dir_all(root.join("planning/product")).unwrap();
+        fs::create_dir_all(root.join(".kool-ade-packet/planning/product")).unwrap();
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
@@ -219,17 +201,17 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        let first = root.join("planning/product/01-vision.md");
-        let second = root.join("planning/product/02-scope.md");
+        let first = root.join(".kool-ade-packet/planning/product/01-vision.md");
+        let second = root.join(".kool-ade-packet/planning/product/02-scope.md");
         fs::write(&first, "old vision").unwrap();
         let entries = vec![
             Entry {
-                path: "planning/product/01-vision.md".into(),
+                path: ".kool-ade-packet/planning/product/01-vision.md".into(),
                 before: Some("old vision".into()),
                 after: "new vision".into(),
             },
             Entry {
-                path: "planning/product/02-scope.md".into(),
+                path: ".kool-ade-packet/planning/product/02-scope.md".into(),
                 before: None,
                 after: "new scope".into(),
             },

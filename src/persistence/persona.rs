@@ -37,14 +37,22 @@ use std::path::PathBuf;
 /// truth for seeding, story 002's Restore-default, and every
 /// fallback-equality assertion.
 pub const SHIPPED_DEFAULT_PERSONA: &str = concat!(
-    "# Planner Persona (shipped default)", "\n",
-    "", "\n",
-    "Four standing beats:", "\n",
-    "", "\n",
-    "- Concise", "\n",
-    "- Protective of the User, then the System, then the Project", "\n",
-    "- Inquisitive", "\n",
-    "- Creative", "\n",
+    "# Planner Persona (shipped default)",
+    "\n",
+    "",
+    "\n",
+    "Four standing beats:",
+    "\n",
+    "",
+    "\n",
+    "- Concise",
+    "\n",
+    "- Protective of the User, then the System, then the Project",
+    "\n",
+    "- Inquisitive",
+    "\n",
+    "- Creative",
+    "\n",
 );
 
 /// `persona.md` joined directly onto the `$PACKET_HOME`-aware state root.
@@ -116,27 +124,26 @@ pub fn load_persona() -> PersonaLoad {
                 )),
             },
         },
-        Err(e) if e.kind() == io::ErrorKind::NotFound => match crate::artifacts::atomic_write(
-            &path,
-            SHIPPED_DEFAULT_PERSONA,
-        ) {
-            Ok(()) => PersonaLoad {
-                document: SHIPPED_DEFAULT_PERSONA.to_string(),
-                seeded_now: true,
-                fell_back_to_default: false,
-                diagnostic: Some(format!(
-                    "persona file {shown} was absent; seeded the shipped default"
-                )),
-            },
-            Err(write_err) => PersonaLoad {
-                document: SHIPPED_DEFAULT_PERSONA.to_string(),
-                seeded_now: false,
-                fell_back_to_default: true,
-                diagnostic: Some(format!(
-                    "persona file {shown} was absent but seeding failed: {write_err}"
-                )),
-            },
-        },
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            match crate::artifacts::atomic_write(&path, SHIPPED_DEFAULT_PERSONA) {
+                Ok(()) => PersonaLoad {
+                    document: SHIPPED_DEFAULT_PERSONA.to_string(),
+                    seeded_now: true,
+                    fell_back_to_default: false,
+                    diagnostic: Some(format!(
+                        "persona file {shown} was absent; seeded the shipped default"
+                    )),
+                },
+                Err(write_err) => PersonaLoad {
+                    document: SHIPPED_DEFAULT_PERSONA.to_string(),
+                    seeded_now: false,
+                    fell_back_to_default: true,
+                    diagnostic: Some(format!(
+                        "persona file {shown} was absent but seeding failed: {write_err}"
+                    )),
+                },
+            }
+        }
         Err(e) => PersonaLoad {
             document: SHIPPED_DEFAULT_PERSONA.to_string(),
             seeded_now: false,
@@ -160,8 +167,7 @@ pub fn save_persona(document: &str) -> io::Result<()> {
             "persona document must not be blank",
         ));
     }
-    crate::artifacts::atomic_write(&persona_path(), document)
-        .map_err(io::Error::other)
+    crate::artifacts::atomic_write(&persona_path(), document).map_err(io::Error::other)
 }
 
 #[cfg(test)]
@@ -199,10 +205,8 @@ mod tests {
             let lock = ENV_HOME_LOCK
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let home = env::temp_dir().join(format!(
-                "packet_personas_{tag}_{}",
-                std::process::id()
-            ));
+            let home =
+                env::temp_dir().join(format!("packet_personas_{tag}_{}", std::process::id()));
 
             // Settle gate: claim only when PACKET_HOME is observably
             // stationary, so a neighbor env test in flight cannot straddle
@@ -227,9 +231,7 @@ mod tests {
                 return TmpHome { home, _lock: lock };
             }
             drop(lock);
-            panic!(
-                "could not observe a settled PACKET_HOME in five escalated waits"
-            );
+            panic!("could not observe a settled PACKET_HOME in five escalated waits");
         }
     }
 
@@ -249,8 +251,7 @@ mod tests {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ =
-                    fs::set_permissions(&self.home, fs::Permissions::from_mode(0o700));
+                let _ = fs::set_permissions(&self.home, fs::Permissions::from_mode(0o700));
             }
             let _ = fs::remove_dir_all(&self.home);
         }
@@ -282,8 +283,14 @@ mod tests {
         assert_eq!(first.document, SHIPPED_DEFAULT_PERSONA);
         let diag = first.diagnostic.expect("seed must be diagnosed");
         let p = persona_path().to_string_lossy().to_string();
-        assert!(diag.contains("absent"), "seed diagnostic {diag:?} should name the absence");
-        assert!(diag.contains(&p), "seed diagnostic {diag:?} should name the path");
+        assert!(
+            diag.contains("absent"),
+            "seed diagnostic {diag:?} should name the absence"
+        );
+        assert!(
+            diag.contains(&p),
+            "seed diagnostic {diag:?} should name the path"
+        );
         assert_eq!(
             persona_bytes(),
             SHIPPED_DEFAULT_PERSONA.as_bytes(),
@@ -294,7 +301,10 @@ mod tests {
         let second = load_persona();
         assert!(!second.seeded_now, "second load must not reseed");
         assert!(!second.fell_back_to_default);
-        assert!(second.diagnostic.is_none(), "healthy load carries no diagnostic");
+        assert!(
+            second.diagnostic.is_none(),
+            "healthy load carries no diagnostic"
+        );
         assert_eq!(second.document, SHIPPED_DEFAULT_PERSONA);
         assert_eq!(
             persona_bytes(),
@@ -310,13 +320,19 @@ mod tests {
         save_persona(custom).expect("saving a well-formed document must succeed");
 
         let a = load_persona();
-        assert_eq!(a.document, custom, "first load must be byte-identical to the saved input");
+        assert_eq!(
+            a.document, custom,
+            "first load must be byte-identical to the saved input"
+        );
         assert!(!a.fell_back_to_default);
         assert!(a.diagnostic.is_none());
 
         // Simulate a relaunch: successive loads stay byte-identical.
         let b = load_persona();
-        assert_eq!(b.document, custom, "second (relaunch) load must be byte-identical");
+        assert_eq!(
+            b.document, custom,
+            "second (relaunch) load must be byte-identical"
+        );
         assert!(!b.fell_back_to_default);
         assert!(b.diagnostic.is_none());
         assert_eq!(persona_bytes(), custom.as_bytes());
@@ -328,7 +344,11 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .expect("entry names should be valid UTF-8");
         entries.sort();
-        assert_eq!(entries, vec!["persona.md".to_string()], "expected only persona.md, no temp residues");
+        assert_eq!(
+            entries,
+            vec!["persona.md".to_string()],
+            "expected only persona.md, no temp residues"
+        );
     }
 
     #[test]
@@ -342,7 +362,10 @@ mod tests {
 
         let r = load_persona();
         assert_eq!(r.document, SHIPPED_DEFAULT_PERSONA);
-        assert!(r.fell_back_to_default, "invalid UTF-8 must trigger the fallback");
+        assert!(
+            r.fell_back_to_default,
+            "invalid UTF-8 must trigger the fallback"
+        );
         assert!(!r.seeded_now, "fallback must not pretend to have seeded");
         let diag = r.diagnostic.expect("fallback must be diagnosed");
         assert!(
@@ -365,10 +388,16 @@ mod tests {
 
         let r = load_persona();
         assert_eq!(r.document, SHIPPED_DEFAULT_PERSONA);
-        assert!(r.fell_back_to_default, "blank content must trigger the fallback");
+        assert!(
+            r.fell_back_to_default,
+            "blank content must trigger the fallback"
+        );
         assert!(!r.seeded_now);
         let diag = r.diagnostic.expect("fallback must be diagnosed");
-        assert!(diag.contains("blank"), "diagnostic {diag:?} should name blank");
+        assert!(
+            diag.contains("blank"),
+            "diagnostic {diag:?} should name blank"
+        );
         assert_eq!(
             persona_bytes(),
             blank.as_bytes(),
@@ -385,12 +414,23 @@ mod tests {
 
         let r = load_persona();
         assert!(r.seeded_now, "deletion must retrigger the first-run seed");
-        assert!(!r.fell_back_to_default, "a successful reseed is not a fallback");
+        assert!(
+            !r.fell_back_to_default,
+            "a successful reseed is not a fallback"
+        );
         assert_eq!(r.document, SHIPPED_DEFAULT_PERSONA);
-        let diag = r.diagnostic.expect("absence must be diagnosed, never silent");
+        let diag = r
+            .diagnostic
+            .expect("absence must be diagnosed, never silent");
         let p = persona_path().to_string_lossy().to_string();
-        assert!(diag.contains("absent"), "diagnostic {diag:?} should name the absence");
-        assert!(diag.contains(&p), "diagnostic {diag:?} should name the path");
+        assert!(
+            diag.contains("absent"),
+            "diagnostic {diag:?} should name the absence"
+        );
+        assert!(
+            diag.contains(&p),
+            "diagnostic {diag:?} should name the path"
+        );
         assert_eq!(
             persona_bytes(),
             SHIPPED_DEFAULT_PERSONA.as_bytes(),
@@ -440,7 +480,10 @@ mod tests {
         assert!(huge.len() >= 100 * 1024);
         save_persona(&huge).expect("large document must be savable (no size cap)");
         let r = load_persona();
-        assert_eq!(r.document, huge, "large document must round-trip byte-exactly");
+        assert_eq!(
+            r.document, huge,
+            "large document must round-trip byte-exactly"
+        );
         assert!(!r.fell_back_to_default);
         assert!(r.diagnostic.is_none());
     }
@@ -451,8 +494,14 @@ mod tests {
         fs::create_dir_all(persona_path()).unwrap();
 
         let r = load_persona();
-        assert_eq!(r.document, SHIPPED_DEFAULT_PERSONA, "must keep serving a voice");
-        assert!(r.fell_back_to_default, "a directory at the path is corrupt-by-construction");
+        assert_eq!(
+            r.document, SHIPPED_DEFAULT_PERSONA,
+            "must keep serving a voice"
+        );
+        assert!(
+            r.fell_back_to_default,
+            "a directory at the path is corrupt-by-construction"
+        );
         assert!(!r.seeded_now, "must not attempt to seed over a directory");
         let diag = r.diagnostic.expect("fallback must be diagnosed");
         assert!(
@@ -477,12 +526,21 @@ mod tests {
         fs::set_permissions(&home.home, fs::Permissions::from_mode(0o500)).unwrap();
 
         let r = load_persona(); // must not panic despite the failed seed write
-        assert_eq!(r.document, SHIPPED_DEFAULT_PERSONA, "voice must still be served");
-        assert!(r.fell_back_to_default, "unseedable absence must read as fallback");
+        assert_eq!(
+            r.document, SHIPPED_DEFAULT_PERSONA,
+            "voice must still be served"
+        );
+        assert!(
+            r.fell_back_to_default,
+            "unseedable absence must read as fallback"
+        );
         assert!(!r.seeded_now);
         let diag = r.diagnostic.expect("failed seed write must be diagnosed");
         let p = persona_path().to_string_lossy().to_string();
-        assert!(diag.contains(&p), "diagnostic {diag:?} should name the path");
+        assert!(
+            diag.contains(&p),
+            "diagnostic {diag:?} should name the path"
+        );
         assert!(
             diag.contains("seeding failed"),
             "diagnostic {diag:?} should cite the write failure"
@@ -490,6 +548,9 @@ mod tests {
 
         // Defensive reversal before the guard's Drop re-applies it.
         fs::set_permissions(&home.home, fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(!persona_path().exists(), "nothing may have been written into the ro home");
+        assert!(
+            !persona_path().exists(),
+            "nothing may have been written into the ro home"
+        );
     }
 }

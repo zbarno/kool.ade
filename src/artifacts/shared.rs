@@ -6,11 +6,13 @@
 
 use std::path::{Path, PathBuf};
 
-pub use super::layout::legacy::{
-    CONFIG as CONFIG_DIR, IMPORTS as IMPORTS_DIR, MCP_CONFIG as MCP_CONFIG_FILE,
-    OPEN_ITEMS as OPEN_ITEMS_FILE, PLANNING as PLANNING_DIR,
-    PROJECT_CONFIG as CONFIG_FILE, SPECIFICATION as SPEC_FILE,
-};
+pub const CONFIG_DIR: &str = super::layout::canonical::CONFIG;
+pub const IMPORTS_DIR: &str = super::layout::canonical::IMPORTS;
+pub const MCP_CONFIG_FILE: &str = super::layout::canonical::MCP_CONFIG;
+pub const OPEN_ITEMS_FILE: &str = super::layout::canonical::OPEN_ITEMS;
+pub const PLANNING_DIR: &str = super::layout::canonical::PLANNING;
+pub const CONFIG_FILE: &str = super::layout::canonical::PROJECT_CONFIG;
+pub const SPEC_FILE: &str = super::layout::canonical::PRODUCT_INDEX;
 
 /// Absolute path for a repository-relative artifact.
 pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {
@@ -21,20 +23,6 @@ pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {
 pub fn read_utf8_lossy(path: &Path) -> anyhow::Result<String> {
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
-}
-
-/// Atomically write `text` to `path` (write-to-temp + rename) so a crash
-/// mid-write can never truncate a planning artifact. Parent dirs are created.
-pub fn atomic_write(path: &Path, text: &str) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("packet.tmp");
-    std::fs::write(&tmp, text.as_bytes())?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        anyhow::anyhow!("cannot write {}: {e}", path.display())
-    })
 }
 
 /// Sanitize a file name so it is safe on POSIX/Windows and never escapes
@@ -73,7 +61,10 @@ mod tests {
     #[test]
     fn artifact_paths_join_relatively() {
         let p = repo_artifact(Path::new("/repo"), SPEC_FILE);
-        assert_eq!(p, PathBuf::from("/repo/planning/specification.md"));
+        assert_eq!(
+            p,
+            PathBuf::from("/repo/.kool-ade-packet/planning/product/index.md")
+        );
     }
 
     #[test]

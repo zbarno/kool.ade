@@ -1,11 +1,14 @@
 //! Read-only, cached explanations of an external implementation blocker.
+mod brief;
 mod generate;
+mod validation;
+use validation::validate;
 
-use crate::core::implementation::{self, Report};
-use crate::harness::{AiHarness, PiHarness};
+use crate::core::implementation::{self, BlockerDisposition, Report, ReportStatus};
+use crate::harness::AiHarness;
+pub use brief::{Brief, HumanStep, OptionBrief, Recommendation};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -14,30 +17,6 @@ use std::{
         mpsc::{self, Receiver},
     },
 };
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct OptionBrief {
-    pub id: String,
-    pub label: String,
-    pub meaning: String,
-    pub consequence: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct HumanStep {
-    pub owner: String,
-    pub action: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct Brief {
-    pub problem: String,
-    #[serde(default)]
-    pub options: Vec<OptionBrief>,
-    #[serde(default)]
-    pub steps: Vec<HumanStep>,
-    pub after: String,
-}
 
 #[derive(Clone, Debug)]
 pub enum View {
@@ -58,24 +37,40 @@ pub struct Controller {
 }
 
 impl Controller {
-    pub fn start(repo: PathBuf, ticket: String, report_path: PathBuf) -> Self {
+    pub fn start(
+        repo: PathBuf,
+        ticket: String,
+        report_path: PathBuf,
+        harness: Box<dyn AiHarness>,
+    ) -> Self {
         let (send, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         std::thread::spawn(move || {
-            let outcome = run(&repo, &ticket, &report_path, &PiHarness, worker_cancel)
-                .map_err(|error| format!("{error:#}"));
+            let outcome = run(
+                &repo,
+                &ticket,
+                &report_path,
+                harness.as_ref(),
+                worker_cancel,
+            )
+            .map_err(|error| format!("{error:#}"));
             let _ = send.send(outcome);
         });
         Self { result, cancel }
     }
 
-    pub fn start_detail(repo: PathBuf, ticket: String, detail: String) -> Self {
+    pub fn start_detail(
+        repo: PathBuf,
+        ticket: String,
+        detail: String,
+        harness: Box<dyn AiHarness>,
+    ) -> Self {
         let (send, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         std::thread::spawn(move || {
-            let outcome = run_detail(&repo, &ticket, &detail, &PiHarness, worker_cancel)
+            let outcome = run_detail(&repo, &ticket, &detail, harness.as_ref(), worker_cancel)
                 .map_err(|error| format!("{error:#}"));
             let _ = send.send(outcome);
         });
@@ -139,94 +134,6 @@ fn cache_path(report_path: &Path) -> PathBuf {
     report_path.with_file_name(format!("{stem}-attention.json"))
 }
 
-fn validate(brief: &Brief, report: &Report) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        (20..=1200).contains(&brief.problem.trim().chars().count()),
-        "Explanation needs a concise, specific problem statement"
-    );
-    anyhow::ensure!(
-        !brief.after.trim().is_empty() && brief.after.chars().count() <= 500,
-        "Explanation needs a brief, concrete follow-up"
-    );
-    for step in &brief.steps {
-        anyhow::ensure!(
-            !step.owner.trim().is_empty()
-                && !step.action.trim().is_empty()
-                && step.action.chars().count() <= 500,
-            "Explanation has an incomplete human step"
-        );
-    }
-    let mut ids = BTreeSet::new();
-    for option in &brief.options {
-        anyhow::ensure!(
-            !option.id.trim().is_empty()
-                && ids.insert(option.id.trim().to_ascii_lowercase())
-                && [
-                    option.label.as_str(),
-                    option.meaning.as_str(),
-                    option.consequence.as_str()
-                ]
-                .iter()
-                .all(|part| !part.trim().is_empty() && part.chars().count() <= 600),
-            "Explanation has an incomplete or duplicate option"
-        );
-    }
-    let source_ids = explicit_choice_ids(report);
-    if !source_ids.is_empty() {
-        anyhow::ensure!(
-            ids == source_ids,
-            "Explanation options do not match the report's choices"
-        );
-    }
-    anyhow::ensure!(
-        !brief.options.is_empty() || !brief.steps.is_empty(),
-        "Explanation omits every human action"
-    );
-    Ok(())
-}
-
-/// Keep generated buttons tied to IDs explicitly listed in a human choice.
-/// IDs are discovered from the report instead of assuming a fixed number of
-/// lettered options; ordinary parentheticals outside choice instructions are
-/// ignored.
-fn explicit_choice_ids(report: &Report) -> BTreeSet<String> {
-    let mut ids = BTreeSet::new();
-    for line in report.remaining.join("\n").lines() {
-        let lower = line.to_ascii_lowercase();
-        if ![
-            "choose",
-            "pick",
-            "select",
-            "options",
-            "alternatives",
-            "remedies",
-        ]
-        .iter()
-        .any(|cue| lower.contains(cue))
-        {
-            continue;
-        }
-        let mut rest = line;
-        while let Some(open) = rest.find('(') {
-            rest = &rest[open + 1..];
-            let Some(close) = rest.find(')') else {
-                break;
-            };
-            let candidate = rest[..close].trim();
-            if !candidate.is_empty()
-                && candidate.len() <= 24
-                && candidate
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-            {
-                ids.insert(candidate.to_ascii_lowercase());
-            }
-            rest = &rest[close + 1..];
-        }
-    }
-    ids
-}
-
 fn run(
     repo: &Path,
     ticket: &str,
@@ -235,11 +142,19 @@ fn run(
     cancel: Arc<AtomicBool>,
 ) -> anyhow::Result<Brief> {
     let bytes = fs::read(report_path)?;
-    let report: Report = serde_json::from_slice(&bytes)?;
-    anyhow::ensure!(report.status == "blocked", "Report is no longer blocked");
-    let (worktree, documents) = generate::context(repo, ticket, &report);
+    let report = implementation::parse_report(std::str::from_utf8(&bytes)?)?;
+    anyhow::ensure!(
+        report.status == ReportStatus::Blocked,
+        "Report is no longer blocked"
+    );
+    let (worktree, task, documents) = generate::context(repo, ticket, &report);
     let mut source = bytes;
+    source.extend_from_slice(task.as_bytes());
     source.extend_from_slice(documents.as_bytes());
+    // Prompt edits must invalidate persisted prose even when the report and
+    // repository documents are unchanged; otherwise an older generic brief
+    // can keep looking hardcoded after the generator has improved.
+    source.extend_from_slice(generate::cache_material(&report, &task, &documents).as_bytes());
     let source_fingerprint = fingerprint(&source);
     let sidecar = cache_path(report_path);
     if let Some(cache) = fs::read(&sidecar)
@@ -250,16 +165,21 @@ fn run(
     {
         return Ok(cache.brief);
     }
-    let brief = generate::run(&worktree, &documents, &report, harness, cancel.clone())?;
+    let brief = generate::run(
+        &worktree,
+        &task,
+        &documents,
+        &report,
+        harness,
+        cancel.clone(),
+    )?;
     validate(&brief, &report)?;
     anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Explanation cancelled");
     let bytes = serde_json::to_vec_pretty(&Cache {
         source_fingerprint,
         brief: brief.clone(),
     })?;
-    let temp = sidecar.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&temp, bytes)?;
-    fs::rename(temp, sidecar)?;
+    crate::artifacts::atomic_write_bytes(&sidecar, &bytes)?;
     Ok(brief)
 }
 
@@ -275,15 +195,20 @@ fn run_detail(
         .map(|(_, tail)| tail.to_owned())
         .unwrap_or_else(|| detail.to_owned());
     let report = Report {
-        status: "blocked".into(),
+        status: ReportStatus::Blocked,
+        blocker_disposition: BlockerDisposition::HumanAction,
         summary: detail.to_owned(),
         acceptance_criteria: Vec::new(),
         verification: Vec::new(),
         remaining: vec![actions],
+        human_choices: Vec::new(),
     };
-    let (worktree, documents) = generate::context(repo, ticket, &report);
-    generate::run(&worktree, &documents, &report, harness, cancel)
+    let (worktree, task, documents) = generate::context(repo, ticket, &report);
+    generate::run(&worktree, &task, &documents, &report, harness, cancel)
 }
 
+#[cfg(test)]
+#[path = "attention/legacy_tests.rs"]
+mod legacy_tests;
 #[cfg(test)]
 mod tests;

@@ -15,6 +15,7 @@ pub mod apply;
 pub mod attention;
 pub mod board_actions;
 pub mod context_build;
+pub mod context_retrieval;
 pub mod contract_snapshot;
 pub mod gitops;
 pub mod ids;

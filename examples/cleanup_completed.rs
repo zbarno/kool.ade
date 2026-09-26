@@ -1,6 +1,6 @@
 //! Run the same conservative maintenance worker as the desktop, without opening a UI.
 //! Usage: cargo run --example cleanup_completed -- /absolute/planning/repository
-use packet::core::implementation::{PrRefresh, load_all};
+use packet::core::implementation::{ImplementationStatus, PrRefresh, load_all};
 use std::{path::PathBuf, time::Duration};
 fn main() -> anyhow::Result<()> {
     let repo = PathBuf::from(
@@ -13,10 +13,9 @@ fn main() -> anyhow::Result<()> {
     states.sort_by_key(|state| state.cleanup.attempted_at.clone());
     let mut pending = false;
     // One ticket per bounded worker prevents large backlogs starving later tickets.
-    for state in states
-        .into_iter()
-        .filter(|state| state.status == "Done" && state.cleanup.completed_at.is_none())
-    {
+    for state in states.into_iter().filter(|state| {
+        state.status == ImplementationStatus::Completed && state.cleanup.completed_at.is_none()
+    }) {
         let worker = PrRefresh::start(repo.clone(), vec![state.ticket.clone()]);
         loop {
             if let Some(errors) = worker.poll() {

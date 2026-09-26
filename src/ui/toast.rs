@@ -84,7 +84,7 @@ impl ToastQueue {
         if self.items.is_empty() {
             return;
         }
-        let snapshot: Vec<Toast> = self.items.iter().cloned().collect();
+        let snapshot: Vec<Toast> = self.items.to_vec();
         let mut dismissed_idx: Vec<usize> = Vec::new();
         egui::Area::new("packet_toasts".into())
             .order(Order::Foreground)

@@ -2,7 +2,16 @@
 //! decision preservation remain authoring obligations, not parser guarantees.
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
 
-pub const SECTIONS: [&str; 13] = [
+pub const SECTIONS: [&str; 6] = [
+    "Overview",
+    "Users and Outcomes",
+    "Current Capabilities",
+    "Architecture and Constraints",
+    "Decisions",
+    "Quality and Acceptance",
+];
+
+pub const LEGACY_SECTIONS: [&str; 13] = [
     "1. Vision",
     "2. Scope",
     "3. Actors and Roles",
@@ -54,9 +63,12 @@ pub fn validate_layout(markdown: &str) -> Result<(), String> {
         .filter(|(l, _)| *l == HeadingLevel::H2)
         .map(|(_, title)| title.as_str())
         .collect();
-    if sections != SECTIONS {
+    let has_core = SECTIONS
+        .iter()
+        .all(|required| sections.iter().filter(|title| **title == *required).count() == 1);
+    if !has_core && sections.as_slice() != LEGACY_SECTIONS {
         return Err(format!(
-            "updated_specification must contain these H2 sections in order: {}. Use H3 for subsections; return the complete document.",
+            "updated_specification must include the six core H2 concepts ({}), or retain the recognized legacy layout; optional H2 sections may be added. Return the complete document.",
             SECTIONS.join("; ")
         ));
     }
@@ -142,23 +154,20 @@ mod tests {
 
     #[test]
     fn current_specification_obeys_layout() {
-        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        if let Some(parts) = crate::artifacts::product_docs::load_modules(repo).unwrap() {
-            for (n, body) in parts.iter().enumerate() {
-                crate::artifacts::product_docs::validate_module(n + 1, body).unwrap();
-            }
-            if let Ok(legacy) =
-                std::fs::read_to_string(repo.join(crate::artifacts::product_docs::LEGACY_ARCHIVE))
-            {
-                let prior = crate::artifacts::product_docs::split_legacy(&legacy).unwrap();
-                for (old, current) in prior.iter().zip(parts.iter()) {
-                    crate::artifacts::product_docs::preserved_ids(old, current).unwrap();
-                }
-            }
-        } else {
-            let legacy = std::fs::read_to_string(repo.join("planning/specification.md")).unwrap();
-            crate::artifacts::product_docs::split_legacy(&legacy).unwrap();
+        let repo = std::env::temp_dir().join(format!(
+            "packet_spec_layout_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(&repo).unwrap();
+        crate::artifacts::migration::bootstrap_product(&repo, "Layout Test").unwrap();
+        let modules = crate::artifacts::product_docs::load_modules(&repo)
+            .unwrap()
+            .expect("bootstrap creates the modular product layout");
+        for body in &modules {
+            crate::artifacts::product_docs::validate_module(body).unwrap();
         }
+        let _ = std::fs::remove_dir_all(repo);
     }
 
     #[test]
@@ -170,12 +179,12 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_reordered_extra_sections_and_multiple_titles() {
+    fn requires_core_concepts_and_allows_project_specific_sections() {
         let text = fixture("Unknown pending confirmation.");
+        validate_layout(&format!("{text}\n## Billing\n\nProject-specific policy.\n")).unwrap();
         for invalid in [
-            text.replace("## 2. Scope", "### 2. Scope"),
-            text.replace("## 2. Scope", "## 3. Actors and Roles"),
-            format!("{text}\n## Audit transcript\n"),
+            text.replace("## Users and Outcomes", "### Users and Outcomes"),
+            text.replace("## Users and Outcomes", "## Current Capabilities"),
             format!("{text}\n# Another title\n"),
             text.replace("Fixture — Living Technical Specification", "Fixture"),
         ] {

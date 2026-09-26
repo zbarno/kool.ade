@@ -1,14 +1,15 @@
-//! Markdown round-tripping for `.planner/config.md` (SPECIFICATION.md §4).
+//! Markdown round-tripping for `.kool-ade-packet/config/project.md` (SPECIFICATION.md §4).
 //!
 //! Both category layouts are accepted on parse:
 //! * canonical (app-emitted): `## Stakeholders` → `### <Category>` → bullets
 //! * the spec-document example: `# Stakeholders` → `## <Category>` → bullets
+//!
 //! Extra sections are tolerated; unrecognized prose is dropped on re-serialize
 //! (the MVP config is app-managed, edits arrive through the settings dialog).
 
 use crate::domain::{CategoryOwners, CurrentUser, Stakeholders};
 
-/// Parsed view of `.planner/config.md`.
+/// Parsed view of the canonical project configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PlannerConfig {
     pub user: Option<CurrentUser>,
@@ -124,27 +125,25 @@ pub fn parse(text: &str) -> Result<PlannerConfig, String> {
                     .filter(|g| !g.is_empty())
                     .collect();
             }
-        } else if zone == Zone::Stakeholders && category_open {
-            if let Some(member) = line
+        } else if zone == Zone::Stakeholders
+            && category_open
+            && let Some(member) = line
                 .strip_prefix('-')
                 .or_else(|| line.strip_prefix('*'))
                 .map(str::trim)
-            {
-                if !member.is_empty()
-                    && cfg
-                        .stakeholders
-                        .entries
-                        .last_mut()
-                        .is_some_and(|l| l.members.len() < 50)
-                {
-                    cfg.stakeholders
-                        .entries
-                        .last_mut()
-                        .unwrap()
-                        .members
-                        .push(member.to_string());
-                }
-            }
+            && !member.is_empty()
+            && cfg
+                .stakeholders
+                .entries
+                .last_mut()
+                .is_some_and(|l| l.members.len() < 50)
+        {
+            cfg.stakeholders
+                .entries
+                .last_mut()
+                .unwrap()
+                .members
+                .push(member.to_string());
         }
     }
 
@@ -179,16 +178,17 @@ mod tests {
 
     #[test]
     fn round_trips_the_canonical_form() {
-        let mut cfg = PlannerConfig::default();
-        cfg.user = Some(CurrentUser::new(
-            "Zach",
-            vec!["Development".into(), "Architecture".into()],
-        ));
-        cfg.stakeholders = Stakeholders::new(vec![
-            CategoryOwners::new("Product", vec!["Zach".into(), "Sarah".into()]),
-            CategoryOwners::new("Development", vec!["Alex".into(), "Chris".into()]),
-            CategoryOwners::new("QA", vec![]),
-        ]);
+        let cfg = PlannerConfig {
+            user: Some(CurrentUser::new(
+                "Zach",
+                vec!["Development".into(), "Architecture".into()],
+            )),
+            stakeholders: Stakeholders::new(vec![
+                CategoryOwners::new("Product", vec!["Zach".into(), "Sarah".into()]),
+                CategoryOwners::new("Development", vec!["Alex".into(), "Chris".into()]),
+                CategoryOwners::new("QA", vec![]),
+            ]),
+        };
         let md = serialize(&cfg);
         let back = parse(&md).expect("parse");
         assert_eq!(back, cfg);

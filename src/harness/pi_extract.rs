@@ -109,9 +109,7 @@ mod tests {
 
     #[test]
     fn last_fence_wins_over_drafts() {
-        let t = format!(
-            "Draft:\n```json\n{{\"assistantMessage\":\"WRONG draft\"}}\n```\nFinal:\n```json\n{{\"assistantMessage\":\"RIGHT\"}}\n```"
-        );
+        let t = "Draft:\n```json\n{\"assistantMessage\":\"WRONG draft\"}\n```\nFinal:\n```json\n{\"assistantMessage\":\"RIGHT\"}\n```".to_string();
         let obj = extract_json_object(&t).expect("found");
         assert!(obj.contains("RIGHT"));
         assert!(!obj.contains("WRONG"));

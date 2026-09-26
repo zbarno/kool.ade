@@ -3,16 +3,15 @@ use super::*;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
-    s: &dyn Surface,
+    view: &crate::ui::task_detail::ViewModel,
     ticket: &str,
     active: bool,
     activity_path: &mut Option<String>,
 ) {
     ui.add_space(14.0);
     ui.label(RichText::new("Activity").strong().size(16.0));
-    let samples = s.activity_samples(Some(ticket));
-    crate::ui::task_activity::graph(ui, &samples, s.activity_active(ticket), 76.0);
-    if let Some(progress) = s.task_progress(ticket) {
+    crate::ui::task_activity::graph(ui, &view.activity_samples, view.activity_active, 76.0);
+    if let Some(progress) = view.progress.as_ref() {
         ui.label(RichText::new(crate::ui::task_activity::preview(progress)).small());
         ui.horizontal_wrapped(|ui| {
             ui.label(

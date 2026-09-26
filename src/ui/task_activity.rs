@@ -263,9 +263,7 @@ pub fn full(ui: &mut egui::Ui, progress: &LiveProgress, active: bool) {
                 .max_height(height)
                 .auto_shrink([false, false])
                 .stick_to_bottom(true)
-                .show(ui, |ui| {
-                    crate::ui::chat_pane::paint_progress(ui, progress)
-                });
+                .show(ui, |ui| crate::ui::chat_pane::paint_progress(ui, progress));
         });
     }
 }

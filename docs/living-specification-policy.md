@@ -1,17 +1,3 @@
-# Packet modular planning policy
+# Living specification policy
 
-Packet maintains one current product specification in `planning/product/index.md` and thirteen numbered Markdown modules. The index gives concise orientation, module links and active feature references. Product modules contain current accepted product truth. Material changes receive concise `planning/features/CHG-nnn-<slug>/specification.md` deltas. An active feature is proposed behavior until merged implementation is reconciled into the affected product modules. Completed feature documents and task snapshots remain historical git evidence. Generated task batches live under `.kool-ade-packet/planning/tasks/`; they are Packet-owned working artifacts, separate from product specifications.
-
-For each accepted planning turn, inspect relevant repository evidence and prior decisions, distinguish confirmed intent from observation and uncertainty, and return full replacements only for affected logical documents. Preserve all stable IDs. Explicitly supersede changed decisions; do not silently alter accepted acceptance criteria. Avoid historical diaries. Never invent implementation or acceptance evidence. The application validates writes; the agent's repository access is read-only.
-
-The product modules retain the established thirteen sections, numbered 01–13: Vision, Scope, Actors and Roles, Feature Inventory, Functional Requirements, Non-Functional Requirements, Data Model, Architecture, Environment/Launch/Preconditions, Decisions Log, Risks/Open Concerns, Acceptance/Definition of Done, and Source Map. Each module has one matching numbered H2 and may use H3 subsections. The combined UI view remains readable as a continuous specification.
-
-Feature documents use one `# CHG-nnn: Title` and eight ordered H2 sections: Intent; Current Behavior; Desired Behavior; Scope; Affected Product Areas; Requirements; Decisions and Assumptions; Acceptance Criteria. Status is Draft, Ready, Implementing, Reconciliation, Implemented, or Abandoned. A Ready document does not authorize implementation: explicit human approval is required before generating or starting new-feature implementation work.
-
-Open items have independent kind, priority and authority. Agent items may be resolved through evidence or safe reversible assumptions. Review items receive a provisional direction and board visibility. Human items require human choice. Ask in main chat only for an unresolved, eligible Human/Blocking item, at most one per response; otherwise show actionable uncertainty on the board. A human promotion to Human cannot be silently downgraded.
-
-Keep durable knowledge in git-backed artifacts. Private working memory and derived summaries/indexes are not authoritative. Build task-specific context from the product index, active feature, relevant open items, explicit IDs and selected source evidence; read more on demand. Do not load all historical features, all modules or all conversation merely because they exist. Semantic matches are discovery aids and must point back to authoritative source before durable use.
-
-After verified implementation, compare the approved feature contract with merged code and affected product modules. Reconcile only supported current behavior. A material mismatch becomes a review or human decision item; do not silently ratify the code. Git preserves deeper history, so current modules stay concise.
-
-See [artifact layout](artifact-layout.md) for storage ownership. The pre-modular specification is retained as historical evidence at `.kool-ade-packet/planning/archive/specification-pre-modules.md`. Published implementation decisions live in `adr/`; they do not replace the current product modules or authorize unfinished features.
+The canonical planner and document-authoring rules now live in [planner-policy.md](planner-policy.md). This path remains only as a redirect for older references.

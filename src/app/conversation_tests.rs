@@ -315,7 +315,8 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
                 None,
             )];
         }
-        let before = std::fs::read(root.join("planning/specification.md")).unwrap();
+        let product_vision = root.join(".kool-ade-packet/planning/product/overview.md");
+        let before = std::fs::read(&product_vision).unwrap();
         app.task_harness = Some(if mode == "rejected" {
             Box::new(ReplyHarness {
                 prompts: Default::default(),
@@ -350,10 +351,7 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
             "{mode}"
         );
         assert!(!app.task_chat_active("CLR-001"));
-        assert_eq!(
-            std::fs::read(root.join("planning/specification.md")).unwrap(),
-            before
-        );
+        assert_eq!(std::fs::read(&product_vision).unwrap(), before);
         let Screen::Connected(p) = &mut app.screen else {
             panic!()
         };
@@ -408,15 +406,14 @@ fn complete(app: &mut PacketApp) {
             started.elapsed() < Duration::from_secs(10),
             "focused turn did not finish"
         );
-        match key
+        if let Some(TurnEvt::Done(outcome)) = key
             .as_ref()
             .and_then(|key| project.task_turns.get(key))
             .or(project.active_turn.as_ref())
             .expect("reply must start a turn")
             .poll(Duration::from_millis(20))
         {
-            Some(TurnEvt::Done(outcome)) => break outcome,
-            _ => {}
+            break *outcome;
         }
     };
     if let Some(key) = &key {
@@ -430,7 +427,7 @@ fn complete(app: &mut PacketApp) {
         None
     };
     let live = std::mem::take(&mut project.live_progress);
-    app.adopt_turn(&mut project, outcome);
+    let _ = app.adopt_turn(&mut project, outcome);
     project.active_turn = main;
     project.live_progress = live;
     app.screen = Screen::Connected(project);
@@ -443,10 +440,10 @@ fn click_last(app: &mut PacketApp, ctx: &egui::Context, label: &str) {
         .iter()
         .rev()
         .find_map(|shape| {
-            if let egui::Shape::Text(text) = &shape.shape {
-                if text.galley.text() == label {
-                    return Some(text.pos + text.galley.mesh_bounds.center().to_vec2());
-                }
+            if let egui::Shape::Text(text) = &shape.shape
+                && text.galley.text() == label
+            {
+                return Some(text.pos + text.galley.mesh_bounds.center().to_vec2());
             }
             None
         })
@@ -581,7 +578,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     click_text(&mut app, &ctx, question);
     app.task_harness = Some(Box::new(ReplyHarness { prompts: prompts.clone(), reply: serde_json::json!({
         "schema_version":1, "assistant_message":"Corporate SSO with MFA is confirmed.",
-        "updated_specification":crate::core::specification::fixture("Use corporate SSO with MFA."),
+        "document_updates":[{"document_id":"product:current-capabilities","content":"## 5. Functional Requirements\n\nUse corporate SSO with MFA.\n"}],
         "open_items_resolved":["CLR-001"]
     }).to_string() }));
     click_last(&mut app, &ctx, "Send answer");
@@ -809,7 +806,7 @@ fn persisted_len_helper(
 #[test]
 fn new_task_tabs_show_context_and_help_without_starting_a_model_turn() {
     let mut app = fixture();
-    let key = "planning/tasks/fixture/001-task.md";
+    let key = ".kool-ade-packet/planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "Open conversation");
@@ -898,8 +895,8 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
 fn tabs_load_persisted_item_histories_without_main_or_other_task_messages() {
     let mut app = fixture();
     let ctx = egui::Context::default();
-    let first = "planning/tasks/fixture/001-task.md";
-    let second = "planning/tasks/fixture/002-task.md";
+    let first = ".kool-ade-packet/planning/tasks/fixture/001-task.md";
+    let second = ".kool-ade-packet/planning/tasks/fixture/002-task.md";
     let dir = std::env::temp_dir().join(format!("packet_tab_isolation_{}", std::process::id()));
     let slug = dir.to_str().unwrap();
     if let Screen::Connected(p) = &mut app.screen {

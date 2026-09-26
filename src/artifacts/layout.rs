@@ -1,18 +1,20 @@
 //! Single source of truth for Packet-owned paths in a project repository.
 //!
-//! `canonical` is the target layout. `legacy` names paths that remain active
-//! until the separately tested migration changes their ownership.
+//! `canonical` is the live layout. `legacy` names migration inputs and paths
+//! that may need rollback before a pre-migration journal is recovered.
 use std::path::{Component, Path, PathBuf};
 
 pub mod canonical {
     pub const ROOT: &str = ".kool-ade-packet";
     pub const MANIFEST: &str = ".kool-ade-packet/manifest.json";
     pub const CONFIG: &str = ".kool-ade-packet/config";
-    pub const PROJECT_CONFIG: &str = ".kool-ade-packet/config/project.json";
+    pub const PROJECT_CONFIG: &str = ".kool-ade-packet/config/project.md";
+    pub const PROJECT_MANIFEST: &str = ".kool-ade-packet/config/repositories.json";
     pub const MCP_CONFIG: &str = ".kool-ade-packet/config/mcp.json";
     pub const PLANNING: &str = ".kool-ade-packet/planning";
     pub const PRODUCT: &str = ".kool-ade-packet/planning/product";
     pub const PRODUCT_INDEX: &str = ".kool-ade-packet/planning/product/index.md";
+    pub const PRODUCT_MANIFEST: &str = ".kool-ade-packet/planning/product/manifest.json";
     pub const CHANGES: &str = ".kool-ade-packet/planning/changes";
     pub const DECISIONS: &str = ".kool-ade-packet/planning/decisions";
     pub const OPEN_ITEMS: &str = ".kool-ade-packet/planning/open-items.md";
@@ -21,6 +23,7 @@ pub mod canonical {
     pub const TASKS: &str = ".kool-ade-packet/planning/tasks";
     pub const WORKFLOW: &str = ".kool-ade-packet/state/workflow.json";
     pub const WORK: &str = ".kool-ade-packet/state/work.json";
+    pub const STATE: &str = ".kool-ade-packet/state";
     pub const IMPLEMENTATION: &str = ".kool-ade-packet/implementation";
     pub const ARCHIVE: &str = ".kool-ade-packet/planning/archive";
     pub const LEGACY_SPEC_ARCHIVE: &str =
@@ -84,6 +87,9 @@ impl ArtifactLayout {
     pub fn project_config(&self) -> PathBuf {
         self.at(canonical::PROJECT_CONFIG)
     }
+    pub fn project_manifest(&self) -> PathBuf {
+        self.at(canonical::PROJECT_MANIFEST)
+    }
     pub fn mcp_config(&self) -> PathBuf {
         self.at(canonical::MCP_CONFIG)
     }
@@ -96,6 +102,9 @@ impl ArtifactLayout {
     pub fn product_index(&self) -> PathBuf {
         self.at(canonical::PRODUCT_INDEX)
     }
+    pub fn product_manifest(&self) -> PathBuf {
+        self.at(canonical::PRODUCT_MANIFEST)
+    }
     pub fn product_module(&self, name: &str) -> Option<PathBuf> {
         safe_component(name).then(|| self.product_root().join(name))
     }
@@ -104,6 +113,14 @@ impl ArtifactLayout {
     }
     pub fn change_specification(&self, id: &str) -> Option<PathBuf> {
         safe_component(id).then(|| self.changes_root().join(id).join("specification.md"))
+    }
+    pub fn change_directory(&self, name: &str) -> Option<PathBuf> {
+        safe_component(name).then(|| self.changes_root().join(name))
+    }
+    pub fn change_link(&self, name: &str) -> Option<String> {
+        let path = self.change_specification(name)?;
+        let relative = path.strip_prefix(self.planning_root()).ok()?;
+        Some(format!("../{}", relative.display()))
     }
     pub fn decisions_root(&self) -> PathBuf {
         self.at(canonical::DECISIONS)
@@ -222,35 +239,8 @@ impl ArtifactLayout {
         self.at(legacy::ADR)
     }
 
-    /// Preserve the current compatibility rule until Phase 2 migrates tasks.
-    pub fn active_tasks_root(&self) -> PathBuf {
-        let legacy = self.legacy_tasks_root();
-        if legacy.is_dir() {
-            legacy
-        } else {
-            self.tasks_root()
-        }
-    }
-
     pub fn is_task_ticket_path(relative: &str) -> bool {
-        relative.starts_with(&format!("{}/", legacy::TASKS))
-            || relative.starts_with(&format!("{}/", canonical::TASKS))
-    }
-
-    pub fn relocated_task_path(relative: &str) -> Option<String> {
-        let suffix = relative.strip_prefix(&format!("{}/", legacy::TASKS))?;
-        safe_repository_path(
-            Path::new(canonical::ROOT),
-            &format!("{}/{suffix}", legacy::TASKS),
-        )
-        .map(|path| path.to_string_lossy().into_owned())
-    }
-
-    pub fn legacy_task_path_from_packet(relative: &str) -> Option<String> {
-        let suffix = relative.strip_prefix(&format!("{}/", canonical::ROOT))?;
-        let suffix = suffix.strip_prefix(&format!("{}/", legacy::TASKS))?;
-        safe_repository_path(Path::new(legacy::PLANNING), &format!("tasks/{suffix}"))
-            .map(|path| path.to_string_lossy().into_owned())
+        relative.starts_with(&format!("{}/", canonical::TASKS))
     }
 
     fn at(&self, relative: &str) -> PathBuf {

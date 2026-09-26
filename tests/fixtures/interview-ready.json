@@ -1,7 +1,6 @@
 {
-  "schema_version": 1,
-  "assistant_message": "The goal is to let analysts resume daily searches without rebuilding filters. We have agreed to local saved searches, a picker, and clear failure feedback; sharing is excluded.",
-  "updated_specification": "# Saved searches \u2014 Living Technical Specification\n\n**Version:** 1.0. **Status:** Ready for task planning. **Authority:** Fixture scenario.\n\n**Maintenance.** The planning agent proposes full revisions; the application persists accepted turns and git preserves history. No direct UI editing.\n\n## 1. Vision\nHelp operations analysts resume daily searches without rebuilding filters.\n\n## 2. Scope\nPersist named filters and provide an accessible picker. Sharing between users is excluded. Preserve ad hoc searches.\n\n## 3. Actors and Roles\nOperations analysts save and reuse filters. Ownership is not yet assigned.\n\n## 4. Feature Inventory\n`F-1` Saved searches: planned.\n\n## 5. Functional Requirements\n`FR-1` Users MUST be able to save named filters, restart, and load current results from them.\n\n## 6. Non-Functional Requirements\n`NFR-1` Invalid saves MUST preserve existing records and show clear feedback. Performance targets are unspecified.\n\n## 7. Data Model\nNamed filter records; exact schema and storage await design.\n\n## 8. Architecture\nIntegrate with the existing search workflow. Detailed implementation remains planned.\n\n## 9. Environment, Launch, and Preconditions\nAn existing application with ad hoc search is assumed; launch details require repository inspection.\n\n## 10. Decisions Log\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n| D-01 | Exclude sharing between users | Fixture scenario | Confirmed |\n\n## 11. Risks and Open Concerns\nStorage details require repository inspection before implementation.\n\n## 12. Acceptance / Definition of Done\nSave a named filter, restart, and load current results. Verify persistence and invalid-save preservation with tests and an interaction demonstration. Change these criteria only by explicit decision.\n\n## 13. Source Map\nFixture scenario and connected repository evidence to be inspected.\n",
+  "schema_version": 2,
+  "assistant_message": "The goal is to let analysts resume daily searches without rebuilding filters. Local saved searches and a picker are in scope; sharing is excluded.",
   "interview": {
     "feature_name": "Saved searches",
     "problem": "Analysts rebuild the same search filters every morning.",
@@ -23,5 +22,35 @@
       "Preserve existing ad hoc search behavior."
     ],
     "ready_for_tasks": true
-  }
+  },
+  "document_updates": [
+    {
+      "document_id": "product:overview",
+      "content": "# Overview\n\nHelp operations analysts resume daily searches without rebuilding filters.\n"
+    },
+    {
+      "document_id": "product:users-and-outcomes",
+      "content": "# Users and Outcomes\n\nOperations analysts reuse filters to review daily changes with less repeated setup.\n"
+    },
+    {
+      "document_id": "product:current-capabilities",
+      "content": "# Current Capabilities\n\nThe application supports ad hoc search. **FR-1:** Users can save named filters, restart, and load current results from them.\n"
+    },
+    {
+      "document_id": "product:architecture-and-constraints",
+      "content": "# Architecture and Constraints\n\nPreserve the existing search workflow while adding versioned local records and a picker.\n"
+    },
+    {
+      "document_id": "product:decisions",
+      "content": "# Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n| D-01 | Exclude sharing between users | Fixture scenario | Confirmed |\n"
+    },
+    {
+      "document_id": "product:quality-and-acceptance",
+      "content": "# Quality and Acceptance\n\n**NFR-1:** Invalid saves preserve existing records and show clear feedback. Verify restore-after-restart and invalid-save behavior.\n"
+    }
+  ],
+  "open_items_added": [],
+  "open_items_updated": [],
+  "open_items_resolved": [],
+  "next_question_id": null
 }

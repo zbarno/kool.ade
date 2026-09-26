@@ -1,17 +1,61 @@
 ## 8. Architecture
 
-Current layers: `ui → app → core → harness`, with `domain`, `artifacts`, and `persistence` as shared boundaries. `ui` renders chat, the document switcher, paper specification, Kanban, details, and activity. `app` owns session controllers and queue/worker orchestration. `core` selects context, validates envelopes, applies transactions, routes authority, generates tasks, implements them in worktrees, and reconciles merged code. `harness` starts and supervises external Pi; it does not own project truth.
+Packet is organized as `ui → app → core → harness`, with `domain`, `artifacts`,
+and `persistence` as shared boundaries. The UI renders conversation, the modular
+specification, the Kanban, task details, and activity. It sends typed commands to
+the app through a small dispatcher; task details consume a read-only view model.
+The app owns sessions, dialogs, and worker/queue coordination. Core owns bounded
+context selection, typed workflow decisions, validation, recoverable artifact
+transactions, task generation, implementation, publication, and reconciliation.
+The harness owns external model-process capabilities and supervision, not project
+truth.
 
-The Context Builder in `src/core/context_build.rs` starts with standing policy and small project orientation, then active feature/items/recent chat, then deterministic product-module references and on-demand repository evidence. It clips bounded sections and does not load completed feature history by default. Planning, task generation, implementation, investigation, and reconciliation have distinct prompts/contracts (F-5, F-16, F-18, F-22).
+The connected repository's shared Packet files live under `.kool-ade-packet/`.
+Migration runs before the application loads project state; afterward, normal
+runtime reads and writes use the canonical artifact layout. Local conversations
+and generation checkpoints live under `PACKET_HOME`; queue state, implementation
+state, locks, journals, private Git refs, and Pi event streams use Git's common
+directory. Implementation reports and verification evidence live under the
+ignored `.kool-ade-packet/implementation/` directory.
 
-Primary planning flow:
+Planning context starts with the authoritative planner policy and a small project
+orientation. A bounded retrieval pass selects logical product documents,
+open-items, and repository areas; Rust resolves selections against the live
+catalog, checks containment, and applies per-source and total budgets. Completed
+history and unrelated task conversations are not loaded by default. Task chat
+uses the item's own durable content and evidence and remains isolated from Main
+Chat and other tasks.
 
-1. Load current git-backed product modules, active feature, open items, ownership, and repository manifest.
-2. Compile bounded activity-specific context; Pi may inspect additional evidence read-only.
-3. Parse the schema-v2 envelope; validate logical document IDs, stable identifiers, item authority, routing, approval, and scope.
-4. Journal and apply the complete changed set; checkpoint only touched planning paths. Recover a leftover journal at connection.
-5. Project validated items/tasks onto the board and issue at most one eligible blocking Human question.
+Each harness request carries a typed operation mode. Planning, task generation,
+and investigation get read-only repository tools; analysis, reconciliation, and
+decision explanation get no tools; implementation and verification receive only
+Packet's bounded shell tool inside the assigned worktree. The Pi adapter probes
+its CLI flags and JSON/event capabilities before execution and rejects missing
+requirements. Other harnesses can implement the same boundary but are not shipped.
+Wire responses use strict operation-specific schemas; Rust normalizes them into
+internal workflow types before applying operation-specific semantic checks.
 
-Task generation freezes an approved feature, affected modules, repository heads and configuration. Implementation fetches the current target branch, runs one task in an isolated worktree, verifies, then creates a PR or auto-integrates according to queue mode. A dependent task receives the completed predecessor's story and merged commit. Reconciliation reads merged commits, updates only affected product modules, and marks the feature Implemented; disagreement yields a board review item. `core/implementation.rs` is resumable and handles lost final harness messages (D-29).
+Planner behavior and authoring rules come from Packet's `docs/planner-policy.md`.
+Rust enforces identity,
+schema, legal transitions, containment, approvals, routing, transaction safety,
+Git safety, and tool capabilities independently of prompt compliance.
 
-Architectural invariants: git artifacts outrank model recollection; board state is a projection; target checkouts are verified by logical repository identity; no atomic transaction is promised across repositories; product truth is not advanced before merged-code reconciliation. D-13 harness discovery and D-14 routing remain active. F-19/F-20 are pending UI deltas. The WebSocket channel remains reserved future architecture (D-18, D-22); D-31 bounds its eventual wire payload to planning artifacts and presence, never chat. D-32 rules the channel's shape: direct instance-to-instance WebSockets (instances listen and dial peers; no shared relay), endpoints learned first by manual entry from git-remote host information, local-network reach for the first cut, and peer qualification grounded in repository access proved at connect time. D-33 rules its writer model: true concurrent co-authoring, delivered through a convergence layer (merge/CRDT-class) composed with one-commit-per-turn apply, leaving that composition and the concrete connect-time proof mechanic as the channel's open design gates.
+An approved feature freezes the affected product modules, repository heads, and
+configuration into its task-batch contract. Implementation runs in isolated
+worktrees and verifies before any sharing. Auto Plan, Auto Build, and Auto Publish
+are independent project controls: Auto Plan can investigate Agent-owned items;
+Auto Build continues explicitly approved work; Auto Publish is off by default
+and is required for unattended integration into a remote default branch. With
+Auto Publish off, verified work stays local until the operator chooses to create
+a pull request. Publication is serialized per repository; dependent tasks wait
+for their prerequisites to merge. Reconciliation reads actual merged commits
+before changing current product truth; a material disagreement becomes a visible
+Review or Human item.
+
+Architectural invariants: Git-backed artifacts outrank model recollection; board
+state is a projection; repository targets are verified by stable identity; no
+atomic transaction is promised across repositories; and product truth does not
+advance before merged-code reconciliation. The deferred collaboration channel
+remains future work (D-18, D-22). D-31 limits its eventual shared surface to
+planning artifacts and presence, D-32 fixes the direct-peer topology and trust
+ground, and D-33 requires a convergence layer for true concurrent co-authoring.

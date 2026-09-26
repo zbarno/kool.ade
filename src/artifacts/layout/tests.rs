@@ -31,13 +31,13 @@ fn canonical_paths_are_rooted_and_logical_children_cannot_escape() {
 }
 
 #[test]
-fn active_task_path_preserves_the_legacy_selection_rule() {
+fn task_root_uses_only_the_canonical_tree() {
     let root = std::env::temp_dir().join(format!("packet-layout-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join(legacy::TASKS)).unwrap();
     let layout = ArtifactLayout::new(&root);
-    assert_eq!(layout.active_tasks_root(), root.join(legacy::TASKS));
+    assert_eq!(layout.tasks_root(), root.join(canonical::TASKS));
     std::fs::remove_dir_all(root.join(legacy::TASKS)).unwrap();
-    assert_eq!(layout.active_tasks_root(), root.join(canonical::TASKS));
+    assert_eq!(layout.tasks_root(), root.join(canonical::TASKS));
     let _ = std::fs::remove_dir_all(root);
 }

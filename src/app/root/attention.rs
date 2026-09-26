@@ -54,12 +54,18 @@ impl PacketApp {
             Some(Status::Error(error)) => View::Error(error.clone()),
             None => {
                 let controller = if let Some(report_path) = report {
-                    Controller::start(project.state.repo_root.clone(), ticket.into(), report_path)
+                    Controller::start(
+                        project.state.repo_root.clone(),
+                        ticket.into(),
+                        report_path,
+                        super::configured_harness(&mut self.task_harness),
+                    )
                 } else {
                     Controller::start_detail(
                         project.state.repo_root.clone(),
                         ticket.into(),
                         detail.into(),
+                        super::configured_harness(&mut self.task_harness),
                     )
                 };
                 self.attention.insert(path, Status::Pending(controller));

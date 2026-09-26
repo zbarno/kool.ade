@@ -1,8 +1,8 @@
-//! Load/save/remove/checkpoint lifecycle for `.planner/mcp.json` (F-18,
-//! D-16). The planner never interprets the file's schema — it is a raw
-//! byte store advertised verbatim to every pi session — so all judgment
-//! here is syntactic (JSON well-formedness probe only) and structural
-//! (blank ⇔ unconfigured, matching the verified `context_build` filter).
+//! Load/save/remove/checkpoint lifecycle for Packet's MCP config (F-18,
+//! D-16). The planner never interprets or receives the full file: context
+//! includes configured server names only, withholding commands and secrets.
+//! Validation remains syntactic (JSON well-formedness probe only) and
+//! structural (blank ⇔ unconfigured).
 
 use std::path::Path;
 
@@ -18,7 +18,7 @@ pub const CLEAR_SUBJECT: &str = "settings: clear mcp server configuration";
 
 /// What a `load_state` call knows about the file on disk.
 pub struct McpLoadState {
-    /// `.planner/mcp.json` exists as a regular file.
+    /// The canonical MCP config exists as a regular file.
     pub present: bool,
     /// File contents (UTF-8), populated only when `present`.
     pub content: Option<String>,
@@ -104,8 +104,8 @@ pub struct McpApplyReceipt {
 
 /// Execute a Save against `root`: classify, then either no-op, atomic-write
 /// + checkpoint, or remove + checkpoint. Disk effects ALWAYS precede the
-/// git effect, so a checkpoint failure never strands an un-written change
-/// — and never swallows: the `AppError` propagates to the dialog.
+///   git effect, so a checkpoint failure never strands an un-written change
+///   — and never swallows: the `AppError` propagates to the dialog.
 pub fn apply_save(root: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError> {
     // Writer section: config write + checkpoint shares the planning index.
     let _guard = crate::core::writer_gate::acquire();
@@ -122,7 +122,7 @@ pub fn apply_save(root: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError
             let malformed = probe_json(buffer).err();
             let path = repo_artifact(root, MCP_CONFIG_FILE);
             atomic_write(&path, buffer).map_err(|e| AppError::Io {
-                op: "write .planner/mcp.json".to_string(),
+                op: "write .kool-ade-packet/config/mcp.json".to_string(),
                 detail: e.to_string(),
             })?;
             let sha = gitops::commit(root, UPDATE_SUBJECT, &[MCP_CONFIG_FILE.to_string()])?;
@@ -135,7 +135,7 @@ pub fn apply_save(root: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError
         McpSaveOp::Clear => {
             let path = repo_artifact(root, MCP_CONFIG_FILE);
             std::fs::remove_file(&path).map_err(|e| AppError::Io {
-                op: "remove .planner/mcp.json".to_string(),
+                op: "remove .kool-ade-packet/config/mcp.json".to_string(),
                 detail: e.to_string(),
             })?;
             let sha = gitops::commit(root, CLEAR_SUBJECT, &[MCP_CONFIG_FILE.to_string()])?;
@@ -315,7 +315,7 @@ mod tests {
             "",
             "tree porcelain-clean after the checkpoint"
         );
-        let tmps: Vec<_> = fs::read_dir(root.join(".planner"))
+        let tmps: Vec<_> = fs::read_dir(root.join(crate::artifacts::CONFIG_DIR))
             .unwrap()
             .flat_map(|e| e.ok())
             .filter(|e| e.file_name().to_string_lossy().ends_with(".packet.tmp"))

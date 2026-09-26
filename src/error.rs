@@ -30,9 +30,13 @@ impl AppError {
     /// One-line, user-facing summary (suitable for a dialog or banner).
     pub fn headline(&self) -> String {
         match self {
-            Self::InvalidRepo { path, .. } => format!("Not a valid git repository: {path}"),
-            Self::Artifact { path, .. } => format!("Could not use {path}"),
-            Self::Git { cmd, .. } => format!("git {cmd} failed"),
+            Self::InvalidRepo { path, .. } => {
+                format!("Not a valid git repository: {}", redact_secrets(path))
+            }
+            Self::Artifact { path, .. } => {
+                format!("Could not use {}", redact_secrets(path))
+            }
+            Self::Git { cmd, .. } => format!("git {} failed", redact_secrets(cmd)),
             Self::HarnessNotFound { .. } => "Pi harness not found".to_string(),
             Self::HarnessFailed {
                 reason,
@@ -40,44 +44,49 @@ impl AppError {
             } => {
                 let tail = tail_snippet(stderr_tail);
                 if tail.is_empty() {
-                    format!("Pi harness failed: {reason}")
+                    format!("Pi harness failed: {}", redact_secrets(reason))
                 } else {
-                    format!("Pi harness failed: {reason} (pi: {tail})")
+                    format!(
+                        "Pi harness failed: {} (pi: {})",
+                        redact_secrets(reason),
+                        redact_secrets(&tail)
+                    )
                 }
             }
             Self::HarnessTimedOut { secs } => format!("Pi took longer than {secs}s"),
             Self::InvalidResponse { problems } => {
                 format!(
                     "Rejected invalid planning response ({})",
-                    truncate(problems.first().map(String::as_str).unwrap_or(""), 160)
+                    redact_secrets(&truncate(
+                        problems.first().map(String::as_str).unwrap_or(""),
+                        160
+                    ))
                 )
             }
-            Self::Io { op, .. } => format!("IO problem during {op}"),
-            Self::Other(m) => m.clone(),
+            Self::Io { op, .. } => format!("IO problem during {}", redact_secrets(op)),
+            Self::Other(m) => redact_secrets(m),
         }
     }
 
     /// Detailed (multi-line) explanation for dialogs/logs.
     pub fn detail(&self) -> String {
         match self {
-            Self::InvalidRepo { path, detail } => format!("{path}: {detail}"),
-            Self::Artifact { path, detail } => format!("{path}: {detail}"),
-            Self::Git { cmd: _, detail } => detail.clone(),
-            Self::HarnessNotFound { detail } => detail.clone(),
+            Self::InvalidRepo { path, detail } => redact_secrets(&format!("{path}: {detail}")),
+            Self::Artifact { path, detail } => redact_secrets(&format!("{path}: {detail}")),
+            Self::Git { cmd: _, detail } => redact_secrets(detail),
+            Self::HarnessNotFound { detail } => redact_secrets(detail),
             Self::HarnessFailed {
                 reason,
                 stderr_tail,
-            } => {
-                format!("{reason}\nstderr:\n{}", stderr_tail.trim())
-            }
+            } => redact_secrets(&format!("{reason}\nstderr:\n{}", stderr_tail.trim())),
             Self::HarnessTimedOut { secs } => {
                 format!(
                     "The configured planning budget expired after {secs}s. Already saved stories are preserved; retry task generation to resume. Set PACKET_TURN_TIMEOUT_SECS before starting Packet to change the budget."
                 )
             }
-            Self::InvalidResponse { problems } => problems.join("\n"),
-            Self::Io { op, detail } => format!("{op}: {detail}"),
-            Self::Other(m) => m.clone(),
+            Self::InvalidResponse { problems } => redact_secrets(&problems.join("\n")),
+            Self::Io { op, detail } => redact_secrets(&format!("{op}: {detail}")),
+            Self::Other(m) => redact_secrets(m),
         }
     }
 }
@@ -92,8 +101,52 @@ impl std::error::Error for AppError {}
 
 impl From<anyhow::Error> for AppError {
     fn from(e: anyhow::Error) -> Self {
-        Self::Other(e.to_string())
+        Self::Other(redact_secrets(&e.to_string()))
     }
+}
+
+/// Remove URL userinfo before command output or diagnostics reach the UI or
+/// durable task evidence. Keeps the protocol and host/path for useful context.
+pub fn redact_secrets(input: &str) -> String {
+    const SCHEMES: [&str; 4] = ["https://", "http://", "ssh://", "git://"];
+    let mut output = String::with_capacity(input.len());
+    let mut cursor = 0;
+    loop {
+        let next = SCHEMES
+            .iter()
+            .filter_map(|scheme| {
+                input[cursor..]
+                    .find(scheme)
+                    .map(|relative| (cursor + relative, scheme.len()))
+            })
+            .min_by_key(|(start, _)| *start);
+        let Some((start, scheme_len)) = next else {
+            output.push_str(&input[cursor..]);
+            break;
+        };
+        let authority_start = start + scheme_len;
+        output.push_str(&input[cursor..authority_start]);
+        let authority_end = input.as_bytes()[authority_start..]
+            .iter()
+            .position(|byte| {
+                byte.is_ascii_whitespace()
+                    || matches!(
+                        *byte,
+                        b'/' | b'\\' | b'?' | b'#' | b'"' | b'\'' | b',' | b')' | b']' | b'}'
+                    )
+            })
+            .map(|relative| authority_start + relative)
+            .unwrap_or(input.len());
+        let authority = &input[authority_start..authority_end];
+        if let Some((_, host)) = authority.rsplit_once('@') {
+            output.push_str("[REDACTED]@");
+            output.push_str(host);
+        } else {
+            output.push_str(authority);
+        }
+        cursor = authority_end;
+    }
+    output
 }
 
 /// Prefer the actual error over a runtime version footer or stack frame.
@@ -116,6 +169,17 @@ fn tail_snippet(t: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Keep short strings tidy inside headlines.
+fn truncate(s: &str, max: usize) -> String {
+    let s = s.replace('\n', " ");
+    if s.chars().count() <= max {
+        s
+    } else {
+        let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+        format!("{cut}…")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -126,15 +190,16 @@ mod tests {
         assert!(!error.headline().contains("v22.23.2"));
         assert!(error.detail().contains("emitErrorNT"));
     }
-}
 
-/// Keep short strings tidy inside headlines.
-fn truncate(s: &str, max: usize) -> String {
-    let s = s.replace('\n', " ");
-    if s.chars().count() <= max {
-        s
-    } else {
-        let cut: String = s.chars().take(max.saturating_sub(1)).collect();
-        format!("{cut}…")
+    #[test]
+    fn userinfo_is_removed_from_urls_in_diagnostics() {
+        let input = "fatal: unable to access 'https://alice:ghp_secret@github.com/acme/repo.git': denied; ssh://build:password@git.example/a/b";
+        let redacted = redact_secrets(input);
+        assert_eq!(
+            redacted,
+            "fatal: unable to access 'https://[REDACTED]@github.com/acme/repo.git': denied; ssh://[REDACTED]@git.example/a/b"
+        );
+        assert!(!redacted.contains("ghp_secret"));
+        assert!(!redacted.contains("password"));
     }
 }

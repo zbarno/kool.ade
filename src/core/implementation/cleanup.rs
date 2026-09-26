@@ -12,7 +12,9 @@ pub struct Cleanup {
 
 /// Called with the ticket lock held. Cleanup failure must never undo completion.
 pub(super) fn run(repo: &Path, dir: &Path, state: &mut Implementation, runner: &Runner) {
-    if state.status != "Done" || state.cleanup.completed_at.is_some() {
+    if state.status != super::ImplementationStatus::Completed
+        || state.cleanup.completed_at.is_some()
+    {
         return;
     }
     state.cleanup.attempted_at = Some(chrono::Utc::now().to_rfc3339());
@@ -81,8 +83,7 @@ fn reclaim(repo: &Path, dir: &Path, state: &Implementation, runner: &Runner) -> 
             !entry.file_type()?.is_symlink(),
             "Integration evidence directory is a symlink; preserved"
         );
-        let record: Implementation =
-            serde_json::from_slice(&fs::read(entry.path().join("state.json"))?)?;
+        let record = super::read_state_file(&entry.path().join("state.json"))?;
         anyhow::ensure!(
             record.ticket == state.ticket
                 && record.base_commit.len() >= 12

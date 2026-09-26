@@ -19,7 +19,7 @@ pub fn synthesize_missing_owners(queue: &[OpenItem], stakeholders: &Stakeholders
     let mut seen_categories: Vec<String> = Vec::new();
 
     for item in queue {
-        if item.category.to_ascii_lowercase() == "general" {
+        if item.category.eq_ignore_ascii_case("general") {
             continue;
         }
         let cat_key = item.category.to_ascii_lowercase();
@@ -97,7 +97,7 @@ pub fn synthesize_for_state(state: &crate::core::state::PlannerState) -> Vec<Ope
 
 /// Give synthesized items their final CLR ids, continuing from existing
 /// numbering and avoiding clashes with this turn's agent-added items.
-pub fn assign_ids(out: &mut Vec<OpenItem>, taken: impl IntoIterator<Item = String>) {
+pub fn assign_ids(out: &mut [OpenItem], taken: impl IntoIterator<Item = String>) {
     let mut pool: Vec<String> = out.iter().map(|i| i.id.clone()).chain(taken).collect();
     for item in out.iter_mut() {
         let id = crate::core::ids::next_free(pool.iter().cloned());

@@ -2,13 +2,20 @@
 
 | Evidence | Location |
 | --- | --- |
-| Current authority and feature deltas | `planning/product/index.md`, `planning/product/*.md`, `planning/features/CHG-001-scalable-planning-and-feature-specification/specification.md`, `planning/features/CHG-002-board-card-display-red-line-activity-graph-and-class-col/specification.md`, `planning/features/CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask/specification.md`, `docs/living-specification-policy.md` |
-| Legacy authority and historical decisions | `.kool-ade-packet/planning/archive/specification-pre-modules.md`, git history, root `SPECIFICATION.md` (D-17 superseded by D-28) |
-| Product modules, IDs, transaction and items | `src/artifacts/product_docs.rs`, `transaction.rs`, `items_io.rs`, `task_docs.rs`; `src/core/validation.rs`, `apply.rs` |
-| Context, routing and agent investigation | `src/core/context_build.rs`, `prompt.rs`, `repo_overview.rs`, `routing.rs`, `investigation.rs`, `src/domain/item.rs` (D-14, FR-13) |
-| Project repositories, task batches, implementation and reconciliation | `src/core/project_repos.rs`, `contract_snapshot.rs`, `workflow.rs`, `task_generation.rs`, `implementation.rs`, `implementation_queue.rs`, `reconciliation.rs` (CLR-019 resolved by D-30) |
-| Desktop board, ownership and specification interaction | `src/ui/layout.rs`, `spec_viewer.rs`, `task_activity.rs`, `theme.rs`, `task_chat.rs`, `chat_pane.rs`, `message_text.rs`; `src/app/root.rs`, `dialogs.rs`, `manager.rs` (F-16–F-20; D-26/D-27 under feature CHG-002; CHG-003 chat-display work pending) |
-| Harness boundary and local state | `src/harness/`, `src/persistence/`, `.planner/config.md`, `.planner/project.json` where configured (D-13, D-15, D-16, D-23, D-25) |
-| Regression and demonstration evidence | `tests/multi_repository_feature.rs`, `tests/task_workflow.rs`, unit tests in the modules above, `examples/prepare_exit_demo.rs`, `docs/exit-demo-runbook.md` (D-20, D-21) |
+| Current product authority and proposed changes | `.kool-ade-packet/planning/product/`, `.kool-ade-packet/planning/changes/`, `docs/planner-policy.md` |
+| Legacy product inputs and migration | `planning/product/`, `planning/features/`, `src/artifacts/migration/`, `src/artifacts/layout.rs` |
+| Product manifests, task documents, IDs, and recoverable writes | `src/artifacts/product_docs/`, `src/artifacts/task_docs/`, `src/artifacts/atomic.rs`, `src/artifacts/transaction.rs`, `src/domain/` |
+| Context selection, prompt policy, routing, and investigation | `src/core/context_build/`, `src/core/context_retrieval/`, `src/core/prompt/`, `src/core/investigation.rs`, `src/core/validation/`, `src/domain/item.rs` |
+| Task generation, isolated implementation, verification, and recovery | `src/core/task_generation.rs`, `src/core/implementation/`, `src/core/implementation_queue/`, `src/harness/pi_sandbox/` |
+| Harness operation modes and wire schemas | `src/harness/api.rs`, `src/harness/responses/`, `src/harness/pi_harness/` |
+| Approval, publication policy, and reconciliation | `src/app/feature_approval.rs`, `src/app/root/`, `src/core/implementation/`, `src/core/reconciliation.rs` |
+| Main Chat and isolated task conversations | `src/persistence/`, `src/core/task_conversation/`, `src/ui/task_chat/` |
+| Board, task details, activity graph, and typed UI commands | `src/ui.rs`, `src/ui/layout/`, `src/ui/task_detail.rs`, `src/ui/task_activity.rs`, `src/app/root/ui_actions/` |
+| Configuration and MCP secret handling | `src/artifacts/config_io.rs`, `src/artifacts/mcp_io.rs`, `src/core/context_build/mcp.rs`, `src/error.rs` |
+| Regression and demonstration evidence | `tests/`, module-local unit tests, `examples/`, `docs/exit-demo-runbook.md` |
 
-Git commits from `f72e3ae` through the CHG-001 reconciliation checkpoint and `7f7831e`/`6b851d3`/`beb998d` through the CHG-002 reconciliation checkpoint record the implementation. Deferred-channel decisions D-18, D-22, D-32 and D-33 remain indexed by the decisions and risks modules.
+Legacy paths listed here are migration inputs, not active runtime locations.
+Decision and task records retain their own immutable content; source references
+inside frozen feature contracts and historical evidence describe the revision
+where they were written. Deferred collaboration decisions D-18, D-22, D-32,
+and D-33 remain indexed in the decisions and risks modules.

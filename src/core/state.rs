@@ -20,7 +20,7 @@ use anyhow::anyhow;
 use crate::artifacts::config_io::{self, PlannerConfig};
 use crate::artifacts::items_io;
 use crate::artifacts::spec_doc;
-use crate::artifacts::{CONFIG_FILE, OPEN_ITEMS_FILE, SPEC_FILE};
+use crate::artifacts::{CONFIG_FILE, OPEN_ITEMS_FILE};
 use crate::domain::{OpenItem, ResolvedIdentity};
 
 /// Snapshot of one connected project.
@@ -68,13 +68,9 @@ impl PlannerState {
             anyhow!("open-items.md is unreadable to the planner: {e} (restore it with git checkout if needed)")
         })?;
         let baseline_items_md = items_io::serialize(&items);
-        let config_text = match crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(
-            repo,
-            CONFIG_FILE,
-        )) {
-            Ok(t) => t,
-            Err(_) => String::new(),
-        };
+        let config_text =
+            crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(repo, CONFIG_FILE))
+                .unwrap_or_default();
         let config = config_io::parse(&config_text)
             .map_err(|e| anyhow!("{CONFIG_FILE} failed to parse: {e}"))?;
         // FR-13: derive the seated operator from the connected repository's
@@ -101,7 +97,7 @@ impl PlannerState {
             repositories: crate::core::project_repos::ProjectManifest::load(repo)?,
             items,
             resolved_items: match std::fs::read(
-                crate::artifacts::layout::ArtifactLayout::new(repo).legacy_resolved_items(),
+                crate::artifacts::layout::ArtifactLayout::new(repo).resolved_items(),
             ) {
                 Ok(bytes) => serde_json::from_slice(&bytes)?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -115,11 +111,9 @@ impl PlannerState {
     }
 
     /// Create any missing planning artifacts. Returns the relpaths created.
-    pub fn bootstrap_missing(&mut self) -> anyhow::Result<Vec<&'static str>> {
-        let mut created = Vec::new();
-        if spec_doc::ensure(&self.repo_root, &self.title)? {
-            created.push(SPEC_FILE);
-        }
+    pub fn bootstrap_missing(&mut self) -> anyhow::Result<Vec<String>> {
+        let mut created =
+            crate::artifacts::migration::bootstrap_product(&self.repo_root, &self.title)?;
         let spec_now = spec_doc::load(&self.repo_root)?.unwrap_or_default();
         self.baseline_spec = Some(spec_now.clone());
         self.spec_text = Some(spec_now);
@@ -127,7 +121,7 @@ impl PlannerState {
         let items_path = crate::artifacts::repo_artifact(&self.repo_root, OPEN_ITEMS_FILE);
         if !items_path.exists() {
             crate::artifacts::atomic_write(&items_path, &self.baseline_items_md.clone())?;
-            created.push(OPEN_ITEMS_FILE);
+            created.push(OPEN_ITEMS_FILE.to_owned());
         }
         let cfg_path = crate::artifacts::repo_artifact(&self.repo_root, CONFIG_FILE);
         if !cfg_path.exists() {
@@ -135,7 +129,7 @@ impl PlannerState {
             crate::artifacts::atomic_write(&cfg_path, &seeded)?;
             let re_parsed = config_io::parse(&seeded).map_err(|e| anyhow::anyhow!("{e}"))?;
             self.config = re_parsed;
-            created.push(CONFIG_FILE);
+            created.push(CONFIG_FILE.to_owned());
         }
         Ok(created)
     }
@@ -226,7 +220,7 @@ mod tests {
     }
 
     /// Git working tree with (optionally) a local identity plus a seeded
-    /// `.planner/config.md` Current User block — mirrors the
+    /// Canonical project config's Current User block — mirrors the
     /// `gitops::tests` temp-repo recipe.
     fn git_fixture(prefix: &str, local_name: Option<&str>) -> PathBuf {
         let p = mkrepo(prefix);
@@ -244,7 +238,7 @@ mod tests {
                 String::from_utf8_lossy(&out.stderr)
             );
         };
-        let _ = git(&["init", "-q", "-b", "main"]);
+        git(&["init", "-q", "-b", "main"]);
         if let Some(name) = local_name {
             git(&["config", "user.name", name]);
         }
@@ -268,7 +262,10 @@ mod tests {
         let repo = mkrepo("boot");
         let mut st = PlannerState::load(&repo).unwrap();
         let created = st.bootstrap_missing().unwrap();
-        assert_eq!(created, vec![SPEC_FILE, OPEN_ITEMS_FILE, CONFIG_FILE]);
+        assert!(created.contains(&crate::artifacts::SPEC_FILE.to_owned()));
+        assert!(created.contains(&OPEN_ITEMS_FILE.to_owned()));
+        assert!(created.contains(&CONFIG_FILE.to_owned()));
+        assert_eq!(created.len(), 10);
         // Second call creates nothing.
         let created2 = st.bootstrap_missing().unwrap();
         assert!(created2.is_empty());
@@ -363,10 +360,10 @@ mod tests {
     fn gitless_tree_degrades_to_config_block_then_guest() {
         // Config block only (no .git anywhere) → ConfigBlock seat.
         let repo = mkrepo("cfgonly");
-        let planner = repo.join(".planner");
-        std::fs::create_dir_all(&planner).unwrap();
+        let config = crate::artifacts::layout::ArtifactLayout::new(&repo).config_root();
+        std::fs::create_dir_all(&config).unwrap();
         std::fs::write(
-            planner.join("config.md"),
+            config.join("project.md"),
             "# Planner Configuration\n\n## Current User\nName: Dana\nGroups: Ops, Platform\n\n## Stakeholders\n\n### QA\n(no owner configured)\n",
         ).unwrap();
         let st = PlannerState::load(&repo).unwrap();

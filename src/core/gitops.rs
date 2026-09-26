@@ -6,10 +6,14 @@
 //! stays tiny. All arguments pass through `Command` arrays (no shell
 //! interpolation), paths always after `--`.
 
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::error::AppError;
+
+mod commit;
+pub use commit::{commit, commit_cancellable, commit_planning_changes};
 
 pub const AUTHOR_NAME: &str = "Packet Planner";
 pub const AUTHOR_EMAIL: &str = "planner@packet.local";
@@ -31,7 +35,7 @@ fn run(cwd: &Path, args: &[&str]) -> Result<(i32, String, String), AppError> {
         .args(args)
         .output()
         .map_err(|e| AppError::Git {
-            cmd: format!("git {}", args.join(" ")),
+            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
             detail: format!("git binary could not be launched: {e}"),
         })?;
     Ok((
@@ -39,6 +43,65 @@ fn run(cwd: &Path, args: &[&str]) -> Result<(i32, String, String), AppError> {
         String::from_utf8_lossy(&out.stdout).to_string(),
         String::from_utf8_lossy(&out.stderr).to_string(),
     ))
+}
+
+pub(super) fn run_with_input(
+    cwd: &Path,
+    args: &[&str],
+    input: &[u8],
+) -> Result<(i32, String, String), AppError> {
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| AppError::Git {
+            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
+            detail: format!("git binary could not be launched: {e}"),
+        })?;
+    let write_result = child
+        .stdin
+        .take()
+        .expect("piped git stdin")
+        .write_all(input);
+    let out = child.wait_with_output().map_err(|e| AppError::Git {
+        cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
+        detail: format!("git process failed while collecting output: {e}"),
+    })?;
+    if let Err(error) = write_result {
+        return Err(AppError::Git {
+            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
+            detail: format!("could not send index data to git: {error}"),
+        });
+    }
+    Ok((
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).to_string(),
+        String::from_utf8_lossy(&out.stderr).to_string(),
+    ))
+}
+
+fn require_exit_success(
+    command: &str,
+    status: i32,
+    stdout: String,
+    stderr: String,
+) -> Result<(), AppError> {
+    if status == 0 {
+        return Ok(());
+    }
+    let detail = if stderr.trim().is_empty() {
+        stdout
+    } else {
+        stderr
+    };
+    Err(AppError::Git {
+        cmd: crate::error::redact_secrets(command),
+        detail: crate::error::redact_secrets(detail.trim()),
+    })
 }
 
 /// True when `cwd` is inside a git working tree.
@@ -87,8 +150,8 @@ pub fn clone_repo(source: &str, dest: &Path) -> Result<(), AppError> {
             detail
         };
         return Err(AppError::Git {
-            cmd: format!("clone {source}"),
-            detail: detail.to_string(),
+            cmd: crate::error::redact_secrets(&format!("clone {source}")),
+            detail: crate::error::redact_secrets(detail),
         });
     }
     Ok(())
@@ -103,26 +166,26 @@ pub fn snapshot(cwd: &Path) -> GitSnapshot {
     }
     if snap.branch.is_empty() {
         // Detached HEAD: label by short sha.
-        if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"]) {
-            if code == 0 {
-                snap.branch = format!("detached @{head}", head = out.trim());
-            }
+        if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"])
+            && code == 0
+        {
+            snap.branch = format!("detached @{head}", head = out.trim());
         }
     }
-    if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"]) {
-        if code == 0 {
-            snap.head_short = out.trim().to_string();
-        }
+    if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"])
+        && code == 0
+    {
+        snap.head_short = out.trim().to_string();
     }
-    if let Ok((code, out, _)) = run(cwd, &["status", "--porcelain=v1"]) {
-        if code == 0 {
-            snap.dirty = out.lines().count();
-        }
+    if let Ok((code, out, _)) = run(cwd, &["status", "--porcelain=v1"])
+        && code == 0
+    {
+        snap.dirty = out.lines().count();
     }
-    if let Ok((code, out, _)) = run(cwd, &["log", "-1", "--pretty=%s"]) {
-        if code == 0 {
-            snap.last_subject = out.trim().to_string();
-        }
+    if let Ok((code, out, _)) = run(cwd, &["log", "-1", "--pretty=%s"])
+        && code == 0
+    {
+        snap.last_subject = out.trim().to_string();
     }
     snap
 }
@@ -161,53 +224,10 @@ pub fn stage(cwd: &Path, paths: &[String]) -> Result<(), AppError> {
         return Ok(());
     }
     let mut args: Vec<String> = vec!["add".into(), "-A".into(), "--".into()];
-    args.extend(paths.iter().cloned());
+    args.extend(paths.iter().map(|path| format!(":(top,literal){path}")));
     let as_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let (_, _, err) = run(cwd, &as_refs)?;
-    if !err.trim().is_empty() {
-        return Err(AppError::Git {
-            cmd: "add".into(),
-            detail: err,
-        });
-    }
-    Ok(())
-}
-
-/// Commit the staged planning paths with a planner-authored identity.
-/// Returns the short SHA. Fails (with git's stderr) when the repo has no
-/// commits-policy issue like an empty index — caller decides messaging.
-pub fn commit(cwd: &Path, message: &str, paths: &[String]) -> Result<String, AppError> {
-    stage(cwd, paths)?;
-    let args = [
-        "-c",
-        &format!("user.name={AUTHOR_NAME}"),
-        "-c",
-        &format!("user.email={AUTHOR_EMAIL}"),
-        "commit",
-        "-q",
-        "-m",
-        message,
-    ];
-    let as_refs: Vec<&str> = args.iter().copied().collect();
     let (code, out, err) = run(cwd, &as_refs)?;
-    let combined = format!("{out}{err}");
-    if code != 0 && !combined.to_ascii_lowercase().contains("nothing to commit") {
-        return Err(AppError::Git {
-            cmd: "commit".into(),
-            detail: combined.trim().to_string(),
-        });
-    }
-    let (_, sha, _) = run(cwd, &["rev-parse", "--short", "HEAD"])?;
-    Ok(sha.trim().to_string())
-}
-
-/// Convenience: commit only the canonical planning artifacts.
-pub fn commit_planning_changes(
-    cwd: &Path,
-    message: &str,
-    paths: &[String],
-) -> Result<String, AppError> {
-    commit(cwd, message, paths)
+    require_exit_success("add", code, out, err)
 }
 
 /// Test-only support for detaching git's AMBIENT (global/system) identity
@@ -271,186 +291,4 @@ pub(crate) mod test_support {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::PathBuf;
-
-    fn fresh_dir(prefix: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("packet_git_{prefix}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&p);
-        fs::create_dir_all(&p).unwrap();
-        p
-    }
-
-    fn git_in(p: &Path, args: &[&str]) -> String {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(p)
-            .args(args)
-            .output()
-            .unwrap()
-            .stdout;
-        String::from_utf8_lossy(&out).into_owned()
-    }
-
-    /// Temp repo with a committed file and a LOCAL planner-style identity.
-    fn mkrepo(prefix: &str) -> PathBuf {
-        let p = fresh_dir(prefix);
-        let _ = git_in(&p, &["init", "-q", "-b", "main"]);
-        let _ = git_in(&p, &["config", "user.name", "T"]);
-        let _ = git_in(&p, &["config", "user.email", "t@x"]);
-        fs::write(p.join("a.txt"), "one").unwrap();
-        let _ = git_in(&p, &["add", "a.txt"]);
-        let _ = git_in(&p, &["commit", "-qm", "init"]);
-        p
-    }
-
-    /// Fresh empty directory (deliberately NOT a git repository).
-    fn plain_dir(prefix: &str) -> PathBuf {
-        fresh_dir(prefix)
-    }
-
-    #[test]
-    fn snapshot_reports_branch_dirty_and_subject() {
-        let repo = mkrepo("snap");
-        let snap = snapshot(&repo);
-        assert_eq!(snap.branch, "main");
-        assert!(!snap.head_short.is_empty());
-        assert_eq!(snap.last_subject, "init");
-        assert_eq!(snap.dirty, 0);
-        fs::write(repo.join("b.txt"), "two").unwrap();
-        let snap2 = snapshot(&repo);
-        assert_eq!(snap2.dirty, 1);
-        let _ = fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn commit_lands_a_checkpoint_with_planner_authorship() {
-        let repo = mkrepo("commit");
-        fs::write(repo.join("planning.md"), "spec").unwrap();
-        let sha = commit(
-            &repo,
-            "planner: establish initial specification",
-            &["planning.md".into()],
-        )
-        .unwrap();
-        let log = git_in(&repo, &["log", "-1", "--pretty=%an %s"]);
-        assert!(log.contains(AUTHOR_NAME));
-        assert!(log.contains("planner: establish initial specification"));
-        assert!(!sha.is_empty());
-        let _ = fs::remove_dir_all(&repo);
-    }
-
-    // ---- clone_repo -------------------------------------------------------
-
-    #[test]
-    fn clone_repo_clones_local_source_into_dest() {
-        let source = mkrepo("clonesrc");
-        let dest = source.with_file_name(format!(
-            "{}_cloned",
-            source
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("repo")
-        ));
-        clone_repo(source.to_str().unwrap(), &dest).unwrap();
-        assert!(is_work_tree(&dest), "the clone is a working tree");
-        assert_eq!(
-            fs::read_to_string(dest.join("a.txt")).unwrap(),
-            "one",
-            "committed files arrived"
-        );
-        let _ = fs::remove_dir_all(&dest);
-        let _ = fs::remove_dir_all(&source);
-    }
-
-    #[test]
-    fn clone_repo_missing_source_errors_git() {
-        let dir = fresh_dir("clonesrcmiss");
-        let missing = dir.join("never-init-as-repo");
-        let dest = dir.join("cloned");
-        match clone_repo(missing.to_str().unwrap(), &dest) {
-            Err(AppError::Git { cmd, detail }) => {
-                assert!(cmd.starts_with("clone "), "cmd labels the clone: {cmd}");
-                assert!(!detail.trim().is_empty(), "git's stderr tail rides along");
-            }
-            other => panic!("expected Git error for a nonexistent source, got {other:?}"),
-        }
-        assert!(
-            !dest.exists(),
-            "no half-made destination for a failed clone"
-        );
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn clone_repo_missing_dest_parent_errors() {
-        let dir = fresh_dir("clonparent");
-        let source = mkrepo("clonparent-src");
-        let dest = dir.join("does-not-exist").join("deeper").join("clone");
-        assert!(clone_repo(source.to_str().unwrap(), &dest).is_err());
-        let _ = fs::remove_dir_all(&source);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn non_repo_detection() {
-        let p = plain_dir("norepo");
-        assert!(!is_work_tree(&p));
-        let _ = fs::remove_dir_all(&p);
-    }
-
-    #[test]
-    fn read_config_returns_local_values_via_standard_resolution() {
-        let repo = mkrepo("cfg");
-        assert_eq!(read_config(&repo, "user.name"), Some("T".into()));
-        assert_eq!(read_config(&repo, "user.email"), Some("t@x".into()));
-        // Nobody sets such a key: absent → None, not an error.
-        assert_eq!(read_config(&repo, "packet.probe.no.such.key"), None);
-        let _ = fs::remove_dir_all(&repo);
-    }
-
-    #[test]
-    fn read_config_reads_email_only_under_shielded_ambient() {
-        // The ambient machine may carry a GLOBAL identity; point the global/
-        // system layers at empty control files so only the REPO-LOCAL value
-        // can influence resolution.
-        let _shield = super::test_support::shield("cfg-email");
-        let p = fresh_dir("cfe");
-        let _ = git_in(&p, &["init", "-q", "-b", "main"]);
-        let _ = git_in(&p, &["config", "user.email", "eve@example.org"]);
-        // user.name deliberately never set locally or ambient.
-        assert_eq!(read_config(&p, "user.name"), None);
-        assert_eq!(
-            read_config(&p, "user.email"),
-            Some("eve@example.org".into())
-        );
-        let _ = fs::remove_dir_all(&p);
-    }
-
-    #[test]
-    fn read_config_swallows_non_repo_and_blank_value_failures() {
-        // Plain non-git temp dir: probe must degrade to None, never panic.
-        let p = plain_dir("cfgplain");
-        assert_eq!(read_config(&p, "user.name"), None);
-        assert_eq!(read_config(&p, "user.email"), None);
-        let _ = fs::remove_dir_all(&p);
-
-        // Blank (whitespace-only) local value: trimmed to absent.
-        let _shield = super::test_support::shield("cfgblank");
-        let r = fresh_dir("cfgb");
-        let _ = git_in(&r, &["init", "-q", "-b", "main"]);
-        let _ = git_in(&r, &["config", "user.name", "   "]);
-        assert_eq!(read_config(&r, "user.name"), None);
-        let _ = fs::remove_dir_all(&r);
-    }
-
-    #[test]
-    fn non_existent_cwd_degrades_to_none() {
-        assert_eq!(
-            read_config(Path::new("/no/such/cwd-xyz"), "user.name"),
-            None
-        );
-    }
-}
+mod tests;

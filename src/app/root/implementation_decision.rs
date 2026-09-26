@@ -26,10 +26,9 @@ impl PacketApp {
             return;
         };
         let blocked = project.queue.blocked.contains_key(key)
-            || project
-                .implementation_states
-                .get(key)
-                .is_some_and(|state| state.status == "Needs attention");
+            || project.implementation_states.get(key).is_some_and(|state| {
+                state.status == crate::core::implementation::ImplementationStatus::Blocked
+            });
         if project.task_turns.contains_key(key) || !blocked {
             return;
         }
@@ -42,6 +41,7 @@ impl PacketApp {
         if text.trim().is_empty() {
             return;
         }
+        project.bind_task_conversation_identities();
         project.task_chats.ensure_loaded(&project.chat_slug);
         let message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
         if let Err(error) = project

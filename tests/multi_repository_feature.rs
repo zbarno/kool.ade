@@ -55,15 +55,19 @@ impl AiHarness for MultiHarness {
         );
         assert!(request.prompt_body.contains("repositoryBases"));
         assert!(request.prompt_body.contains("productModules"));
-        let mut value: serde_json::Value = if request.prompt_body.contains("OUTLINE FIRST") {
-            serde_json::from_str(include_str!("fixtures/task-outline.json")).unwrap()
-        } else if request.prompt_body.contains("ONLY detailed story 1 of 2") {
-            serde_json::from_str(include_str!("fixtures/task-story-1.json")).unwrap()
-        } else {
-            assert!(request.prompt_body.contains("ONLY detailed story 2 of 2"));
-            serde_json::from_str(include_str!("fixtures/task-story-2.json")).unwrap()
-        };
-        if let Some(outline) = value["task_outline"].as_array_mut() {
+        let mut value: serde_json::Value =
+            if request.prompt_body.contains("ONLY detailed story 1 of 2") {
+                serde_json::from_str(include_str!("fixtures/task-story-1.json")).unwrap()
+            } else if request.prompt_body.contains("OUTLINE FIRST") {
+                serde_json::from_str(include_str!("fixtures/task-outline.json")).unwrap()
+            } else {
+                assert!(request.prompt_body.contains("ONLY detailed story 2 of 2"));
+                serde_json::from_str(include_str!("fixtures/task-story-2.json")).unwrap()
+            };
+        if let Some(outline) = value
+            .get_mut("task_outline")
+            .and_then(serde_json::Value::as_array_mut)
+        {
             outline[0]["target_repository"] = "api".into();
             outline[1]["target_repository"] = "web".into();
         }
@@ -88,14 +92,16 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
     let api_base = init(&api, "git@example.test:product/api.git");
     let web_base = init(&web, "git@example.test:product/web.git");
     init(&planning, "git@example.test:product/planning.git");
+    packet::artifacts::migration::run(&planning).unwrap();
     let mut state = PlannerState::load(&planning).unwrap();
     state.bootstrap_missing().unwrap();
-    let legacy = std::fs::read_to_string(planning.join("planning/specification.md")).unwrap();
-    packet::artifacts::product_docs::migrate(&planning, &legacy).unwrap();
-    std::fs::create_dir_all(planning.join("planning/features/CHG-001-saved-searches")).unwrap();
-    let feature = "# CHG-001: Saved searches\n\n**Status:** Ready\n\n**Affected repositories:** api, web\n\n## Intent\n\nAnalysts resume searches.\n\n## Current Behavior\n\nSearches are transient.\n\n## Desired Behavior\n\nSearches persist and are selectable.\n\n## Scope\n\nAPI persistence and web picker.\n\n## Affected Product Areas\n\n`product:05-functional-requirements`; repositories `api`, `web`.\n\n## Requirements\n\nSave and restore named searches.\n\n## Decisions and Assumptions\n\nUse versioned records.\n\n## Acceptance Criteria\n\nA saved search survives restart and can be selected.\n";
+    std::fs::create_dir_all(
+        planning.join(".kool-ade-packet/planning/changes/CHG-001-saved-searches"),
+    )
+    .unwrap();
+    let feature = "# CHG-001: Saved searches\n\n**Status:** Ready\n\n**Affected repositories:** api, web\n\n## Intent\n\nAnalysts resume searches.\n\n## Current Behavior\n\nSearches are transient.\n\n## Desired Behavior\n\nSearches persist and are selectable.\n\n## Scope\n\nAPI persistence and web picker.\n\n## Affected Product Areas\n\n`product:current-capabilities`; repositories `api`, `web`.\n\n## Requirements\n\nSave and restore named searches.\n\n## Decisions and Assumptions\n\nUse versioned records.\n\n## Acceptance Criteria\n\nA saved search survives restart and can be selected.\n";
     std::fs::write(
-        planning.join("planning/features/CHG-001-saved-searches/specification.md"),
+        planning.join(".kool-ade-packet/planning/changes/CHG-001-saved-searches/specification.md"),
         feature,
     )
     .unwrap();
@@ -119,7 +125,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
         ],
     };
     std::fs::write(
-        planning.join(".planner/project.json"),
+        planning.join(packet::artifacts::layout::canonical::PROJECT_MANIFEST),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
@@ -127,9 +133,11 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
     map_local_checkout(&planning, "web", &web).unwrap();
     let ready: TurnEnvelope =
         serde_json::from_str(include_str!("fixtures/interview-ready.json")).unwrap();
-    let mut workflow = Workflow::default();
-    workflow.brief = ready.interview;
-    workflow.reviewed_specification = Some(feature.into());
+    let mut workflow = Workflow {
+        brief: ready.interview,
+        reviewed_specification: Some(feature.into()),
+        ..Default::default()
+    };
     packet::artifacts::task_docs::save_workflow(&planning, &workflow).unwrap();
     let unapproved = PlannerState::load(&planning).unwrap();
     let controller = TurnController::start(
@@ -146,8 +154,12 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             break result;
         }
     };
-    assert!(matches!(denied, TurnOutcome::Rejected { .. }));
-    assert!(!planning.join("planning/tasks").exists());
+    assert!(matches!(*denied, TurnOutcome::Rejected { .. }));
+    assert!(
+        !planning
+            .join(packet::artifacts::layout::canonical::TASKS)
+            .exists()
+    );
     workflow
         .approved_features
         .insert("CHG-001".into(), feature_contract(feature));
@@ -179,9 +191,9 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
         state,
         commit_result,
         ..
-    } = result
+    } = *result
     else {
-        panic!("generation did not apply");
+        panic!("generation did not apply: {result:#?}");
     };
     assert!(commit_result.is_ok());
     let batch = state.workflow.task_batches.last().unwrap();
@@ -194,7 +206,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
     assert_eq!(contract["repositoryBases"]["web"], web_base);
     assert!(
         contract["productModules"]
-            .get("05-functional-requirements")
+            .get("current-capabilities")
             .is_some()
     );
     assert!(
@@ -202,13 +214,21 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             .unwrap()
             .contains(api.to_str().unwrap())
     );
-    let first = std::fs::read_to_string(dir.join("CHG-001-TASK-persist-named-search-filters.md")).unwrap();
-    let second = std::fs::read_to_string(dir.join("CHG-001-TASK-build-the-saved-search-picker.md")).unwrap();
+    let first =
+        std::fs::read_to_string(dir.join("CHG-001-TASK-persist-named-search-filters.md")).unwrap();
+    let second =
+        std::fs::read_to_string(dir.join("CHG-001-TASK-build-the-saved-search-picker.md")).unwrap();
     assert!(first.contains("Repository: api"));
     assert!(second.contains("Repository: web"));
     assert!(second.contains("CHG-001-TASK-persist-named-search-filters.md"));
-    assert!(!api.join("planning/tasks").exists());
-    assert!(!web.join("planning/tasks").exists());
+    assert!(
+        !api.join(packet::artifacts::layout::canonical::TASKS)
+            .exists()
+    );
+    assert!(
+        !web.join(packet::artifacts::layout::canonical::TASKS)
+            .exists()
+    );
     let private = packet::persistence::project_dir(&packet::persistence::project_slug(
         &planning.canonicalize().unwrap(),
     ));

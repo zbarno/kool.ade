@@ -1,4 +1,4 @@
-//! Document import into `planning/imports/` (SPECIFICATION.md §21).
+//! Document import into `.kool-ade-packet/planning/imports/` (SPECIFICATION.md §21).
 //!
 //! Imports are copied into the repository so Pi can inspect them as part of
 //! normal project context. Text-oriented sources additionally gain a
@@ -11,7 +11,7 @@ use crate::artifacts::{IMPORTS_DIR, repo_artifact, sanitize_basename};
 /// Report of one successful import (surfaced in the UI as a toast/note).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedDoc {
-    /// File name inside `planning/imports/`.
+    /// File name inside the canonical Packet imports directory.
     pub stored_name: String,
     /// Companion `.md` extraction file name, if produced.
     pub companion: Option<String>,
@@ -64,63 +64,71 @@ pub fn import_into_repo(repo_root: &Path, src: &Path) -> anyhow::Result<Imported
         Some((s, e)) => (s.to_string(), format!(".{e}")),
         None => (base.clone(), String::new()),
     };
-    let mut candidate = format!("{stem_part}{ext_part}");
-    let mut n = 1usize;
-    while imports.join(&candidate).exists() {
-        candidate = format!("{stem_part}-{n}{ext_part}");
-        n += 1;
-    }
-    let dest = imports.join(candidate.clone());
-    std::fs::copy(&src, &dest)?;
-
-    let (companion, note) = if extension_is_textual(&base) {
-        let already_md = base.rsplit_once('.').is_some_and(|(_, e)| {
-            e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown")
-        });
-        if already_md {
-            (None, None)
-        } else {
-            let comp_name = format!(
-                "{}-{}.md",
-                stem_part,
-                base.rsplit_once('.')
-                    .map(|(_, e)| e.to_ascii_lowercase())
-                    .unwrap_or_default()
-            );
-            let bytes = std::fs::read(&src)?;
-            let comp_path = imports.join(comp_name.clone());
-            if std::str::from_utf8(&bytes).is_ok() {
-                std::fs::write(&comp_path, bytes)?;
-                (Some(comp_name), None)
-            } else {
-                (
-                    None,
-                    Some(
-                        "Source carried a textual extension but non-UTF-8 content; stored raw."
-                            .into(),
-                    ),
-                )
-            }
-        }
+    let textual = extension_is_textual(&base);
+    let already_markdown = base.rsplit_once('.').is_some_and(|(_, extension)| {
+        extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+    });
+    let companion_bytes = if textual && !already_markdown {
+        Some(std::fs::read(&src)?)
     } else {
-        (
-            None,
-            Some(
+        None
+    };
+    let mut suffix = 0usize;
+    loop {
+        let candidate_stem = if suffix == 0 {
+            stem_part.clone()
+        } else {
+            format!("{stem_part}-{suffix}")
+        };
+        let candidate = format!("{candidate_stem}{ext_part}");
+        let dest = imports.join(&candidate);
+        match crate::artifacts::atomic_copy_new(&src, &dest) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                suffix += 1;
+                continue;
+            }
+            Err(error) => return Err(error.into()),
+        }
+
+        let mut companion = None;
+        let mut note = None;
+        if let Some(bytes) = &companion_bytes {
+            if std::str::from_utf8(bytes).is_err() {
+                note = Some(
+                    "Source carried a textual extension but non-UTF-8 content; stored raw.".into(),
+                );
+            } else {
+                let extension = base
+                    .rsplit_once('.')
+                    .map(|(_, extension)| extension.to_ascii_lowercase())
+                    .unwrap_or_default();
+                let comp_name = format!("{candidate_stem}-{extension}.md");
+                match crate::artifacts::atomic_create_bytes(&imports.join(&comp_name), bytes) {
+                    Ok(()) => companion = Some(comp_name),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        let _ = std::fs::remove_file(&dest);
+                        suffix += 1;
+                        continue;
+                    }
+                    Err(error) => {
+                        let _ = std::fs::remove_file(&dest);
+                        return Err(error.into());
+                    }
+                }
+            }
+        } else if !textual {
+            note = Some(
                 "Binary document stored as-is; the planning agent may struggle with it — prefer text/Markdown exports where possible."
                     .into(),
-            ),
-        )
-    };
-
-    // Defensive: verify the write landed.
-    if !dest.exists() {
-        anyhow::bail!("import vanished after copy (disk full?)");
+            );
+        }
+        return Ok(ImportedDoc {
+            stored_name: candidate,
+            companion,
+            note,
+        });
     }
-    Ok(ImportedDoc {
-        stored_name: candidate,
-        companion,
-        note,
-    })
 }
 
 /// Lightweight listing for the UI / context builder (name + size).
@@ -215,7 +223,7 @@ mod tests {
     fn refuses_self_copy_into_same_repo() {
         let (repo, out) = sandbox("self");
         std::fs::create_dir_all(repo.join(IMPORTS_DIR)).unwrap();
-        let inside = repo.join("planning").join("imports").join("a.txt");
+        let inside = repo.join(IMPORTS_DIR).join("a.txt");
         std::fs::write(&inside, "x").unwrap();
         assert!(import_into_repo(&repo, &inside).is_err());
         let _ = std::fs::remove_dir_all(&repo);

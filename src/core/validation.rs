@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use crate::core::ids;
 use crate::core::routing::{self, Eligibility};
 use crate::core::state::PlannerState;
-use crate::domain::{Authority, CurrentUser, ItemKind, OpenItem, Priority};
+use crate::domain::{Authority, CurrentUser, DecisionBrief, ItemKind, OpenItem, Priority};
 use crate::harness::TurnEnvelope;
 
 /// Field-wise patch for an existing item: `Some` = set, `None` = untouched.
@@ -24,7 +24,14 @@ pub struct UpdatePatch {
     pub feature_id: Option<String>,
     pub recommendation: Option<String>,
     pub evidence: Option<String>,
+    pub decision_brief: Option<DecisionBrief>,
 }
+
+#[cfg(test)]
+#[path = "validation/decision_tests.rs"]
+mod decision_tests;
+#[path = "validation/requested_action.rs"]
+mod requested_action_validation;
 
 /// Fully-checked outcome of a turn, ready for `core::apply`.
 #[derive(Debug, Clone)]
@@ -34,10 +41,15 @@ pub struct NormalizedTurn {
     /// Complete replacement specification (verified non-blank).
     pub spec_markdown: Option<String>,
     pub document_updates: Vec<(String, String)>,
+    /// Application-owned planning records included in the same artifact transaction.
+    pub additional_planning_artifacts: Vec<(String, String)>,
     pub added: Vec<OpenItem>,
     pub updates: Vec<(String, UpdatePatch)>,
     pub resolved: Vec<String>,
     pub next_question_id: Option<String>,
+    /// Model-interpreted application intent, dispatched only after this
+    /// turn passes validation and is adopted by the Main Chat.
+    pub requested_action: Option<crate::harness::RequestedAction>,
     /// Non-fatal observations shown to the user (e.g. why next-question was
     /// dropped — routing sovereignty, §18).
     pub warnings: Vec<String>,
@@ -69,13 +81,20 @@ pub fn validate_for_turn(
 ) -> Result<NormalizedTurn, Vec<String>> {
     let mut fatals: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
-
-    if let Some(v) = envelope.schema_version {
-        if v != 1 && v != 2 {
-            fatals.push(format!(
-                "unsupported schema_version {v} (this build understands 1 and 2)"
-            ));
+    let requested_action = match requested_action_validation::validate(envelope, purpose) {
+        Ok(action) => action,
+        Err(problems) => {
+            fatals.extend(problems);
+            None
         }
+    };
+
+    if let Some(v) = envelope.schema_version
+        && v != 2
+    {
+        fatals.push(format!(
+            "unsupported schema_version {v} after normalization (expected 2)"
+        ));
     }
     if envelope.assistant().trim().is_empty() {
         fatals.push("assistant_message is empty".into());
@@ -153,43 +172,28 @@ pub fn validate_for_turn(
             fatals.push(format!("{}: content must not be blank", update.document_id));
             continue;
         }
-        if let Some(name) = update.document_id.strip_prefix("product:") {
-            if let Some(n) = crate::artifacts::product_docs::MODULES
-                .iter()
-                .position(|candidate| candidate.strip_suffix(".md") == Some(name))
-            {
-                if let Err(error) =
-                    crate::artifacts::product_docs::validate_module(n + 1, &update.content)
-                {
-                    fatals.push(format!("{}: {error}", update.document_id));
-                }
-                if let Ok(old) = std::fs::read_to_string(&path) {
-                    if let Err(error) =
-                        crate::artifacts::product_docs::preserved_ids(&old, &update.content)
-                    {
-                        fatals.push(format!("{}: {error}", update.document_id));
-                    }
-                }
-            } else if name == "index" {
-                if !update.content.starts_with("# ")
-                    || !update.content.contains("\n## Active features\n")
-                {
-                    fatals.push(
-                        "product:index requires a product title and active-feature manifest".into(),
-                    );
-                }
-            }
-        }
-        if let Some(id) = update.document_id.strip_prefix("feature:") {
-            if let Err(error) = crate::core::specification::validate_feature(id, &update.content) {
+        if update.document_id.starts_with("product:") {
+            if let Err(error) = crate::artifacts::product_docs::validate_module(&update.content) {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
+            if let Ok(old) = std::fs::read_to_string(&path)
+                && let Err(error) =
+                    crate::artifacts::product_docs::preserved_ids(&old, &update.content)
+            {
+                fatals.push(format!("{}: {error}", update.document_id));
+            }
+        }
+        if let Some(id) = update.document_id.strip_prefix("feature:")
+            && let Err(error) = crate::core::specification::validate_feature(id, &update.content)
+        {
+            fatals.push(format!("{}: {error}", update.document_id));
         }
         match std::fs::symlink_metadata(&path) {
             Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {}
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound
-                    && update.document_id.starts_with("feature:") => {}
+                    && (update.document_id.starts_with("feature:")
+                        || update.document_id.starts_with("product:")) => {}
             _ => fatals.push(format!(
                 "{}: target must be an approved regular document",
                 update.document_id
@@ -297,6 +301,18 @@ pub fn validate_for_turn(
         if let Some(value) = &u.evidence {
             patch.evidence = Some(value.trim().to_string());
         }
+        if let Some(brief) = &u.decision_brief {
+            let mut brief = brief.clone();
+            match brief.bind_to_item(&uid) {
+                Ok(()) if brief.adr_assessment.is_some() => {
+                    patch.decision_brief = Some(brief)
+                }
+                Ok(()) => fatals.push(format!(
+                    "{uid}: decision brief must assess whether an approved choice needs a durable decision record"
+                )),
+                Err(error) => fatals.push(format!("{uid}: {error}")),
+            }
+        }
         updates.push((uid.clone(), patch));
     }
 
@@ -395,7 +411,28 @@ pub fn validate_for_turn(
                 }
                 item.recommendation = a.recommendation.as_deref().unwrap_or("").trim().to_string();
                 item.evidence = a.evidence.as_deref().unwrap_or("").trim().to_string();
-                if authority == Authority::Review && item.recommendation.is_empty() {
+                if let Some(brief) = &a.decision_brief {
+                    let mut brief = brief.clone();
+                    match brief.bind_to_item(&item.id) {
+                        Ok(()) if brief.adr_assessment.is_some() => {
+                            item.decision_brief = Some(brief)
+                        }
+                        Ok(()) => fatals.push(format!(
+                            "new item {tag}: decision brief must assess whether an approved choice needs a durable decision record"
+                        )),
+                        Err(error) => fatals.push(format!("new item {tag}: {error}")),
+                    }
+                }
+                if item.decision_brief.is_some() && authority == Authority::Agent {
+                    fatals.push(format!("new item {tag}: decision briefs need Human or Review authority"));
+                }
+                if authority == Authority::Review
+                    && item.recommendation.is_empty()
+                    && item
+                        .decision_brief
+                        .as_ref()
+                        .is_none_or(|brief| brief.recommendation.is_none())
+                {
                     fatals.push(format!("new review item {tag} requires a provisional recommendation"));
                 }
                 added.push(item);
@@ -451,10 +488,12 @@ pub fn validate_for_turn(
         change_summary,
         spec_markdown,
         document_updates,
+        additional_planning_artifacts: Vec::new(),
         added,
         updates,
         resolved,
         next_question_id,
+        requested_action,
         warnings,
         workflow: None,
         task_batch: None,
@@ -517,7 +556,7 @@ mod tests {
 
     fn env(next: Option<&str>) -> TurnEnvelope {
         TurnEnvelope {
-            schema_version: Some(1),
+            schema_version: Some(2),
             assistant_message: Some("Sure — recorded.".into()),
             change_summary: None,
             document_updates: None,
@@ -528,6 +567,7 @@ mod tests {
             next_question_id: next.map(Into::into),
             interview: None,
             task_stories: None,
+            requested_action: None,
             task_outline: None,
         }
     }
@@ -550,6 +590,7 @@ mod tests {
                 feature_id: None,
                 recommendation: None,
                 evidence: None,
+                decision_brief: None,
             },
             TurnItem {
                 authority: None,
@@ -564,6 +605,7 @@ mod tests {
                 feature_id: None,
                 recommendation: None,
                 evidence: None,
+                decision_brief: None,
             },
         ]);
         let v = validate(
@@ -721,6 +763,7 @@ mod tests {
                 feature_id: None,
                 recommendation: None,
                 evidence: None,
+                decision_brief: None,
                 reason: Some("login scoping depends on it".into()),
             },
             TurnItem {
@@ -735,6 +778,7 @@ mod tests {
                 feature_id: None,
                 recommendation: None,
                 evidence: None,
+                decision_brief: None,
                 reason: None,
             },
         ]);
@@ -761,6 +805,7 @@ mod tests {
             feature_id: None,
             recommendation: None,
             evidence: None,
+            decision_brief: None,
             reason: None,
         };
         e.open_items_added = Some(vec![mk(), mk()]);
@@ -800,6 +845,7 @@ mod tests {
             feature_id: None,
             recommendation: None,
             evidence: None,
+            decision_brief: None,
         }]);
         let v = validate(&e, &st, &u).unwrap();
         assert_eq!(v.updates.len(), 1);
@@ -825,8 +871,8 @@ mod tests {
     /// — are the tripwire.
     #[test]
     fn fatal_classes_fire_twice_with_pinned_fragments_and_stable_vectors() {
-        use crate::domain::{CategoryOwners, Stakeholders};
         use crate::core::workflow::TurnPurpose;
+        use crate::domain::{CategoryOwners, Stakeholders};
 
         // Seated identity: a NON-MEMBER human seat, matching the routing
         // veto case; the other cases are seat-insensitive.
@@ -857,48 +903,57 @@ mod tests {
 
         // 1. Routing veto: the seated non-member is aimed at a question in
         //    a lane sole-owned by someone else.
+        pin(&seated, "routing-veto", "violates the routing law", || {
+            let mut hi = item("CLR-001", ItemKind::Question, "Security", "Priya");
+            hi.priority = Priority::Blocking;
+            let mut st = base_state(vec![hi]);
+            st.config.stakeholders = Stakeholders::new(vec![
+                CategoryOwners::new("Security", vec!["Priya".into()]),
+                CategoryOwners::new("InfoSec", Vec::new()),
+            ]);
+            (st, env(Some("CLR-001")))
+        });
+
+        // 2. Human-authority demotion attempt: Agent cannot lower a Human item.
         pin(
             &seated,
-            "routing-veto",
-            "violates the routing law",
+            "human-downgrade-attempt",
+            "cannot be downgraded",
             || {
-                let mut hi = item("CLR-001", ItemKind::Question, "Security", "Priya");
-                hi.priority = Priority::Blocking;
-                let mut st = base_state(vec![hi]);
-                st.config.stakeholders = Stakeholders::new(vec![
-                    CategoryOwners::new("Security", vec!["Priya".into()]),
-                    CategoryOwners::new("InfoSec", Vec::new()),
-                ]);
-                (st, env(Some("CLR-001")))
+                let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
+                let mut e = env(None);
+                e.open_items_updated = Some(vec![TurnItemUpdate {
+                    id: Some("CLR-001".into()),
+                    authority: Some("Agent".into()),
+                    priority: None,
+                    kind: None,
+                    category: None,
+                    assigned_to: None,
+                    question: None,
+                    reason: None,
+                    feature_id: None,
+                    recommendation: None,
+                    evidence: None,
+                    decision_brief: None,
+                }]);
+                (st, e)
             },
         );
 
-        // 2. Human-authority demotion attempt: Agent cannot lower a Human item.
-        pin(&seated, "human-downgrade-attempt", "cannot be downgraded", || {
-            let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
-            let mut e = env(None);
-            e.open_items_updated = Some(vec![TurnItemUpdate {
-                id: Some("CLR-001".into()),
-                authority: Some("Agent".into()),
-                priority: None,
-                kind: None,
-                category: None,
-                assigned_to: None,
-                question: None,
-                reason: None,
-                feature_id: None,
-                recommendation: None,
-                evidence: None,
-            }]);
-            (st, e)
-        });
-
         // 3. Resolve referencing an unknown id.
-        pin(&seated, "resolve-unknown-id", "references unknown id", || {
-            let mut e = env(None);
-            e.open_items_resolved = Some(vec!["CLR-999".into()]);
-            (base_state(vec![unassigned("CLR-001", ItemKind::Question, "General")]), e)
-        });
+        pin(
+            &seated,
+            "resolve-unknown-id",
+            "references unknown id",
+            || {
+                let mut e = env(None);
+                e.open_items_resolved = Some(vec!["CLR-999".into()]);
+                (
+                    base_state(vec![unassigned("CLR-001", ItemKind::Question, "General")]),
+                    e,
+                )
+            },
+        );
 
         // 4. Blank updated_specification.
         pin(&seated, "blank-updated-specification", "is blank", || {
@@ -907,31 +962,42 @@ mod tests {
             (base_state(Vec::new()), e)
         });
 
-        // 5. Unsupported schema_version (3 is declared but this build understands 1-2).
-        pin(&seated, "unsupported-schema-version", "unsupported schema_version", || {
-            let mut e = env(None);
-            e.schema_version = Some(3);
-            (base_state(Vec::new()), e)
-        });
+        // 5. Unsupported normalized schema_version (wire versions are handled by the decoder).
+        pin(
+            &seated,
+            "unsupported-schema-version",
+            "unsupported schema_version",
+            || {
+                let mut e = env(None);
+                e.schema_version = Some(3);
+                (base_state(Vec::new()), e)
+            },
+        );
 
         // 6. New Review-kind item lacking a provisional recommendation.
-        pin(&seated, "review-without-recommendation", "requires a provisional recommendation", || {
-            let mut e = env(None);
-            e.open_items_added = Some(vec![TurnItem {
-                authority: Some("Review".into()),
-                id: Some("CLR-007".into()),
-                kind: Some("Question".into()),
-                category: Some("Security".into()),
-                assigned_to: Some("Priya".into()),
-                priority: Some("Normal".into()),
-                question: Some("recommend the cipher suite".into()),
-                reason: Some("crypto selection".into()),
-                resolution_note: None,
-                feature_id: None,
-                recommendation: None,
-                evidence: None,
-            }]);
-            (base_state(Vec::new()), e)
-        });
+        pin(
+            &seated,
+            "review-without-recommendation",
+            "requires a provisional recommendation",
+            || {
+                let mut e = env(None);
+                e.open_items_added = Some(vec![TurnItem {
+                    authority: Some("Review".into()),
+                    id: Some("CLR-007".into()),
+                    kind: Some("Question".into()),
+                    category: Some("Security".into()),
+                    assigned_to: Some("Priya".into()),
+                    priority: Some("Normal".into()),
+                    question: Some("recommend the cipher suite".into()),
+                    reason: Some("crypto selection".into()),
+                    resolution_note: None,
+                    feature_id: None,
+                    recommendation: None,
+                    evidence: None,
+                    decision_brief: None,
+                }]);
+                (base_state(Vec::new()), e)
+            },
+        );
     }
 }

@@ -118,8 +118,41 @@ pub fn spawn_with_input(
     cwd: &Path,
     input: Option<String>,
 ) -> anyhow::Result<ChildTask> {
+    spawn_with_input_env(argv, cwd, input, &[])
+}
+
+/// Pipe a prompt while adding narrowly scoped child environment values.
+pub fn spawn_with_input_env(
+    argv: &[String],
+    cwd: &Path,
+    input: Option<String>,
+    env: &[(String, String)],
+) -> anyhow::Result<ChildTask> {
+    spawn_with_input_env_policy(argv, cwd, input, env, false)
+}
+
+/// Spawn with a clean environment, then add only the supplied values.
+pub fn spawn_with_input_clear_env(
+    argv: &[String],
+    cwd: &Path,
+    input: Option<String>,
+    env: &[(String, String)],
+) -> anyhow::Result<ChildTask> {
+    spawn_with_input_env_policy(argv, cwd, input, env, true)
+}
+
+fn spawn_with_input_env_policy(
+    argv: &[String],
+    cwd: &Path,
+    input: Option<String>,
+    env: &[(String, String)],
+    clear_env: bool,
+) -> anyhow::Result<ChildTask> {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut cmd = Command::new(&argv[0]);
+    if clear_env {
+        cmd.env_clear();
+    }
     cmd.args(&argv[1..])
         .current_dir(cwd)
         .stdin(if input.is_some() {
@@ -129,6 +162,9 @@ pub fn spawn_with_input(
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -253,6 +289,29 @@ mod tests {
             }
         }
         assert_eq!(count, Some(input.len()));
+    }
+
+    #[test]
+    fn clean_spawn_passes_only_explicit_environment_values() {
+        let task = spawn_with_input_clear_env(
+            &["/usr/bin/env".into()],
+            Path::new("/"),
+            None,
+            &[("PACKET_TEST_ONLY".into(), "present".into())],
+        )
+        .unwrap();
+        let mut lines = Vec::new();
+        loop {
+            match task.poll_next(Duration::from_secs(3)).unwrap() {
+                StreamEvt::Stdout(line) => lines.push(line),
+                StreamEvt::Exited(ok) => {
+                    assert!(ok);
+                    break;
+                }
+                StreamEvt::Stderr(line) => panic!("env failed: {line}"),
+            }
+        }
+        assert_eq!(lines, ["PACKET_TEST_ONLY=present"]);
     }
 
     #[test]

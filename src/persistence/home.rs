@@ -9,10 +9,10 @@ use std::path::{Path, PathBuf};
 
 /// Root of the per-user state directory. Honors `PACKET_HOME` (tests/devs).
 pub fn state_root() -> PathBuf {
-    if let Ok(custom) = std::env::var("PACKET_HOME") {
-        if !custom.is_empty() {
-            return PathBuf::from(custom);
-        }
+    if let Ok(custom) = std::env::var("PACKET_HOME")
+        && !custom.is_empty()
+    {
+        return PathBuf::from(custom);
     }
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))

@@ -34,9 +34,18 @@ pub fn paint(
     offer: Option<&crate::core::workflow::InterviewBrief>,
     implementation_offer: bool,
 ) -> Intent {
-    paint_with_actions(ui, messages, draft, busy, progress, Actions {
-        task_offer: offer, implementation_offer, features: &[],
-    })
+    paint_with_actions(
+        ui,
+        messages,
+        draft,
+        busy,
+        progress,
+        Actions {
+            task_offer: offer,
+            implementation_offer,
+            features: &[],
+        },
+    )
 }
 
 pub fn paint_with_actions(
@@ -51,15 +60,15 @@ pub fn paint_with_actions(
         ui,
         messages,
         draft,
-        busy,
-        progress,
-        actions.task_offer,
-        actions.implementation_offer,
         &ComposeCopy {
             composer_id: "main_chat_composer",
             hint: "What are you building?",
             context: None,
             actions: actions.features,
+            busy,
+            progress,
+            offer: actions.task_offer,
+            implementation_offer: actions.implementation_offer,
         },
     )
 }
@@ -95,15 +104,15 @@ pub fn paint_task_with_actions(
         ui,
         messages,
         draft,
-        busy,
-        None,
-        None,
-        false,
         &ComposeCopy {
             composer_id: "task_tab_composer",
             hint: "Reply about this task…",
             context,
             actions,
+            busy,
+            progress: None,
+            offer: None,
+            implementation_offer: false,
         },
     )
 }
@@ -119,16 +128,16 @@ struct ComposeCopy<'a> {
     hint: &'static str,
     context: Option<&'a str>,
     actions: &'a [super::feature_approval::Action],
+    busy: bool,
+    progress: Option<&'a crate::harness::LiveProgress>,
+    offer: Option<&'a crate::core::workflow::InterviewBrief>,
+    implementation_offer: bool,
 }
 
 fn paint_with_hint(
     ui: &mut egui::Ui,
     messages: &[ChatMessage],
     draft: &mut String,
-    busy: bool,
-    progress: Option<&crate::harness::LiveProgress>,
-    offer: Option<&crate::core::workflow::InterviewBrief>,
-    implementation_offer: bool,
     compose: &ComposeCopy,
 ) -> Intent {
     let ComposeCopy {
@@ -136,6 +145,10 @@ fn paint_with_hint(
         hint,
         context,
         actions,
+        busy,
+        progress,
+        offer,
+        implementation_offer,
     } = *compose;
     let mut cancel = false;
     let mut generate_tasks = false;
@@ -185,7 +198,7 @@ fn paint_with_hint(
                 } else if implementation_offer {
                     theme::card_frame().show(ui, |ui| {
                         ui.label(RichText::new("Ready to implement").strong());
-                        ui.label("Approve the feature associated with the next eligible task and start implementation. Auto mode continues the queue.");
+                        ui.label("Approve the feature associated with the next eligible task and start implementation. Auto Build continues approved tasks; Auto Publish is controlled separately.");
                         implement_tasks = ui.add_enabled(!busy, egui::Button::new("Implement tasks")).clicked();
                     });
                 } else if let Some(brief) = offer {
@@ -431,11 +444,7 @@ pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress
                         // degrading harmlessly on in-flight prefixes (the
                         // harness projection withholds envelopes and
                         // unterminated opening fences upstream).
-                        crate::ui::markdown::paint(
-                            ui,
-                            post.text.trim(),
-                            crate::ui::markdown::CHAT,
-                        );
+                        crate::ui::markdown::paint(ui, post.text.trim(), crate::ui::markdown::CHAT);
                     }
                     ui.add_space(4.0);
                 });
@@ -471,11 +480,7 @@ pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress
             ui.add_space(4.0);
         }
         if !progress.response.is_empty() {
-            crate::ui::markdown::paint(
-                ui,
-                progress.response.trim(),
-                crate::ui::markdown::CHAT,
-            );
+            crate::ui::markdown::paint(ui, progress.response.trim(), crate::ui::markdown::CHAT);
             ui.add_space(4.0);
         }
     });
@@ -509,10 +514,7 @@ mod tests {
             .collect()
     }
 
-    fn section_text<'a>(
-        galley: &'a egui::Galley,
-        section: &egui::text::LayoutSection,
-    ) -> &'a str {
+    fn section_text<'a>(galley: &'a egui::Galley, section: &egui::text::LayoutSection) -> &'a str {
         &galley.job.text[section.byte_range.start.0..section.byte_range.end.0]
     }
 
@@ -536,11 +538,19 @@ mod tests {
         });
         let texts = galley_texts(&output);
         let bearing = texts.iter().filter(|t| t.contains("boldlead"));
-        assert_eq!(bearing.count(), 3, "each role paints the body once: {texts:?}");
+        assert_eq!(
+            bearing.count(),
+            3,
+            "each role paints the body once: {texts:?}"
+        );
         let scrubbed = texts
             .iter()
             .filter(|t| t.contains("boldlead") && !t.contains('*'));
-        assert_eq!(scrubbed.count(), 1, "exactly the agent bubble scrubs markers: {texts:?}");
+        assert_eq!(
+            scrubbed.count(),
+            1,
+            "exactly the agent bubble scrubs markers: {texts:?}"
+        );
         // Negative controls: User and System galleys keep every raw marker.
         for text in &texts {
             if text.contains("boldlead") && text.contains('*') {
@@ -567,7 +577,10 @@ mod tests {
             .iter()
             .find(|s| section_text(agent_body, s) == "Lead with ")
             .expect("plain lead section");
-        assert_ne!(bold_section.format, plain_section.format, "bold differs from plain");
+        assert_ne!(
+            bold_section.format, plain_section.format,
+            "bold differs from plain"
+        );
         assert!(bold_section.format.extra_letter_spacing.abs() > 1e-9);
         assert!(plain_section.format.extra_letter_spacing.abs() < f32::EPSILON);
         assert_eq!(bold_section.format.color, theme::TEXT);
@@ -612,17 +625,23 @@ mod tests {
         });
         let texts = galley_texts(&output);
         assert!(
-            texts.iter().any(|t| t.contains("verify") && !t.contains('*')),
+            texts
+                .iter()
+                .any(|t| t.contains("verify") && !t.contains('*')),
             "card-tab agent reply must be marker-free: {texts:?}"
         );
-        assert!(!texts.iter().any(|t| t.contains('{')), "no envelope braces: {texts:?}");
+        assert!(
+            !texts.iter().any(|t| t.contains('{')),
+            "no envelope braces: {texts:?}"
+        );
         output.textures_delta.clear();
     }
 
     #[test]
     fn raw_envelopes_never_reach_the_reply_galley() {
         let ctx = paint_ctx();
-        let envelope = "{\"assistant_message\":\"Hi **you**\",\"schema_version\":1,\"open_items_updated\":[]}";
+        let envelope =
+            "{\"assistant_message\":\"Hi **you**\",\"schema_version\":1,\"open_items_updated\":[]}";
         let messages = vec![ChatMessage::new(ChatRole::Agent, envelope, None)];
         let mut draft = String::new();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
@@ -666,7 +685,11 @@ mod tests {
         }
         // The unclosed fence still lands as a monospace line in the bubble.
         let ctx = paint_ctx();
-        let messages = vec![ChatMessage::new(ChatRole::Agent, "```rust\nlet value = 1;", None)];
+        let messages = vec![ChatMessage::new(
+            ChatRole::Agent,
+            "```rust\nlet value = 1;",
+            None,
+        )];
         let mut draft = String::new();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             paint(ui, &messages, &mut draft, false, None, None, false);
@@ -675,11 +698,13 @@ mod tests {
             .into_iter()
             .find(|g| g.text() == "let value = 1;")
             .expect("unclosed fence paints its code line");
-        assert!(code_line
-            .job
-            .sections
-            .iter()
-            .all(|s| s.format.font_id.family == egui::FontFamily::Monospace));
+        assert!(
+            code_line
+                .job
+                .sections
+                .iter()
+                .all(|s| s.format.font_id.family == egui::FontFamily::Monospace)
+        );
         output.textures_delta.clear();
     }
 
@@ -714,11 +739,15 @@ mod tests {
         });
         let texts = galley_texts(&first);
         assert!(
-            texts.iter().any(|t| t.contains("boldchunk") && !t.contains('*')),
+            texts
+                .iter()
+                .any(|t| t.contains("boldchunk") && !t.contains('*')),
             "streamed prose must be marker-free: {texts:?}"
         );
         assert!(
-            texts.iter().any(|t| t.contains("reasoning **still plain**")),
+            texts
+                .iter()
+                .any(|t| t.contains("reasoning **still plain**")),
             "plain thinking body must show its literal markers: {texts:?}"
         );
         // Locate the tool diagnostics header and click it open.
@@ -754,7 +783,11 @@ mod tests {
         // keep painting frames until the tool body is fully disclosed.
         let mut saw_tool_mono = false;
         for _ in 0..120 {
-            let input = if !saw_tool_mono { click.clone() } else { egui::RawInput::default() };
+            let input = if !saw_tool_mono {
+                click.clone()
+            } else {
+                egui::RawInput::default()
+            };
             let mut out = ctx.run_ui(input, |ui| paint_progress(ui, &progress));
             for galley in galleys(&out) {
                 if galley.text() == "cargo build\nCompiling packet v0.1.0" {
@@ -1256,8 +1289,10 @@ mod tests {
             .filter_map(|clipped| match &clipped.shape {
                 egui::Shape::Rect(rect)
                     if rect.fill == theme::CHIP_FILL
-                        && rect.corner_radius == egui::CornerRadius::same(10_u8)
-                    => Some((rect.rect, rect.stroke.color)),
+                        && rect.corner_radius == egui::CornerRadius::same(10_u8) =>
+                {
+                    Some((rect.rect, rect.stroke.color))
+                }
                 _ => None,
             })
             .collect()
@@ -1299,9 +1334,20 @@ mod tests {
         fn frame(&mut self, events: Vec<egui::Event>) -> (egui::FullOutput, Intent) {
             let mut intent = Intent::default();
             let output = self.ctx.run_ui(
-                egui::RawInput { events, ..Default::default() },
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
                 |ui| {
-                    intent = paint(ui, &self.messages, &mut self.draft, self.busy, None, None, false);
+                    intent = paint(
+                        ui,
+                        &self.messages,
+                        &mut self.draft,
+                        self.busy,
+                        None,
+                        None,
+                        false,
+                    );
                 },
             );
             (output, intent)
@@ -1341,8 +1387,9 @@ mod tests {
             ChatMessage::new(ChatRole::Agent, CHOICE_DIGEST, None),
         ];
         assert_eq!(crate::ui::reply_tail::open_ask_index(&messages), Some(1));
-        let choices =
-            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CHOICE_DIGEST));
+        let choices = crate::ui::reply_tail::digest_choices(
+            &crate::ui::reply_tail::parse_reply_tail(CHOICE_DIGEST),
+        );
         assert_eq!(choices.len(), 2, "the two bullets offer options");
         let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
         let no_label = crate::ui::reply_tail::choice_label(&choices[1]);
@@ -1361,12 +1408,21 @@ mod tests {
         let yes_spots = galley_positions(&output, &yes_label);
         assert_eq!(ask_spots.len(), 1, "ask row visible");
         assert_eq!(yes_spots.len(), 1, "chip one visible");
-        assert!(ask_spots[0] < yes_spots[0], "chip row rides BELOW the lifted ask");
+        assert!(
+            ask_spots[0] < yes_spots[0],
+            "chip row rides BELOW the lifted ask"
+        );
         let yes_point = galley_point(&output, &yes_label).expect("chip one centre");
-        assert!(galley_point(&output, &no_label).is_some(), "chip two visible");
+        assert!(
+            galley_point(&output, &no_label).is_some(),
+            "chip two visible"
+        );
         output.textures_delta.clear();
 
-        assert!(run.ctx.memory(|mem| mem.focused()).is_none(), "no focus before the tap");
+        assert!(
+            run.ctx.memory(|mem| mem.focused()).is_none(),
+            "no focus before the tap"
+        );
         let (mut release_out, intent) = run.click_at(yes_point);
         release_out.textures_delta.clear();
         assert!(!intent.send, "a chip tap must NOT fire the composer");
@@ -1384,8 +1440,7 @@ mod tests {
             run.ctx.memory(|mem| mem.focused()).is_some(),
             "the composer holds focus after the tap"
         );
-        let (mut typed_out, typed_intent) =
-            run.frame(vec![egui::Event::Text("x".to_string())]);
+        let (mut typed_out, typed_intent) = run.frame(vec![egui::Event::Text("x".to_string())]);
         typed_out.textures_delta.clear();
         assert!(!typed_intent.send);
         assert_eq!(
@@ -1403,14 +1458,19 @@ mod tests {
             ChatMessage::new(ChatRole::User, "Pick a vendor.", None),
             ChatMessage::new(ChatRole::Agent, CHOICE_DIGEST, None),
         ];
-        let choices =
-            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CHOICE_DIGEST));
+        let choices = crate::ui::reply_tail::digest_choices(
+            &crate::ui::reply_tail::parse_reply_tail(CHOICE_DIGEST),
+        );
         let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
 
         let mut run = ChipTapHarness::new(messages, true);
         let (mut output, _) = run.frame(Vec::new());
         let cells = chip_cells(&output);
-        assert_eq!(cells.len(), 2, "business dims the chips, it does not erase them");
+        assert_eq!(
+            cells.len(),
+            2,
+            "business dims the chips, it does not erase them"
+        );
         assert!(
             cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER),
             "disabled chips keep the resting border (no hover-promotion affordance)"
@@ -1475,7 +1535,11 @@ mod tests {
             false,
         );
         let (mut output, _) = run.frame(Vec::new());
-        assert_eq!(chip_cells(&output).len(), 2, "open digest renders both chips");
+        assert_eq!(
+            chip_cells(&output).len(),
+            2,
+            "open digest renders both chips"
+        );
         output.textures_delta.clear();
     }
 }

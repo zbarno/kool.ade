@@ -24,23 +24,20 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
         "Project repository manifest changed during generation"
     );
     let layout = crate::artifacts::layout::ArtifactLayout::new(&state.repo_root);
-    let config = std::fs::read_to_string(layout.legacy_project_config())?;
+    let config = std::fs::read_to_string(layout.project_config())?;
     anyhow::ensure!(
         crate::artifacts::config_io::parse(&config).map_err(anyhow::Error::msg)? == state.config,
         "Planning configuration changed during generation"
     );
     let mut product_modules = BTreeMap::new();
-    for name in crate::artifacts::product_docs::MODULES {
-        let id = name.trim_end_matches(".md");
-        if feature.contains(name) || feature.contains(&format!("product:{id}")) {
-            product_modules.insert(
-                id.to_string(),
-                std::fs::read_to_string(
-                    layout
-                        .legacy_product_module(name)
-                        .expect("product module names are application-owned single components"),
-                )?,
-            );
+    let modules = crate::artifacts::product_docs::load_documents(&state.repo_root)?
+        .ok_or_else(|| anyhow::anyhow!("Product modules are missing"))?;
+    for document in modules {
+        if feature.contains(&document.module.path)
+            || feature.contains(&format!("product:{}", document.module.id))
+            || feature.contains(&document.module.title)
+        {
+            product_modules.insert(document.module.id, document.content);
         }
     }
     anyhow::ensure!(
