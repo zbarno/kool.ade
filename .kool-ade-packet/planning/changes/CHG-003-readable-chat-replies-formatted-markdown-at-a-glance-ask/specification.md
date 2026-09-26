@@ -1,5 +1,6 @@
 # CHG-003: Readable Chat Replies — Formatted Markdown, At-a-Glance Asks, and Quick Option Chips
 <!-- packet-artifact-id:v1 {"uid":"2026356e-2bfa-40fa-bef7-de68b792c62a","displayId":"CHG-003","title":"Readable Chat Replies — Formatted Markdown, At-a-Glance Asks, and Quick Option Chips"} -->
+<!-- packet-change:v1 {"schemaVersion":1,"uid":"2026356e-2bfa-40fa-bef7-de68b792c62a","displayId":"CHG-003","status":"implementing"} -->
 
 **Status:** Implementing
 **Directed by:** Operator statements in the Main Chat interview: the formatting complaint; the trailing 'ask/recommendation/point' list ('almost like a TL;DR, but not explicitly called out that way'); tappable controls for explicit options — with an explicit refusal to limit replies to listable forms.

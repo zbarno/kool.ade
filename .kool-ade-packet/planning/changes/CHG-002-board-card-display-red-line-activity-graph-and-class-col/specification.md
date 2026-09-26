@@ -1,5 +1,6 @@
 # CHG-002: Board Card Display — Red-Line Activity Graph and Class-Colored Cards
 <!-- packet-artifact-id:v1 {"uid":"7bdd09bd-5103-49b0-a52f-d3540942f67d","displayId":"CHG-002","title":"Board Card Display — Red-Line Activity Graph and Class-Colored Cards"} -->
+<!-- packet-change:v1 {"schemaVersion":1,"uid":"7bdd09bd-5103-49b0-a52f-d3540942f67d","displayId":"CHG-002","status":"implemented"} -->
 
 **Status:** Implemented
 
