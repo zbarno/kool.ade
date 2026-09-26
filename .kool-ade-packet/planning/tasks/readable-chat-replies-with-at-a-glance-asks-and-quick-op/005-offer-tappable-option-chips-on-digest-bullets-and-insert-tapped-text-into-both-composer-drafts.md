@@ -1,4 +1,5 @@
 # 005 — Offer tappable option chips on digest bullets and insert tapped text into both composer drafts
+<!-- packet-artifact-id:v1 {"uid":"b1833eb5-e73a-41c5-a7f3-25f81fd5067d","displayId":"005","title":"Offer tappable option chips on digest bullets and insert tapped text into both composer drafts","parentUid":"1ee9cc82-9452-47f8-b61d-f28b4e52fb8e"} -->
 
 Feature: Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003)
 

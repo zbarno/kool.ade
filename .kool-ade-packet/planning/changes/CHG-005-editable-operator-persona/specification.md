@@ -1,4 +1,5 @@
 # CHG-005: Editable Operator Persona
+<!-- packet-artifact-id:v1 {"uid":"f1dd8f71-159a-4344-a8b7-d04723d29d92","displayId":"CHG-005","title":"Editable Operator Persona"} -->
 
 **Status:** Ready
 **Directed by:** Operator request in Main Chat: build out a persona system that tweaks the main agent's persona, editable in the interface using standard markdown, with a shipped default given by the operator (concise; protective of the user, the system, then the project; inquisitive; creative). Follow-up ruling: scoping is 'Operator level'. Boundary ruling (CLR-022): Option 1 — subordinate overlay.

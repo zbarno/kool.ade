@@ -1,4 +1,5 @@
 # 005 — Author the fixture preparer and scripted runbook for the seven-outcome exit demonstration
+<!-- packet-artifact-id:v1 {"uid":"084b6c9e-787e-4c47-9db2-94d29fc6965f","displayId":"005","title":"Author the fixture preparer and scripted runbook for the seven-outcome exit demonstration","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

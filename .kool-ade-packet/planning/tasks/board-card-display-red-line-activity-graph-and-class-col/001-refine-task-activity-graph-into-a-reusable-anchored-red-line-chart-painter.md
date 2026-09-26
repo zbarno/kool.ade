@@ -1,4 +1,5 @@
 # 001 — Refine task_activity graph into a reusable anchored red line chart painter
+<!-- packet-artifact-id:v1 {"uid":"c26ade2e-1cbc-4933-bffe-4207dee1e564","displayId":"001","title":"Refine task_activity graph into a reusable anchored red line chart painter","parentUid":"3874b3fb-347f-4208-864b-570bcc7158c9"} -->
 
 Feature: Board Card Display — Red-Line Activity Graph and Class-Colored Cards (CHG-002)
 

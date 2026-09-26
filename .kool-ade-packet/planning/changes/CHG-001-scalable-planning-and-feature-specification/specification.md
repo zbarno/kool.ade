@@ -1,4 +1,5 @@
 # CHG-001: Scalable Planning and Feature Specifications
+<!-- packet-artifact-id:v1 {"uid":"f72f1431-7892-454d-ac23-91f8c3e08f28","displayId":"CHG-001","title":"Scalable Planning and Feature Specifications"} -->
 
 **Status:** Implemented
 

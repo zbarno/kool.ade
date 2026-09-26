@@ -1,4 +1,5 @@
 # 002 — Generalize task_chat::split_reply into a legacy-faithful digest detector for stored and new reply tails
+<!-- packet-artifact-id:v1 {"uid":"24ed363e-1307-481a-8d5a-88b4adb23f19","displayId":"002","title":"Generalize task_chat::split_reply into a legacy-faithful digest detector for stored and new reply tails","parentUid":"1ee9cc82-9452-47f8-b61d-f28b4e52fb8e"} -->
 
 Feature: Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003)
 

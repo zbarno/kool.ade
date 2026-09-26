@@ -1,4 +1,5 @@
 # 002 — Mount the task-card red activity line in the band below the activity preview
+<!-- packet-artifact-id:v1 {"uid":"7a7e20ad-eeea-4761-bc4d-497f69282f34","displayId":"002","title":"Mount the task-card red activity line in the band below the activity preview","parentUid":"3874b3fb-347f-4208-864b-570bcc7158c9"} -->
 
 Feature: Board Card Display — Red-Line Activity Graph and Class-Colored Cards (CHG-002)
 

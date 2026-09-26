@@ -1,4 +1,5 @@
 # 004 — Render the lifted at-a-glance digest block under Main Chat replies at card-chat parity
+<!-- packet-artifact-id:v1 {"uid":"dfb3f2bc-9080-442c-b0b0-edefdaa91f77","displayId":"004","title":"Render the lifted at-a-glance digest block under Main Chat replies at card-chat parity","parentUid":"1ee9cc82-9452-47f8-b61d-f28b4e52fb8e"} -->
 
 Feature: Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003)
 

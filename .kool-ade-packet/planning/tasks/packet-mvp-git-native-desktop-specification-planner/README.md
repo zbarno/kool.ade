@@ -1,4 +1,5 @@
 # Packet MVP — git-native desktop specification planner — task stories
+<!-- packet-artifact-id:v1 {"uid":"c5f73d34-bd71-42b4-95eb-daaee11b098a","displayId":"BATCH-C5F73D34","title":"Packet MVP — git-native desktop specification planner"} -->
 
 **Status: Complete — all stories and batch checks validated.**
 

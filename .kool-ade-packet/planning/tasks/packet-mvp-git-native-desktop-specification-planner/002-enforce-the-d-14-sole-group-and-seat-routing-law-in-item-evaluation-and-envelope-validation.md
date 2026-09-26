@@ -1,4 +1,5 @@
 # 002 — Enforce the D-14 sole, group, and seat routing law in item evaluation and envelope validation
+<!-- packet-artifact-id:v1 {"uid":"702b23b1-2ac4-4fcf-bad2-c92dbd9e471b","displayId":"002","title":"Enforce the D-14 sole, group, and seat routing law in item evaluation and envelope validation","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

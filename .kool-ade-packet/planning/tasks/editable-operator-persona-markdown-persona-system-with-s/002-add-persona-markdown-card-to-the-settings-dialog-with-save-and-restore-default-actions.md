@@ -1,4 +1,5 @@
 # 002 — Add persona markdown card to the Settings dialog with save and restore-default actions
+<!-- packet-artifact-id:v1 {"uid":"4974d41e-2ab7-4b43-a37d-ee0b7e0ed17d","displayId":"002","title":"Add persona markdown card to the Settings dialog with save and restore-default actions","parentUid":"75b345b5-4459-4270-820d-bdbe857debaa"} -->
 
 Feature: Editable Operator Persona (markdown persona system with shipped default voice)
 

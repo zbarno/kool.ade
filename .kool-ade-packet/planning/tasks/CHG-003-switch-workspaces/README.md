@@ -1,4 +1,5 @@
 # Switch Workspaces — task stories
+<!-- packet-artifact-id:v1 {"uid":"474c99dc-369a-4425-a490-f8443b37e774","displayId":"BATCH-474C99DC","title":"Switch Workspaces","parentUid":"2026356e-2bfa-40fa-bef7-de68b792c62a"} -->
 
 **Status: Complete — all stories and batch checks validated.**
 

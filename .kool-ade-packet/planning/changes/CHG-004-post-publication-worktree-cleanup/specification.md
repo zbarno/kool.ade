@@ -1,4 +1,5 @@
 # CHG-004: Post-Publication Worktree Cleanup
+<!-- packet-artifact-id:v1 {"uid":"2cf5b8a7-1a4e-4f0a-9dcb-fe6de2b85894","displayId":"CHG-004","title":"Post-Publication Worktree Cleanup"} -->
 
 **Status:** Ready — planning complete. The operator signalled implementation intent in this planning conversation; per the CHG-001/CHG-002/CHG-003 precedent the operative release is the in-app **Approve feature for implementation** action registering the CHG-004 entry in the approval ledger (`.planner/workflow.json`). Ready itself confers no implementation authority.
 **Directed by:** Operator ruling: stale task worktrees must be reclaimed as a terminal step of the per-task workflow (when the task's code is Done and merged), not as a separate periodic cleanup job.

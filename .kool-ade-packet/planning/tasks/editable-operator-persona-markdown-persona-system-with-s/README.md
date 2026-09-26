@@ -1,4 +1,5 @@
 # Editable Operator Persona (markdown persona system with shipped default voice) — task stories
+<!-- packet-artifact-id:v1 {"uid":"75b345b5-4459-4270-820d-bdbe857debaa","displayId":"BATCH-75B345B5","title":"Editable Operator Persona (markdown persona system with shipped default voice)"} -->
 
 **Status: Complete — all stories and batch checks validated.**
 

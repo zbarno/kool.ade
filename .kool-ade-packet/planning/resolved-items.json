@@ -1,5 +1,6 @@
 [
   {
+    "uid": "9356c662-866d-4415-b35d-f5829c1bae40",
     "id": "CLR-019",
     "priority": "normal",
     "authority": "human",
@@ -14,6 +15,7 @@
     "status": "resolved"
   },
   {
+    "uid": "a81268a6-c69b-4ad2-9748-3518762b0e84",
     "id": "CLR-017",
     "priority": "normal",
     "authority": "human",
@@ -28,6 +30,7 @@
     "status": "resolved"
   },
   {
+    "uid": "da892479-0169-4e6b-9cb7-08d3aba5a02b",
     "id": "CLR-015",
     "priority": "normal",
     "authority": "human",
@@ -42,6 +45,7 @@
     "status": "resolved"
   },
   {
+    "uid": "78737925-37d8-43cb-a3eb-814381c08c0d",
     "id": "CLR-016",
     "priority": "normal",
     "authority": "human",
@@ -56,6 +60,7 @@
     "status": "resolved"
   },
   {
+    "uid": "fe80b61d-adb0-4bc9-8d56-7d3a31d5b4fe",
     "id": "CLR-021",
     "priority": "high",
     "authority": "review",
@@ -65,11 +70,13 @@
     "question": "How should NFR-8's 'warning-free clippy' bar be read after a clippy-toolchain drift? Fresh `cargo clippy --all-targets --offline` on HEAD 3ba5aa2 (rust 1.98 clippy) reports 110 warnings across 37 files, while `cargo test --offline` is green (292/0). Options: (a) insist on globally zero warnings and commission a lint-cleanup sweep before CHG-003 concludes; (b) pin the clippy toolchain version so the bar is reproducible, then re-baseline; (c) interpret NFR-8 as 'no NEW warnings versus the recorded baseline at the commit under verification'. Pending the decision, CHG-003's stories should verify warning-neutrality against a 3ba5aa2 snapshot rather than a globally clean clippy.",
     "reason": "Surfaced while reconciling CHG-002: no warning traces to the CHG-002 diff (its dedicated files task_activity.rs/theme.rs are clean; the single layout.rs warning at :912 sits in merged-record UI added by the later writer-gate commit 3ba5aa2), yet the wave blankets pre-existing code — classic clippy-version drift (every diagnostic cites rust-1.98.0). It matters now because CHG-003's REQ-ALL-1/AC-6 assume a literally clean clippy, and CHG-003's compliant diff (src/ui/** plus two prompt files) cannot silence warnings outside its scope, so the bar's reading decides whether CHG-003 can ever pass its own gate.",
     "feature_id": "CHG-002",
+    "feature_uid": "7bdd09bd-5103-49b0-a52f-d3540942f67d",
     "recommendation": "Provisional steering (board-reviewable, human-choosable): take (c) — record a clippy baseline snapshot per merge tip and verify 'no new warnings' for the commit under review — combined with a pin of the clippy toolchain version in launch/runbook docs so the bar is reproducible, and schedule a standalone lint-cleanup sweep (option-a substance) as ordinary maintenance rather than folding it into CHG-003's diff-bound scope.",
     "evidence": "Local runs at reconciliation, HEAD 3ba5aa2: `cargo test --offline` → 292 passed / 0 failed across lib + 2 integration suites. `cargo clippy --all-targets --offline` → exit 0, 110 warnings in 37 files (heaviest: src/app/root.rs ×20, src/core/implementation.rs ×9, src/harness/pi_events.rs ×6; dominant lint classes collapsible_if, new_without_default, large_enum_variant, useless_format, Arc !Send/Sync). CHG-002-attributable files: task_activity.rs 0 warnings, theme.rs 0, layout.rs 1 (:912, collapsible_if on the 'Merged into …' merged-record label — code introduced by 3ba5aa2). The CHG-002 commits 7f7831e/6b851d3/beb998d each passed per-ticket validation at their merge bases per the batch index ('Complete — all stories and batch checks validated').\n\nResolution outcome: Per your 'yes': NFR-8's bar is now 'no new warnings versus the recorded baseline at the commit under verification', pinned to Rust 1.98 with rebaseline on toolchain upgrade, recorded as D-34. CHG-003's REQ-ALL-1 and AC-6 are re-aligned; story 004's pre-work baseline-diff method is the binding form of the bar. The 110 pre-existing warnings are tracked in module 11 as a standalone maintenance sweep.\n\nNo reply needed.",
     "status": "resolved"
   },
   {
+    "uid": "a7015f10-cddf-4c3d-a739-5c30b6139e84",
     "id": "CLR-022",
     "priority": "blocking",
     "authority": "human",
@@ -79,11 +86,13 @@
     "question": "Persona authority boundary (CHG-005): what may the operator-edited persona influence? Option 1 — a voice-and-principles overlay ON TOP of the standing system contract: tone, priorities (user > system > project), inquiring/creative disposition — while envelope, routing/veto, board protocol, and safety rails stay inviolate. Option 2 — a wider override: persona text may also reshape structural behavior (formats, sections, workflow habits), with the application's validation falling back wherever the model strays. Machine legality is enforced application-side under both options; the difference is how much the operator's text may legitimately request of the model.",
     "reason": "It decides whether the persona is a styling layer or a partial control plane: REQ-P4-1's wording, the adversarial-boundary test (AC5), the editor's disclaimers, and the confidence promise to the operator all hinge on it, and CHG-005 cannot reach Ready without the ruling.",
     "feature_id": "CHG-005",
+    "feature_uid": "f1dd8f71-159a-4344-a8b7-d04723d29d92",
     "recommendation": "Take Option 1 — the subordinate overlay, framed in the editor as guidance ('your persona tunes voice and principles; the app's protocol remains') — because application-side validation already guarantees legality, so Option 2 buys expressiveness only at the price of frequent surprise fallbacks.",
     "evidence": "System prompt is assembled per turn from the SYSTEM_INSTRUCTIONS const (src/core/prompt.rs:12) joined with SPECIFICATION_POLICY and a mode tail (src/core/turn.rs), pushed to Pi as --append-system-prompt (src/harness/pi_harness.rs:233), and shared by both conversation modes; legality is enforced application-side in src/core/validation.rs regardless of prompt text. Operator's four beats as quoted in the request; scoping ruling 'Operator level' recorded as DE-1 in the draft.\n\nResolution outcome: Ruling recorded: Option 1 — the persona is a subordinate voice-and-principles overlay; envelope, routing/veto, board protocol, and safety rails stay inviolate. CLR-022 resolved; REQ-P4-1 and AS-2 de-provisionalized, DE-3 logs the ruling. CHG-005 advances to Ready — the board card now needs your explicit approval before implementation starts. No reply needed.",
     "status": "resolved"
   },
   {
+    "uid": "b054f95f-23d3-4047-89da-e9083619b955",
     "id": "CLR-023",
     "priority": "blocking",
     "authority": "human",
@@ -93,11 +102,13 @@
     "question": "Self-review cadence (CHG-006): when does Packet run the review of its own logs and the active project's planning files? Option 1 — manual only: a \"Run self-review\" action the operator invokes on demand. Option 2 — manual, plus one automatic run shortly after each feature reconciliation, so suggestions surface without prompting. Both options keep every Enhancement card behind the human approval button.",
     "reason": "It sets the final form of Scope item 1 — whether the feature needs scheduler wiring, automated busy-state guarding, and unexpected-model-spend policies before the spec can be finalized, and it changes the operator-facing promise (available on demand vs surfaces itself after milestones).",
     "feature_id": "CHG-006",
+    "feature_uid": "29858fa0-0e37-4cda-a0a4-5780921f2ed0",
     "recommendation": "Option 1 (manual only) for the first cut: cheapest, fully predictable, zero surprise model spend; Option 2's post-reconciliation hook is a small layered follow-on once the manual path earns its keep.",
     "evidence": "Queue and workspace controls already live in top bar / Workspace→Settings (README); D-30's Auto mode is the existing automation precedent but only for the implementation queue — no autonomous analytical runs exist; D-24's 12-hour turn budget means unattended runs need explicit scheduling policy.\n\nResolution outcome: Ruling recorded: Option 2 — the manual 'Run self-review' action stands, plus one automatic run firing after each feature reconciliation completes, mounted at the settlement observation the app already makes in src/app/root.rs::advance_reconciliation (alongside its existing probe/cooldown mechanics). Captured in the CHG-006 draft as DE-1 (ruled), a new REQ-S1-3 (exactly one auto-run per reconciliation, same busy-state guards, 'auto' flagging, at most one extra Pi turn), de-contingenced Scope item 1, and new AC-7 covering the auto cadence. Downstream of any run — manual or auto — everything still sits behind the card's explicit Approve button. CHG-005 story 001 continues in its worktree; its outcome lands at merge. Your one remaining decision on this feature is CLR-024 (approval depth) on the board card — answer it whenever convenient. No reply needed.",
     "status": "resolved"
   },
   {
+    "uid": "1c224ba9-f7ba-4319-bcf9-fa38e326a8c1",
     "id": "CLR-024",
     "priority": "high",
     "authority": "human",
@@ -107,11 +118,13 @@
     "question": "Enhancement approval depth (CHG-006): Option 1 — the card's Approve button acts as the SINGLE formal implementation approval: it mints the CHG, records the approval in workflow.json at mint time, and spec-breakdown-and-queue start from that one click, as the request phrases it. Option 2 — card approval only accepts the idea's conversion to a CHG spec; the conventional separate \"Approve feature for implementation\" step still gates task generation afterwards.",
     "reason": "It defines REQ-S4-1's mechanics and whether workflow.rs::prepare's existing approval check can be satisfied by the card click; the wrong reading either silently weakens D-29's explicit-human-approval property or forces a second, undocumented click contradicting the \"once approved ... implementation should begin\" request.",
     "feature_id": "CHG-006",
+    "feature_uid": "29858fa0-0e37-4cda-a0a4-5780921f2ed0",
     "recommendation": "Option 1: the card's Approve gesture IS the explicit human approval, recorded with the same contract-hash mechanism approve_feature uses, so FR-14's property (no task generation without explicit human approval) holds unchanged while delivering the requested one-click experience.",
     "evidence": "src/core/workflow.rs::approve_feature snapshots the feature contract into .planner/workflow.json and ::prepare refuses generation without that record; layout.rs:195 already establishes board-level feature approval as an accepted interaction pattern; the operator's request states approval leads directly to breakdown and implementation.\n\nResolution outcome: Ruling recorded: Option 1 — the card's Approve is the single formal implementation approval (now DE-2), recorded at mint time with the approve_feature contract-hash mechanism, so prepare's check is satisfied and no second step is needed. REQ-S4-1 restated, REQ-S4-3 added, AC-3 strengthened; CHG-006 advances to Ready with CLR-024 resolved. Starting implementation still requires your explicit approval of the Ready board card. No reply needed.",
     "status": "resolved"
   },
   {
+    "uid": "bc252bac-6b9e-4546-8d74-3e5129eefbe4",
     "id": "CLR-025",
     "priority": "high",
     "authority": "review",
@@ -121,11 +134,13 @@
     "question": "The foreign commit f773b2d ('feat: Enhance feature management and task handling', pushed mid-batch and extended by the in-flight task's working-tree changes) now rides master ungated. Will that task's batch carry a D-34-style gate ticket covering f773b2d's footprint — 23 src paths, its rewrite of tests/multi_repository_feature.rs, and its CHG-001 feature-doc delta — before that work releases?",
     "reason": "Per the operator ruling recorded in CHG-005 DE-4, f773b2d is attributed to the other in-flight task and excluded from CHG-005's gate, so its warnings, test rewrites, and product-doc changes enter the shared tree without certification; releasing that work ungated would strand the next reconciliation with unverifiable current truth.",
     "feature_id": "CHG-001",
+    "feature_uid": "f72f1431-7892-454d-ac23-91f8c3e08f28",
     "recommendation": "Approve: add a mirror-of-005 gate ticket to that task's batch, scoped to f773b2d's footprint (src/ plus tests/multi_repository_feature.rs plus the CHG-001 spec delta) on the pinned Rust 1.98 toolchain; treat f773b2d as pre-existing debt for CHG-005 purposes only.",
     "evidence": "f773b2d = +885/−281 over 25 files; 18 src paths outside CHG-005's seven-path set; never captured by any clippy baseline or D-34 pass; CHG-005 gate record /tmp/d34_gate_df5e3d9/RECORD.md foreign-commit dossier; operator ruling in ticket 005 conversation: 'the other local changes are from another task, ignore those'.\n\nResolution outcome: Approved provisional decision CLR-025.",
     "status": "resolved"
   },
   {
+    "uid": "add9c3cf-50f7-494c-b156-7184643c97a8",
     "id": "CLR-027",
     "priority": "normal",
     "authority": "agent",
@@ -135,11 +150,13 @@
     "question": "Exclusive-ownership assumption (CHG-004): cleanup resolves candidates solely from the task's recorded worktree/branch metadata and its documented sibling naming (`<key>`, `<key>-integration-<base[:12]>`, `packet/<key>`, `packet/integration/<key>/<base[:12]>`) inside `<checkout-parent>/.packet-worktrees/<project-slug>/`, assuming Packet exclusively owns that subtree for the connected project. Nothing found incidentally in the roots (other tools, another Packet instance, manual directories) is ever a candidate. Proposed enforcement: before removing, confirm each candidate is registered in `git worktree list` at the recorded path; any registration/path mismatch aborts that item with a diagnostic instead of removing.",
     "reason": "Makes 'never touches foreign checkouts' operable rather than aspirational: without the guard, a coincidental occupant of the worktrees roots could be swept by an otherwise harmless done step, and the operator has a history of manual passes sharing those roots.",
     "feature_id": "CHG-004",
+    "feature_uid": "2cf5b8a7-1a4e-4f0a-9dcb-fe6de2b85894",
     "recommendation": "Adopt the record-only candidate rule plus the worktree-list path-match guard as written; reversible at story review.",
     "evidence": "Record construction in src/core/implementation.rs: root = repo parent + .packet-worktrees + project slug; branch `packet/<key>`; integration sibling derived from the state.worktree file-name plus branch `packet/integration/<key>/<base[:12]>`. The feature's Decisions and Assumptions already assume exclusive ownership; this item converts it into an enforcement strategy. Resolvable from evidence at story-writing time; no user input needed.\n\nResolution outcome: Investigated CLR-027 read-only and it resolves: the exclusive-ownership assumption is operationally sound — Packet creates the worktrees root itself (src/core/implementation.rs:578–581), persisted Implementation records carry exact worktree paths and branches for the task and each per-(task,base) integration sibling (:23–29, :1215, :1221–1230), and task keys embed a 16-hex FNVA1A64 fingerprint so foreign name collisions are negligible. I confirmed the record-scoped candidate rule and adopted the proposed guard with sharpened edges: one parsed `git worktree list` snapshot per cleanup; per-candidate match of recorded path (lexically normalized) and recorded branch; mismatch or a present-but-unregistered directory aborts that item with a diagnostic and removes nothing; a gone registration with an absent directory degenerates to `git worktree prune` plus diagnostic (prune only strips missing-dir registrations). The codebase already uses the mirror idiom (identity-mismatch 'refusing to modify' guards at :715–722, :1274–1277), and no removal path exists yet, so the guard is additive. Change recorded in the CHG-004 spec (Desired Behavior, R4, Decisions, AC5); CLR-027 resolved. Remaining human item on this feature: CLR-026 (branch reclamation under squash).",
     "status": "resolved"
   },
   {
+    "uid": "00f1ae8c-50e8-47c1-a21b-2914564a1dd7",
     "id": "CLR-028",
     "priority": "normal",
     "authority": "agent",
@@ -149,11 +166,13 @@
     "question": "\"Divergent\" operational definition for the CHG-004 R4 skip guard. Proposed deterministic predicate: a candidate worktree is removable only if `git status --porcelain` is empty AND its HEAD commit remains reachable from at least one surviving ref after branch handling (a kept-not-merged branch or a remote-tracking ref); \"divergent\" otherwise. Git's own refusal at `git worktree remove` (dirty, locked) remains the final guard — never `--force`. A candidate whose directory is already absent degenerates to registration pruning plus diagnostic and counts as handled for AC4.",
     "reason": "AC4 must simulate dirty and missing-directory states with a crisp, testable pass/fail predicate, and the predicate must not recompute ancestry (the ruling delegates to Git). Locking the wording now keeps the implementation stories mechanical rather than interpretive.",
     "feature_id": "CHG-004",
+    "feature_uid": "2cf5b8a7-1a4e-4f0a-9dcb-fe6de2b85894",
     "recommendation": "Adopt the predicate as stated: clean status + post-branching reachability + Git refusal as final guard; missing directory degenerates to prune+diagnose, not failure.",
     "evidence": "Feature R4/AC4; `git worktree remove` without `--force` refuses dirty worktrees natively; missing-directory states are realistic because the operator already ran a manual cleanup pass at the time of the ruling, which can strand registrations without directories. Agent-resolvable during story writing; recorded so the plan is auditable.\n\nResolution outcome: CLR-028 investigated read-only and resolved. Source verification: squash publication at implementation.rs:1294, containment reconfirmation at :1194 with delegation probes at :1202-1208, verified_head refusal idioms at :972-973 and :1377-1383, and still no worktree-removal or branch-deletion path anywhere in src/, so the guard is additive. The locked operative definition stands, formalised this turn: a candidate is removable iff CLEAN (empty git status --porcelain) AND HEAD-STABLE (HEAD equals the recorded verified_head) AND ANCHORED (a surviving ref under refs/heads|refs/remotes|refs/packet-* contains HEAD per Git-delegated probes, or its delivery is attested at that head) - 'divergent' is the negation, skipped with a specific diagnostic and no mutation. Git's unqualified-remove refusal (dirty/locked) is the final guard, never --force; an absent directory degenerates to prune-plus-diagnostic and counts as handled. Reachability alone would leak published worktrees under the squash regime, hence the attested-delivery arm; one new edge locked: an externally deleted branch ref under a live registration matches the exclusivity guard only at the exact recorded HEAD. AC4 is now a crisp S1-S8 pass/fail simulation set. Remaining CHG-004 item: CLR-026 (branch reclamation under squash, Review, provisional lean on the board). No reply needed.",
     "status": "resolved"
   },
   {
+    "uid": "b6391933-877b-40cb-8de3-c52207f30884",
     "id": "CLR-026",
     "priority": "high",
     "authority": "review",
@@ -163,6 +182,7 @@
     "question": "Branch reclamation under squash (CHG-004 R3): auto-publication delivers the task as a SQUASH commit on the default branch (`git merge --squash` in the integration worktree), so the original `packet/<key>` commits are not ancestors of the published tip and `git branch -d` usually REFUSES to delete the task branch after confirmed publication. Strict R3 (ruling-faithful) keeps task branches — directories are reclaimed, but one local branch still accrues per finished task, which is half of the pain the operator reported. Option 1 — keep R3 strict to Git's `-d` (retain task branches that fail the ancestry check, record the refusal reason). Option 2 — treat the confirmed publication as the merge attestation for Packet-created task/integration branches: confirmed auto-publication (persisted candidate commit present in the remote default-branch history — a check the pipeline already performs for lost-push recovery) or a polled MERGED, combined with a clean worktree, authorizes branch deletion even where `-d` refuses on ancestry; strict `-d` still applies anywhere no such attestation exists.",
     "reason": "Decides whether R3 is genuinely effective and what the branch tests in AC5 assert. Option 1 risks the feature feeling inert on the branch axis (the operator's manual-pass habit persists); Option 2 deletes branches on a stronger operational attestation than raw ancestry but departs from the ruling's literal wording. Neither endangers work — the dirty/divergent rails stand — so this is a bookkeeping-aggressiveness ruling, best settled before stories hard-code branch handling.",
     "feature_id": "CHG-004",
+    "feature_uid": "2cf5b8a7-1a4e-4f0a-9dcb-fe6de2b85894",
     "recommendation": "Provisional (board-reviewable): Option 2 for the attested cases — the published content demonstrably reached the remote default branch, and the ancestry check exists to protect unmerged work, of which there is none once publication is confirmed; keep strict `-d` everywhere no confirmed publication/MERGED attests (failed, attention, review states). Integration branches are unaffected either way: they fast-forward-push, so `-d` already accepts them.",
     "evidence": "src/core/implementation.rs: auto-publish runs `merge --squash <task_head>` in the integration worktree then one atomic fast-forward push; the task branch `packet/<key>` is created at record construction and no branch-deletion path exists anywhere in implementation.rs / implementation_queue.rs / reconciliation.rs (read-only audit). `git branch -d` semantics: refuses unless the commit is an ancestor of the merge destination — a squash descendant is not. Operator pain statement: one pair of directories PLUS local branches per finished task; manual pass after every merge/PR.\n\nResolution outcome: Locked in: Option 2 (attested deletion) is the settled rule. The contract is already recorded in CHG-004 — R3, the Settled decision citing your delegations, and AC1/AC2/AC5 — so this turn only closes the ledger: CLR-026 is resolved, leaving CHG-004 with no open items and ready for the in-app \"Approve feature for implementation\" release. No reply needed.",
     "status": "resolved"

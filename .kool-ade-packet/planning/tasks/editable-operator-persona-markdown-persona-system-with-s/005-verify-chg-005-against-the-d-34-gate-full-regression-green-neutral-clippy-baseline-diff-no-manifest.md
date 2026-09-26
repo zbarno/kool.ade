@@ -1,4 +1,5 @@
 # 005 — Verify CHG-005 against the D-34 gate: full regression green, neutral clippy baseline diff, no manifest delta
+<!-- packet-artifact-id:v1 {"uid":"3d55e486-57fc-4eb7-aca3-b5afb70aaa78","displayId":"005","title":"Verify CHG-005 against the D-34 gate: full regression green, neutral clippy baseline diff, no manifest delta","parentUid":"75b345b5-4459-4270-820d-bdbe857debaa"} -->
 
 Feature: Editable Operator Persona (markdown persona system with shipped default voice)
 

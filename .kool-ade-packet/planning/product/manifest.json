@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "uid": "9b3f7116-9773-4881-829f-46e75c6a393a",
+      "id": "01-vision",
+      "title": "1. Vision",
+      "path": "01-vision.md",
+      "coreConcept": "overview"
+    },
+    {
+      "uid": "146ecd9a-5f08-40c8-8a8b-90f01b937921",
+      "id": "02-scope",
+      "title": "2. Scope",
+      "path": "02-scope.md"
+    },
+    {
+      "uid": "d9e149bb-d5b1-43ae-a2f6-1fca642b0b59",
+      "id": "03-actors-and-roles",
+      "title": "3. Actors and Roles",
+      "path": "03-actors-and-roles.md",
+      "coreConcept": "users-and-outcomes"
+    },
+    {
+      "uid": "c9620e9b-c719-431e-8963-7ed41ee7dc59",
+      "id": "04-feature-inventory",
+      "title": "4. Feature Inventory",
+      "path": "04-feature-inventory.md"
+    },
+    {
+      "uid": "bc14181c-e16c-43d1-9d6e-990a40a29213",
+      "id": "05-functional-requirements",
+      "title": "5. Functional Requirements",
+      "path": "05-functional-requirements.md",
+      "coreConcept": "current-capabilities"
+    },
+    {
+      "uid": "19357c9f-a01b-49d0-8c34-d50a49816cb7",
+      "id": "06-non-functional-requirements",
+      "title": "6. Non-Functional Requirements",
+      "path": "06-non-functional-requirements.md",
+      "coreConcept": "quality-and-acceptance"
+    },
+    {
+      "uid": "db8c0cdb-df16-4c57-9ef9-1a7e7c1e6df2",
+      "id": "07-data-model",
+      "title": "7. Data Model",
+      "path": "07-data-model.md"
+    },
+    {
+      "uid": "2f7ae3cd-4791-4311-a018-f5e502a5f571",
+      "id": "08-architecture",
+      "title": "8. Architecture",
+      "path": "08-architecture.md",
+      "coreConcept": "architecture-and-constraints"
+    },
+    {
+      "uid": "64cd5829-55f0-4d32-b50f-1be7255ab2bb",
+      "id": "09-environment",
+      "title": "9. Environment, Launch, and Preconditions",
+      "path": "09-environment.md"
+    },
+    {
+      "uid": "0efda0ed-91c9-492f-8850-c0ecc208adb7",
+      "id": "10-decisions",
+      "title": "10. Decisions Log",
+      "path": "10-decisions.md",
+      "coreConcept": "decisions"
+    },
+    {
+      "uid": "f9dfac3e-4dfd-4f48-8f70-7f832e82a417",
+      "id": "11-risks",
+      "title": "11. Risks and Open Concerns",
+      "path": "11-risks.md"
+    },
+    {
+      "uid": "cbcdf93c-2852-431f-b2e9-9a377946ea43",
+      "id": "12-acceptance",
+      "title": "12. Acceptance / Definition of Done",
+      "path": "12-acceptance.md"
+    },
+    {
+      "uid": "73f43250-7723-41bf-98a6-26dbf008d609",
+      "id": "13-source-map",
+      "title": "13. Source Map",
+      "path": "13-source-map.md"
+    }
+  ]
+}

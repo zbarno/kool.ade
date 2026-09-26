@@ -1,4 +1,5 @@
 # Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003) — task stories
+<!-- packet-artifact-id:v1 {"uid":"1ee9cc82-9452-47f8-b61d-f28b4e52fb8e","displayId":"BATCH-1EE9CC82","title":"Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003)"} -->
 
 **Status: Complete — all stories and batch checks validated.**
 

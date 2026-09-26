@@ -1,4 +1,5 @@
 # CHG-006: Packet Self-Review and Enhancement Pipeline — Log Mining, Generated Ideas, and Approvable Enhancement Cards
+<!-- packet-artifact-id:v1 {"uid":"29858fa0-0e37-4cda-a0a4-5780921f2ed0","displayId":"CHG-006","title":"Packet Self-Review and Enhancement Pipeline — Log Mining, Generated Ideas, and Approvable Enhancement Cards"} -->
 
 **Status:** Ready
 **Directed by:** Operator Main Chat request: Packet must review itself to find areas of improvement (new features, quality of life, bug fixes); it must stay aware of itself even when the project it is working on is not Packet; it should review its own logs and the project files it is working on; the LLM brainstorms and ideates ideas (generative and novel); ideas are reviewed and evaluated to identify the best, which is added to the ToDo as a new type "Enhancement"; the kanban item carries an approval button in addition to normal steering/conversation inputs; once approved it is broken down into tasks and implementation begins.

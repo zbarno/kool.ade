@@ -1,4 +1,5 @@
 # 003 — Write the unlabeled reply-tail digest contract as two prose-only paragraphs in prompt.rs and turn.rs
+<!-- packet-artifact-id:v1 {"uid":"05fd9f03-ed98-47eb-93df-234ca7dcc2a5","displayId":"003","title":"Write the unlabeled reply-tail digest contract as two prose-only paragraphs in prompt.rs and turn.rs","parentUid":"1ee9cc82-9452-47f8-b61d-f28b4e52fb8e"} -->
 
 Feature: Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003)
 
