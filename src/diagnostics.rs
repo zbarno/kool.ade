@@ -54,6 +54,7 @@ fn write_report(directory: &Path, kind: &str, detail: &str) -> std::io::Result<P
         options.mode(0o600);
     }
     let mut file = options.open(&path)?;
+    let detail = crate::error::redact_secrets(detail);
     writeln!(
         file,
         "Packet {}\nUTC: {now}\nPID: {}\nKind: {kind}\nExecutable: {}\n\n{detail}",
@@ -117,5 +118,24 @@ mod tests {
             );
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn startup_reports_redact_url_userinfo_before_persisting() {
+        let root = std::env::temp_dir().join(format!(
+            "packet-diagnostic-redaction-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let path = super::write_report(
+            &root,
+            "test",
+            "clone https://alice:ghp_secret@github.com/org/project failed",
+        )
+        .unwrap();
+        let report = std::fs::read_to_string(path).unwrap();
+        assert!(report.contains("https://[REDACTED]@github.com/org/project"));
+        assert!(!report.contains("ghp_secret"));
+        let _ = std::fs::remove_dir_all(root);
     }
 }

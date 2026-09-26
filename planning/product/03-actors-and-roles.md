@@ -1,6 +1,6 @@
 ## 3. Actors and Roles
 
-The **operator** approves new-feature implementation, settles Human-authority decisions, and can review provisional decisions from the board. Identity resolves from the connected repository's `user.name`, then `user.email`, then `.planner/config.md`, then `(guest)` (FR-13, D-14, D-23).
+The **operator** approves new-feature implementation, settles Human-authority decisions, and can review provisional decisions from the board. Identity resolves from the connected repository's `user.name`, then `user.email`, then `.kool-ade-packet/config/project.md`, then `(guest)` (FR-13, D-14, D-23).
 
 The **planning agent** investigates, maintains feature drafts, resolves Agent items, proposes Review decisions, and compiles concise chat updates. **Implementation workers** act on one approved task in one repository. The **reconciliation agent** compares approved intent with merged commits before changing product truth. Packet's application validates and checkpoints their structured outputs; agents do not select writable paths.
 

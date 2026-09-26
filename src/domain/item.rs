@@ -1,10 +1,13 @@
 //! Open-item model (SPECIFICATION.md §5–§9).
 //!
 //! An open item is a single unresolved planning issue. It is `Open` while it
-//! exists in `planning/open-items.md` and ceases to exist once resolved
+//! exists in `.kool-ade-packet/planning/open-items.md` and ceases to exist once resolved
 //! (resolution history is preserved by git, not by this model).
 
 use serde::{Deserialize, Serialize};
+
+mod open_item;
+pub use open_item::OpenItem;
 
 /// Priority drives queue ordering and the panel badges (higher urgency first).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -153,90 +156,6 @@ impl std::fmt::Display for Authority {
             Self::Human => "Human",
         })
     }
-}
-
-/// A single unresolved planning issue (SPECIFICATION.md §5).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OpenItem {
-    /// Stable identifier, e.g. `CLR-012`. Allocated by the app, referenced thereafter.
-    pub id: String,
-    /// Stable origin for a generated board item before it receives a CLR number.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub conversation_id: Option<String>,
-    pub priority: Priority,
-    #[serde(default)]
-    pub authority: Authority,
-    pub kind: ItemKind,
-    /// Routing category, e.g. `Security`, `Product`, `General`.
-    pub category: String,
-    /// Person or group responsible for answering (None → nobody assigned).
-    pub assigned_to: Option<String>,
-    /// The actual question/issue, in one or two sentences.
-    pub question: String,
-    /// Why this matters / how it was discovered (context for the responder).
-    pub reason: String,
-    #[serde(default)]
-    pub feature_id: Option<String>,
-    #[serde(default)]
-    pub recommendation: String,
-    #[serde(default)]
-    pub evidence: String,
-    pub status: ItemStatus,
-}
-
-impl OpenItem {
-    pub fn new(
-        id: String,
-        priority: Priority,
-        kind: ItemKind,
-        category: String,
-        assigned_to: Option<String>,
-        question: String,
-        reason: String,
-    ) -> Self {
-        Self {
-            id,
-            conversation_id: None,
-            priority,
-            authority: Authority::Human,
-            kind,
-            category,
-            assigned_to,
-            question,
-            reason,
-            feature_id: None,
-            recommendation: String::new(),
-            evidence: String::new(),
-            status: ItemStatus::Open,
-        }
-    }
-
-    /// Persistent conversation identity, including before permanent numbering.
-    pub fn conversation_key(&self) -> &str {
-        self.conversation_id.as_deref().unwrap_or(&self.id)
-    }
-
-    /// True when this item concerns an ownership gap rather than product content.
-    pub const fn is_ownership_gap(&self) -> bool {
-        matches!(self.kind, ItemKind::Ownership)
-    }
-
-    /// Compact one-line summary for the panel list.
-    pub fn summary(&self) -> String {
-        let q = collapse(&self.question, 90);
-        format!("{} · {q}", self.id)
-    }
-}
-
-/// Collapse whitespace and clip for tight panel rows.
-fn collapse(s: &str, max_chars: usize) -> String {
-    let flat: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() <= max_chars {
-        return flat;
-    }
-    let mut out: String = flat.chars().take(max_chars.saturating_sub(1)).collect();
-    out.push('…');
-    out
 }
 
 #[cfg(test)]

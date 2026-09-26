@@ -1,6 +1,6 @@
 //! Stakeholder/ownership configuration (SPECIFICATION.md §4, §7–§8).
 //!
-//! The configuration is a plain Markdown file (`.planner/config.md`). This
+//! The configuration is a plain Markdown file under Packet's config directory. This
 //! module owns the *in-memory* representation; Markdown round-tripping lives
 //! in `crate::artifacts::config_io`.
 
@@ -61,7 +61,7 @@ impl Stakeholders {
         if let Some(slot) = self
             .entries
             .iter_mut()
-            .find(|e| e.name.trim().to_ascii_lowercase() == entry.name.trim().to_ascii_lowercase())
+            .find(|e| e.name.trim().eq_ignore_ascii_case(entry.name.trim()))
         {
             // Existing spelling wins; membership is refreshed.
             slot.members = entry.members;

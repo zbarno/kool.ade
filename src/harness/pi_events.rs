@@ -125,21 +125,18 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
     match ty {
         "agent_end" => {
             sink.saw_agent_end = true;
-            if sink.final_assistant_text.is_empty() {
-                if let Some(message) = v
+            if sink.final_assistant_text.is_empty()
+                && let Some(message) = v
                     .get("messages")
                     .and_then(Value::as_array)
                     .and_then(|messages| messages.last())
-                {
-                    if message.get("role").and_then(Value::as_str) == Some("assistant")
-                        && !matches!(
-                            message.get("stopReason").and_then(Value::as_str),
-                            Some("toolUse" | "error" | "aborted")
-                        )
-                    {
-                        sink.final_assistant_text = assistant_text(Some(message));
-                    }
-                }
+                && message.get("role").and_then(Value::as_str) == Some("assistant")
+                && !matches!(
+                    message.get("stopReason").and_then(Value::as_str),
+                    Some("toolUse" | "error" | "aborted")
+                )
+            {
+                sink.final_assistant_text = assistant_text(Some(message));
             }
         }
         "tool_execution_start" => {
@@ -184,13 +181,13 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                 .unwrap_or("tool");
             let tool = v.get("toolName").and_then(Value::as_str).unwrap_or("tool");
             let output = assistant_text(v.get("result").or_else(|| v.get("partialResult")));
-            if let Some(id) = sink.tool_posts.get(call) {
-                if let Some(post) = sink.history.iter_mut().find(|post| &post.id == id) {
-                    // Pi sends cumulative partialResult snapshots, followed by the final result.
-                    if !output.is_empty() {
-                        let header = post.text.split("\n\nOutput:\n").next().unwrap_or(tool);
-                        post.text = format!("{header}\n\nOutput:\n{output}");
-                    }
+            if let Some(id) = sink.tool_posts.get(call)
+                && let Some(post) = sink.history.iter_mut().find(|post| &post.id == id)
+            {
+                // Pi sends cumulative partialResult snapshots, followed by the final result.
+                if !output.is_empty() {
+                    let header = post.text.split("\n\nOutput:\n").next().unwrap_or(tool);
+                    post.text = format!("{header}\n\nOutput:\n{output}");
                 }
             }
             sink.last_activity = Some(format!(
@@ -237,10 +234,10 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                     if let Some(delta) = event.get("delta").and_then(Value::as_str) {
                         block.1.push_str(delta);
                     }
-                } else if ty.ends_with("_end") {
-                    if let Some(content) = event.get("content").and_then(Value::as_str) {
-                        block.1 = content.to_owned();
-                    }
+                } else if ty.ends_with("_end")
+                    && let Some(content) = event.get("content").and_then(Value::as_str)
+                {
+                    block.1 = content.to_owned();
                 }
             }
         }
@@ -259,11 +256,11 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                 if let Some(blocks) = msg.and_then(|m| m.get("content")).and_then(Value::as_array) {
                     for (index, b) in blocks.iter().enumerate() {
                         let kind = b.get("type").and_then(Value::as_str).unwrap_or("");
-                        if kind == "text" || kind == "thinking" {
-                            if let Some(text) = b.get(kind).and_then(Value::as_str) {
-                                sink.blocks
-                                    .insert(index, (kind.to_owned(), text.to_owned()));
-                            }
+                        if (kind == "text" || kind == "thinking")
+                            && let Some(text) = b.get(kind).and_then(Value::as_str)
+                        {
+                            sink.blocks
+                                .insert(index, (kind.to_owned(), text.to_owned()));
                         }
                     }
                 } else {
@@ -287,13 +284,13 @@ fn assistant_text(message: Option<&Value>) -> String {
     let mut out = String::new();
     if let Some(blocks) = content.as_array() {
         for b in blocks {
-            if b.get("type").and_then(Value::as_str) == Some("text") {
-                if let Some(t) = b.get("text").and_then(Value::as_str) {
-                    if !out.is_empty() {
-                        out.push('\n');
-                    }
-                    out.push_str(t);
+            if b.get("type").and_then(Value::as_str) == Some("text")
+                && let Some(t) = b.get("text").and_then(Value::as_str)
+            {
+                if !out.is_empty() {
+                    out.push('\n');
                 }
+                out.push_str(t);
             }
         }
     } else if let Some(t) = content.as_str() {

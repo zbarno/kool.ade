@@ -1,7 +1,7 @@
 //! The connected-project session: loaded artifacts, chat (persisted OUTSIDE
 //! git under ~/.packet), running-turn bookkeeping, and refresh cadence.
 
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crate::core::gitops::{self, GitSnapshot};
 use crate::core::state::PlannerState;
@@ -36,8 +36,8 @@ pub struct Project {
     /// after a drift deferral so a live project stops churning model calls.
     pub investigation_cooldown_until: Option<std::time::Instant>,
     pub last_pr_refresh: Option<std::time::Instant>,
-    pub active_turn: Option<Arc<TurnController>>,
-    pub task_turns: std::collections::BTreeMap<String, Arc<TurnController>>,
+    pub active_turn: Option<Rc<TurnController>>,
+    pub task_turns: std::collections::BTreeMap<String, Rc<TurnController>>,
     pub task_live: std::collections::BTreeMap<String, crate::harness::LiveProgress>,
     pub planning_work: Vec<crate::core::planning_work::Work>,
     pub active_planning_work: Option<String>,
@@ -50,10 +50,38 @@ pub struct Project {
 }
 
 impl Project {
+    pub fn bind_task_conversation_identities(&mut self) {
+        match self.queue.bind_task_documents(&self.task_documents) {
+            Ok(true) => {
+                if let Err(error) = self.queue.save(&self.state.repo_root) {
+                    self.queue.last_error =
+                        format!("Task identity migration could not be saved: {error}");
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.queue.last_error =
+                    format!("Task queue references could not be linked: {error}")
+            }
+        }
+        if let Err(error) = self.task_chats.bind_task_documents(&self.task_documents) {
+            self.task_chats.error =
+                Some(format!("Task conversations could not be linked: {error}"));
+        }
+    }
+
     pub fn task_interaction_context(&self, focus: &str) -> String {
         let context = self.task_chats.project_context(focus, 24000);
-        if context.is_empty() { return context; }
-        format!("{context}\nConversation storage status: {}\nComplete task conversation history: {}\n", self.task_chats.error.as_deref().unwrap_or("Saved"), crate::persistence::project_dir(&self.chat_slug).join("task-conversations.json").display())
+        if context.is_empty() {
+            return context;
+        }
+        format!(
+            "{context}\nConversation storage status: {}\nComplete task conversation history: {}\n",
+            self.task_chats.error.as_deref().unwrap_or("Saved"),
+            crate::persistence::project_dir(&self.chat_slug)
+                .join("task-conversations.json")
+                .display()
+        )
     }
 
     /// Snapshot the most recent chat for the turn's prompt context.
@@ -83,9 +111,17 @@ impl Project {
 
     pub fn remember_turn_chat(&mut self, msgs: Vec<ChatMessage>) {
         if let Some(key) = self.task_chats.active.clone() {
-            self.activity.pending.push(format!("Task conversation {key} updated: {}", msgs.iter()
-                .map(|m| format!("{:?}: {}", m.role, crate::core::context_build::clip(&m.text, 1600)))
-                .collect::<Vec<_>>().join("\n")));
+            self.activity.pending.push(format!(
+                "Task conversation {key} updated: {}",
+                msgs.iter()
+                    .map(|m| format!(
+                        "{:?}: {}",
+                        m.role,
+                        crate::core::context_build::clip(&m.text, 1600)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
             self.task_chats
                 .remember_response(&self.chat_slug, &key, msgs);
         } else {
@@ -97,12 +133,11 @@ impl Project {
         let latest = crate::core::implementation::load_board_states(&self.state.repo_root);
         self.adopt_implementations(latest);
         for ticket in self.implementation_states.keys() {
-            if !self.activity.tasks.contains_key(ticket) {
-                if let Some(activity) =
+            if !self.activity.tasks.contains_key(ticket)
+                && let Some(activity) =
                     crate::core::implementation::load_activity(&self.state.repo_root, ticket)
-                {
-                    self.activity.tasks.insert(ticket.clone(), activity);
-                }
+            {
+                self.activity.tasks.insert(ticket.clone(), activity);
             }
         }
     }
@@ -112,42 +147,45 @@ impl Project {
         latest: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
     ) {
         for (ticket, state) in &latest {
-            if let Some(previous) = self.implementation_states.get(ticket) {
-                if previous.status != state.status || previous.pr_state != state.pr_state {
-                    self.activity.pending.push(format!(
-                        "{ticket}: {} → {}; PR {:?}",
-                        previous.status, state.status, state.pr_state
-                    ));
-                }
+            if let Some(previous) = self.implementation_states.get(ticket)
+                && (previous.status != state.status || previous.pr_state != state.pr_state)
+            {
+                self.activity.pending.push(format!(
+                    "{ticket}: {} → {}; PR {:?}",
+                    previous.status, state.status, state.pr_state
+                ));
             }
         }
         self.implementation_states = latest;
     }
 
     pub fn save_task_activity(&mut self, ticket: &str) {
-        if let Some(activity) = self.activity.tasks.get(ticket) {
-            if let Err(error) =
+        if let Some(activity) = self.activity.tasks.get(ticket)
+            && let Err(error) =
                 crate::core::implementation::save_activity(&self.state.repo_root, ticket, activity)
-            {
-                // Record the failure beside (not over) the last real status
-                // so a terminal snapshot does not reduce to infra noise.
-                const MARK: &str = "Activity could not be saved: ";
-                let previous = self
-                    .activity
-                    .tasks
-                    .get(ticket)
-                    .and_then(|progress| progress.activity.clone())
-                    .unwrap_or_default();
-                // Keep exactly ONE annotation slot: collapse any earlier
-                // failure note so repeated faults cannot stack diagnostics.
-                let head = previous.split(MARK).next().unwrap_or("").trim_end_matches('\n');
-                let rendered = if head.is_empty() {
-                    format!("{MARK}{error}")
-                } else {
-                    format!("{head}\n{MARK}{error}")
-                };
-                self.activity.tasks.get_mut(ticket).unwrap().activity = Some(rendered);
-            }
+        {
+            // Record the failure beside (not over) the last real status
+            // so a terminal snapshot does not reduce to infra noise.
+            const MARK: &str = "Activity could not be saved: ";
+            let previous = self
+                .activity
+                .tasks
+                .get(ticket)
+                .and_then(|progress| progress.activity.clone())
+                .unwrap_or_default();
+            // Keep exactly ONE annotation slot: collapse any earlier
+            // failure note so repeated faults cannot stack diagnostics.
+            let head = previous
+                .split(MARK)
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('\n');
+            let rendered = if head.is_empty() {
+                format!("{MARK}{error}")
+            } else {
+                format!("{head}\n{MARK}{error}")
+            };
+            self.activity.tasks.get_mut(ticket).unwrap().activity = Some(rendered);
         }
     }
 

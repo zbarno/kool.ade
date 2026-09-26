@@ -110,7 +110,13 @@ fn truncate_chars(s: &str, cap: usize) -> String {
 }
 
 fn is_skipped(name: &str) -> bool {
-    SKIP_DIRS.contains(&name) || (name.starts_with('.') && name != ".planner")
+    SKIP_DIRS.contains(&name)
+        || (name.starts_with('.')
+            && name
+                != std::path::Path::new(crate::artifacts::layout::canonical::ROOT)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy())
 }
 
 fn tree_walk(root: &Path) -> Vec<String> {
@@ -150,11 +156,12 @@ fn walk_into(root: &Path, dir: &Path, depth: u32, out: &mut Vec<String>) {
     }
 }
 
-/// Everything under `planning/` and `.planner/`, paths shown relative to the
+/// Everything under Packet's canonical planning/configuration roots, paths shown relative to the
 /// repo root so agents can grab exact filenames for imports (§6).
 fn list_planning(repo: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    for base in [repo.join("planning"), repo.join(".planner")] {
+    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    for base in [layout.planning_root(), layout.config_root()] {
         if base.is_dir() {
             rec_list(&base, repo, &mut out);
         }
@@ -205,8 +212,9 @@ mod tests {
         fs::write(tmp.join("Cargo.toml"), "[package]\n").unwrap();
         fs::write(tmp.join("src/lib.rs"), "//").unwrap();
         fs::write(tmp.join("node_modules/pkg/index.js"), "").unwrap();
-        fs::create_dir_all(tmp.join("planning/imports")).unwrap();
-        fs::write(tmp.join("planning/imports/doc.txt"), "ref").unwrap();
+        let imports = crate::artifacts::layout::ArtifactLayout::new(&tmp).imports_root();
+        fs::create_dir_all(&imports).unwrap();
+        fs::write(imports.join("doc.txt"), "ref").unwrap();
 
         let ov = scan(&tmp);
         assert!(ov.readme.as_deref().unwrap_or("").contains("# Hi"));
@@ -217,7 +225,7 @@ mod tests {
         assert!(
             ov.planning_files
                 .iter()
-                .any(|l| l.contains("planning/imports/doc.txt (0 KB)"))
+                .any(|l| l.contains(".kool-ade-packet/planning/imports/doc.txt (0 KB)"))
         );
         let _ = fs::remove_dir_all(&tmp);
     }

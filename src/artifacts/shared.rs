@@ -6,20 +6,13 @@
 
 use std::path::{Path, PathBuf};
 
-/// Repository-relative directory holding human-facing planning documents.
-pub const PLANNING_DIR: &str = "planning";
-/// `planning/specification.md` — the current complete specification.
-pub const SPEC_FILE: &str = "planning/specification.md";
-/// `planning/open-items.md` — the serialized open-item queue.
-pub const OPEN_ITEMS_FILE: &str = "planning/open-items.md";
-/// `planning/imports/` — user-imported reference documents.
-pub const IMPORTS_DIR: &str = "planning/imports";
-/// Repository-local planner configuration directory.
-pub const CONFIG_DIR: &str = ".planner";
-/// `.planner/config.md` — stakeholders + current user.
-pub const CONFIG_FILE: &str = ".planner/config.md";
-/// `.planner/mcp.json` — MCP servers advertised to the planning session.
-pub const MCP_CONFIG_FILE: &str = ".planner/mcp.json";
+pub const CONFIG_DIR: &str = super::layout::canonical::CONFIG;
+pub const IMPORTS_DIR: &str = super::layout::canonical::IMPORTS;
+pub const MCP_CONFIG_FILE: &str = super::layout::canonical::MCP_CONFIG;
+pub const OPEN_ITEMS_FILE: &str = super::layout::canonical::OPEN_ITEMS;
+pub const PLANNING_DIR: &str = super::layout::canonical::PLANNING;
+pub const CONFIG_FILE: &str = super::layout::canonical::PROJECT_CONFIG;
+pub const SPEC_FILE: &str = super::layout::canonical::PRODUCT_INDEX;
 
 /// Absolute path for a repository-relative artifact.
 pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {
@@ -30,20 +23,6 @@ pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {
 pub fn read_utf8_lossy(path: &Path) -> anyhow::Result<String> {
     std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))
-}
-
-/// Atomically write `text` to `path` (write-to-temp + rename) so a crash
-/// mid-write can never truncate a planning artifact. Parent dirs are created.
-pub fn atomic_write(path: &Path, text: &str) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension("packet.tmp");
-    std::fs::write(&tmp, text.as_bytes())?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        anyhow::anyhow!("cannot write {}: {e}", path.display())
-    })
 }
 
 /// Sanitize a file name so it is safe on POSIX/Windows and never escapes
@@ -82,7 +61,10 @@ mod tests {
     #[test]
     fn artifact_paths_join_relatively() {
         let p = repo_artifact(Path::new("/repo"), SPEC_FILE);
-        assert_eq!(p, PathBuf::from("/repo/planning/specification.md"));
+        assert_eq!(
+            p,
+            PathBuf::from("/repo/.kool-ade-packet/planning/product/index.md")
+        );
     }
 
     #[test]

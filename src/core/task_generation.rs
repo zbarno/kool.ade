@@ -6,7 +6,10 @@ use crate::{
         workflow::{TaskOutline, TaskStory, story_detail_errors, validate_outline},
     },
     error::AppError,
-    harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, TurnEnvelope},
+    harness::{
+        AiHarness, HarnessOutcome, LiveProgress, PlanningRequest,
+        responses::{self, TaskOutlineResponse, TaskStoryResponse},
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::atomic::Ordering, time::Instant};
@@ -79,11 +82,12 @@ impl Run {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(path)?;
+        let mut file = options.open(&path)?;
         file.write_all(
             &serde_json::to_vec_pretty(value).map_err(|e| AppError::Other(e.to_string()))?,
         )?;
         file.sync_all()?;
+        crate::artifacts::sync_parent_directory(&path)?;
         Ok(())
     }
     fn load(&self, state: &PlannerState) -> Option<Checkpoint> {
@@ -205,25 +209,21 @@ impl Run {
     }
 }
 
-fn decode(text: &str) -> Result<TurnEnvelope, Vec<String>> {
-    let object = crate::harness::pi_extract::extract_json_object(text).ok_or_else(|| vec!["Response is incomplete or missing its JSON object. Return one complete object with the requested fields, including closing braces.".to_owned()])?;
-    serde_json::from_str(&object).map_err(|e| {
+fn decode_outline(text: &str) -> Result<Vec<TaskOutline>, Vec<String>> {
+    let response = responses::decode::<TaskOutlineResponse>(text).map_err(|error| {
         vec![format!(
-            "Invalid task response schema: {e}. Use exactly the requested field names and types."
+            "Invalid task outline schema: {error}. Return only task_outline and an empty or null task_stories field."
         )]
-    })
+    })?;
+    responses::normalize_task_outline(response).map_err(|error| vec![error])
 }
-fn unchanged(env: &TurnEnvelope) -> Result<(), Vec<String>> {
-    if env.schema_version.is_some_and(|v| v != 1)
-        || env.updated_specification.is_some()
-        || env.interview.is_some()
-        || !env.added().is_empty()
-        || !env.updated().is_empty()
-        || !env.resolved().is_empty()
-    {
-        return Err(vec!["Task generation may not modify the specification, interview, or open items. Omit these fields or use null/empty arrays; schema_version must be 1.".into()]);
-    }
-    Ok(())
+fn decode_stories(text: &str) -> Result<Vec<TaskStory>, Vec<String>> {
+    let response = responses::decode::<TaskStoryResponse>(text).map_err(|error| {
+        vec![format!(
+            "Invalid task story schema: {error}. Return only one task_stories entry."
+        )]
+    })?;
+    responses::normalize_task_story(response).map_err(|error| vec![error])
 }
 fn same_refs(a: &[usize], b: &[usize]) -> bool {
     a.iter().copied().collect::<std::collections::BTreeSet<_>>() == b.iter().copied().collect()
@@ -235,9 +235,7 @@ fn story_response(
     planned: &TaskOutline,
     index: usize,
 ) -> Result<TaskStory, Vec<String>> {
-    let mut env = decode(text)?;
-    unchanged(&env)?;
-    let mut stories = env.task_stories.take().unwrap_or_default();
+    let mut stories = decode_stories(text)?;
     if stories.len() != 1 {
         return Err(vec![
             "Return exactly one complete story in task_stories.".into(),
@@ -281,7 +279,11 @@ fn story_response(
 fn specification_h1_feature_id(spec: &str) -> Option<String> {
     spec.lines()
         .find(|line| line.starts_with('#'))
-        .and_then(|line| crate::core::workflow::feature_ids_in(line).into_iter().next())
+        .and_then(|line| {
+            crate::core::workflow::feature_ids_in(line)
+                .into_iter()
+                .next()
+        })
 }
 
 pub fn generate(
@@ -313,23 +315,33 @@ pub fn generate(
         });
         cp
     } else {
-        let outline = run.validated(harness, request, "Task outline", format!("{base}\n{}\nUse descriptive action + component + behavior titles, 4 or more words and at most 140 characters. Avoid generic phases such as Setup, Foundation, Implementation or Testing. Give each purpose at least 8 words explaining the specific problem this ticket solves and why it matters.\n", crate::core::prompt::TASK_OUTLINE_STEP), |text| {
-            let env = decode(text)?; unchanged(&env)?;
-            let outline = env.task_outline.unwrap_or_default();
-            validate_outline(brief, &outline)?;
-            let manifest = &state.repositories;
-            for task in &outline {
-                if manifest.repositories.len() > 1 && task.target_repository.is_empty() {
-                    return Err(vec!["Each multi-repository outline task needs target_repository".into()]);
+        let outline = run.validated(
+            harness,
+            request,
+            "Task outline",
+            format!("{base}\n{}\n", crate::core::prompt::TASK_OUTLINE_STEP),
+            |text| {
+                let outline = decode_outline(text)?;
+                validate_outline(brief, &outline)?;
+                let manifest = &state.repositories;
+                for task in &outline {
+                    if manifest.repositories.len() > 1 && task.target_repository.is_empty() {
+                        return Err(vec![
+                            "Each multi-repository outline task needs target_repository".into(),
+                        ]);
+                    }
+                    let id = if task.target_repository.is_empty() {
+                        "root"
+                    } else {
+                        task.target_repository.as_str()
+                    };
+                    if !manifest.repositories.iter().any(|repo| repo.id == id) {
+                        return Err(vec![format!("Unknown target_repository {id}")]);
+                    }
                 }
-                let id = if task.target_repository.is_empty() { "root" } else { task.target_repository.as_str() };
-                if !manifest.repositories.iter().any(|repo| repo.id == id) {
-                    return Err(vec![format!("Unknown target_repository {id}")]);
-                }
-            }
-            if outline.iter().any(|o| o.purpose.split_whitespace().count() < 8) { return Err(vec!["Every task purpose needs at least 8 words describing the specific problem this ticket solves and why it matters.".into()]); }
-            Ok(outline)
-        })?;
+                Ok(outline)
+            },
+        )?;
         let cp = Checkpoint {
             identity: run.identity.clone(),
             outline,
@@ -436,51 +448,66 @@ pub fn generate(
 const SYSTEM: &str = "You are Packet's implementation-story author. First understand WHY the approved product exists. Write self-contained stories that a local coding model can implement without this conversation. You may inspect repository files using read-only tools. NEVER create, modify or delete files or run mutating commands; the application writes validated output. Do not implement the tasks. Use the approved brief and specification as authority. Distinguish existing files and interfaces from proposed ones; never present guessed paths or commands as verified. Follow the current generation step, return a complete JSON object in a json fence, and stop. Do not include an interview or changes to the specification/open items. Correct prior validation errors when repair feedback is supplied.";
 
 pub const STORY_CONTRACT: &str = r#"
-A story must be a self-contained implementation brief, not a checklist of vague headings.
-Ticket intent answers: What specific problem does this ticket solve, and why is solving
-that problem necessary? Ticket goal answers: What becomes possible or reliable when
-this ticket alone is complete? Explain the current limitation and its consequences.
-For persistence, explain that records currently disappear on restart and why losing
-those records matters; the goal is durable round-trip storage, not the entire search
-experience. For a picker, explain that stored records cannot yet be selected in the
-workflow; the goal is selecting and applying a record through the existing query path.
-Use repository evidence for current-behavior claims and label unverified assumptions.
-Do not copy the feature goal into every ticket or reuse a generic rationale across tasks.
-Use the following JSON shape (snake_case or camelCase accepted):
+Write a self-contained implementation brief for this task. Make its detail fit the
+actual change: keep a small, low-risk task concise, and add detail when this issue
+needs design, migration, security, compatibility, failure handling, concurrency or
+recovery decisions. Do not follow fixed word counts or fixed numbers of entries.
+Never add generic boilerplate or repeat information to make a story longer.
+
+Explain the specific current gap and why it matters in intent. State the observable
+before-to-after result of this task alone in goal. Use repository evidence for current
+behavior; label uncertainty and include a discovery step instead of guessing. Do not
+copy the feature goal into each task or promise work owned by a later task.
+
+Return one task_stories entry using snake_case or camelCase field names. Keep the
+following core information specific and concise:
 {"task_stories":[{
-"intent":"The specific current gap, failure or pain THIS ticket addresses, who or what it affects, and why leaving it unresolved matters. Explain the causal reason this ticket is needed, not the overall product mission (15+ words)",
-"goal":"The specific before-to-after behavior achieved by THIS ticket alone and an observable completion condition. Do not claim benefits that require later tickets (12+ words)",
-"context":"Current behavior, existing/proposed components, required inputs, example data, constraints and assumptions established from repository inspection (45+ words)",
-"user_story":"As a specific user, I want a concrete behavior so that an explicit outcome is achieved (12+ words)",
-"technical_design":["3+ design entries, each 12+ words: exact interfaces, signatures, data shapes, events/state changes, persistence or error contracts as applicable"],
-"affected_files":["Existing or proposed path/component: specific responsibility and edits, 6+ words per entry"],
-"implementation_steps":["5+ ordered steps, each 12+ words: where to change code, what to implement, how to integrate and preserve compatibility"],
-"acceptance_criteria":["4+ distinct Given/When/Then criteria, each 12+ words; explicit inputs and expected observable behavior, including failure cases"],
-"edge_cases":["3+ distinct cases, each 12+ words: trigger, required behavior and preserved invariants; choose relevant cases rather than generic filler"],
-"test_plan":["4+ test descriptions, each 12+ words: fixture/setup, operation, exact assertions, negative paths and meaningful runtime checks"],
-"verification_commands":["At least one verified command with working directory and expected result; if the repo has no runner, explicitly describe the prerequisite to establish and exact verification procedure instead of inventing one (6+ words)"],
-"rollout_notes":"Compatibility, initialization/migration, rollout and rollback details or why they do not apply (20+ words)",
-"definition_of_done":["3+ distinct completion checks, each 8+ words: actual evidence required, complete integration, no unresolved requirements"]
+"title":"Specific action and object",
+"intent":"The current issue this task fixes and why it matters",
+"goal":"Observable behavior delivered by this task alone",
+"context":"Relevant current behavior, evidence and assumptions",
+"user_story":"User, desired behavior and outcome",
+"purpose":"The task-specific reason from the approved outline",
+"affected_files":["Known path or component and its responsibility"],
+"implementation_steps":["Ordered action needed to complete this task"],
+"acceptance_criteria":["Observable result for a relevant user or system state"],
+"test_plan":["Setup, action and expected assertion for a relevant test"],
+"verification_commands":["Verified command and expected result, or a precise verification procedure"],
+"definition_of_done":["Evidence that this task's agreed outcome is complete"],
+"technical_design":[],
+"edge_cases":[],
+"rollout_notes":""
 }]}
-Provide 450+ words of task-specific implementation detail overall; typically 700-1400 words
-is appropriate. Counts are minimum depth checks, NOT permission to pad or repeat boilerplate.
-Resolve design details within the agreed scope using repository evidence. Include relevant
-empty/invalid states, repeated requests, permission failures, concurrency, cancellation,
-recovery and compatibility cases when they apply. Name the specific invariants and outputs.
-A small local model must not have to guess file responsibilities, interfaces, test assertions,
-what is in/out of scope, or how to decide completion. Do not use TODO/TBD placeholders.
-Do not re-explain the entire project; focus this detail on the current task.
+
+Include affected files or components when repository inspection makes them knowable;
+otherwise name the discovery needed and avoid invented paths. Include technical design,
+edge cases and rollout notes only when they matter to this issue. Leave irrelevant
+optional arrays empty and irrelevant rollout notes blank. Verification may be a command
+or a precise manual/runtime procedure when no suitable automated command exists.
+Acceptance criteria, tests and implementation steps should cover the actual scope and
+risks, not a preset count. A short task still needs enough information to implement,
+accept and verify it; extra prose does not compensate for a missing goal or evidence.
+Resolve relevant details from approved scope and read-only repository inspection.
+Do not use TODO/TBD placeholders. Do not re-explain the entire project.
 "#;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detail_guidance_scales_to_the_issue_instead_of_word_counts() {
+        assert!(STORY_CONTRACT.contains("Do not follow fixed word counts"));
+        assert!(STORY_CONTRACT.contains("optional arrays empty"));
+        assert!(!STORY_CONTRACT.contains("450+ words"));
+        assert!(!STORY_CONTRACT.contains("700-1400 words"));
+        assert!(!STORY_CONTRACT.contains("12+ words"));
+    }
+
     #[test]
     fn scope_changes_are_rejected_but_wording_and_reference_order_are_stable() {
-        let outlines = decode(include_str!("../../tests/fixtures/task-outline.json"))
-            .unwrap()
-            .task_outline
-            .unwrap();
+        let outlines =
+            decode_outline(include_str!("../../tests/fixtures/task-outline.json")).unwrap();
         let planned = &outlines[0];
         let mut value: serde_json::Value =
             serde_json::from_str(include_str!("../../tests/fixtures/task-story-1.json")).unwrap();
@@ -498,10 +525,8 @@ mod tests {
     }
     #[test]
     fn missing_detail_produces_specific_repair_feedback() {
-        let outlines = decode(include_str!("../../tests/fixtures/task-outline.json"))
-            .unwrap()
-            .task_outline
-            .unwrap();
+        let outlines =
+            decode_outline(include_str!("../../tests/fixtures/task-outline.json")).unwrap();
         let errors = story_response(r#"{"task_stories":[{}]}"#, &outlines[0], 0)
             .unwrap_err()
             .join(" ");
@@ -509,15 +534,19 @@ mod tests {
             "intent",
             "goal",
             "context",
+            "affected files",
+            "implementation steps",
             "acceptance",
-            "edge",
+            "test plan",
             "verification",
+            "definition of done",
         ] {
             assert!(
                 errors.contains(field),
                 "missing repair guidance for {field}: {errors}"
             );
         }
-        assert!(decode(r#"{"task_stories":["#).is_err());
+        assert!(!errors.contains("edge cases"));
+        assert!(decode_stories(r#"{"task_stories":["#).is_err());
     }
 }

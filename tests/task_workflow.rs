@@ -35,7 +35,9 @@ impl AiHarness for FixtureHarness {
         } else {
             assert!(req.prompt_body.contains("The user explicitly approved"));
             if req.prompt_body.contains("ONLY detailed story 2 of 2") {
-                let directory = req.repo_root.join(".kool-ade-packet/planning/tasks/saved-searches");
+                let directory = req
+                    .repo_root
+                    .join(".kool-ade-packet/planning/tasks/saved-searches");
                 assert!(
                     directory
                         .join("001-persist-named-search-filters.md")
@@ -153,15 +155,13 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
                 calls.load(Ordering::SeqCst),
                 if !generation || failure_mode == 5 {
                     1
-                } else if failure_mode == 6 {
-                    4
-                } else if failure_mode == 3 {
+                } else if matches!(failure_mode, 3 | 6) {
                     4
                 } else {
                     3
                 }
             );
-            return outcome;
+            return *outcome;
         }
     }
 }
@@ -195,7 +195,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
         assert!(commit_result.is_ok());
         assert!(state.workflow.ready(state.spec_text.as_deref()));
         assert!(!root.join(".kool-ade-packet/planning/tasks").exists());
-        let outcome = run(state, true, failure_mode);
+        let outcome = run(*state, true, failure_mode);
         if failure_mode == 6 {
             let TurnOutcome::HarnessFailed { error, .. } = outcome else {
                 panic!("invalid stories must fail closed")
@@ -218,9 +218,9 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             );
             if failure_mode == 1 {
                 let manifest: serde_json::Value = serde_json::from_str(
-                    &std::fs::read_to_string(
-                        root.join(".kool-ade-packet/planning/tasks/saved-searches/.packet-progress.json"),
-                    )
+                    &std::fs::read_to_string(root.join(
+                        ".kool-ade-packet/planning/tasks/saved-searches/.packet-progress.json",
+                    ))
                     .unwrap(),
                 )
                 .unwrap();
@@ -253,11 +253,17 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 "retry must resume the second story with one model call"
             );
             assert_eq!(std::fs::read_to_string(first).unwrap(), saved);
-            assert!(!root.join(".kool-ade-packet/planning/tasks/saved-searches-02").exists());
             assert!(
-                std::fs::read_to_string(root.join(".kool-ade-packet/planning/tasks/saved-searches/README.md"))
-                    .unwrap()
-                    .contains("Status: Complete")
+                !root
+                    .join(".kool-ade-packet/planning/tasks/saved-searches-02")
+                    .exists()
+            );
+            assert!(
+                std::fs::read_to_string(
+                    root.join(".kool-ade-packet/planning/tasks/saved-searches/README.md")
+                )
+                .unwrap()
+                .contains("Status: Complete")
             );
         } else {
             let TurnOutcome::Applied {
@@ -270,20 +276,47 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             };
             assert!(commit_result.is_ok());
             assert_eq!(state.workflow.task_batches[0].count, 2);
+            let batch_ref = &state.workflow.task_batches[0];
+            let batch_identity = batch_ref.identity.as_ref().expect("batch UID persisted");
+            assert!(batch_identity.display_id.starts_with("BATCH-"));
+            let batch_index =
+                std::fs::read_to_string(root.join(&batch_ref.directory).join("README.md")).unwrap();
+            assert_eq!(
+                packet::domain::ArtifactIdentity::from_markdown(&batch_index)
+                    .unwrap()
+                    .unwrap(),
+                *batch_identity
+            );
+            let first_story = std::fs::read_to_string(
+                root.join(&batch_ref.directory)
+                    .join("001-persist-named-search-filters.md"),
+            )
+            .unwrap();
+            let story_identity = packet::domain::ArtifactIdentity::from_markdown(&first_story)
+                .unwrap()
+                .unwrap();
+            assert_ne!(story_identity.uid, batch_identity.uid);
+            assert!(
+                story_identity
+                    .display_id
+                    .starts_with("001-persist-named-search-filters")
+            );
             let tracked = std::process::Command::new("git")
                 .args(["ls-tree", "-r", "--name-only", "HEAD"])
                 .current_dir(&root)
                 .output()
                 .unwrap();
             let paths = String::from_utf8(tracked.stdout).unwrap();
-            assert!(
-                paths.contains(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md")
-            );
+            assert!(paths.contains(
+                ".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md"
+            ));
             assert!(
                 paths
                     .contains(".kool-ade-packet/planning/tasks/saved-searches/002-build-the-saved-search-picker.md")
             );
-            assert!(paths.contains(".kool-ade-packet/planning/tasks/saved-searches/specification.md"));
+            assert!(
+                paths.contains(".kool-ade-packet/planning/tasks/saved-searches/specification.md")
+            );
         }
         std::fs::remove_dir_all(root).unwrap();
     }

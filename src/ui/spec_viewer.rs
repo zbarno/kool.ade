@@ -30,8 +30,7 @@ pub fn render(ui: &mut egui::Ui, spec: Option<&str>) {
                     .show(ui, |ui| {
                         ui.set_width((width - 58.0).max(40.0));
                         ui.set_min_height(200.0);
-                        ui.visuals_mut().override_text_color =
-                            Some(crate::ui::markdown::PAPER.ink);
+                        ui.visuals_mut().override_text_color = Some(crate::ui::markdown::PAPER.ink);
                         ui.visuals_mut().widgets.noninteractive.fg_stroke.color =
                             crate::ui::markdown::PAPER.muted;
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);

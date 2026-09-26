@@ -1,6 +1,7 @@
 //! Workspace with persistent tabbed conversations beside the Kanban board.
 use crate::app::dialogs;
-use crate::ui::{Surface, theme};
+use crate::core::implementation::{ImplementationStatus, PullRequestState};
+use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
 mod task_details;
@@ -16,7 +17,7 @@ pub enum HeaderAction {
 }
 
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
-    s.drain_task_chat_saves();
+    s.dispatch(ApplicationCommand::DrainTaskChatSaves);
     let compact = ui.ctx().content_rect().width() < 960.0;
     let settings_id = egui::Id::new("packet_workspace_settings_open");
     let mut settings_open = ui
@@ -59,7 +60,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             ("Disconnect", HeaderAction::Disconnect),
                         ] {
                             if ui.button(label).clicked() {
-                                s.on_header_action(action);
+                                s.dispatch(ApplicationCommand::HeaderAction(action));
                                 ui.close();
                             }
                         }
@@ -151,11 +152,19 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 "Board  {}",
                                 s.task_documents()
                                     .iter()
-                                    .filter(|d| !d.path.ends_with("/README.md") && !s.task_archived(&d.path))
+                                    .filter(|d| !d.path.ends_with("/README.md")
+                                        && !s.task_archived(&d.path))
                                     .count()
-                                    + s.items().iter().chain(s.synthetic_items()).chain(s.resolved_items())
-                                        .filter(|i| !s.task_archived(i.conversation_key())).count()
-                                    + s.planning_work().iter().filter(|w| !s.task_archived(&w.key)).count()
+                                    + s.items()
+                                        .iter()
+                                        .chain(s.synthetic_items())
+                                        .chain(s.resolved_items())
+                                        .filter(|i| !s.task_archived(i.conversation_key()))
+                                        .count()
+                                    + s.planning_work()
+                                        .iter()
+                                        .filter(|w| !s.task_archived(&w.key))
+                                        .count()
                             ),
                         )
                         .clicked()
@@ -175,7 +184,9 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 .ctx()
                 .data_mut(|d| d.get_temp::<u8>(view_id))
                 .unwrap_or(0);
-            let features = s.active_features().into_iter()
+            let features = s
+                .active_features()
+                .into_iter()
                 .map(|(id, body)| (id.to_owned(), body.to_owned()))
                 .collect::<Vec<_>>();
             ui.horizontal(|ui| {
@@ -186,14 +197,18 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     view = 0;
                 }
                 if !features.is_empty()
-                    && ui.selectable_label(view == 1, format!("Features  {}", features.len())).clicked()
+                    && ui
+                        .selectable_label(view == 1, format!("Features  {}", features.len()))
+                        .clicked()
                 {
                     view = 1;
                 }
             });
             ui.ctx().data_mut(|d| d.insert_temp(view_id, view));
             let selected_id = egui::Id::new("packet_selected_feature");
-            let mut selected = ui.ctx().data_mut(|d| d.get_temp::<String>(selected_id))
+            let mut selected = ui
+                .ctx()
+                .data_mut(|d| d.get_temp::<String>(selected_id))
                 .filter(|id| features.iter().any(|(feature_id, _)| feature_id == id))
                 .or_else(|| features.first().map(|(id, _)| id.clone()));
             if view == 1 && !features.is_empty() {
@@ -201,32 +216,55 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     .selected_text(selected.as_deref().unwrap_or("Select feature"))
                     .show_ui(ui, |ui| {
                         for (id, body) in &features {
-                            let title = body.lines().find_map(|line| line.strip_prefix("# "))
+                            let title = body
+                                .lines()
+                                .find_map(|line| line.strip_prefix("# "))
                                 .unwrap_or(id);
                             ui.selectable_value(&mut selected, Some(id.clone()), title);
                         }
                     });
-                if let Some(action) = s.feature_actions(None).into_iter()
+                if let Some(action) = s
+                    .feature_actions(None)
+                    .into_iter()
                     .find(|action| selected.as_deref() == Some(action.id.as_str()))
                 {
-                    if ui.add_enabled(!s.conversation_busy(), egui::Button::new(action.label())).clicked() {
-                        s.approve_feature(&action.id);
+                    if ui
+                        .add_enabled(!s.conversation_busy(), egui::Button::new(action.label()))
+                        .clicked()
+                    {
+                        s.dispatch(ApplicationCommand::ApproveFeature {
+                            id: action.id.clone(),
+                        });
                     }
                 } else if selected.as_deref().is_some_and(|id| s.feature_approved(id)) {
                     ui.label(RichText::new("Approved for implementation").color(theme::SUCCESS));
                 }
-
             }
-            ui.ctx().data_mut(|d| d.insert_temp(selected_id, selected.clone()));
+            ui.ctx()
+                .data_mut(|d| d.insert_temp(selected_id, selected.clone()));
             let document = if view == 1 {
-                selected.as_deref().and_then(|selected| features.iter()
-                    .find(|(id, _)| id == selected).map(|(_, body)| body.clone()))
+                selected
+                    .as_deref()
+                    .and_then(|selected| {
+                        features
+                            .iter()
+                            .find(|(id, _)| id == selected)
+                            .map(|(_, body)| body.clone())
+                    })
                     .unwrap_or_else(|| s.spec_text().to_owned())
             } else {
                 s.spec_text().to_owned()
             };
             ui.horizontal(|ui| {
-                ui.label(RichText::new(if view == 1 { "Feature specification" } else { "Product specification" }).size(17.0).strong());
+                ui.label(
+                    RichText::new(if view == 1 {
+                        "Feature specification"
+                    } else {
+                        "Product specification"
+                    })
+                    .size(17.0)
+                    .strong(),
+                );
                 if s.live_progress().is_some_and(|p| p.specification.is_some()) {
                     theme::badge(ui, "Live draft", theme::ACCENT_SOFT, theme::ACCENT)
                         .on_hover_text("Updates as the planner writes. Saved after validation.");
@@ -262,27 +300,55 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     if settings_open {
         let mut open_batch = None;
         let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 640.0, |ui| {
-            ui.heading("Implementation & queue");
+            ui.heading("Automation policy");
+            ui.label("Saved for this project on this device, across its Packet windows.");
             let mut parallel = s.max_parallel_tasks();
             if ui
                 .add(egui::Slider::new(&mut parallel, 1..=8).text("Concurrent tasks"))
                 .changed()
             {
-                s.set_max_parallel_tasks(parallel);
+                s.dispatch(ApplicationCommand::SetMaxParallelTasks { count: parallel });
             }
             ui.label(format!("{} workers active. Dependencies must merge before dependent tasks start. Merges are serialized and reverified.", s.active_task_count()));
             ui.label("Lowering the limit affects new starts; running tasks keep their work.");
-            let mut auto_mode = s.auto_mode();
+            let mut auto_plan = s.auto_plan();
+            if ui.checkbox(&mut auto_plan, "Plan automatically").changed() {
+                s.dispatch(ApplicationCommand::SetAutoPlan { enabled: auto_plan });
+            }
+            ui.label("Packet can investigate Agent-owned planning questions, record evidence-backed findings, and suggest next steps in the background. It does not create implementation tasks or start builds. Turning this off stops new investigations; a change already being saved may finish.");
+            let mut auto_build = s.auto_build();
+            if ui
+                .checkbox(&mut auto_build, "Build approved changes automatically")
+                .changed()
+            {
+                s.dispatch(ApplicationCommand::SetAutoBuild {
+                    enabled: auto_build,
+                });
+            }
+            ui.label("After a feature is explicitly approved and implementation starts, Packet can continue eligible tasks and run verification. Turning this off pauses automatic queue starts.");
+            let mut auto_publish = s.auto_publish();
+            if ui
+                .checkbox(&mut auto_publish, "Publish verified changes automatically")
+                .changed()
+            {
+                s.dispatch(ApplicationCommand::SetAutoPublish {
+                    enabled: auto_publish,
+                });
+            }
+            ui.label("When enabled, Packet adds verified changes to the project automatically. When off, verified work stays on this device until you choose Share for review.");
+            let mut require_checks = s.require_independent_checks();
             if ui
                 .checkbox(
-                    &mut auto_mode,
-                    "Auto mode — merge verified tasks and continue the queue",
+                    &mut require_checks,
+                    "Wait for project checks before publishing",
                 )
                 .changed()
             {
-                s.set_auto_mode(auto_mode);
+                s.dispatch(ApplicationCommand::SetRequireIndependentChecks {
+                    enabled: require_checks,
+                });
             }
-            ui.label("When enabled, verified tasks merge automatically and the queue continues. Disable to use pull requests for future tasks.");
+            ui.label("On supported GitHub projects, Packet waits for the project's checks after its own verification. If checks fail or are unavailable, the verified work stays unshared.");
             ui.label("To begin, send ‘start implementing’ in Main Chat. This approves the feature for the next eligible task and starts it. You can also select and approve a feature in Specifications, then use a task’s Implement action.");
             ui.separator();
             paint_persona_section(ui, s);
@@ -418,7 +484,12 @@ fn conversation_title(s: &dyn Surface, key: &str) -> String {
         .chain(s.resolved_items())
         .find(|item| item.conversation_key() == key)
         .map(|item| item.question.clone())
-        .or_else(|| s.planning_work().into_iter().find(|w| w.key == key).map(|w| w.title))
+        .or_else(|| {
+            s.planning_work()
+                .into_iter()
+                .find(|w| w.key == key)
+                .map(|w| w.title)
+        })
         .or_else(|| {
             s.task_documents()
                 .iter()
@@ -513,7 +584,9 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
     ui.separator();
     ui.push_id(("chat_tab", &tabs.active), |ui| {
         if let Some(key) = tabs.active.as_deref() {
-            s.prepare_task_chat(key);
+            s.dispatch(ApplicationCommand::PrepareTaskChat {
+                key: key.to_owned(),
+            });
             let context = s.task_chat_context(key);
             let actions = s.feature_actions(Some(key));
             let title = conversation_title(s, key);
@@ -531,24 +604,37 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
             let busy = s.task_chat_active(key);
             let active = s.task_chat_active(key);
             if let Some(progress) = s.task_reply_progress(key).cloned() {
-                ui.collapsing("Reply activity", |ui| crate::ui::chat_pane::paint_progress(ui, &progress));
+                ui.collapsing("Reply activity", |ui| {
+                    crate::ui::chat_pane::paint_progress(ui, &progress)
+                });
             }
             if let Some(error) = s.task_chat_error() {
                 ui.colored_label(theme::WARNING, error);
                 if ui.button("Retry saving conversation").clicked() {
-                    s.retry_task_chat_save();
+                    s.dispatch(ApplicationCommand::RetryTaskChatSave);
                 }
             }
             if let Some(draft) = s.task_draft(key) {
-                let intent = crate::ui::chat_pane::paint_task_with_actions(ui, &messages, draft, busy, context.as_deref(), &actions);
+                let intent = crate::ui::chat_pane::paint_task_with_actions(
+                    ui,
+                    &messages,
+                    draft,
+                    busy,
+                    context.as_deref(),
+                    &actions,
+                );
                 if let Some(id) = &intent.approve_feature {
-                    s.approve_feature(id);
+                    s.dispatch(ApplicationCommand::ApproveFeature { id: id.clone() });
                 }
                 if intent.send {
-                    s.send_task_reply(key);
+                    s.dispatch(ApplicationCommand::SendTaskReply {
+                        key: key.to_owned(),
+                    });
                 }
                 if intent.cancel && active {
-                    s.cancel_task_reply(key);
+                    s.dispatch(ApplicationCommand::CancelTaskReply {
+                        key: key.to_owned(),
+                    });
                 }
             }
         } else {
@@ -581,11 +667,18 @@ fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
         busy,
         progress.as_ref(),
         crate::ui::chat_pane::Actions {
-            task_offer: offer.as_ref(), implementation_offer, features: &actions,
+            task_offer: offer.as_ref(),
+            implementation_offer,
+            features: &actions,
         },
     );
-    if intent.send || intent.cancel || intent.generate_tasks || intent.implement_tasks || intent.approve_feature.is_some() {
-        s.on_intent(&intent);
+    if intent.send
+        || intent.cancel
+        || intent.generate_tasks
+        || intent.implement_tasks
+        || intent.approve_feature.is_some()
+    {
+        s.dispatch(ApplicationCommand::UserIntent(intent));
     }
 }
 
@@ -700,7 +793,9 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                 ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("packet_chat_tabs"), tabs));
                                             }
                                             if column == 4 && ui.small_button("Archive").clicked() {
-                                                s.archive_task(&work.key);
+                                                s.dispatch(ApplicationCommand::ArchiveTask {
+                                                    ticket: work.key.clone(),
+                                                });
                                             }
                                         });
                                     }
@@ -725,7 +820,9 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             ui.label(RichText::new(&item.category).size(12.5).weak());
                                             if active { ui.label(RichText::new("● Active").color(theme::SUCCESS)); }
                                             if column == 4 && ui.small_button("Archive").clicked() {
-                                                s.archive_task(item.conversation_key());
+                                                s.dispatch(ApplicationCommand::ArchiveTask {
+                                                    ticket: item.conversation_key().to_owned(),
+                                                });
                                             }
                                             if active {
                                                 crate::ui::task_activity::graph(
@@ -748,12 +845,14 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             paint_task_failure(ui, s, &doc.path);
                                             if task_conversation(ui, s, &doc.path, false) { selected_path = Some(doc.path.clone()); }
                                             ui.add_space(4.0);
-                                            let status = s.implementation_state(&doc.path).map(|r| r.status.clone()).unwrap_or_else(|| if active { "Starting".into() } else { crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)].into() });
+                                            let status = s.implementation_state(&doc.path).map(|r| r.status.label().to_owned()).unwrap_or_else(|| if active { "Starting".into() } else { crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)].into() });
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(&status).size(12.5).color(if active { theme::ACCENT } else { theme::TEXT_DIM }));
                                                 ui.label(RichText::new(if active { "Assigned worker" } else { "Task worker" }).size(12.5).weak());
                                                 if column == 4 && ui.small_button("Archive").clicked() {
-                                                    s.archive_task(&doc.path);
+                                                    s.dispatch(ApplicationCommand::ArchiveTask {
+                                                        ticket: doc.path.clone(),
+                                                    });
                                                 }
                                             });
                                             if active {
@@ -895,10 +994,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                 ui.collapsing("Worker notes", |ui| {
                                     crate::ui::markdown::paint(
                                         ui,
-                                        &crate::core::context_build::clip(
-                                            &progress.thoughts,
-                                            4000,
-                                        ),
+                                        &crate::core::context_build::clip(&progress.thoughts, 4000),
                                         crate::ui::markdown::CHAT,
                                     );
                                 });
@@ -964,7 +1060,9 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
 }
 
 fn task_board_column(s: &dyn Surface, key: &str) -> usize {
-    if !s.implementation_active(key) && s.implementation_failure(key).is_some() { return 3; }
+    if !s.implementation_active(key) && s.implementation_failure(key).is_some() {
+        return 3;
+    }
     let base = crate::core::implementation::board_column(
         s.implementation_state(key),
         s.implementation_active(key),
@@ -1007,13 +1105,15 @@ fn paint_task_properties(
         ui.horizontal_wrapped(|ui| {
             if let Some(record) = &state {
                 let status = if matches!(
-                    record.status.as_str(),
-                    "Preparing" | "Implementing" | "Verifying"
+                    record.status,
+                    ImplementationStatus::Preparing
+                        | ImplementationStatus::Implementing
+                        | ImplementationStatus::Verifying
                 ) && !s.implementation_active(ticket)
                 {
                     "Interrupted — ready to resume"
                 } else {
-                    &record.status
+                    record.status.label()
                 };
                 ui.label(RichText::new(status).size(12.0).weak());
                 if let Some(url) = &record.pr_url {
@@ -1045,10 +1145,10 @@ fn paint_task_properties(
             if let Some(error) = &record.pr_check_error {
                 ui.label(format!("PR check failed: {error}"));
             }
-            if record.pr_state.as_deref() == Some("CLOSED") {
+            if record.pr_state == Some(PullRequestState::Closed) {
                 ui.label("PR closed without merging. Reopen the PR on GitHub to return this task to review.");
             }
-            if record.status == "Needs attention" {
+            if record.status == ImplementationStatus::Blocked {
                 ui.collapsing("Recovery details", |ui| {
                     egui::ScrollArea::vertical()
                         .max_height(160.0)
@@ -1057,9 +1157,11 @@ fn paint_task_properties(
                         });
                 });
             }
-            if record.status == "Done" {
+            if record.status == ImplementationStatus::Completed {
                 if let Some(at) = &record.cleanup.completed_at {
-                    ui.label(format!("Worktree cleanup completed: {at}. Verification evidence retained."));
+                    ui.label(format!(
+                        "Worktree cleanup completed: {at}. Verification evidence retained."
+                    ));
                 } else {
                     ui.label("Worktree cleanup pending; retried automatically while this project is open.");
                 }
@@ -1087,7 +1189,13 @@ fn paint_task_properties(
                     "Merge commit",
                     record.merged_commit.as_deref().unwrap_or("Not merged"),
                 ),
-                ("PR state", record.pr_state.as_deref().unwrap_or("No PR")),
+                (
+                    "PR state",
+                    record
+                        .pr_state
+                        .map(PullRequestState::label)
+                        .unwrap_or("No PR"),
+                ),
                 (
                     "Last PR attempt",
                     record
@@ -1095,8 +1203,9 @@ fn paint_task_properties(
                         .as_deref()
                         .unwrap_or("Not checked"),
                 ),
+                ("Publication state", record.status.publication().label()),
                 (
-                    "Publication",
+                    "Publish mode",
                     if record.auto_merge {
                         "Automatic merge"
                     } else {
@@ -1219,7 +1328,10 @@ fn task_key(path: &str) -> String {
         .next()
         .unwrap_or(path)
         .trim_end_matches(".md");
-    if name.split_once("-TASK-").is_some_and(|(id, _)| crate::artifacts::product_docs::valid_feature_id(id)) {
+    if name
+        .split_once("-TASK-")
+        .is_some_and(|(id, _)| crate::artifacts::product_docs::valid_feature_id(id))
+    {
         return name.to_owned();
     }
     let prefix = name.split('-').next().unwrap_or(name);
@@ -1240,22 +1352,42 @@ fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded
 }
 
 fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &str) {
-    if s.implementation_active(ticket) { return; }
+    if s.implementation_active(ticket) {
+        return;
+    }
     let record = s.implementation_state(ticket);
     if let Some(error) = record.and_then(|r| r.cleanup.error.as_deref()) {
         ui.colored_label(egui::Color32::LIGHT_RED, "Cleanup needs attention");
         ui.label(card_summary(error)).on_hover_text(error);
         ui.collapsing("Cleanup details", |ui| {
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| { ui.label(error); });
-            if ui.small_button("Copy cleanup failure").clicked() { ui.ctx().copy_text(error.to_owned()); }
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    ui.label(error);
+                });
+            if ui.small_button("Copy cleanup failure").clicked() {
+                ui.ctx().copy_text(error.to_owned());
+            }
         });
         ui.label("Task completed. Worktrees are preserved where cleanup was unsafe or failed. Cleanup retries automatically every minute while this project is open.");
     }
     let failure = s.implementation_failure(ticket).or_else(|| {
-        record.filter(|r| r.status == "Needs attention").map(|r| r.detail.as_str())
+        record
+            .filter(|r| r.status == ImplementationStatus::Blocked)
+            .map(|r| r.detail.as_str())
     });
-    let interrupted = record.is_some_and(|r| matches!(r.status.as_str(),
-        "Preparing" | "Implementing" | "Verifying" | "Interrupted" | "Waiting to merge" | "Publishing" | "Ready for PR"));
+    let interrupted = record.is_some_and(|r| {
+        matches!(
+            r.status,
+            ImplementationStatus::Preparing
+                | ImplementationStatus::Implementing
+                | ImplementationStatus::Verifying
+                | ImplementationStatus::Interrupted
+                | ImplementationStatus::WaitingToMerge
+                | ImplementationStatus::Publishing
+                | ImplementationStatus::ReadyToPublish
+        )
+    });
     if let Some(error) = failure {
         ui.colored_label(egui::Color32::LIGHT_RED, "Needs attention");
         ui.label(failure_summary(error)).on_hover_text(error);
@@ -1265,11 +1397,16 @@ fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &str) {
                 .show(ui, |ui| {
                     crate::ui::markdown::paint(ui, error, crate::ui::markdown::CHAT);
                 });
-            if ui.small_button("Copy failure").clicked() { ui.ctx().copy_text(error.to_owned()); }
+            if ui.small_button("Copy failure").clicked() {
+                ui.ctx().copy_text(error.to_owned());
+            }
         });
         ui.label("Open failure details for evidence. Resume implementation after the listed action is complete.");
     } else if interrupted {
-        ui.colored_label(egui::Color32::LIGHT_RED, "Interrupted — no worker is running");
+        ui.colored_label(
+            egui::Color32::LIGHT_RED,
+            "Interrupted — no worker is running",
+        );
         ui.label("Resume implementation to continue preserved work.");
     }
 }
@@ -1286,7 +1423,12 @@ fn card_summary(text: &str) -> String {
 fn failure_summary(text: &str) -> String {
     text.split_once("### Next action(s)")
         .and_then(|(_, next)| next.lines().find(|line| !line.trim().is_empty()))
-        .map(|line| format!("Next: {}", card_summary(line.trim().trim_start_matches("- "))))
+        .map(|line| {
+            format!(
+                "Next: {}",
+                card_summary(line.trim().trim_start_matches("- "))
+            )
+        })
         .unwrap_or_else(|| card_summary(text))
 }
 

@@ -9,12 +9,12 @@ Statuses describe current repository behavior; pending items are not treated as 
 | F-3 | White-paper Markdown specification view and document switcher | Implemented |
 | F-4 | Open-item and task Kanban with detail/activity views | Implemented |
 | F-5 | Snapshot, context, Pi, validation, transactional apply, checkpoint pipeline | Implemented |
-| F-6 | Structured schema-v2 logical document response; schema v1 remains legacy input | Implemented; D-05 superseded by D-29 |
+| F-6 | Strict operation-specific wire responses with logical document updates | Implemented; D-05 superseded by D-29 |
 | F-7 | Stable open-item lifecycle and separate authority/priority | Implemented |
 | F-8 | Seat-scoped, ownership-aware routing | Implemented; D-14 |
 | F-9 | Scoped git checkpoints | Implemented |
 | F-10 | In-repository document import | Partial; import dialog dogfood remains |
-| F-11 | MCP configuration advertised to Pi | Implemented |
+| F-11 | MCP configuration stored locally; bounded server-name summary supplied to planning context | Implemented; configuration commands and credentials are withheld |
 | F-12 | Live worker and planning activity | Implemented |
 | F-13 | Welcome and first-run guidance | Implemented |
 | F-14 | Private operator chat/checkpoint persistence | Implemented |

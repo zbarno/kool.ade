@@ -14,36 +14,78 @@ pub fn presentation(
     }
     use crate::domain::{Authority, ItemStatus};
     let synthetic = crate::core::ownership::synthesize_for_state(state);
-    let item = state.items.iter().chain(&state.resolved_items).chain(&synthetic)
+    let item = state
+        .items
+        .iter()
+        .chain(&state.resolved_items)
+        .chain(&synthetic)
         .find(|item| item.conversation_key() == key);
     let user = state.effective_user();
     let eligible = |item: &crate::domain::OpenItem| {
-        item.status == ItemStatus::Open && item.authority != Authority::Agent
+        item.status == ItemStatus::Open
+            && item.authority != Authority::Agent
             && crate::core::routing::evaluate(item, &user, &state.config.stakeholders).is_eligible()
     };
     if let Some(item) = item {
-        let context = format!("{} · {}\n{}\n\nWhy this matters: {}\nRecommendation: {}\nRecorded evidence: {}\nStatus: {:?}",
-            item.id, item.kind, item.question, item.reason, item.recommendation, item.evidence, item.status);
+        let context = format!(
+            "{} · {}\n{}\n\nWhy this matters: {}\nRecommendation: {}\nRecorded evidence: {}\nStatus: {:?}",
+            item.id,
+            item.kind,
+            item.question,
+            item.reason,
+            item.recommendation,
+            item.evidence,
+            item.status
+        );
         let ask = if eligible(item) {
             if item.is_ownership_gap() {
-                format!("Who should own {}? You can use this item's Assign ownership control.", item.category)
-            } else { item.question.clone() }
+                format!(
+                    "Who should own {}? You can use this item's Assign ownership control.",
+                    item.category
+                )
+            } else {
+                item.question.clone()
+            }
         } else {
             "How can I help you with this item?".into()
         };
-        let greeting = format!("We’re discussing {}: {}\n\n{}\n\n---\n- {ask}", item.id, item.question, clip(&item.reason, 1200));
+        let greeting = format!(
+            "We’re discussing {}: {}\n\n{}\n\n---\n- {ask}",
+            item.id,
+            item.question,
+            clip(&item.reason, 1200)
+        );
         return Some((context, greeting));
     }
-    let doc = docs.iter().find(|doc| doc.path == key && !doc.path.ends_with("/README.md"))?;
+    let doc = docs
+        .iter()
+        .find(|doc| doc.path == key && !doc.path.ends_with("/README.md"))?;
     // Only explicitly related open questions belong in a task's introduction.
-    let pending = state.items.iter().filter(|item| eligible(item))
-        .filter(|item| tokens(&doc.text).any(|token| token == item.id)
-            || item.evidence.contains(&doc.path) || item.reason.contains(&doc.path))
+    let pending = state
+        .items
+        .iter()
+        .filter(|item| eligible(item))
+        .filter(|item| {
+            tokens(&doc.text).any(|token| token == item.id)
+                || item.evidence.contains(&doc.path)
+                || item.reason.contains(&doc.path)
+        })
         .min_by_key(|item| (item.priority.rank(), &item.id));
-    let ask = pending.map(|item| format!("{}: {}", item.id, item.question))
+    let ask = pending
+        .map(|item| format!("{}: {}", item.id, item.question))
         .unwrap_or_else(|| format!("How can I help you with {}?", doc.title));
-    let next = if pending.is_some() { format!("---\n- {ask}") } else { ask };
-    Some((format!("{}\n{}", doc.path, doc.text), format!("We’re discussing {}. The task description and acceptance criteria are available in Task context.\n\n{next}", doc.title)))
+    let next = if pending.is_some() {
+        format!("---\n- {ask}")
+    } else {
+        ask
+    };
+    Some((
+        format!("{}\n{}", doc.path, doc.text),
+        format!(
+            "We’re discussing {}. The task description and acceptance criteria are available in Task context.\n\n{next}",
+            doc.title
+        ),
+    ))
 }
 
 fn tokens(text: &str) -> impl Iterator<Item = &str> {
@@ -88,67 +130,6 @@ fn referenced_sections(document: &str, subject: &str) -> String {
         .map(|section| clip(&section, 5000))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn references_match_whole_ids_in_headings_bullets_and_tables() {
-        let document = "# Scope\nOverview\n- **FR-1** Use corporate SSO.\n  Require MFA.\n- **FR-10** Unrelated reporting.\n## D-2 Authentication decision\nUse the existing directory.\n## D-20 Reporting decision\nUnrelated exports.\n| A-3 | SSO is available |\n| A-30 | Reporting is enabled |";
-        let selected = referenced_sections(document, "Implement FR-1 based on D-2 and A-3");
-        assert!(selected.contains("Require MFA"));
-        assert!(selected.contains("existing directory"));
-        assert!(selected.contains("SSO is available"));
-        assert!(!selected.contains("Unrelated"));
-        assert!(!selected.contains("Reporting is enabled"));
-    }
-
-    #[test]
-    fn task_story_prompt_includes_explicit_dependency_and_referenced_specification() {
-        let root = std::env::temp_dir().join(format!("packet_task_prompt_{}", std::process::id()));
-        let directory = "planning/tasks/authentication";
-        std::fs::create_dir_all(root.join(directory)).unwrap();
-        let mut state = PlannerState::load(&root).unwrap();
-        state.spec_text = Some("# Product\n## FR-1 Sign in\nUse corporate SSO.\n## FR-10 Reporting\nUnrelated reporting details.".into());
-        state
-            .workflow
-            .task_batches
-            .push(crate::core::workflow::TaskBatchRef {
-                feature: "Authentication".into(),
-                directory: directory.into(),
-                count: 3,
-            });
-        std::fs::write(
-            root.join(directory).join("001-login.md"),
-            "# Sign in\nImplement FR-1.\n## Dependencies\n[Directory](002-directory.md)",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join(directory).join("002-directory.md"),
-            "# Directory\nProvision the corporate tenant.",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join(directory).join("003-reporting.md"),
-            "# Reporting\nUNRELATED TASK DETAILS",
-        )
-        .unwrap();
-        let body = prompt(
-            &state,
-            &format!("{directory}/001-login.md"),
-            "Use the existing provider",
-            &[("User".into(), "OUR TASK HISTORY".into())],
-        )
-        .unwrap();
-        assert!(body.contains("Use corporate SSO."));
-        assert!(body.contains("Provision the corporate tenant."));
-        assert!(body.contains("OUR TASK HISTORY"));
-        assert!(!body.contains("UNRELATED TASK DETAILS"));
-        assert!(!body.contains("Unrelated reporting details"));
-        std::fs::remove_dir_all(root).unwrap();
-    }
 }
 
 pub fn prompt(
@@ -207,23 +188,27 @@ pub fn prompt(
         if let Ok(path) = crate::artifacts::product_docs::document_path(
             &state.repo_root,
             &format!("feature:{id}"),
-        ) {
-            if let Ok(body) = std::fs::read_to_string(path) {
-                references.push_str(&format!("\nFeature {id}\n{}", clip(&body, 10000)));
-            }
+        ) && let Ok(body) = std::fs::read_to_string(path)
+        {
+            references.push_str(&format!("\nFeature {id}\n{}", clip(&body, 10000)));
         }
     }
-    if let Ok(Some(modules)) = crate::artifacts::product_docs::load_modules(&state.repo_root) {
-        for (name, body) in crate::artifacts::product_docs::MODULES
-            .iter()
-            .zip(modules.iter())
-        {
-            if subject.contains(name.trim_end_matches(".md")) {
-                references.push_str(&format!("\n{name}\n{}", clip(body, 8000)));
+    if let Ok(Some(modules)) = crate::artifacts::product_docs::load_documents(&state.repo_root) {
+        for document in modules {
+            if subject.contains(&document.module.id) || subject.contains(&document.module.title) {
+                references.push_str(&format!(
+                    "\n{} ({})\n{}",
+                    document.module.title,
+                    document.module.path,
+                    clip(&document.content, 8000)
+                ));
             } else {
-                let selected = referenced_sections(body, &subject);
+                let selected = referenced_sections(&document.content, &subject);
                 if !selected.is_empty() {
-                    references.push_str(&format!("\n{name}\n{selected}"));
+                    references.push_str(&format!(
+                        "\n{} ({})\n{selected}",
+                        document.module.title, document.module.path
+                    ));
                 }
             }
         }
@@ -268,4 +253,66 @@ pub fn prompt(
         serde_json::to_string(&related).unwrap_or_default(),
         clip(&references, 16000)
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn references_match_whole_ids_in_headings_bullets_and_tables() {
+        let document = "# Scope\nOverview\n- **FR-1** Use corporate SSO.\n  Require MFA.\n- **FR-10** Unrelated reporting.\n## D-2 Authentication decision\nUse the existing directory.\n## D-20 Reporting decision\nUnrelated exports.\n| A-3 | SSO is available |\n| A-30 | Reporting is enabled |";
+        let selected = referenced_sections(document, "Implement FR-1 based on D-2 and A-3");
+        assert!(selected.contains("Require MFA"));
+        assert!(selected.contains("existing directory"));
+        assert!(selected.contains("SSO is available"));
+        assert!(!selected.contains("Unrelated"));
+        assert!(!selected.contains("Reporting is enabled"));
+    }
+
+    #[test]
+    fn task_story_prompt_includes_explicit_dependency_and_referenced_specification() {
+        let root = std::env::temp_dir().join(format!("packet_task_prompt_{}", std::process::id()));
+        let directory = ".kool-ade-packet/planning/tasks/authentication";
+        std::fs::create_dir_all(root.join(directory)).unwrap();
+        let mut state = PlannerState::load(&root).unwrap();
+        state.spec_text = Some("# Product\n## FR-1 Sign in\nUse corporate SSO.\n## FR-10 Reporting\nUnrelated reporting details.".into());
+        state
+            .workflow
+            .task_batches
+            .push(crate::core::workflow::TaskBatchRef {
+                identity: None,
+                feature: "Authentication".into(),
+                directory: directory.into(),
+                count: 3,
+            });
+        std::fs::write(
+            root.join(directory).join("001-login.md"),
+            "# Sign in\nImplement FR-1.\n## Dependencies\n[Directory](002-directory.md)",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(directory).join("002-directory.md"),
+            "# Directory\nProvision the corporate tenant.",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(directory).join("003-reporting.md"),
+            "# Reporting\nUNRELATED TASK DETAILS",
+        )
+        .unwrap();
+        let body = prompt(
+            &state,
+            &format!("{directory}/001-login.md"),
+            "Use the existing provider",
+            &[("User".into(), "OUR TASK HISTORY".into())],
+        )
+        .unwrap();
+        assert!(body.contains("Use corporate SSO."));
+        assert!(body.contains("Provision the corporate tenant."));
+        assert!(body.contains("OUR TASK HISTORY"));
+        assert!(!body.contains("UNRELATED TASK DETAILS"));
+        assert!(!body.contains("Unrelated reporting details"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -42,6 +42,10 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
 
     crate::artifacts::transaction::recover(&canonical)
         .map_err(|e| AppError::Other(format!("planning transaction recovery failed: {e:#}")))?;
+    crate::artifacts::migration::run(&canonical).map_err(|e| AppError::Artifact {
+        path: canonical.to_string_lossy().into_owned(),
+        detail: format!("project artifact migration failed: {e:#}"),
+    })?;
     let mut state = PlannerState::load(&canonical).map_err(|e| AppError::Artifact {
         path: canonical.to_string_lossy().into_owned(),
         detail: e.to_string(),
@@ -50,48 +54,14 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         op: "bootstrap planning artifacts".into(),
         detail: e.to_string(),
     })?;
-    let legacy_path = canonical.join(crate::artifacts::SPEC_FILE);
-    let legacy = std::fs::read_to_string(&legacy_path).unwrap_or_default();
-    let _guard = crate::core::writer_gate::acquire();
-    let migrated = crate::artifacts::product_docs::migrate(&canonical, &legacy).map_err(|e| {
-        AppError::Artifact {
-            path: canonical.to_string_lossy().into_owned(),
-            detail: format!("product specification migration failed: {e:#}"),
-        }
-    })?;
-    let mut paths: Vec<String> = created.iter().map(|p| p.to_string()).collect();
-    paths.extend(migrated);
-    paths.sort();
-    paths.dedup();
-    // migrate() archives the legacy spec BY RENAME. For a repo that never
-    // TRACKED it (a first-boot, planning/-less tree — exactly what a fresh
-    // clone of a plain upstream brings in), the moved-away path would make
-    // `git add` fatal on a ghost pathspec and sink the whole connect
-    // although every file the checkpoint owes exists on disk. Keep only
-    // paths git can express at HEAD: present in the work tree, or tracked
-    // (their disappearance legitimately stages a deletion). Previously-
-    // green connects stage identically — their lists never contained a
-    // ghost. (Disclosed deviation, CHG-003-TASK-clone-a-pasted-github-url:
-    // approved success criterion 3 + AC5 require planning-less repositories
-    // to connect through this path; see the ticket report.)
-    let paths: Vec<String> = paths
-        .into_iter()
-        .filter(|p| canonical.join(p).exists() || gitops::tracked_in_head(&canonical, p))
-        .collect();
+    let paths = created;
     if !paths.is_empty() {
-        gitops::commit(&canonical, "planner: migrate product specification", &paths).map_err(
-            |e| {
-                AppError::Other(format!(
-                    "migration files are preserved but checkpoint failed: {e}"
-                ))
-            },
-        )?;
+        gitops::commit(&canonical, "packet: bootstrap project artifacts", &paths).map_err(|e| {
+            AppError::Other(format!(
+                "bootstrapped artifacts are preserved but checkpoint failed: {e}"
+            ))
+        })?;
     }
-    state.resync().map_err(|e| AppError::Artifact {
-        path: canonical.to_string_lossy().into_owned(),
-        detail: format!("cannot reload migrated product: {e:#}"),
-    })?;
-    drop(_guard);
     let slug = project_slug(&canonical);
     let mut chat = chat_store::load(&slug).0;
     if chat.is_empty() {
@@ -113,7 +83,8 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         active_turn: None,
         task_turns: Default::default(),
         task_live: Default::default(),
-        planning_work: crate::core::planning_work::load(&canonical).map_err(|e| crate::error::AppError::Other(e.to_string()))?,
+        planning_work: crate::core::planning_work::load(&canonical)
+            .map_err(|e| crate::error::AppError::Other(e.to_string()))?,
         active_planning_work: None,
         queue: crate::core::implementation_queue::Queue::load(&canonical)
             .map_err(|e| AppError::Other(e.to_string()))?,
@@ -158,10 +129,10 @@ fn button_shell(label: &str, disabled: bool) -> egui::Button<'_> {
 }
 
 fn expand_home(raw: &str) -> OsString {
-    if let Some(rest) = raw.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest).into_os_string();
-        }
+    if let Some(rest) = raw.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return PathBuf::from(home).join(rest).into_os_string();
     }
     raw.into()
 }
@@ -213,8 +184,8 @@ pub fn parse_github_url(raw: &str) -> Result<GithubTarget, String> {
         None => {
             if folded.starts_with("git@") {
                 return Err(format!(
-                "That is the SSH form \u{2014} use the HTTPS one instead: paste {SHAPE} (no git@ prefix)."
-            ));
+                    "That is the SSH form \u{2014} use the HTTPS one instead: paste {SHAPE} (no git@ prefix)."
+                ));
             }
             if let Some(at) = folded.find("://") {
                 let scheme: String = folded[..at]
@@ -404,7 +375,7 @@ pub fn perform_clone_at(source: &str, repo: &str, home: &Path) -> Result<PathBuf
     if !scratch.is_dir() {
         let _ = std::fs::remove_dir_all(&scratch);
         return Err(AppError::Git {
-            cmd: format!("clone {source}"),
+            cmd: crate::error::redact_secrets(&format!("clone {source}")),
             detail: "git reported success but the scratch directory is missing".into(),
         });
     }
@@ -895,8 +866,8 @@ mod tests {
         // CHAIN PROOF (ticket plan 5 / AC5): perform_clone →
         // attempt_connect yields a hydrated Project from a PLANNING-LESS
         // source: validation, transaction recovery, state load, scaffold
-        // bootstrap (spec + open-items + config), legacy migrate +
-        // checkpoint, chat hydration and queue load all run exactly as for
+        // bootstrap (product modules + open-items + config), checkpoint,
+        // chat hydration and queue load all run exactly as for
         // a typed path — because it IS the same call. HOME + PACKET_HOME
         // point at throwaways for the whole body and are restored on drop;
         // the house shield keeps sibling git spawns on a consistent
@@ -918,23 +889,16 @@ mod tests {
         let project = attempt_connect(dest.to_str().unwrap())
             .unwrap_or_else(|e| panic!("the clone must connect like a typed path: {e:?}"));
         assert_eq!(project.state.title, "sw-clone");
-        // Scaffold bootstrapped + migrated INSIDE the clone:
-        // - planning/specification.md was planted by bootstrap_missing,
-        //   then migrate() converted it to product modules and archived
-        //   the legacy file (its post-migration resting place, per D-28);
-        // - open-items and config owe their existence to bootstrap_missing.
+        // A new repository receives the modular scaffold directly. Legacy
+        // archives are created only when there was an old specification to
+        // preserve.
         assert!(
             dest.join(crate::artifacts::product_docs::INDEX).exists(),
-            "the legacy migrate landed the product modules"
+            "cold bootstrap landed the product modules"
         );
         assert!(
-            dest.join(crate::artifacts::product_docs::LEGACY_ARCHIVE)
-                .exists(),
-            "the migrated legacy spec was archived"
-        );
-        assert!(
-            !dest.join(crate::artifacts::SPEC_FILE).exists(),
-            "the legacy spec moved to the archive by rename"
+            !dest.join("planning/specification.md").exists(),
+            "cold bootstrap does not create a legacy specification"
         );
         assert!(
             dest.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
@@ -956,7 +920,7 @@ mod tests {
             stored.contains("Connected to \u{201c}sw-clone\u{201d}"),
             "welcome line stored: {stored}"
         );
-        // Loaded-project population: the git snapshot reflects the migrated
+        // Loaded-project population: the git snapshot reflects the bootstrap
         // checkpoint lineage (clean tree, main branch) and the queue loader
         // ran without error.
         assert_eq!(project.git.branch, "main", "snapshot branch populated");
@@ -965,11 +929,11 @@ mod tests {
             "the checkpoint adopted every artifact"
         );
         assert!(
-            project.git.last_subject.contains("migrate"),
+            project.git.last_subject.contains("bootstrap"),
             "last_subject: {}",
             project.git.last_subject
         );
-        assert!(project.queue.auto_mode, "queue loaded without error");
+        assert!(project.queue.auto_build, "queue loaded without error");
         let _ = std::fs::remove_dir_all(&src);
     }
 
@@ -1012,16 +976,22 @@ mod tests {
             .unwrap_or_else(|e| panic!("tracked-legacy connect: {e:?}"));
         assert_eq!(project.state.title, "sw-track");
         assert!(dest.join(crate::artifacts::product_docs::INDEX).exists());
-        assert!(dest
-            .join(crate::artifacts::product_docs::LEGACY_ARCHIVE)
-            .exists());
-        assert!(!dest.join(crate::artifacts::SPEC_FILE).exists());
+        assert!(
+            dest.join(crate::artifacts::product_docs::LEGACY_ARCHIVE)
+                .exists()
+        );
+        assert!(
+            dest.join(".kool-ade-packet/planning/product/index.md")
+                .exists()
+        );
+        assert!(!dest.join("planning/specification.md").exists());
 
-        // The checkpoint itself carries the deletion + archive arrival.
+        // Migration checkpoints the deletion + archive arrival before the
+        // separate cold-start bootstrap checkpoint adds config and queue files.
         let out = std::process::Command::new("git")
             .arg("-C")
             .arg(&dest)
-            .args(["log", "-1", "--name-status"])
+            .args(["log", "-2", "--name-status"])
             .output()
             .unwrap();
         let log_txt = String::from_utf8_lossy(&out.stdout).to_string();
@@ -1105,7 +1075,7 @@ mod tests {
         // AC5'S identity clause made observable: the SAME planning-less
         // tree, reached once THROUGH the clone and once by hand-typing
         // the source's path, completes with side-effect parity — both
-        // bootstrap the scaffold, both migrate + checkpoint, both
+        // bootstrap the scaffold and checkpoint it in both paths, both
         // hydrate chat. The clone feeds EXACTLY today's connect path
         // because it literally is that call.
         let _sb = EnvSandbox::enter("plain", false);
@@ -1134,13 +1104,8 @@ mod tests {
                 "{what}: product modules landed"
             );
             assert!(
-                root.join(crate::artifacts::product_docs::LEGACY_ARCHIVE)
-                    .exists(),
-                "{what}: legacy spec archived"
-            );
-            assert!(
-                !root.join(crate::artifacts::SPEC_FILE).exists(),
-                "{what}: legacy spec moved by rename"
+                !root.join("planning/specification.md").exists(),
+                "{what}: cold bootstrap does not create a legacy spec"
             );
             assert!(
                 root.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),

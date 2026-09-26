@@ -1,4 +1,4 @@
-//! `planning/specification.md` — load, bootstrap, replace (SPECIFICATION.md §4).
+//! Current product-document loading, bootstrap, and replacement.
 //!
 //! The specification is owned exclusively by the planning agent. Users see a
 //! rendered view in the center panel and never edit the file from the UI.
@@ -19,19 +19,12 @@ pub fn bootstrap_template(title: &str) -> String {
          Packet validates and persists them; the UI is read-only. Git preserves history.\n\n"
     );
     let contents = [
-        "Purpose, hypothesis and goals are not established. Describe the project in chat to begin.",
-        "In-scope, out-of-scope, platform commitments and deferred capabilities require confirmation.",
-        "Inspect project ownership configuration before recording concrete assignments. Responsibilities are unconfirmed.",
-        "No feature records yet. Do not infer implementation status without repository evidence.",
-        "No functional requirements confirmed.",
-        "Quality constraints and quantitative targets are unspecified.",
-        "Storage, domain types, protocols, private state and configuration require repository inspection.",
-        "Current architecture is unverified. No future architecture has been accepted.",
-        "Runtime, launch commands and operational prerequisites require repository inspection.",
+        "Purpose, current behavior and goals are not established. Describe the project in chat to begin.",
+        "Target users, their needs, desired outcomes and ownership require confirmation.",
+        "Current behavior, in-scope capabilities, boundaries and deferred work require evidence and confirmation.",
+        "Architecture, important data, runtime constraints and deployment assumptions require repository inspection.",
         "| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |",
-        "Initial discovery remains open. No application-assigned clarification records or accepted debt are recorded here yet.",
-        "No success scenario or acceptance bar has been agreed. Establish explicit criteria before claiming completion.",
-        "Source: Packet's bootstrap template. Repository evidence and authoritative project documents have not yet been indexed.",
+        "Quality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.",
     ];
     for (section, content) in crate::core::specification::SECTIONS.iter().zip(contents) {
         text.push_str(&format!("## {section}\n\n{content}\n\n"));
@@ -47,22 +40,14 @@ pub fn load(repo_root: &Path) -> anyhow::Result<Option<String>> {
     let path = repo_artifact(repo_root, SPEC_FILE);
     match read_utf8_lossy(&path) {
         Ok(t) => Ok(Some(t)),
-        Err(_) if path.exists() == false => Ok(None),
+        Err(_) if !path.exists() => Ok(None),
         Err(e) => Err(e),
     }
 }
 
-/// Ensure `planning/specification.md` exists; returns true when it was created.
+/// Ensure the current product document exists; returns true when created.
 pub fn ensure(repo_root: &Path, title: &str) -> anyhow::Result<bool> {
-    if crate::artifacts::product_docs::load_modules(repo_root)?.is_some() {
-        return Ok(false);
-    }
-    let path = repo_artifact(repo_root, SPEC_FILE);
-    if path.exists() {
-        return Ok(false);
-    }
-    atomic_write(&path, &bootstrap_template(title))?;
-    Ok(true)
+    Ok(!crate::artifacts::migration::bootstrap_product(repo_root, title)?.is_empty())
 }
 
 /// Replace the whole specification (called from the apply step only).

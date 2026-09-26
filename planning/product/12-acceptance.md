@@ -9,4 +9,4 @@ Both legs are required:
 
 The timeboxed real-team pilot and a standalone automated replacement for the live interview are excluded from this MVP bar. No new numerical performance/usability gate is implied (D-19). Only a fresh operator ruling can widen or weaken the bar.
 
-CHG-001's separate 23-point feature acceptance list remains in its feature specification. That feature adds modular planning, authority, multi-repository tasks and reconciliation without silently altering this older MVP demonstration. F-19/F-20 board-display work (D-26, D-27) is also outside this bar; CLR-007 is resolved.
+CHG-001's separate 23-point feature acceptance list remains in its feature specification. That feature adds modular planning, authority, multi-repository tasks and reconciliation without silently altering this older MVP demonstration. F-19/F-20 board displays (D-26, D-27) are implemented and remain outside this original bar; CLR-007 is resolved.

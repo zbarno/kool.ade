@@ -21,7 +21,6 @@
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 use crate::ui::theme;
 
-
 /// The shape detected at the end of a reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TailKind {
@@ -107,7 +106,11 @@ pub fn parse_reply_tail(prose: &str) -> ReplyTail {
         .filter(|line| line.trim().ends_with('?') && line.chars().count() <= MAX_QUESTION_CHARS)
         .map(|line| line.trim().to_string())
     {
-        let body = if ask == body { String::new() } else { body.to_string() };
+        let body = if ask == body {
+            String::new()
+        } else {
+            body.to_string()
+        };
         return ReplyTail {
             kind: TailKind::FinalQuestion,
             body,
@@ -280,9 +283,9 @@ pub fn digest_choices(tail: &ReplyTail) -> Vec<OptionChoice> {
 pub fn open_digest_choices(messages: &[ChatMessage]) -> Vec<OptionChoice> {
     open_ask_index(messages)
         .map(|index| {
-            digest_choices(&parse_reply_tail(
-                &crate::ui::message_text::readable(&messages[index]),
-            ))
+            digest_choices(&parse_reply_tail(&crate::ui::message_text::readable(
+                &messages[index],
+            )))
         })
         .unwrap_or_default()
 }
@@ -328,11 +331,7 @@ pub fn join_choice(draft: &mut String, choice: &OptionChoice, separator: char) {
 /// click; disabled cells keep a dim label, forgo the hover promotion, and
 /// absorb clicks. Empty input returns `None` immediately, laying out
 /// nothing.
-pub fn paint_chip_row(
-    ui: &mut egui::Ui,
-    choices: &[OptionChoice],
-    enabled: bool,
-) -> Option<usize> {
+pub fn paint_chip_row(ui: &mut egui::Ui, choices: &[OptionChoice], enabled: bool) -> Option<usize> {
     if choices.is_empty() {
         return None;
     }
@@ -340,7 +339,11 @@ pub fn paint_chip_row(
         row.spacing_mut().item_spacing.x = 6.0;
         for (index, choice) in choices.iter().enumerate() {
             let label = choice_label(choice);
-            let ink = if enabled { theme::TEXT } else { theme::TEXT_DIM };
+            let ink = if enabled {
+                theme::TEXT
+            } else {
+                theme::TEXT_DIM
+            };
             let galley = row
                 .painter()
                 .layout_no_wrap(label, egui::FontId::proportional(12.0), ink);
@@ -359,8 +362,13 @@ pub fn paint_chip_row(
                     theme::CHIP_BORDER
                 },
             );
-            row.painter()
-                .rect(rect, 10.0, theme::CHIP_FILL, stroke, egui::StrokeKind::Middle);
+            row.painter().rect(
+                rect,
+                10.0,
+                theme::CHIP_FILL,
+                stroke,
+                egui::StrokeKind::Middle,
+            );
             row.painter()
                 .galley(rect.left_top() + egui::vec2(7.0, 4.0), galley, ink);
             if enabled {
@@ -408,8 +416,7 @@ const DESCRIPTOR_SEPARATORS: [char; 13] = [
 /// Anchors a bullet's token; the first successful rule wins, and the
 /// decorative-`Word:`-labelling peel gets exactly one retry.
 fn match_bullet_token(bullet: &str) -> Option<String> {
-    try_token_rules(bullet)
-        .or_else(|| peel_decorative_labelling(bullet).and_then(try_token_rules))
+    try_token_rules(bullet).or_else(|| peel_decorative_labelling(bullet).and_then(try_token_rules))
 }
 
 fn try_token_rules(candidate: &str) -> Option<String> {
@@ -432,10 +439,7 @@ fn try_token_rules(candidate: &str) -> Option<String> {
                 .take_while(|b| *b == b' ' || *b == b'\t')
                 .count();
             let digits_span = &after_word[blanks..];
-            let digit_count = digits_span
-                .bytes()
-                .take_while(u8::is_ascii_digit)
-                .count();
+            let digit_count = digits_span.bytes().take_while(u8::is_ascii_digit).count();
             if digit_count > 0 {
                 return Some(format!("Option {}", &digits_span[..digit_count]));
             }
@@ -443,7 +447,8 @@ fn try_token_rules(candidate: &str) -> Option<String> {
     }
     let mut chars = candidate.chars();
     if let (Some(letter), Some(after)) = (chars.next(), chars.next())
-        && letter.is_ascii_alphabetic() && matches!(after, '(' | ')' | '.')
+        && letter.is_ascii_alphabetic()
+        && matches!(after, '(' | ')' | '.')
     {
         return Some(letter.to_ascii_uppercase().to_string());
     }
@@ -455,14 +460,8 @@ fn try_token_rules(candidate: &str) -> Option<String> {
 /// (`Preferred: A(recommended)`) still anchor on the real token. A one-
 /// LETTER word is never peeled (it would shadow a letter token itself).
 fn peel_decorative_labelling(bullet: &str) -> Option<&str> {
-    let word_len = bullet
-        .bytes()
-        .take_while(u8::is_ascii_alphabetic)
-        .count();
-    if word_len >= 2
-        && word_len < bullet.len()
-        && bullet.as_bytes()[word_len] == b':'
-    {
+    let word_len = bullet.bytes().take_while(u8::is_ascii_alphabetic).count();
+    if word_len >= 2 && word_len < bullet.len() && bullet.as_bytes()[word_len] == b':' {
         Some(bullet[word_len + 1..].trim_start())
     } else {
         None
@@ -504,8 +503,7 @@ fn polish_descriptor(start: &str) -> &str {
             rest = inner;
             continue;
         }
-        let swept = rest
-            .trim_start_matches(|c: char| DESCRIPTOR_SEPARATORS.contains(&c));
+        let swept = rest.trim_start_matches(|c: char| DESCRIPTOR_SEPARATORS.contains(&c));
         if swept.len() == rest.len() {
             break;
         }
@@ -614,11 +612,10 @@ fn parse_bullet(line: &str) -> Option<String> {
         }
         rest
     } else if bytes[0].is_ascii_digit() {
-        let digits = line.find(|c: char| !c.is_ascii_digit()).unwrap_or(line.len());
-        let (close, gap) = (
-            bytes.get(digits).copied(),
-            bytes.get(digits + 1).copied(),
-        );
+        let digits = line
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(line.len());
+        let (close, gap) = (bytes.get(digits).copied(), bytes.get(digits + 1).copied());
         if !matches!(close, Some(b'.') | Some(b')')) || !matches!(gap, Some(b' ') | Some(b'\t')) {
             return None;
         }
@@ -701,10 +698,7 @@ mod tests {
                 ts("Start.", Some("first ask\nYour next step: second ask")),
             ),
             ("Only the marker survives.", pl("Only the marker survives.")),
-            (
-                "Your next step:",
-                ts("", None),
-            ),
+            ("Your next step:", ts("", None)),
             // Casing and mid-phrase occurrences never trigger the markers.
             (
                 "a?\nyour next step: pick a vendor",
@@ -735,7 +729,10 @@ mod tests {
             ),
             // Final-`?` fallback: only the FINAL non-empty line can win.
             ("Anything else?", fq("", "Anything else?")),
-            ("Patch landed.\nDeploy tonight?", fq("Patch landed.\nDeploy tonight?", "Deploy tonight?")),
+            (
+                "Patch landed.\nDeploy tonight?",
+                fq("Patch landed.\nDeploy tonight?", "Deploy tonight?"),
+            ),
             (
                 "Asked earlier?\nNot done yet",
                 pl("Asked earlier?\nNot done yet"),
@@ -750,7 +747,7 @@ mod tests {
                         "Enable SSO for all guests?",
                         "Recommended: yes, effective Monday.",
                         "Impact notes: CLR-021",
-                    ]
+                    ],
                 ),
             ),
             (
@@ -761,7 +758,12 @@ mod tests {
                 "Menu.\n---\n* Pick a route\n+ Keep the cache\n1. Freeze schema v2\n2) Log the rollback",
                 dg(
                     "Menu.",
-                    &["Pick a route", "Keep the cache", "Freeze schema v2", "Log the rollback"]
+                    &[
+                        "Pick a route",
+                        "Keep the cache",
+                        "Freeze schema v2",
+                        "Log the rollback",
+                    ],
                 ),
             ),
             // An earlier rule is swallowed into the body bytes.
@@ -783,14 +785,8 @@ mod tests {
                 "Setup.\n---\n-x tight marker\n- Ok",
                 pl("Setup.\n---\n-x tight marker\n- Ok"),
             ),
-            (
-                "Draft ready.\n\n---\n",
-                pl("Draft ready.\n\n---"),
-            ), // zero bullets
-            (
-                "Draft ready.\n\n---\n- ",
-                pl("Draft ready.\n\n---\n-"),
-            ), // hung marker, no content
+            ("Draft ready.\n\n---\n", pl("Draft ready.\n\n---")), // zero bullets
+            ("Draft ready.\n\n---\n- ", pl("Draft ready.\n\n---\n-")), // hung marker, no content
             // In-progress streaming prefixes stay deterministic and plain.
             ("Draft ready.\n\n-", pl("Draft ready.\n\n-")),
             // Decorative rules are not anchors: em-dash run, `***`, `___`.
@@ -834,7 +830,11 @@ mod tests {
         let q280 = format!("{} ?", "q".repeat(MAX_QUESTION_CHARS - 2));
         assert_eq!(q280.chars().count(), MAX_QUESTION_CHARS);
         assert_eq!(parse_reply_tail(&q280), fq("", q280.as_str()));
-        let padded280 = format!("{}{} ?", " ".repeat(10), "q".repeat(MAX_QUESTION_CHARS - 12));
+        let padded280 = format!(
+            "{}{} ?",
+            " ".repeat(10),
+            "q".repeat(MAX_QUESTION_CHARS - 12)
+        );
         assert_eq!(padded280.chars().count(), MAX_QUESTION_CHARS);
         assert_eq!(parse_reply_tail(&padded280), fq("", padded280.trim()));
         let q281 = format!("{} ?", "q".repeat(MAX_QUESTION_CHARS - 1));
@@ -848,10 +848,22 @@ mod tests {
         let six: Vec<String> = (1..=MAX_DIGEST_BULLETS + 1)
             .map(|n| format!("Item {n}"))
             .collect();
-        let five_block = format!("Deck.\n---\n{}", five.iter().map(|b| format!("- {b}")).collect::<Vec<_>>().join("\n"));
+        let five_block = format!(
+            "Deck.\n---\n{}",
+            five.iter()
+                .map(|b| format!("- {b}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
         let five_view: Vec<&str> = five.iter().map(String::as_str).collect();
         assert_eq!(parse_reply_tail(&five_block), dg("Deck.", &five_view));
-        let six_block = format!("Deck.\n---\n{}", six.iter().map(|b| format!("- {b}")).collect::<Vec<_>>().join("\n"));
+        let six_block = format!(
+            "Deck.\n---\n{}",
+            six.iter()
+                .map(|b| format!("- {b}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
         assert_eq!(parse_reply_tail(&six_block), pl(six_block.as_str()));
     }
 
@@ -967,7 +979,12 @@ mod tests {
     fn digest_choices_apply_the_token_grammar_and_the_all_or_nothing_gate() {
         // Handcrafted: six match (band edge) and seven match (over-band)
         // plus kind-gated non-digest tails.
-        let six = dg("Six.", &["A(one)", "B(two)", "C(three)", "D(four)", "Option 5", "No go"]);
+        let six = dg(
+            "Six.",
+            &[
+                "A(one)", "B(two)", "C(three)", "D(four)", "Option 5", "No go",
+            ],
+        );
         assert_eq!(
             digest_choices(&six),
             vec![
@@ -980,10 +997,16 @@ mod tests {
             ],
             "six matching bullets ride the band"
         );
-        let seven = dg("Seven.", &[
-            "A(one)", "B(two)", "C(three)", "D(four)", "Option 5", "No go", "Z(nine)",
-        ]);
-        assert!(digest_choices(&seven).is_empty(), "seven matching bullets DECLINE wholesale");
+        let seven = dg(
+            "Seven.",
+            &[
+                "A(one)", "B(two)", "C(three)", "D(four)", "Option 5", "No go", "Z(nine)",
+            ],
+        );
+        assert!(
+            digest_choices(&seven).is_empty(),
+            "seven matching bullets DECLINE wholesale"
+        );
         // Non-Digest kinds ALWAYS decline, even a synthetically stuffed
         // bullet list of perfectly matching options — chips ride the fresh
         // marker'd digest and nowhere else.
@@ -1021,12 +1044,20 @@ mod tests {
             (
                 "option N (any case, space-run absorbed into the token)",
                 "Route.\n---\n- option 12 goes\n- Option  13 stays\n- OPTION 14 wins",
-                vec![opt("Option 12", "option 12 goes"), opt("Option 13", "Option  13 stays"), opt("Option 14", "OPTION 14 wins")],
+                vec![
+                    opt("Option 12", "option 12 goes"),
+                    opt("Option 13", "Option  13 stays"),
+                    opt("Option 14", "OPTION 14 wins"),
+                ],
             ),
             (
                 "letter+adornment tokens (kept lowercase in text, uppercased in token)",
                 "Choose.\n---\n- A(route)\n- B(plan)\n- C. third",
-                vec![opt("A", "A(route)"), opt("B", "B(plan)"), opt("C", "C. third")],
+                vec![
+                    opt("A", "A(route)"),
+                    opt("B", "B(plan)"),
+                    opt("C", "C. third"),
+                ],
             ),
             (
                 "bare lowercase letter bullet",
@@ -1036,12 +1067,18 @@ mod tests {
             (
                 "decorative Word: labelling peeled once (AC5 mixed-case row)",
                 "Chose wisely.\n---\n- Which vendor shall we bind?\n- Preferred: A(recommended) — fast.\n- Option 2: slow but steady.\n- Details in CLR-021.",
-                vec![opt("A", "Preferred: A(recommended) — fast."), opt("Option 2", "Option 2: slow but steady.")],
+                vec![
+                    opt("A", "Preferred: A(recommended) — fast."),
+                    opt("Option 2", "Option 2: slow but steady."),
+                ],
             ),
             (
                 "note-labelled bullet WITHOUT a token stays excluded",
                 "Careful.\n---\n- NOTE: verify the port first\n- Yes, patch nightly\n- No, defer to Friday",
-                vec![opt("Yes", "Yes, patch nightly"), opt("No", "No, defer to Friday")],
+                vec![
+                    opt("Yes", "Yes, patch nightly"),
+                    opt("No", "No, defer to Friday"),
+                ],
             ),
             (
                 "Yesterday: and Never-/recommend-style prefixes never tokenize",
@@ -1106,16 +1143,30 @@ mod tests {
         assert_eq!(expected.len(), 2);
 
         let open = vec![u("Pick."), a(digest)];
-        assert_eq!(open_digest_choices(&open), expected, "open digest serves its choices");
+        assert_eq!(
+            open_digest_choices(&open),
+            expected,
+            "open digest serves its choices"
+        );
 
         let answered = vec![u("Pick."), a(digest), u("Yes, Aurora.")];
-        assert!(open_digest_choices(&answered).is_empty(), "settled log serves none");
+        assert!(
+            open_digest_choices(&answered).is_empty(),
+            "settled log serves none"
+        );
 
         let plain = vec![u("Status?"), a("All green, nothing blocked.")];
-        assert!(open_digest_choices(&plain).is_empty(), "plain final serves none");
+        assert!(
+            open_digest_choices(&plain).is_empty(),
+            "plain final serves none"
+        );
 
         let sys_notice = vec![u("Pick."), a(digest), s("Maintenance window.")];
-        assert_eq!(open_digest_choices(&sys_notice), expected, "system notices preserve openness");
+        assert_eq!(
+            open_digest_choices(&sys_notice),
+            expected,
+            "system notices preserve openness"
+        );
 
         // Shield-broken envelopes NEVER feed the chips (they classify Plain
         // and fail the selector anyway) — assert neither path leaks.
@@ -1133,16 +1184,29 @@ mod tests {
     #[test]
     fn choice_label_projects_the_token_plus_cleaned_capped_descriptor() {
         assert_eq!(choice_label(&opt("Yes", "Yes")), "Yes");
-        assert_eq!(choice_label(&opt("No", "No, keep Postman.")), "No keep Postman.");
+        assert_eq!(
+            choice_label(&opt("No", "No, keep Postman.")),
+            "No keep Postman."
+        );
         assert_eq!(choice_label(&opt("B", "b. low cost")), "B low cost");
         assert_eq!(
             choice_label(&opt("A", "A(recommended) — fast.")),
             "A fast.",
             "leading parenthesized group drops as a unit"
         );
-        assert_eq!(choice_label(&opt("B", "B (backup) plan ready")), "B plan ready");
-        assert_eq!(choice_label(&opt("A", "A(preferred — fast)")), "A", "entirely parenthesised → bare token");
-        assert_eq!(choice_label(&opt("C", "C — the cautious route")), "C the cautious route");
+        assert_eq!(
+            choice_label(&opt("B", "B (backup) plan ready")),
+            "B plan ready"
+        );
+        assert_eq!(
+            choice_label(&opt("A", "A(preferred — fast)")),
+            "A",
+            "entirely parenthesised → bare token"
+        );
+        assert_eq!(
+            choice_label(&opt("C", "C — the cautious route")),
+            "C the cautious route"
+        );
         assert_eq!(
             choice_label(&opt("A", "A(unclosed paren forever")),
             "A (unclosed paren forever",
@@ -1195,11 +1259,17 @@ mod tests {
 
         let mut newline_sep = "Line one\nLine two".to_string();
         join_choice(&mut newline_sep, &choice, '\n');
-        assert_eq!(newline_sep, "Line one\nLine two\nYes, bind Aurora effective Monday.");
+        assert_eq!(
+            newline_sep,
+            "Line one\nLine two\nYes, bind Aurora effective Monday."
+        );
 
         let mut nl_after_ws = "Line one\nLine two ".to_string();
         join_choice(&mut nl_after_ws, &choice, '\n');
-        assert_eq!(nl_after_ws, "Line one\nLine two Yes, bind Aurora effective Monday.");
+        assert_eq!(
+            nl_after_ws,
+            "Line one\nLine two Yes, bind Aurora effective Monday."
+        );
 
         let mut ws_only = "   ".to_string();
         join_choice(&mut ws_only, &choice, '\n');
@@ -1236,13 +1306,18 @@ mod tests {
         let solo_label = choice_label(&disabled_solo[0]);
 
         let cells = |out: &egui::FullOutput| -> Vec<(egui::Rect, egui::Color32)> {
-            out.shapes.iter().filter_map(|clipped| match &clipped.shape {
-                egui::Shape::Rect(rect)
-                    if rect.fill == theme::CHIP_FILL
-                        && rect.corner_radius == egui::CornerRadius::same(10_u8)
-                    => Some((rect.rect, rect.stroke.color)),
-                _ => None,
-            }).collect()
+            out.shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Rect(rect)
+                        if rect.fill == theme::CHIP_FILL
+                            && rect.corner_radius == egui::CornerRadius::same(10_u8) =>
+                    {
+                        Some((rect.rect, rect.stroke.color))
+                    }
+                    _ => None,
+                })
+                .collect()
         };
         let texts = |out: &egui::FullOutput| -> Vec<String> {
             out.shapes
@@ -1258,12 +1333,21 @@ mod tests {
         let paint_rows = |ui: &mut egui::Ui| {
             hit_enabled.set(paint_chip_row(ui, &enabled, true));
             hit_disabled.set(paint_chip_row(ui, &disabled_solo, false));
-            assert!(paint_chip_row(ui, &[], true).is_none(), "empty input paints nothing");
+            assert!(
+                paint_chip_row(ui, &[], true).is_none(),
+                "empty input paints nothing"
+            );
         };
         let frame = |events: Vec<egui::Event>| -> egui::FullOutput {
-            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
-                egui::CentralPanel::default().show(ui, paint_rows);
-            })
+            ctx.run_ui(
+                egui::RawInput {
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show(ui, paint_rows);
+                },
+            )
         };
         let press_release = |pos: egui::Pos2| -> (Vec<egui::Event>, Vec<egui::Event>) {
             (
@@ -1287,21 +1371,45 @@ mod tests {
 
         let mut out = frame(Vec::new());
         let rects = cells(&out);
-        assert_eq!(rects.len(), 3, "two enabled + one disabled cell, empty row adds none");
-        assert!(rects.iter().all(|(_, c)| *c == theme::CHIP_BORDER), "idle strokes stay CHIP_BORDER");
+        assert_eq!(
+            rects.len(),
+            3,
+            "two enabled + one disabled cell, empty row adds none"
+        );
+        assert!(
+            rects.iter().all(|(_, c)| *c == theme::CHIP_BORDER),
+            "idle strokes stay CHIP_BORDER"
+        );
         let seen = texts(&out);
-        assert!(seen.contains(&yes_label), "chip one projects {yes_label:?} in {seen:?}");
-        assert!(seen.contains(&no_label), "chip two projects {no_label:?} in {seen:?}");
-        assert!(seen.contains(&solo_label), "disabled cell projects {solo_label:?}");
+        assert!(
+            seen.contains(&yes_label),
+            "chip one projects {yes_label:?} in {seen:?}"
+        );
+        assert!(
+            seen.contains(&no_label),
+            "chip two projects {no_label:?} in {seen:?}"
+        );
+        assert!(
+            seen.contains(&solo_label),
+            "disabled cell projects {solo_label:?}"
+        );
         out.textures_delta.clear();
 
         // Hover over chip one promotes ITS stroke to ACCENT only.
         let chip_centers: Vec<egui::Pos2> = rects.iter().map(|(r, _)| r.center()).collect();
         let mut hover = frame(vec![egui::Event::PointerMoved(chip_centers[0])]);
         let hover_strokes = cells(&hover);
-        assert_eq!(hover_strokes[0].1, theme::ACCENT, "hovered enabled chip earns the accent stroke");
+        assert_eq!(
+            hover_strokes[0].1,
+            theme::ACCENT,
+            "hovered enabled chip earns the accent stroke"
+        );
         assert_eq!(hover_strokes[1].1, theme::CHIP_BORDER);
-        assert_eq!(hover_strokes[2].1, theme::CHIP_BORDER, "disabled cell ignores hover promotion");
+        assert_eq!(
+            hover_strokes[2].1,
+            theme::CHIP_BORDER,
+            "disabled cell ignores hover promotion"
+        );
         hover.textures_delta.clear();
 
         // Clicking chip one (move, press, RELEASE far away… no: release over it).
@@ -1311,7 +1419,11 @@ mod tests {
         let _ = frame(release_evts);
         assert_eq!(hit_enabled.get(), Some(0), "release over chip 0 → index 0");
         let _ = frame(Vec::new());
-        assert_eq!(hit_disabled.get(), None, "no click ever reached the disabled row");
+        assert_eq!(
+            hit_disabled.get(),
+            None,
+            "no click ever reached the disabled row"
+        );
 
         // Second enabled chip reports index 1.
         let (press2, release2) = press_release(chip_centers[1]);
@@ -1367,6 +1479,9 @@ mod tests {
             },
         );
         third.textures_delta.clear();
-        assert_eq!(draft, "abcX", "pinned caret types behind the draft, not ahead");
+        assert_eq!(
+            draft, "abcX",
+            "pinned caret types behind the draft, not ahead"
+        );
     }
 }

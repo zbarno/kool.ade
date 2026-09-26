@@ -3,7 +3,11 @@ use crate::core::{state::PlannerState, validation::NormalizedTurn};
 use crate::harness::TurnEnvelope;
 use serde::{Deserialize, Serialize};
 
-pub const WORKFLOW_FILE: &str = ".planner/workflow.json";
+mod story_validation;
+use story_validation::validate_stories;
+pub use story_validation::{descriptive_title, story_detail_errors};
+
+pub const WORKFLOW_FILE: &str = crate::artifacts::layout::canonical::WORKFLOW;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TurnPurpose {
@@ -50,6 +54,9 @@ pub struct Workflow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskBatchRef {
+    /// Packet-owned immutable identity. Missing only in legacy workflow data.
+    #[serde(default)]
+    pub identity: Option<crate::domain::ArtifactIdentity>,
     pub feature: String,
     pub directory: String,
     pub count: usize,
@@ -227,8 +234,10 @@ pub fn approve_feature_if_current(
     );
     let contract = feature_contract(&text);
     anyhow::ensure!(!contract.trim().is_empty(), "Feature contract is empty");
-    anyhow::ensure!(expected_contract.is_none_or(|expected| expected == contract),
-        "The feature changed since it was displayed. Refresh and review its current specification.");
+    anyhow::ensure!(
+        expected_contract.is_none_or(|expected| expected == contract),
+        "The feature changed since it was displayed. Refresh and review its current specification."
+    );
     // Another conversation may have saved a brief or another approval since display.
     *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
     workflow.approved_features.insert(id.to_string(), contract);
@@ -291,7 +300,7 @@ pub fn brief_target_problem(
     match declared {
         [] => None,
         [id] if !feature_dir_exists(id) => Some(format!(
-            "Brief references unknown feature {id}; record the feature specification under planning/features before generating tasks"
+            "Brief references unknown feature {id}; record the change specification under .kool-ade-packet/planning/changes before generating tasks"
         )),
         [id] => match stamped {
             Some(stamped) if *id == stamped => None,
@@ -307,25 +316,6 @@ pub fn brief_target_problem(
             declared.join(", ")
         )),
     }
-}
-
-pub fn confirms_generation(text: &str) -> bool {
-    matches!(
-        text.trim()
-            .trim_end_matches(['.', '!'])
-            .to_ascii_lowercase()
-            .as_str(),
-        "yes"
-            | "yes please"
-            | "proceed"
-            | "go ahead"
-            | "generate tasks"
-            | "generate task stories"
-            | "yes, please"
-            | "yes, generate tasks"
-            | "yes generate tasks"
-            | "yes, proceed"
-    )
 }
 
 /// Called after ordinary envelope validation but before any writes.
@@ -383,10 +373,10 @@ pub fn prepare(
             }
         }
         let feature_id = state.active_feature.as_ref().map(|(id, _)| id.clone());
-        if let Some(id) = &feature_id {
-            if !feature_approved(&state.repo_root, &workflow, id) {
-                return Err(vec![format!("{id} needs explicit implementation approval")]);
-            }
+        if let Some(id) = &feature_id
+            && !feature_approved(&state.repo_root, &workflow, id)
+        {
+            return Err(vec![format!("{id} needs explicit implementation approval")]);
         }
         // Identity guard: a batch may only be generated for the feature the
         // interview is actually about. Drift between the brief's subject and
@@ -394,17 +384,13 @@ pub fn prepare(
         // while narrating another, deadlocking the implementation queue with
         // no visible reason.
         let declared = feature_ids_in(&brief.feature_name);
-        if let Some(problem) = brief_target_problem(
-            &declared,
-            feature_id.as_deref(),
-            &|id| {
-                crate::artifacts::product_docs::document_path(
-                    &state.repo_root,
-                    &format!("feature:{id}"),
-                )
-                .is_ok()
-            },
-        ) {
+        if let Some(problem) = brief_target_problem(&declared, feature_id.as_deref(), &|id| {
+            crate::artifacts::product_docs::document_path(
+                &state.repo_root,
+                &format!("feature:{id}"),
+            )
+            .is_ok()
+        }) {
             return Err(vec![problem]);
         }
         nt.task_batch = Some(TaskBatch {
@@ -417,7 +403,7 @@ pub fn prepare(
         });
         workflow.brief.as_mut().unwrap().ready_for_tasks = false;
         nt.next_question_id = None;
-    } else {
+    } else if nt.requested_action.is_none() {
         if env
             .task_stories
             .as_ref()
@@ -464,8 +450,22 @@ pub fn prepare(
                         .find(|(document, _)| document == &format!("feature:{id}"))
                         .map(|(_, body)| body.as_str())
                 });
+                let updated_product = if nt
+                    .document_updates
+                    .iter()
+                    .any(|(document, _)| document.starts_with("product:"))
+                {
+                    crate::artifacts::product_docs::render_product_with_updates(
+                        &state.repo_root,
+                        &nt.document_updates,
+                    )
+                    .map_err(|error| vec![error.to_string()])?
+                } else {
+                    None
+                };
                 let spec = updated_feature
                     .or(nt.spec_markdown.as_deref())
+                    .or(updated_product.as_deref())
                     .or(state.planning_contract())
                     .unwrap_or_default();
                 if spec.trim().is_empty() {
@@ -478,7 +478,7 @@ pub fn prepare(
                 if purpose == TurnPurpose::ReviewForGeneration {
                     nt.assistant_message.push_str("\n\nThe task plan is ready. The application will now check the approved contract and continue task generation.");
                 } else {
-                    nt.assistant_message.push_str(&format!("\n\nThe goal and scope for {} are ready to break down. Would you like to proceed to task generation? Choose Generate task stories, reply yes, or keep refining the plan.", brief.feature_name));
+                    nt.assistant_message.push_str(&format!("\n\nThe goal and scope for {} are ready to break down. Use the Generate task stories action when you want Packet to prepare the work, or keep refining the plan.", brief.feature_name));
                 }
             }
             workflow.brief = Some(brief.clone());
@@ -531,142 +531,6 @@ fn validate_brief(b: &InterviewBrief) -> Result<(), Vec<String>> {
     }
 }
 
-/// Titles should name a concrete operation and its object, not just a phase.
-pub fn descriptive_title(title: &str) -> bool {
-    let words: Vec<_> = title.split_whitespace().collect();
-    words.len() >= 4
-        && title.chars().count() <= 140
-        && !title.contains(['\n', '\r'])
-        && !matches!(
-            title.trim().to_ascii_lowercase().as_str(),
-            "implement the core feature"
-                | "set up the project"
-                | "add tests and documentation"
-                | "implement the remaining functionality"
-        )
-        && substantive(title)
-}
-
-/// A structural floor for implementable stories, not a substitute for semantic review.
-/// Applied to EACH response so incomplete stories are repaired before proceeding.
-pub fn story_detail_errors(t: &TaskStory, n: usize) -> Vec<String> {
-    let mut errors = Vec::new();
-    if !descriptive_title(&t.title) {
-        errors.push(format!("Task {n}: use a descriptive 4+ word title naming the action, component and behavior (maximum 140 characters)."));
-    }
-    for (name, text, minimum) in [
-        ("intent", &t.intent, 15),
-        ("goal", &t.goal, 12),
-        ("context", &t.context, 45),
-        ("user story", &t.user_story, 12),
-        ("purpose", &t.purpose, 8),
-        ("rollout notes", &t.rollout_notes, 20),
-    ] {
-        if !substantive(text) || text.split_whitespace().count() < minimum {
-            errors.push(format!("Task {n}: {name} needs at least {minimum} words of task-specific context, behavior or constraints."));
-        }
-    }
-    for (name, values, count, words) in [
-        ("affected files", &t.affected_files, 1, 6),
-        ("technical design", &t.technical_design, 3, 12),
-        ("implementation steps", &t.implementation_steps, 5, 12),
-        ("acceptance criteria", &t.acceptance_criteria, 4, 12),
-        ("test plan", &t.test_plan, 4, 12),
-        ("edge cases", &t.edge_cases, 3, 12),
-        ("verification commands", &t.verification_commands, 1, 6),
-        ("definition of done", &t.definition_of_done, 3, 8),
-    ] {
-        let unique: std::collections::HashSet<_> =
-            values.iter().map(|v| v.trim().to_lowercase()).collect();
-        if values.len() < count
-            || unique.len() != values.len()
-            || values
-                .iter()
-                .any(|v| !substantive(v) || v.split_whitespace().count() < words)
-        {
-            errors.push(format!("Task {n}: {name} requires {count}+ distinct concrete entries, each with {words}+ words; describe exact actions, inputs and expected outcomes."));
-        }
-    }
-    let total = [
-        &t.intent,
-        &t.goal,
-        &t.context,
-        &t.user_story,
-        &t.purpose,
-        &t.rollout_notes,
-    ]
-    .iter()
-    .map(|s| s.split_whitespace().count())
-    .sum::<usize>()
-        + [
-            &t.affected_files,
-            &t.technical_design,
-            &t.implementation_steps,
-            &t.acceptance_criteria,
-            &t.test_plan,
-            &t.edge_cases,
-            &t.verification_commands,
-            &t.definition_of_done,
-        ]
-        .iter()
-        .flat_map(|v| v.iter())
-        .map(|s| s.split_whitespace().count())
-        .sum::<usize>();
-    if total < 450 {
-        errors.push(format!("Task {n}: only {total} words of implementation detail; provide at least 450 task-specific words without padding or repeated boilerplate."));
-    }
-    errors
-}
-
-fn validate_stories(b: &InterviewBrief, stories: &[TaskStory]) -> Result<(), Vec<String>> {
-    let mut errors = Vec::new();
-    if stories.is_empty() || stories.len() > 200 {
-        errors.push("Return between 1 and 200 complete task stories.".into());
-    }
-    let mut titles = std::collections::HashSet::new();
-    let mut scope = std::collections::HashSet::new();
-    let mut criteria = std::collections::HashSet::new();
-    for (i, t) in stories.iter().enumerate() {
-        let n = i + 1;
-        if !titles.insert(t.title.trim().to_lowercase()) {
-            errors.push(format!("Task {n}: duplicate title."));
-        }
-        errors.extend(story_detail_errors(t, n));
-        if t.dependencies.iter().any(|d| *d == 0 || *d >= n) {
-            errors.push(format!("Task {n}: dependencies must reference earlier tasks, preventing missing references and cycles."));
-        }
-        if t.scope_items.is_empty() {
-            errors.push(format!(
-                "Task {n}: reference at least one approved scope item."
-            ));
-        }
-        for r in &t.scope_items {
-            if *r == 0 || *r > b.in_scope.len() {
-                errors.push(format!("Task {n}: invalid scope reference {r}."));
-            } else {
-                scope.insert(*r);
-            }
-        }
-        for r in &t.success_criteria {
-            if *r == 0 || *r > b.success_criteria.len() {
-                errors.push(format!("Task {n}: invalid success criterion {r}."));
-            } else {
-                criteria.insert(*r);
-            }
-        }
-    }
-    if scope.len() != b.in_scope.len() || criteria.len() != b.success_criteria.len() {
-        errors.push(
-            "Task stories must cover every approved scope item and success criterion.".into(),
-        );
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,12 +553,57 @@ mod tests {
         }
     }
     fn story() -> TaskStory {
-        let mut envelope: TurnEnvelope =
+        let response: crate::harness::responses::TaskStoryResponse =
             serde_json::from_str(include_str!("../../tests/fixtures/task-story-1.json")).unwrap();
-        let mut story = envelope.task_stories.take().unwrap().remove(0);
+        let mut story = response.task_stories.unwrap().remove(0);
         story.success_criteria = vec![1];
         story
     }
+
+    #[test]
+    fn small_task_needs_no_padding_and_incomplete_meaning_stays_invalid() {
+        let small = TaskOutline {
+            title: "Fix crash".into(),
+            purpose: "Opening a saved filter crashes.".into(),
+            scope_items: vec![1],
+            success_criteria: vec![1],
+            ..Default::default()
+        };
+        assert!(validate_outline(&brief(), &[small]).is_ok());
+
+        let mut concise = story();
+        concise.title = "Show full blocker".into();
+        concise.intent = "Long blocker reports hide the choices the user needs.".into();
+        concise.goal = "Show the full report and let the user choose a response.".into();
+        concise.context = "Task details currently clip long blocker reports.".into();
+        concise.user_story =
+            "As a blocked user, I need the whole issue and its reply control.".into();
+        concise.purpose = "Restore the context needed to choose what happens next.".into();
+        concise.affected_files = vec!["src/app/task_detail.rs: show the complete blocker".into()];
+        concise.implementation_steps =
+            vec!["Render the full report and its matching response control.".into()];
+        concise.acceptance_criteria =
+            vec!["A long blocker displays its full explanation and available choices.".into()];
+        concise.test_plan =
+            vec!["Render a long blocker and assert all text and choices remain visible.".into()];
+        concise.verification_commands = vec!["cargo test --offline --lib task_detail".into()];
+        concise.definition_of_done =
+            vec!["The complete issue is visible and the user can submit a response.".into()];
+        concise.technical_design.clear();
+        concise.edge_cases.clear();
+        concise.rollout_notes.clear();
+        assert!(story_detail_errors(&concise, 1).is_empty());
+
+        concise.intent.clear();
+        concise.context = "Padding that does not explain the actual blocker. ".repeat(100);
+        let errors = story_detail_errors(&concise, 1);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("task-specific intent"))
+        );
+    }
+
     fn state(tag: &str) -> PlannerState {
         let root =
             std::env::temp_dir().join(format!("packet_workflow_{tag}_{}", std::process::id()));
@@ -718,13 +627,10 @@ mod tests {
     fn mark_ready(state: &mut PlannerState) {
         let mut env = envelope();
         env.interview = Some(brief());
-        env.updated_specification = Some(crate::core::specification::fixture(
-            "Resume named filters across sessions. Persist and restore filters without changing ad hoc searches.",
-        ));
         let nt = validation::validate(&env, state, &state.effective_user()).unwrap();
         assert!(
             nt.assistant_message
-                .contains("Would you like to proceed to task generation?")
+                .contains("Generate task stories action")
         );
         apply::apply(state, &nt).unwrap();
     }
@@ -757,7 +663,9 @@ mod tests {
         second.dependencies = vec![1];
         let nt = generation(&s, vec![story(), second]).unwrap();
         let receipt = apply::apply(&mut s, &nt).unwrap();
-        let dir = s.repo_root.join(".kool-ade-packet/planning/tasks/saved-searches");
+        let dir = s
+            .repo_root
+            .join(".kool-ade-packet/planning/tasks/saved-searches");
         let task =
             std::fs::read_to_string(dir.join("001-persist-named-search-filters.md")).unwrap();
         assert!(task.contains(&story().intent));
@@ -817,15 +725,51 @@ mod tests {
             !s.workflow.ready(s.spec_text.as_deref()),
             "further discussion invalidates old readiness"
         );
-        assert!(confirms_generation("Yes, please!"));
-        assert!(!confirms_generation("yes but change the scope first"));
-        assert!(!confirms_generation("not yet"));
         std::fs::remove_dir_all(s.repo_root).unwrap();
+    }
+
+    #[test]
+    fn structured_generate_request_keeps_the_current_readiness_snapshot() {
+        let mut state = state("typed-action");
+        mark_ready(&mut state);
+        let ready_before = state.workflow.clone();
+        let mut env = envelope();
+        env.requested_action = Some(crate::harness::RequestedAction {
+            action: crate::harness::ApplicationAction::GenerateTasks,
+            target_uid: None,
+        });
+
+        let normalized = validation::validate(&env, &state, &state.effective_user()).unwrap();
+        assert_eq!(normalized.requested_action, env.requested_action);
+        assert!(normalized.workflow.is_none());
+        assert_eq!(state.workflow, ready_before);
+        assert!(state.workflow.ready(state.planning_contract()));
+        std::fs::remove_dir_all(state.repo_root).unwrap();
+    }
+
+    #[test]
+    fn structured_action_cannot_hide_a_planning_change() {
+        let state = state("typed-action-mixed");
+        let mut env = envelope();
+        env.requested_action = Some(crate::harness::RequestedAction {
+            action: crate::harness::ApplicationAction::ApproveChange,
+            target_uid: None,
+        });
+        env.updated_specification = Some("# Unreviewed change".into());
+
+        let problems = validation::validate(&env, &state, &state.effective_user()).unwrap_err();
+        assert!(
+            problems
+                .iter()
+                .any(|problem| problem.contains("cannot be combined"))
+        );
+        assert_eq!(state.items.len(), 0);
+        std::fs::remove_dir_all(state.repo_root).unwrap();
     }
 
     fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &str) -> String {
         let dir = root
-            .join("planning/features")
+            .join(".kool-ade-packet/planning/changes")
             .join(format!("{id}-fixture-{state_tag}"));
         std::fs::create_dir_all(&dir).unwrap();
         let body = format!(
@@ -838,10 +782,18 @@ mod tests {
     #[test]
     fn brief_targeting_an_inactive_feature_cannot_generate_that_batch() {
         let mut s = state("gen-target-mismatch");
-        let _inactive =
-            feature_document("gen-target-mismatch", &s.repo_root, "CHG-098", "Other feature");
-        let active =
-            feature_document("gen-target-mismatch", &s.repo_root, "CHG-097", "Active feature");
+        let _inactive = feature_document(
+            "gen-target-mismatch",
+            &s.repo_root,
+            "CHG-098",
+            "Other feature",
+        );
+        let active = feature_document(
+            "gen-target-mismatch",
+            &s.repo_root,
+            "CHG-097",
+            "Active feature",
+        );
         s.active_feature = Some(("CHG-097".into(), active.clone()));
         s.workflow
             .approved_features
@@ -862,8 +814,12 @@ mod tests {
     #[test]
     fn brief_matching_the_active_feature_passes_the_identity_guard() {
         let mut s = state("gen-target-match");
-        let active =
-            feature_document("gen-target-match", &s.repo_root, "CHG-097", "Active feature");
+        let active = feature_document(
+            "gen-target-match",
+            &s.repo_root,
+            "CHG-097",
+            "Active feature",
+        );
         s.active_feature = Some(("CHG-097".into(), active.clone()));
         s.workflow
             .approved_features
@@ -897,10 +853,7 @@ mod tests {
             feature_ids_in("A (CHG-002) and B (CHG-002)"),
             vec!["CHG-002".to_string()]
         );
-        assert_eq!(
-            feature_ids_in("bad CHG-0 short id"),
-            Vec::<String>::new()
-        );
+        assert_eq!(feature_ids_in("bad CHG-0 short id"), Vec::<String>::new());
         let multi = vec!["CHG-001".to_string(), "CHG-002".to_string()];
         assert_eq!(
             brief_target_problem(&multi, Some("CHG-001"), &|_| true).as_deref(),
@@ -909,12 +862,16 @@ mod tests {
             )
         );
         let one = vec!["CHG-099".to_string()];
-        assert!(brief_target_problem(&one, Some("CHG-001"), &|_| true)
-            .unwrap()
-            .contains("targets CHG-099"));
-        assert!(brief_target_problem(&one, Some("CHG-001"), &|_| false)
-            .unwrap()
-            .contains("unknown feature CHG-099"));
+        assert!(
+            brief_target_problem(&one, Some("CHG-001"), &|_| true)
+                .unwrap()
+                .contains("targets CHG-099")
+        );
+        assert!(
+            brief_target_problem(&one, Some("CHG-001"), &|_| false)
+                .unwrap()
+                .contains("unknown feature CHG-099")
+        );
         assert!(
             brief_target_problem(&one, None, &|_| true)
                 .unwrap()
@@ -967,9 +924,9 @@ mod tests {
         )
         .unwrap();
         apply::apply(&mut s, &nt).unwrap();
-        let first = s
-            .repo_root
-            .join(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md");
+        let first = s.repo_root.join(
+            ".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md",
+        );
         let original = std::fs::read(&first).unwrap();
         mark_ready(&mut s);
         let mut task = story();
@@ -1019,8 +976,11 @@ mod tests {
         mark_ready(&mut s);
         let nt = generation(&s, vec![story()]).unwrap();
         std::fs::create_dir_all(s.repo_root.join(".kool-ade-packet/planning")).unwrap();
-        std::os::unix::fs::symlink(std::env::temp_dir(), s.repo_root.join(".kool-ade-packet/planning/tasks"))
-            .unwrap();
+        std::os::unix::fs::symlink(
+            std::env::temp_dir(),
+            s.repo_root.join(".kool-ade-packet/planning/tasks"),
+        )
+        .unwrap();
         assert!(apply::apply(&mut s, &nt).is_err());
         assert_eq!(
             crate::artifacts::task_docs::slug("../../Bad / Feature"),

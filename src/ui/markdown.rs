@@ -502,10 +502,7 @@ let sentinel = 1;\n\
             .count()
     }
 
-    fn section_text<'a>(
-        galley: &'a egui::Galley,
-        section: &egui::text::LayoutSection,
-    ) -> &'a str {
+    fn section_text<'a>(galley: &'a egui::Galley, section: &egui::text::LayoutSection) -> &'a str {
         &galley.job.text[section.byte_range.start.0..section.byte_range.end.0]
     }
 
@@ -528,7 +525,10 @@ let sentinel = 1;\n\
         let texts = galley_texts(&output);
         for text in &texts {
             for marker in ["**", "~~", "###", "```", "`", "#"] {
-                assert!(!text.contains(marker), "galley {text:?} still carries {marker:?}");
+                assert!(
+                    !text.contains(marker),
+                    "galley {text:?} still carries {marker:?}"
+                );
             }
         }
         // Every construct actually landed somewhere in the painted output.
@@ -587,7 +587,10 @@ let sentinel = 1;\n\
             .expect("body paragraph galley");
         let bold_section = find_section(body, "boldmix").expect("bold section");
         let plain_section = find_section(body, "Mix of ").expect("plain lead section");
-        assert_ne!(bold_section.format, plain_section.format, "bold differs from plain");
+        assert_ne!(
+            bold_section.format, plain_section.format,
+            "bold differs from plain"
+        );
         assert!(bold_section.format.extra_letter_spacing.abs() > 1e-9);
         assert!(plain_section.format.extra_letter_spacing.abs() < f32::EPSILON);
         assert_eq!(bold_section.format.color, theme::TEXT);
@@ -609,21 +612,28 @@ let sentinel = 1;\n\
             .find(|galley| galley.text().contains("codemix"))
             .expect("inline code paragraph");
         let inline_section = find_section(inline, "codemix").expect("inline code section");
-        assert_eq!(inline_section.format.font_id.family, egui::FontFamily::Monospace);
+        assert_eq!(
+            inline_section.format.font_id.family,
+            egui::FontFamily::Monospace
+        );
         let fence_line = galleys(&output)
             .into_iter()
             .find(|galley| galley.text() == "let sentinel = 1;")
             .expect("fenced code line");
-        assert!(fence_line
-            .job
-            .sections
-            .iter()
-            .all(|section| section.format.font_id.family == egui::FontFamily::Monospace));
-        assert!(fence_line
-            .job
-            .sections
-            .iter()
-            .all(|section| (section.format.font_id.size - CHAT.code).abs() < 1e-6));
+        assert!(
+            fence_line
+                .job
+                .sections
+                .iter()
+                .all(|section| section.format.font_id.family == egui::FontFamily::Monospace)
+        );
+        assert!(
+            fence_line
+                .job
+                .sections
+                .iter()
+                .all(|section| (section.format.font_id.size - CHAT.code).abs() < 1e-6)
+        );
         let caption = galleys(&output)
             .into_iter()
             .find(|galley| galley.text() == "rust")
@@ -691,10 +701,21 @@ let sentinel = 1;\n\
         assert_eq!(PAPER.ink, egui::Color32::from_rgb(31, 41, 55));
         assert_eq!(PAPER.muted, egui::Color32::from_rgb(85, 98, 116));
         assert_eq!(PAPER.code_tag, egui::Color32::from_rgb(23, 83, 151));
-        let sizes = [PAPER.body, PAPER.h1, PAPER.h2, PAPER.h3, PAPER.h_other, PAPER.code, PAPER.table];
+        let sizes = [
+            PAPER.body,
+            PAPER.h1,
+            PAPER.h2,
+            PAPER.h3,
+            PAPER.h_other,
+            PAPER.code,
+            PAPER.table,
+        ];
         let expected = [15.0f32, 30.0, 22.0, 18.0, 13.5, 12.0, 13.5];
         for (actual, want) in sizes.iter().zip(expected) {
-            assert!((actual - want).abs() < 1e-6, "PAPER size {actual} != {want}");
+            assert!(
+                (actual - want).abs() < 1e-6,
+                "PAPER size {actual} != {want}"
+            );
         }
     }
 
@@ -719,8 +740,9 @@ let sentinel = 1;\n\
             .expect("mixed paragraph");
         let bold = find_section(para, "boldmix").expect("bold section");
         let expected_spacing = 0.01 * PAPER.body;
-        assert!((bold.format.extra_letter_spacing - expected_spacing).abs()
-            < expected_spacing * 1e-3);
+        assert!(
+            (bold.format.extra_letter_spacing - expected_spacing).abs() < expected_spacing * 1e-3
+        );
         assert!((bold.format.font_id.size - PAPER.body).abs() < 1e-6);
         assert_eq!(bold.format.color, PAPER.ink);
         let plain = find_section(para, "Mix of ").expect("plain section");
@@ -730,21 +752,25 @@ let sentinel = 1;\n\
             .iter()
             .find(|g| g.text() == "let sentinel = 1;")
             .expect("fence code line");
-        assert!(fence_line
-            .job
-            .sections
-            .iter()
-            .all(|s| s.format.font_id.family == egui::FontFamily::Monospace));
+        assert!(
+            fence_line
+                .job
+                .sections
+                .iter()
+                .all(|s| s.format.font_id.family == egui::FontFamily::Monospace)
+        );
         assert!((fence_line.job.sections[0].format.font_id.size - PAPER.code).abs() < 1e-6);
         let header_cell = galls
             .iter()
             .find(|g| g.text() == "HeadA")
             .expect("table header cell");
-        assert!(header_cell
-            .job
-            .sections
-            .iter()
-            .all(|s| s.format.font_id.family == egui::FontFamily::Proportional));
+        assert!(
+            header_cell
+                .job
+                .sections
+                .iter()
+                .all(|s| s.format.font_id.family == egui::FontFamily::Proportional)
+        );
         assert!((header_cell.job.sections[0].format.font_id.size - PAPER.table).abs() < 1e-6);
         output.textures_delta.clear();
     }
@@ -754,7 +780,15 @@ let sentinel = 1;\n\
         assert_eq!(CHAT.ink, theme::TEXT);
         assert_eq!(CHAT.muted, theme::TEXT_DIM);
         assert_eq!(CHAT.code_tag, theme::TEXT_DIM);
-        let sizes = [CHAT.body, CHAT.h1, CHAT.h2, CHAT.h3, CHAT.h_other, CHAT.code, CHAT.table];
+        let sizes = [
+            CHAT.body,
+            CHAT.h1,
+            CHAT.h2,
+            CHAT.h3,
+            CHAT.h_other,
+            CHAT.code,
+            CHAT.table,
+        ];
         let expected = [15.0f32, 20.0, 17.0, 15.5, 15.0, 12.0, 13.0];
         for (actual, want) in sizes.iter().zip(expected) {
             assert!((actual - want).abs() < 1e-6, "CHAT size {actual} != {want}");
@@ -776,9 +810,15 @@ let sentinel = 1;\n\
             out.textures_delta.clear();
             painted += 1;
         }
-        assert!(painted > full / 3, "sweep covered {painted}/{full} prefixes");
+        assert!(
+            painted > full / 3,
+            "sweep covered {painted}/{full} prefixes"
+        );
         let mut output = paint_doc(FIXTURE, CHAT);
-        assert!(!galley_texts(&output).is_empty(), "complete reply must paint");
+        assert!(
+            !galley_texts(&output).is_empty(),
+            "complete reply must paint"
+        );
         output.textures_delta.clear();
     }
 
@@ -790,7 +830,9 @@ let sentinel = 1;\n\
         let prefix_end = open + 3; // ends inside the opener: "**b"
         let mut open_output = paint_doc(&FIXTURE[..prefix_end], CHAT);
         assert!(
-            galley_texts(&open_output).iter().any(|text| text.contains('*')),
+            galley_texts(&open_output)
+                .iter()
+                .any(|text| text.contains('*')),
             "mid-emphasis prefix must keep literal stars, got {:?}",
             galley_texts(&open_output)
         );

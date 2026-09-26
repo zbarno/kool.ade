@@ -4,8 +4,9 @@
 //! choice text into the task draft (newline-joined expanded, space-joined
 //! compact) without sending, and the card composer's caret pins at its end.
 use crate::domain::{Authority, ChatMessage, ChatRole, ItemStatus};
-use crate::ui::{Surface, theme};
+use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::RichText;
+mod decision;
 
 #[derive(Default, Debug, PartialEq)]
 struct Reply {
@@ -134,10 +135,14 @@ fn transcript(ui: &mut egui::Ui, messages: &[ChatMessage], follow_tail: bool) {
 /// Show the durable discussion without a second composer in task details.
 pub fn paint_history(ui: &mut egui::Ui, s: &dyn Surface, key: &str) {
     let messages = s.task_messages(key);
+    paint_history_messages(ui, messages, s.task_chat_active(key));
+}
+
+pub(crate) fn paint_history_messages(ui: &mut egui::Ui, messages: &[ChatMessage], active: bool) {
     if messages.is_empty() {
         ui.label("No discussion yet.");
     } else {
-        transcript(ui, messages, s.task_chat_active(key));
+        transcript(ui, messages, active);
     }
 }
 
@@ -152,7 +157,11 @@ fn composer(
     let busy = s.task_chat_active(key);
     let mut send = false;
     if let Some(draft) = s.task_draft(key) {
-        let salt = if answer { "task_answer_composer" } else { "task_context_composer" };
+        let salt = if answer {
+            "task_answer_composer"
+        } else {
+            "task_context_composer"
+        };
         let response = if expanded {
             egui::ScrollArea::vertical()
                 .id_salt((key, salt, "draft_scroll"))
@@ -221,7 +230,9 @@ fn composer(
         }
     }
     if send {
-        s.send_task_reply(key);
+        s.dispatch(ApplicationCommand::SendTaskReply {
+            key: key.to_owned(),
+        });
     }
 }
 
@@ -257,6 +268,13 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
         let reply = latest_reply
             .map(|m| split_reply(&crate::ui::message_text::readable(m)))
             .unwrap_or_default();
+        let structured_options = item.as_ref().is_some_and(|item| {
+            item.authority == Authority::Human
+                && item
+                    .decision_brief
+                    .as_ref()
+                    .is_some_and(|brief| !brief.options.is_empty())
+        });
         let active = s.task_chat_active(key);
         let retry = !active
             && (failed(&messages) || messages.last().is_some_and(|m| m.role == ChatRole::User));
@@ -273,8 +291,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
         let implementation = s.implementation_state(key).cloned();
         let implementing = s.implementation_active(key);
         let story = item.is_none()
-            && (key.starts_with("planning/tasks/")
-                || key.starts_with(".kool-ade-packet/planning/tasks/"));
+            && crate::artifacts::layout::ArtifactLayout::is_task_ticket_path(key);
         let implementation_column =
             crate::core::implementation::board_column(implementation.as_ref(), implementing);
         let needs_answer = !active
@@ -368,12 +385,11 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             ui.label(RichText::new("Latest update").small().weak());
             ui.label(crate::core::context_build::clip(&reply.summary, 420));
         }
-        if expanded && !active {
-            if let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User) {
+        if expanded && !active
+            && let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User) {
                 ui.label(RichText::new("Your last answer").small().weak());
                 ui.label(crate::core::context_build::clip(&previous.text, 240));
             }
-        }
         egui::Frame::NONE
             .fill(if needs_answer || ownership || review || retry {
                 theme::ACCENT_SOFT
@@ -395,10 +411,27 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                 {
                     ui.label(&action);
                 }
+                if !active
+                    && (needs_answer || expanded && eligible)
+                    && let Some(item) = &item
+                {
+                    decision::summary(ui, item, expanded);
+                }
+                if needs_answer
+                    && !active
+                    && let Some(item) = &item
+                    && decision::choices(ui, s, key, item, expanded, active)
+                {
+                    chip_fired = true;
+                }
                 // CHG-003 story 5: chips remain visible while a reply is
                 // in flight, but are rendered as inert controls until it
                 // settles. A settled/answered card has no open choices.
-                let choices = crate::ui::reply_tail::open_digest_choices(&messages);
+                let choices = if structured_options {
+                    Vec::new()
+                } else {
+                    crate::ui::reply_tail::open_digest_choices(&messages)
+                };
                 if let Some(hit) =
                     crate::ui::reply_tail::paint_chip_row(ui, &choices, !s.task_chat_active(key))
                     && let Some(draft) = s.task_draft(key)
@@ -411,26 +444,31 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                     chip_fired = true;
                 }
                 if active && ui.small_button("Stop reply").clicked() {
-                    s.cancel_task_reply(key);
+                    s.dispatch(ApplicationCommand::CancelTaskReply {
+                        key: key.to_owned(),
+                    });
                 }
-                if expanded && active {
-                    if let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User)
+                if expanded && active
+                    && let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User)
                     {
                         ui.label(RichText::new("Your answer").small().weak());
                         ui.label(crate::core::context_build::clip(&previous.text, 400));
                     }
-                }
                 let actions = s.feature_actions(Some(key));
                 if let Some(id) = super::feature_approval::paint(ui, &actions, s.conversation_busy()) {
-                    s.approve_feature(&id);
+                    s.dispatch(ApplicationCommand::ApproveFeature { id });
                 }
                 if ownership && ui.button("Assign ownership").clicked() {
-                    s.on_header_action(crate::ui::HeaderAction::Stakeholders);
+                    s.dispatch(ApplicationCommand::HeaderAction(
+                        crate::ui::HeaderAction::Stakeholders,
+                    ));
                 }
                 if review {
                     if expanded {
                         let item = item.as_ref().unwrap();
-                        ui.label(&item.recommendation);
+                        if !item.recommendation.trim().is_empty() {
+                            ui.label(&item.recommendation);
+                        }
                         if ui
                             .add_enabled(
                                 !s.task_chat_active(key),
@@ -438,14 +476,16 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                             )
                             .clicked()
                         {
-                            s.approve_review_item(&item.id);
+                            s.dispatch(ApplicationCommand::ApproveReviewItem {
+                                id: item.id.clone(),
+                            });
                         }
                     } else if ui.button("Review decision").clicked() {
                         open = true;
                     }
                 }
-                if retry {
-                    if let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User)
+                if retry
+                    && let Some(previous) = messages.iter().rev().find(|m| m.role == ChatRole::User)
                     {
                         let empty = s
                             .task_draft(key)
@@ -460,10 +500,11 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
                             if let Some(draft) = s.task_draft(key) {
                                 *draft = previous.text.clone();
                             }
-                            s.send_task_reply(key);
+                            s.dispatch(ApplicationCommand::SendTaskReply {
+                                key: key.to_owned(),
+                            });
                         }
                     }
-                }
                 if needs_answer || retry {
                     composer(ui, s, key, expanded, true, chip_fired);
                 }
@@ -476,7 +517,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) 
             ui.colored_label(theme::WARNING, "Conversation has unsaved messages.");
             ui.label(RichText::new(error).small());
             if ui.button("Retry saving conversation").clicked() {
-                s.retry_task_chat_save();
+                s.dispatch(ApplicationCommand::RetryTaskChatSave);
             }
         }
         // A compact Kanban card only owns an input while Packet is explicitly
@@ -538,7 +579,10 @@ mod tests {
             .iter()
             .filter(|t| t.contains("boldcard") && !t.contains('*'))
             .count();
-        assert_eq!(scrubbed, 1, "only the agent entry renders Markdown: {texts:?}");
+        assert_eq!(
+            scrubbed, 1,
+            "only the agent entry renders Markdown: {texts:?}"
+        );
         output.textures_delta.clear();
     }
 
@@ -618,8 +662,7 @@ mod tests {
         }
         // The unreleased digest shape maps body → summary and the first
         // bullet → next, landing 1:1 on the card 'Your answer needed' line.
-        let input =
-            "Draft ready.\n\n---\n- Enable SSO for all guests?\n- Recommended: yes, effective Monday.";
+        let input = "Draft ready.\n\n---\n- Enable SSO for all guests?\n- Recommended: yes, effective Monday.";
         let tail = crate::ui::reply_tail::parse_reply_tail(input);
         assert_eq!(tail.kind, crate::ui::reply_tail::TailKind::Digest);
         let reply = split_reply(input);
@@ -746,7 +789,7 @@ mod tests {
 
     use crate::domain::item::{ItemKind, OpenItem, Priority};
     use crate::domain::user::CurrentUser;
-    use crate::ui::{HeaderAction, Intent, ToastQueue};
+    use crate::ui::ToastQueue;
 
     const CARD_DIGEST: &str = "Ready.\n\n---\n\
 - Which vendor shall we bind?\n\
@@ -829,7 +872,6 @@ mod tests {
         fn task_progress(&self, _ticket: &str) -> Option<&crate::harness::LiveProgress> {
             None
         }
-        fn cancel_task(&mut self) {}
         fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief> {
             None
         }
@@ -842,14 +884,24 @@ mod tests {
         ) -> Option<&crate::core::implementation::Implementation> {
             None
         }
+        fn task_detail_view(&mut self, _ticket: &str) -> Option<crate::ui::task_detail::ViewModel> {
+            None
+        }
         fn implementation_active(&self, _ticket: &str) -> bool {
             false
         }
-        fn implement_task(&mut self, _ticket: String) {}
-        fn auto_mode(&self) -> bool {
+        fn auto_plan(&self) -> bool {
             false
         }
-        fn set_auto_mode(&mut self, _enabled: bool) {}
+        fn auto_build(&self) -> bool {
+            false
+        }
+        fn auto_publish(&self) -> bool {
+            false
+        }
+        fn require_independent_checks(&self) -> bool {
+            false
+        }
         fn queue_status(&self) -> &str {
             ""
         }
@@ -880,17 +932,17 @@ mod tests {
         fn toasts(&mut self) -> &mut ToastQueue {
             &mut self.toasts
         }
-        fn on_intent(&mut self, _intent: &Intent) {}
-        fn on_header_action(&mut self, _action: HeaderAction) {}
+        fn dispatch(&mut self, command: ApplicationCommand) {
+            if matches!(command, ApplicationCommand::SendTaskReply { .. }) {
+                self.sent += 1;
+            }
+        }
         // The card-under-test hooks.
         fn task_messages(&self, _key: &str) -> &[ChatMessage] {
             &self.messages
         }
         fn task_draft(&mut self, key: &str) -> Option<&mut String> {
             (key == "CLR-001" && self.draft_present).then_some(&mut self.draft)
-        }
-        fn send_task_reply(&mut self, _key: &str) {
-            self.sent += 1;
         }
     }
 
@@ -902,8 +954,10 @@ mod tests {
             .filter_map(|clipped| match &clipped.shape {
                 egui::Shape::Rect(rect)
                     if rect.fill == theme::CHIP_FILL
-                        && rect.corner_radius == egui::CornerRadius::same(10_u8)
-                    => Some((rect.rect, rect.stroke.color)),
+                        && rect.corner_radius == egui::CornerRadius::same(10_u8) =>
+                {
+                    Some((rect.rect, rect.stroke.color))
+                }
                 _ => None,
             })
             .collect()
@@ -941,11 +995,17 @@ mod tests {
         expanded: bool,
         events: Vec<egui::Event>,
     ) -> egui::FullOutput {
-        ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
-            egui::CentralPanel::default().show(ui, |ui| {
-                let _ = paint(ui, probe, "CLR-001", expanded);
-            });
-        })
+        ctx.run_ui(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let _ = paint(ui, probe, "CLR-001", expanded);
+                });
+            },
+        )
     }
 
     fn press_events(pos: egui::Pos2) -> Vec<egui::Event> {
@@ -976,8 +1036,9 @@ mod tests {
     /// invokes send_task_reply.
     #[test]
     fn collapsed_card_nested_chips_spacejoin_the_tapped_option_into_the_task_draft() {
-        let choices =
-            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST));
+        let choices = crate::ui::reply_tail::digest_choices(
+            &crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST),
+        );
         assert_eq!(choices.len(), 2, "the two bullets offer options");
         let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
         let no_label = crate::ui::reply_tail::choice_label(&choices[1]);
@@ -993,8 +1054,8 @@ mod tests {
         let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
         let heading_spot = card_walk_index(&out, "Your answer needed")
             .expect("the answer-needed heading survives");
-        let action_spot = card_walk_index(&out, "Which vendor shall we bind?")
-            .expect("the action row survives");
+        let action_spot =
+            card_walk_index(&out, "Which vendor shall we bind?").expect("the action row survives");
         let send_spot = card_walk_index(&out, "Send answer").expect("the send affordance survives");
         let yes_spot = card_walk_index(&out, &yes_label).expect("chip one projects");
         let no_spot = card_walk_index(&out, &no_label).expect("chip two projects");
@@ -1009,15 +1070,25 @@ mod tests {
         assert!(heading_spot < action_spot, "heading leads the frame");
         let cells = card_chip_cells(&out);
         assert_eq!(cells.len(), 2, "radius-10 CHIP_FILL cells, one per choice");
-        assert!(cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER), "resting strokes");
+        assert!(
+            cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER),
+            "resting strokes"
+        );
         let no_point = card_point(&out, &no_label).expect("chip two centre");
         out.textures_delta.clear();
 
         // Gesture: move + press, then release — mirroring the pane e2e.
-        card_frame(&ctx, &mut probe, false, press_events(no_point)).textures_delta.clear();
-        card_frame(&ctx, &mut probe, false, release_events(no_point)).textures_delta.clear();
+        card_frame(&ctx, &mut probe, false, press_events(no_point))
+            .textures_delta
+            .clear();
+        card_frame(&ctx, &mut probe, false, release_events(no_point))
+            .textures_delta
+            .clear();
 
-        assert_eq!(probe.sent, 0, "a chip tap must never invoke send_task_reply");
+        assert_eq!(
+            probe.sent, 0,
+            "a chip tap must never invoke send_task_reply"
+        );
         assert_eq!(probe.messages.len(), 2, "no reply began on the task lane");
         assert_eq!(
             probe.draft, "Short answer: No, keep Postman.",
@@ -1028,14 +1099,17 @@ mod tests {
         // the next frame, and a keystroke afterwards must LAND BEHIND the
         // inserted option (caret pinned at the drafted end, not a stale
         // midpoint).
-        card_frame(&ctx, &mut probe, false, Vec::new()).textures_delta.clear();
+        card_frame(&ctx, &mut probe, false, Vec::new())
+            .textures_delta
+            .clear();
         card_frame(
             &ctx,
             &mut probe,
             false,
             vec![egui::Event::Text("x".to_string())],
         )
-        .textures_delta.clear();
+        .textures_delta
+        .clear();
         assert_eq!(
             probe.draft, "Short answer: No, keep Postman.x",
             "the post-tap keystroke landed at the pinned END of the draft"
@@ -1047,17 +1121,16 @@ mod tests {
     /// the ticket prescribes for expanded drafts).
     #[test]
     fn expanded_card_nested_chips_newlinejoin_the_tapped_option() {
-        let choices =
-            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST));
+        let choices = crate::ui::reply_tail::digest_choices(
+            &crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST),
+        );
         assert_eq!(choices.len(), 2);
         let yes_label = crate::ui::reply_tail::choice_label(&choices[0]);
 
         let ctx = egui::Context::default();
         ctx.set_visuals(theme::packet_visuals());
-        let mut probe = CardProbe::answer_card(
-            "Binding vendor for the checkout rollout",
-            CARD_DIGEST,
-        );
+        let mut probe =
+            CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
         probe.draft = "Long rationale:".to_string();
 
         let mut out = card_frame(&ctx, &mut probe, true, Vec::new());
@@ -1070,8 +1143,12 @@ mod tests {
         let yes_point = card_point(&out, &yes_label).expect("chip one centre");
         out.textures_delta.clear();
 
-        card_frame(&ctx, &mut probe, true, press_events(yes_point)).textures_delta.clear();
-        card_frame(&ctx, &mut probe, true, release_events(yes_point)).textures_delta.clear();
+        card_frame(&ctx, &mut probe, true, press_events(yes_point))
+            .textures_delta
+            .clear();
+        card_frame(&ctx, &mut probe, true, release_events(yes_point))
+            .textures_delta
+            .clear();
 
         assert_eq!(probe.sent, 0, "expanded tap must not send either");
         assert_eq!(
@@ -1084,27 +1161,43 @@ mod tests {
     /// cells) and swallows the tap — no draft mutation, no send attempt.
     #[test]
     fn busy_cards_dim_the_chips_and_swallow_taps() {
-        let choices =
-            crate::ui::reply_tail::digest_choices(&crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST));
+        let choices = crate::ui::reply_tail::digest_choices(
+            &crate::ui::reply_tail::parse_reply_tail(CARD_DIGEST),
+        );
         let no_label = crate::ui::reply_tail::choice_label(&choices[1]);
 
         let ctx = egui::Context::default();
         ctx.set_visuals(theme::packet_visuals());
-        let mut probe = CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
+        let mut probe =
+            CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
         probe.busy = true;
         probe.draft = "Kept.".to_string();
 
         let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
         let cells = card_chip_cells(&out);
-        assert_eq!(cells.len(), 2, "busyness dims, it does not remove, the chips");
-        assert!(cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER), "no hover promotion while busy");
+        assert_eq!(
+            cells.len(),
+            2,
+            "busyness dims, it does not remove, the chips"
+        );
+        assert!(
+            cells.iter().all(|(_, color)| *color == theme::CHIP_BORDER),
+            "no hover promotion while busy"
+        );
         let no_point = card_point(&out, &no_label).expect("dimmed chip centre");
         out.textures_delta.clear();
 
-        card_frame(&ctx, &mut probe, false, press_events(no_point)).textures_delta.clear();
-        card_frame(&ctx, &mut probe, false, release_events(no_point)).textures_delta.clear();
+        card_frame(&ctx, &mut probe, false, press_events(no_point))
+            .textures_delta
+            .clear();
+        card_frame(&ctx, &mut probe, false, release_events(no_point))
+            .textures_delta
+            .clear();
 
-        assert_eq!(probe.draft, "Kept.", "busy tap must leave the draft untouched");
+        assert_eq!(
+            probe.draft, "Kept.",
+            "busy tap must leave the draft untouched"
+        );
         assert_eq!(probe.sent, 0, "busy tap must not send");
     }
 
@@ -1124,17 +1217,24 @@ mod tests {
                     a("SSO is recorded.\nYour next step: Should guests use SSO too?"),
                 ],
             ),
-            ("single-choice digest", vec![u("Deal?"), a("Deal?\n---\n- Yes, take it.")]),
+            (
+                "single-choice digest",
+                vec![u("Deal?"), a("Deal?\n---\n- Yes, take it.")],
+            ),
             (
                 "answered digest (retry frame)",
                 vec![u("Pick a vendor."), a(CARD_DIGEST), u("Aurora, Monday.")],
             ),
-            ("marker-free plain final", vec![u("Status?"), a("All green, nothing blocked.")]),
+            (
+                "marker-free plain final",
+                vec![u("Status?"), a("All green, nothing blocked.")],
+            ),
         ];
         for (name, messages) in cases {
             let ctx = egui::Context::default();
             ctx.set_visuals(theme::packet_visuals());
-            let mut probe = CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
+            let mut probe =
+                CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
             probe.messages = messages;
             let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
             assert_eq!(card_chip_cells(&out).len(), 0, "{name}: zero chips");
@@ -1143,9 +1243,14 @@ mod tests {
         // Control: the open two-choice digest offers its row.
         let ctx = egui::Context::default();
         ctx.set_visuals(theme::packet_visuals());
-        let mut probe = CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
+        let mut probe =
+            CardProbe::answer_card("Binding vendor for the checkout rollout", CARD_DIGEST);
         let mut out = card_frame(&ctx, &mut probe, false, Vec::new());
-        assert_eq!(card_chip_cells(&out).len(), 2, "open digest renders both cards' chips");
+        assert_eq!(
+            card_chip_cells(&out).len(),
+            2,
+            "open digest renders both cards' chips"
+        );
         out.textures_delta.clear();
     }
 }

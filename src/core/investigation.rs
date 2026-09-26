@@ -5,7 +5,7 @@ use crate::core::reconciliation::DEFER_PREFIX;
 use crate::{
     core::{apply, context_build::TurnContext, gitops, prompt, state::PlannerState, validation},
     domain::Authority,
-    harness::{AiHarness, LiveProgress, PiHarness, PlanningRequest, TurnEnvelope},
+    harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest, TurnEnvelope},
 };
 use std::sync::{
     Arc,
@@ -13,23 +13,17 @@ use std::sync::{
     mpsc::{self, Receiver},
 };
 
-fn decode(text: &str) -> anyhow::Result<TurnEnvelope> {
-    let json = crate::harness::pi_extract::extract_json_object(text)
-        .ok_or_else(|| anyhow::anyhow!("No complete investigation envelope"))?;
-    Ok(serde_json::from_str(&json)?)
+fn decode(text: &str) -> anyhow::Result<crate::harness::responses::InvestigationResponse> {
+    crate::harness::responses::decode_investigation(text).map_err(anyhow::Error::msg)
 }
 
 fn validate_response(
     state: &PlannerState,
     item_id: &str,
-    envelope: &TurnEnvelope,
+    response: &crate::harness::responses::InvestigationResponse,
 ) -> anyhow::Result<validation::NormalizedTurn> {
     anyhow::ensure!(
-        envelope.updated_specification.is_none()
-            && envelope.interview.is_none()
-            && envelope.task_stories.is_none()
-            && envelope.task_outline.is_none()
-            && envelope.next_question_id.is_none(),
+        response.next_question_id.is_none(),
         "Investigation cannot alter unrelated workflow or ask the user"
     );
     let item = state
@@ -41,11 +35,18 @@ fn validate_response(
         item.authority == Authority::Agent,
         "Investigation item is no longer Agent authority"
     );
-    anyhow::ensure!(envelope.added().iter().all(|new| new.feature_id.is_some() && new.feature_id == item.feature_id),
-        "New investigation findings must belong to the same feature");
-    let resolved = envelope.open_items_resolved.as_deref().unwrap_or_default();
-    let updates = envelope.open_items_updated.as_deref().unwrap_or_default();
-    let documents = envelope.document_updates.as_deref().unwrap_or_default();
+    anyhow::ensure!(
+        response
+            .open_items_added
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .all(|new| new.feature_id.is_some() && new.feature_id == item.feature_id),
+        "New investigation findings must belong to the same feature"
+    );
+    let resolved = response.open_items_resolved.as_deref().unwrap_or_default();
+    let updates = response.open_items_updated.as_deref().unwrap_or_default();
+    let documents = response.document_updates.as_deref().unwrap_or_default();
     anyhow::ensure!(
         resolved.iter().all(|id| id == item_id)
             && updates
@@ -84,8 +85,13 @@ fn validate_response(
             "Escalation requires evidence, a recommendation, and Review or Human authority"
         );
     }
-    validation::validate(envelope, state, &state.effective_user())
-        .map_err(|problems| anyhow::anyhow!(problems.join("; ")))
+    let normalized = validation::validate(
+        &TurnEnvelope::from(response.clone()),
+        state,
+        &state.effective_user(),
+    )
+    .map_err(|problems| anyhow::anyhow!(problems.join("; ")))?;
+    Ok(normalized)
 }
 
 pub fn run(
@@ -133,16 +139,11 @@ fn run_with_settle_window(
     for attempt in 1..=3 {
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
         let request = PlanningRequest {
-            implementation: false,
-            read_only: false,
+            mode: ExecutionMode::Investigation,
             reasoning_level: "xhigh".into(),
             repo_root: state.repo_root.clone(),
             prompt_body: format!("{base}\n{correction}"),
-            system_instructions: format!(
-                "{}\n{}",
-                prompt::SYSTEM_INSTRUCTIONS,
-                prompt::SPECIFICATION_POLICY
-            ),
+            system_instructions: prompt::PLANNER_POLICY.into(),
             timeout: crate::core::turn::configured_turn_timeout(),
             progress_tx: progress.clone(),
             cancel: cancel.clone(),
@@ -151,9 +152,9 @@ fn run_with_settle_window(
             .execute(&request)
             .map_err(anyhow::Error::new)
             .and_then(|output| decode(&output.final_text))
-            .and_then(|envelope| {
-                validate_response(state, item_id, &envelope)
-                    .map(|normalized| (envelope, normalized))
+            .and_then(|response| {
+                validate_response(state, item_id, &response)
+                    .map(|normalized| (TurnEnvelope::from(response), normalized))
             });
         match result {
             Ok((envelope, normalized)) => {
@@ -218,15 +219,17 @@ fn run_with_settle_window(
 
 pub enum Event {
     Progress(LiveProgress),
-    Done(anyhow::Result<(PlannerState, String)>),
+    Done(Box<anyhow::Result<(PlannerState, String)>>),
 }
 pub struct Controller {
     rx: Receiver<Event>,
     cancel: Arc<AtomicBool>,
     pub item_id: String,
+    #[cfg(test)]
+    _keepalive: Option<mpsc::Sender<Event>>,
 }
 impl Controller {
-    pub fn start(state: PlannerState, item_id: String) -> Self {
+    pub fn start(state: PlannerState, item_id: String, harness: Box<dyn AiHarness>) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -239,14 +242,33 @@ impl Controller {
                     let _ = forward.send(Event::Progress(update));
                 }
             });
-            let result = run(&state, &worker_id, &PiHarness, progress, worker_cancel);
+            let result = run(
+                &state,
+                &worker_id,
+                harness.as_ref(),
+                progress,
+                worker_cancel,
+            );
             let _ = forwarder.join();
-            let _ = tx.send(Event::Done(result));
+            let _ = tx.send(Event::Done(Box::new(result)));
         });
         Self {
             rx,
             cancel,
             item_id,
+            #[cfg(test)]
+            _keepalive: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn idle_fixture(item_id: impl Into<String>) -> Self {
+        let (keepalive, rx) = mpsc::channel();
+        Self {
+            rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+            item_id: item_id.into(),
+            _keepalive: Some(keepalive),
         }
     }
     pub fn poll(&self) -> Option<Event> {
@@ -254,6 +276,10 @@ impl Controller {
     }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+    }
+
+    pub fn cancellation_requested(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
     }
 }
 impl Drop for Controller {
@@ -282,7 +308,7 @@ mod tests {
             &self,
             request: &PlanningRequest,
         ) -> Result<HarnessOutcome, crate::error::AppError> {
-            assert!(!request.read_only && !request.implementation);
+            assert_eq!(request.mode, ExecutionMode::Investigation);
             assert!(
                 request
                     .prompt_body
@@ -301,7 +327,7 @@ mod tests {
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        std::fs::create_dir_all(root.join("planning/features/CHG-001-search")).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
         for args in [
             ["init", "-q"].as_slice(),
             ["config", "user.name", "Fixture"].as_slice(),
@@ -317,14 +343,15 @@ mod tests {
             );
         }
         let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
+        std::fs::create_dir_all(root.join("planning")).unwrap();
         std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
         crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
-        let feature = "# CHG-001: Search\n\n**Status:** Draft\n\n## Intent\n\nImprove search.\n\n## Current Behavior\n\nQuery persistence is unknown.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:05-functional-requirements`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nNone.\n\n## Acceptance Criteria\n\nRestart retains query.\n".to_string();
-        std::fs::write(
-            root.join("planning/features/CHG-001-search/specification.md"),
-            &feature,
-        )
-        .unwrap();
+        std::fs::create_dir_all(root.join(".kool-ade-packet/planning")).unwrap();
+        let feature = "# CHG-001: Search\n\n**Status:** Draft\n\n## Intent\n\nImprove search.\n\n## Current Behavior\n\nQuery persistence is unknown.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nNone.\n\n## Acceptance Criteria\n\nRestart retains query.\n".to_string();
+        let feature_path =
+            root.join(".kool-ade-packet/planning/changes/CHG-001-search/specification.md");
+        std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+        std::fs::write(&feature_path, &feature).unwrap();
         let mut item = OpenItem::new(
             "CLR-001".into(),
             Priority::Blocking,
@@ -337,7 +364,7 @@ mod tests {
         item.authority = Authority::Agent;
         item.feature_id = Some("CHG-001".into());
         std::fs::write(
-            root.join("planning/open-items.md"),
+            root.join(".kool-ade-packet/planning/open-items.md"),
             crate::artifacts::items_io::serialize(&[item]),
         )
         .unwrap();
@@ -372,7 +399,8 @@ mod tests {
         );
         assert!(
             crate::artifacts::items_io::parse(
-                &std::fs::read_to_string(root.join("planning/open-items.md")).unwrap()
+                &std::fs::read_to_string(root.join(".kool-ade-packet/planning/open-items.md"),)
+                    .unwrap()
             )
             .unwrap()
             .is_empty()
@@ -398,7 +426,7 @@ mod tests {
         ) -> Result<HarnessOutcome, crate::error::AppError> {
             let path = self
                 .root
-                .join("planning/features/CHG-001-search/specification.md");
+                .join(".kool-ade-packet/planning/changes/CHG-001-search/specification.md");
             let text = std::fs::read_to_string(&path)
                 .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
             std::fs::write(
@@ -439,13 +467,14 @@ mod tests {
             "expected a benign deferral, got: {message}"
         );
         // The peer's edit survives; the investigation wrote nothing.
-        let feature_now =
-            std::fs::read_to_string(root.join("planning/features/CHG-001-search/specification.md"))
-                .unwrap();
+        let feature_now = std::fs::read_to_string(
+            root.join(".kool-ade-packet/planning/changes/CHG-001-search/specification.md"),
+        )
+        .unwrap();
         assert!(feature_now.contains("Concurrent edit by a gated writer."));
         assert!(feature_now.contains("Query persistence is unknown."));
         let items = crate::artifacts::items_io::parse(
-            &std::fs::read_to_string(root.join("planning/open-items.md")).unwrap(),
+            &std::fs::read_to_string(root.join(".kool-ade-packet/planning/open-items.md")).unwrap(),
         )
         .unwrap();
         assert!(items.iter().any(|item| item.id == "CLR-001"));

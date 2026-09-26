@@ -59,6 +59,14 @@ impl PacketApp {
     }
 
     pub(super) fn approve_and_prepare_feature(&mut self, id: &str) {
+        self.approve_feature_action(id, true);
+    }
+
+    pub(super) fn approve_feature_only(&mut self, id: &str) {
+        self.approve_feature_action(id, false);
+    }
+
+    fn approve_feature_action(&mut self, id: &str, prepare_tasks: bool) {
         let Some(action) = self
             .available_feature_actions(None)
             .into_iter()
@@ -126,7 +134,7 @@ impl PacketApp {
             }
         }
         self.toasts.success(&message);
-        if !action.prepare_tasks {
+        if !prepare_tasks || !action.prepare_tasks {
             return;
         }
         if !p.active_implementations.is_empty() {
@@ -266,9 +274,7 @@ mod tests {
         }
         let mut state = crate::core::state::PlannerState::load(&root).unwrap();
         state.bootstrap_missing().unwrap();
-        let legacy = std::fs::read_to_string(root.join("planning/specification.md")).unwrap();
-        crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
-        let dir = root.join("planning/features/CHG-004-saved-searches");
+        let dir = root.join(".kool-ade-packet/planning/changes/CHG-004-saved-searches");
         std::fs::create_dir_all(&dir).unwrap();
         let mut spec = "# CHG-004: Saved searches\n\n**Status:** Ready\n".to_string();
         for heading in [
@@ -287,13 +293,14 @@ mod tests {
         }
         spec = spec.replace(
             "## Affected Product Areas\n",
-            "## Affected Product Areas\n\n`product:05-functional-requirements`\n",
+            "## Affected Product Areas\n\n`product:current-capabilities`\n",
         );
         std::fs::write(dir.join("specification.md"), spec).unwrap();
         let mut review: serde_json::Value =
             serde_json::from_str(include_str!("../../tests/fixtures/interview-ready.json"))
                 .unwrap();
         review["updated_specification"] = serde_json::Value::Null;
+        review["document_updates"] = serde_json::Value::Null;
         review["interview"]["feature_name"] = "Saved searches (CHG-004)".into();
         state.workflow.brief = Some(serde_json::from_value(review["interview"].clone()).unwrap());
         state.workflow.reviewed_specification = Some("Previous CHG-003 specification".into());
@@ -310,12 +317,19 @@ mod tests {
         item.feature_id = Some("CHG-004".into());
         item.status = crate::domain::ItemStatus::Resolved;
         std::fs::write(
-            root.join("planning/resolved-items.json"),
+            root.join(".kool-ade-packet/planning/resolved-items.json"),
             serde_json::to_vec(&vec![item]).unwrap(),
         )
         .unwrap();
-        crate::core::gitops::commit(&root, "fixture", &["planning".into(), ".planner".into()])
-            .unwrap();
+        crate::core::gitops::commit(
+            &root,
+            "fixture",
+            &[
+                ".kool-ade-packet/planning".into(),
+                ".kool-ade-packet/config".into(),
+            ],
+        )
+        .unwrap();
         let Screen::Connected(p) = &mut app.screen else {
             panic!()
         };
@@ -347,14 +361,14 @@ mod tests {
                 .expect("turn started")
                 .poll(Duration::from_millis(20))
             {
-                break outcome;
+                break *outcome;
             }
         };
         let applied = matches!(&outcome, TurnOutcome::Applied { .. });
         let Screen::Connected(mut p) = std::mem::replace(&mut app.screen, Screen::Welcome) else {
             panic!()
         };
-        app.adopt_turn(&mut p, outcome);
+        let _ = app.adopt_turn(&mut p, outcome);
         app.screen = Screen::Connected(p);
         applied
     }
@@ -375,6 +389,7 @@ mod tests {
         assert!(text_position(&output, "Approve CHG-004 and prepare tasks").is_some());
         click_text(&mut app, &ctx, "Approve CHG-004 and prepare tasks");
         assert!(app.feature_approved("CHG-004"));
+        assert!(matches!(&app.screen, Screen::Connected(project) if !project.queue.auto_publish));
         assert!(
             app.task_messages("CLR-026")
                 .last()
@@ -405,6 +420,7 @@ mod tests {
         );
         assert!(app.feature_actions(Some("CLR-026")).is_empty());
         assert!(app.implementation_offer());
+        assert!(matches!(&app.screen, Screen::Connected(project) if !project.queue.auto_publish));
         drop(app);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -440,7 +456,7 @@ mod tests {
         let (mut app, root, review) = setup();
         let (h, _) = harness(vec![review.to_string()]);
         app.task_harness = Some(h);
-        app.approve_feature("CHG-004");
+        app.approve_and_prepare_feature("CHG-004");
         assert!(finish(&mut app));
         assert!(
             !app.chat_messages()
@@ -455,7 +471,8 @@ mod tests {
         let prompt = crate::app::manager::Manager::prompt_body(p, &[]);
         assert!(prompt.contains("CHG-004: approved for current contract; do not ask again"));
         assert!(prompt.contains("Persist saved searches and restore them after restarting."));
-        let path = root.join("planning/features/CHG-004-saved-searches/specification.md");
+        let path =
+            root.join(".kool-ade-packet/planning/changes/CHG-004-saved-searches/specification.md");
         let changed = std::fs::read_to_string(&path)
             .unwrap()
             .replace("Persist saved searches", "Publish saved searches");
@@ -486,14 +503,15 @@ mod tests {
     fn stale_display_cannot_approve_changed_contract_or_overwrite_other_approval() {
         let _shield = crate::core::gitops::test_support::shield("feature-approval-drift");
         let (mut app, root, _) = setup();
-        let path = root.join("planning/features/CHG-004-saved-searches/specification.md");
+        let path =
+            root.join(".kool-ade-packet/planning/changes/CHG-004-saved-searches/specification.md");
         let original = std::fs::read_to_string(&path).unwrap();
         std::fs::write(
             &path,
             original.replace("Persist saved searches", "Publish saved searches"),
         )
         .unwrap();
-        app.approve_feature("CHG-004");
+        app.approve_and_prepare_feature("CHG-004");
         assert!(!app.feature_approved("CHG-004"));
         assert!(
             app.chat_messages()

@@ -37,7 +37,7 @@ impl CurrentUser {
     /// Returns the match flavor so the UI can explain *why* an item routes here.
     pub fn matches_assignment(&self, assigned_to: &str) -> AssignmentMatch {
         let a = assigned_to.trim();
-        if a.eq_ignore_ascii_case(&self.name.trim()) {
+        if a.eq_ignore_ascii_case(self.name.trim()) {
             return AssignmentMatch::ByName;
         }
         if self.groups.iter().any(|g| g.trim().eq_ignore_ascii_case(a)) {
@@ -67,7 +67,7 @@ pub enum IdentitySource {
     GitUserName,
     /// Seated from `git config user.email` because `user.name` yielded nothing.
     GitUserEmail,
-    /// Seated from the `## Current User` block in `.planner/config.md` (fallback/override).
+    /// Seated from the `## Current User` block in Packet's project config (fallback/override).
     ConfigBlock,
     /// No identity resolvable anywhere; the session runs as a neutral guest.
     Guest,
@@ -79,7 +79,7 @@ impl IdentitySource {
         match self {
             Self::GitUserName => "derived from git user.name",
             Self::GitUserEmail => "derived from git user.email (fallback)",
-            Self::ConfigBlock => "from .planner/config.md override",
+            Self::ConfigBlock => "from .kool-ade-packet/config/project.md override",
             Self::Guest => "no identity found — guest",
         }
     }
@@ -245,7 +245,7 @@ mod tests {
         );
         assert_eq!(
             IdentitySource::ConfigBlock.label(),
-            "from .planner/config.md override"
+            "from .kool-ade-packet/config/project.md override"
         );
         assert_eq!(IdentitySource::Guest.label(), "no identity found — guest");
     }

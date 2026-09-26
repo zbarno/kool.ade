@@ -16,15 +16,56 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
+/// A harness operation's fixed authority and tool capability class.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionMode {
+    Planning,
+    ReadOnlyAnalysis,
+    TaskGeneration,
+    Investigation,
+    Implementation,
+    Reconciliation,
+    DecisionExplanation,
+}
+
+impl ExecutionMode {
+    pub const ALL: [Self; 7] = [
+        Self::Planning,
+        Self::ReadOnlyAnalysis,
+        Self::TaskGeneration,
+        Self::Investigation,
+        Self::Implementation,
+        Self::Reconciliation,
+        Self::DecisionExplanation,
+    ];
+
+    pub fn tool_access(self) -> ToolAccess {
+        match self {
+            Self::Planning | Self::TaskGeneration | Self::Investigation => ToolAccess::ReadOnly,
+            Self::Implementation => ToolAccess::BoundedImplementation,
+            Self::ReadOnlyAnalysis | Self::Reconciliation | Self::DecisionExplanation => {
+                ToolAccess::None
+            }
+        }
+    }
+}
+
+/// Tool authority is derived from an operation mode instead of independently
+/// configurable booleans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolAccess {
+    None,
+    ReadOnly,
+    BoundedImplementation,
+}
+
 /** One planning turn submitted to the external harness.
 /// Transport-neutral: the app supplies *context it owns*; the harness
 /// renders it in whatever shape the backing CLI prefers. */
 #[derive(Debug, Clone)]
 pub struct PlanningRequest {
-    /// Load repository instructions for implementation; planning remains isolated.
-    pub implementation: bool,
-    /// Disable tools for independent project-manager status updates.
-    pub read_only: bool,
+    /// The only source of execution capabilities for this request.
+    pub mode: ExecutionMode,
     /// Pi thinking level selected by the Packet role that owns this turn.
     pub reasoning_level: String,
     /// Repository working directory the harness process must run in (§18).
@@ -39,6 +80,16 @@ pub struct PlanningRequest {
     pub progress_tx: std::sync::mpsc::Sender<LiveProgress>,
     /// Cooperative cancellation set by the UI's Cancel button.
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Model-selected logical sources for a bounded planning turn. References are
+/// suggestions only; the application resolves each against its current catalog.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RetrievalPlan {
+    pub documents: Vec<String>,
+    pub open_items: Vec<String>,
+    pub repository_areas: Vec<String>,
 }
 
 /// Display snapshot; task snapshots are persisted privately, never as planning artifacts.
@@ -112,9 +163,8 @@ pub struct DocumentUpdate {
     pub content: String,
 }
 
-/// Parsed-but-not-yet-validated turn envelope emitted by the agent.
-/// Looser than the app's strict domain model: validation lives in
-/// `crate::core::validation` and is what guards the file system.
+/// Normalized internal planning projection. Raw operation responses are
+/// decoded through `harness::responses` before reaching this model.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnEnvelope {
@@ -140,11 +190,35 @@ pub struct TurnEnvelope {
     /// The item the agent wants to ask NOW (must satisfy routing rules).
     #[serde(alias = "next_question_id")]
     pub next_question_id: Option<String>,
+    /// A typed interpretation of an explicit user request. Rust rechecks the
+    /// action against the current workflow before dispatching it.
+    #[serde(default, alias = "requested_action")]
+    pub requested_action: Option<RequestedAction>,
     pub interview: Option<crate::core::workflow::InterviewBrief>,
-    #[serde(alias = "task_stories")]
+    #[serde(alias = "task_stories", skip_serializing_if = "Option::is_none")]
     pub task_stories: Option<Vec<crate::core::workflow::TaskStory>>,
-    #[serde(alias = "task_outline")]
+    #[serde(alias = "task_outline", skip_serializing_if = "Option::is_none")]
     pub task_outline: Option<Vec<crate::core::workflow::TaskOutline>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApplicationAction {
+    ApproveChange,
+    GenerateTasks,
+    StartImplementation,
+    PauseImplementation,
+    ResumeImplementation,
+    Publish,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestedAction {
+    pub action: ApplicationAction,
+    /// Stable Packet identity for a specifically named change or task.
+    #[serde(default, alias = "target_uid")]
+    pub target_uid: Option<String>,
 }
 
 impl TurnEnvelope {
@@ -191,6 +265,9 @@ pub struct TurnItem {
     #[serde(default)]
     pub evidence: Option<String>,
     #[serde(default)]
+    #[serde(alias = "decision_brief")]
+    pub decision_brief: Option<crate::domain::DecisionBrief>,
+    #[serde(default)]
     #[serde(alias = "resolution_note")]
     pub resolution_note: Option<String>,
 }
@@ -217,6 +294,9 @@ pub struct TurnItemUpdate {
     pub recommendation: Option<String>,
     #[serde(default)]
     pub evidence: Option<String>,
+    #[serde(default)]
+    #[serde(alias = "decision_brief")]
+    pub decision_brief: Option<crate::domain::DecisionBrief>,
 }
 
 /// Successful harness termination.
@@ -241,4 +321,13 @@ pub trait AiHarness: Send + Sync {
 
     /// Run one planning turn to completion (spawns/manages the process).
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, AppError>;
+
+    /// Select from Packet's bounded source catalog before a main planning turn.
+    /// Backends without a dedicated retrieval pass use Packet's safe core context.
+    fn plan_retrieval(
+        &self,
+        _request: &PlanningRequest,
+    ) -> Result<Option<RetrievalPlan>, AppError> {
+        Ok(None)
+    }
 }
