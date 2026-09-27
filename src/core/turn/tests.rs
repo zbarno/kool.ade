@@ -190,6 +190,7 @@ fn inputs_for(tag: &str, msg: &str) -> (TurnInputs, std::path::PathBuf) {
         user_message: msg.into(),
         recent_chat: Vec::new(),
         purpose: crate::core::workflow::TurnPurpose::Interview,
+        comparison_feature: None,
     };
     let dir = inputs.state.repo_root.clone();
     (inputs, dir)
