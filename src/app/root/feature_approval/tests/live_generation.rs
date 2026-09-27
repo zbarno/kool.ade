@@ -32,31 +32,75 @@ fn temporary_live_fixture_prepare_and_generate() {
         project.task_documents.clear();
     }
     app.task_harness = Some(Box::new(LivePi));
-    app.approve_and_prepare_feature(&id);
-    let ctx = egui::Context::default();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12 * 60 * 60);
-    while app.conversation_busy() {
-        app.tick(0.016, &ctx);
+    let compare = std::env::var("PACKET_APPROVAL_PURPOSE").as_deref() == Ok("compare");
+    if compare {
+        let mut comparison_saved = false;
+        for _ in 0..3 {
+            app.start_comparison_turn(&id);
+            let ctx = egui::Context::default();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12 * 60 * 60);
+            while app.conversation_busy() {
+                app.tick(0.016, &ctx);
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "live ComparePlans turn timed out"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let state = crate::core::state::PlannerState::load(&root).unwrap();
+            comparison_saved = state
+                .active_features
+                .iter()
+                .find(|(feature_id, _)| feature_id == &id)
+                .and_then(|(_, body)| crate::domain::ChangeMetadata::require_markdown(body).ok())
+                .and_then(|metadata| metadata.plan_comparison)
+                .is_some();
+            if comparison_saved {
+                break;
+            }
+        }
         assert!(
-            std::time::Instant::now() < deadline,
-            "live feature preparation/generation timed out"
+            comparison_saved,
+            "Pi did not produce a valid comparison after three turns"
         );
-        std::thread::sleep(std::time::Duration::from_millis(100));
+    } else {
+        app.approve_and_prepare_feature(&id);
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12 * 60 * 60);
+        while app.conversation_busy() {
+            app.tick(0.016, &ctx);
+            assert!(
+                std::time::Instant::now() < deadline,
+                "live feature preparation/generation timed out"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
     }
     assert!(matches!(&app.screen, Screen::Connected(_)));
     // TaskGeneration commits through its worker while Packet's visible
     // project snapshot may still be stale; reload the persisted authority.
     let state = crate::core::state::PlannerState::load(&root).unwrap();
-    assert!(crate::core::workflow::feature_approved(
-        &root,
-        &state.workflow,
-        &id
-    ));
-    assert!(
-        state
-            .workflow
-            .task_batches
+    if compare {
+        let (_, body) = state
+            .active_features
             .iter()
-            .any(|batch| batch.feature.contains(&id))
-    );
+            .find(|(feature_id, _)| feature_id == &id)
+            .unwrap();
+        let metadata = crate::domain::ChangeMetadata::require_markdown(body).unwrap();
+        assert_eq!(metadata.schema_version, 2);
+        assert_eq!(metadata.plan_comparison.unwrap().alternatives.len(), 2);
+    } else {
+        assert!(crate::core::workflow::feature_approved(
+            &root,
+            &state.workflow,
+            &id
+        ));
+        assert!(
+            state
+                .workflow
+                .task_batches
+                .iter()
+                .any(|batch| batch.feature.contains(&id))
+        );
+    }
 }

@@ -220,6 +220,19 @@ pub fn decode_turn_object(json: &str, purpose: TurnPurpose) -> Result<TurnEnvelo
         check_version("Task generation", response.schema_version, &[1])?;
         Ok(response.into())
     } else {
+        if purpose == TurnPurpose::ComparePlans {
+            let value: serde_json::Value =
+                serde_json::from_str(json).map_err(|error| error.to_string())?;
+            if let Some(object) = value.as_object() {
+                for field in ["task_stories", "taskStories", "task_outline", "taskOutline"] {
+                    if object.contains_key(field) {
+                        return Err(format!(
+                            "Compare Plans forbids cross-purpose field `{field}`; return only the two plans and recommendation"
+                        ));
+                    }
+                }
+            }
+        }
         let response = serde_json::from_str::<PlanningTurnResponse>(json)
             .map_err(|error| error.to_string())?;
         if purpose == TurnPurpose::ComparePlans {

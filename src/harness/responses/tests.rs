@@ -76,6 +76,16 @@ fn planning_envelope_round_trips_two_plan_alternatives_and_advisory_recommendati
 }
 
 #[test]
+fn comparison_decoder_names_cross_purpose_story_payload() {
+    let error = decode_turn(
+        r#"{"schema_version":2,"assistant_message":"Comparison only.","task_stories":[{}]}"#,
+        TurnPurpose::ComparePlans,
+    )
+    .unwrap_err();
+    assert!(error.contains("Compare Plans forbids cross-purpose field `task_stories`"));
+}
+
+#[test]
 fn compare_plans_requires_schema_v2_and_turn_purpose_round_trips() {
     let legacy = decode_turn(
         r#"{"schema_version":1,"assistant_message":"Old response."}"#,

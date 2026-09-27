@@ -17,6 +17,9 @@ create cosmetic wording variants.
 The recommendation has plan_id, rationale, and evidence. Its recommendation is
 advisory: state that the operator makes the final choice. Do not ask a question,
 change documents or open items, emit task stories, or request an application
-action. Return no fields beyond the planning envelope and these comparison
-fields.
+action. In particular, omit both task_stories and task_outline entirely; do not
+include them as null or empty fields. Return no fields beyond schema_version,
+assistant_message, plans, and recommendation.
+Keep every value concise and valid JSON. Do not put quotation marks inside
+string values; rephrase instead. If a quote is essential, escape it correctly.
 "#;
