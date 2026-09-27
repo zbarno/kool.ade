@@ -110,6 +110,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         document_updates: Some(vec![DocumentUpdate {
             document_id: format!("feature:{feature_id}"),
             content: revised,
+            status: None,
         }]),
         updated_specification: None,
         open_items_added: None,

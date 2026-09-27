@@ -15,6 +15,31 @@ pub struct BatchContract {
     pub configuration: String,
 }
 
+fn references_module(feature: &str, id: &str, path: &str, title: &str) -> bool {
+    feature.contains(path)
+        || feature.contains(&format!("product:{id}"))
+        || feature.contains(title)
+        || id
+            .split_once('-')
+            .and_then(|(number, _)| number.parse::<u32>().ok())
+            .is_some_and(|number| mentions_module_number(feature, number))
+}
+
+fn mentions_module_number(text: &str, number: u32) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    [format!("module {number:02}"), format!("module {number}")]
+        .iter()
+        .any(|label| {
+            normalized.match_indices(label).any(|(start, _)| {
+                let before = normalized[..start].chars().next_back();
+                let end = start + label.len();
+                let after = normalized[end..].chars().next();
+                before.is_none_or(|ch| !ch.is_ascii_alphanumeric())
+                    && after.is_none_or(|ch| !ch.is_ascii_digit())
+            })
+        })
+}
+
 pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
     let Some((feature_id, feature)) = &state.active_feature else {
         return Ok(None);
@@ -33,10 +58,12 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
     let modules = crate::artifacts::product_docs::load_documents(&state.repo_root)?
         .ok_or_else(|| anyhow::anyhow!("Product modules are missing"))?;
     for document in modules {
-        if feature.contains(&document.module.path)
-            || feature.contains(&format!("product:{}", document.module.id))
-            || feature.contains(&document.module.title)
-        {
+        if references_module(
+            feature,
+            &document.module.id,
+            &document.module.path,
+            &document.module.title,
+        ) {
             product_modules.insert(document.module.id, document.content);
         }
     }
@@ -71,3 +98,6 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
         configuration: crate::artifacts::config_io::serialize(&state.config),
     }))
 }
+
+#[cfg(test)]
+mod tests;

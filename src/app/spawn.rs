@@ -52,6 +52,23 @@ pub fn spawn_sibling(bin: &Path) -> Result<(), String> {
         })
 }
 
+/// Spawn a sibling window prefilled for the selected registered checkout.
+pub fn spawn_sibling_in(bin: &Path, workspace: &Path) -> Result<(), String> {
+    std::process::Command::new(bin)
+        .current_dir(workspace)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_child| ())
+        .map_err(|error| {
+            format!(
+                "failed to open a Packet window for {}: {error}",
+                workspace.display()
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,6 +98,32 @@ mod tests {
         );
         // By contract there is no handle retained: the calling thread can
         // never observe the child's exit status afterward.
+    }
+
+    #[test]
+    fn spawn_sibling_in_uses_the_selected_workspace_as_child_directory() {
+        let dir = std::env::temp_dir().join(format!(
+            "packet-spawn-workspace-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("probe.sh");
+        let output = dir.join("cwd.txt");
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(&script, format!("#!/bin/sh\npwd > {}\n", output.display())).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        spawn_sibling_in(&script, &dir).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && !output.exists() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let observed = std::fs::read_to_string(&output).unwrap();
+        assert_eq!(PathBuf::from(observed.trim()), dir.canonicalize().unwrap());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

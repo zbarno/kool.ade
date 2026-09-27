@@ -9,7 +9,8 @@ pub(super) fn resolve_feature(app: &PacketApp, target: Option<&str>) -> Result<S
         .active_features
         .iter()
         .filter(|(_, body)| {
-            body.contains("**Status:** Ready") || body.contains("**Status:** Implementing")
+            crate::domain::ChangeMetadata::require_markdown(body)
+                .is_ok_and(|metadata| metadata.status.approval_eligible())
         })
         .filter(|(id, body)| {
             target.is_none_or(|target| {

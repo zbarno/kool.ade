@@ -41,6 +41,9 @@ fn commit_all(repo: &Path, message: &str) {
     git_ok(repo, &["commit", "-q", "-m", message]);
 }
 
+mod canonical_state;
 mod files;
 mod identities;
+mod implementation_merge;
+mod status;
 mod task_state;

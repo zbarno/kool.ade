@@ -14,6 +14,8 @@ pub(super) fn execute(
         require_independent_checks,
         auto_publish_gate,
     } = policy;
+    let require_independent_checks =
+        require_independent_checks || publication_mode == PublicationMode::AutoPublish;
     verification::prepare_verified(repo, dir, state, harness, runner, user_context)?;
     if state.status == ImplementationStatus::Completed {
         return Ok(());

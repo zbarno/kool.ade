@@ -121,21 +121,6 @@ pub fn validate_feature(id: &str, markdown: &str) -> anyhow::Result<()> {
             ],
         "feature requires the eight ordered sections"
     );
-    anyhow::ensure!(
-        [
-            "Draft",
-            "Ready",
-            "Implementing",
-            "Reconciliation",
-            "Implemented",
-            "Abandoned"
-        ]
-        .iter()
-        .any(|status| markdown
-            .lines()
-            .any(|line| line.starts_with(&format!("**Status:** {status}")))),
-        "feature requires a recognized status"
-    );
     Ok(())
 }
 

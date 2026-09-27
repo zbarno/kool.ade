@@ -56,6 +56,9 @@ impl PlannerState {
     /// Read every artifact from disk into memory (strict: corrupt files are
     /// reported rather than guessed around — §16).
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
+        #[cfg(test)]
+        crate::artifacts::product_docs::migrate_legacy_change_fixtures(repo)?;
+        crate::artifacts::product_docs::validate_change_metadata(repo)?;
         let spec = spec_doc::load(repo)?;
         let items_text = match crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(
             repo,
@@ -87,13 +90,17 @@ impl PlannerState {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "project".into());
+        let workflow = crate::artifacts::task_docs::load_workflow(repo)?;
+        let active_features = crate::artifacts::product_docs::active_features(repo);
+        let active_feature =
+            crate::artifacts::product_docs::active_feature_for_workflow(repo, &workflow);
         Ok(Self {
             repo_root: repo.to_path_buf(),
             title,
             baseline_spec: spec.clone(),
             spec_text: spec,
-            active_feature: crate::artifacts::product_docs::active_feature(repo),
-            active_features: crate::artifacts::product_docs::active_features(repo),
+            active_feature,
+            active_features,
             repositories: crate::core::project_repos::ProjectManifest::load(repo)?,
             items,
             resolved_items: match std::fs::read(
@@ -106,7 +113,7 @@ impl PlannerState {
             baseline_items_md,
             config,
             identity,
-            workflow: crate::artifacts::task_docs::load_workflow(repo)?,
+            workflow,
         })
     }
 

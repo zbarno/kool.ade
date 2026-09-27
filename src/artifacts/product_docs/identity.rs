@@ -55,4 +55,45 @@ mod tests {
         assert_eq!(after.title, "Reuse cached responses");
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn structured_status_survives_title_and_directory_rename() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_feature_status_identity_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        let old_dir = root.join("F10-cache-responses");
+        let new_dir = root.join("F10-reuse-cached-responses");
+        std::fs::create_dir_all(&old_dir).unwrap();
+        let old_path = old_dir.join("specification.md");
+        let original =
+            "# F10: Cache responses\n\n**Status:** Ready\n\n## Intent\n\nAvoid duplicate work.\n";
+        let identified = preserve_feature_identity(&old_path, "F10", original).unwrap();
+        let identity = ArtifactIdentity::from_markdown(&identified)
+            .unwrap()
+            .unwrap();
+        let original = crate::domain::ChangeMetadata::write_markdown(
+            &identified,
+            &identity,
+            crate::domain::ChangeStatus::Ready,
+        )
+        .unwrap();
+        std::fs::write(&old_path, &original).unwrap();
+        let before = crate::domain::ChangeMetadata::require_markdown(&original).unwrap();
+        std::fs::rename(&old_dir, &new_dir).unwrap();
+
+        let new_path = new_dir.join("specification.md");
+        let renamed = "# F10: Reuse cached responses\n\n**Status:** Draft\n\n## Intent\n\nAvoid duplicate work.\n";
+        let updated = preserve_feature_identity(&new_path, "F10", renamed).unwrap();
+        let after_identity = ArtifactIdentity::from_markdown(&updated).unwrap().unwrap();
+        let updated =
+            crate::domain::ChangeMetadata::write_markdown(&updated, &after_identity, before.status)
+                .unwrap();
+        let after = crate::domain::ChangeMetadata::require_markdown(&updated).unwrap();
+        assert_eq!(after.uid, before.uid);
+        assert_eq!(after.status, crate::domain::ChangeStatus::Ready);
+        assert!(updated.contains("**Status:** Ready"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

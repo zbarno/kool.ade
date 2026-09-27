@@ -1,7 +1,7 @@
 use super::{PacketApp, Screen, persist_automation_settings};
 use crate::{
     domain::{ChatMessage, ChatRole},
-    ui::{ApplicationCommand, Surface, task_detail::Command as TaskDetailCommand},
+    ui::{ApplicationCommand, task_detail::Command as TaskDetailCommand},
 };
 
 mod intent;
@@ -201,6 +201,9 @@ impl PacketApp {
     fn set_auto_publish(&mut self, enabled: bool) {
         if let Screen::Connected(project) = &mut self.screen {
             project.queue.auto_publish = enabled;
+            if enabled {
+                project.queue.require_independent_checks = true;
+            }
             if !enabled {
                 for controller in project.active_implementations.values() {
                     controller.disable_automatic_publication();
@@ -214,7 +217,7 @@ impl PacketApp {
 
     fn set_require_independent_checks(&mut self, enabled: bool) {
         if let Screen::Connected(project) = &mut self.screen {
-            project.queue.require_independent_checks = enabled;
+            project.queue.require_independent_checks = enabled || project.queue.auto_publish;
             if let Err(error) = persist_automation_settings(project) {
                 project.queue.last_error = error;
             }
@@ -222,10 +225,9 @@ impl PacketApp {
     }
 
     fn archive_task(&mut self, ticket: &str) {
-        let done = self
-            .planning_work()
-            .iter()
-            .any(|work| work.key == ticket && work.column == 4)
+        let done = matches!(&self.screen, Screen::Connected(project)
+            if crate::core::planning_work::cards(&project.state, &project.planning_work)
+                .iter().any(|work| work.key == ticket && work.column == 4))
             || match &self.screen {
                 Screen::Connected(project) => {
                     project

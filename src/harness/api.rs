@@ -161,6 +161,8 @@ pub struct DocumentUpdate {
     #[serde(alias = "document_id")]
     pub document_id: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<crate::domain::ChangeStatus>,
 }
 
 /// Normalized internal planning projection. Raw operation responses are

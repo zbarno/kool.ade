@@ -2,11 +2,13 @@ use super::*;
 
 mod guide;
 mod painter;
+mod repository_names;
 
 #[cfg(test)]
 pub(super) use guide::GuideLine;
 pub(super) use guide::{GuideLineKind, ProbeReport, ProbeView, drain_probe, harness_guide_lines};
 pub use painter::{paint_import_card, paint_settings_card};
+pub use repository_names::RepositoryNameRow;
 
 // Settings dialog (current user + stakeholder categories)
 // ---------------------------------------------------------------------------
@@ -25,6 +27,7 @@ pub struct DlgSettings {
     /// also states that the fields act as the override.
     pub identity_note: String,
     pub rows: Vec<Row>,
+    pub repositories: Vec<RepositoryNameRow>,
     pub feedback: Option<(bool, String)>,
     /// Per-open background probe (F-16 guide, D-15): `Some` while the
     /// detached thread may still deliver its report; drained by
@@ -84,6 +87,7 @@ impl DlgSettings {
             user_groups,
             identity_note,
             rows,
+            repositories: repository_names::rows(&proj.state.repositories),
             feedback: None,
             // Per-open, DETACHED probe (D-15): bounded near ~12 s off the UI
             // thread (10 s poll + 2 s settle, NFR-4). The closure is 'static
@@ -105,6 +109,7 @@ impl DlgSettings {
     pub fn apply(&mut self, proj: &mut Project) -> Result<String, AppError> {
         // Writer section: config write + checkpoint share the index.
         let _guard = crate::core::writer_gate::acquire();
+        let manifest_changed = repository_names::persist(proj, &mut self.repositories)?;
         let user = CurrentUser::new(self.user_name.trim(), csv_parts(&self.user_groups));
         let mut sk = Stakeholders::new(Vec::new());
         for r in &self.rows {
@@ -127,10 +132,14 @@ impl DlgSettings {
             op: "resync planning state".into(),
             detail: e.to_string(),
         })?;
+        let mut changed_paths = vec![CONFIG_FILE.to_string()];
+        if manifest_changed {
+            changed_paths.push(crate::artifacts::layout::canonical::PROJECT_MANIFEST.into());
+        }
         let sha = gitops::commit(
             &proj.state.repo_root,
-            "settings: update stakeholders and identity",
-            &[CONFIG_FILE.to_string()],
+            "settings: update workspace settings",
+            &changed_paths,
         )?;
         proj.refresh_git();
         Ok(sha.chars().take(7).collect())

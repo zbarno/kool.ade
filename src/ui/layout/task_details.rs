@@ -27,6 +27,11 @@ pub(super) fn paint(
         return;
     };
     let record = view.implementation.take();
+    let checks_unavailable = record.as_ref().is_some_and(|record| {
+        record.independent_check.as_ref().is_some_and(|check| {
+            check.status == crate::core::implementation::IndependentCheckStatus::Unavailable
+        })
+    });
     let active = view.implementation_active;
     let cleanup_error = record.as_ref().and_then(|r| r.cleanup.error.clone());
     let failure = view.failure.clone();
@@ -147,6 +152,8 @@ pub(super) fn paint(
                         }
                     }
                     ui.label(RichText::new(&brief.after).small().weak());
+                } else if checks_unavailable {
+                    ui.label("Resolve the project check problem shown above, then resume this task. Packet has kept the verified work and has not published it to the default branch.");
                 } else if matches!(&view.attention, Some(crate::core::attention::View::Loading | crate::core::attention::View::Error(_))) {
                     ui.label("The full report contains the original actions while Packet prepares a clearer explanation.");
                 } else if let Some(error) = &failure {
@@ -173,8 +180,9 @@ pub(super) fn paint(
                     record.status == crate::core::implementation::ImplementationStatus::ReadyToPublish
                 }) {
                     "Share verified work for review"
-                } else if view.failure_disposition
-                    == Some(crate::core::implementation::RecoveryDisposition::UserAction)
+                } else if checks_unavailable
+                    || view.failure_disposition
+                        == Some(crate::core::implementation::RecoveryDisposition::UserAction)
                 {
                     "Resume after action"
                 } else if record.is_some() || failure.is_some() {

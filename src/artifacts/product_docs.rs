@@ -32,7 +32,11 @@ pub const LEGACY_MODULES: [&str; 13] = [
     "12-acceptance.md",
     "13-source-map.md",
 ];
-pub use active_features::{active_feature, active_features};
+#[cfg(test)]
+pub(crate) use active_features::migrate_legacy_change_fixtures;
+pub use active_features::{
+    active_feature, active_feature_for_workflow, active_features, validate_change_metadata,
+};
 pub use document_updates::{
     document_path, document_path_for_update, preserved_ids, updated_manifest,
 };

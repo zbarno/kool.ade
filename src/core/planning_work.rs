@@ -24,10 +24,7 @@ pub fn load(repo: &Path) -> anyhow::Result<Vec<Work>> {
 }
 
 pub fn save(repo: &Path, work: &[Work]) -> anyhow::Result<()> {
-    crate::artifacts::task_docs::safe_directory(
-        repo,
-        crate::artifacts::layout::canonical::PLANNING,
-    )?;
+    crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::canonical::STATE)?;
     let path = repo.join(FILE);
     anyhow::ensure!(
         !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()),
@@ -50,10 +47,15 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
         }
     }
     for (id, body) in &state.active_features {
-        let column = if body.contains("**Status:** Ready")
-            || body.contains("**Status:** Implementing")
-            || body.contains("**Status:** Reconciliation")
-        {
+        let status = crate::domain::ChangeMetadata::require_markdown(body)
+            .map(|metadata| metadata.status)
+            .expect("loaded active changes always have validated structured status");
+        let column = if matches!(
+            status,
+            crate::domain::ChangeStatus::Ready
+                | crate::domain::ChangeStatus::Implementing
+                | crate::domain::ChangeStatus::Reconciliation
+        ) {
             4
         } else {
             1

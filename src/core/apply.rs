@@ -33,8 +33,10 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             "The specification changed during task generation; review it again before retrying"
         );
         anyhow::ensure!(
-            crate::artifacts::product_docs::active_feature(&state.repo_root)
-                == state.active_feature,
+            crate::artifacts::product_docs::active_feature_for_workflow(
+                &state.repo_root,
+                &state.workflow,
+            ) == state.active_feature,
             "The active feature changed during task generation; review it again before retrying"
         );
         anyhow::ensure!(
@@ -139,8 +141,11 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     };
 
     let mut document_updates = nt.document_updates.clone();
-    let feature_uids =
-        identities::preserve_feature_updates(&state.repo_root, &mut document_updates)?;
+    let feature_uids = identities::preserve_feature_updates(
+        &state.repo_root,
+        &mut document_updates,
+        &nt.change_status_updates,
+    )?;
     identities::stabilize_open_item_identities(state, &feature_uids)?;
 
     // 5) Canonical queue order + serialize.
@@ -184,13 +189,16 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         });
     let items_written = repo_relative_paths.iter().any(|p| p == OPEN_ITEMS_FILE);
     state.spec_text = spec_doc::load(&state.repo_root)?;
-    state.active_feature = crate::artifacts::product_docs::active_feature(&state.repo_root);
     state.active_features = crate::artifacts::product_docs::active_features(&state.repo_root);
     state.baseline_spec = state.spec_text.clone();
     state.baseline_items_md = items_md;
     if let Some(workflow) = &nt.workflow {
         state.workflow = workflow.clone();
     }
+    state.active_feature = crate::artifacts::product_docs::active_feature_for_workflow(
+        &state.repo_root,
+        &state.workflow,
+    );
     let commit_message = compose_commit_message(
         nt,
         spec_pre_existed,

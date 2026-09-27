@@ -218,8 +218,23 @@ fn append_active_features(
             let Some(text) = fs::read_to_string(&feature).ok() else {
                 continue;
             };
-            if !text.contains("**Status:** Implemented") && !text.contains("**Status:** Abandoned")
-            {
+            let Some((id, title)) = text
+                .lines()
+                .find_map(|line| line.strip_prefix("# "))
+                .and_then(|heading| heading.split_once(": "))
+            else {
+                continue;
+            };
+            if !crate::artifacts::product_docs::valid_feature_id(id) || title.trim().is_empty() {
+                continue;
+            }
+            let status = crate::domain::ChangeMetadata::from_markdown(&text)?
+                .map(|metadata| metadata.status)
+                .map_or_else(
+                    || crate::domain::ChangeMetadata::parse_legacy_markdown(&text),
+                    Ok,
+                )?;
+            if !status.is_terminal() {
                 features.push(name);
             }
         }

@@ -14,6 +14,7 @@ fn vision_update(text: &str) -> Vec<DocumentUpdate> {
     vec![DocumentUpdate {
         document_id: "product:overview".into(),
         content: format!("# Overview\n\n{text}\n"),
+        status: None,
     }]
 }
 

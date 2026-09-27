@@ -218,7 +218,7 @@ fn from_current(data: PersistedQueue) -> anyhow::Result<Queue> {
         auto_plan: data.auto_plan,
         auto_build: data.auto_build,
         auto_publish: data.auto_publish,
-        require_independent_checks: data.require_independent_checks,
+        require_independent_checks: data.require_independent_checks || data.auto_publish,
         running: data.running,
         max_parallel: data.max_parallel.clamp(1, 8),
         last_error: data.last_error,
@@ -261,7 +261,8 @@ pub(super) fn decode_value(value: serde_json::Value) -> anyhow::Result<(Queue, b
     };
     if version == QUEUE_VERSION {
         let data: PersistedQueue = serde_json::from_value(value)?;
-        return Ok((from_current(data)?, false));
+        let policy_repaired = data.auto_publish && !data.require_independent_checks;
+        return Ok((from_current(data)?, policy_repaired));
     }
     if version == 3 {
         let old: PersistedQueueV3 = serde_json::from_value(value)?;

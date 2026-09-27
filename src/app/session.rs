@@ -9,6 +9,9 @@ use crate::core::turn::TurnController;
 use crate::domain::chatlog::ChatMessage;
 use crate::persistence::chat_store;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 pub struct Project {
     pub task_chats: crate::persistence::task_chats::TaskChats,
     pub activity: super::manager::WorkspaceActivity,
@@ -24,12 +27,7 @@ pub struct Project {
     pub implementation_states:
         std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
     pub pr_refresh: Option<crate::core::implementation::PrRefresh>,
-    pub reconciliation: Option<crate::core::reconciliation::Controller>,
-    pub reconciliation_attempted: std::collections::HashSet<String>,
-    pub reconciliation_error: Option<String>,
-    /// Suppresses reconciliation spawning until this instant; set after a
-    /// drift deferral so a live project stops churning model calls.
-    pub reconciliation_cooldown_until: Option<std::time::Instant>,
+    pub reconciliation: crate::app::reconciliation_lifecycle::Lifecycle,
     pub investigation: Option<crate::core::investigation::Controller>,
     pub investigation_attempted: std::collections::HashSet<String>,
     /// Suppresses agent-item investigation spawning until this instant; set

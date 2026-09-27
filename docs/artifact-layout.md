@@ -1,7 +1,8 @@
 # Repository artifact layout
 
 Reviewed against the checked-out implementation on 2026-09-26. A connected
-repository uses `.kool-ade-packet/` as Packet's shared project-artifact root.
+repository uses `.kool-ade-packet/` as the only live shared Packet
+project-artifact root.
 Connection runs the restartable migration before loading planning state.
 
 | Location | Purpose and ownership |
@@ -35,6 +36,14 @@ implementation archive; actual approved decisions move to
 `.kool-ade-packet/planning/decisions/`. The root `SPECIFICATION.md` is retained
 as historical input. After migration, normal reads and writes use only the
 canonical paths above.
+
+Markdown artifacts are for people to read and edit. Versioned metadata and
+structured workflow state determine feature lifecycle, approval, queue, and
+implementation behavior; visible status text is rendered from that state and
+cannot set it. Decision records under `planning/decisions/` describe durable
+choices and their rationale. Implementation reports and transcripts are
+evidence and belong under `implementation/` or the historical archive, not in
+the decision record collection.
 
 Migration preflights all sources and destinations before moving files. If a
 legacy and canonical destination conflict, it preserves both and reports the

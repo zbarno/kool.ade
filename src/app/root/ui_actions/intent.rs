@@ -83,6 +83,7 @@ impl PacketApp {
             }
             HeaderAction::CopySpec => self.copy_spec_to_clipboard(),
             HeaderAction::OpenWorkspace => self.open_workspace(),
+            HeaderAction::OpenRegisteredRepository { id } => self.open_registered_repository(&id),
             HeaderAction::Disconnect => self.disconnect(),
         }
     }

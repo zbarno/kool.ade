@@ -10,6 +10,7 @@ pub mod layout;
 pub mod markdown;
 pub mod message_text;
 pub mod overlays;
+pub mod planning_board;
 pub mod reply_tail;
 pub mod spec_viewer;
 pub mod task_activity;
@@ -46,8 +47,12 @@ pub enum ApplicationCommand {
 }
 
 use crate::domain::chatlog::ChatMessage;
-use crate::domain::item::OpenItem;
-use crate::domain::user::CurrentUser;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepositoryChoice {
+    pub id: String,
+    pub label: String,
+}
 
 /// Everything the chrome/panes need: read-mostly accessors plus two command
 /// sinks (composer intents, header actions).
@@ -55,6 +60,9 @@ pub trait Surface {
     // ------- header -------
     fn session_title(&self) -> &str;
     fn is_git_repo(&self) -> bool;
+    fn registered_repositories(&self) -> Vec<RepositoryChoice> {
+        Vec::new()
+    }
     fn git_branch(&self) -> &str;
     fn git_head(&self) -> &str;
     fn git_dirty(&self) -> bool;
@@ -110,12 +118,8 @@ pub trait Surface {
     fn feature_actions(&self, _conversation: Option<&str>) -> Vec<feature_approval::Action> {
         Vec::new()
     }
-    fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument];
-    fn task_archived(&self, _ticket: &str) -> bool {
-        false
-    }
-    fn planning_work(&self) -> Vec<crate::core::planning_work::Work> {
-        Vec::new()
+    fn planning_board(&self) -> planning_board::ViewModel {
+        planning_board::ViewModel::default()
     }
     fn implementation_state(
         &self,
@@ -133,16 +137,6 @@ pub trait Surface {
     fn queue_status(&self) -> &str;
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     // ------- items pane -------
-    fn items(&self) -> &[OpenItem];
-    fn resolved_items(&self) -> &[OpenItem] {
-        &[]
-    }
-    fn synthetic_items(&self) -> &[OpenItem];
-    fn items_len(&self) -> usize;
-    fn current_user(&self) -> &CurrentUser;
-    /// Category→owner configuration backing the items pane's D-14-aware
-    /// partition (always present; a default-empty map off-project).
-    fn stakeholders(&self) -> &crate::domain::Stakeholders;
     fn next_question_id(&self) -> Option<&str>;
     // ------- spec pane -------
     fn spec_text(&self) -> &str;

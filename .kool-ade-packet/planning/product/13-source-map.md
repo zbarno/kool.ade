@@ -12,6 +12,8 @@
 | Main Chat and isolated task conversations | `src/persistence/`, `src/core/task_conversation/`, `src/ui/task_chat/` |
 | Board, task details, activity graph, and typed UI commands | `src/ui.rs`, `src/ui/layout/`, `src/ui/task_detail.rs`, `src/ui/task_activity.rs`, `src/app/root/ui_actions/` |
 | Configuration and MCP secret handling | `src/artifacts/config_io.rs`, `src/artifacts/mcp_io.rs`, `src/core/context_build/mcp.rs`, `src/error.rs` |
+| Registered repository display-name model, validation, and shared-manifest persistence | `src/core/project_repos.rs`, `src/core/project_repos/names.rs`, `src/core/project_repos/save.rs`, `src/app/dialogs/settings/repository_names.rs` |
+| Repository display-name settings and Welcome/Workspace listings | `src/app/dialogs/settings/painter.rs`, `src/app/welcome/repository_picker.rs`, `src/ui/layout/workspace_repositories.rs`, `src/app/root/repository_switcher.rs` |
 | Regression and demonstration evidence | `tests/`, module-local unit tests, `examples/`, `docs/exit-demo-runbook.md` |
 
 Legacy paths listed here are migration inputs, not active runtime locations.

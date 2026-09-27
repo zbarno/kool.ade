@@ -28,6 +28,7 @@ fn make_norm(change: Option<&str>, spec: Option<&str>) -> NormalizedTurn {
         change_summary: change.map(str::to_string),
         spec_markdown: spec.map(str::to_string),
         document_updates: Vec::new(),
+        change_status_updates: Default::default(),
         additional_planning_artifacts: vec![],
         added: vec![],
         updates: vec![],
@@ -96,6 +97,8 @@ fn new_open_item_links_to_feature_created_in_same_turn() {
     let mut turn = make_norm(None, None);
     turn.document_updates
         .push((format!("feature:{feature_id}"), feature));
+    turn.change_status_updates
+        .insert(feature_id.clone(), crate::domain::ChangeStatus::Draft);
 
     apply(&mut state, &turn).unwrap();
 

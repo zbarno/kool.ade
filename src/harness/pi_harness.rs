@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 use crate::error::AppError;
 use crate::harness::pi_proc::StreamEvt;
 
+mod read_budget;
+
 #[cfg(test)]
 use super::{AiHarness, PlanningRequest};
 
@@ -272,6 +274,7 @@ fn extract_version(out: &str) -> String {
 }
 
 mod capabilities;
+mod diagnostics;
 mod execute;
 
 #[cfg(test)]

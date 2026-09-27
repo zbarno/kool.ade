@@ -8,16 +8,19 @@ fn repository_routing_uses_packet_metadata_before_legacy_markdown_labels() {
                 id: "root".into(),
                 role: "Planning root".into(),
                 remote: "https://example.test/root".into(),
+                display_name: None,
             },
             crate::core::project_repos::Repository {
                 id: "api".into(),
                 role: "API".into(),
                 remote: "https://example.test/api".into(),
+                display_name: None,
             },
             crate::core::project_repos::Repository {
                 id: "web".into(),
                 role: "Web client".into(),
                 remote: "https://example.test/web".into(),
+                display_name: None,
             },
         ],
     };

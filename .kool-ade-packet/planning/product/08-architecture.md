@@ -52,6 +52,16 @@ for their prerequisites to merge. Reconciliation reads actual merged commits
 before changing current product truth; a material disagreement becomes a visible
 Review or Human item.
 
+Planning, task generation, and investigation use read-only repository tools
+inside the Linux Bubblewrap planning profile. Read-only analysis,
+reconciliation, and decision explanation have no tools. Implementation and
+verification use Packet's bounded shell tool inside the assigned worktree. On
+hosts without the planning sandbox, the planner gets Packet-selected context
+only and repository tools are disabled; implementation is unavailable. The
+planning profile hides credentials and isolates network access. A host-side
+relay supports configured private HTTP OpenAI-compatible providers without
+placing credentials inside the sandbox; public and HTTPS endpoints fail closed.
+
 Architectural invariants: Git-backed artifacts outrank model recollection; board
 state is a projection; repository targets are verified by stable identity; no
 atomic transaction is promised across repositories; and product truth does not

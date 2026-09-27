@@ -202,6 +202,7 @@ fn feature_ids_continue_past_three_digits() {
         "# CHG-1000: Old\n\n**Status:** Draft\n",
     )
     .unwrap();
+    crate::artifacts::product_docs::migrate_legacy_change_fixtures(&root).unwrap();
     assert_eq!(next_feature_id(&root), "F1001");
     assert!(document_path(&root, "feature:CHG-1000").unwrap().exists());
     assert_eq!(active_feature(&root).unwrap().0, "CHG-1000");
@@ -235,6 +236,7 @@ fn every_nonterminal_feature_is_active_concurrently() {
         )
         .unwrap();
     }
+    crate::artifacts::product_docs::migrate_legacy_change_fixtures(&root).unwrap();
     let features = active_features(&root);
     assert_eq!(
         features
@@ -267,6 +269,7 @@ fn explicit_index_edits_cannot_forge_active_feature_manifest() {
         "# CHG-001: First\n\n**Status:** Draft\n",
     )
     .unwrap();
+    crate::artifacts::product_docs::migrate_legacy_change_fixtures(&root).unwrap();
     let forged =
         "# Revised product\n\n## Modules\n\nExisting modules.\n\n## Active features\n\n- fake\n";
     let actual = refreshed_index_from(&root, forged, &[]).unwrap();

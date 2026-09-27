@@ -13,6 +13,8 @@ use crate::error::AppError;
 use crate::persistence::{chat_store, project_slug};
 use crate::ui::theme;
 
+mod repository_picker;
+
 /// Normalize user-typed paths (`~` expansion), then load-or-bootstrap.
 pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     let raw = raw.trim();
@@ -91,10 +93,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         queue_lock: None,
         active_implementations: Default::default(),
         pr_refresh: None,
-        reconciliation: None,
-        reconciliation_attempted: Default::default(),
-        reconciliation_error: None,
-        reconciliation_cooldown_until: None,
+        reconciliation: Default::default(),
         investigation: None,
         investigation_attempted: Default::default(),
         investigation_cooldown_until: None,
@@ -479,6 +478,7 @@ pub fn paint(
         p.0 = path_field.id;
         p.1 = path_field.rect;
     }
+    repository_picker::paint(card_ui, path);
     card_ui.add_space(6.0);
     let submit_btn = if busy {
         egui::Button::new(

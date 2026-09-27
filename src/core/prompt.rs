@@ -16,6 +16,7 @@ pub const PLANNER_POLICY: &str = include_str!("../../docs/planner-policy.md");
 
 /// Shared name used by operation-specific prompts for the standing policy.
 pub const SYSTEM_INSTRUCTIONS: &str = PLANNER_POLICY;
+pub const TASK_OUTLINE_STEP: &str = crate::core::task_generation::prompt::TASK_OUTLINE_STEP;
 
 /// Render the complete per-turn prompt from the assembled context.
 pub fn render_prompt(ctx: &TurnContext) -> String {
@@ -46,7 +47,7 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
     s.push_str(&format!("Project: {}\n", ctx.repo_title));
     s.push_str(&format!("Repositories: {}\n", ctx.repository_map));
     s.push_str(&format!(
-        "Next application-assigned feature ID: {}\n",
+        "Next application-assigned change-spec ID (feature document ID, separate from product capability inventory IDs): {}\n",
         ctx.next_feature_id
     ));
     if !ctx.overview.manifests.is_empty() {
@@ -398,29 +399,6 @@ pub fn workflow_context(
         )
     )
 }
-
-pub const TASK_OUTLINE_STEP: &str = r#"
-=== APPLICATION GENERATION STEP ===
-OUTLINE FIRST. This step overrides the default request for full task stories.
-Return task_stories=null and task_outline=[...] in the final JSON envelope.
-Plan the COMPLETE feature as an ordered list. Each outline entry contains:
-{"title":"Specific imperative title", "purpose":"Specific problem this ticket solves and why it matters", "target_repository":"logical-repository-id",
- "scope_items":[1], "success_criteria":[1], "dependencies":[]}
-Use one-based brief references and earlier-task dependency numbers. Cover every
-scope item and success criterion. Each task targets exactly one repository from
-the project manifest; use "root" for a single-repository project. Split
-cross-repository features into dependent repository-specific tasks. Do not
-create vague foundation-only slices.
-
-Fit the number of tasks and amount of detail to this feature's actual work. Keep
-small, low-risk changes concise; include extra tasks or detail only when the scope
-needs separate dependencies, design, migration, compatibility, security, failure
-handling or recovery. Do not use fixed word counts, fixed section counts, generic
-boilerplate or repeated rationale. Explain each task's specific issue and purpose.
-The application will request each detailed story separately, giving you a full
-response for each. Keep updated_specification=null, interview=null and all
-open-item changes empty. Do not write any files.
-"#;
 
 #[cfg(test)]
 mod tests {
@@ -1069,3 +1047,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "prompt/policy_contract_tests.rs"]
+mod policy_contract_tests;

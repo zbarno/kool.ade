@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `.kool-ade-packet/manifest.json` | Packet artifact-format and product identity | Artifact migration |
 | `.kool-ade-packet/config/project.md` | Stakeholders, category owners, identity fallback | Validated settings/planning updates |
-| `.kool-ade-packet/config/repositories.json` | Stable repository IDs and checkout/remote mappings | Repository settings |
+| `.kool-ade-packet/config/repositories.json` | Stable repository IDs, remote mappings, and optional shared display names | Repository settings |
 | `.kool-ade-packet/config/mcp.json` | MCP configuration; prompts receive server names, while commands and credentials stay local | Operator settings |
 | `.kool-ade-packet/planning/product/` | Current product modules, order/identity manifest, and index | Validated planner application |
 | `.kool-ade-packet/planning/changes/CHG-*/` | Proposed feature intent and lifecycle | Validated planner application |
@@ -21,13 +21,17 @@
 | `$PACKET_HOME/projects/<slug>/` | Operator-local chat, task conversations, and task-generation checkpoints | Local Packet process |
 | Git common directory | Queue/task state, locks, transaction journals, private refs, and Pi event streams | Packet workflow |
 
-The old `planning/`, `.planner/`, and `adr/` layouts are migration inputs only.
+`.kool-ade-packet/` is the only live shared Packet project-artifact root. The
+old `planning/`, `.planner/`, and `adr/` layouts are migration inputs only.
 Migration moves and verifies their artifacts before removing the old copies. Old
 implementation summaries move to the implementation archive; actual decision
 records move to `.kool-ade-packet/planning/decisions/`. Root `SPECIFICATION.md`
 is retained as historical input. See `docs/artifact-layout.md` for the path map
 and conflict behavior. The project manifest holds logical identities and remote
 information, not machine-specific checkout paths.
+Optional `display_name` values are team-visible cosmetic labels stored with the
+shared repository entry. Checkout paths remain in the private per-device map;
+IDs and verified repository identity continue to drive routing and persistence.
 
 ### 7.2 Core types
 

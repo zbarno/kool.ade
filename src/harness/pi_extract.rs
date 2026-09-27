@@ -30,20 +30,29 @@ pub fn extract_json_object(text: &str) -> Option<String> {
     if last.is_some() {
         return last;
     }
-    // 2) Whole-message bare object.
+    // 2) Bare object with no trailing commentary. A short model preface is
+    // harmless because only the trailing object is decoded and schema-checked.
     let trimmed = text.trim();
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
         return balanced_object(trimmed).map(str::to_string);
     }
-    None
+    balanced_object(trimmed).map(str::to_string)
 }
 
-/// Return the span of the first balanced `{...}` object whose braces are
-/// string-aware. `None` if unbalanced.
+/// Return a complete balanced JSON-object candidate at the end of the text.
+/// Leading explanation may contain braces; trailing text is rejected.
 pub fn balanced_object(json: &str) -> Option<&str> {
-    let start = json.find('{')?;
-    let end = start + object_end(&json[start..])?;
-    json[end..].trim().is_empty().then_some(&json[start..end])
+    let text = json.trim();
+    let mut candidate = None;
+    for (start, _) in text.char_indices().filter(|(_, ch)| *ch == '{') {
+        let Some(end) = object_end(&text[start..]) else {
+            continue;
+        };
+        if text[start + end..].trim().is_empty() {
+            candidate = Some(&text[start..start + end]);
+        }
+    }
+    candidate
 }
 
 fn object_end(json: &str) -> Option<usize> {
@@ -121,6 +130,16 @@ mod tests {
         assert!(extract_json_object(t).is_none()); // trailing prose after object → reject (strict)
         let t2 = "{\"schemaVersion\":1,\"assistantMessage\":\"bare\"}";
         assert!(extract_json_object(t2).is_some());
+        let t3 = "The outline is ready.\n{\"schemaVersion\":1,\"assistantMessage\":\"bare\"}";
+        assert_eq!(
+            extract_json_object(t3).as_deref(),
+            Some(r#"{"schemaVersion":1,"assistantMessage":"bare"}"#)
+        );
+        let t4 = "Checking scope indexes {1, 3, 7}.\n{\"schemaVersion\":1,\"assistantMessage\":\"bare\"}";
+        assert_eq!(
+            extract_json_object(t4).as_deref(),
+            Some(r#"{"schemaVersion":1,"assistantMessage":"bare"}"#)
+        );
     }
 
     #[test]

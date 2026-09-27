@@ -40,7 +40,7 @@ jobs:
         run: cargo +1.98.1 clippy --locked --all-targets -- -D warnings
 
   desktop-build:
-    name: desktop build (${{ matrix.os }})
+    name: desktop compile-only (${{ matrix.os }}; sandbox unavailable)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

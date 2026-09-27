@@ -5,6 +5,7 @@ use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
 mod task_details;
+mod workspace_repositories;
 
 pub enum HeaderAction {
     Refresh,
@@ -13,11 +14,13 @@ pub enum HeaderAction {
     McpServers,
     CopySpec,
     OpenWorkspace,
+    OpenRegisteredRepository { id: String },
     Disconnect,
 }
 
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     s.dispatch(ApplicationCommand::DrainTaskChatSaves);
+    let board = s.planning_board();
     let compact = ui.ctx().content_rect().width() < 960.0;
     let settings_id = egui::Id::new("packet_workspace_settings_open");
     let mut settings_open = ui
@@ -50,6 +53,8 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             settings_open = true;
                             ui.close();
                         }
+                        ui.separator();
+                        workspace_repositories::paint_menu(ui, s);
                         ui.separator();
                         for (label, action) in [
                             ("Import references", HeaderAction::Import),
@@ -125,7 +130,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     };
     chat_panel
         .frame(Frame::NONE.fill(theme::BG).inner_margin(12))
-        .show(ui, |ui| paint_chat_tabs(ui, s));
+        .show(ui, |ui| paint_chat_tabs(ui, s, &board));
     CentralPanel::default()
         .frame(
             Frame::NONE
@@ -150,20 +155,21 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                             tasks_tab,
                             format!(
                                 "Board  {}",
-                                s.task_documents()
+                                board
+                                    .task_documents
                                     .iter()
                                     .filter(|d| !d.path.ends_with("/README.md")
-                                        && !s.task_archived(&d.path))
+                                        && !board.is_archived(&d.path))
                                     .count()
-                                    + s.items()
+                                    + board
+                                        .planning_items
                                         .iter()
-                                        .chain(s.synthetic_items())
-                                        .chain(s.resolved_items())
-                                        .filter(|i| !s.task_archived(i.conversation_key()))
+                                        .filter(|i| !board.is_archived(i.conversation_key()))
                                         .count()
-                                    + s.planning_work()
+                                    + board
+                                        .planning_work
                                         .iter()
-                                        .filter(|w| !s.task_archived(&w.key))
+                                        .filter(|w| !board.is_archived(&w.key))
                                         .count()
                             ),
                         )
@@ -176,7 +182,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
             }
             ui.ctx().data_mut(|d| d.insert_temp(tab_id, tasks_tab));
             if tasks_tab {
-                paint_tasks(ui, s);
+                paint_tasks(ui, s, &board);
                 return;
             }
             let view_id = egui::Id::new("packet_spec_document_view");
@@ -335,15 +341,16 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     enabled: auto_publish,
                 });
             }
-            ui.label("When enabled, Packet adds verified changes to the project automatically. When off, verified work stays on this device until you choose Share for review.");
+            ui.label("Packet checks its work locally first. When Auto Publish is on, it also waits for the project's separate checks before sharing. If those checks fail or are unavailable, verified work stays on this device. Enabling Auto Publish turns on this check.");
             let mut require_checks = s.require_independent_checks();
-            if ui
-                .checkbox(
+            let check = ui.add_enabled(
+                !auto_publish,
+                egui::Checkbox::new(
                     &mut require_checks,
                     "Wait for project checks before publishing",
-                )
-                .changed()
-            {
+                ),
+            );
+            if check.changed() {
                 s.dispatch(ApplicationCommand::SetRequireIndependentChecks {
                     enabled: require_checks,
                 });
@@ -356,8 +363,8 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 ui.separator();
                 ui.label(s.queue_status());
             }
-            for doc in s
-                .task_documents()
+            for doc in board
+                .task_documents
                 .iter()
                 .filter(|d| d.path.ends_with("/README.md"))
             {
@@ -477,21 +484,22 @@ impl ChatTabs {
     }
 }
 
-fn conversation_title(s: &dyn Surface, key: &str) -> String {
-    s.items()
+fn conversation_title(board: &crate::ui::planning_board::ViewModel, key: &str) -> String {
+    board
+        .planning_items
         .iter()
-        .chain(s.synthetic_items())
-        .chain(s.resolved_items())
         .find(|item| item.conversation_key() == key)
         .map(|item| item.question.clone())
         .or_else(|| {
-            s.planning_work()
-                .into_iter()
+            board
+                .planning_work
+                .iter()
                 .find(|w| w.key == key)
-                .map(|w| w.title)
+                .map(|w| w.title.clone())
         })
         .or_else(|| {
-            s.task_documents()
+            board
+                .task_documents
                 .iter()
                 .find(|doc| doc.path == key)
                 .map(|doc| doc.title.clone())
@@ -499,7 +507,11 @@ fn conversation_title(s: &dyn Surface, key: &str) -> String {
         .unwrap_or_else(|| key.to_owned())
 }
 
-fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
+fn paint_chat_tabs(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+) {
     let id = egui::Id::new("packet_chat_tabs");
     let mut tabs = ui
         .ctx()
@@ -516,12 +528,10 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 }
                 for key in tabs.keys.clone() {
                     ui.push_id(&key, |ui| {
-                        let title = conversation_title(s, &key);
-                        let label = s
-                            .items()
+                        let title = conversation_title(board, &key);
+                        let label = board
+                            .planning_items
                             .iter()
-                            .chain(s.synthetic_items())
-                            .chain(s.resolved_items())
                             .find(|item| item.conversation_key() == key)
                             .map(|item| item.id.clone())
                             .unwrap_or_else(|| {
@@ -589,7 +599,7 @@ fn paint_chat_tabs(ui: &mut egui::Ui, s: &mut dyn Surface) {
             });
             let context = s.task_chat_context(key);
             let actions = s.feature_actions(Some(key));
-            let title = conversation_title(s, key);
+            let title = conversation_title(board, key);
             ui.add(egui::Label::new(RichText::new(&title).strong()).truncate())
                 .on_hover_text(title);
             let messages = s
@@ -682,7 +692,11 @@ fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
     }
 }
 
-fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
+fn paint_tasks(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+) {
     let viewport = ui.ctx().content_rect();
     let panel_bounds = egui::Rect::from_center_size(
         viewport.center(),
@@ -693,8 +707,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let show_activity = activity_path.is_some();
     let id = egui::Id::new("packet_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
-    let docs = s.task_documents().to_vec();
-    let work = s.planning_work();
+    let docs = &board.task_documents;
+    let work = &board.planning_work;
     if viewport.width() >= 960.0 {
         ui.horizontal_wrapped(|ui| {
             for (kind, label) in [
@@ -711,20 +725,8 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
     let mut planning_selection = ui
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("packet_selected_planning")));
-    let mut items = s
-        .items()
-        .iter()
-        .chain(s.synthetic_items())
-        .chain(s.resolved_items())
-        .cloned()
-        .collect::<Vec<_>>();
-    items.sort_by_key(|item| (item.priority.rank(), item.id.clone()));
-    items.dedup_by(|a, b| a.id == b.id);
-    let eligible =
-        crate::core::routing::eligible_items(s.items(), s.current_user(), s.stakeholders())
-            .iter()
-            .map(|i| i.id.clone())
-            .collect::<Vec<_>>();
+    let items = &board.planning_items;
+    let eligible = &board.eligible_item_ids;
     if viewport.width() >= 960.0 {
         ui.label(
             RichText::new(
@@ -746,18 +748,18 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     .iter()
                     .enumerate()
                 {
-                    let planning = work.iter().filter(|w| w.column == column && !s.task_archived(&w.key)).collect::<Vec<_>>();
+                    let planning = work.iter().filter(|w| w.column == column && !board.is_archived(&w.key)).collect::<Vec<_>>();
                     let cards = docs
                         .iter()
                         .filter(|doc| {
                             !doc.path.ends_with("/README.md")
-                                && !s.task_archived(&doc.path)
+                                && !board.is_archived(&doc.path)
                                 && task_board_column(s, &doc.path) == column
                         })
                         .collect::<Vec<_>>();
                     let questions = items
                         .iter()
-                        .filter(|item| !s.task_archived(item.conversation_key()))
+                        .filter(|item| !board.is_archived(item.conversation_key()))
                         .filter(|item| crate::ui::task_chat::board_column(
                             if s.activity_active(item.conversation_key()) { 1 } else {
                             planning_column(item)
@@ -806,7 +808,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                             if ui.add(egui::Button::new(RichText::new(card_summary(&item.question)).strong()).frame(false).wrap()).on_hover_text(&item.question).clicked() {
                                                 planning_selection = Some(item.id.clone());
                                             }
-                                            if task_conversation(ui, s, item.conversation_key(), false) { planning_selection = Some(item.id.clone()); }
+                                            if task_conversation(ui, s, board, item.conversation_key(), false) { planning_selection = Some(item.id.clone()); }
                                             ui.add_space(4.0);
                                             ui.horizontal_wrapped(|ui| {
                                                 ui.label(RichText::new(item.priority.to_string()).size(12.5).color(if item.priority == crate::domain::item::Priority::Blocking { theme::DANGER } else { theme::WARNING }));
@@ -843,7 +845,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                                 selected_path = Some(doc.path.clone());
                                             }
                                             paint_task_failure(ui, s, &doc.path);
-                                            if task_conversation(ui, s, &doc.path, false) { selected_path = Some(doc.path.clone()); }
+                                            if task_conversation(ui, s, board, &doc.path, false) { selected_path = Some(doc.path.clone()); }
                                             ui.add_space(4.0);
                                             let status = s.implementation_state(&doc.path).map(|r| r.status.label().to_owned()).unwrap_or_else(|| if active { "Starting".into() } else { crate::core::implementation::BOARD_COLUMNS[task_board_column(s, &doc.path)].into() });
                                             ui.horizontal_wrapped(|ui| {
@@ -933,7 +935,7 @@ fn paint_tasks(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     if !item.reason.is_empty() {
                         ui.label(crate::core::context_build::clip(&item.reason, 200));
                     }
-                    task_conversation(ui, s, item.conversation_key(), true);
+                    task_conversation(ui, s, board, item.conversation_key(), true);
                     ui.add_space(12.0);
                     ui.collapsing("Background & evidence", |ui| {
                         ui.label(format!(
@@ -1338,8 +1340,14 @@ fn task_key(path: &str) -> String {
     format!("TASK-{}", prefix.to_uppercase())
 }
 
-fn task_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) -> bool {
-    if crate::ui::task_chat::paint(ui, s, key, expanded) {
+fn task_conversation(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    key: &str,
+    expanded: bool,
+) -> bool {
+    if crate::ui::task_chat::paint_with_board(ui, s, key, expanded, board) {
         let id = egui::Id::new("packet_chat_tabs");
         ui.ctx().data_mut(|d| {
             let mut tabs = d.get_temp::<ChatTabs>(id).unwrap_or_default();

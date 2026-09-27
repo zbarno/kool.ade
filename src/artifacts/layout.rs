@@ -51,6 +51,11 @@ pub mod legacy {
     pub const ROOT_SPECIFICATION: &str = "SPECIFICATION.md";
 }
 
+/// Transitional paths emitted by earlier canonical-layout versions.
+pub mod previous {
+    pub const WORK: &str = ".kool-ade-packet/planning/work.json";
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtifactLayout {
     repository: PathBuf,

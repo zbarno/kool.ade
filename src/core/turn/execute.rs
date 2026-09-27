@@ -1,3 +1,6 @@
+mod decode;
+pub(super) use decode::{EnvelopeDecode, decode_envelope};
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -10,7 +13,7 @@ use crate::core::prompt;
 use crate::core::state::PlannerState;
 use crate::core::validation::{self};
 use crate::error::AppError;
-use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, TurnEnvelope};
+use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest};
 
 use super::{TurnInputs, TurnOutcome};
 
@@ -161,7 +164,11 @@ pub(super) fn run_turn(
         } else {
             crate::harness::ExecutionMode::Planning
         },
-        reasoning_level: "xhigh".into(),
+        reasoning_level: match inputs.purpose {
+            crate::core::workflow::TurnPurpose::GenerateTasks => "off",
+            _ => "xhigh",
+        }
+        .into(),
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),
@@ -212,7 +219,15 @@ pub(super) fn run_turn(
                 }
             }
             // Validate against the PRE-mutation snapshot.
-            match validation::validate_for_turn(&env, &inputs.state, &user, inputs.purpose) {
+            let user_replied_item_ids =
+                super::controller::user_replied_human_item_ids(&inputs.state, task);
+            match validation::validate_for_turn_with_resolutions(
+                &env,
+                &inputs.state,
+                &user,
+                inputs.purpose,
+                &user_replied_item_ids,
+            ) {
                 Err(problems) => TurnOutcome::Rejected {
                     problems,
                     final_text: outcome.final_text,
@@ -277,26 +292,6 @@ pub(super) fn run_turn(
             problems: vec![format!("Structured JSON block is malformed ({detail}); NO changes were saved.")],
             final_text: outcome.final_text,
             elapsed: started.elapsed(),
-        },
-    }
-}
-
-pub(super) enum EnvelopeDecode {
-    Env(Box<TurnEnvelope>),
-    Absent,
-    Malformed(String),
-}
-
-pub(super) fn decode_envelope(
-    final_text: &str,
-    purpose: crate::core::workflow::TurnPurpose,
-) -> EnvelopeDecode {
-    use crate::harness::pi_extract::extract_json_object;
-    match extract_json_object(final_text) {
-        None => EnvelopeDecode::Absent,
-        Some(blob) => match crate::harness::responses::decode_turn_object(&blob, purpose) {
-            Ok(env) => EnvelopeDecode::Env(Box::new(env)),
-            Err(e) => EnvelopeDecode::Malformed(e.to_string()),
         },
     }
 }

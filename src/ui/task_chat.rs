@@ -238,28 +238,31 @@ fn composer(
 
 /// Returns true when the compact card requests the expanded discussion.
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, key: &str, expanded: bool) -> bool {
+    let board = s.planning_board();
+    paint_with_board(ui, s, key, expanded, &board)
+}
+
+pub(crate) fn paint_with_board(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    key: &str,
+    expanded: bool,
+    board: &crate::ui::planning_board::ViewModel,
+) -> bool {
     let mut open = false;
     // Flipped once per frame by a claimed chip tap; the frame's composer
     // pins the caret behind the joined option exactly in that frame.
     let mut chip_fired = false;
     ui.push_id(("task_conversation", key, expanded), |ui| {
         let messages = s.task_messages(key).to_vec();
-        let item = s
-            .items()
+        let item = board
+            .planning_items
             .iter()
-            .chain(s.synthetic_items())
-            .chain(s.resolved_items())
             .find(|item| item.conversation_key() == key)
             .cloned();
-        let eligible = item.as_ref().is_none_or(|item| {
-            crate::core::routing::eligible_items(
-                std::slice::from_ref(item),
-                s.current_user(),
-                s.stakeholders(),
-            )
-            .len()
-                == 1
-        });
+        let eligible = item
+            .as_ref()
+            .is_none_or(|item| board.eligible_item_ids.contains(&item.id));
         let latest_reply = messages
             .iter()
             .rev()
@@ -875,9 +878,6 @@ mod tests {
         fn task_offer(&self) -> Option<&crate::core::workflow::InterviewBrief> {
             None
         }
-        fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument] {
-            &[]
-        }
         fn implementation_state(
             &self,
             _ticket: &str,
@@ -908,20 +908,19 @@ mod tests {
         fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
             None
         }
-        fn items(&self) -> &[OpenItem] {
-            &self.items
-        }
-        fn synthetic_items(&self) -> &[OpenItem] {
-            &[]
-        }
-        fn items_len(&self) -> usize {
-            self.items.len()
-        }
-        fn current_user(&self) -> &CurrentUser {
-            &self.user
-        }
-        fn stakeholders(&self) -> &crate::domain::Stakeholders {
-            &self.stakes
+        fn planning_board(&self) -> crate::ui::planning_board::ViewModel {
+            crate::ui::planning_board::ViewModel {
+                planning_items: self.items.clone(),
+                eligible_item_ids: crate::core::routing::eligible_items(
+                    &self.items,
+                    &self.user,
+                    &self.stakes,
+                )
+                .iter()
+                .map(|item| item.id.clone())
+                .collect(),
+                ..Default::default()
+            }
         }
         fn next_question_id(&self) -> Option<&str> {
             None

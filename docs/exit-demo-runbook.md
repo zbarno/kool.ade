@@ -1,4 +1,10 @@
-# Exit-Demonstration Runbook — Seven-Outcome Walkthrough (Binding §12 Centerpiece)
+# Historical Exit-Demonstration Runbook — Seven-Outcome Walkthrough
+
+> Historical evidence only; this is not the current Packet dogfood runbook.
+> Its prepared fixture deliberately uses the pre-migration `planning/` and
+> `.planner/` paths as migration inputs. A connected fixture is migrated to
+> `.kool-ade-packet/` before planning begins. Use the current remediation plan's
+> Phase 8 scenarios for present-day product validation.
 
 > blocked until: all three prerequisites have landed —
 > (1) git-derived identity (FR-13) plumbed through connect/resync,

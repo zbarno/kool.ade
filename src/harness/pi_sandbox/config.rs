@@ -47,7 +47,11 @@ fn is_executable(_: &Path) -> bool {
     false
 }
 
-pub(super) fn arguments(root: &Path, empty_file: &Path) -> anyhow::Result<(Vec<String>, PathBuf)> {
+pub(super) fn arguments(
+    root: &Path,
+    empty_file: &Path,
+    pi_executable: Option<&Path>,
+) -> anyhow::Result<(Vec<String>, PathBuf)> {
     let mut args = vec![
         "--die-with-parent".into(),
         "--unshare-user".into(),
@@ -117,6 +121,9 @@ pub(super) fn arguments(root: &Path, empty_file: &Path) -> anyhow::Result<(Vec<S
     let has_rustup = mount_toolchains(&mut args, &mut created)?;
     bind_readwrite(&mut args, &mut created, root, root)?;
     let common_dir = mount_git_metadata(&mut args, &mut created, root, empty_file)?;
+    if let Some(executable) = pi_executable {
+        super::planning::mount_pi_install(&mut args, &mut created, executable)?;
+    }
     make_dir(&mut args, &mut created, Path::new("/tmp/packet-home"));
     args.extend(["--chdir".into(), root.to_string_lossy().into_owned()]);
     args.push("--clearenv".into());
@@ -267,8 +274,12 @@ pub(super) fn locate_git(root: &Path) -> anyhow::Result<PathBuf> {
 fn inside_workspace(path: &Path, root: &Path) -> bool {
     path.starts_with(root)
         || root
-            .parent()
-            .and_then(Path::parent)
+            .ancestors()
+            .find(|ancestor| {
+                ancestor
+                    .file_name()
+                    .is_some_and(|name| name == ".packet-worktrees")
+            })
             .and_then(Path::parent)
             .is_some_and(|workspace| path.starts_with(workspace))
 }
