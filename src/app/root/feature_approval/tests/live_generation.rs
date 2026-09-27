@@ -33,6 +33,12 @@ fn temporary_live_fixture_prepare_and_generate() {
     }
     app.task_harness = Some(Box::new(LivePi));
     let compare = std::env::var("PACKET_APPROVAL_PURPOSE").as_deref() == Ok("compare");
+    let has_batch = crate::core::state::PlannerState::load(&root)
+        .unwrap()
+        .workflow
+        .task_batches
+        .iter()
+        .any(|batch| batch.feature.contains(&id));
     if compare {
         let mut comparison_saved = false;
         for _ in 0..3 {
@@ -63,7 +69,7 @@ fn temporary_live_fixture_prepare_and_generate() {
             comparison_saved,
             "Pi did not produce a valid comparison after three turns"
         );
-    } else {
+    } else if !has_batch {
         app.approve_and_prepare_feature(&id);
         let ctx = egui::Context::default();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12 * 60 * 60);
@@ -95,12 +101,62 @@ fn temporary_live_fixture_prepare_and_generate() {
             &state.workflow,
             &id
         ));
-        assert!(
-            state
-                .workflow
-                .task_batches
-                .iter()
-                .any(|batch| batch.feature.contains(&id))
-        );
+        let batch = state
+            .workflow
+            .task_batches
+            .iter()
+            .find(|batch| batch.feature.contains(&id))
+            .expect("approved feature task batch was not persisted");
+        if id == "CHG-007" {
+            let directory = root.join(&batch.directory);
+            let stories = std::fs::read_dir(&directory)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    entry
+                        .path()
+                        .extension()
+                        .is_some_and(|extension| extension == "md")
+                        && entry
+                            .file_name()
+                            .to_string_lossy()
+                            .starts_with("CHG-007-TASK-")
+                })
+                .map(|entry| std::fs::read_to_string(entry.path()).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(stories.len(), batch.count);
+            assert!(!stories.is_empty());
+            for story in &stories {
+                assert!(
+                    story.len() <= 8_000,
+                    "small-fix story is bloated: {} bytes",
+                    story.len()
+                );
+                for section in [
+                    "## Purpose",
+                    "## Ticket goal",
+                    "## Implementation steps",
+                    "## Acceptance criteria",
+                    "## Test plan",
+                    "## Definition of done",
+                ] {
+                    assert!(story.contains(section), "missing {section}");
+                }
+                assert!(story.contains("src/ui/layout/task_details/"));
+                assert!(story.contains("src/app/root/task_detail_tests.rs"));
+                assert!(!story.to_ascii_lowercase().contains("css"));
+                assert!(!story.contains("not located in sandbox"));
+            }
+            eprintln!(
+                "Scenario B: batch {}, {} stories, sizes {:?} bytes",
+                batch
+                    .identity
+                    .as_ref()
+                    .map(|identity| identity.display_id.as_str())
+                    .unwrap_or("legacy"),
+                stories.len(),
+                stories.iter().map(String::len).collect::<Vec<_>>()
+            );
+        }
     }
 }
