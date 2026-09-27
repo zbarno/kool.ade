@@ -947,6 +947,7 @@ fn card_attempt(
             user_message: "Point me at the dark-theme item.".into(),
             recent_chat: Vec::new(),
             purpose: crate::core::workflow::TurnPurpose::Interview,
+            comparison_feature: None,
         };
         let c = TurnController::start_scoped(
             inputs2,

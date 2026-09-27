@@ -150,6 +150,7 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
             } else {
                 TurnPurpose::Interview
             },
+            comparison_feature: None,
         },
         Box::new(FixtureHarness {
             calls: calls.clone(),

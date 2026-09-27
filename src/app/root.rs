@@ -1188,6 +1188,7 @@ impl PacketApp {
             user_message: text,
             recent_chat,
             purpose: crate::core::workflow::TurnPurpose::Interview,
+            comparison_feature: None,
         };
         project.task_chats.drafts.remove(key);
         let harness = configured_harness(&mut self.task_harness);
@@ -1344,6 +1345,7 @@ impl PacketApp {
             ),
             recent_chat: recent,
             purpose,
+            comparison_feature: None,
         };
         let harness = configured_harness(&mut self.task_harness);
         let ctrl = TurnController::start(inputs, harness);
@@ -2885,6 +2887,7 @@ mod board_tests {
                     user_message: "Please continue".into(),
                     recent_chat: Vec::new(),
                     purpose: crate::core::workflow::TurnPurpose::Interview,
+                    comparison_feature: None,
                 },
                 Box::new(HangingTurnHarness),
             ))

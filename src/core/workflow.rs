@@ -11,13 +11,15 @@ pub use story_validation::{descriptive_title, story_detail_errors};
 
 pub const WORKFLOW_FILE: &str = crate::artifacts::layout::canonical::WORKFLOW;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TurnPurpose {
     #[default]
     Interview,
     /// Refresh a stale brief for an already authorized generation action.
     ReviewForGeneration,
     GenerateTasks,
+    ComparePlans,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

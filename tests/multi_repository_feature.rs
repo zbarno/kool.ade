@@ -172,6 +172,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             user_message: "Generate tasks".into(),
             recent_chat: Vec::new(),
             purpose: TurnPurpose::GenerateTasks,
+            comparison_feature: None,
         },
         Box::new(MultiHarness),
     );
@@ -200,6 +201,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             user_message: "Generate approved tasks".into(),
             recent_chat: Vec::new(),
             purpose: TurnPurpose::GenerateTasks,
+            comparison_feature: None,
         },
         Box::new(MultiHarness),
     );

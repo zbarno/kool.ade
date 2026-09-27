@@ -55,7 +55,7 @@ fn planning_envelope_round_trips_two_plan_alternatives_and_advisory_recommendati
         ],
         "recommendation": {"plan_id":"A","rationale":"It has a safer transition.","evidence":["src/a.rs:12"]}
     }"#;
-    let decoded = decode_turn(wire, TurnPurpose::Interview).unwrap();
+    let decoded = decode_turn(wire, TurnPurpose::ComparePlans).unwrap();
     let plans = decoded.plans.as_ref().unwrap();
     assert_eq!(plans.len(), 2);
     assert_eq!(plans[0].phases, ["shadow", "cut over"]);
@@ -63,9 +63,26 @@ fn planning_envelope_round_trips_two_plan_alternatives_and_advisory_recommendati
     assert_eq!(decoded.recommendation.as_ref().unwrap().plan_id, "A");
 
     let encoded = serde_json::to_string(&decoded).unwrap();
-    let round_trip = decode_turn(&encoded, TurnPurpose::Interview).unwrap();
+    let round_trip = decode_turn(&encoded, TurnPurpose::ComparePlans).unwrap();
     assert_eq!(round_trip.plans, decoded.plans);
     assert_eq!(round_trip.recommendation, decoded.recommendation);
+}
+
+#[test]
+fn compare_plans_requires_schema_v2_and_turn_purpose_round_trips() {
+    let legacy = decode_turn(
+        r#"{"schema_version":1,"assistant_message":"Old response."}"#,
+        TurnPurpose::ComparePlans,
+    )
+    .unwrap_err();
+    assert!(legacy.contains("Compare plans schema_version 1"));
+
+    let serialized = serde_json::to_string(&TurnPurpose::ComparePlans).unwrap();
+    assert_eq!(serialized, "\"compare_plans\"");
+    assert_eq!(
+        serde_json::from_str::<TurnPurpose>(&serialized).unwrap(),
+        TurnPurpose::ComparePlans
+    );
 }
 
 #[test]

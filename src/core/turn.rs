@@ -47,6 +47,8 @@ pub struct TurnInputs {
     /// (speaker, text) oldest → newest, in chat-log order.
     pub recent_chat: Vec<(String, String)>,
     pub purpose: crate::core::workflow::TurnPurpose,
+    /// Stable target identity for a ComparePlans turn.
+    pub comparison_feature: Option<String>,
 }
 
 pub enum TurnEvt {

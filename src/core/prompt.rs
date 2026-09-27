@@ -6,6 +6,8 @@
 use crate::core::context_build::TurnContext;
 #[path = "prompt/action_context.rs"]
 mod action_context;
+#[path = "prompt/compare_plans.rs"]
+mod compare_plans;
 #[path = "prompt/task_conversation.rs"]
 mod task_conversation;
 pub use task_conversation::TASK_CONVERSATION_MODE_NOTE;
@@ -325,6 +327,14 @@ pub fn workflow_context(
     state: &crate::core::state::PlannerState,
     purpose: crate::core::workflow::TurnPurpose,
 ) -> String {
+    workflow_context_for_turn(state, purpose, None)
+}
+
+pub fn workflow_context_for_turn(
+    state: &crate::core::state::PlannerState,
+    purpose: crate::core::workflow::TurnPurpose,
+    comparison_feature: Option<&str>,
+) -> String {
     let mode = match purpose {
         crate::core::workflow::TurnPurpose::ReviewForGeneration => {
             "REVIEW FOR AUTHORIZED TASK GENERATION. Refresh the interview brief against the current approved feature. Do not ask for approval again. Return no task stories in this review; the application generates them after checking the review and approved contract."
@@ -335,8 +345,10 @@ pub fn workflow_context(
         crate::core::workflow::TurnPurpose::GenerateTasks => {
             "GENERATE TASK STORIES. The user explicitly approved the current reviewed specification. Generate the complete detailed task set now."
         }
+        crate::core::workflow::TurnPurpose::ComparePlans => compare_plans::PROSE,
     };
-    let current_feature_id = state.active_feature.as_ref().map(|(id, _)| id.as_str());
+    let current_feature_id =
+        comparison_feature.or_else(|| state.active_feature.as_ref().map(|(id, _)| id.as_str()));
     let selected_features = state
         .active_features
         .iter()
@@ -376,9 +388,27 @@ pub fn workflow_context(
             "{omitted_features} additional active changes omitted; retrieve the exact change document when relevant"
         ));
     }
+    if purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        feature_status.insert(
+            0,
+            format!(
+                "Compared feature: {}",
+                comparison_feature.unwrap_or("<missing feature id>")
+            ),
+        );
+    }
+    let action_rules = if purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        "No application actions are permitted in a Compare Plans response."
+    } else {
+        "Set requested_action only for the current user's clear request. Valid action names: approve_change, generate_tasks, start_implementation, pause_implementation, resume_implementation, publish. Omit targetUid when the current state makes exactly one target clear; otherwise use only an exact target UID listed below. Publish is informational: report current verification/publication state, never claim to publish or skip checks. Never use an action from task conversations."
+    };
+    let action_context = if purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        String::new()
+    } else {
+        action_context::render(state)
+    };
     format!(
-        "\n=== APPLICATION TURN MODE ===\n{mode}\n\n=== APPLICATION ACTION RULES ===\nSet requested_action only for the current user's clear request. Valid action names: approve_change, generate_tasks, start_implementation, pause_implementation, resume_implementation, publish. Omit targetUid when the current state makes exactly one target clear; otherwise use only an exact target UID listed below. Publish is informational: report current verification/publication state, never claim to publish or skip checks. Never use an action from task conversations.\n\n{}\n\n=== FEATURE APPROVAL STATE ===\n{}\n\n=== INTERVIEW BRIEF ===\n{}\n\n=== EXISTING TASK BATCHES ===\n{}\n",
-        action_context::render(state),
+        "\n=== APPLICATION TURN MODE ===\n{mode}\n\n=== APPLICATION ACTION RULES ===\n{action_rules}\n\n{action_context}\n\n=== FEATURE APPROVAL STATE ===\n{}\n\n=== INTERVIEW BRIEF ===\n{}\n\n=== EXISTING TASK BATCHES ===\n{}\n",
         feature_status.join("\n"),
         crate::core::context_build::clip(
             &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),

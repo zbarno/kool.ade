@@ -73,6 +73,57 @@ pub(super) fn run_turn(
             _ => return TurnOutcome::Rejected { problems: vec!["Planning files changed since the readiness offer. Reopen the repository and review the current plan before generating tasks.".into()], final_text: String::new(), elapsed: started.elapsed() },
         }
     }
+    let comparison_state = if inputs.purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        let Some(feature_id) = inputs.comparison_feature.as_deref() else {
+            return TurnOutcome::Rejected {
+                problems: vec!["Compare Plans requires a stable feature ID.".into()],
+                final_text: String::new(),
+                elapsed: started.elapsed(),
+            };
+        };
+        let Some((_, body)) = inputs
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == feature_id)
+        else {
+            return TurnOutcome::Rejected {
+                problems: vec![format!(
+                    "Compared feature {feature_id} is no longer active."
+                )],
+                final_text: String::new(),
+                elapsed: started.elapsed(),
+            };
+        };
+        if !crate::domain::ChangeMetadata::require_markdown(body)
+            .is_ok_and(|metadata| metadata.status == crate::domain::ChangeStatus::Ready)
+        {
+            return TurnOutcome::Rejected {
+                problems: vec![format!("Compared feature {feature_id} is not Ready.")],
+                final_text: String::new(),
+                elapsed: started.elapsed(),
+            };
+        }
+        let mut state = inputs.state.clone();
+        state.active_feature = Some((feature_id.to_owned(), body.clone()));
+        Some(state)
+    } else {
+        None
+    };
+    let prompt_state = comparison_state.as_ref().unwrap_or(&inputs.state);
+    let comparison_message = inputs
+        .comparison_feature
+        .as_deref()
+        .map(|feature_id| format!("Compare plans for feature {feature_id}."));
+    let prompt_message = comparison_message
+        .as_deref()
+        .unwrap_or(&inputs.user_message);
+    let prompt_chat: &[(String, String)] =
+        if inputs.purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+            &[]
+        } else {
+            &inputs.recent_chat
+        };
     // Operator persona layer (editable-operator-persona feature): load
     // the operator-owned document FRESH on every turn, deliberately
     // UNCACHED — a Settings save must bind from the very next turn with
@@ -98,9 +149,9 @@ pub(super) fn run_turn(
     let retrieval = if task.is_none() {
         match crate::core::context_retrieval::select(
             harness,
-            &inputs.state,
-            &inputs.user_message,
-            &inputs.recent_chat,
+            prompt_state,
+            prompt_message,
+            prompt_chat,
             timeout.saturating_sub(started.elapsed()),
             progress_tx.clone(),
             Arc::clone(cancel),
@@ -146,13 +197,17 @@ pub(super) fn run_turn(
         }
     } else {
         let ctx = TurnContext::build_with_retrieval(
-            &inputs.state,
-            &inputs.user_message,
-            &inputs.recent_chat,
+            prompt_state,
+            prompt_message,
+            prompt_chat,
             retrieval.as_ref(),
         );
         let mut body = prompt::render_prompt(&ctx);
-        body.push_str(&prompt::workflow_context(&inputs.state, inputs.purpose));
+        body.push_str(&prompt::workflow_context_for_turn(
+            prompt_state,
+            inputs.purpose,
+            inputs.comparison_feature.as_deref(),
+        ));
         body
     };
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {

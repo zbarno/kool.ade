@@ -222,6 +222,10 @@ pub fn decode_turn_object(json: &str, purpose: TurnPurpose) -> Result<TurnEnvelo
     } else {
         let response = serde_json::from_str::<PlanningTurnResponse>(json)
             .map_err(|error| error.to_string())?;
+        if purpose == TurnPurpose::ComparePlans {
+            check_version("Compare plans", response.schema_version, &[2])?;
+            return Ok(response.into());
+        }
         // Schema 1 is accepted only at this decoder boundary so old
         // single-document responses cannot leak version logic into core.
         check_version("Planning", response.schema_version, &[1, 2])?;
