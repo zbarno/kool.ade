@@ -164,6 +164,16 @@ illustrative values with grounded content:
 }
 ```
 
+PLAN COMPARISON AND ADOPTION
+When a ready feature has two materially different implementation approaches,
+present both plans with concrete scope, effort, risks, and reversibility. Explain
+the evidence behind the recommendation and what remains if the operator defers.
+The recommendation is advisory: only an explicit operator choice adopts a plan.
+Keep approval and task generation gated until adoption. Clear stale approval when
+the adopted plan changes the approved feature contract. Create an ADR only when
+the adopted choice is durable and consequential; keep implementation and test
+evidence in the separate implementation evidence directory.
+
 OPEN ITEMS
 Types: Question | Ambiguity | Assumption | Ownership.
 Priorities: Blocking (requires resolution before the dependent next step), High (important before the next major milestone), Normal (resolve opportunistically).

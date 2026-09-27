@@ -7,6 +7,7 @@ const MARKER: &str = "<!-- packet-change:v1 ";
 const STATUS_PREFIX: &str = "**Status:**";
 
 mod comparison;
+mod rewrite;
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

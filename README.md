@@ -54,6 +54,12 @@ create ADRs, and task completion does not create one. Implementation reports,
 verification commands, and acceptance evidence stay in the separate implementation
 evidence directory.
 
+When a ready feature has materially different implementation approaches, Packet
+can present two plans with their phases, affected files, state changes, failure
+modes, effort, risks, and reversibility. Its evidence-backed recommendation is
+advisory: the operator explicitly adopts a plan before approval or task generation.
+Deferring leaves the feature unapproved and creates no implementation tasks.
+
 Task conversations use the item's durable content, referenced specification
 sections, related tasks, and current implementation state. They do not inherit
 Main Chat or other task histories, and cannot start project interviews or generate

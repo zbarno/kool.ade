@@ -36,7 +36,7 @@ pub(super) fn build(
             );
         }
         let (contents, identity) = preserve_markdown(&clean_markdown, feature_id, title, None)?;
-        let status = match existing_metadata {
+        let status = match &existing_metadata {
             Some(metadata) => {
                 anyhow::ensure!(
                     metadata.uid == identity.uid && metadata.display_id == identity.display_id,
@@ -48,7 +48,12 @@ pub(super) fn build(
                 anyhow::anyhow!("Cannot migrate change status at {path}: {error}")
             })?,
         };
-        let contents = ChangeMetadata::write_markdown(&contents, &identity, status)?;
+        let contents = ChangeMetadata::rewrite_markdown(
+            &contents,
+            &identity,
+            status,
+            existing_metadata.as_ref(),
+        )?;
         register(seen, &identity, &format!("feature:{path}"))?;
         identities
             .entry(feature_id.to_owned())

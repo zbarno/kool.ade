@@ -20,6 +20,47 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
         .join(crate::artifacts::layout::canonical::CHANGES)
         .join("F7-saved-searches/specification.md");
     fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    let feature =
+        ArtifactIdentity::preserve_markdown(feature, None, "F7", "Saved searches").unwrap();
+    let identity = ArtifactIdentity::from_markdown(&feature).unwrap().unwrap();
+    let mut feature = crate::domain::ChangeMetadata::write_markdown(
+        &feature,
+        &identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    let marker = feature
+        .lines()
+        .find(|line| line.starts_with("<!-- packet-change:v1 "))
+        .unwrap()
+        .to_owned();
+    let mut metadata: serde_json::Value = serde_json::from_str(
+        marker
+            .strip_prefix("<!-- packet-change:v1 ")
+            .unwrap()
+            .strip_suffix(" -->")
+            .unwrap(),
+    )
+    .unwrap();
+    metadata["schemaVersion"] = 2.into();
+    let comparison = serde_json::json!({
+        "alternatives": [
+            {"id":"A","objective":"Small change","phases":[],"filesTouched":[],"stateChanges":[],"failureModes":[],"effortBand":"Small","knownRisks":[],"reversibility":"Easy"},
+            {"id":"B","objective":"Typed state","phases":[],"filesTouched":[],"stateChanges":[],"failureModes":[],"effortBand":"Medium","knownRisks":[],"reversibility":"Moderate"}
+        ],
+        "recommendation":{"plan_id":"A","rationale":"Smaller change","evidence":["src/app/feature_approval.rs"]},
+        "selected_plan":"B"
+    });
+    metadata["selectedAlt"] = "B".into();
+    metadata["planComparison"] = comparison.clone();
+    metadata["comparisonHistory"] = serde_json::json!([comparison]);
+    feature = feature.replace(
+        &marker,
+        &format!(
+            "<!-- packet-change:v1 {} -->",
+            serde_json::to_string(&metadata).unwrap()
+        ),
+    );
     fs::write(&feature_path, feature).unwrap();
     let batch_path = root.join(&batch_dir);
     fs::create_dir_all(&batch_path).unwrap();
@@ -146,6 +187,13 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
     .unwrap();
     assert_eq!(feature_metadata.status, crate::domain::ChangeStatus::Ready);
     assert_eq!(feature_metadata.uid, feature_id.uid);
+    assert_eq!(feature_metadata.schema_version, 2);
+    let comparison = feature_metadata.plan_comparison.unwrap();
+    assert_eq!(comparison.alternatives.len(), 2);
+    assert_eq!(comparison.recommendation.plan_id, "A");
+    assert_eq!(comparison.selected_plan.as_deref(), Some("B"));
+    assert_eq!(feature_metadata.selected_alt.as_deref(), Some("B"));
+    assert_eq!(feature_metadata.comparison_history.len(), 1);
     let readme = fs::read_to_string(batch_path.join("README.md")).unwrap();
     let batch_id = ArtifactIdentity::from_markdown(&readme).unwrap().unwrap();
     assert_eq!(
@@ -208,7 +256,11 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
         );
     }
     let first_head = git_ok(&root, &["rev-parse", "HEAD"]);
-    assert!(run(&root).unwrap().is_empty());
+    let second_run = run(&root).unwrap();
+    assert!(
+        second_run.is_empty(),
+        "unexpected second-run changes: {second_run:?}"
+    );
     assert_eq!(git_ok(&root, &["rev-parse", "HEAD"]), first_head);
     let _ = fs::remove_dir_all(root);
 }
