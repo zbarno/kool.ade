@@ -14,6 +14,7 @@
 | Configuration and MCP secret handling | `src/artifacts/config_io.rs`, `src/artifacts/mcp_io.rs`, `src/core/context_build/mcp.rs`, `src/error.rs` |
 | Registered repository display-name model, validation, and shared-manifest persistence | `src/core/project_repos.rs`, `src/core/project_repos/names.rs`, `src/core/project_repos/save.rs`, `src/app/dialogs/settings/repository_names.rs` |
 | Repository display-name settings and Welcome/Workspace listings | `src/app/dialogs/settings/painter.rs`, `src/app/welcome/repository_picker.rs`, `src/ui/layout/workspace_repositories.rs`, `src/app/root/repository_switcher.rs` |
+| Repository display-name validation, duplicate fallback, settings clear/save/reload, and checkout routing regressions | `src/core/project_repos/names.rs`, `src/core/project_repos/save.rs`, `src/app/dialogs/settings/repository_names/tests.rs`, `src/app/welcome/repository_picker/tests.rs`, `src/app/root/repository_switcher/tests.rs` |
 | Regression and demonstration evidence | `tests/`, module-local unit tests, `examples/`, `docs/exit-demo-runbook.md` |
 
 Legacy paths listed here are migration inputs, not active runtime locations.
