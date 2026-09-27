@@ -40,9 +40,19 @@ impl PacketApp {
                 if !metadata.status.approval_eligible() {
                     return None;
                 }
+                let comparison = p
+                    .state
+                    .workflow
+                    .plan_comparisons
+                    .get(id)
+                    .filter(|record| {
+                        record.status != crate::core::workflow::PlanComparisonStatus::Discarded
+                    })
+                    .map(|record| record.alternatives.clone())
+                    .or_else(|| metadata.plan_comparison.clone());
                 let compare_plans = metadata.status == crate::domain::ChangeStatus::Ready
                     && metadata.schema_version == 2
-                    && metadata.plan_comparison.is_none();
+                    && comparison.is_none();
                 let approved = p
                     .state
                     .workflow
@@ -61,7 +71,7 @@ impl PacketApp {
                     approved,
                     prepare_tasks,
                     compare_plans,
-                    plan_comparison: metadata.plan_comparison.clone(),
+                    plan_comparison: comparison,
                 })
             })
             .collect()

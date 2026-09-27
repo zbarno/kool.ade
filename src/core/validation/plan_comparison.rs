@@ -42,52 +42,16 @@ pub(super) fn validate(
         fatals.push("Compare Plans requires two alternatives and a recommendation".into());
         return None;
     };
-    let valid_text =
-        |value: &str, cap: usize| !value.trim().is_empty() && value.chars().count() <= cap;
-    let structurally_distinct = structurally_distinct(plans);
-    let valid = structurally_distinct
-        && plans.len() == 2
-        && plans[0].id == "A"
-        && plans[1].id == "B"
-        && ["A", "B"].contains(&recommendation.plan_id.as_str())
-        && valid_text(&recommendation.rationale, 1200)
-        && !recommendation.evidence.is_empty()
-        && recommendation.evidence.iter().all(|v| valid_text(v, 500))
-        && plans.iter().all(|plan| {
-            valid_text(&plan.objective, 600)
-                && plan.phases.len() == 3
-                && !plan.files_touched.is_empty()
-                && plan.files_touched.len() <= 20
-                && !plan.state_changes.is_empty()
-                && plan.state_changes.len() <= 12
-                && !plan.failure_modes.is_empty()
-                && plan.failure_modes.len() <= 12
-                && valid_text(&plan.effort_band, 300)
-                && ["small", "medium", "large"]
-                    .iter()
-                    .any(|band| plan.effort_band.to_ascii_lowercase().starts_with(band))
-                && !plan.known_risks.is_empty()
-                && plan.known_risks.len() <= 12
-                && valid_text(&plan.reversibility, 500)
-                && plan.phases.iter().all(|phase| {
-                    valid_text(&phase.name, 160)
-                        && (1..=3).contains(&phase.subtasks.len())
-                        && phase.subtasks.iter().all(|task| valid_text(task, 300))
-                })
-                && plan.files_touched.iter().all(|v| valid_text(v, 300))
-                && plan.state_changes.iter().all(|v| valid_text(v, 500))
-                && plan.failure_modes.iter().all(|v| valid_text(v, 500))
-                && plan.known_risks.iter().all(|v| valid_text(v, 500))
-        });
-    if !valid {
-        fatals.push("Plan comparison is incomplete, malformed, or exceeds field limits".into());
-        return None;
-    }
-    Some(PlanComparison {
+    let comparison = PlanComparison {
         alternatives: plans.clone(),
         recommendation: recommendation.clone(),
         selected_plan: None,
-    })
+    };
+    if validate_persisted(&comparison).is_err() {
+        fatals.push("Plan comparison is incomplete, malformed, or exceeds field limits".into());
+        return None;
+    }
+    Some(comparison)
 }
 
 fn structurally_distinct(plans: &[crate::domain::PlanAlternative]) -> bool {
@@ -113,6 +77,56 @@ fn structurally_distinct(plans: &[crate::domain::PlanAlternative]) -> bool {
         || normalized_list(&a.failure_modes) != normalized_list(&b.failure_modes)
         || normalized_list(&a.known_risks) != normalized_list(&b.known_risks)
         || normalize_words(&a.reversibility) != normalize_words(&b.reversibility)
+}
+
+pub(crate) fn validate_persisted(comparison: &PlanComparison) -> anyhow::Result<()> {
+    let valid_text =
+        |value: &str, cap: usize| !value.trim().is_empty() && value.chars().count() <= cap;
+    let plans = &comparison.alternatives;
+    let recommendation = &comparison.recommendation;
+    let valid = structurally_distinct(plans)
+        && plans.len() == 2
+        && plans[0].id == "A"
+        && plans[1].id == "B"
+        && ["A", "B"].contains(&recommendation.plan_id.as_str())
+        && valid_text(&recommendation.rationale, 1200)
+        && !recommendation.evidence.is_empty()
+        && recommendation
+            .evidence
+            .iter()
+            .all(|item| valid_text(item, 500))
+        && plans.iter().all(|plan| {
+            valid_text(&plan.objective, 600)
+                && plan.phases.len() == 3
+                && !plan.files_touched.is_empty()
+                && plan.files_touched.len() <= 20
+                && !plan.state_changes.is_empty()
+                && plan.state_changes.len() <= 12
+                && !plan.failure_modes.is_empty()
+                && plan.failure_modes.len() <= 12
+                && valid_text(&plan.effort_band, 300)
+                && ["small", "medium", "large"]
+                    .iter()
+                    .any(|band| plan.effort_band.to_ascii_lowercase().starts_with(band))
+                && !plan.known_risks.is_empty()
+                && plan.known_risks.len() <= 12
+                && valid_text(&plan.reversibility, 500)
+                && plan.phases.iter().all(|phase| {
+                    valid_text(&phase.name, 160)
+                        && (1..=3).contains(&phase.subtasks.len())
+                        && phase.subtasks.iter().all(|task| valid_text(task, 300))
+                })
+                && plan.files_touched.iter().all(|item| valid_text(item, 300))
+                && plan.state_changes.iter().all(|item| valid_text(item, 500))
+                && plan.failure_modes.iter().all(|item| valid_text(item, 500))
+                && plan.known_risks.iter().all(|item| valid_text(item, 500))
+        })
+        && comparison
+            .selected_plan
+            .as_deref()
+            .is_none_or(|selected| ["A", "B"].contains(&selected));
+    anyhow::ensure!(valid, "Plan comparison record is incomplete or malformed");
+    Ok(())
 }
 
 fn sorted_paths(paths: &[String]) -> Vec<&str> {

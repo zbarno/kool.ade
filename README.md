@@ -58,6 +58,9 @@ When a ready feature has materially different implementation approaches, Packet
 can present two plans with their phases, affected files, state changes, failure
 modes, effort, risks, and reversibility. Its evidence-backed recommendation is
 advisory: the operator explicitly adopts a plan before approval or task generation.
+The versioned comparison record, transcript, status, selected alternative, and
+update time live in `.kool-ade-packet/state/workflow.json`. The feature contract
+also records the adopted plan so the approval fingerprint covers the chosen intent.
 Deferring leaves the feature unapproved and creates no implementation tasks.
 
 Task conversations use the item's durable content, referenced specification

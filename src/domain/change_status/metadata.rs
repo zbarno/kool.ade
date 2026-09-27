@@ -8,6 +8,7 @@ const STATUS_PREFIX: &str = "**Status:**";
 
 mod comparison;
 mod rewrite;
+mod typed_adoption;
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -64,10 +65,6 @@ impl ChangeMetadata {
                     .as_deref()
                     .is_none_or(|id| ["A", "B"].contains(&id)),
                 "Malformed selected alternative"
-            );
-            anyhow::ensure!(
-                metadata.selected_alt.is_none() || metadata.plan_comparison.is_some(),
-                "Selected alternative has no comparison"
             );
             anyhow::ensure!(
                 metadata.schema_version == 2

@@ -40,7 +40,17 @@ pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
     match std::fs::read_to_string(
         crate::artifacts::layout::ArtifactLayout::new(repo).workflow_state(),
     ) {
-        Ok(text) => Ok(serde_json::from_str(&text)?),
+        Ok(text) => {
+            let workflow: Workflow = serde_json::from_str(&text)?;
+            for (feature_id, record) in &workflow.plan_comparisons {
+                anyhow::ensure!(
+                    feature_id == &record.feature_id,
+                    "Comparison workflow key does not match its feature ID"
+                );
+                record.validate()?;
+            }
+            Ok(workflow)
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Workflow::default()),
         Err(e) => Err(e.into()),
     }

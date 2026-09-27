@@ -78,7 +78,7 @@ fn writes_changed_files_and_labels_checkpoint() {
 }
 
 #[test]
-fn compare_plans_updates_both_feature_views_and_only_checkpoints_the_feature() {
+fn compare_plans_saves_typed_workflow_record_without_mutating_feature_document() {
     let (mut state, root) = state_at("plan_comparison");
     let feature_dir = root.join(".kool-ade-packet/planning/changes/CHG-004-saved-searches");
     std::fs::create_dir_all(&feature_dir).unwrap();
@@ -117,7 +117,7 @@ fn compare_plans_updates_both_feature_views_and_only_checkpoints_the_feature() {
             };
             3
         ],
-        files_touched: vec!["src/search.rs".into()],
+        files_touched: vec![format!("src/search_{id}.rs")],
         state_changes: vec!["Persist choice".into()],
         failure_modes: vec!["Write error".into()],
         effort_band: "Small — one module".into(),
@@ -137,22 +137,22 @@ fn compare_plans_updates_both_feature_views_and_only_checkpoints_the_feature() {
     let receipt = apply(&mut state, &normalized).unwrap();
     assert_eq!(
         receipt.repo_relative_paths,
-        vec![".kool-ade-packet/planning/changes/CHG-004-saved-searches/specification.md"]
+        vec![".kool-ade-packet/state/workflow.json"]
+    );
+    assert!(!state.active_feature.unwrap().1.contains("planComparison"));
+    assert!(!state.active_features[0].1.contains("planComparison"));
+    assert!(
+        state.workflow.plan_comparisons["CHG-004"]
+            .validate()
+            .is_ok()
+    );
+    let restarted = crate::artifacts::task_docs::load_workflow(&root).unwrap();
+    assert_eq!(
+        restarted.plan_comparisons["CHG-004"],
+        state.workflow.plan_comparisons["CHG-004"]
     );
     assert!(
-        crate::domain::ChangeMetadata::require_markdown(&state.active_feature.unwrap().1)
-            .unwrap()
-            .plan_comparison
-            .is_some()
-    );
-    assert!(
-        crate::domain::ChangeMetadata::require_markdown(&state.active_features[0].1)
-            .unwrap()
-            .plan_comparison
-            .is_some()
-    );
-    assert!(
-        std::fs::read_to_string(path)
+        !std::fs::read_to_string(path)
             .unwrap()
             .contains("planComparison")
     );

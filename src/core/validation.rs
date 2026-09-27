@@ -32,6 +32,7 @@ pub struct UpdatePatch {
 mod decision_tests;
 mod human_resolution;
 mod plan_comparison;
+pub(crate) use plan_comparison::validate_persisted;
 #[path = "validation/requested_action.rs"]
 mod requested_action_validation;
 

@@ -25,7 +25,7 @@ pub struct ApplyReceipt {
 
 pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<ApplyReceipt> {
     if let Some(comparison) = &nt.plan_comparison {
-        return comparison::apply(state, comparison);
+        return comparison::apply(state, comparison, &nt.assistant_message);
     }
     if let Some(batch) = &nt.task_batch {
         anyhow::ensure!(

@@ -19,7 +19,7 @@ Connection runs the restartable migration before loading planning state.
 | `.kool-ade-packet/planning/tasks/` | Approved task stories, frozen feature snapshots, and task-batch metadata. |
 | `.kool-ade-packet/planning/imports/` | Reference material explicitly imported by the operator. |
 | `.kool-ade-packet/planning/archive/` | Superseded specification and historical implementation summaries preserved as evidence. |
-| `.kool-ade-packet/state/workflow.json` | Feature approvals, task-batch references, and workflow state. |
+| `.kool-ade-packet/state/workflow.json` | Feature approvals, task-batch references, and typed plan-comparison records (alternatives, recommendation, transcript, status, selection, and update time). A chosen plan is mirrored in its feature contract so approval fingerprints cover the adopted intent. |
 | `.kool-ade-packet/state/work.json` | Persistent planning-work cards. |
 | `.kool-ade-packet/implementation/` | Local implementation reports, responses, verification results, and recovery evidence. Git ignores these files; back them up separately when moving a live workspace. |
 | `~/.packet/projects/<slug>/` or `$PACKET_HOME/projects/<slug>/` | Operator-local chat, task conversations, resumable generation checkpoints, and `repositories.json` mapping stable IDs to local checkout paths; not shared project truth. |

@@ -3,11 +3,13 @@ use crate::core::{state::PlannerState, validation::NormalizedTurn};
 use crate::harness::TurnEnvelope;
 use serde::{Deserialize, Serialize};
 
+mod comparison_record;
 #[cfg(test)]
 #[path = "workflow/contract_tests.rs"]
 mod contract_tests;
 mod outline_validation;
 mod story_validation;
+pub use comparison_record::{PlanComparisonRecord, PlanComparisonStatus};
 pub use outline_validation::validate_outline;
 use story_validation::validate_stories;
 pub use story_validation::{descriptive_title, story_detail_errors};
@@ -56,6 +58,10 @@ pub struct Workflow {
     pub task_batches: Vec<TaskBatchRef>,
     #[serde(default)]
     pub approved_features: std::collections::BTreeMap<String, String>,
+    /// Current typed plan comparison state, keyed by stable feature ID.
+    /// Legacy feature-document comparisons remain readable and are promoted on adoption.
+    #[serde(default)]
+    pub plan_comparisons: std::collections::BTreeMap<String, PlanComparisonRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,8 +192,16 @@ pub fn approve_feature_if_current(
         status.approval_eligible(),
         "Only a ready or already implementing feature may be approved"
     );
+    let current_workflow = crate::artifacts::task_docs::load_workflow(repo)?;
+    let comparison_ready = current_workflow.plan_comparisons.get(id).map_or(
+        metadata.selected_alt.is_some(),
+        |record| {
+            record.status == PlanComparisonStatus::Adopted
+                && record.selected_plan == metadata.selected_alt
+        },
+    );
     anyhow::ensure!(
-        metadata.schema_version != 2 || metadata.selected_alt.is_some(),
+        metadata.schema_version != 2 || comparison_ready,
         "Compare and adopt a plan before approving this feature"
     );
     let contract = feature_contract(&text);
@@ -221,7 +235,15 @@ pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -
     let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(&text) else {
         return false;
     };
-    if metadata.schema_version == 2 && metadata.selected_alt.is_none() {
+    let comparison_ready =
+        workflow
+            .plan_comparisons
+            .get(id)
+            .map_or(metadata.selected_alt.is_some(), |record| {
+                record.status == PlanComparisonStatus::Adopted
+                    && record.selected_plan == metadata.selected_alt
+            });
+    if metadata.schema_version == 2 && !comparison_ready {
         return false;
     }
     workflow

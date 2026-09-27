@@ -162,6 +162,14 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
         Some("B")
     );
     assert_eq!(saved.selected_alt.as_deref(), Some("B"));
+    let persisted = crate::artifacts::task_docs::load_workflow(&root).unwrap();
+    let record = persisted.plan_comparisons.get("CHG-004").unwrap();
+    assert_eq!(
+        record.status,
+        crate::core::workflow::PlanComparisonStatus::Adopted
+    );
+    assert_eq!(record.selected_plan.as_deref(), Some("B"));
+    record.validate().unwrap();
     assert!(
         !project
             .state
@@ -262,26 +270,56 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     app.task_harness = Some(harness(vec![response.to_string()]).0);
     app.start_comparison_turn("CHG-004");
     assert!(finish(&mut app));
+    {
+        let Screen::Connected(project) = &app.screen else {
+            panic!()
+        };
+        let saved = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .as_str();
+        let record = &project.state.workflow.plan_comparisons["CHG-004"];
+        record.validate().unwrap();
+        assert_eq!(
+            record.status,
+            crate::core::workflow::PlanComparisonStatus::Proposed
+        );
+        assert!(record.transcript.contains("Here are two approaches."));
+        assert_eq!(record.alternatives.alternatives.len(), 2);
+        assert_eq!(record.alternatives.recommendation.plan_id, "A");
+        assert!(!saved.contains("## Plan Comparison"));
+    }
+    assert_eq!(
+        app.feature_actions(None)[0].label(),
+        "Choose a plan for CHG-004 below"
+    );
+    app.dispatch(crate::ui::ApplicationCommand::ChooseFeaturePlan {
+        id: "CHG-004".into(),
+        plan_id: "B".into(),
+    });
     let Screen::Connected(project) = &app.screen else {
         panic!()
     };
-    let saved = project
+    let record = &project.state.workflow.plan_comparisons["CHG-004"];
+    assert_eq!(
+        record.status,
+        crate::core::workflow::PlanComparisonStatus::Adopted
+    );
+    assert_eq!(record.selected_plan.as_deref(), Some("B"));
+    let feature = &project
         .state
         .active_features
         .iter()
         .find(|(id, _)| id == "CHG-004")
         .unwrap()
-        .1
-        .as_str();
-    let metadata = crate::domain::ChangeMetadata::require_markdown(saved).unwrap();
-    let comparison = metadata.plan_comparison.unwrap();
-    assert_eq!(comparison.alternatives.len(), 2);
-    assert_eq!(comparison.recommendation.plan_id, "A");
-    assert!(saved.contains("## Plan Comparison"));
-    assert_eq!(
-        app.feature_actions(None)[0].label(),
-        "Choose a plan for CHG-004 below"
-    );
+        .1;
+    let metadata = crate::domain::ChangeMetadata::require_markdown(feature).unwrap();
+    assert_eq!(metadata.selected_alt.as_deref(), Some("B"));
+    assert!(metadata.plan_comparison.is_none());
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }
