@@ -19,6 +19,7 @@
 | `.kool-ade-packet/state/workflow.json`, `work.json` | Feature approvals, task batches, and persistent planning-work cards | Packet workflow |
 | `.kool-ade-packet/implementation/` | Local reports, responses, verification results, and recovery evidence; ignored by Git | Implementation workers and Packet |
 | `$PACKET_HOME/projects/<slug>/` | Operator-local chat, task conversations, and task-generation checkpoints | Local Packet process |
+| `$PACKET_HOME/projects/<slug>/repositories.json` | Private mapping from stable repository IDs to verified local checkout paths | Repository settings/resolution |
 | Git common directory | Queue/task state, locks, transaction journals, private refs, and Pi event streams | Packet workflow |
 
 `.kool-ade-packet/` is the only live shared Packet project-artifact root. The
