@@ -157,10 +157,7 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
             .1,
     )
     .unwrap();
-    assert_eq!(
-        saved.plan_comparison.unwrap().selected_plan.as_deref(),
-        Some("B")
-    );
+    assert!(saved.plan_comparison.is_none());
     assert_eq!(saved.selected_alt.as_deref(), Some("B"));
     let persisted = crate::artifacts::task_docs::load_workflow(&root).unwrap();
     let record = persisted.plan_comparisons.get("CHG-004").unwrap();

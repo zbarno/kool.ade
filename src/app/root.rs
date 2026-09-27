@@ -30,10 +30,12 @@ mod implementation_controller;
 mod implementation_decision;
 mod repository_switcher;
 mod requested_action;
+mod task_batch;
 #[cfg(test)]
 #[path = "root/task_detail_tests.rs"]
 mod task_detail_tests;
 mod ui_actions;
+use task_batch::has_current_task_batch;
 
 /// Root of the packet app.
 pub struct PacketApp {
@@ -138,45 +140,6 @@ struct CloneJob {
 type CloneWorkerCalc = std::sync::Arc<
     dyn Fn(String, String) -> Result<std::path::PathBuf, crate::error::AppError> + Send + Sync,
 >;
-
-fn has_current_task_batch(project: &Project) -> bool {
-    if let Some((id, _)) = &project.state.active_feature {
-        let tagged = project
-            .task_documents
-            .iter()
-            .filter(|doc| !doc.path.ends_with("/README.md"))
-            .filter_map(|doc| {
-                doc.text
-                    .lines()
-                    .find_map(|line| line.strip_prefix("Feature ID: "))
-                    .map(|feature| (feature, doc))
-            });
-        let docs = tagged.collect::<Vec<_>>();
-        if !docs.is_empty() {
-            return docs.iter().any(|(feature, doc)| {
-                feature == id
-                    && project
-                        .state
-                        .workflow
-                        .task_batches
-                        .iter()
-                        .any(|batch| doc.path.starts_with(&format!("{}/", batch.directory)))
-            });
-        }
-    }
-    project
-        .task_documents
-        .iter()
-        .any(|doc| !doc.path.ends_with("/README.md"))
-        && project.state.workflow.brief.as_ref().is_none_or(|brief| {
-            project
-                .state
-                .workflow
-                .task_batches
-                .last()
-                .is_some_and(|batch| batch.feature == brief.feature_name)
-        })
-}
 
 enum Dialog {
     Import(DlgImport),

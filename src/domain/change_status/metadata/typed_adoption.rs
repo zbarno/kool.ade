@@ -36,13 +36,46 @@ impl ChangeMetadata {
             .find(|plan| plan.id == plan_id)
             .ok_or_else(|| anyhow::anyhow!("Selected plan is missing from the comparison"))?;
         metadata.selected_alt = Some(plan_id.to_owned());
-        let updated = replace_metadata(markdown, &metadata)?;
+        metadata.plan_comparison = None;
+        metadata.comparison_history.clear();
+        let mut updated = replace_metadata(markdown, &metadata)?;
+        updated = remove_h2_section(&updated, "Plan Comparison")?;
+        updated = remove_h2_section(&updated, "Plan Comparison History")?;
         let selected_content = render_selected(plan_id, selected);
         let selected_content = adr_path.map_or(selected_content.clone(), |path| {
             format!("{selected_content}\n\n**Decision record:** `{path}`")
         });
         replace_h2_section(&updated, "Selected Plan", &selected_content)
     }
+}
+
+fn remove_h2_section(markdown: &str, heading: &str) -> anyhow::Result<String> {
+    let title = format!("## {heading}");
+    let lines = markdown.lines().collect::<Vec<_>>();
+    let starts = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| (*line == title).then_some(index))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(starts.len() <= 1, "Feature has duplicate {title} sections");
+    let Some(start) = starts.first().copied() else {
+        return Ok(markdown.to_owned());
+    };
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start + 1)
+        .find_map(|(index, line)| line.starts_with("## ").then_some(index))
+        .unwrap_or(lines.len());
+    let mut updated = [lines[..start].join("\n"), lines[end..].join("\n")]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if markdown.ends_with('\n') {
+        updated.push('\n');
+    }
+    Ok(updated)
 }
 
 fn render_selected(id: &str, plan: &crate::domain::PlanAlternative) -> String {

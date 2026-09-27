@@ -33,12 +33,10 @@ fn temporary_live_fixture_prepare_and_generate() {
     }
     app.task_harness = Some(Box::new(LivePi));
     let compare = std::env::var("PACKET_APPROVAL_PURPOSE").as_deref() == Ok("compare");
-    let has_batch = crate::core::state::PlannerState::load(&root)
-        .unwrap()
-        .workflow
-        .task_batches
-        .iter()
-        .any(|batch| batch.feature.contains(&id));
+    let has_batch = match &app.screen {
+        Screen::Connected(project) => has_current_task_batch(project),
+        _ => false,
+    };
     if compare {
         let mut comparison_saved = false;
         for _ in 0..3 {
@@ -70,7 +68,27 @@ fn temporary_live_fixture_prepare_and_generate() {
             "Pi did not produce a valid comparison after three turns"
         );
     } else if !has_batch {
-        app.approve_and_prepare_feature(&id);
+        if id == "F7" {
+            let Screen::Connected(project) = &app.screen else {
+                unreachable!()
+            };
+            assert!(
+                crate::core::workflow::feature_approved(&root, &project.state.workflow, &id),
+                "F7 must retain the explicit task-generation approval"
+            );
+            assert!(
+                project
+                    .state
+                    .workflow
+                    .ready(project.state.planning_contract())
+            );
+            app.start_turn_with_purpose(
+                &format!("Generate task stories for approved feature {id}."),
+                crate::core::workflow::TurnPurpose::GenerateTasks,
+            );
+        } else {
+            app.approve_and_prepare_feature(&id);
+        }
         let ctx = egui::Context::default();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12 * 60 * 60);
         while app.conversation_busy() {
@@ -101,12 +119,41 @@ fn temporary_live_fixture_prepare_and_generate() {
             &state.workflow,
             &id
         ));
-        let batch = state
-            .workflow
-            .task_batches
-            .iter()
-            .find(|batch| batch.feature.contains(&id))
-            .expect("approved feature task batch was not persisted");
+        let batch = if id == "F7" {
+            let current = state
+                .active_features
+                .iter()
+                .find(|(feature_id, _)| feature_id == &id)
+                .expect("approved feature specification was not persisted");
+            state
+                .workflow
+                .task_batches
+                .iter()
+                .rev()
+                .filter(|batch| batch.feature.contains(&id))
+                .find(|batch| {
+                    crate::core::contract_snapshot::batch_contract_matches_feature(
+                        &root,
+                        &batch.directory,
+                        &id,
+                        &current.1,
+                    )
+                })
+                .expect("no persisted F7 batch freezes the adopted plan")
+        } else {
+            state
+                .workflow
+                .task_batches
+                .iter()
+                .find(|batch| batch.feature.contains(&id))
+                .expect("approved feature task batch was not persisted")
+        };
+        if id == "F7" {
+            assert_ne!(
+                batch.directory,
+                ".kool-ade-packet/planning/tasks/F7-comparative-feature-plan-comparison-before-approval-05"
+            );
+        }
         if id == "CHG-007" {
             let directory = root.join(&batch.directory);
             let stories = std::fs::read_dir(&directory)

@@ -94,17 +94,12 @@ impl PacketApp {
                 return;
             }
         };
-        let typed_record = project.state.workflow.plan_comparisons.contains_key(id);
-        let updated = match if typed_record {
-            crate::domain::ChangeMetadata::adopt_typed_plan(
-                &current,
-                &comparison,
-                plan_id,
-                Some(&adr_path),
-            )
-        } else {
-            crate::domain::ChangeMetadata::adopt_plan(&current, plan_id, Some(&adr_path))
-        } {
+        let updated = match crate::domain::ChangeMetadata::adopt_typed_plan(
+            &current,
+            &comparison,
+            plan_id,
+            Some(&adr_path),
+        ) {
             Ok(updated) => updated,
             Err(error) => {
                 self.toasts.danger(format!("Cannot adopt plan: {error}"));
