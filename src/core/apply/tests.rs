@@ -38,6 +38,7 @@ fn make_norm(change: Option<&str>, spec: Option<&str>) -> NormalizedTurn {
         workflow: None,
         task_batch: None,
         warnings: vec![],
+        plan_comparison: None,
     }
 }
 

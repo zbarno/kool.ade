@@ -100,6 +100,31 @@ fn setup() -> (PacketApp, std::path::PathBuf, serde_json::Value) {
         crate::domain::ChangeStatus::Ready,
     )
     .unwrap();
+    let sample_plan = |id: &str| crate::domain::PlanAlternative {
+        id: id.into(),
+        objective: format!("Approach {id}"),
+        phases: vec!["Implement".into()],
+        files_touched: vec!["src/search.rs".into()],
+        state_changes: vec!["Save filters".into()],
+        failure_modes: vec!["Storage unavailable".into()],
+        effort_band: "Small".into(),
+        known_risks: vec!["Migration needed".into()],
+        reversibility: "Restore previous metadata".into(),
+    };
+    spec = crate::domain::ChangeMetadata::save_plan_comparison(
+        &spec,
+        crate::domain::PlanComparison {
+            alternatives: vec![sample_plan("A"), sample_plan("B")],
+            recommendation: crate::domain::PlanRecommendation {
+                plan_id: "A".into(),
+                rationale: "It has fewer state transitions.".into(),
+                evidence: vec!["src/search.rs".into()],
+            },
+            selected_plan: None,
+        },
+    )
+    .unwrap();
+    spec = crate::domain::ChangeMetadata::select_plan(&spec, "A").unwrap();
     std::fs::write(spec_path, spec).unwrap();
     let mut review: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../tests/fixtures/interview-ready.json"

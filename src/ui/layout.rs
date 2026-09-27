@@ -234,8 +234,15 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     .into_iter()
                     .find(|action| selected.as_deref() == Some(action.id.as_str()))
                 {
+                    let needs_plan_choice = action
+                        .plan_comparison
+                        .as_ref()
+                        .is_some_and(|comparison| comparison.selected_plan.is_none());
                     if ui
-                        .add_enabled(!s.conversation_busy(), egui::Button::new(action.label()))
+                        .add_enabled(
+                            !s.conversation_busy() && !needs_plan_choice,
+                            egui::Button::new(action.label()),
+                        )
                         .clicked()
                     {
                         s.dispatch(ApplicationCommand::ApproveFeature {
@@ -302,6 +309,19 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 .show(ui, |ui| {
                     crate::ui::spec_viewer::render(ui, Some(&document));
                 });
+            if view == 1
+                && let Some(action) = s
+                    .feature_actions(None)
+                    .into_iter()
+                    .find(|action| selected.as_deref() == Some(action.id.as_str()))
+                && action.plan_comparison.is_some()
+                && let Some(plan_id) = crate::ui::feature_approval::paint_comparison(ui, &action)
+            {
+                s.dispatch(ApplicationCommand::ChooseFeaturePlan {
+                    id: action.id,
+                    plan_id,
+                });
+            }
         });
     if settings_open {
         let mut open_batch = None;

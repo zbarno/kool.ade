@@ -28,6 +28,10 @@ impl PacketApp {
             ApplicationCommand::ArchiveTask { ticket } => self.archive_task(&ticket),
             ApplicationCommand::ApproveReviewItem { id } => self.approve_review_item(&id),
             ApplicationCommand::ApproveFeature { id } => self.approve_and_prepare_feature(&id),
+            ApplicationCommand::CompareFeaturePlans { id } => self.start_comparison_turn(&id),
+            ApplicationCommand::ChooseFeaturePlan { id, plan_id } => {
+                self.choose_feature_plan(&id, &plan_id)
+            }
             ApplicationCommand::UserIntent(intent) => self.apply_user_intent(intent),
             ApplicationCommand::HeaderAction(action) => self.apply_header_action(action),
             ApplicationCommand::TaskDetail(command) => self.dispatch_task_detail(command),

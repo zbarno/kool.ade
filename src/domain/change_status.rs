@@ -171,4 +171,55 @@ mod tests {
             ChangeStatus::Ready
         );
     }
+
+    #[test]
+    fn plan_comparison_persists_selection_across_status_transitions() {
+        let markdown = "# CHG-001: Search\n\n**Status:** Ready\n";
+        let identified =
+            ArtifactIdentity::preserve_markdown(markdown, None, "CHG-001", "Search").unwrap();
+        let identity = ArtifactIdentity::from_markdown(&identified)
+            .unwrap()
+            .unwrap();
+        let ready =
+            ChangeMetadata::write_markdown(&identified, &identity, ChangeStatus::Ready).unwrap();
+        let plan = |id: &str| crate::domain::PlanAlternative {
+            id: id.into(),
+            objective: "Safe rollout".into(),
+            phases: vec!["Prepare".into()],
+            files_touched: vec!["src/a.rs".into()],
+            state_changes: vec!["Persist marker".into()],
+            failure_modes: vec!["Write fails".into()],
+            effort_band: "Small".into(),
+            known_risks: vec!["Extra state".into()],
+            reversibility: "Remove marker".into(),
+        };
+        let compared = ChangeMetadata::save_plan_comparison(
+            &ready,
+            crate::domain::PlanComparison {
+                alternatives: vec![plan("A"), plan("B")],
+                recommendation: crate::domain::PlanRecommendation {
+                    plan_id: "A".into(),
+                    rationale: "Safer".into(),
+                    evidence: vec!["src/a.rs".into()],
+                },
+                selected_plan: None,
+            },
+        )
+        .unwrap();
+        let selected = ChangeMetadata::select_plan(&compared, "B").unwrap();
+        let metadata = ChangeMetadata::require_markdown(&selected).unwrap();
+        assert_eq!(
+            metadata.plan_comparison.unwrap().selected_plan.as_deref(),
+            Some("B")
+        );
+        let transitioned =
+            ChangeMetadata::write_markdown(&selected, &identity, ChangeStatus::Implementing)
+                .unwrap();
+        let metadata = ChangeMetadata::require_markdown(&transitioned).unwrap();
+        assert_eq!(metadata.status, ChangeStatus::Implementing);
+        assert_eq!(
+            metadata.plan_comparison.unwrap().selected_plan.as_deref(),
+            Some("B")
+        );
+    }
 }

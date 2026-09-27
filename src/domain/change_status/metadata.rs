@@ -13,6 +13,8 @@ pub struct ChangeMetadata {
     pub uid: String,
     pub display_id: String,
     pub status: ChangeStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_comparison: Option<crate::domain::PlanComparison>,
 }
 
 impl ChangeMetadata {
@@ -22,6 +24,7 @@ impl ChangeMetadata {
             uid: identity.uid.clone(),
             display_id: identity.display_id.clone(),
             status,
+            plan_comparison: None,
         }
     }
 
@@ -46,6 +49,19 @@ impl ChangeMetadata {
                     && !metadata.display_id.trim().is_empty(),
                 "Malformed Packet change metadata fields"
             );
+            if let Some(comparison) = &metadata.plan_comparison {
+                anyhow::ensure!(
+                    comparison.alternatives.len() == 2
+                        && comparison.alternatives[0].id == "A"
+                        && comparison.alternatives[1].id == "B"
+                        && ["A", "B"].contains(&comparison.recommendation.plan_id.as_str())
+                        && comparison
+                            .selected_plan
+                            .as_deref()
+                            .is_none_or(|id| ["A", "B"].contains(&id)),
+                    "Malformed plan comparison metadata"
+                );
+            }
             found = Some(metadata);
         }
         Ok(found)
@@ -110,7 +126,12 @@ impl ChangeMetadata {
                 format!("{STATUS_PREFIX} {}", status.label()),
             );
         }
-        let metadata = Self::new(identity, status);
+        let mut metadata = Self::from_markdown(markdown)?
+            .filter(|existing| {
+                existing.uid == identity.uid && existing.display_id == identity.display_id
+            })
+            .unwrap_or_else(|| Self::new(identity, status));
+        metadata.status = status;
         let marker = format!("{MARKER}{} -->", serde_json::to_string(&metadata)?);
         let identity_marker = "<!-- packet-artifact-id:v1 ";
         let index = lines
@@ -160,6 +181,69 @@ impl ChangeMetadata {
         }
         Ok(rendered)
     }
+
+    pub fn save_plan_comparison(
+        markdown: &str,
+        comparison: crate::domain::PlanComparison,
+    ) -> anyhow::Result<String> {
+        anyhow::ensure!(
+            comparison.alternatives.len() == 2,
+            "Plan comparison requires exactly two alternatives"
+        );
+        anyhow::ensure!(
+            comparison.alternatives[0].id == "A"
+                && comparison.alternatives[1].id == "B"
+                && ["A", "B"].contains(&comparison.recommendation.plan_id.as_str()),
+            "Plan comparison IDs or recommendation are invalid"
+        );
+        anyhow::ensure!(
+            comparison.selected_plan.is_none(),
+            "A generated comparison cannot preselect an alternative"
+        );
+        let mut metadata = Self::require_markdown(markdown)?;
+        anyhow::ensure!(
+            metadata.status == ChangeStatus::Ready,
+            "Only a Ready feature can store plan alternatives"
+        );
+        metadata.plan_comparison = Some(comparison);
+        replace_metadata(markdown, &metadata)
+    }
+
+    pub fn select_plan(markdown: &str, plan_id: &str) -> anyhow::Result<String> {
+        anyhow::ensure!(["A", "B"].contains(&plan_id), "Unknown plan alternative");
+        let mut metadata = Self::require_markdown(markdown)?;
+        anyhow::ensure!(
+            metadata.status == ChangeStatus::Ready,
+            "Only a Ready feature can change its plan selection"
+        );
+        let comparison = metadata
+            .plan_comparison
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Feature has no generated plan comparison"))?;
+        comparison.selected_plan = Some(plan_id.to_owned());
+        replace_metadata(markdown, &metadata)
+    }
+}
+
+fn replace_metadata(markdown: &str, metadata: &ChangeMetadata) -> anyhow::Result<String> {
+    let marker = format!("{MARKER}{} -->", serde_json::to_string(metadata)?);
+    let mut found = false;
+    let mut result = String::new();
+    for line in markdown.split_inclusive('\n') {
+        let bare = line.strip_suffix('\n').unwrap_or(line);
+        if bare.starts_with(MARKER) {
+            anyhow::ensure!(!found, "Markdown contains duplicate change metadata");
+            result.push_str(&marker);
+            if line.ends_with('\n') {
+                result.push('\n');
+            }
+            found = true;
+        } else {
+            result.push_str(line);
+        }
+    }
+    anyhow::ensure!(found, "Change specification has no structured status");
+    Ok(result)
 }
 
 fn status_line_index(lines: &[String]) -> usize {

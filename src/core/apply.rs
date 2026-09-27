@@ -2,6 +2,7 @@
 //! in-memory state, synthesize ownership items, atomically write changed
 //! artifacts, and produce the checkpoint commit message. Git staging/commit
 //! is sequenced by `core::turn` right after these writes succeed.
+mod comparison;
 mod identities;
 mod product_documents;
 
@@ -23,6 +24,9 @@ pub struct ApplyReceipt {
 }
 
 pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<ApplyReceipt> {
+    if let Some(comparison) = &nt.plan_comparison {
+        return comparison::apply(state, comparison);
+    }
     if let Some(batch) = &nt.task_batch {
         anyhow::ensure!(
             nt.additional_planning_artifacts.is_empty(),

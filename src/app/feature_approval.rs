@@ -1,6 +1,8 @@
 use super::*;
 use crate::core::workflow::{self, TurnPurpose};
 use crate::ui::feature_approval::Action;
+#[path = "feature_approval/selection.rs"]
+mod selection;
 
 impl PacketApp {
     pub(super) fn available_feature_actions(&self, conversation: Option<&str>) -> Vec<Action> {
@@ -32,11 +34,14 @@ impl PacketApp {
                 if conversation.is_some() && related != Some(id.as_str()) {
                     return None;
                 }
-                if !crate::domain::ChangeMetadata::require_markdown(body)
-                    .is_ok_and(|metadata| metadata.status.approval_eligible())
-                {
+                let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(body) else {
+                    return None;
+                };
+                if !metadata.status.approval_eligible() {
                     return None;
                 }
+                let compare_plans = metadata.status == crate::domain::ChangeStatus::Ready
+                    && metadata.plan_comparison.is_none();
                 let approved = p
                     .state
                     .workflow
@@ -54,6 +59,8 @@ impl PacketApp {
                     specification: body.clone(),
                     approved,
                     prepare_tasks,
+                    compare_plans,
+                    plan_comparison: metadata.plan_comparison.clone(),
                 })
             })
             .collect()
@@ -75,6 +82,19 @@ impl PacketApp {
         else {
             return;
         };
+        if action.compare_plans {
+            self.start_comparison_turn(id);
+            return;
+        }
+        if action
+            .plan_comparison
+            .as_ref()
+            .is_some_and(|comparison| comparison.selected_plan.is_none())
+        {
+            self.toasts
+                .warning("Choose Plan A or Plan B before approving this feature.");
+            return;
+        }
         let Screen::Connected(p) = &mut self.screen else {
             return;
         };

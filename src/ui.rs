@@ -41,6 +41,8 @@ pub enum ApplicationCommand {
     ArchiveTask { ticket: String },
     ApproveReviewItem { id: String },
     ApproveFeature { id: String },
+    CompareFeaturePlans { id: String },
+    ChooseFeaturePlan { id: String, plan_id: String },
     UserIntent(Intent),
     HeaderAction(HeaderAction),
     TaskDetail(task_detail::Command),

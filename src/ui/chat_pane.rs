@@ -192,7 +192,7 @@ fn paint_with_hint(
                     );
                     ui.add_space(8.0);
                 }
-                approve_feature = super::feature_approval::paint(ui, actions, busy);
+                approve_feature = super::feature_approval::paint(ui, actions, busy).map(|(id, _)| id);
                 if actions.iter().any(|action| action.prepare_tasks) {
                     // Feature actions already provide the applicable next step.
                 } else if implementation_offer {

@@ -458,7 +458,7 @@ pub(crate) fn paint_with_board(
                         ui.label(crate::core::context_build::clip(&previous.text, 400));
                     }
                 let actions = s.feature_actions(Some(key));
-                if let Some(id) = super::feature_approval::paint(ui, &actions, s.conversation_busy()) {
+                if let Some((id, _)) = super::feature_approval::paint(ui, &actions, s.conversation_busy()) {
                     s.dispatch(ApplicationCommand::ApproveFeature { id });
                 }
                 if ownership && ui.button("Assign ownership").clicked() {

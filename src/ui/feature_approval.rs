@@ -6,10 +6,69 @@ pub struct Action {
     pub specification: String,
     pub approved: bool,
     pub prepare_tasks: bool,
+    pub compare_plans: bool,
+    pub plan_comparison: Option<crate::domain::PlanComparison>,
+}
+
+pub fn paint_comparison(ui: &mut egui::Ui, action: &Action) -> Option<String> {
+    let comparison = action.plan_comparison.as_ref()?;
+    ui.heading(format!("Compare plans for {}", action.id));
+    ui.label("Packet drafted both approaches from the feature and project evidence. The recommendation is guidance; you choose.");
+    ui.label(format!(
+        "Packet recommends Plan {}: {}",
+        comparison.recommendation.plan_id, comparison.recommendation.rationale
+    ));
+    for evidence in &comparison.recommendation.evidence {
+        ui.label(format!("Evidence: {evidence}"));
+    }
+    let mut choice = None;
+    ui.columns(2, |columns| {
+        for (index, plan) in comparison.alternatives.iter().enumerate() {
+            let ui = &mut columns[index];
+            super::theme::card_frame().show(ui, |ui| {
+                ui.heading(format!("Plan {}", plan.id));
+                ui.label(&plan.objective);
+                detail_list(ui, "Phases", &plan.phases);
+                detail_list(ui, "Files touched", &plan.files_touched);
+                detail_list(ui, "State changes", &plan.state_changes);
+                detail_list(ui, "Failure modes", &plan.failure_modes);
+                ui.label(format!("Effort: {}", plan.effort_band));
+                detail_list(ui, "Known risks", &plan.known_risks);
+                ui.label(format!("Reversibility: {}", plan.reversibility));
+                if comparison.selected_plan.as_deref() == Some(&plan.id) {
+                    ui.label(egui::RichText::new("Selected").color(super::theme::SUCCESS));
+                } else if ui.button(format!("Choose Plan {}", plan.id)).clicked() {
+                    choice = Some(plan.id.clone());
+                }
+            });
+        }
+    });
+    ui.label(
+        "If you defer, the feature remains unapproved and no implementation tasks are generated.",
+    );
+    choice
+}
+
+fn detail_list(ui: &mut egui::Ui, title: &str, entries: &[String]) {
+    ui.collapsing(title, |ui| {
+        for entry in entries {
+            ui.label(format!("• {entry}"));
+        }
+    });
 }
 
 impl Action {
     pub fn label(&self) -> String {
+        if self.compare_plans {
+            return format!("Compare plans for {}", self.id);
+        }
+        if self
+            .plan_comparison
+            .as_ref()
+            .is_some_and(|comparison| comparison.selected_plan.is_none())
+        {
+            return format!("Choose a plan for {} below", self.id);
+        }
         match (self.approved, self.prepare_tasks) {
             (true, _) => format!("Prepare tasks for {}", self.id),
             (false, true) => format!("Approve {} and prepare tasks", self.id),
@@ -18,7 +77,7 @@ impl Action {
     }
 }
 
-pub fn paint(ui: &mut egui::Ui, actions: &[Action], busy: bool) -> Option<String> {
+pub fn paint(ui: &mut egui::Ui, actions: &[Action], busy: bool) -> Option<(String, bool)> {
     let mut selected = None;
     for action in actions {
         ui.push_id((&action.id, "feature_approval"), |ui| {
@@ -34,11 +93,15 @@ pub fn paint(ui: &mut egui::Ui, actions: &[Action], busy: bool) -> Option<String
                             );
                         });
                 });
+                let needs_choice = action
+                    .plan_comparison
+                    .as_ref()
+                    .is_some_and(|comparison| comparison.selected_plan.is_none());
                 if ui
-                    .add_enabled(!busy, egui::Button::new(action.label()))
+                    .add_enabled(!busy && !needs_choice, egui::Button::new(action.label()))
                     .clicked()
                 {
-                    selected = Some(action.id.clone());
+                    selected = Some((action.id.clone(), action.compare_plans));
                 }
                 if action.prepare_tasks {
                     ui.label("Refreshes the task plan if needed, then generates task stories.");

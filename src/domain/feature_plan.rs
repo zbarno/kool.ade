@@ -31,3 +31,13 @@ pub struct PlanRecommendation {
     pub rationale: String,
     pub evidence: Vec<String>,
 }
+
+/// The validated comparison persisted with the feature until its owner chooses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlanComparison {
+    pub alternatives: Vec<PlanAlternative>,
+    pub recommendation: PlanRecommendation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_plan: Option<String>,
+}

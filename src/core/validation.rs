@@ -31,6 +31,7 @@ pub struct UpdatePatch {
 #[path = "validation/decision_tests.rs"]
 mod decision_tests;
 mod human_resolution;
+mod plan_comparison;
 #[path = "validation/requested_action.rs"]
 mod requested_action_validation;
 
@@ -58,6 +59,7 @@ pub struct NormalizedTurn {
     pub warnings: Vec<String>,
     pub workflow: Option<crate::core::workflow::Workflow>,
     pub task_batch: Option<crate::core::workflow::TaskBatch>,
+    pub plan_comparison: Option<crate::domain::PlanComparison>,
 }
 
 const QUESTION_CHAR_CAP: usize = 2000;
@@ -115,6 +117,14 @@ pub fn validate_for_turn_with_resolutions(
     if envelope.assistant().trim().is_empty() {
         fatals.push("assistant_message is empty".into());
     }
+    let plan_comparison = if purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        plan_comparison::validate(envelope, state, &mut fatals)
+    } else {
+        if envelope.plans.is_some() || envelope.recommendation.is_some() {
+            fatals.push("plan alternatives are only accepted in a Compare Plans turn".into());
+        }
+        None
+    };
 
     // ---- specification -----------------------------------------------------
     let spec_markdown = match envelope.updated_spec() {
@@ -569,6 +579,7 @@ pub fn validate_for_turn_with_resolutions(
         warnings,
         workflow: None,
         task_batch: None,
+        plan_comparison,
     };
     crate::core::workflow::prepare(state, envelope, &mut normalized, purpose)?;
     Ok(normalized)

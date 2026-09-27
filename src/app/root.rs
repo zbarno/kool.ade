@@ -1286,6 +1286,24 @@ impl PacketApp {
     }
 
     fn start_turn_with_purpose(&mut self, text: &str, purpose: crate::core::workflow::TurnPurpose) {
+        self.start_turn_for_feature(text, purpose, None);
+    }
+
+    pub(super) fn start_comparison_turn(&mut self, feature_id: &str) {
+        let request = format!("Compare plans for feature {feature_id}.");
+        self.start_turn_for_feature(
+            &request,
+            crate::core::workflow::TurnPurpose::ComparePlans,
+            Some(feature_id),
+        );
+    }
+
+    fn start_turn_for_feature(
+        &mut self,
+        text: &str,
+        purpose: crate::core::workflow::TurnPurpose,
+        comparison_feature: Option<&str>,
+    ) {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -1345,7 +1363,7 @@ impl PacketApp {
             ),
             recent_chat: recent,
             purpose,
-            comparison_feature: None,
+            comparison_feature: comparison_feature.map(str::to_owned),
         };
         let harness = configured_harness(&mut self.task_harness);
         let ctrl = TurnController::start(inputs, harness);
