@@ -2390,10 +2390,9 @@ mod board_tests {
             .is_some()
         );
         assert!(text_position(&output, "Operator: Record the display demonstration.").is_some());
-        assert!(text_position(&output, "Full report").is_some());
-        assert!(text_position(&output, "Full report: saved-report.json").is_none());
-        let output = click_text(&mut app, &ctx, "Full report");
-        assert!(text_position(&output, "Copy full message").is_some());
+        assert!(text_position(&output, "Full blocker report").is_some());
+        assert!(text_position(&output, "Full report: saved-report.json").is_some());
+        assert!(text_position(&output, "Copy full report").is_some());
         assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
             egui::Shape::Text(text) if text.galley.text().contains("Full report: saved-report.json"))),
             "the complete failure text must be rendered, not shortened to a summary");
