@@ -86,12 +86,18 @@ fn compare_plans_updates_both_feature_views_and_only_checkpoints_the_feature() {
     let body = crate::artifacts::product_docs::identity::preserve_feature_identity(
         &path,
         "CHG-004",
-        "# CHG-004: Saved searches\n\n**Status:** Ready\n",
+        "# CHG-004: Saved searches\n\n**Status:** Draft\n",
     )
     .unwrap();
     let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
         .unwrap()
         .unwrap();
+    let body = crate::domain::ChangeMetadata::write_markdown(
+        &body,
+        &identity,
+        crate::domain::ChangeStatus::Draft,
+    )
+    .unwrap();
     let body = crate::domain::ChangeMetadata::write_markdown(
         &body,
         &identity,
@@ -104,7 +110,13 @@ fn compare_plans_updates_both_feature_views_and_only_checkpoints_the_feature() {
     let plan = |id: &str| crate::domain::PlanAlternative {
         id: id.into(),
         objective: "Safe rollout".into(),
-        phases: vec!["Prepare".into(); 3],
+        phases: vec![
+            crate::domain::PlanPhase {
+                name: "Prepare".into(),
+                subtasks: vec!["Record current values".into()],
+            };
+            3
+        ],
         files_touched: vec!["src/search.rs".into()],
         state_changes: vec!["Persist choice".into()],
         failure_modes: vec!["Write error".into()],

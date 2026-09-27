@@ -50,15 +50,22 @@ fn planning_envelope_round_trips_two_plan_alternatives_and_advisory_recommendati
         "schema_version": 2,
         "assistant_message": "Compare the two approaches.",
         "plans": [
-            {"id":"A","objective":"Ship safely","phases":["shadow","cut over"],"files_touched":["src/a.rs"],"state_changes":["Add marker"],"failure_modes":["Stale marker"],"effort_band":"small","known_risks":["Extra read"],"reversibility":"Remove marker"},
-            {"id":"B","objective":"Ship in one step","phases":["replace"],"files_touched":["src/b.rs"],"state_changes":["Replace path"],"failure_modes":["Partial write"],"effort_band":"medium","known_risks":["Rollback"],"reversibility":"Restore backup"}
+            {"id":"A","objective":"Ship safely","phases":[{"name":"shadow","subtasks":["Write marker"]},{"name":"cut over","subtasks":["Switch reads"]},{"name":"verify","subtasks":["Check results"]}],"files_touched":["src/a.rs"],"state_changes":["Add marker"],"failure_modes":["Stale marker"],"effort_band":"small","known_risks":["Extra read"],"reversibility":"Remove marker"},
+            {"id":"B","objective":"Ship in one step","phases":[{"name":"replace","subtasks":["Swap path"]},{"name":"migrate","subtasks":["Move records"]},{"name":"verify","subtasks":["Check results"]}],"files_touched":["src/b.rs"],"state_changes":["Replace path"],"failure_modes":["Partial write"],"effort_band":"medium","known_risks":["Rollback"],"reversibility":"Restore backup"}
         ],
         "recommendation": {"plan_id":"A","rationale":"It has a safer transition.","evidence":["src/a.rs:12"]}
     }"#;
     let decoded = decode_turn(wire, TurnPurpose::ComparePlans).unwrap();
     let plans = decoded.plans.as_ref().unwrap();
     assert_eq!(plans.len(), 2);
-    assert_eq!(plans[0].phases, ["shadow", "cut over"]);
+    assert_eq!(
+        plans[0]
+            .phases
+            .iter()
+            .map(|phase| phase.name.as_str())
+            .collect::<Vec<_>>(),
+        ["shadow", "cut over", "verify"]
+    );
     assert_eq!(plans[1].known_risks, ["Rollback"]);
     assert_eq!(decoded.recommendation.as_ref().unwrap().plan_id, "A");
 

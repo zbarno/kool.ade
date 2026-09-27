@@ -174,18 +174,22 @@ mod tests {
 
     #[test]
     fn plan_comparison_persists_selection_across_status_transitions() {
-        let markdown = "# CHG-001: Search\n\n**Status:** Ready\n";
+        let markdown = "# CHG-001: Search\n\n**Status:** Draft\n";
         let identified =
             ArtifactIdentity::preserve_markdown(markdown, None, "CHG-001", "Search").unwrap();
         let identity = ArtifactIdentity::from_markdown(&identified)
             .unwrap()
             .unwrap();
-        let ready =
-            ChangeMetadata::write_markdown(&identified, &identity, ChangeStatus::Ready).unwrap();
+        let draft =
+            ChangeMetadata::write_markdown(&identified, &identity, ChangeStatus::Draft).unwrap();
+        let ready = ChangeMetadata::write_markdown(&draft, &identity, ChangeStatus::Ready).unwrap();
         let plan = |id: &str| crate::domain::PlanAlternative {
             id: id.into(),
             objective: "Safe rollout".into(),
-            phases: vec!["Prepare".into()],
+            phases: vec![crate::domain::PlanPhase {
+                name: "Prepare".into(),
+                subtasks: vec!["Record current state".into()],
+            }],
             files_touched: vec!["src/a.rs".into()],
             state_changes: vec!["Persist marker".into()],
             failure_modes: vec!["Write fails".into()],
@@ -220,6 +224,92 @@ mod tests {
         assert_eq!(
             metadata.plan_comparison.unwrap().selected_plan.as_deref(),
             Some("B")
+        );
+    }
+
+    #[test]
+    fn draft_becoming_ready_opts_into_comparison_metadata_without_upgrading_legacy_ready() {
+        let draft = "# CHG-001: Search\n\n**Status:** Draft\n";
+        let draft = ArtifactIdentity::preserve_markdown(draft, None, "CHG-001", "Search").unwrap();
+        let identity = ArtifactIdentity::from_markdown(&draft).unwrap().unwrap();
+        let draft = ChangeMetadata::write_markdown(&draft, &identity, ChangeStatus::Draft).unwrap();
+        assert_eq!(
+            ChangeMetadata::require_markdown(&draft)
+                .unwrap()
+                .schema_version,
+            1
+        );
+        let ready = ChangeMetadata::write_markdown(&draft, &identity, ChangeStatus::Ready).unwrap();
+        assert_eq!(
+            ChangeMetadata::require_markdown(&ready)
+                .unwrap()
+                .schema_version,
+            2
+        );
+
+        let legacy_source = "# CHG-002: Old search\n\n**Status:** Ready\n";
+        let legacy_source =
+            ArtifactIdentity::preserve_markdown(legacy_source, None, "CHG-002", "Old search")
+                .unwrap();
+        let legacy_identity = ArtifactIdentity::from_markdown(&legacy_source)
+            .unwrap()
+            .unwrap();
+        let legacy =
+            ChangeMetadata::write_markdown(&legacy_source, &legacy_identity, ChangeStatus::Ready)
+                .unwrap();
+        assert_eq!(
+            ChangeMetadata::require_markdown(&legacy)
+                .unwrap()
+                .schema_version,
+            1
+        );
+    }
+
+    #[test]
+    fn discard_keeps_the_previous_comparison_before_a_retry() {
+        let markdown = "# CHG-001: Search\n\n**Status:** Draft\n";
+        let markdown =
+            ArtifactIdentity::preserve_markdown(markdown, None, "CHG-001", "Search").unwrap();
+        let identity = ArtifactIdentity::from_markdown(&markdown).unwrap().unwrap();
+        let draft =
+            ChangeMetadata::write_markdown(&markdown, &identity, ChangeStatus::Draft).unwrap();
+        let ready = ChangeMetadata::write_markdown(&draft, &identity, ChangeStatus::Ready).unwrap();
+        let plan = |id: &str| crate::domain::PlanAlternative {
+            id: id.into(),
+            objective: format!("Objective {id}"),
+            phases: vec![
+                crate::domain::PlanPhase {
+                    name: "Prepare".into(),
+                    subtasks: vec!["Record current state".into()],
+                };
+                3
+            ],
+            files_touched: vec![format!("src/{id}.rs")],
+            state_changes: vec![format!("State {id}")],
+            failure_modes: vec![format!("Failure {id}")],
+            effort_band: "Small — one module".into(),
+            known_risks: vec![format!("Risk {id}")],
+            reversibility: format!("Undo {id}"),
+        };
+        let comparison = crate::domain::PlanComparison {
+            alternatives: vec![plan("A"), plan("B")],
+            recommendation: crate::domain::PlanRecommendation {
+                plan_id: "A".into(),
+                rationale: "Less risky".into(),
+                evidence: vec!["src/A.rs".into()],
+            },
+            selected_plan: None,
+        };
+        let first = ChangeMetadata::save_plan_comparison(&ready, comparison.clone()).unwrap();
+        let discarded = ChangeMetadata::discard_plan_comparison(&first).unwrap();
+        assert!(!discarded.contains("## Plan Comparison\n"));
+        assert!(discarded.contains("## Plan Comparison History\n"));
+        let second = ChangeMetadata::save_plan_comparison(&discarded, comparison).unwrap();
+        let metadata = ChangeMetadata::require_markdown(&second).unwrap();
+        assert_eq!(metadata.comparison_history.len(), 1);
+        assert_eq!(
+            metadata.plan_comparison.unwrap().alternatives[0].objective,
+            "Objective A"
         );
     }
 }

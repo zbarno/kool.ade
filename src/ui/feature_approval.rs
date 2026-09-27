@@ -10,25 +10,30 @@ pub struct Action {
     pub plan_comparison: Option<crate::domain::PlanComparison>,
 }
 
-pub fn paint_comparison(ui: &mut egui::Ui, action: &Action) -> Option<String> {
+pub enum ComparisonIntent {
+    Adopt(String),
+    Discard,
+}
+
+pub fn paint_comparison(ui: &mut egui::Ui, action: &Action) -> Option<ComparisonIntent> {
     let comparison = action.plan_comparison.as_ref()?;
     ui.heading(format!("Compare plans for {}", action.id));
     ui.label("Packet drafted both approaches from the feature and project evidence. The recommendation is guidance; you choose.");
-    ui.label(format!(
-        "Packet recommends Plan {}: {}",
-        comparison.recommendation.plan_id, comparison.recommendation.rationale
-    ));
-    for evidence in &comparison.recommendation.evidence {
-        ui.label(format!("Evidence: {evidence}"));
-    }
-    let mut choice = None;
+    let mut intent = None;
     ui.columns(2, |columns| {
         for (index, plan) in comparison.alternatives.iter().enumerate() {
             let ui = &mut columns[index];
             super::theme::card_frame().show(ui, |ui| {
                 ui.heading(format!("Plan {}", plan.id));
                 ui.label(&plan.objective);
-                detail_list(ui, "Phases", &plan.phases);
+                ui.collapsing("Phases", |ui| {
+                    for (index, phase) in plan.phases.iter().enumerate() {
+                        ui.label(format!("{}. {}", index + 1, phase.name));
+                        for subtask in &phase.subtasks {
+                            ui.label(format!("  • {subtask}"));
+                        }
+                    }
+                });
                 detail_list(ui, "Files touched", &plan.files_touched);
                 detail_list(ui, "State changes", &plan.state_changes);
                 detail_list(ui, "Failure modes", &plan.failure_modes);
@@ -37,16 +42,37 @@ pub fn paint_comparison(ui: &mut egui::Ui, action: &Action) -> Option<String> {
                 ui.label(format!("Reversibility: {}", plan.reversibility));
                 if comparison.selected_plan.as_deref() == Some(&plan.id) {
                     ui.label(egui::RichText::new("Selected").color(super::theme::SUCCESS));
-                } else if ui.button(format!("Choose Plan {}", plan.id)).clicked() {
-                    choice = Some(plan.id.clone());
+                } else if comparison.selected_plan.is_none()
+                    && ui.button(format!("Adopt Plan {}", plan.id)).clicked()
+                {
+                    intent = Some(ComparisonIntent::Adopt(plan.id.clone()));
                 }
             });
         }
     });
-    ui.label(
-        "If you defer, the feature remains unapproved and no implementation tasks are generated.",
-    );
-    choice
+    super::theme::card_frame().show(ui, |ui| {
+        ui.label(
+            egui::RichText::new(format!(
+                "Packet recommends Plan {}",
+                comparison.recommendation.plan_id
+            ))
+            .strong(),
+        );
+        ui.label(&comparison.recommendation.rationale);
+        for evidence in &comparison.recommendation.evidence {
+            ui.label(format!("Evidence: {evidence}"));
+        }
+        ui.label("The recommendation is advisory; the operator chooses the plan.");
+    });
+    if comparison.selected_plan.is_none() {
+        ui.label("If you defer, the feature remains unapproved and no implementation tasks are generated.");
+        if ui.button("Discard and re-compare").clicked() {
+            intent = Some(ComparisonIntent::Discard);
+        }
+    } else {
+        ui.label("The adopted plan is frozen into the feature and its decision record.");
+    }
+    intent
 }
 
 fn detail_list(ui: &mut egui::Ui, title: &str, entries: &[String]) {

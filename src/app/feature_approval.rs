@@ -41,6 +41,7 @@ impl PacketApp {
                     return None;
                 }
                 let compare_plans = metadata.status == crate::domain::ChangeStatus::Ready
+                    && metadata.schema_version == 2
                     && metadata.plan_comparison.is_none();
                 let approved = p
                     .state

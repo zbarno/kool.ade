@@ -107,19 +107,40 @@ pub fn validate_feature(id: &str, markdown: &str) -> anyhow::Result<()> {
         .filter(|(level, _)| *level == HeadingLevel::H2)
         .map(|(_, title)| title.as_str())
         .collect::<Vec<_>>();
+    const REQUIRED: [&str; 8] = [
+        "Intent",
+        "Current Behavior",
+        "Desired Behavior",
+        "Scope",
+        "Affected Product Areas",
+        "Requirements",
+        "Decisions and Assumptions",
+        "Acceptance Criteria",
+    ];
     anyhow::ensure!(
-        sections
-            == [
-                "Intent",
-                "Current Behavior",
-                "Desired Behavior",
-                "Scope",
-                "Affected Product Areas",
-                "Requirements",
-                "Decisions and Assumptions",
-                "Acceptance Criteria"
-            ],
+        sections.len() >= REQUIRED.len() && sections[..REQUIRED.len()] == REQUIRED,
         "feature requires the eight ordered sections"
+    );
+    let extras = &sections[REQUIRED.len()..];
+    let allowed = [
+        "Plan Comparison",
+        "Plan Comparison History",
+        "Selected Plan",
+    ];
+    let mut seen = std::collections::BTreeSet::new();
+    for extra in extras {
+        anyhow::ensure!(
+            allowed.contains(extra),
+            "feature has an unsupported section {extra:?}"
+        );
+        anyhow::ensure!(
+            seen.insert(*extra),
+            "feature has duplicate section {extra:?}"
+        );
+    }
+    anyhow::ensure!(
+        !seen.contains("Selected Plan") || seen.contains("Plan Comparison"),
+        "Selected Plan requires its Plan Comparison"
     );
     Ok(())
 }

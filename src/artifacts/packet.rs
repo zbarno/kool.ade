@@ -7,8 +7,10 @@
 
 mod decision;
 mod identity;
+mod plan_choice;
 
 pub(crate) use decision::prepare_decision_record;
+pub(crate) use plan_choice::prepare_plan_choice_record;
 
 use std::path::{Path, PathBuf};
 

@@ -6,6 +6,8 @@ use super::ChangeStatus;
 const MARKER: &str = "<!-- packet-change:v1 ";
 const STATUS_PREFIX: &str = "**Status:**";
 
+mod comparison;
+
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ChangeMetadata {
@@ -15,6 +17,10 @@ pub struct ChangeMetadata {
     pub status: ChangeStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_comparison: Option<crate::domain::PlanComparison>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub comparison_history: Vec<crate::domain::PlanComparison>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_alt: Option<String>,
 }
 
 impl ChangeMetadata {
@@ -25,6 +31,8 @@ impl ChangeMetadata {
             display_id: identity.display_id.clone(),
             status,
             plan_comparison: None,
+            comparison_history: Vec::new(),
+            selected_alt: None,
         }
     }
 
@@ -41,13 +49,31 @@ impl ChangeMetadata {
                 .ok_or_else(|| anyhow::anyhow!("Malformed Packet change metadata marker"))?;
             let metadata: Self = serde_json::from_str(json)?;
             anyhow::ensure!(
-                metadata.schema_version == 1,
+                matches!(metadata.schema_version, 1 | 2),
                 "Unsupported change metadata schema"
             );
             anyhow::ensure!(
                 uuid::Uuid::parse_str(&metadata.uid).is_ok()
                     && !metadata.display_id.trim().is_empty(),
                 "Malformed Packet change metadata fields"
+            );
+            anyhow::ensure!(
+                metadata
+                    .selected_alt
+                    .as_deref()
+                    .is_none_or(|id| ["A", "B"].contains(&id)),
+                "Malformed selected alternative"
+            );
+            anyhow::ensure!(
+                metadata.selected_alt.is_none() || metadata.plan_comparison.is_some(),
+                "Selected alternative has no comparison"
+            );
+            anyhow::ensure!(
+                metadata.schema_version == 2
+                    || (metadata.plan_comparison.is_none()
+                        && metadata.comparison_history.is_empty()
+                        && metadata.selected_alt.is_none()),
+                "Compare Plans metadata requires schema version 2"
             );
             if let Some(comparison) = &metadata.plan_comparison {
                 anyhow::ensure!(
@@ -58,8 +84,18 @@ impl ChangeMetadata {
                         && comparison
                             .selected_plan
                             .as_deref()
-                            .is_none_or(|id| ["A", "B"].contains(&id)),
+                            .is_none_or(|id| ["A", "B"].contains(&id))
+                        && comparison.selected_plan == metadata.selected_alt,
                     "Malformed plan comparison metadata"
+                );
+            }
+            for comparison in &metadata.comparison_history {
+                anyhow::ensure!(
+                    comparison.alternatives.len() == 2
+                        && comparison.alternatives[0].id == "A"
+                        && comparison.alternatives[1].id == "B"
+                        && ["A", "B"].contains(&comparison.recommendation.plan_id.as_str()),
+                    "Malformed comparison history"
                 );
             }
             found = Some(metadata);
@@ -131,6 +167,12 @@ impl ChangeMetadata {
                 existing.uid == identity.uid && existing.display_id == identity.display_id
             })
             .unwrap_or_else(|| Self::new(identity, status));
+        if metadata.schema_version == 1
+            && metadata.status == ChangeStatus::Draft
+            && status == ChangeStatus::Ready
+        {
+            metadata.schema_version = 2;
+        }
         metadata.status = status;
         let marker = format!("{MARKER}{} -->", serde_json::to_string(&metadata)?);
         let identity_marker = "<!-- packet-artifact-id:v1 ";
@@ -181,51 +223,12 @@ impl ChangeMetadata {
         }
         Ok(rendered)
     }
-
-    pub fn save_plan_comparison(
-        markdown: &str,
-        comparison: crate::domain::PlanComparison,
-    ) -> anyhow::Result<String> {
-        anyhow::ensure!(
-            comparison.alternatives.len() == 2,
-            "Plan comparison requires exactly two alternatives"
-        );
-        anyhow::ensure!(
-            comparison.alternatives[0].id == "A"
-                && comparison.alternatives[1].id == "B"
-                && ["A", "B"].contains(&comparison.recommendation.plan_id.as_str()),
-            "Plan comparison IDs or recommendation are invalid"
-        );
-        anyhow::ensure!(
-            comparison.selected_plan.is_none(),
-            "A generated comparison cannot preselect an alternative"
-        );
-        let mut metadata = Self::require_markdown(markdown)?;
-        anyhow::ensure!(
-            metadata.status == ChangeStatus::Ready,
-            "Only a Ready feature can store plan alternatives"
-        );
-        metadata.plan_comparison = Some(comparison);
-        replace_metadata(markdown, &metadata)
-    }
-
-    pub fn select_plan(markdown: &str, plan_id: &str) -> anyhow::Result<String> {
-        anyhow::ensure!(["A", "B"].contains(&plan_id), "Unknown plan alternative");
-        let mut metadata = Self::require_markdown(markdown)?;
-        anyhow::ensure!(
-            metadata.status == ChangeStatus::Ready,
-            "Only a Ready feature can change its plan selection"
-        );
-        let comparison = metadata
-            .plan_comparison
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Feature has no generated plan comparison"))?;
-        comparison.selected_plan = Some(plan_id.to_owned());
-        replace_metadata(markdown, &metadata)
-    }
 }
 
-fn replace_metadata(markdown: &str, metadata: &ChangeMetadata) -> anyhow::Result<String> {
+pub(super) fn replace_metadata(
+    markdown: &str,
+    metadata: &ChangeMetadata,
+) -> anyhow::Result<String> {
     let marker = format!("{MARKER}{} -->", serde_json::to_string(metadata)?);
     let mut found = false;
     let mut result = String::new();

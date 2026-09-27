@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub struct PlanAlternative {
     pub id: String,
     pub objective: String,
-    pub phases: Vec<String>,
+    pub phases: Vec<PlanPhase>,
     #[serde(alias = "files_touched")]
     pub files_touched: Vec<String>,
     #[serde(alias = "state_changes")]
@@ -20,6 +20,13 @@ pub struct PlanAlternative {
     #[serde(alias = "known_risks")]
     pub known_risks: Vec<String>,
     pub reversibility: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanPhase {
+    pub name: String,
+    pub subtasks: Vec<String>,
 }
 
 /// Advisory lean with repository evidence; the operator makes the choice.

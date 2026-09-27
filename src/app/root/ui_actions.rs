@@ -32,6 +32,7 @@ impl PacketApp {
             ApplicationCommand::ChooseFeaturePlan { id, plan_id } => {
                 self.choose_feature_plan(&id, &plan_id)
             }
+            ApplicationCommand::DiscardFeaturePlans { id } => self.discard_feature_plans(&id),
             ApplicationCommand::UserIntent(intent) => self.apply_user_intent(intent),
             ApplicationCommand::HeaderAction(action) => self.apply_header_action(action),
             ApplicationCommand::TaskDetail(command) => self.dispatch_task_detail(command),

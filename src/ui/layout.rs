@@ -304,23 +304,36 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     .color(theme::TEXT_DIM),
             );
             ui.add_space(22.0);
+            let comparison_action = if view == 1 {
+                s.feature_actions(None)
+                    .into_iter()
+                    .find(|action| selected.as_deref() == Some(action.id.as_str()))
+                    .filter(|action| action.plan_comparison.is_some())
+            } else {
+                None
+            };
+            let mut comparison_intent = None;
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     crate::ui::spec_viewer::render(ui, Some(&document));
+                    if let Some(action) = comparison_action.as_ref() {
+                        comparison_intent =
+                            crate::ui::feature_approval::paint_comparison(ui, action);
+                    }
                 });
-            if view == 1
-                && let Some(action) = s
-                    .feature_actions(None)
-                    .into_iter()
-                    .find(|action| selected.as_deref() == Some(action.id.as_str()))
-                && action.plan_comparison.is_some()
-                && let Some(plan_id) = crate::ui::feature_approval::paint_comparison(ui, &action)
-            {
-                s.dispatch(ApplicationCommand::ChooseFeaturePlan {
-                    id: action.id,
-                    plan_id,
-                });
+            if let (Some(action), Some(intent)) = (comparison_action, comparison_intent) {
+                match intent {
+                    crate::ui::feature_approval::ComparisonIntent::Adopt(plan_id) => {
+                        s.dispatch(ApplicationCommand::ChooseFeaturePlan {
+                            id: action.id,
+                            plan_id,
+                        });
+                    }
+                    crate::ui::feature_approval::ComparisonIntent::Discard => {
+                        s.dispatch(ApplicationCommand::DiscardFeaturePlans { id: action.id });
+                    }
+                }
             }
         });
     if settings_open {

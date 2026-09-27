@@ -6,8 +6,8 @@ bounded repository evidence. Packet authors both alternatives in this turn; do
 not request operator-authored plans, perspectives, imports, or other input.
 
 Return schema_version 2 with exactly two plans, IDs A and B, plus one
-recommendation. Each plan must use the same fields: objective, phases (three
-ordered phases with concise substeps), files_touched, state_changes,
+recommendation. Each plan must use the same fields: objective, phases (exactly
+three ordered objects, each with a name and one to three concise subtasks), files_touched, state_changes,
 failure_modes, effort_band (small, medium, or large, with justification),
 known_risks, and reversibility. Ground claims in the supplied feature and
 repository context. Make the alternatives materially distinct along suitable

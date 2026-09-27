@@ -43,6 +43,7 @@ pub enum ApplicationCommand {
     ApproveFeature { id: String },
     CompareFeaturePlans { id: String },
     ChooseFeaturePlan { id: String, plan_id: String },
+    DiscardFeaturePlans { id: String },
     UserIntent(Intent),
     HeaderAction(HeaderAction),
     TaskDetail(task_detail::Command),

@@ -3,6 +3,9 @@ use crate::core::{state::PlannerState, validation::NormalizedTurn};
 use crate::harness::TurnEnvelope;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "workflow/contract_tests.rs"]
+mod contract_tests;
 mod outline_validation;
 mod story_validation;
 pub use outline_validation::validate_outline;
@@ -145,6 +148,7 @@ pub fn feature_contract(text: &str) -> String {
                 "Requirements",
                 "Decisions and Assumptions",
                 "Acceptance Criteria",
+                "Selected Plan",
             ]
             .contains(&heading);
         }
@@ -176,10 +180,15 @@ pub fn approve_feature_if_current(
     let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
     let text = std::fs::read_to_string(path)?;
     crate::core::specification::validate_feature(id, &text)?;
-    let status = crate::domain::ChangeMetadata::require_markdown(&text)?.status;
+    let metadata = crate::domain::ChangeMetadata::require_markdown(&text)?;
+    let status = metadata.status;
     anyhow::ensure!(
         status.approval_eligible(),
         "Only a ready or already implementing feature may be approved"
+    );
+    anyhow::ensure!(
+        metadata.schema_version != 2 || metadata.selected_alt.is_some(),
+        "Compare and adopt a plan before approving this feature"
     );
     let contract = feature_contract(&text);
     anyhow::ensure!(!contract.trim().is_empty(), "Feature contract is empty");
@@ -209,6 +218,12 @@ pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -
     let Ok(text) = std::fs::read_to_string(path) else {
         return false;
     };
+    let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(&text) else {
+        return false;
+    };
+    if metadata.schema_version == 2 && metadata.selected_alt.is_none() {
+        return false;
+    }
     workflow
         .approved_features
         .get(id)
@@ -733,9 +748,22 @@ mod tests {
             .join(format!("{id}-fixture-{state_tag}"));
         std::fs::create_dir_all(&dir).unwrap();
         let body = format!(
-            "#{id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
+            "# {id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
         );
-        std::fs::write(dir.join("specification.md"), &body).unwrap();
+        let path = dir.join("specification.md");
+        let body =
+            crate::artifacts::product_docs::identity::preserve_feature_identity(&path, id, &body)
+                .unwrap();
+        let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
+            .unwrap()
+            .unwrap();
+        let body = crate::domain::ChangeMetadata::write_markdown(
+            &body,
+            &identity,
+            crate::domain::ChangeStatus::Ready,
+        )
+        .unwrap();
+        std::fs::write(path, &body).unwrap();
         body
     }
 
