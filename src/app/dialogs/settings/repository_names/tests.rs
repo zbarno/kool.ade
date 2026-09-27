@@ -146,6 +146,28 @@ fn settings_save_commits_trimmed_repository_name_and_reload_restores_it() {
 }
 
 #[test]
+fn clearing_a_saved_repository_name_persists_none_and_preserves_identity() {
+    let _shield = crate::core::gitops::test_support::shield("repository-name-clear");
+    let root = fixture();
+    let mut project = test_support::project_from(&root);
+    let mut dialog = DlgSettings::from_project(&project);
+    dialog.repositories[0].name = "Product API".into();
+    dialog.apply(&mut project).unwrap();
+
+    let mut project = test_support::project_from(&root);
+    let mut dialog = DlgSettings::from_project(&project);
+    assert_eq!(dialog.repositories[0].name, "Product API");
+    dialog.repositories[0].name.clear();
+    dialog.apply(&mut project).unwrap();
+
+    let manifest = ProjectManifest::load(&root).unwrap();
+    assert_eq!(manifest.repositories[0].display_name, None);
+    assert_eq!(manifest.repositories[0].id, "root");
+    assert_eq!(manifest.repositories[0].role, "Planning root");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn invalid_edit_is_discarded_without_changing_the_manifest_or_identity() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-invalid");
     let root = fixture();
