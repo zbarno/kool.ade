@@ -320,6 +320,12 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     let metadata = crate::domain::ChangeMetadata::require_markdown(feature).unwrap();
     assert_eq!(metadata.selected_alt.as_deref(), Some("B"));
     assert!(metadata.plan_comparison.is_none());
+    app.approve_feature_only("CHG-004");
+    assert!(
+        app.feature_approved("CHG-004"),
+        "{:?}",
+        app.chat_messages().last()
+    );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

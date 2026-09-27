@@ -4,7 +4,7 @@
 **Current phase:** P8 — complete end-to-end dogfood scenarios
 **Last checked:** 2026-09-27
 **Source plan:** [Full user-provided requirements](source-plan.md)  
-**Current code baseline:** working tree atop `b333e70`; Scenario B UI and Scenario A typed comparison work are in progress
+**Current code baseline:** working tree atop `13a0763`; Scenario B UI and Scenario A Plan B workflow work are committed, with additional approval/restart validation in progress
 
 This is the durable ledger for the nine-phase follow-up plan. The source plan is preserved verbatim; its acceptance criteria, test matrix, required quality gates, and completion definition remain binding. A phase stays incomplete until its criteria have current, scope-matched evidence.
 
@@ -90,7 +90,7 @@ This is the durable ledger for the nine-phase follow-up plan. The source plan is
 
 Historical code gates at `664e11a`: `cargo +1.98.1 fmt --all --check`, `cargo +1.98.1 check --locked --all-targets`, `cargo +1.98.1 test --locked --all-targets -- --test-threads=1` (692 library tests passed; all 4 active integration tests passed; one one-shot migration test intentionally ignored), and `cargo +1.98.1 clippy --locked --all-targets -- -D warnings` all pass. The rebuilt native Packet UI confirmed the plan comparison renders without duplicate widget-ID warnings. After documentation-only corrections, `git diff --check` passes. At that baseline, Scenario A remained incomplete pending the operator's explicit choice and subsequent adoption, approval, implementation, and reconciliation.
 
-Current working-tree evidence atop `b333e70`: the full serial all-target suite passed with 692 library tests, 4 active integration tests, and one intentionally ignored one-shot migration test. After extracting the new Plan B record/adoption modules, `fmt --check`, locked all-target check, the focused comparison persistence and Plan B adoption UI tests, locked all-target Clippy with `-D warnings`, and `git diff --check` pass. The full suite was run immediately before that mechanical module extraction; focused tests and compiler/linter gates cover the final module layout. Scenario B now paints the complete blocker report inline and its task-detail regression test passes. Scenario A typed comparison and Plan B adoption are covered by app-path tests; actual F7 fixture adoption/approval/task generation and post-merge reconciliation remain open.
+Current working-tree evidence atop `13a0763`: the full serial all-target suite passed with 693 library tests, 4 active integration tests, and one intentionally ignored one-shot migration test. After extracting the new Plan B record/adoption modules, `fmt --check`, locked all-target check, the focused comparison persistence and Plan B adoption UI tests, locked all-target Clippy with `-D warnings`, and `git diff --check` pass. The full suite was run after the module extraction and structured-approval validation. The dedicated three-artifact Plan B adoption restart test was added afterward and passes; Clippy also passes on that final test addition. Scenario B now paints the complete blocker report inline and its task-detail regression test passes. Scenario A typed comparison and Plan B adoption are covered by app-path tests; actual F7 fixture adoption/task generation, implementation/reconciliation, and direct narrow-width interaction evidence remain open. Plan B approval now passes in the app path; a partial feature/ADR/workflow adoption bundle recovers all three artifacts after simulated restart.
 
 ## Continuation guidance
 

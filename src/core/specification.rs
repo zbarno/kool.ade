@@ -138,10 +138,13 @@ pub fn validate_feature(id: &str, markdown: &str) -> anyhow::Result<()> {
             "feature has duplicate section {extra:?}"
         );
     }
-    anyhow::ensure!(
-        !seen.contains("Selected Plan") || seen.contains("Plan Comparison"),
-        "Selected Plan requires its Plan Comparison"
-    );
+    if seen.contains("Selected Plan") && !seen.contains("Plan Comparison") {
+        let metadata = crate::domain::ChangeMetadata::require_markdown(markdown)?;
+        anyhow::ensure!(
+            metadata.schema_version == 2 && metadata.selected_alt.is_some(),
+            "Selected Plan requires a selected alternative in structured change metadata"
+        );
+    }
     Ok(())
 }
 

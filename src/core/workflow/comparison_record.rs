@@ -56,3 +56,14 @@ impl PlanComparisonRecord {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn workflow_without_comparison_records_still_loads() {
+        let old =
+            r#"{"brief":null,"reviewedSpecification":null,"taskBatches":[],"approvedFeatures":{}}"#;
+        let workflow: crate::core::workflow::Workflow = serde_json::from_str(old).unwrap();
+        assert!(workflow.plan_comparisons.is_empty());
+    }
+}
