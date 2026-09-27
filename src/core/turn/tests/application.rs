@@ -31,6 +31,8 @@ fn happy_path_writes_files_and_commits() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let c = TurnController::start(
         inputs,
@@ -94,6 +96,8 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let result = drain(&TurnController::start(
         inputs.clone(),
@@ -169,6 +173,8 @@ fn planner_can_add_a_project_specific_module_and_apply_it_atomically() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let result = drain(&TurnController::start(
         inputs,
@@ -238,6 +244,8 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let result = drain(&TurnController::start(
         inputs,

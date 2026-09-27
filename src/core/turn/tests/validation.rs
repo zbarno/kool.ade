@@ -76,6 +76,8 @@ fn bad_envelope_types_reject_cleanly() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let c = TurnController::start(
         inputs,

@@ -4,6 +4,7 @@
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::core::workflow::{InterviewBrief, TaskOutline, TaskStory, TurnPurpose};
+use crate::domain::{PlanAlternative, PlanRecommendation};
 
 use super::{DocumentUpdate, RequestedAction, TurnEnvelope, TurnItem, TurnItemUpdate};
 
@@ -31,6 +32,9 @@ pub struct PlanningTurnResponse {
     #[serde(alias = "requested_action")]
     pub requested_action: Option<RequestedAction>,
     pub interview: Option<InterviewBrief>,
+    #[serde(alias = "plan_alternatives")]
+    pub plans: Option<Vec<PlanAlternative>>,
+    pub recommendation: Option<PlanRecommendation>,
 }
 
 impl From<PlanningTurnResponse> for TurnEnvelope {
@@ -51,6 +55,8 @@ impl From<PlanningTurnResponse> for TurnEnvelope {
             interview: response.interview,
             task_stories: None,
             task_outline: None,
+            plans: response.plans,
+            recommendation: response.recommendation,
         }
     }
 }
@@ -106,6 +112,8 @@ impl From<TaskGenerationResponse> for TurnEnvelope {
             requested_action: None,
             interview: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 }
@@ -147,6 +155,8 @@ impl From<InvestigationResponse> for TurnEnvelope {
             interview: None,
             task_stories: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 }
@@ -188,6 +198,8 @@ impl From<ReconciliationResponse> for TurnEnvelope {
             interview: None,
             task_stories: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 }

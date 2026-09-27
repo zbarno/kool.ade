@@ -641,6 +641,8 @@ mod tests {
             task_stories: None,
             requested_action: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 

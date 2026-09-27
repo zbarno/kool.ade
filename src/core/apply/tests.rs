@@ -163,6 +163,8 @@ fn unowned_used_category_spawns_single_ownership_item() {
         interview: None,
         task_stories: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let nt = validation::validate(&e, &st, &st.effective_user()).unwrap();
     let rc = apply(&mut st, &nt).unwrap();

@@ -83,6 +83,8 @@ fn envelope() -> TurnEnvelope {
         interview: None,
         task_stories: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     }
 }
 
