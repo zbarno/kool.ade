@@ -78,6 +78,76 @@ fn writes_changed_files_and_labels_checkpoint() {
 }
 
 #[test]
+fn compare_plans_updates_both_feature_views_and_only_checkpoints_the_feature() {
+    let (mut state, root) = state_at("plan_comparison");
+    let feature_dir = root.join(".kool-ade-packet/planning/changes/CHG-004-saved-searches");
+    std::fs::create_dir_all(&feature_dir).unwrap();
+    let path = feature_dir.join("specification.md");
+    let body = crate::artifacts::product_docs::identity::preserve_feature_identity(
+        &path,
+        "CHG-004",
+        "# CHG-004: Saved searches\n\n**Status:** Ready\n",
+    )
+    .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
+        .unwrap()
+        .unwrap();
+    let body = crate::domain::ChangeMetadata::write_markdown(
+        &body,
+        &identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    std::fs::write(&path, &body).unwrap();
+    state.active_feature = Some(("CHG-004".into(), body.clone()));
+    state.active_features.push(("CHG-004".into(), body));
+    let plan = |id: &str| crate::domain::PlanAlternative {
+        id: id.into(),
+        objective: "Safe rollout".into(),
+        phases: vec!["Prepare".into(); 3],
+        files_touched: vec!["src/search.rs".into()],
+        state_changes: vec!["Persist choice".into()],
+        failure_modes: vec!["Write error".into()],
+        effort_band: "Small — one module".into(),
+        known_risks: vec!["Migration".into()],
+        reversibility: "Restore prior file".into(),
+    };
+    let mut normalized = make_norm(Some("Compare plans"), None);
+    normalized.plan_comparison = Some(crate::domain::PlanComparison {
+        alternatives: vec![plan("A"), plan("B")],
+        recommendation: crate::domain::PlanRecommendation {
+            plan_id: "A".into(),
+            rationale: "Fewer writes".into(),
+            evidence: vec!["src/search.rs".into()],
+        },
+        selected_plan: None,
+    });
+    let receipt = apply(&mut state, &normalized).unwrap();
+    assert_eq!(
+        receipt.repo_relative_paths,
+        vec![".kool-ade-packet/planning/changes/CHG-004-saved-searches/specification.md"]
+    );
+    assert!(
+        crate::domain::ChangeMetadata::require_markdown(&state.active_feature.unwrap().1)
+            .unwrap()
+            .plan_comparison
+            .is_some()
+    );
+    assert!(
+        crate::domain::ChangeMetadata::require_markdown(&state.active_features[0].1)
+            .unwrap()
+            .plan_comparison
+            .is_some()
+    );
+    assert!(
+        std::fs::read_to_string(path)
+            .unwrap()
+            .contains("planComparison")
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn new_open_item_links_to_feature_created_in_same_turn() {
     let (mut state, root) = state_at("new_feature_link");
     let feature_id = crate::artifacts::product_docs::next_feature_id(&root);

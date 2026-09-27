@@ -18,6 +18,13 @@ pub(super) fn apply(
     );
     let updated = crate::domain::ChangeMetadata::save_plan_comparison(&body, comparison.clone())?;
     crate::artifacts::atomic_write(&path, &updated)?;
+    if let Some((_, feature_body)) = state
+        .active_features
+        .iter_mut()
+        .find(|(feature_id, _)| feature_id == &id)
+    {
+        *feature_body = updated.clone();
+    }
     state.active_feature = Some((id.clone(), updated));
     Ok(ApplyReceipt {
         spec_written: false,
