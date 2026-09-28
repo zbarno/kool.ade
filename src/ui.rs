@@ -56,6 +56,7 @@ pub enum ApplicationCommand {
     SetAutoBuild {
         enabled: bool,
     },
+    StartTodoImplementations,
     SetAutoPublish {
         enabled: bool,
     },
