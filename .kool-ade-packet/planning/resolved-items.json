@@ -563,5 +563,21 @@
       }
     },
     "status": "resolved"
+  },
+  {
+    "uid": "9dc84f3e-45cb-4938-a315-f63c84d023a0",
+    "id": "CLR-033",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "Product",
+    "assigned_to": "Zachary Barno",
+    "question": "Broken down 'by feature name': should each report line be titled by the planning feature the worked item traced to, falling back to the item's own title, then a 'General' catch-all for untitled time?",
+    "reason": "The terse ruling fixes the form and the two breakdown axes but not the exact label chain, and the chain sets what invoice-bound names print on the month sheets. Settled as a reversible read-time derivation in F7 AD-9 (labels derive at render; no ledger rows are touched), and it should be confirmable or correctable from the first generated report sample. Does not gate tasks.",
+    "feature_id": "F7",
+    "feature_uid": "c72bff0b-3d5a-45e8-9833-27f0d0b8ebc8",
+    "recommendation": "",
+    "evidence": "Operator reply in this thread ('just markdown files for the month broken down by day and feature name') settles form and breakdown axes; AD-5 records the producing worker/session per interval and board items carry feature context, giving a render-time label chain to hang the assumption on.\n\nResolution outcome: CLR-033 settled as an agent assumption: the label chain is planning-feature display title → worked item's own title → \"General\", derived at render time with no ledger-row changes (AD-9). Grounding: Packet task tickets already carry an explicit \"Feature:\" traceability line tying each item to its planning feature, and AD-5 records the producing item per interval, so the chain hangs on existing durable links; AC3 keeps printed lines summing to on-screen totals. Confirm or correct from the first generated report sample.\n\n---\n- Nothing needed now; confirm the chain from the first month-report sample\n- Pointer: F7 spec, AD-9",
+    "status": "resolved"
   }
 ]
