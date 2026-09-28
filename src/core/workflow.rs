@@ -21,6 +21,8 @@ pub const WORKFLOW_FILE: &str = crate::artifacts::layout::canonical::WORKFLOW;
 pub enum TurnPurpose {
     #[default]
     Interview,
+    /// Answer an investigative question without creating a feature spec.
+    Question,
     /// Refresh a stale brief for an already authorized generation action.
     ReviewForGeneration,
     GenerateTasks,
@@ -58,10 +60,13 @@ pub struct Workflow {
     pub task_batches: Vec<TaskBatchRef>,
     #[serde(default)]
     pub approved_features: std::collections::BTreeMap<String, String>,
-    /// Current typed plan comparison state, keyed by stable feature ID.
-    /// Legacy feature-document comparisons remain readable and are promoted on adoption.
+    /// Authoritative plan comparison lifecycle, keyed by stable feature ID.
     #[serde(default)]
     pub plan_comparisons: std::collections::BTreeMap<String, PlanComparisonRecord>,
+    /// Unvalidated pre-contract comparison snapshots kept as history only.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub legacy_plan_comparison_evidence:
+        std::collections::BTreeMap<String, Vec<crate::domain::PlanComparison>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,13 +198,12 @@ pub fn approve_feature_if_current(
         "Only a ready or already implementing feature may be approved"
     );
     let current_workflow = crate::artifacts::task_docs::load_workflow(repo)?;
-    let comparison_ready = current_workflow.plan_comparisons.get(id).map_or(
-        metadata.selected_alt.is_some(),
-        |record| {
-            record.status == PlanComparisonStatus::Adopted
-                && record.selected_plan == metadata.selected_alt
-        },
-    );
+    let comparison_ready = current_workflow
+        .plan_comparisons
+        .get(id)
+        .is_some_and(|record| {
+            record.status == PlanComparisonStatus::Adopted && record.selected_plan.is_some()
+        });
     anyhow::ensure!(
         metadata.schema_version != 2 || comparison_ready,
         "Compare and adopt a plan before approving this feature"
@@ -235,14 +239,9 @@ pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -
     let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(&text) else {
         return false;
     };
-    let comparison_ready =
-        workflow
-            .plan_comparisons
-            .get(id)
-            .map_or(metadata.selected_alt.is_some(), |record| {
-                record.status == PlanComparisonStatus::Adopted
-                    && record.selected_plan == metadata.selected_alt
-            });
+    let comparison_ready = workflow.plan_comparisons.get(id).is_some_and(|record| {
+        record.status == PlanComparisonStatus::Adopted && record.selected_plan.is_some()
+    });
     if metadata.schema_version == 2 && !comparison_ready {
         return false;
     }

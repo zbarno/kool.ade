@@ -1,0 +1,302 @@
+{
+  "board_attention_ids": [
+    "CLR-001",
+    "CLR-002"
+  ],
+  "conversation": [
+    {
+      "role": "agent",
+      "text": "Saved F1 (User Accounts) as a Draft spec. No code exists in this planning root, so the whole feature is product-shape territory. Two independent blocking decisions are now on the board for F1 — you can answer either first:\n\n---\n- Which do you want to settle first?\n- Lean: email-as-identifier, editable display name, local credentials only (no SSO)\n- Board cards for F1 · Account model and F1 · Auth scheme"
+    }
+  ],
+  "features": [
+    [
+      "F1",
+      "# F1: User Accounts\n<!-- packet-artifact-id:v1 {\"uid\":\"1981d7fc-4893-4714-934d-743ff4ffd342\",\"displayId\":\"F1\",\"title\":\"User Accounts\"} -->\n<!-- packet-change:v1 {\"schemaVersion\":1,\"uid\":\"1981d7fc-4893-4714-934d-743ff4ffd342\",\"displayId\":\"F1\",\"status\":\"draft\"} -->\n\n**Status:** Draft\n\n## Intent\nLet people register for, log in as, and be recognized as distinct individuals using the system, so future capabilities can attribute actions and store per-person data.\n\nWhy now: the current planning root has no concept of a person; every downstream feature (workspaces, preferences, audit trails) presumes one.\n\n## Current Behavior\nThere are no user accounts, authentication, or persisted identities anywhere in the repository. No implementation code currently exists beyond the `.kool-ade-packet` planning scaffold, so \"current\" is a clean slate.\n\n## Desired Behavior\n- A visitor can create an account with a unique identifier (email preferred) and be authenticated afterwards.\n- An authenticated user sees their own identity (at minimum, their display name) in the UI and can log out.\n- Future features can associate work with the signed-in user.\n\nFull authentication mechanics and profile richness are deliberately left to the open board items.\n\n## Scope\nIn scope:\n- Register endpoint + basic validation (unique identifier, acceptable password strength).\n- Login + logout and a way for the rest of the app to know \"who am I\".\n- Minimal profile display/edit for whatever fields the account model ends up carrying.\n- Persistence of the account records in the app's database.\n\nOut of scope (until explicitly decided):\n- Email verification, reset flows, MFA, social/OAuth federated login.\n- Roles/permissions/RBAC; groups/orgs/multi-tenancy.\n- Third-party or admin-managed account provisioning.\n\n## Affected Product Areas\n- Users and Outcomes: gains a first-class actor type with stated needs.\n- Current Capabilities: gains the new account/authentication capability.\n- Architecture and Constraints: gains a data-store concern and a security constraint (credential storage, session/secret management).\n- Quality and Acceptance: gains registration/login/journey acceptance tests.\n\n## Requirements\nR1. Registration takes the fields chosen by the account model and rejects duplicates deterministically.\nR2. Successful registration signs the new user in; a duplicate attempt produces a clear error that does not leak which identifiers already exist beyond the one attempted.\nR3. Login verifies stored credentials per the chosen scheme and issues an authenticated session (mechanism to be decided).\nR4. Logout terminates the caller's session reliably.\nR5. Anywhere the app previously had a notion of \"anonymous\", it distinguishes signed-in user vs anonymous without breaking existing behavior.\n\n## Decisions and Assumptions\nPending (see open items):\n- Account identifier and profile field set (Board: Account model).\n- Credential storage + login transport (hash algorithm, session cookies vs tokens, rate limiting) (Board: Auth scheme).\n\nReversible defaults assumed for now to keep planning moving:\n- Server-rendered web app, browser cookie sessions (to be replaced if API/token auth wins on the board).\n- SQLite/postgres-style relational store consistent with typical small-app stacks.\n\nThese assumptions flip cheaply if the board decides differently.\n\n## Acceptance Criteria\nGiven the account model is decided, at minimum:\n1. A fresh deploy accepts the first registration and returns the logged-in state.\n2. A second registration attempting the same unique identifier fails with a non-leaking error and the first account is unaffected.\n3. After logging out, subsequent requests are anonymous and cannot act as that user.\n4. Stored secrets in the DB dump are not plaintext passwords (whatever the eventual hash scheme turns out to be).\n5. Loading a page that shows the current user after a successful login reflects the correct identity.\n"
+    ]
+  ],
+  "open_items": [
+    {
+      "assigned_to": "Packet Dogfood",
+      "authority": "human",
+      "category": "Product",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Greenfield choice with no durable architectural commitment beyond 'we picked email+display_name'. Promote to ADR only if the choice turns out to drive long-lived storage or auth architecture (likely after Auth scheme is also settled).",
+          "revisitWhen": [
+            "Accounts are implemented and the choice has shaped ≥ 1 downstream feature",
+            "We later adopt a secondary identifier (e.g., @username)"
+          ],
+          "title": ""
+        },
+        "benefits": [
+          "Picking deliberately avoids reworking schema, forms, and consumers mid-stream",
+          "Sets expectations for what 'identity' means in the product copy across every future feature"
+        ],
+        "confidence": {
+          "explanation": "Standard tradeoff territory in tiny/greenfield apps; no domain-specific signals in the planning root push us toward any of the options.",
+          "level": "medium"
+        },
+        "costs": [
+          "Any of the three commits the roadmap to a particular migration shape and profile-page workload"
+        ],
+        "deferConsequence": "Cannot finalize F1 requirements or generate implementation tasks until this is picked.",
+        "evidence": [
+          "Empty planning root; no prior accounts schema to constrain the choice.",
+          "Existing product modules are all 'require confirmation'; no committed identity vocabulary to inherit."
+        ],
+        "id": "CLR-001",
+        "options": [
+          {
+            "benefits": [
+              "Fewest moving parts",
+              "No profile page needed for MVP"
+            ],
+            "consequences": [
+              "Registration screen shrinks to one field + password",
+              "Every consumer formats email addresses for display"
+            ],
+            "costs": [
+              "Awkward UI copy whenever a name would feel more natural",
+              "Adds a migration to introduce display names later"
+            ],
+            "id": "email-minimal",
+            "label": "Minimal: email only",
+            "reversibility": "Medium — a `display_name TEXT NULL DEFAULT NULL` column is nearly zero-cost to add; deleting emails as identifiers is not reversible at all.",
+            "risks": [
+              "Downstream features will immediately ask \"but WHO is this person?\" — forces churn"
+            ],
+            "summary": "Single column: email (case-normalized, unique). Display falls back to the raw address."
+          },
+          {
+            "benefits": [
+              "One obvious identity for all future attribution features",
+              "Extensible — avatar_url, bio come along as nullable columns with no schema churn",
+              "Register form still ~two fields + password"
+            ],
+            "consequences": [
+              "Registers + minimal profile edit form",
+              "DB table: id, email, display_name, credentials ref, timestamps"
+            ],
+            "costs": [
+              "Have to pick a fallback render rule when display_name is blank",
+              "Small amount of moderation/validation thought for a public-ish name"
+            ],
+            "id": "email-plus-display",
+            "label": "Recommended: email + editable display name",
+            "reversibility": "High — dropping display_name is cosmetic; renaming/relocating it is cheap; swapping to username-primary later is a bigger lift but doable if caught early.",
+            "risks": [
+              "Two-field normalization (trim/case) bugs",
+              "Display name collisions are confusing if ever surfaced as @mentions"
+            ],
+            "summary": "`email VARCHAR(254) UNIQUE` as canonical ID; `display_name VARCHAR(80)` freely edited and used for showing \"who did X\"."
+          },
+          {
+            "benefits": [
+              "Nothing to retrofit later if we end up a social/multiplayer product"
+            ],
+            "consequences": [
+              "Upload/storage subsystem lands as part of F1 instead of later",
+              "Signup funnel is longer; every new downstream feature assumes a richer identity surface"
+            ],
+            "costs": [
+              "Storage + CDN for avatars",
+              "@username availability logic races",
+              "Form is longer → slower signup conversion"
+            ],
+            "id": "rich-profile",
+            "label": "Rich profile from the start (username + email + display + avatar + timezone, etc.)",
+            "reversibility": "Low-medium — dropping the extras is easy; the cost paid to build them is sunk.",
+            "risks": [
+              "Over-building against uncertain demand",
+              "Avatar pipeline becomes a dependency we didn't earn yet"
+            ],
+            "summary": "Ship the full modern-app profile bundle: globally-unique `@username`, display name, avatar storage, locale/timezone prefs."
+          }
+        ],
+        "question": "Account model: which fields identify a person, and how much profile richness do we ship first?",
+        "ramifications": [
+          "Blocks R1/R2 wording in the spec",
+          "Feeds the Auth scheme card indirectly (some schemes assume certain identifier properties)"
+        ],
+        "recommendation": {
+          "optionId": "email-plus-display",
+          "rationale": "Email remains a globally-used, recoverable-ish handle for small apps; pairing it with an editable display name covers the \"show me who did this\" need everywhere future features appear, while staying trivially extensible (avatar URL, bio) without a hard migration. Password-only is a companion decision on the sibling card, so this does not presume anything about auth."
+        },
+        "reversibility": "Identifier choice is effectively locked once accounts accumulate; profile fields are cheap to add, harder to remove from a populated table.",
+        "risks": [
+          "Too thin → immediate retrofit",
+          "Too rich → sunk cost on storage/uniqueness pipelines we might not need"
+        ],
+        "whyNow": "Schema, registration form, uniqueness rules, and downstream joins all freeze once accounts land. Retrofitting a new identifier or a bulk-editable field touches every consumer written in the meantime."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "1981d7fc-4893-4714-934d-743ff4ffd342",
+      "id": "CLR-001",
+      "kind": "question",
+      "priority": "blocking",
+      "question": "Account model: which fields identify a person, and how much profile richness do we ship first?",
+      "reason": "The chosen identifier (uniqueness rules, editability) fixes schema migrations, dedupe behavior, and how future features join onto a user. Profile fields determine the UI, the API surface, and whether we need picture upload infrastructure day one. Wrong picks force a breaking migration later; a minimal-but-extensible pick barely costs more today.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "b11a34a5-0171-4165-8d93-fc600d0bf545"
+    },
+    {
+      "assigned_to": "Packet Dogfood",
+      "authority": "human",
+      "category": "InfoSec",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": true,
+          "rationale": "Once accounts persist real data and a real threat model is drawn around them, the underlying credential transport becomes an architectural decision worth an ADR — especially if we later bolt on SSO or move to headless clients. Creating the ADR post-selection ensures it cites the actual shipped evidence rather than our speculative preference.",
+          "revisitWhen": [
+            "Adopting SSO / OAuth federation",
+            "Adding mobile-native (non-Web) clients",
+            "Breaching incident affecting credential integrity",
+            "Migration to a new hash/primitive (argon2 → next-gen)"
+          ],
+          "title": "Chosen authentication mechanism for F1 (initial credential model)"
+        },
+        "benefits": [
+          "Locks in the security boundary before the codebase has opinion on it",
+          "Fixes the acceptances for R3/R4 (session issuance, reliable termination)"
+        ],
+        "confidence": {
+          "explanation": "Standard industry-default position for a modest web app; strong prior that teams do NOT regret this choice at moderate scale.",
+          "level": "high"
+        },
+        "costs": [
+          "Commitment to operational overhead proportional to scheme complexity (sessions vs KMS vs attestation service)"
+        ],
+        "deferConsequence": "Login/logout and the R4 acceptance test cannot be specced precisely; implementation kickoff stalls.",
+        "evidence": [
+          "Empty repo — no existing KMS, no session library choice, no SMS/email send path.",
+          "Planner config has InfoSec owned by the same human, no conflicting org policy to inherit."
+        ],
+        "id": "CLR-002",
+        "options": [
+          {
+            "benefits": [
+              "Battle-tested",
+              "Trivial server-side revocation",
+              "Works with standard framework middleware",
+              "Cookies give mobile-web and native-embedded-web parity without new infra"
+            ],
+            "consequences": [
+              "New tables: users.credentials_ref, sessions(id,user_id,created_at,expires_at,ip_hint?)",
+              "Framework wiring for login/logout/refresh/rotate",
+              "Rate-limit login attempts per email + IP as a hardening requirement"
+            ],
+            "costs": [
+              "Must operate/protect the session store and secret-key rotation",
+              "CSRF protection becomes our job on every POST"
+            ],
+            "id": "pbkdf2-cookie",
+            "label": "Recommended: server-hashed password + session cookie",
+            "reversibility": "High — migrating the verifier is scriptable (verify-on-next-login-and-upgrade); switching to tokens later is possible without touching password rows.",
+            "risks": [
+              "Password-hash param drift over time as hashes strengthen",
+              "Cookie misconfiguration (Missing Secure/Lax flags) becomes a live vuln"
+            ],
+            "summary": "argon2id (preferred) or bcrypt/PBKDF2 with tuned params, single-row secret-per-user, HttpOnly SameSite cookie holding a random opaque session id server-side tracked."
+          },
+          {
+            "benefits": [
+              "Stateless horizontal scaling",
+              "Natural fit for APIs consumed by non-browser clients",
+              "Revocable via denylist OR via refresh-token rotation"
+            ],
+            "consequences": [
+              "No server-side session store; a refresh-token table is the compromise most implementations end up picking anyway",
+              "API surface grows (me, refresh, logout, me.revoke-all)"
+            ],
+            "costs": [
+              "Secret/KMS management for signing keys",
+              "Longer login/logout ceremony client-side",
+              "Hard to revoke a leaked access token before expiry"
+            ],
+            "id": "jwt-stateless",
+            "label": "JWT bearer, client-held",
+            "reversibility": "Medium — can co-exist with cookie sessions as dual-channel; flipping later is a coordinated client change.",
+            "risks": [
+              "Client storage exfil via XSS leaks bearer tokens",
+              "Alg-confusion mistakes are well-known CVE terrain",
+              "Token lifetime tuning trades usability vs blast-radius"
+            ],
+            "summary": "Short-lived HS256/RS256 access tokens issued at login, optionally refreshed by a rotating refresh token kept client-side or in localStorage."
+          },
+          {
+            "benefits": [
+              "Phishing-resistant by construction",
+              "No credential breach exposure",
+              "Modern UX"
+            ],
+            "consequences": [
+              "Skip the password row entirely",
+              "Add a credentials.credentialed_credentials table keyed by user",
+              "Send-link infrastructure lands day one as the escape hatch"
+            ],
+            "costs": [
+              "Requires a working origin + trust anchor config",
+              "Fallback path (link codes) still needs SMTP or equivalent",
+              "Hardware friction hurts accessibility in low-trust contexts"
+            ],
+            "id": "passkey-first",
+            "label": "Passkey/WebAuthn as primary",
+            "reversibility": "Low — rolling back to passwords later means a mass migration of existing users and resetting everyone's first factor.",
+            "risks": [
+              "Coverage gaps on older devices force permanent password fallback anyway",
+              "Server relies on a subtle PKI dance (attestation, relying party ID) getting it wrong"
+            ],
+            "summary": "No password; WebAuthn ceremony on register/login backed by platform authenticators, fallback link-code for first factor."
+          }
+        ],
+        "question": "Authentication scheme: how do users prove who they are, and how is that session held?",
+        "ramifications": [
+          "Drives the 'stored secrets are not plaintext' acceptance test shape",
+          "Determines whether F1 ships any outbound comms channel (link codes / SSO redirect) as a hard dep"
+        ],
+        "recommendation": {
+          "optionId": "pbkdf2-cookie",
+          "rationale": "Local credential pair (bcrypt/argon2/scrypt/PBKDF2 — pick argon2id if the stack allows, else PBKDF2-HMAC-SHA256 with tuned iterations) stored server-side, transported as HttpOnly SameSite=Lax cookie over TLS, CSRF-token protected for mutating routes. Cheapest secure baseline, works offline-friendly, extends cleanly to MFA later. Fits a web app of unknown scale better than JWT-from-day-one, which bakes in audience/JWKS concerns prematurely."
+        },
+        "reversibility": "Credential rows survive a scheme swap (different verifier shape per scheme); transports (cookies vs headers) can coexist during migration.",
+        "risks": [
+          "Under-scoped rate limiting regardless of scheme",
+          "Log leakage of PII under any scheme if we're not careful — independent follow-up likely"
+        ],
+        "whyNow": "Determines the credential column, the login/logout endpoints, the session/cookie or token plumbing, and what 'breakage' looks like for the acceptance criterion 'stored secrets aren't plaintext.'"
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "1981d7fc-4893-4714-934d-743ff4ffd342",
+      "id": "CLR-002",
+      "kind": "question",
+      "priority": "blocking",
+      "question": "Authentication scheme: how do users prove who they are, and how is that session held?",
+      "reason": "Drives the credential-storage row in the schema (hashed-password bytes vs verifier-less), the login endpoint shape, the secret/session subsystem, and the security threat surface (breach impact, replay risk, device revocation). Independent of the account-model card: whichever identifier we pick pairs sensibly with all the realistic auth schemes here.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "ee1a5429-e89e-49e1-a893-a78e43ba7ffe"
+    }
+  ],
+  "planning_work": {
+    "detail": "Saved F1 (User Accounts) as a Draft spec. No code exists in this planning root, so the whole feature is product-shape territory. Two independent blocking decisions are now on the board for F1 — you can answer either first:\n\n---\n- Which do you want to settle first?\n- Lean: email-as-identifier, editable display name, local credentials only (no SSO)\n- Board cards for F1 · Account model and F1 · Auth scheme",
+    "feature_id": "F1",
+    "follow_up_task": null,
+    "kind": "feature",
+    "status": "in_progress",
+    "title": "Feature: Add user accounts.",
+    "uid": "5964eb70-470e-4165-80ba-c4246bee3413"
+  },
+  "product_specification": "# packet-live-dogfood-789145-6ad09e31-c12f-435b-95e7-7130d1f59f89 — Living Technical Specification\n\n## Overview\n\nPurpose, current behavior and goals are not established. Describe the project in chat to begin.\n\n## Users and Outcomes\n\nTarget users, their needs, desired outcomes and ownership require confirmation.\n\n## Current Capabilities\n\nCurrent behavior, in-scope capabilities, boundaries and deferred work require evidence and confirmation.\n\n## Architecture and Constraints\n\nArchitecture, important data, runtime constraints and deployment assumptions require repository inspection.\n\n## Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n\n## Quality and Acceptance\n\nQuality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.\n\n",
+  "provider": "local-vllm/qwen3.8-27b-fp8",
+  "reasoning_level": "off",
+  "request": "Add user accounts.",
+  "resolved_items": [],
+  "scenario": "B",
+  "turn_completed": true,
+  "workflow_ready": false
+}

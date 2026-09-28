@@ -22,10 +22,21 @@ pub(super) fn apply(
         workflow == state.workflow,
         "Workflow changed before the plan comparison was saved"
     );
+    let mut history = workflow
+        .plan_comparisons
+        .remove(&id)
+        .map(|previous| {
+            let mut history = previous.history;
+            history.push(previous.alternatives);
+            history
+        })
+        .unwrap_or_default();
+    history.dedup_by(|previous, next| previous == next);
     let record = crate::core::workflow::PlanComparisonRecord {
         schema_version: 1,
         feature_id: id.clone(),
         alternatives: comparison.clone(),
+        history,
         transcript: transcript.to_owned(),
         status: crate::core::workflow::PlanComparisonStatus::Proposed,
         selected_plan: None,

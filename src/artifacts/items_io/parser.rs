@@ -77,6 +77,7 @@ struct Partial {
     recommendation_buf: String,
     evidence_buf: String,
     decision_brief: Option<DecisionBrief>,
+    blocked_by: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -109,6 +110,7 @@ impl Partial {
             recommendation_buf: String::new(),
             evidence_buf: String::new(),
             decision_brief: None,
+            blocked_by: Vec::new(),
         }
     }
 
@@ -163,6 +165,21 @@ impl Partial {
                 let uid = uuid::Uuid::parse_str(value)
                     .map_err(|_| format!("bad 'Feature UID' value: '{value}'"))?;
                 self.feature_uid = Some(uid.hyphenated().to_string());
+            }
+            "Blocked By" => {
+                self.blocked_by = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                if self
+                    .blocked_by
+                    .iter()
+                    .any(|id| !crate::core::ids::is_valid_id(id))
+                {
+                    return Err(format!("bad 'Blocked By' value: '{value}'"));
+                }
             }
             "Conversation" => self.conversation_id = Some(value.to_owned()),
             "Decision Brief" => {
@@ -221,6 +238,7 @@ impl Partial {
         item.conversation_id = self.conversation_id;
         item.feature_id = self.feature_id;
         item.feature_uid = self.feature_uid;
+        item.blocked_by = self.blocked_by;
         item.recommendation = self.recommendation_buf.trim().to_owned();
         item.evidence = self.evidence_buf.trim().to_owned();
         if let Some(mut brief) = self.decision_brief {

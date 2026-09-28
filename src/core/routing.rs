@@ -154,8 +154,20 @@ pub fn eligible_items<'a>(
 ) -> Vec<&'a OpenItem> {
     items
         .iter()
-        .filter(|i| evaluate(i, user, stakes).is_eligible())
+        .filter(|item| {
+            item.status == crate::domain::ItemStatus::Open
+                && evaluate(item, user, stakes).is_eligible()
+                && !has_open_prerequisite(items, item)
+        })
         .collect()
+}
+
+pub fn has_open_prerequisite(items: &[OpenItem], item: &OpenItem) -> bool {
+    item.blocked_by.iter().any(|dependency| {
+        items.iter().any(|candidate| {
+            candidate.id == *dependency && candidate.status == crate::domain::ItemStatus::Open
+        })
+    })
 }
 
 /// The single question the agent SHOULD pose next: highest priority, then
@@ -296,6 +308,34 @@ mod tests {
 
     fn guest() -> CurrentUser {
         CurrentUser::new(GUEST_NAME, Vec::new())
+    }
+
+    #[test]
+    fn all_independent_decisions_are_eligible_while_dependents_wait() {
+        let mut prerequisite = item("CLR-010", Priority::High, "General", None);
+        let mut dependent = item("CLR-011", Priority::High, "General", None);
+        dependent.blocked_by = vec![prerequisite.id.clone()];
+        let independent = item("CLR-012", Priority::High, "General", None);
+        let mut queue = vec![prerequisite.clone(), dependent, independent];
+        let eligible = eligible_items(&queue, &chair(), &Stakeholders::default());
+        assert_eq!(
+            eligible
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["CLR-010", "CLR-012"]
+        );
+
+        prerequisite.status = crate::domain::ItemStatus::Resolved;
+        queue[0] = prerequisite;
+        let eligible = eligible_items(&queue, &chair(), &Stakeholders::default());
+        assert_eq!(
+            eligible
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["CLR-011", "CLR-012"]
+        );
     }
 
     // ---- rule 1: the General broadcast ------------------------------------

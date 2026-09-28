@@ -31,6 +31,13 @@ impl AiHarness for PiHarness {
             .canonicalize()
             .map_err(|error| AppError::Other(format!("Cannot resolve Pi executable: {error}")))?;
         let runtime = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
+        if req.mode.tool_access() == ToolAccess::ReadOnly
+            && !runtime.repository_planning_available()
+        {
+            return Err(AppError::Other(
+                runtime.planning_unavailable_message().to_owned(),
+            ));
+        }
         let tool_access = runtime.tool_access(req.mode);
         let planning_reads = tool_access == ToolAccess::ReadOnly;
         let mut argv = vec![exe.to_string_lossy().into_owned()];

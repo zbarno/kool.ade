@@ -2,14 +2,6 @@
 //! autonomous execution sandboxes are available on that host.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Platform {
-    Linux,
-    MacOs,
-    Windows,
-    Other,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanningAccess {
     SandboxedRepositoryReads,
     SuppliedContextOnly,
@@ -23,22 +15,22 @@ pub struct RuntimeCapabilities {
 
 impl RuntimeCapabilities {
     pub fn detect() -> Self {
-        let platform = if cfg!(target_os = "linux") {
-            Platform::Linux
-        } else if cfg!(target_os = "macos") {
-            Platform::MacOs
-        } else if cfg!(target_os = "windows") {
-            Platform::Windows
-        } else {
-            Platform::Other
-        };
         let bwrap_program = std::env::var_os("PACKET_BWRAP_BIN").unwrap_or_else(|| "bwrap".into());
-        let bwrap = platform == Platform::Linux
+        let bwrap = cfg!(target_os = "linux")
             && std::process::Command::new(bwrap_program)
-                .arg("--version")
+                .args([
+                    "--die-with-parent",
+                    "--unshare-user",
+                    "--unshare-net",
+                    "--ro-bind",
+                    "/",
+                    "/",
+                    "--",
+                    "/bin/true",
+                ])
                 .output()
                 .is_ok_and(|output| output.status.success());
-        Self::for_host(platform, bwrap)
+        Self::for_host(bwrap)
     }
 
     pub fn tool_access(&self, mode: crate::harness::ExecutionMode) -> crate::harness::ToolAccess {
@@ -51,20 +43,27 @@ impl RuntimeCapabilities {
         }
     }
 
-    fn for_host(platform: Platform, bwrap: bool) -> Self {
-        let sandboxed = platform == Platform::Linux && bwrap;
+    pub fn repository_planning_available(&self) -> bool {
+        self.planning_access == PlanningAccess::SandboxedRepositoryReads
+    }
+
+    pub fn planning_unavailable_message(&self) -> &'static str {
+        "Packet needs Bubblewrap to run planning safely. Install the bubblewrap package, ensure Linux user namespaces are available, then retry. No planning agent was started."
+    }
+
+    fn for_host(bwrap: bool) -> Self {
         Self {
-            planning_access: if sandboxed {
+            planning_access: if bwrap {
                 PlanningAccess::SandboxedRepositoryReads
             } else {
                 PlanningAccess::SuppliedContextOnly
             },
-            implementation: sandboxed,
+            implementation: bwrap,
         }
     }
 
     pub fn implementation_unavailable_message(&self) -> &'static str {
-        "Implementation is unavailable because Packet cannot establish its required filesystem sandbox on this host. Planning remains available, and your planned artifacts are preserved."
+        "Packet needs Bubblewrap to run implementation safely. Install the bubblewrap package, ensure Linux user namespaces are available, then retry. Your planned artifacts are preserved."
     }
 }
 
@@ -73,22 +72,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn host_matrix_keeps_planning_available_and_disables_unsupported_execution() {
-        for platform in [Platform::MacOs, Platform::Windows, Platform::Other] {
-            assert_eq!(
-                RuntimeCapabilities::for_host(platform, false),
-                RuntimeCapabilities {
-                    planning_access: PlanningAccess::SuppliedContextOnly,
-                    implementation: false,
-                }
-            );
-        }
+    fn missing_bubblewrap_disables_repository_planning_and_execution() {
         assert_eq!(
-            RuntimeCapabilities::for_host(Platform::Linux, false).planning_access,
-            PlanningAccess::SuppliedContextOnly
+            RuntimeCapabilities::for_host(false),
+            RuntimeCapabilities {
+                planning_access: PlanningAccess::SuppliedContextOnly,
+                implementation: false,
+            }
         );
         assert_eq!(
-            RuntimeCapabilities::for_host(Platform::Linux, true),
+            RuntimeCapabilities::for_host(true),
             RuntimeCapabilities {
                 planning_access: PlanningAccess::SandboxedRepositoryReads,
                 implementation: true,
@@ -97,8 +90,34 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_hosts_keep_read_only_modes_context_only() {
-        let capabilities = RuntimeCapabilities::for_host(Platform::MacOs, false);
+    fn bubblewrap_setup_messages_name_the_prerequisite_and_next_step() {
+        let capabilities = RuntimeCapabilities::for_host(false);
+        assert!(
+            capabilities
+                .planning_unavailable_message()
+                .contains("Bubblewrap")
+        );
+        assert!(
+            capabilities
+                .planning_unavailable_message()
+                .contains("retry")
+        );
+        assert!(
+            capabilities
+                .implementation_unavailable_message()
+                .contains("user namespaces")
+        );
+    }
+
+    #[test]
+    fn repository_planning_requires_the_sandbox() {
+        assert!(!RuntimeCapabilities::for_host(false).repository_planning_available());
+        assert!(RuntimeCapabilities::for_host(true).repository_planning_available());
+    }
+
+    #[test]
+    fn missing_bubblewrap_keeps_read_only_modes_context_only() {
+        let capabilities = RuntimeCapabilities::for_host(false);
         for mode in [
             crate::harness::ExecutionMode::Planning,
             crate::harness::ExecutionMode::TaskGeneration,

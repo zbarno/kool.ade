@@ -76,6 +76,7 @@ fn sample_items() -> Vec<OpenItem> {
             "Unspecified in the conversation.".into(),
         ),
     ];
+    v[1].blocked_by = vec!["CLR-001".into()];
     v[0].authority = Authority::Review;
     v[0].feature_id = Some("CHG-001".into());
     v[0].feature_uid = Some(uuid::Uuid::new_v4().hyphenated().to_string());

@@ -20,6 +20,16 @@ fn decision_brief_requires_the_current_wire_shape() {
     assert!(policy.contains("`confidence` is an object with"));
     assert!(policy.contains("Do not use legacy `description`,"));
     assert!(policy.contains("the brief's own `question` field is still required."));
+    assert!(policy.contains("deferConsequence` to one concrete sentence of at most 240"));
+    assert!(policy.contains("do not\nwrite or rewrite `product:decisions`"));
+    assert!(policy.contains("For an unresolved Human item, keep `adrAssessment.create` false"));
+    assert!(policy.contains("for a nontechnical person who does not know this\ncodebase"));
+    assert!(
+        policy
+            .contains("Translate\ntechnical constraints into what they mean for the user's work.")
+    );
+    assert!(policy.contains("each option ID to a concise, unique value of at most 48 characters"));
+    assert!(policy.contains("ASCII letters, digits, hyphens, or underscores"));
 }
 
 #[test]
@@ -41,6 +51,15 @@ fn new_feature_and_human_decision_have_complete_wire_examples() {
     assert!(policy.contains("an omitted `offset` starts again at the beginning of the file"));
     assert!(policy.contains("Never repeat a covered range to refresh it."));
     assert!(policy.contains("never stop at a prose clarification question for a new feature"));
+    assert!(policy.contains("all of their cards now, set\n`next_question_id` null"));
+    assert!(policy.contains("all listed cards can be\nanswered in any order"));
+    assert!(
+        policy.contains("Every newly added item must include these non-empty top-level fields")
+    );
+    assert!(
+        policy.contains("Repeat the question in\nboth the item and `decision_brief.question`.")
+    );
+    assert!(policy.contains("leave\n`decision_brief.id` empty"));
     assert!(policy.contains("a prose-only answer saves nothing"));
     assert!(policy.contains("`document_updates` using"));
     assert!(policy.contains("`question` (never `text`)"));

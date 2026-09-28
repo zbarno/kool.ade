@@ -28,8 +28,10 @@ mod feature_approval;
 mod attention;
 mod implementation_controller;
 mod implementation_decision;
+mod planning_work;
 mod repository_switcher;
 mod requested_action;
+mod setup_attention;
 mod task_batch;
 #[cfg(test)]
 #[path = "root/task_detail_tests.rs"]
@@ -68,6 +70,9 @@ pub struct PacketApp {
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
     attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
+    setup_attention: Option<super::setup_attention::SetupIssue>,
+    setup_probe: Option<std::thread::JoinHandle<Option<super::setup_attention::SetupIssue>>>,
+    setup_retry_requested: bool,
     #[cfg(test)]
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
     /// Synthesized ownership-gap items for the side pane.
@@ -185,6 +190,9 @@ impl Default for PacketApp {
             clone_computation_override: None,
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),
+            setup_attention: None,
+            setup_probe: None,
+            setup_retry_requested: false,
             #[cfg(test)]
             attention_fixture: Default::default(),
             synth: Vec::new(),
@@ -196,6 +204,7 @@ impl Default for PacketApp {
 impl PacketApp {
     fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
         self.poll_attention(ctx);
+        self.poll_setup_attention(ctx);
         // Clone job: drain BEFORE Phase 1's screen borrow so a finished
         // worker can refill `conn_path` and drive submit_connect — the
         // single connect authority. Unfinished workers ride back until
@@ -907,6 +916,11 @@ impl PacketApp {
         project: &mut Project,
         outcome: TurnOutcome,
     ) -> Option<crate::harness::RequestedAction> {
+        if let TurnOutcome::HarnessFailed { error, .. } = &outcome
+            && let Some(issue) = super::setup_attention::from_harness_failure(&error.detail())
+        {
+            self.setup_attention = Some(issue);
+        }
         let requested_action = if project.task_chats.active.is_none() {
             match &outcome {
                 TurnOutcome::Applied { normalized, .. } => normalized.requested_action.clone(),
@@ -925,20 +939,53 @@ impl PacketApp {
                 if let Some(work) = project.planning_work.iter_mut().find(|w| w.key == key) {
                     match &outcome {
                         TurnOutcome::Applied { normalized, .. } => {
-                            work.feature = normalized
+                            let model_offer = normalized.follow_up_task.clone().map(|offer| {
+                                crate::core::planning_work::FollowUpTaskOffer {
+                                    title: offer.title,
+                                    description: offer.description,
+                                }
+                            });
+                            work.follow_up_task = model_offer
+                                .or_else(|| planning_work::provider_support_follow_up(work));
+                            work.feature_id = normalized
                                 .document_updates
                                 .iter()
                                 .find_map(|(id, _)| id.strip_prefix("feature:").map(str::to_owned))
-                                .or(work.feature.clone());
-                            work.column = if work.feature.is_some() { 1 } else { 4 };
+                                .or(work.feature_id.clone());
+                            let needs_input = normalized.next_question_id.is_some()
+                                || normalized.added.iter().any(|item| {
+                                    matches!(
+                                        item.authority,
+                                        crate::domain::Authority::Human
+                                            | crate::domain::Authority::Review
+                                    )
+                                });
+                            work.status = if work.feature_id.is_some() {
+                                crate::core::planning_work::WorkStatus::InProgress
+                            } else if needs_input {
+                                crate::core::planning_work::WorkStatus::NeedsAttention
+                            } else {
+                                crate::core::planning_work::WorkStatus::Done
+                            };
                             work.detail = normalized.assistant_message.clone();
                         }
+                        TurnOutcome::HarnessFailed { error, .. } => {
+                            work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
+                            work.detail = format!(
+                                "Planning needs attention before it can continue.\n\n{}\n\nNext action: fix the reported setup or provider issue, then retry this task.",
+                                error.detail()
+                            );
+                        }
                         _ => {
-                            work.column = 3;
+                            work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
                             work.detail = "Planning needs attention; continue this request in its conversation.".into();
                         }
                     }
                 }
+                crate::core::planning_work::link_feature_identities(
+                    &project.state,
+                    &mut project.planning_work,
+                );
                 if let Err(error) = crate::core::planning_work::save(
                     &project.state.repo_root,
                     &project.planning_work,
@@ -1146,11 +1193,15 @@ impl PacketApp {
             .filter(|m| m.id != sent_id)
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
+        let purpose = crate::core::planning_work::find(&project.state, key)
+            .filter(|work| work.kind == crate::core::planning_work::WorkKind::Question)
+            .map(|_| crate::core::workflow::TurnPurpose::Question)
+            .unwrap_or(crate::core::workflow::TurnPurpose::Interview);
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: text,
             recent_chat,
-            purpose: crate::core::workflow::TurnPurpose::Interview,
+            purpose,
             comparison_feature: None,
         };
         project.task_chats.drafts.remove(key);
@@ -1228,6 +1279,7 @@ impl PacketApp {
         match welcome::attempt_connect(&self.conn_path) {
             Ok(mut project) => {
                 self.attention.clear();
+                self.refresh_setup_attention(false);
                 self.refresh_derived(&project);
                 project.remember_chat(vec![session::welcome_message(&project.state.title)]);
                 self.conn_error = None;
@@ -1267,6 +1319,16 @@ impl PacketApp {
         purpose: crate::core::workflow::TurnPurpose,
         comparison_feature: Option<&str>,
     ) {
+        self.start_turn_for_work(text, purpose, comparison_feature, None);
+    }
+
+    fn start_turn_for_work(
+        &mut self,
+        text: &str,
+        purpose: crate::core::workflow::TurnPurpose,
+        comparison_feature: Option<&str>,
+        work_key: Option<String>,
+    ) {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -1278,41 +1340,46 @@ impl PacketApp {
         }
         project.activity.manager = None;
         project.bind_task_conversation_identities();
-        project.task_chats.refresh_now(&project.chat_slug);
-        project
-            .activity
-            .pending
-            .extend(project.task_chats.take_updates());
         let task_context = project.task_interaction_context(text);
-        let recent = project.recent_chat_tuples(6, 1200);
-        let key = format!(
-            "planning:{}",
-            ChatMessage::new(ChatRole::User, text, None).id
-        );
-        project
-            .planning_work
-            .push(crate::core::planning_work::Work {
-                key: key.clone(),
-                title: format!("Plan {}", crate::core::context_build::clip(text, 100)),
-                request: text.into(),
-                column: 1,
-                feature: None,
-                detail: "Planning in progress".into(),
-            });
-        if let Err(error) =
-            crate::core::planning_work::save(&project.state.repo_root, &project.planning_work)
-        {
-            project.planning_work.pop();
-            self.toasts
-                .danger(format!("Cannot record planning work: {error}"));
-            return;
+        // Main Chat is retained as history only; planning turns are grounded
+        // in board state and task context, never its transcript.
+        let recent = Vec::new();
+        let key = work_key.unwrap_or_else(|| {
+            format!(
+                "planning:{}",
+                ChatMessage::new(ChatRole::User, text, None).id
+            )
+        });
+        let existing = project.planning_work.iter().any(|work| work.key == key);
+        if !existing {
+            project
+                .planning_work
+                .push(crate::core::planning_work::Work::new(
+                    key.clone(),
+                    format!("Plan {}", crate::core::context_build::clip(text, 100)),
+                    text.into(),
+                    "Planning in progress".into(),
+                ));
+            if let Err(error) =
+                crate::core::planning_work::save(&project.state.repo_root, &project.planning_work)
+            {
+                project.planning_work.pop();
+                self.toasts
+                    .danger(format!("Cannot record planning work: {error}"));
+                return;
+            }
         }
+        let work_guidance = project
+            .planning_work
+            .iter()
+            .find(|work| work.key == key)
+            .map(|work| format!("{} — {}", work.kind.label(), work.kind.planning_guidance()))
+            .unwrap_or_else(|| "Feature".into());
         project.active_planning_work = Some(key);
-        project.remember_chat(vec![ChatMessage::new(ChatRole::User, text, None)]);
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: format!(
-                "{text}\n\n{task_context}\n\n[Application project context: active task worker={:?}; auto queue running={}; task count={}; recent task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
+                "Task kind and guidance: {work_guidance}. User request: {text}\n\n{task_context}\n\n[Application project context: active task worker={:?}; auto queue running={}; task count={}; recent task states={:?}. Continue managing the project and engaging this user while the isolated worker handles implementation. Do not claim to steer or stop a worker through prose; task controls manage that. Planning answers may update the specification normally.]",
                 project.active_implementations.keys().collect::<Vec<_>>(),
                 project.queue.running,
                 project.implementation_states.len(),
@@ -1798,23 +1865,20 @@ impl Surface for PacketApp {
                     .collect::<Vec<_>>();
                 planning_items.sort_by_key(|item| (item.priority.rank(), item.id.clone()));
                 planning_items.dedup_by(|a, b| a.id == b.id);
-                let eligible_item_ids = planning_items
-                    .iter()
-                    .filter(|item| {
-                        crate::core::routing::eligible_items(
-                            std::slice::from_ref(item),
-                            &self.cached_user,
-                            &p.state.config.stakeholders,
-                        )
-                        .len()
-                            == 1
-                    })
-                    .map(|item| item.id.clone())
-                    .collect();
+                let eligible_item_ids = crate::core::routing::eligible_items(
+                    &planning_items,
+                    &self.cached_user,
+                    &p.state.config.stakeholders,
+                )
+                .into_iter()
+                .map(|item| item.id.clone())
+                .collect();
                 crate::ui::planning_board::ViewModel {
                     task_documents: p.task_documents.clone(),
                     planning_work: crate::core::planning_work::cards(&p.state, &p.planning_work),
                     planning_items,
+                    setup_attention: self.setup_attention.clone(),
+                    setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,
                     archived: p.archived_tasks.clone(),
                 }
@@ -2702,22 +2766,21 @@ mod board_tests {
     }
 
     #[test]
-    fn narrow_workspace_keeps_chat_and_board_visible() {
+    fn narrow_workspace_keeps_board_primary_without_main_chat() {
         let mut app = fixture();
         let ctx = egui::Context::default();
         let size = egui::vec2(360.0, 480.0);
         frame_at(&mut app, &ctx, vec![], size);
         let output = frame_at(&mut app, &ctx, vec![], size);
-        let chat = text_position(&output, "Main Chat").unwrap();
         let board = text_position(&output, "Board  3").unwrap();
-        let send = text_position(&output, "Ctrl + Enter to send").unwrap();
-        assert!(chat.y < send.y && send.y < board.y);
+        assert!(text_position(&output, "Main Chat").is_none());
+        assert!(text_position(&output, "+ New Task").is_some());
         assert!(board.x < size.x && board.y < size.y);
         assert_eq!(output.viewport_output.len(), 1);
     }
 
     #[test]
-    fn long_drafts_keep_send_controls_inside_chat_panel() {
+    fn legacy_main_chat_drafts_remain_hidden_at_narrow_and_wide_sizes() {
         for size in [egui::vec2(360.0, 480.0), egui::vec2(1480.0, 900.0)] {
             let mut app = fixture();
             let ctx = egui::Context::default();
@@ -2727,16 +2790,9 @@ mod board_tests {
                 frame_at(&mut app, &ctx, vec![], size);
             }
             let output = frame_at(&mut app, &ctx, vec![], size);
-            let send = text_position(&output, "Ctrl + Enter to send")
-                .expect("send control remains visible");
-            assert!(
-                send.y < size.y - 20.0,
-                "send at {send:?}, viewport {size:?}"
-            );
-            if size.x < 960.0 {
-                let board = text_position(&output, "Board  3").unwrap();
-                assert!(send.y < board.y, "composer must stay above board");
-            }
+            assert!(text_position(&output, "Main Chat").is_none());
+            assert!(text_position(&output, &draft).is_none());
+            assert!(text_position(&output, "Ctrl + Enter to send").is_none());
             assert_eq!(app.chat_draft(), &draft);
         }
     }
@@ -3122,16 +3178,19 @@ mod board_tests {
     }
 
     #[test]
-    fn main_chat_is_always_visible_left_of_board() {
+    fn board_is_primary_and_legacy_main_chat_is_hidden() {
         let mut app = fixture();
         let ctx = egui::Context::default();
         *app.chat_draft() = "Keep my project draft".into();
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        let chat = text_position(&output, "Main Chat").unwrap();
         let board = text_position(&output, "Board  3").unwrap();
-        assert!(chat.x < board.x);
-        assert!(text_position(&output, "Keep my project draft").is_some());
+        assert!(
+            board.x < 200.0,
+            "board starts at the primary workspace edge"
+        );
+        assert!(text_position(&output, "Main Chat").is_none());
+        assert!(text_position(&output, "Keep my project draft").is_none());
         assert!(text_position(&output, "×").is_none());
         assert_eq!(output.viewport_output.len(), 1);
     }
@@ -3168,15 +3227,11 @@ mod board_tests {
         assert!(text_position(&output, "Task-only previous reply").is_some());
         assert!(text_position(&output, "Keep my project draft").is_none());
         assert_eq!(output.viewport_output.len(), 1);
-        let output = click_text(&mut app, &ctx, "Main Chat");
-        assert!(tabs().active.is_none());
-        assert!(text_position(&output, "Keep my project draft").is_some());
-        click_text(&mut app, &ctx, "Open conversation");
-        assert_eq!(tabs().keys.len(), 1);
-        assert_eq!(tabs().active.as_deref(), Some(key));
         click_text(&mut app, &ctx, "×");
         assert!(tabs().keys.is_empty());
         assert!(tabs().active.is_none());
+        let output = frame(&mut app, &ctx, vec![]);
+        assert!(text_position(&output, "Keep my project draft").is_none());
         assert_eq!(
             app.task_draft(key).unwrap(),
             "Task draft stays with this item"
@@ -3187,7 +3242,7 @@ mod board_tests {
     }
 
     #[test]
-    fn narrow_question_modal_keeps_larger_reply_input_and_send_reachable() {
+    fn narrow_workspace_does_not_restore_main_chat_for_questions() {
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
             p.task_documents.clear();
@@ -3204,28 +3259,9 @@ mod board_tests {
         let ctx = egui::Context::default();
         let size = egui::vec2(360.0, 480.0);
         frame_at(&mut app, &ctx, vec![], size);
-        click_text_at(&mut app, &ctx, "Which authentication provider?", size);
         let output = frame_at(&mut app, &ctx, vec![], size);
-        // The last matching control is in the modal, not the board behind it.
-        for label in ["Your answer…", "Send answer"] {
-            let pos = output
-                .shapes
-                .iter()
-                .rev()
-                .find_map(|shape| {
-                    if let egui::Shape::Text(text) = &shape.shape {
-                        (text.galley.text() == label)
-                            .then_some(text.pos + text.galley.mesh_bounds.center().to_vec2())
-                    } else {
-                        None
-                    }
-                })
-                .unwrap();
-            assert!(
-                pos.x > 0.0 && pos.x < size.x && pos.y > 0.0 && pos.y < size.y,
-                "{label} should be reachable"
-            );
-        }
+        assert!(text_position(&output, "Main Chat").is_none());
+        assert!(text_position(&output, "Board  1").is_some());
     }
 
     #[test]
@@ -3509,7 +3545,7 @@ mod board_tests {
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "To do · 1").is_some());
+        assert!(text_position(&output, "Needs attention · 1").is_some());
         assert!(text_position(&output, "Your answer needed").is_some());
         assert!(text_position(&output, "Determines the access model").is_none());
         let pos = text_position(&output, &item.question).unwrap();
@@ -3554,49 +3590,49 @@ mod board_tests {
             crate::domain::ItemKind::Question,
             "Security".into(),
             Some("Security Owner".into()),
-            "Should saved sessions expire automatically?".into(),
-            "The session policy affects both security and client refresh behavior.".into(),
+            "How long should people stay signed in before signing in again?".into(),
+            "Shorter sign-ins help protect an account if a phone is lost, but may interrupt longer work.".into(),
         );
         item.decision_brief = Some(crate::domain::DecisionBrief {
             id: item.id.clone(),
             question: item.question.clone(),
-            why_now: "The release flow depends on this session policy.".into(),
+            why_now: "Before launch, we need a clear rule for when people must sign in again.".into(),
             recommendation: Some(crate::domain::DecisionRecommendation {
                 option_id: "short-session".into(),
-                rationale: "The repository records a risk from long-lived sessions.".into(),
+                rationale: "This gives better protection if a phone is lost, while limiting how often people sign in again.".into(),
             }),
             confidence: Some(crate::domain::DecisionConfidence {
                 level: crate::domain::ConfidenceLevel::Medium,
-                explanation: "Current behavior is known; user tolerance is not.".into(),
+                explanation: "We know how sign-ins work today, but need your preference for the trade-off.".into(),
             }),
             options: vec![
                 crate::domain::DecisionOption {
                     id: "short-session".into(),
-                    label: "Expire sessions after one hour".into(),
-                    summary: "Require users to sign in again after one hour.".into(),
-                    benefits: vec!["Limits how long a stolen session remains useful.".into()],
-                    costs: vec!["Users may need to sign in during longer work.".into()],
-                    risks: vec!["A failed sign-in can interrupt active work.".into()],
-                    consequences: vec!["All clients need to handle session expiry.".into()],
-                    reversibility: "The timeout can be changed later.".into(),
+                    label: "Ask people to sign in again after one hour".into(),
+                    summary: "People must sign in again after an hour.".into(),
+                    benefits: vec!["A lost phone is less likely to give someone lasting access.".into()],
+                    costs: vec!["People may need to sign in again during longer work.".into()],
+                    risks: vec!["If someone cannot sign in again, their work may be interrupted.".into()],
+                    consequences: vec!["The app must ask people to sign in again after an hour.".into()],
+                    reversibility: "We can choose a different sign-in period later.".into(),
                 },
                 crate::domain::DecisionOption {
                     id: "persistent".into(),
-                    label: "Keep sessions until sign-out".into(),
-                    summary: "Sessions remain active until users sign out.".into(),
-                    benefits: vec!["Users avoid repeat sign-ins.".into()],
-                    costs: vec!["Revocation remains the normal way to end access.".into()],
-                    risks: vec!["A stolen session stays useful longer.".into()],
-                    consequences: vec!["The current client behavior stays familiar.".into()],
-                    reversibility: "A future expiry policy would require client changes.".into(),
+                    label: "Stay signed in until signing out".into(),
+                    summary: "People stay signed in until they sign out.".into(),
+                    benefits: vec!["People avoid signing in again during their work.".into()],
+                    costs: vec!["People must sign out themselves to end access.".into()],
+                    risks: vec!["Someone who gets access to a lost phone may stay signed in.".into()],
+                    consequences: vec!["People keep the current sign-in experience.".into()],
+                    reversibility: "We can add a sign-in limit later, with app changes.".into(),
                 },
             ],
             benefits: vec![],
             costs: vec![],
             risks: vec![],
             ramifications: vec!["Every signed-in client follows the selected policy.".into()],
-            reversibility: "The policy can be revisited after clients support it.".into(),
-            defer_consequence: "The authentication contract remains unfinished.".into(),
+            reversibility: "We can revisit the sign-in period later.".into(),
+            defer_consequence: "Without a rule, the app cannot finish its sign-in behavior for launch.".into(),
             evidence: vec!["src/auth/session.rs records the current behavior.".into()],
             adr_assessment: Some(crate::domain::AdrAssessment {
                 create: false,
@@ -3614,11 +3650,20 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         for label in [
-            "Expire sessions after one hour",
-            "Keep sessions until sign-out",
+            "How long should people stay signed in before signing in again?",
+            "Before launch, we need a clear rule for when people must sign in again.",
+        ] {
+            assert!(
+                text_contains(&output, label),
+                "missing {label} from the Needs Attention card"
+            );
+        }
+        for label in [
+            "Ask people to sign in again after one hour",
+            "Stay signed in until signing out",
             "Your answer needed",
-            "Require users to sign in again after one hour.",
-            "If chosen: All clients need to handle session expiry.",
+            "People must sign in again after an hour.",
+            "If chosen: The app must ask people to sign in again after an hour.",
         ] {
             assert!(
                 text_position(&output, label).is_some(),
@@ -3633,10 +3678,10 @@ mod board_tests {
                     .collect::<Vec<_>>()
             );
         }
-        click_text(&mut app, &ctx, "Expire sessions after one hour");
+        click_text(&mut app, &ctx, "Ask people to sign in again after one hour");
         assert_eq!(
             app.task_draft(&item.id).map(|draft| draft.as_str()),
-            Some("I choose option (short-session): Expire sessions after one hour.")
+            Some("I choose option (short-session): Ask people to sign in again after one hour.")
         );
         if let Screen::Connected(project) = &app.screen {
             assert_eq!(
@@ -3650,21 +3695,21 @@ mod board_tests {
         assert!(text_position(&details, "Decision guidance").is_some());
         assert!(text_contains(
             &details,
-            "Packet recommends Expire sessions after one hour"
+            "Packet recommends Ask people to sign in again after one hour"
         ));
         assert!(text_position(&details, "Decision details").is_some());
         let _ = click_text(&mut app, &ctx, "Decision details");
         let details = click_text(
             &mut app,
             &ctx,
-            "Expire sessions after one hour · Require users to sign in again after one hour.",
+            "Ask people to sign in again after one hour · People must sign in again after an hour.",
         );
         for label in [
             "Confidence: Medium",
-            "Limits how long a stolen session remains useful.",
-            "A failed sign-in can interrupt active work.",
+            "A lost phone is less likely to give someone lasting access.",
+            "If someone cannot sign in again, their work may be interrupted.",
             "Every signed-in client follows the selected policy.",
-            "The authentication contract remains unfinished.",
+            "Without a rule, the app cannot finish its sign-in behavior for launch.",
             "src/auth/session.rs records the current behavior.",
         ] {
             assert!(
@@ -3770,10 +3815,10 @@ mod board_tests {
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
         for label in [
-            "To do · 3",
+            "To do · 2",
             "In progress · 0",
-            "In review · 2",
-            "Needs attention · 1",
+            "In review · 1",
+            "Needs attention · 3",
             "Done · 1",
             "Human decision card",
             "Agent resolving card",
@@ -3851,11 +3896,12 @@ mod board_tests {
         assert!(project.active_implementations.is_empty());
         assert!(!project.queue.running);
         assert!(project.queue.in_flight.is_empty());
+        assert!(project.queue.last_error.contains("Bubblewrap"));
         assert!(
             project
                 .queue
                 .last_error
-                .contains("Planning remains available")
+                .contains("planned artifacts are preserved")
         );
     }
 
@@ -3949,7 +3995,7 @@ mod board_tests {
     }
 
     #[test]
-    fn chat_action_moves_from_generation_to_implementation_and_disappears_when_done() {
+    fn task_details_offer_implementation_after_generation_and_board_replaces_main_chat() {
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
             p.state.workflow.brief = Some(crate::core::workflow::InterviewBrief {
@@ -3986,7 +4032,10 @@ mod board_tests {
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
         let output = frame(&mut app, &ctx, vec![]);
-        assert!(text_position(&output, "Implement tasks").is_some());
+        assert!(text_position(&output, "Main Chat").is_none());
+        let output = click_text(&mut app, &ctx, "First task");
+        assert!(text_position(&output, "Implement & continue queue").is_some());
+        assert!(text_position(&output, "Implement tasks").is_none());
         assert!(text_position(&output, "Generate task stories").is_none());
         if let Screen::Connected(p) = &mut app.screen {
             let mut done = p.implementation_states.values().next().unwrap().clone();
@@ -4329,8 +4378,8 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
             project.implementation_states.clear();
             project.chat_slug = format!("auto-e2e-{}", std::process::id());
         }
-        // Exercise the user's actual chat action, including durable approval,
-        // worker dispatch, concurrent execution and integration into the remote.
+        // Exercise the board task action, including worker dispatch,
+        // concurrent execution and integration into the remote.
         if let Screen::Connected(project) = &mut app.screen {
             project.state.active_feature = Some(("CHG-001".into(), feature.into()));
             assert!(!crate::core::workflow::feature_approved(
@@ -4339,9 +4388,13 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
                 "CHG-001"
             ));
         }
+        // Feature approval is a separate explicit action in Specifications;
+        // implementation then starts from the selected task's board details.
+        app.approve_feature_only("CHG-001");
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
-        click_text(&mut app, &ctx, "Implement tasks");
+        click_text(&mut app, &ctx, "Task 1");
+        click_text(&mut app, &ctx, "Implement & continue queue");
         if let Screen::Connected(project) = &app.screen {
             assert!(project.active_turn.is_none());
             assert!(project.active_implementations.contains_key(&docs[0].path));

@@ -1,0 +1,149 @@
+{
+  "board_attention_ids": [],
+  "conversation": [],
+  "features": [
+    [
+      "F1",
+      "# F1: Export planning Tasks as Markdown\n<!-- packet-artifact-id:v1 {\"uid\":\"c823d339-a43c-4e3a-ae84-9960d84df064\",\"displayId\":\"F1\",\"title\":\"Export planning Tasks as Markdown\"} -->\n<!-- packet-change:v1 {\"schemaVersion\":1,\"uid\":\"c823d339-a43c-4e3a-ae84-9960d84df064\",\"displayId\":\"F1\",\"status\":\"ready\"} -->\n\n**Status:** Ready\n\n## Intent\nOperators cannot take planning tasks outside the app to share, archive, or hand off elsewhere. Tasks already exist as Markdown files on disk, but there is no surfaced way to obtain that content as portable Markdown. Let operators copy task Markdown without leaving the board.\n\n## Current Behavior\nEach task persists as `.md` under `.kool-ade-packet/planning/tasks/<batch>/NNN-task.md` with a leading metadata block (`%% packet:meta`). The board renders task detail views and conversations but exposes no copy/save/export affordance for the raw document. External consumers must locate the file manually.\n\n## Desired Behavior\nWith a task's detail surface open, a per-card \"Copy Markdown\" action copies that task's canonical Markdown content — the body after the internal metadata header — to the system clipboard in one action. The exported text is formatted identically to how the task renders in the reader.\n\n## Scope\nIn:\n- A per-card \"Copy Markdown\" action attached to the opened task's detail surface.\n- Clipboard delivery of the canonical Markdown (UTF-8).\n- Content fidelity equal to the persisted document body (title heading, narrative, structured fields, checkboxes, code fences).\nOut (explicit):\n- Save/file dialogs and direct file writes (possible later extension).\n- Bulk/multi-select batch export and a workspace-level export menu.\n- Formats beyond Markdown (HTML, PDF, image).\n- Exporting product specs, open items, or chat transcripts (possible follow-up features).\nThe formerly pending `EXP-SURFACE` scoping is resolved: the surface is per-card (see D-F1-2).\n\n## Affected Product Areas\n- Board task detail modal paint chain: `src/ui/layout/task_details.rs` and its `state`/`activity` submodules (where the action widget anchors); `src/app/root/task_batch.rs` routes the selected task's document/view model to the action.\n- Document access layer supplying the parsed `TaskDocument` (title + body): `src/artifacts/task_docs.rs`.\n\n## Requirements\nR1 (single-task export). From an opened task's detail surface, choosing \"Copy Markdown\" places that task's canonical Markdown (everything after the metadata header, up to the trailing footer) on the system clipboard.\nR2 (fidelity). Exported content equals the on-disk document body byte-for-byte modulo rendering differences — i.e. the exported text round-trips through the existing Markdown parser without losing structure (headings, checkboxes, tables, code fences).\nR3 (state parity). Export reflects the current saved state (latest description, acceptance criteria, notes); unsent drafts are excluded.\nR4 (failure clarity). When the underlying document is missing or unreadable, the action communicates the condition inline and copies nothing rather than emitting partial or stale content.\nR5 (surface consistency, finalized). The per-card action coexists cleanly with the task-detail layout; it does not disturb the card grid, column moves, filtering, or existing modal keyboard flow.\n\n## Decisions and Assumptions\nD-F1-1 (agent, reversible). Canonical export source = the task document body loaded by `task_docs` after stripping the `packet:meta` frontmatter and any trailing status footer. Rationale: that representation is already trusted and used for rendering; reusing it avoids duplication and divergence.\nD-F1-2 (human, resolved via CLR-001). Supersedes the prior \"awaiting\" state: the surface is a per-card \"Copy Markdown\" action in the opened task's detail surface, delivered as a clipboard copy. Workspace-level menus and bulk export are explicitly out of scope for F1 and remain candidates for a follow-up feature.\nD-F1-3 (agent, reversible). V1 delivers by clipboard only: no save/file dialog and no dedicated keyboard shortcut. Either can be added later without touching document schema or placement.\nA-F1-1 (agent). Export produces UTF-8 Markdown; the clipboard write rides the desktop runtime's native clipboard facility.\n\n## Acceptance Criteria\nAC1 — With a task open in detail, invoking \"Copy Markdown\" places the full Markdown of that task (heading through end-of-body) on the system clipboard, matching the persisted file's body exactly apart from the metadata header and status footer.\nAC2 — Exporting a task with zero edits returns identical text to exporting after viewing/scrolling; UI navigation has no effect on content.\nAC3 — A task in \"Ready\", \"Implementing\", and \"Done\" states each export independently with correct current content; no crosstalk between tasks.\nAC4 — Attempting to export a corrupted or absent document surfaces a clear inline error and copies nothing.\nAC5 — The mouse-invoked path works end to end. If a keyboard shortcut is added in a later revision, it must share the same code path, be documented in the task-detail help, and not collide with existing bindings. (V1 deliberately ships without a dedicated shortcut — D-F1-3.)\nAC6 — Regression: existing task board flows (creation, rename, drag-to-status-column, filtering) are unaffected."
+    ]
+  ],
+  "open_items": [],
+  "planning_work": {
+    "detail": "Prepared 5 implementation-ready task stories, each validated for detail, dependencies and approved scope.",
+    "feature_id": null,
+    "follow_up_task": null,
+    "kind": "feature",
+    "status": "done",
+    "title": "Plan Generate task stories for approved feature F1.",
+    "uid": "ac638f41-91f2-426a-bd43-f8168ea546ba"
+  },
+  "product_specification": "# packet-live-dogfood-878845-ff5b6d64-6120-4a2c-9fd4-c211bfc92d3d — Living Technical Specification\n\n## Overview\n\nPurpose, current behavior and goals are not established. Describe the project in chat to begin.\n\n## Users and Outcomes\n\nTarget users, their needs, desired outcomes and ownership require confirmation.\n\n## Current Capabilities\n\nCurrent behavior, in-scope capabilities, boundaries and deferred work require evidence and confirmation.\n\n## Architecture and Constraints\n\nArchitecture, important data, runtime constraints and deployment assumptions require repository inspection.\n\n## Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n\n## Quality and Acceptance\n\nQuality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.\n\n",
+  "provider": "local-vllm/qwen3.8-27b-fp8",
+  "reasoning_level": "off",
+  "related_planning_work": [],
+  "request": "Add the ability to export planning tasks as Markdown.",
+  "resolved_items": [
+    {
+      "assigned_to": "Packet Dogfood",
+      "authority": "human",
+      "category": "UX",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Minor UX placement choice, routinely revisitable; not architectural weight.",
+          "revisitWhen": [
+            "If users request batch export within the first release cycle."
+          ],
+          "title": ""
+        },
+        "benefits": [
+          "Clear, minimal user-facing action to obtain portable Markdown today."
+        ],
+        "confidence": {
+          "explanation": "Per-card is cheapest given the code already centralises task detail drawing; bulk convenience would grow organically, and there is no sign of heavy multi-export demand in current board usage.",
+          "level": "medium"
+        },
+        "costs": [
+          "One-time UI wiring in the task-detail area; subsequent formats build on the shared extractor."
+        ],
+        "deferConsequence": "Cannot finalise R5/AC1 placement nor freeze the affected-files list before choosing.",
+        "evidence": [
+          "Existing task documents already persist as Markdown under .kool-ade-packet/planning/tasks/<batch>/NNN-task.md with a packet:meta frontmatter block (observed in src/artifacts/task_docs.rs and the recent fixture task list).",
+          "src/ui/layout/task_details.rs and src/app/root/task_batch.rs hold the currently-rendered task surface where an action naturally attaches.",
+          "No existing 'export'/'copy markdown' affordance surfaced anywhere in src/ per README scope (search for 'export' returned no hits)."
+        ],
+        "id": "CLR-001",
+        "options": [
+          {
+            "benefits": [
+              "Smallest change footprint",
+              "Direct, discoverable where the eye is",
+              "Easy to test against one fixture doc"
+            ],
+            "consequences": [
+              "Bulk export becomes a follow-up card once the per-card pipeline proves out."
+            ],
+            "costs": [
+              "Doesn't cover quick multi-export without extra work"
+            ],
+            "id": "per-card-copy-md",
+            "label": "Per-card 'Copy Markdown' button",
+            "reversibility": "High — remove a widget and its handler; stateless action, no persistent schema impact.",
+            "risks": [
+              "Fewer places to discover it early on"
+            ],
+            "summary": "Icon/text action pinned in the opened task's detail pane."
+          },
+          {
+            "benefits": [
+              "Covers bulk in one go",
+              "Centralised place alongside other operations"
+            ],
+            "consequences": [
+              "Slower to ship; likely needs its own modal/picker component."
+            ],
+            "costs": [
+              "New global menu infrastructure if it doesn't exist",
+              "More state to serialise for task picker"
+            ],
+            "id": "workspace-menu-export",
+            "label": "Top-bar/workspace 'Export…' submenu",
+            "reversibility": "Medium — touches top-bar layout and introduces menu state that other future commands will want to hang off.",
+            "risks": [
+              "Larger UI surface to maintain",
+              "Discoverability spread across two surfaces later"
+            ],
+            "summary": "Global menu entry listing tasks, allowing select-many."
+          },
+          {
+            "benefits": [
+              "De-risks MVP",
+              "Keeps backlog honest"
+            ],
+            "consequences": [
+              "Follow-up card guaranteed; total effort ≈ sum of the other two, spread over time."
+            ],
+            "costs": [
+              "Extra scheduling overhead",
+              "May feel half-finished to power users"
+            ],
+            "id": "both-phased",
+            "label": "Ship per-card now; add workspace later",
+            "reversibility": "High — decouples the two deliverables cleanly.",
+            "risks": [
+              "Users may conflate the two features"
+            ],
+            "summary": "Two-phase delivery: per-card as F1, workspace export as F2."
+          }
+        ],
+        "question": "Per-card action, workspace-level menu, or both?",
+        "ramifications": [
+          "Chooses whether we touch top-bar layout now or later; sets the ceiling for how much multi-selection scaffolding we invest upfront."
+        ],
+        "recommendation": {
+          "optionId": "per-card-copy-md",
+          "rationale": "Single-source, low-risk path along the existing task-detail layout (src/ui/layout/task_details.rs); mirrors how operators already think about individual tasks; trivial to extend to a bulk menu later without breaking the per-card flow."
+        },
+        "reversibility": "Per-card is easy to strip; a committed workspace menu is harder to unwind because other commands tend to attach to it.",
+        "risks": [
+          "Overengineering if most users rarely export; mitigated by keeping the action tiny."
+        ],
+        "whyNow": "Spec R5/AC1 depend on the control location; scoping bulk vs single-shot hinges on this too."
+      },
+      "evidence": "\n\nResolution outcome: Choice recorded: per-card \"Copy Markdown\" it is. F1's scope, R5, and AC1/AC5 are finalized to the chosen surface (clipboard delivery, no save dialog or dedicated shortcut in v1), and F1 is now Ready. Next gate is explicit approval via the F1 approval action; no worker starts on its own. No reply needed.",
+      "feature_id": "F1",
+      "feature_uid": "c823d339-a43c-4e3a-ae84-9960d84df064",
+      "id": "CLR-001",
+      "kind": "question",
+      "priority": "blocking",
+      "question": "Which surface should expose the Export-Markdown action for a planning task?",
+      "reason": "Placement drives the click path, focus management, and whether multi-export is cheap to bolt on later; getting this wrong forces rework across the detail UI.",
+      "recommendation": "",
+      "status": "resolved",
+      "uid": "dd04efbc-d5e9-4184-a9de-76b31332d105"
+    }
+  ],
+  "scenario": "A",
+  "turn_completed": true,
+  "workflow_ready": false
+}

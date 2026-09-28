@@ -16,7 +16,7 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 const PENDING_NAME: &str = "packet-artifact-migration.pending.json";
 const LOCK_NAME: &str = "packet-artifact-migration.lock";
 
@@ -96,6 +96,49 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
     plan.apply(&repo)?;
     identity_plan.apply(&repo)?;
     private.apply()?;
+    let workflow_path = layout.workflow_state();
+    let before_workflow = match fs::read_to_string(&workflow_path) {
+        Ok(text) => serde_json::from_str::<crate::core::workflow::Workflow>(&text)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            crate::core::workflow::Workflow::default()
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let workflow = crate::artifacts::task_docs::load_workflow(&repo)?;
+    let mut migrated_features = Vec::new();
+    for (feature_id, _) in crate::artifacts::product_docs::active_features(&repo) {
+        let path =
+            crate::artifacts::product_docs::document_path(&repo, &format!("feature:{feature_id}"))?;
+        let markdown = fs::read_to_string(&path)?;
+        let updated = crate::domain::ChangeMetadata::clear_legacy_comparison_state(&markdown)?;
+        if updated != markdown {
+            migrated_features.push((path, updated));
+        }
+    }
+    if workflow != before_workflow || !migrated_features.is_empty() {
+        if workflow != before_workflow {
+            pending.paths.insert(
+                workflow_path
+                    .strip_prefix(&repo)?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+        for (path, _) in &migrated_features {
+            pending.paths.insert(
+                path.strip_prefix(&repo)?
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+        write_pending(&pending_path, &pending)?;
+        if workflow != before_workflow {
+            crate::artifacts::task_docs::save_workflow(&repo, &workflow)?;
+        }
+        for (path, markdown) in migrated_features {
+            crate::artifacts::atomic_write(&path, &markdown)?;
+        }
+    }
     let manifest = Manifest {
         schema_version: SCHEMA_VERSION,
         product: "Packet".into(),

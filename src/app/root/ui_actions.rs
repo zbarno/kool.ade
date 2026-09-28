@@ -16,6 +16,16 @@ impl PacketApp {
             }
             ApplicationCommand::CancelTaskReply { key } => self.cancel_task_reply(&key),
             ApplicationCommand::RetryTaskChatSave => self.retry_task_chat_save(),
+            ApplicationCommand::RetrySetupCheck => {
+                self.refresh_setup_attention(true);
+            }
+            ApplicationCommand::CreatePlanningTask {
+                kind,
+                description,
+                parent_uid,
+            } => {
+                self.create_planning_task(kind, &description, parent_uid);
+            }
             ApplicationCommand::DrainTaskChatSaves => self.drain_task_chat_saves(),
             ApplicationCommand::CancelTask => self.cancel_task(),
             ApplicationCommand::SetMaxParallelTasks { count } => self.set_max_parallel_tasks(count),
@@ -232,7 +242,7 @@ impl PacketApp {
     fn archive_task(&mut self, ticket: &str) {
         let done = matches!(&self.screen, Screen::Connected(project)
             if crate::core::planning_work::cards(&project.state, &project.planning_work)
-                .iter().any(|work| work.key == ticket && work.column == 4))
+                .iter().any(|work| work.key == ticket && work.status == crate::core::planning_work::WorkStatus::Done))
             || match &self.screen {
                 Screen::Connected(project) => {
                     project

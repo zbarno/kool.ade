@@ -1,0 +1,324 @@
+{
+  "board_attention_ids": [
+    "CLR-001",
+    "CLR-002",
+    "CLR-003"
+  ],
+  "conversation": [
+    {
+      "role": "agent",
+      "text": "Saved Draft **F1 — Notification Preferences**. Since you marked storage, behavior, and theme as independent, I opened all three choices as separate cards you can answer in any order:\n\n---\n- Answer whichever you care about first: **CLR-storage**, **CLR-behavior**, or **CLR-theme** (any order)\n- My leans: local settings store • desktop+push channels for mentions/alerts • system/light/dark theme\n- See the three open cards on the board"
+    }
+  ],
+  "features": [
+    [
+      "F1",
+      "# F1: Notification Preferences\n<!-- packet-artifact-id:v1 {\"uid\":\"cd2f771d-eb28-47c0-9771-172397c22565\",\"displayId\":\"F1\",\"title\":\"Notification Preferences\"} -->\n<!-- packet-change:v1 {\"schemaVersion\":1,\"uid\":\"cd2f771d-eb28-47c0-9771-172397c22565\",\"displayId\":\"F1\",\"status\":\"draft\"} -->\n\n**Status:** Draft\n\n## Intent\nGive users control over how notifications reach them, where preferences persist, and how the UI appears, so people tune alerts to their workflow instead of accepting one-size-fits-all behavior.\n\n## Current Behavior\nBaseline planning stage: no notification system, preference persistence, or appearance settings exist yet in this product.\n\n## Desired Behavior\n- Users configure notification preferences; choices apply going forward and survive restarts according to the chosen storage model.\n- Users pick which notification channels/levels fire (behavior).\n- Users pick an interface theme (appearance).\nEach of storage, behavior, and theme is an independent setting decidable on its own.\n\n## Scope\n- In: a preferences surface exposing the three independent settings; persistence per the chosen storage model; reasonable defaults; sensible fallbacks for unsupported channels.\n- Out: multi-account sync, per-rule scheduling, admin/user management.\n\n## Affected Product Areas\nPreferences UI, settings persistence layer, notification dispatch (new), theme/appearance rendering.\n\n## Requirements\n1. Preferences screen exposes three independent settings: storage choice, notification behavior, theme choice.\n2. Preferences persist via the decided storage model and restore on next session.\n3. Notification delivery honors the chosen behavior settings.\n4. Theme choice restyles the UI.\n5. Defaults exist for all three when unset.\n\n## Decisions and Assumptions\nPending user decisions (see open items):\n- **Storage**: where preferences persist (local store vs cloud-backed) — undetermined.\n- **Notification behavior**: which channels/types deliver (desktop, push, email, etc.) — undetermined.\n- **Theme**: appearance model (light/dark/system-follow) — undetermined.\n\n## Acceptance Criteria\n- Setting each of the three independently works without touching the others.\n- Restart restores the stored preferences.\n- Changing notification behavior changes delivery accordingly.\n- Changing theme visually restyles the UI without affecting other settings."
+    ]
+  ],
+  "open_items": [
+    {
+      "assigned_to": "Packet Dogfood",
+      "authority": "human",
+      "category": "Engineering",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Choice is user's and not yet adopted; reassess ADR after selection given durability implications.",
+          "revisitWhen": [
+            "Sync option chosen",
+            "Multi-user scenarios introduced"
+          ],
+          "title": ""
+        },
+        "benefits": [
+          "Clarity on persistence boundary"
+        ],
+        "confidence": {
+          "explanation": "Local-first is a safe default, but sync may matter if the user expects cross-device consistency.",
+          "level": "medium"
+        },
+        "costs": [
+          "Either choice commits some infrastructure effort"
+        ],
+        "deferConsequence": "Persistence design and F1 tasking stall until a model is picked.",
+        "evidence": [
+          "Repository is a fresh planning root with no existing settings/persistence code."
+        ],
+        "id": "CLR-001",
+        "options": [
+          {
+            "benefits": [
+              "No backend",
+              "Works offline",
+              "Fast"
+            ],
+            "consequences": [
+              "Single-machine settings only"
+            ],
+            "costs": [
+              "No cross-device sync",
+              "Lost on reinstall"
+            ],
+            "id": "local-settings",
+            "label": "Local settings store",
+            "reversibility": "Can migrate to synced storage later.",
+            "risks": [
+              "User confusion between devices"
+            ],
+            "summary": "Persist preferences in local app storage (file/db)."
+          },
+          {
+            "benefits": [
+              "Cross-device consistency"
+            ],
+            "consequences": [
+              "Settings sync across machines"
+            ],
+            "costs": [
+              "Requires auth/backend",
+              "Privacy considerations"
+            ],
+            "id": "cloud-sync",
+            "label": "Cloud-backed account store",
+            "reversibility": "Harder; involves data ownership changes.",
+            "risks": [
+              "Scope creep into accounts infra"
+            ],
+            "summary": "Persist server-side tied to a user account with sync."
+          }
+        ],
+        "question": "Where should notification preferences be persisted?",
+        "ramifications": [
+          "Affects privacy posture and install-time experience"
+        ],
+        "recommendation": {
+          "optionId": "local-settings",
+          "rationale": "Simplest correct baseline; reversible by later adding sync; no external service commitment for a first release."
+        },
+        "reversibility": "Local→sync is additive; reverse requires data migration.",
+        "risks": [
+          "Wrong choice forces rework"
+        ],
+        "whyNow": "Drives storage design and migration strategy for F1; independent of behavior and theme choices."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "cd2f771d-eb28-47c0-9771-172397c22565",
+      "id": "CLR-001",
+      "kind": "question",
+      "priority": "normal",
+      "question": "Where should notification preferences be persisted?",
+      "reason": "Determines the persistence architecture and offline/portability story for all three settings.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "7b0793e9-093d-4857-b9bb-41d6389e9f2a"
+    },
+    {
+      "assigned_to": "Packet Dogfood",
+      "authority": "human",
+      "category": "Product",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Not yet adopted and likely to evolve as products grow; revisit after first release.",
+          "revisitWhen": [
+            "Event taxonomy expands",
+            "Vendor push/email services evaluated"
+          ],
+          "title": ""
+        },
+        "benefits": [
+          "Right-sized delivery engine"
+        ],
+        "confidence": {
+          "explanation": "Depends on what triggers exist post-F1; the request doesn't enumerate events.",
+          "level": "medium"
+        },
+        "costs": [
+          "Under-scoping may force a follow-up feature"
+        ],
+        "deferConsequence": "Dispatcher scope undecided, so behavior-related task stories cannot be drafted concretely.",
+        "evidence": [
+          "Request mentions notification behavior generically without enumerating event types or channels."
+        ],
+        "id": "CLR-002",
+        "options": [
+          {
+            "benefits": [
+              "Low noise",
+              "Standard UX"
+            ],
+            "consequences": [
+              "Two-channel dispatch"
+            ],
+            "costs": [
+              "Push requires service tokens"
+            ],
+            "id": "mentions-alerts",
+            "label": "Desktop + push for critical events",
+            "reversibility": "Add more channels later without breaking existing prefs.",
+            "risks": [
+              "May miss quieter events user wants"
+            ],
+            "summary": "Notify on high-importance events via OS/desktop and/or browser push."
+          },
+          {
+            "benefits": [
+              "Comprehensive control"
+            ],
+            "consequences": [
+              "Three-plus dispatch paths"
+            ],
+            "costs": [
+              "Email pipeline scope",
+              "Higher maintenance"
+            ],
+            "id": "full-mix",
+            "label": "Full channel mix incl. email",
+            "reversibility": "Disabling channels is easy; removing shipped pipelines later is costly.",
+            "risks": [
+              "Delays shipping F1",
+              "More failure modes"
+            ],
+            "summary": "Expose desktop, push, email toggles plus severity levels."
+          }
+        ],
+        "question": "Which notification channels and levels should be configurable?",
+        "ramifications": [
+          "Determines vendor/token dependencies"
+        ],
+        "recommendation": {
+          "optionId": "mentions-alerts",
+          "rationale": "Common minimal channel mix that covers most alert use cases without pulling in email/PWA extras early."
+        },
+        "reversibility": "Adding channels is cheap; stripping is expensive.",
+        "risks": [
+          "Over-scoping delays F1"
+        ],
+        "whyNow": "Bounded scope is needed to size the notification subsystem for F1; independent of storage and theme."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "cd2f771d-eb28-47c0-9771-172397c22565",
+      "id": "CLR-002",
+      "kind": "question",
+      "priority": "normal",
+      "question": "Which notification channels and levels should be configurable?",
+      "reason": "Defines the deliverables of the notification dispatcher and its scope surface area.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "c314635b-6d31-44bd-8648-37549b228d12"
+    },
+    {
+      "assigned_to": "Packet Dogfood",
+      "authority": "human",
+      "category": "UX",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Easily adjusted, low blast radius; not durable/consequential enough for an ADR.",
+          "revisitWhen": [
+            "Custom theming requested"
+          ],
+          "title": ""
+        },
+        "benefits": [
+          "Consistent accessible appearance"
+        ],
+        "confidence": {
+          "explanation": "Very conventional for modern apps; no strong counter-evidence in the (empty) repo.",
+          "level": "high"
+        },
+        "costs": [
+          "Palette upkeep"
+        ],
+        "deferConsequence": "Prefs screen visuals cannot be finalized; minor impact on task sizing.",
+        "evidence": [
+          "Fresh repo; no existing theme conventions to respect."
+        ],
+        "id": "CLR-003",
+        "options": [
+          {
+            "benefits": [
+              "Meets expectations",
+              "Accessible"
+            ],
+            "consequences": [
+              "CSS variable-driven theming"
+            ],
+            "costs": [
+              "Maintain two palettes"
+            ],
+            "id": "auto-light-dark",
+            "label": "System / Light / Dark",
+            "reversibility": "Trivially extended with more themes later.",
+            "risks": [
+              "Minor palette drift over time"
+            ],
+            "summary": "Follow OS or pin light/dark."
+          },
+          {
+            "benefits": [
+              "Personalization depth"
+            ],
+            "consequences": [
+              "Theming framework up front"
+            ],
+            "costs": [
+              "Design + testing matrix grows quickly"
+            ],
+            "id": "custom-themes",
+            "label": "Extended/custom themes",
+            "reversibility": "Reducing themes later keeps existing users on their pick.",
+            "risks": [
+              "Blooms F1 scope significantly"
+            ],
+            "summary": "Ship several curated themes plus user-defined accents."
+          }
+        ],
+        "question": "What theme options should notification preferences offer?",
+        "ramifications": [
+          "Sets the base for all future UI theming decisions"
+        ],
+        "recommendation": {
+          "optionId": "auto-light-dark",
+          "rationale": "Light/dark/system is table stakes; low cost, avoids forcing a hard choice per platform."
+        },
+        "reversibility": "Theme list is additive-friendly.",
+        "risks": [
+          "Scope bloat if over-designed"
+        ],
+        "whyNow": "Fixes the styling model used by the prefs screen and by future surfaces; independent of storage and behavior."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "cd2f771d-eb28-47c0-9771-172397c22565",
+      "id": "CLR-003",
+      "kind": "question",
+      "priority": "normal",
+      "question": "What theme options should notification preferences offer?",
+      "reason": "Sets the visual styling surface and CSS/theming mechanism needed for the preferences UI and beyond.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "80331534-bac9-40f2-93db-42c72d91941c"
+    }
+  ],
+  "planning_work": {
+    "detail": "Saved Draft **F1 — Notification Preferences**. Since you marked storage, behavior, and theme as independent, I opened all three choices as separate cards you can answer in any order:\n\n---\n- Answer whichever you care about first: **CLR-storage**, **CLR-behavior**, or **CLR-theme** (any order)\n- My leans: local settings store • desktop+push channels for mentions/alerts • system/light/dark theme\n- See the three open cards on the board",
+    "feature_id": "F1",
+    "follow_up_task": null,
+    "kind": "feature",
+    "status": "in_progress",
+    "title": "Feature: Add notification preferences. Storage choice, notifi\n[…truncated…]",
+    "uid": "887d0b20-57d2-427b-a15a-0b89d1479fdd"
+  },
+  "product_specification": "# packet-live-dogfood-764155-1bbc0d1e-9cab-4e4c-b833-90aa27f44ab1 — Living Technical Specification\n\n## Overview\n\nPurpose, current behavior and goals are not established. Describe the project in chat to begin.\n\n## Users and Outcomes\n\nTarget users, their needs, desired outcomes and ownership require confirmation.\n\n## Current Capabilities\n\nCurrent behavior, in-scope capabilities, boundaries and deferred work require evidence and confirmation.\n\n## Architecture and Constraints\n\nArchitecture, important data, runtime constraints and deployment assumptions require repository inspection.\n\n## Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n\n## Quality and Acceptance\n\nQuality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.\n\n",
+  "provider": "local-vllm/qwen3.8-27b-fp8",
+  "reasoning_level": "off",
+  "request": "Add notification preferences. Storage choice, notification behavior, and theme choice are three independent decisions that can be made separately.",
+  "resolved_items": [],
+  "scenario": "F",
+  "turn_completed": true,
+  "workflow_ready": false
+}

@@ -26,24 +26,61 @@ pub use toast::ToastQueue;
 /// Typed actions emitted by views and handled by the application state
 /// machine. UI code reads state through `Surface` and reports intent here.
 pub enum ApplicationCommand {
-    PrepareTaskChat { key: String },
-    SendTaskReply { key: String },
-    SendImplementationDecision { key: String },
-    CancelTaskReply { key: String },
+    PrepareTaskChat {
+        key: String,
+    },
+    SendTaskReply {
+        key: String,
+    },
+    SendImplementationDecision {
+        key: String,
+    },
+    CancelTaskReply {
+        key: String,
+    },
     RetryTaskChatSave,
+    RetrySetupCheck,
+    CreatePlanningTask {
+        kind: crate::core::planning_work::WorkKind,
+        description: String,
+        parent_uid: Option<String>,
+    },
     DrainTaskChatSaves,
     CancelTask,
-    SetMaxParallelTasks { count: usize },
-    SetAutoPlan { enabled: bool },
-    SetAutoBuild { enabled: bool },
-    SetAutoPublish { enabled: bool },
-    SetRequireIndependentChecks { enabled: bool },
-    ArchiveTask { ticket: String },
-    ApproveReviewItem { id: String },
-    ApproveFeature { id: String },
-    CompareFeaturePlans { id: String },
-    ChooseFeaturePlan { id: String, plan_id: String },
-    DiscardFeaturePlans { id: String },
+    SetMaxParallelTasks {
+        count: usize,
+    },
+    SetAutoPlan {
+        enabled: bool,
+    },
+    SetAutoBuild {
+        enabled: bool,
+    },
+    SetAutoPublish {
+        enabled: bool,
+    },
+    SetRequireIndependentChecks {
+        enabled: bool,
+    },
+    ArchiveTask {
+        ticket: String,
+    },
+    ApproveReviewItem {
+        id: String,
+    },
+    ApproveFeature {
+        id: String,
+    },
+    CompareFeaturePlans {
+        id: String,
+    },
+    ChooseFeaturePlan {
+        id: String,
+        plan_id: String,
+    },
+    DiscardFeaturePlans {
+        id: String,
+    },
     UserIntent(Intent),
     HeaderAction(HeaderAction),
     TaskDetail(task_detail::Command),

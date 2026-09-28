@@ -1,24 +1,21 @@
 # Packet
 
-A native desktop planner with a conversation and a living specification for your git repository.
+A native desktop planner with a task board and a living specification for your git repository.
 
 Run with `cargo run --offline` (once dependencies have been downloaded).
 
 See [the artifact layout and cleanup review](docs/artifact-layout.md) for current
 specifications, Packet working artifacts, configuration, and published decisions.
 
-## Conversations on the board
+## Task board
 
-Conversations stay in a persistent tabbed panel to the left of the Kanban (above it
-on narrow screens). **Main Chat** is selected initially and cannot be closed.
-**Open conversation** on a card adds and focuses that item's tab, or focuses its
-existing tab. Each additional tab has a close button; closing the selected tab
-returns to Main Chat without clearing history or drafts or cancelling a running
-reply. Inline replies, task details, and the tab share the same conversation and
-draft. Only the selected chat is rendered, with no additional native windows.
-Clicking a card title still opens task details, descriptions, and workflow actions.
-Overall status and the combined activity graph stay in the top bar. Queue controls
-are available in the **Workspace → Settings…** modal.
+The board is the primary workspace. Use **+ New Task** to start feature planning,
+report a bug, describe a new project, or ask a focused question. Open a card's
+conversation for its focused history, draft, and reply controls. Task conversations
+appear in a side panel while selected; close a tab to return to the full board.
+Main Chat history from older sessions remains stored separately and is not needed
+to plan or answer board tasks. Overall status and the combined activity graph stay
+in the top bar. Queue controls are available in the **Workspace → Settings…** modal.
 
 Every card has a red activity line, and **All activity** in the top bar combines
 worker, investigation, and conversation updates. Charts show observed updates in
@@ -27,10 +24,9 @@ Card colors identify Task, Question, Ambiguity, Assumption, and Ownership, with 
 legend above the columns. Active cards have a heavier outline. Inactive cards
 retain their last recorded activity window.
 
-Main Chat handles project-wide planning. Every board item also has a focused
-conversation with a highlighted next step and **Send answer** when your input is
-needed. Only the latest reply appears by default; select the card title to open
-a larger input and expandable **Conversation history**. Routine updates say
+Every board item has a focused conversation with a highlighted next step and
+**Send answer** when your input is needed. Only the latest reply appears by default;
+select the card title to open a larger input and expandable **Conversation history**. Routine updates say
 **No reply needed**, with **Add context** available for optional follow-ups.
 Both surfaces share the same draft and messages. **Stop reply** cancels a running response.
 On cards, the reply sits directly beneath the question, ahead of metadata and
@@ -65,12 +61,12 @@ Deferring leaves the feature unapproved and creates no implementation tasks.
 
 Task conversations use the item's durable content, referenced specification
 sections, related tasks, and current implementation state. They do not inherit
-Main Chat or other task histories, and cannot start project interviews or generate
-task batches. Validated decisions update the shared planning artifacts. Completed
+other task histories. Feature/New Project tasks can continue project planning;
+Question tasks answer directly without creating a feature specification. Validated decisions update shared planning artifacts. Completed
 questions remain available on the board with their outcomes and conversation.
 
 Histories persist per project under `~/.packet/projects/<slug>/task-conversations.json`
-(or `PACKET_HOME`), separately from Main Chat. Shared resolved-item outcomes live
+(or `PACKET_HOME`), separately from legacy Main Chat history. Shared resolved-item outcomes live
 in `.kool-ade-packet/planning/resolved-items.json` and are checkpointed in Git. A failed history
 save keeps the agent reply visible and offers **Retry saving conversation**;
 keep the window open until the retry succeeds.
@@ -89,21 +85,21 @@ Invalid or zero values use the default. The timeout is fixed when each turn begi
 
 ## Host execution capabilities
 
-Packet's desktop UI can run on Linux, macOS, and Windows. Autonomous execution
-depends on a secure operating-system boundary and is detected at runtime:
+Packet currently supports Linux x86_64 desktop use. Autonomous repository access
+and implementation require Bubblewrap to establish the filesystem and network
+sandbox:
 
-| Capability | Linux with working Bubblewrap | macOS | Windows |
-| --- | --- | --- | --- |
-| Planning UI | Yes | Yes | Yes |
-| Planning, task-generation, and investigation repository reads | Sandboxed, read-only | Supplied context only; repository tools are disabled | Supplied context only; repository tools are disabled |
-| Read-only analysis, reconciliation, and decision explanation tools | None | None | None |
-| Sandboxed implementation | Yes | Unavailable | Unavailable |
+| Capability | Linux x86_64 with working Bubblewrap | Linux x86_64 without working Bubblewrap |
+| --- | --- | --- |
+| Planning UI | Yes | Yes |
+| Planning, task-generation, and investigation | Sandboxed repository reads | Stopped with setup guidance |
+| Read-only analysis, reconciliation, and decision explanation tools | None | None |
+| Sandboxed implementation | Yes | Unavailable until Bubblewrap works |
 
-If Packet cannot establish Bubblewrap on Linux, planning continues from the
-bounded context Packet provides and repository tools are disabled. Implementation
-is stopped before the model starts with an explanation; planned artifacts remain
-available. A successful build on macOS or Windows does not mean autonomous
-implementation is available there.
+If Packet cannot establish Bubblewrap on Linux, planning and implementation
+stop before Pi starts. Packet explains the missing prerequisite and preserves
+planned artifacts. Install Bubblewrap and ensure user namespaces are available,
+then retry.
 
 Planning sandboxes clear inherited environment variables, hide host home and
 credential directories, mount the project and registered local repositories
@@ -113,8 +109,9 @@ relay and exposes only that provider over a mounted Unix socket and a loopback
 relay. The model process receives a harmless placeholder key; it cannot read
 the provider credential or use the host network for other destinations.
 Public/HTTPS providers are not currently supported by this relay and fail
-closed. Context-only mode on unsupported hosts supplies Packet-selected context
-and disables repository tools.
+closed. Planning also stops before Pi starts if the configured provider cannot
+use this relay. Configure Pi with a private/local HTTP OpenAI-compatible
+provider and retry; Packet does not run Pi directly as a fallback.
 
 ## From interview to task stories
 

@@ -73,6 +73,12 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     }
     let task_documents = crate::artifacts::task_docs::load_board(&canonical, &state.workflow);
     let archived_tasks = crate::persistence::archived_tasks::load(&slug);
+    let mut planning_work = crate::core::planning_work::load(&canonical)
+        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    if crate::core::planning_work::link_feature_identities(&state, &mut planning_work) {
+        crate::core::planning_work::save(&canonical, &planning_work)
+            .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    }
     let mut project = Project {
         task_chats: Default::default(),
         activity: Default::default(),
@@ -85,8 +91,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         active_turn: None,
         task_turns: Default::default(),
         task_live: Default::default(),
-        planning_work: crate::core::planning_work::load(&canonical)
-            .map_err(|e| crate::error::AppError::Other(e.to_string()))?,
+        planning_work,
         active_planning_work: None,
         queue: crate::core::implementation_queue::Queue::load(&canonical)
             .map_err(|e| AppError::Other(e.to_string()))?,

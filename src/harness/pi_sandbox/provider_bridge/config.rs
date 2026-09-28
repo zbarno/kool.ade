@@ -6,6 +6,9 @@ use std::{
     path::Path,
 };
 
+mod validate;
+use validate::{ensure_supported_api, validate_base_url_shape};
+
 pub(super) struct Config {
     pub(super) target: Target,
     pub(super) key: String,
@@ -19,10 +22,25 @@ pub(super) fn load() -> anyhow::Result<Config> {
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("Cannot find Pi home for planning provider"))?;
-    let agent = home.join(".pi/agent");
+    load_from(&home.join(".pi/agent"))
+}
+
+pub(super) fn provider_error() -> Option<String> {
+    if let Some(error) = validate::configuration_error() {
+        return Some(error);
+    }
+    let home = match std::env::var_os("HOME") {
+        Some(home) => std::path::PathBuf::from(home),
+        None => return Some("Cannot find Pi home for planning provider".into()),
+    };
+    load_from(&home.join(".pi/agent"))
+        .err()
+        .map(|error| error.to_string())
+}
+
+fn load_from(agent: &Path) -> anyhow::Result<Config> {
     let settings: Value = read_json(&agent.join("settings.json"))?;
     let model_store: Value = read_json(&agent.join("models.json"))?;
-    let auth: Value = read_json(&agent.join("auth.json"))?;
     let provider = settings["defaultProvider"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Pi has no default model provider"))?
@@ -32,15 +50,13 @@ pub(super) fn load() -> anyhow::Result<Config> {
         .ok_or_else(|| anyhow::anyhow!("Pi has no default model"))?
         .to_owned();
     let definition = &model_store["providers"][&provider];
-    anyhow::ensure!(
-        definition["api"].as_str() == Some("openai-completions"),
-        "Planning provider relay currently supports only OpenAI-compatible local providers"
-    );
+    ensure_supported_api(definition["api"].as_str())?;
     let target = parse_target(
         definition["baseUrl"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Pi model provider has no configured base URL"))?,
     )?;
+    let auth: Value = read_json(&agent.join("auth.json"))?;
     let key = auth[&provider]["key"]
         .as_str()
         .filter(|key| !key.is_empty())
@@ -130,16 +146,11 @@ fn copy_fields(source: &Value, names: &[&str]) -> Value {
 }
 
 fn parse_target(base_url: &str) -> anyhow::Result<Target> {
+    validate_base_url_shape(base_url)?;
     let rest = base_url
         .strip_prefix("http://")
         .ok_or_else(|| anyhow::anyhow!("Planning provider must use a bounded HTTP endpoint"))?;
     let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    anyhow::ensure!(
-        !authority.is_empty()
-            && !authority.contains(['@', '?', '#'])
-            && !path.contains(['?', '#', '\\']),
-        "Planning provider URL is not a supported base URL"
-    );
     let path = format!("/{}", path.trim_end_matches('/'));
     let prefix = format!("{path}/");
     let (host, port) = authority
@@ -151,10 +162,6 @@ fn parse_target(base_url: &str) -> anyhow::Result<Target> {
         })
         .transpose()?
         .unwrap_or((authority, 80));
-    anyhow::ensure!(
-        !host.is_empty() && !host.contains(':'),
-        "IPv6 planning endpoints are not supported"
-    );
     let addresses = (host, port)
         .to_socket_addrs()
         .map_err(|error| {
@@ -196,6 +203,40 @@ fn local_target(ip: IpAddr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsupported_provider_configuration_names_supported_protocol() {
+        let root = std::env::temp_dir().join(format!(
+            "packet_provider_config_unsupported_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("settings.json"),
+            r#"{"defaultProvider":"hosted","defaultModel":"model"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("models.json"),
+            r#"{"providers":{"hosted":{"api":"anthropic-messages"}}}"#,
+        )
+        .unwrap();
+        let error = match load_from(&root) {
+            Ok(_) => panic!("unsupported provider configuration must fail closed"),
+            Err(error) => error.to_string(),
+        };
+        assert!(
+            error.contains("only OpenAI-compatible local providers"),
+            "unexpected provider setup error: {error}"
+        );
+        assert_eq!(
+            validate::configuration_error_from(&root).as_deref(),
+            Some(error.as_str()),
+            "the connection setup check must report the same unsupported-provider cause"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn target_rejects_public_and_credential_bearing_urls() {

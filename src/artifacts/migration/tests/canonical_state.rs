@@ -5,14 +5,14 @@ fn work_ledger(root: &Path) -> (PathBuf, PathBuf, Vec<u8>) {
     let target = root.join(crate::artifacts::layout::canonical::WORK);
     fs::create_dir_all(source.parent().unwrap()).unwrap();
     fs::create_dir_all(target.parent().unwrap()).unwrap();
-    let bytes = serde_json::to_vec_pretty(&vec![crate::core::planning_work::Work {
-        key: "planning:preserve-this-card".into(),
-        title: "Keep the planning card".into(),
-        request: "The old canonical location is still authoritative until migrated.".into(),
-        column: 2,
-        feature: None,
-        detail: "Card identity and history survive the layout correction.".into(),
-    }])
+    let bytes = serde_json::to_vec_pretty(&serde_json::json!([{
+        "key": "planning:preserve-this-card",
+        "title": "Keep the planning card",
+        "request": "The old canonical location is still authoritative until migrated.",
+        "column": 2,
+        "feature": null,
+        "detail": "Card identity and history survive the layout correction."
+    }]))
     .unwrap();
     (source, target, bytes)
 }

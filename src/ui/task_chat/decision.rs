@@ -12,10 +12,41 @@ pub(super) fn summary(ui: &mut egui::Ui, item: &OpenItem, expanded: bool) {
     ui.label(RichText::new("Decision guidance").small().strong());
     ui.label(crate::core::context_build::clip(&brief.why_now, 260));
     if let Some((option, rationale)) = recommendation(brief) {
-        ui.label(
-            RichText::new(format!("Packet recommends {}: {rationale}", option.label))
-                .color(theme::ACCENT),
-        );
+        egui::Frame::NONE
+            .fill(theme::ACCENT_SOFT)
+            .corner_radius(6)
+            .inner_margin(8)
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(format!("Packet recommends {}", option.label))
+                        .strong()
+                        .color(theme::ACCENT),
+                );
+                ui.add(egui::Label::new(rationale).wrap());
+            });
+    }
+    if !expanded {
+        if let Some(confidence) = &brief.confidence {
+            ui.label(format!(
+                "Confidence: {:?} — {}",
+                confidence.level,
+                crate::core::context_build::clip(&confidence.explanation, 150)
+            ));
+        } else {
+            ui.label("Confidence is not established from the recorded evidence.");
+        }
+        if !brief.reversibility.trim().is_empty() {
+            ui.label(format!(
+                "Can this change later? {}",
+                crate::core::context_build::clip(&brief.reversibility, 180)
+            ));
+        }
+        if !brief.defer_consequence.trim().is_empty() {
+            ui.label(format!(
+                "If you wait: {}",
+                crate::core::context_build::clip(&brief.defer_consequence, 180)
+            ));
+        }
     }
     if expanded {
         ui.collapsing("Decision details", |ui| details(ui, brief));
@@ -46,11 +77,7 @@ pub(super) fn choices(
     );
     let mut fired = false;
     for option in &brief.options {
-        let consequence = option
-            .consequences
-            .first()
-            .or_else(|| option.risks.first())
-            .or_else(|| option.costs.first());
+        let consequence = option.consequences.first();
         if crate::ui::decision_choice::paint(
             ui,
             &option.label,

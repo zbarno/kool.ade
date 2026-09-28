@@ -1,0 +1,281 @@
+{
+  "board_attention_ids": [
+    "CLR-001",
+    "CLR-002",
+    "CLR-004",
+    "CLR-005",
+    "CLR-003"
+  ],
+  "conversation": [
+    {
+      "role": "agent",
+      "text": "Recorded F1 (Authenticated User Profiles) as a Draft, grounded in the empty scaffold. One blocking human decision stands up: the storage backend for profile data. Per your instruction, authentication approach is intentionally left undecided and is routed behind storage via blocked_by.\n\n---\n- Pick a storage backend for profile data (board item CLR-001).\n- Pointer: open item CLR-001 / feature F1."
+    },
+    {
+      "role": "system",
+      "text": "Raised ownership gap(s): CLR-004, CLR-005"
+    },
+    {
+      "role": "system",
+      "text": "next question “CLR-001” dropped: unknown or just-resolved id"
+    }
+  ],
+  "features": [
+    [
+      "F1",
+      "# F1: Authenticated User Profiles\n<!-- packet-artifact-id:v1 {\"uid\":\"4e5a34a1-db57-4e7b-9b1c-c406af3469d2\",\"displayId\":\"F1\",\"title\":\"Authenticated User Profiles\"} -->\n<!-- packet-change:v1 {\"schemaVersion\":1,\"uid\":\"4e5a34a1-db57-4e7b-9b1c-c406af3469d2\",\"displayId\":\"F1\",\"status\":\"draft\"} -->\n\n**Status:** Draft\n\n## Intent\nGive signed-in users a persistent, identifiable account record so the product can recognize them across sessions and tailor experience.\n\n## Current Behavior\nNone. No accounts, sign-up, sign-in, or persistent identity exist today.\n\n## Desired Behavior\nUsers can create an account, authenticate to subsequent sessions, and maintain a profile (identity + attributes) stored persistently. Concrete fields and admin views to be finalized in interviews.\n\n## Scope\n- Account creation (sign-up) and deletion.\n- Persistent storage of profile identity and attribute data.\n- Session establishment and teardown upon successful/unsuccessful authentication.\n- Retrieval of the currently authenticated user's own profile.\n\nOut of scope (pending):\n- Third-party OAuth identity providers (parked).\n- Role/permission system beyond basic authenticated/unauthenticated (parked).\n- Profile public sharing / lookup-by-email (parked).\n\n## Affected Product Areas\n- Identity / Accounts (new area)\n- Storage (data persistence layer, newly introduced by this feature)\n\n## Requirements\nR1. Provide a mechanism for a new user to register and obtain a persisted account identifier.\nR2. Allow an existing user to re-establish a trusted session using stored credentials.\nR3. Expose a way for an authenticated user to retrieve their own profile data.\nR4. Store profile data in the chosen storage backend; access restricted to the owning user except for fields marked publicly shareable.\nR5. Support user-initiated account deactivation/deletion.\n(Authentication mechanisms — password hashing algorithm, token format, session strategy — are deferred until the storage decision lands.)\n\n## Decisions and Assumptions\nD-F1.1. Authentication approach is intentionally decoupled from and gated behind the storage-backend decision. Rationale: scheme choice interacts strongly with storage characteristics (relational session table, embedded tokens, hash-at-rest columns).\nA1. Greenfield; no pre-existing users, migrations, or compatibility burden assumed.\n\n## Acceptance Criteria\nAC1. After registration, a fresh browser/session can sign in with the same identity and retrieve the profile the user saved.\nAC2. Unauthenticated requests cannot read or mutate any profile data.\nAC3. Deleting/reactivating flow leaves a consistent audit trail per whatever standard quality gate we agree later.\n(Additional ACs will be appended as auth scheme and fields are nailed down.)"
+    ]
+  ],
+  "open_items": [
+    {
+      "assigned_to": "(owner TBD)",
+      "authority": "human",
+      "category": "Product",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": true,
+          "rationale": "Durable infra decision shaping auth, queries, and migrations for the life of the product.",
+          "revisitWhen": [
+            "Team scales past a few thousand users and perf demands a partitioning strategy",
+            "Regulatory/privacy requirement forces regional sharding or encryption-at-rest specifics",
+            "Core business pivots to graph/relationships-first, undermining relational fit"
+          ],
+          "title": "Choice of profile-data storage backend"
+        },
+        "benefits": [],
+        "confidence": {
+          "explanation": "No infrastructure preference given by the user yet; no ops/hosting context captured. Defaulting to relational pending more detail.",
+          "level": "low"
+        },
+        "costs": [],
+        "deferConsequence": "Auth cannot be decided, tasks cannot be scoped concretely, no code groundwork without rework risk.",
+        "evidence": [
+          "User explicitly tied auth to storage in the request",
+          "Repo shows empty scaffold (no pre-existing infra or DB)",
+          ".kool-ade-packet/planning/product/* — no architecture facts captured yet"
+        ],
+        "id": "CLR-001",
+        "options": [
+          {
+            "benefits": [
+              "Strong consistency",
+              "Mature ORMs/drivers",
+              "Easy future joins for roles/audit"
+            ],
+            "consequences": [
+              "Session-token tables natural fit",
+              "JWT signing keys manageable server-side"
+            ],
+            "costs": [
+              "Fixed-ish schema for flexible profile attrs (jsonb mitigates)",
+              "Ops hand-off to vendor"
+            ],
+            "id": "managed-postgres",
+            "label": "Managed PostgreSQL (RDS/Neon/etc.)",
+            "reversibility": "Medium — data migratable; ORM layer absorbs much variance.",
+            "risks": [
+              "Vendor lock-in if deeply coupled to PG extensions"
+            ],
+            "summary": "Relational rows for identities, hashed credentials, sessions; familiar query model."
+          },
+          {
+            "benefits": [
+              "Schema-flexible",
+              "Simple single-collection reads for a profile"
+            ],
+            "consequences": [
+              "Token/session typically kept in separate service/collection",
+              "Credential hashing identical either way"
+            ],
+            "costs": [
+              "Weaker multi-document transactions historically (improved in v4+)",
+              "Query power less suited to relational-style audits"
+            ],
+            "id": "hosted-mongodb",
+            "label": "Hosted MongoDB Atlas",
+            "reversibility": "Low-Medium — reshaping docs is easy early; painful once normalized.",
+            "risks": [
+              "Growing complexity as we add relational-style relations (roles, relationships)"
+            ],
+            "summary": "Document-per-user with embedded sub-documents; flexible profile attrs."
+          },
+          {
+            "benefits": [
+              "Cheapest ops if profile grows binary assets"
+            ],
+            "consequences": [
+              "Split-brain auth/session logic possible if unmanaged carefully"
+            ],
+            "costs": [
+              "Two systems to reason about day one"
+            ],
+            "id": "hybrid-objectstore",
+            "label": "Object store for blobs + lightweight KV for identity",
+            "reversibility": "Low — splitting a coherent store apart later is messy.",
+            "risks": [
+              "Over-engineered for a simple profile start"
+            ],
+            "summary": "Key-value for credentials/tokens; S3-class blob for richer profile payloads/files."
+          }
+        ],
+        "question": "Managed Postgres, hosted MongoDB, object-store-plus-relational hybrid, or something else?",
+        "ramifications": [
+          "Pick wrong → migration cost climbs steeply once users exist",
+          "Worst timing to reverse post-launch"
+        ],
+        "recommendation": {
+          "optionId": "managed-postgres",
+          "rationale": "Greenfield with strong consistency needs (credentials, sessions); mature relational mapping keeps future role/audit work simpler."
+        },
+        "reversibility": "Early (pre-users) medium; late low.",
+        "risks": [],
+        "whyNow": "Auth scheme, session/token model, and field schema all hinge on storage; F1 blocks on it and downstream tasks will diverge significantly between options."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "4e5a34a1-db57-4e7b-9b1c-c406af3469d2",
+      "id": "CLR-001",
+      "kind": "ambiguity",
+      "priority": "blocking",
+      "question": "Which storage backend will hold user profile data (account identifiers, credentials material, profile attributes)?",
+      "reason": "Authentication approach and several profile-storage mechanics depend on storage characteristics (relational tables, token embedding, at-rest column semantics). Per explicit user instruction, auth stays undecidable until this settles.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "9ccd2950-11d4-4ab4-a6a3-46f931ed4ca5"
+    },
+    {
+      "assigned_to": "(owner TBD)",
+      "authority": "human",
+      "blocked_by": [
+        "CLR-001"
+      ],
+      "category": "Product",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Easily iterated field list; revisit when it stabilizes into a formal schema.",
+          "revisitWhen": [
+            "Profile fields stabilize post-v1 and drive privacy impact assessment."
+          ],
+          "title": ""
+        },
+        "benefits": [],
+        "confidence": null,
+        "costs": [],
+        "deferConsequence": "Held; will surface as soon as storage is chosen.",
+        "evidence": [
+          "Empty scaffold — no prior field conventions to inherit."
+        ],
+        "id": "CLR-002",
+        "options": [],
+        "question": "Minimum viable profile field set for launch?",
+        "ramifications": [],
+        "recommendation": null,
+        "reversibility": "Adding columns is easy pre-launch; removing PII later is hard.",
+        "risks": [],
+        "whyNow": "Blocks storage-schema design; also gates privacy/compliance notes. Not needed right now — held for after storage picked."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "4e5a34a1-db57-4e7b-9b1c-c406af3469d2",
+      "id": "CLR-002",
+      "kind": "question",
+      "priority": "high",
+      "question": "Besides a handle/display-name/email, which profile attributes matter for launch?",
+      "reason": "Field set determines storage schema and any PII classification; needed regardless of which backend wins.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "d21a3376-4e59-483e-a87a-62da235470fe"
+    },
+    {
+      "assigned_to": null,
+      "authority": "human",
+      "category": "Product",
+      "conversation_id": "ownership:CLR-001:70726f64756374",
+      "evidence": "",
+      "feature_id": null,
+      "id": "CLR-004",
+      "kind": "ownership",
+      "priority": "high",
+      "question": "Category “Product” has no assigned stakeholder.",
+      "reason": "Automatically created: another open item (CLR-001) requires “Product”, but The category is configured but has no members listed.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "a49a5377-ee5f-4e8c-9c75-fc2aa2d0a435"
+    },
+    {
+      "assigned_to": null,
+      "authority": "human",
+      "category": "InfoSec",
+      "conversation_id": "ownership:CLR-003:696e666f736563",
+      "evidence": "",
+      "feature_id": null,
+      "id": "CLR-005",
+      "kind": "ownership",
+      "priority": "high",
+      "question": "Category “InfoSec” has no assigned stakeholder.",
+      "reason": "Automatically created: another open item (CLR-003) requires “InfoSec”, but The category is configured but has no members listed.",
+      "recommendation": "",
+      "status": "open",
+      "uid": "076e1dbd-7515-49b6-9878-cb42ee834150"
+    },
+    {
+      "assigned_to": "(owner TBD)",
+      "authority": "human",
+      "category": "InfoSec",
+      "decision_brief": {
+        "adrAssessment": {
+          "create": false,
+          "rationale": "Answer may be 'none'; not worth ADR until concrete constraints exist.",
+          "revisitWhen": [
+            "If constraints emerge, capture in a compliance decision doc."
+          ],
+          "title": ""
+        },
+        "benefits": [],
+        "confidence": null,
+        "costs": [],
+        "deferConsequence": "Compliance debt accumulates; fix gets expensive.",
+        "evidence": [
+          "Greenfield — no baseline to inherit."
+        ],
+        "id": "CLR-003",
+        "options": [],
+        "question": "Are there regulatory/residency/retention obligations for profile data?",
+        "ramifications": [],
+        "recommendation": null,
+        "reversibility": "Hard to retrofit retroactive consent/erasure once deployed broadly.",
+        "risks": [],
+        "whyNow": "Shapes compliance posture of whichever storage/auth pair we land on."
+      },
+      "evidence": "",
+      "feature_id": "F1",
+      "feature_uid": "4e5a34a1-db57-4e7b-9b1c-c406af3469d2",
+      "id": "CLR-003",
+      "kind": "question",
+      "priority": "normal",
+      "question": "Any regulatory / residency / retention obligations on stored profile data?",
+      "reason": "GDPR-style erasure, region pinning, or sector mandates reshape both storage choice and auth (e.g., MFA, audit logging).",
+      "recommendation": "",
+      "status": "open",
+      "uid": "34d440ff-5435-4faa-945d-6eecd49e0a21"
+    }
+  ],
+  "planning_work": {
+    "detail": "Recorded F1 (Authenticated User Profiles) as a Draft, grounded in the empty scaffold. One blocking human decision stands up: the storage backend for profile data. Per your instruction, authentication approach is intentionally left undecided and is routed behind storage via blocked_by.\n\n---\n- Pick a storage backend for profile data (board item CLR-001).\n- Pointer: open item CLR-001 / feature F1.",
+    "feature_id": "F1",
+    "follow_up_task": null,
+    "kind": "feature",
+    "status": "in_progress",
+    "title": "Feature: Add authenticated user profiles. Authentication appr\n[…truncated…]",
+    "uid": "b49b8bca-ee81-4dca-952d-956d9bd83484"
+  },
+  "product_specification": "# packet-live-dogfood-446432-3153e0b9-285e-46ff-bc51-f248b1dc7e9d — Living Technical Specification\n\n## Overview\n\nPurpose, current behavior and goals are not established. Describe the project in chat to begin.\n\n## Users and Outcomes\n\nTarget users, their needs, desired outcomes and ownership require confirmation.\n\n## Current Capabilities\n\nNo shipped product behavior yet. Planned: see active feature F1 — Authenticated User Profiles (Draft).\n## Architecture and Constraints\n\nArchitecture, important data, runtime constraints and deployment assumptions require repository inspection.\n\n## Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n| PD-001 | Authentication approach for user profiles is gated behind storage-backend choice. | User instruction: do not surface or decide authentication until storage is resolved. | Proposed — awaiting storage decision. |\n## Quality and Acceptance\n\nQuality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.\n\n",
+  "provider": "local-vllm/qwen3.8-27b-fp8",
+  "reasoning_level": "off (live dogfood latency override)",
+  "request": "Add authenticated user profiles. Authentication approach depends on the storage choice; do not surface or decide authentication until storage is resolved.",
+  "resolved_items": [],
+  "scenario": "G",
+  "turn_completed": true,
+  "workflow_ready": false
+}

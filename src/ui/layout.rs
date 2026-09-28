@@ -1,9 +1,10 @@
-//! Workspace with persistent tabbed conversations beside the Kanban board.
+//! Workspace with the Kanban board as its primary view.
 use crate::app::dialogs;
 use crate::core::implementation::{ImplementationStatus, PullRequestState};
 use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
+mod new_task;
 mod task_details;
 mod workspace_repositories;
 
@@ -122,15 +123,22 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 );
             });
         });
-    let chat_panel = if compact {
-        Panel::top("packet_chat_panel").exact_size(230.0)
-    } else {
-        Panel::left("packet_chat_panel")
-            .exact_size((ui.available_width() * 0.32).clamp(340.0, 560.0))
-    };
-    chat_panel
-        .frame(Frame::NONE.fill(theme::BG).inner_margin(12))
-        .show(ui, |ui| paint_chat_tabs(ui, s, &board));
+    let has_task_conversation = ui.ctx().data_mut(|data| {
+        data.get_temp::<ChatTabs>(egui::Id::new("packet_chat_tabs"))
+            .and_then(|tabs| tabs.active)
+            .is_some()
+    });
+    if has_task_conversation {
+        let chat_panel = if compact {
+            Panel::top("packet_chat_panel").exact_size(230.0)
+        } else {
+            Panel::left("packet_chat_panel")
+                .exact_size((ui.available_width() * 0.32).clamp(340.0, 560.0))
+        };
+        chat_panel
+            .frame(Frame::NONE.fill(theme::BG).inner_margin(12))
+            .show(ui, |ui| paint_chat_tabs(ui, s, &board));
+    }
     CentralPanel::default()
         .frame(
             Frame::NONE
@@ -171,6 +179,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                                         .iter()
                                         .filter(|w| !board.is_archived(&w.key))
                                         .count()
+                                    + usize::from(board.setup_attention.is_some())
                             ),
                         )
                         .clicked()
@@ -336,6 +345,9 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 }
             }
         });
+    settings_open |= ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<bool>(settings_id).unwrap_or(false));
     if settings_open {
         let mut open_batch = None;
         let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 640.0, |ui| {
@@ -389,7 +401,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                 });
             }
             ui.label("On supported GitHub projects, Packet waits for the project's checks after its own verification. If checks fail or are unavailable, the verified work stays unshared.");
-            ui.label("To begin, send ‘start implementing’ in Main Chat. This approves the feature for the next eligible task and starts it. You can also select and approve a feature in Specifications, then use a task’s Implement action.");
+            ui.label("Create a Feature task from the board to start planning. You can also approve a feature in Specifications, then use a task’s Implement action.");
             ui.separator();
             paint_persona_section(ui, s);
             if !s.queue_status().is_empty() {
@@ -553,12 +565,6 @@ fn paint_chat_tabs(
         .id_salt("chat_tabs")
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                if ui
-                    .selectable_label(tabs.active.is_none(), "Main Chat")
-                    .clicked()
-                {
-                    tabs.active = None;
-                }
                 for key in tabs.keys.clone() {
                     ui.push_id(&key, |ui| {
                         let title = conversation_title(board, &key);
@@ -680,49 +686,9 @@ fn paint_chat_tabs(
                     });
                 }
             }
-        } else {
-            paint_conversation(ui, s, false);
         }
     });
     ui.ctx().data_mut(|d| d.insert_temp(id, tabs));
-}
-
-fn paint_conversation(ui: &mut egui::Ui, s: &mut dyn Surface, heading: bool) {
-    if heading {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Conversation").size(17.0).strong());
-            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new("Project manager").size(12.5).weak());
-            });
-        });
-        ui.add_space(24.0);
-    }
-    let msgs = s.chat_messages().to_vec();
-    let progress = s.live_progress().cloned();
-    let busy = s.conversation_busy();
-    let offer = s.task_offer().cloned();
-    let implementation_offer = s.implementation_offer();
-    let actions = s.feature_actions(None);
-    let intent = crate::ui::chat_pane::paint_with_actions(
-        ui,
-        &msgs,
-        s.chat_draft(),
-        busy,
-        progress.as_ref(),
-        crate::ui::chat_pane::Actions {
-            task_offer: offer.as_ref(),
-            implementation_offer,
-            features: &actions,
-        },
-    );
-    if intent.send
-        || intent.cancel
-        || intent.generate_tasks
-        || intent.implement_tasks
-        || intent.approve_feature.is_some()
-    {
-        s.dispatch(ApplicationCommand::UserIntent(intent));
-    }
 }
 
 fn paint_tasks(
@@ -730,6 +696,7 @@ fn paint_tasks(
     s: &mut dyn Surface,
     board: &crate::ui::planning_board::ViewModel,
 ) {
+    new_task::paint(ui, s);
     let viewport = ui.ctx().content_rect();
     let panel_bounds = egui::Rect::from_center_size(
         viewport.center(),
@@ -781,7 +748,7 @@ fn paint_tasks(
                     .iter()
                     .enumerate()
                 {
-                    let planning = work.iter().filter(|w| w.column == column && !board.is_archived(&w.key)).collect::<Vec<_>>();
+                                    let planning = work.iter().filter(|w| w.board_column() == column && !board.is_archived(&w.key)).collect::<Vec<_>>();
                     let cards = docs
                         .iter()
                         .filter(|doc| {
@@ -793,13 +760,19 @@ fn paint_tasks(
                     let questions = items
                         .iter()
                         .filter(|item| !board.is_archived(item.conversation_key()))
-                        .filter(|item| crate::ui::task_chat::board_column(
-                            if s.activity_active(item.conversation_key()) { 1 } else {
-                            planning_column(item)
-                            },
-                            s.task_messages(item.conversation_key()),
-                            s.task_chat_active(item.conversation_key()),
-                        ) == column)
+                        .filter(|item| {
+                            let base = planning_column(item, items);
+                            let displayed = if crate::core::routing::has_open_prerequisite(items, item) {
+                                base
+                            } else {
+                                crate::ui::task_chat::board_column(
+                                    if s.activity_active(item.conversation_key()) { 1 } else { base },
+                                    s.task_messages(item.conversation_key()),
+                                    s.task_chat_active(item.conversation_key()),
+                                )
+                            };
+                            displayed == column
+                        })
                         .collect::<Vec<_>>();
                     egui::Frame::NONE.fill(theme::BG).corner_radius(8).inner_margin(10).show(ui, |ui| {
                         ui.vertical(|ui| {
@@ -808,7 +781,10 @@ fn paint_tasks(
                             ui.label(
                                 RichText::new(format!(
                                     "{label} · {}",
-                                    cards.len() + questions.len() + planning.len()
+                                    cards.len()
+                                        + questions.len()
+                                        + planning.len()
+                                        + usize::from(column == 3 && board.setup_attention.is_some())
                                 ))
                                 .strong(),
                             );
@@ -818,10 +794,23 @@ fn paint_tasks(
                                 .max_height(height - 32.0)
                                 .show(ui, |ui| {
                                     for work in &planning {
-                                        board_card(ui, &work.key, None, work.column == 1, |ui| {
-                                            ui.label(RichText::new("Feature planning").color(theme::ACCENT));
+                                        board_card(ui, &work.key, None, work.status == crate::core::planning_work::WorkStatus::InProgress, |ui| {
+                                            ui.label(RichText::new(work.kind.label()).color(theme::ACCENT));
                                             ui.label(RichText::new(&work.title).strong());
+                                            if let Some(blocked_by) = planning_parent_label(work, &planning) {
+                                                ui.label(RichText::new(blocked_by).color(theme::WARNING));
+                                            }
                                             ui.label(crate::core::context_build::clip(&work.detail, 180));
+                                            if let Some(offer) = &work.follow_up_task {
+                                                ui.label(RichText::new(&offer.title).strong());
+                                                if ui.button("Create related Feature task").clicked() {
+                                                    s.dispatch(ApplicationCommand::CreatePlanningTask {
+                                                        kind: crate::core::planning_work::WorkKind::Feature,
+                                                        description: offer.description.clone(),
+                                                        parent_uid: Some(work.uid.clone()),
+                                                    });
+                                                }
+                                            }
                                             if ui.small_button("Open conversation").clicked() {
                                                 let mut tabs = ui.ctx().data_mut(|d| d.get_temp::<ChatTabs>(egui::Id::new("packet_chat_tabs"))).unwrap_or_default();
                                                 tabs.open(&work.key);
@@ -831,6 +820,31 @@ fn paint_tasks(
                                                 s.dispatch(ApplicationCommand::ArchiveTask {
                                                     ticket: work.key.clone(),
                                                 });
+                                            }
+                                        });
+                                    }
+                                    if column == 3
+                                        && let Some(issue) = &board.setup_attention
+                                    {
+                                        board_card(ui, issue.id, None, false, |ui| {
+                                            ui.label(RichText::new("SETUP · NEEDS ATTENTION").size(11.5).color(theme::WARNING));
+                                            ui.label(RichText::new(issue.title).strong());
+                                            ui.add(egui::Label::new(&issue.issue).wrap());
+                                            ui.label(RichText::new("Why this matters").strong());
+                                            ui.add(egui::Label::new(issue.why).wrap());
+                                            ui.label(RichText::new("Packet recommends").strong());
+                                            ui.add(egui::Label::new(issue.recommendation).wrap());
+                                            ui.add(egui::Label::new(issue.impact).wrap());
+                                            ui.add(egui::Label::new(issue.next_action).wrap());
+                                            if ui.button("Open settings").clicked() {
+                                                ui.ctx().data_mut(|data| data.insert_temp(
+                                                    egui::Id::new("packet_workspace_settings_open"),
+                                                    true,
+                                                ));
+                                            }
+                                            let label = if board.setup_checking { "Checking setup…" } else { "Retry setup check" };
+                                            if ui.add_enabled(!board.setup_checking, egui::Button::new(label)).clicked() {
+                                                s.dispatch(ApplicationCommand::RetrySetupCheck);
                                             }
                                         });
                                     }
@@ -957,7 +971,7 @@ fn paint_tasks(
                             item.category,
                             crate::core::implementation::BOARD_COLUMNS
                                 [crate::ui::task_chat::board_column(
-                                    planning_column(item),
+                                    planning_column(item, &board.planning_items),
                                     s.task_messages(item.conversation_key()),
                                     s.task_chat_active(item.conversation_key())
                                 )]
@@ -1110,12 +1124,19 @@ fn task_board_column(s: &dyn Surface, key: &str) -> usize {
     }
 }
 
-fn planning_column(item: &crate::domain::item::OpenItem) -> usize {
+fn planning_column(
+    item: &crate::domain::item::OpenItem,
+    items: &[crate::domain::item::OpenItem],
+) -> usize {
     if item.status == crate::domain::item::ItemStatus::Resolved {
         4
+    } else if crate::core::routing::has_open_prerequisite(items, item) {
+        0
     } else if item.is_ownership_gap()
-        || (item.priority == crate::domain::item::Priority::Blocking
-            && item.authority == crate::domain::Authority::Human)
+        || matches!(
+            item.authority,
+            crate::domain::Authority::Human | crate::domain::Authority::Review
+        )
     {
         3
     } else {
@@ -1125,6 +1146,20 @@ fn planning_column(item: &crate::domain::item::OpenItem) -> usize {
             crate::domain::Authority::Human => 0,
         }
     }
+}
+
+fn planning_parent_label(
+    work: &crate::core::planning_work::Work,
+    items: &[&crate::core::planning_work::Work],
+) -> Option<String> {
+    let parent_uid = work.parent_uid.as_ref()?;
+    let parent = items.iter().find(|candidate| &candidate.uid == parent_uid);
+    Some(format!(
+        "Blocked by {}",
+        parent
+            .map(|item| item.title.as_str())
+            .unwrap_or("parent work")
+    ))
 }
 
 fn paint_task_properties(
@@ -1497,6 +1532,95 @@ mod chat_tab_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn human_and_review_items_are_projected_into_needs_attention() {
+        let mut item = crate::domain::OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Choose a retention period".into(),
+            String::new(),
+        );
+        assert_eq!(planning_column(&item, std::slice::from_ref(&item)), 3);
+        item.authority = crate::domain::Authority::Review;
+        assert_eq!(planning_column(&item, std::slice::from_ref(&item)), 3);
+        item.authority = crate::domain::Authority::Agent;
+        assert_eq!(planning_column(&item, std::slice::from_ref(&item)), 0);
+        item.status = crate::domain::ItemStatus::Resolved;
+        assert_eq!(planning_column(&item, std::slice::from_ref(&item)), 4);
+    }
+
+    #[test]
+    fn dependent_decision_waits_until_its_prerequisite_is_resolved() {
+        let parent = crate::domain::OpenItem::new(
+            "CLR-010".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Choose the account model".into(),
+            String::new(),
+        );
+        let mut child = crate::domain::OpenItem::new(
+            "CLR-011".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Choose the recovery flow".into(),
+            String::new(),
+        );
+        child.blocked_by = vec![parent.id.clone()];
+        let mut items = vec![parent, child];
+        assert_eq!(planning_column(&items[1], &items), 0);
+        assert_eq!(
+            crate::core::routing::eligible_items(
+                &items,
+                &crate::domain::CurrentUser::new("Operator", vec![]),
+                &crate::domain::Stakeholders::default(),
+            )
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+            vec!["CLR-010"]
+        );
+        items[0].status = crate::domain::ItemStatus::Resolved;
+        assert_eq!(planning_column(&items[1], &items), 3);
+        assert!(
+            crate::core::routing::eligible_items(
+                &items,
+                &crate::domain::CurrentUser::new("Operator", vec![]),
+                &crate::domain::Stakeholders::default(),
+            )
+            .iter()
+            .any(|item| item.id == "CLR-011")
+        );
+    }
+
+    #[test]
+    fn child_work_names_the_blocking_parent() {
+        let mut parent = crate::core::planning_work::Work::new(
+            "task:parent".into(),
+            "Plan access behavior".into(),
+            "Access behavior".into(),
+            String::new(),
+        );
+        parent.status = crate::core::planning_work::WorkStatus::NeedsAttention;
+        let mut child = crate::core::planning_work::Work::new(
+            "task:child".into(),
+            "Plan account recovery".into(),
+            "Account recovery".into(),
+            String::new(),
+        );
+        child.parent_uid = Some(parent.uid.clone());
+        assert_eq!(
+            planning_parent_label(&child, &[&parent]),
+            Some("Blocked by Plan access behavior".into())
+        );
+    }
 
     /// Builds a settled-record fixture by mutating `LiveProgress::default()`'
     /// public telemetry fields; no wall clock involved.

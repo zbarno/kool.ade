@@ -35,6 +35,9 @@ pub struct OpenItem {
     pub evidence: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_brief: Option<crate::domain::DecisionBrief>,
+    /// Open board-item IDs that must resolve before this item is actionable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_by: Vec<String>,
     pub status: ItemStatus,
 }
 
@@ -64,6 +67,7 @@ impl OpenItem {
             recommendation: String::new(),
             evidence: String::new(),
             decision_brief: None,
+            blocked_by: Vec::new(),
             status: ItemStatus::Open,
         }
     }

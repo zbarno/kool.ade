@@ -48,21 +48,12 @@ impl PacketApp {
                 return;
             }
         };
-        let metadata = match crate::domain::ChangeMetadata::require_markdown(&current) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                self.toasts
-                    .danger(format!("Cannot read plan comparison: {error}"));
-                return;
-            }
-        };
         let comparison = project
             .state
             .workflow
             .plan_comparisons
             .get(id)
-            .map(|record| record.alternatives.clone())
-            .or_else(|| metadata.plan_comparison.clone());
+            .map(|record| record.alternatives.clone());
         let Some(comparison) = comparison else {
             self.toasts
                 .danger("The feature has no saved plan comparison.");
@@ -135,6 +126,7 @@ impl PacketApp {
                     selected_plan: Some(plan_id.to_owned()),
                     ..comparison.clone()
                 },
+                history: Vec::new(),
                 transcript: String::new(),
                 status: crate::core::workflow::PlanComparisonStatus::Adopted,
                 selected_plan: Some(plan_id.to_owned()),

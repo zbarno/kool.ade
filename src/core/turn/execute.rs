@@ -143,9 +143,24 @@ pub(super) fn run_turn(
             ..Default::default()
         });
     }
-    let task_note = task
-        .filter(|key| !key.starts_with("planning:") && !key.starts_with("feature:"))
-        .map(|_| prompt::TASK_CONVERSATION_MODE_NOTE);
+    let task_note = task.and_then(|key| {
+        if key.starts_with("planning:") || key.starts_with("feature:") {
+            return None;
+        }
+        if let Some(work) = crate::core::planning_work::find(&inputs.state, key) {
+            return Some(
+                if work.kind == crate::core::planning_work::WorkKind::Question {
+                    prompt::QUESTION_TASK_MODE_NOTE
+                } else {
+                    // Typed planning tasks have their own detailed body prompt and
+                    // retain the standard interview contract. They are not a
+                    // scoped item/document reply.
+                    return None;
+                },
+            );
+        }
+        Some(prompt::TASK_CONVERSATION_MODE_NOTE)
+    });
     let retrieval = if task.is_none() {
         match crate::core::context_retrieval::select(
             harness,
@@ -258,10 +273,29 @@ pub(super) fn run_turn(
     // Decode (or discover the absence of) the structured block.
     match decode_envelope(&outcome.final_text, inputs.purpose) {
         EnvelopeDecode::Env(env) => {
+            if inputs.purpose == crate::core::workflow::TurnPurpose::Question
+                && (env.updated_specification.is_some()
+                    || env.document_updates.as_ref().is_some_and(|items| !items.is_empty())
+                    || env.interview.is_some()
+                    || env.task_stories.is_some()
+                    || env.task_outline.is_some()
+                    || env.requested_action.is_some()
+                    || env.plans.is_some()
+                    || env.recommendation.is_some())
+            {
+                return TurnOutcome::Rejected {
+                    problems: vec!["Question tasks cannot create or update specifications, task stories, or project actions. Answer the question directly; raise only a related unresolved board item when needed.".into()],
+                    final_text: outcome.final_text,
+                    elapsed: started.elapsed(),
+                };
+            }
             if let Some(task) = task {
                 let item_id = inputs.state.items.iter().find(|item| item.conversation_key() == task)
                     .map(|item| item.id.as_str()).unwrap_or(task);
-                let feature_planning = task.starts_with("planning:") || task.starts_with("feature:");
+                let feature_planning = task.starts_with("planning:")
+                    || task.starts_with("feature:")
+                    || crate::core::planning_work::find(&inputs.state, task)
+                        .is_some_and(|work| work.kind != crate::core::planning_work::WorkKind::Question);
                 if env.requested_action.is_some()
                     || (!feature_planning && env.interview.is_some())
                     || env.task_stories.is_some()

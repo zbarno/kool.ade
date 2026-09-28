@@ -1,13 +1,52 @@
 use super::*;
 
 #[test]
-fn planning_turn_rejects_task_generation_fields_even_when_empty() {
-    let error = decode_turn(
+fn planning_turn_ignores_null_task_generation_field_but_rejects_payload() {
+    let response = decode_turn(
         r#"{"schema_version":2,"assistant_message":"Done.","task_stories":null}"#,
+        TurnPurpose::Interview,
+    )
+    .unwrap();
+    assert_eq!(response.assistant(), "Done.");
+
+    let error = decode_turn(
+        r#"{"schema_version":2,"assistant_message":"Done.","task_stories":[]}"#,
         TurnPurpose::Interview,
     )
     .unwrap_err();
     assert!(error.contains("unknown field"));
+}
+
+#[test]
+fn planning_ignores_only_product_unchanged_status_sentinel() {
+    let response = decode_turn(
+        r#"{"schema_version":2,"document_updates":[{"document_id":"product:capabilities","content":"unchanged","status":"unchanged-placeholder"}]}"#,
+        TurnPurpose::Interview,
+    )
+    .unwrap();
+    assert!(response.document_updates.unwrap()[0].status.is_none());
+
+    let typed_product_status = decode_turn(
+        r#"{"schema_version":2,"document_updates":[{"document_id":"product:capabilities","content":"x","status":"draft"}]}"#,
+        TurnPurpose::Interview,
+    )
+    .unwrap();
+    assert_eq!(
+        typed_product_status.document_updates.unwrap()[0].status,
+        Some(crate::domain::ChangeStatus::Draft)
+    );
+
+    let invalid_product_status = decode_turn(
+        r#"{"schema_version":2,"document_updates":[{"document_id":"product:capabilities","content":"x","status":"not-a-status"}]}"#,
+        TurnPurpose::Interview,
+    );
+    assert!(invalid_product_status.is_err());
+
+    let invalid_feature = decode_turn(
+        r#"{"schema_version":2,"document_updates":[{"document_id":"feature:F1","content":"x","status":"unchanged-placeholder"}]}"#,
+        TurnPurpose::Interview,
+    );
+    assert!(invalid_feature.is_err());
 }
 
 #[test]

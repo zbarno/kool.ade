@@ -10,7 +10,7 @@ mod action_context;
 mod compare_plans;
 #[path = "prompt/task_conversation.rs"]
 mod task_conversation;
-pub use task_conversation::TASK_CONVERSATION_MODE_NOTE;
+pub use task_conversation::{QUESTION_TASK_MODE_NOTE, TASK_CONVERSATION_MODE_NOTE};
 
 /// Canonical authoring contract injected into every planning turn.
 /// Standing instructions injected into EVERY planning turn.
@@ -249,11 +249,25 @@ Do not jump from a feature request to implementation. Elicit and reflect back:
 - the goal, observable success criteria, and concrete end-to-end user journeys;
 - what is in scope and explicitly out of scope;
 - constraints, compatibility, important failure cases, and unresolved decisions.
+For each required interview array, provide at least one concrete entry. If no
+constraints apply after inspecting the request and relevant repository evidence,
+use `"No additional constraints identified in the request or inspected evidence."`
+as the constraint entry; never use an empty constraints array. For a bug whose
+expected behavior is clear from existing product behavior or the report, write
+a concise corrective feature spec and mark its typed status `ready` when no
+user decision or missing evidence blocks approval. Keep `ready_for_tasks` true
+only when all readiness criteria are met.
 Investigate existing code to ground technical details, but never infer the user's
-business intent from the code alone. Ask one focused question at a time, prioritizing
-missing intent before architecture details. Preserve these answers in the specification.
-Use answers already supplied; do not repeat the interview mechanically. Reflect the
-agreed goal and tradeoffs back to the user. Do not invent metrics, requirements, or consent.
+business intent from the code alone. Resolve Agent-owned uncertainty from repository
+and product evidence. Put each genuine Human/Review decision in a structured board item,
+with a clear question, recommendation, rationale, and concrete consequences. Create all
+currently actionable independent items in the same turn; do not serialize unrelated
+decisions into a one-question interview. For dependent decisions, set `blocked_by` to the
+prerequisite item IDs and do not ask or route them until those prerequisites are resolved.
+Continue specification updates and independent investigation while user decisions wait.
+Do not ask a user question only in prose: summarize progress and point to the board items.
+Use answers already supplied; do not repeat the interview mechanically. Reflect agreed
+goal and tradeoffs back in the specification. Do not invent metrics, requirements, or consent.
 
 INTERVIEW OUTPUT
 Extend the final JSON envelope with an `interview` object (snake_case or camelCase):
@@ -266,7 +280,7 @@ Extend the final JSON envelope with an `interview` object (snake_case or camelCa
   "success_criteria": ["Observable, verifiable outcome"],
   "in_scope": ["An agreed capability or user journey"],
   "out_of_scope": ["An explicit exclusion; state none only when confirmed"],
-  "constraints": ["A confirmed constraint; state none only when confirmed"],
+  "constraints": ["A confirmed constraint, or the explicit no-additional-constraints statement above"],
   "ready_for_tasks": false
 }
 During discovery, fields not yet established may be empty. Set ready_for_tasks=true
@@ -341,6 +355,9 @@ pub fn workflow_context_for_turn(
         }
         crate::core::workflow::TurnPurpose::Interview => {
             "INTERVIEW. Task generation is NOT authorized. Clarify intent and scope; offer the next phase only when ready."
+        }
+        crate::core::workflow::TurnPurpose::Question => {
+            "QUESTION TASK. Investigate the user's question and provide a direct, evidence-based answer. Do not create or update feature specifications, interview briefs, task stories, or implementation requests. You may create a related Human or Review board item only if a genuine unresolved decision or user action is discovered."
         }
         crate::core::workflow::TurnPurpose::GenerateTasks => {
             "GENERATE TASK STORIES. The user explicitly approved the current reviewed specification. Generate the complete detailed task set now."
@@ -830,8 +847,8 @@ mod tests {
                 );
                 assert_eq!(
                     s.matches("```json").count(),
-                    1,
-                    "{label}: the fake fence token must occur exactly once — nothing stripped or sanitized"
+                    PLANNER_POLICY.matches("```json").count() + 1,
+                    "{label}: fence labels should come only from the standing policy and the byte-preserved document"
                 );
             }
         }
@@ -955,9 +972,9 @@ mod tests {
         ] {
             assert_eq!(
                 comp.matches("```json").count(),
-                1,
+                PLANNER_POLICY.matches("```json").count() + 1,
                 "{label}: '```json' must occur exactly once in the hostile composition — \
-                 it comes solely from the document; a second would be a standing-constant slip"
+                 the expected occurrences come from the standing policy and hostile document"
             );
         }
     }

@@ -129,9 +129,11 @@ impl DecisionBrief {
             check_list("option risks", &option.risks)?;
             check_list("option consequences", &option.consequences)?;
             check_text("option reversibility", &option.reversibility, 900)?;
-            if option.costs.is_empty() && option.risks.is_empty() && option.consequences.is_empty()
-            {
-                return Err(format!("option {} lacks a consequence or risk", option.id));
+            if option.consequences.is_empty() {
+                return Err(format!(
+                    "option {} lacks an understandable consequence",
+                    option.id
+                ));
             }
         }
         if let Some(recommendation) = &self.recommendation {

@@ -196,6 +196,8 @@ pub struct TurnEnvelope {
     /// action against the current workflow before dispatching it.
     #[serde(default, alias = "requested_action")]
     pub requested_action: Option<RequestedAction>,
+    #[serde(default, alias = "follow_up_task")]
+    pub follow_up_task: Option<PlanningTaskOffer>,
     pub interview: Option<crate::core::workflow::InterviewBrief>,
     #[serde(alias = "task_stories", skip_serializing_if = "Option::is_none")]
     pub task_stories: Option<Vec<crate::core::workflow::TaskStory>>,
@@ -226,6 +228,14 @@ pub struct RequestedAction {
     /// Stable Packet identity for a specifically named change or task.
     #[serde(default, alias = "target_uid")]
     pub target_uid: Option<String>,
+}
+
+/// Optional user-consented follow-up offered after a focused Question task.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanningTaskOffer {
+    pub title: String,
+    pub description: String,
 }
 
 impl TurnEnvelope {
@@ -274,6 +284,8 @@ pub struct TurnItem {
     #[serde(default)]
     #[serde(alias = "decision_brief")]
     pub decision_brief: Option<crate::domain::DecisionBrief>,
+    #[serde(default, alias = "blocked_by")]
+    pub blocked_by: Vec<String>,
     #[serde(default)]
     #[serde(alias = "resolution_note")]
     pub resolution_note: Option<String>,
@@ -304,6 +316,8 @@ pub struct TurnItemUpdate {
     #[serde(default)]
     #[serde(alias = "decision_brief")]
     pub decision_brief: Option<crate::domain::DecisionBrief>,
+    #[serde(default, alias = "blocked_by")]
+    pub blocked_by: Option<Vec<String>>,
 }
 
 /// Successful harness termination.

@@ -80,6 +80,7 @@ fn envelope() -> TurnEnvelope {
         open_items_resolved: None,
         next_question_id: None,
         requested_action: None,
+        follow_up_task: None,
         interview: None,
         task_stories: None,
         task_outline: None,
@@ -131,5 +132,62 @@ fn new_decision_brief_must_assess_durable_record_need() {
         errors
             .iter()
             .any(|error| error.contains("durable decision record"))
+    );
+}
+
+#[test]
+fn dependent_board_items_are_saved_with_valid_prerequisite_links() {
+    let state = state();
+    let mut envelope = envelope();
+    let make_item = |id: &str, question: &str| TurnItem {
+        id: Some(id.into()),
+        priority: Some("High".into()),
+        authority: Some("Human".into()),
+        kind: Some("Question".into()),
+        category: Some("Product".into()),
+        assigned_to: Some("All".into()),
+        question: Some(question.into()),
+        reason: Some("This choice affects the release.".into()),
+        ..Default::default()
+    };
+    let mut dependent = make_item("CLR-011", "Choose recovery behavior");
+    dependent.blocked_by = vec!["CLR-010".into()];
+    envelope.open_items_added = Some(vec![
+        make_item("CLR-010", "Choose account identity"),
+        dependent,
+    ]);
+    let normalized = validate(
+        &envelope,
+        &state,
+        &crate::domain::CurrentUser::new("Riley", vec![]),
+    )
+    .unwrap();
+    assert_eq!(normalized.added[1].blocked_by, ["CLR-010"]);
+
+    envelope.open_items_added.as_mut().unwrap()[1].blocked_by = vec!["CLR-999".into()];
+    let errors = validate(
+        &envelope,
+        &state,
+        &crate::domain::CurrentUser::new("Riley", vec![]),
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("blocked_by must reference"))
+    );
+
+    envelope.open_items_added.as_mut().unwrap()[0].blocked_by = vec!["CLR-011".into()];
+    envelope.open_items_added.as_mut().unwrap()[1].blocked_by = vec!["CLR-010".into()];
+    let errors = validate(
+        &envelope,
+        &state,
+        &crate::domain::CurrentUser::new("Riley", vec![]),
+    )
+    .unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("dependency cycle"))
     );
 }
