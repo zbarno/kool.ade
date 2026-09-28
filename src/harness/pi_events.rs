@@ -7,6 +7,9 @@
 
 use super::LiveProgress;
 use serde_json::Value;
+
+mod helpers;
+use helpers::{assistant_text, classify_model_error, short_blob, skip_heavy};
 use std::collections::BTreeMap;
 
 /// Rolling state accumulated line by line.
@@ -20,6 +23,9 @@ pub struct EventFold {
     pub error_hint: Option<String>,
     pub events_seen: usize,
     pub unparsed_lines: usize,
+    pub tool_executions: usize,
+    pub last_stop_reason: Option<String>,
+    pub last_error_class: Option<&'static str>,
     blocks: BTreeMap<usize, (String, String)>,
     history: Vec<super::LivePost>,
     tool_posts: BTreeMap<String, (u64, usize)>,
@@ -86,20 +92,6 @@ fn joined(a: &str, b: &str) -> String {
     }
 }
 
-/// Fast-path sniff: lines we do NOT need to fully parse (huge agent_end
-/// payload, obviously not JSON).
-fn skip_heavy(line: &str) -> Option<bool> {
-    let head: String = line.chars().take(64).collect();
-    if !head.starts_with('{') {
-        return Some(false);
-    }
-    // agent_end embeds the FULL conversation; we only care that it happened.
-    if head.contains("\"agent_end\"") {
-        return Some(true);
-    }
-    None
-}
-
 /// Consume one stdout line into the fold.
 pub fn fold_line(line: &str, sink: &mut EventFold) {
     static NEXT_MESSAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -125,21 +117,33 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
     match ty {
         "agent_end" => {
             sink.saw_agent_end = true;
-            if sink.final_assistant_text.is_empty()
-                && let Some(message) = v
-                    .get("messages")
-                    .and_then(Value::as_array)
-                    .and_then(|messages| messages.last())
+            if let Some(message) = v
+                .get("messages")
+                .and_then(Value::as_array)
+                .and_then(|messages| messages.last())
                 && message.get("role").and_then(Value::as_str) == Some("assistant")
-                && !matches!(
-                    message.get("stopReason").and_then(Value::as_str),
-                    Some("toolUse" | "error" | "aborted")
-                )
             {
-                sink.final_assistant_text = assistant_text(Some(message));
+                sink.last_stop_reason = message
+                    .get("stopReason")
+                    .and_then(Value::as_str)
+                    .filter(|reason| matches!(*reason, "stop" | "toolUse" | "error" | "aborted"))
+                    .map(str::to_owned);
+                sink.last_error_class = message
+                    .get("errorMessage")
+                    .and_then(Value::as_str)
+                    .map(classify_model_error);
+                if sink.final_assistant_text.is_empty()
+                    && !matches!(
+                        message.get("stopReason").and_then(Value::as_str),
+                        Some("toolUse" | "error" | "aborted")
+                    )
+                {
+                    sink.final_assistant_text = assistant_text(Some(message));
+                }
             }
         }
         "tool_execution_start" => {
+            sink.tool_executions += 1;
             let tool = v.get("toolName").and_then(Value::as_str).unwrap_or("tool");
             let args = v
                 .get("args")
@@ -244,6 +248,15 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
         "message_end" => {
             let msg = v.get("message");
             if msg.and_then(|m| m.get("role")).and_then(Value::as_str) == Some("assistant") {
+                sink.last_stop_reason = msg
+                    .and_then(|message| message.get("stopReason"))
+                    .and_then(Value::as_str)
+                    .filter(|reason| matches!(*reason, "stop" | "toolUse" | "error" | "aborted"))
+                    .map(str::to_owned);
+                sink.last_error_class = msg
+                    .and_then(|message| message.get("errorMessage"))
+                    .and_then(Value::as_str)
+                    .map(classify_model_error);
                 sink.final_assistant_text = if matches!(
                     msg.and_then(|m| m.get("stopReason"))
                         .and_then(Value::as_str),
@@ -276,247 +289,5 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
     }
 }
 
-/// Concatenate text content blocks of an assistant message value.
-fn assistant_text(message: Option<&Value>) -> String {
-    let Some(content) = message.and_then(|m| m.get("content")) else {
-        return String::new();
-    };
-    let mut out = String::new();
-    if let Some(blocks) = content.as_array() {
-        for b in blocks {
-            if b.get("type").and_then(Value::as_str) == Some("text")
-                && let Some(t) = b.get("text").and_then(Value::as_str)
-            {
-                if !out.is_empty() {
-                    out.push('\n');
-                }
-                out.push_str(t);
-            }
-        }
-    } else if let Some(t) = content.as_str() {
-        out.push_str(t);
-    }
-    out
-}
-
-/// Compact, capped string form for previews/errors.
-pub fn short_blob(v: Option<&Value>) -> String {
-    let s = v
-        .and_then(|v| serde_json::to_string(v).ok())
-        .unwrap_or_default();
-    let s = s.replace('\\', "");
-    const CAP: usize = 90;
-    if s.chars().count() <= CAP {
-        return s;
-    }
-    let mut out: String = s.chars().take(CAP.saturating_sub(1)).collect();
-    out.push('…');
-    out
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn text_msg(text: &str) -> String {
-        format!(
-            "{{\"type\":\"message_end\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":{}}}]}}}}",
-            serde_json::to_string(text).unwrap()
-        )
-    }
-
-    #[test]
-    fn tracks_final_assistant_text_last_wins() {
-        let mut f = EventFold::default();
-        fold_line(&text_msg("first draft"), &mut f);
-        assert_eq!(f.final_assistant_text, "first draft");
-        fold_line(&text_msg("FINAL words"), &mut f);
-        assert_eq!(f.final_assistant_text, "FINAL words");
-    }
-
-    #[test]
-    fn tool_activity_and_errors_recorded() {
-        let mut f = EventFold::default();
-        fold_line(
-            r#"{"type":"tool_execution_start","toolCallId":"1","toolName":"bash","args":{"command":"ls src"}}"#,
-            &mut f,
-        );
-        assert!(f.last_activity.as_deref().unwrap_or("").starts_with("bash"));
-        fold_line(r#"{"type":"agent_error","error":"boom"}"#, &mut f);
-        assert!(f.error_hint.as_deref().unwrap_or("").contains("boom"));
-    }
-
-    #[test]
-    fn heavy_agent_end_and_chatter_are_safe() {
-        let mut f = EventFold::default();
-        let big = format!(
-            r#"{{"type":"agent_end","messages":["{}"]}}"#,
-            "x".repeat(500_000)
-        );
-        fold_line(&big, &mut f);
-        assert!(f.saw_agent_end);
-        fold_line("npm WARN something", &mut f);
-        assert_eq!(f.unparsed_lines, 0);
-        assert_eq!(f.events_seen, 1);
-    }
-    fn delta(f: &mut EventFold, kind: &str, index: usize, value: &str) {
-        fold_line(
-            &serde_json::json!({"type":"message_update", "assistantMessageEvent":{
-                "type":format!("{kind}_delta"), "contentIndex":index, "delta":value
-            }})
-            .to_string(),
-            f,
-        );
-    }
-
-    #[test]
-    fn deltas_stream_thoughts_and_spec_before_message_end() {
-        let mut f = EventFold::default();
-        delta(&mut f, "thinking", 0, "Checking ");
-        delta(&mut f, "thinking", 0, "requirements.");
-        delta(
-            &mut f,
-            "text",
-            1,
-            "Drafting.\n```json\n{\"assistantMessage\":\"New draft\",\"updatedSpecification\":\"# Scope\\n",
-        );
-        let preview = f.preview();
-        assert_eq!(preview.thoughts, "Checking requirements.");
-        assert_eq!(preview.response, "New draft");
-        assert_eq!(preview.specification.as_deref(), Some("# Scope\n"));
-        assert!(f.final_assistant_text.is_empty());
-        assert!(!f.saw_agent_end);
-        delta(&mut f, "text", 1, "More detail\"}");
-        assert_eq!(
-            f.preview().specification.as_deref(),
-            Some("# Scope\nMore detail")
-        );
-    }
-
-    #[test]
-    fn thought_posts_stay_after_preceding_messages_across_calls() {
-        let mut fold = EventFold::default();
-        delta(&mut fold, "thinking", 0, "First thought.");
-        delta(&mut fold, "text", 1, "Reading files.");
-        let original = fold.preview().posts;
-        fold_line(
-            r#"{"type":"message_start","message":{"role":"assistant"}}"#,
-            &mut fold,
-        );
-        delta(&mut fold, "thinking", 0, "Next thought.");
-        let mut display = fold.preview();
-        assert_eq!(&display.posts[..2], &original);
-        assert_eq!(
-            display
-                .posts
-                .iter()
-                .map(|p| p.kind.as_str())
-                .collect::<Vec<_>>(),
-            ["thinking", "text", "thinking"]
-        );
-        let next_id = display.posts[2].id;
-        delta(&mut fold, "thinking", 0, " More detail.");
-        display.update(fold.preview());
-        assert_eq!(display.posts.len(), 3);
-        assert_eq!(display.posts[2].id, next_id);
-        assert_eq!(&display.posts[..2], &original);
-        let mut second_call = EventFold::default();
-        delta(&mut second_call, "thinking", 0, "New task.");
-        display.update(second_call.preview());
-        display.update(second_call.preview());
-        assert_eq!(
-            display.posts.len(),
-            4,
-            "snapshots update existing blocks without duplicating or replacing earlier calls"
-        );
-        assert_ne!(display.posts[3].id, original[0].id);
-    }
-
-    #[test]
-    fn block_end_and_message_end_reconcile_without_duplicate_thoughts() {
-        let mut f = EventFold::default();
-        delta(&mut f, "thinking", 0, "First thought.");
-        fold_line(
-            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":"First thought."}}"#,
-            &mut f,
-        );
-        fold_line(
-            r#"{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"First thought."},{"type":"text","text":"Reading files."}]}}"#,
-            &mut f,
-        );
-        assert_eq!(f.preview().thoughts, "First thought.");
-        fold_line(
-            r#"{"type":"message_start","message":{"role":"toolResult"}}"#,
-            &mut f,
-        );
-        assert_eq!(f.preview().response, "Reading files.");
-        fold_line(
-            r#"{"type":"message_start","message":{"role":"assistant"}}"#,
-            &mut f,
-        );
-        delta(&mut f, "thinking", 0, "Next thought.");
-        assert_eq!(f.preview().thoughts, "First thought.\n\nNext thought.");
-        assert_eq!(f.preview().response, "Reading files.");
-    }
-
-    #[test]
-    fn large_final_documents_are_not_mistaken_for_agent_end() {
-        let mut f = EventFold::default();
-        let text = "x".repeat(300_000);
-        fold_line(&text_msg(&text), &mut f);
-        assert_eq!(f.final_assistant_text, text);
-        assert!(!f.saw_agent_end);
-    }
-    #[test]
-    fn agent_end_recovers_missing_message_end_but_not_unfinished_tools() {
-        let mut fold = EventFold::default();
-        fold_line(
-            r#"{"type":"agent_end","messages":[{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"complete report"}]}]}"#,
-            &mut fold,
-        );
-        assert_eq!(fold.final_assistant_text, "complete report");
-        for last in [
-            serde_json::json!({"role":"toolResult","content":"tool output"}),
-            serde_json::json!({"role":"assistant","stopReason":"toolUse","content":[{"type":"text","text":"not final"}]}),
-        ] {
-            let mut fold = EventFold::default();
-            fold_line(&serde_json::json!({"type":"agent_end","messages":[{"role":"assistant","content":"old summary"},last]}).to_string(), &mut fold);
-            assert!(fold.final_assistant_text.is_empty());
-        }
-    }
-
-    #[test]
-    fn pending_assistant_does_not_reuse_an_earlier_completed_message() {
-        let mut fold = EventFold::default();
-        fold_line(&text_msg("old summary"), &mut fold);
-        fold_line(
-            r#"{"type":"message_start","message":{"role":"assistant"}}"#,
-            &mut fold,
-        );
-        assert!(fold.final_assistant_text.is_empty());
-    }
-}
-
-#[cfg(test)]
-mod tool_history_tests {
-    use super::*;
-    #[test]
-    fn tool_output_preserves_order_and_replaces_partial_snapshots() {
-        let mut fold = EventFold::default();
-        for event in [
-            r#"{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"Check permissions","contentIndex":0}}"#,
-            r#"{"type":"tool_execution_start","toolName":"bash","toolCallId":"t1","args":{"command":"cargo test"}}"#,
-            r#"{"type":"tool_execution_update","toolName":"bash","toolCallId":"t1","partialResult":{"content":[{"type":"text","text":"running"}]}}"#,
-            r#"{"type":"tool_execution_end","toolName":"bash","toolCallId":"t1","result":{"content":[{"type":"text","text":"all tests passed"}]}}"#,
-        ] {
-            fold_line(event, &mut fold);
-        }
-        let p = fold.preview();
-        assert_eq!(p.posts.len(), 2);
-        assert_eq!(p.posts[0].kind, "thinking");
-        assert!(p.posts[1].text.contains("cargo test"));
-        assert!(p.posts[1].text.ends_with("all tests passed"));
-        assert!(!p.posts[1].text.contains("running"));
-        assert_eq!(p.thoughts, "Check permissions");
-    }
-}
+mod tests;

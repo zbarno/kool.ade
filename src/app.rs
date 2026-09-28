@@ -22,3 +22,4 @@ mod tests {
 }
 
 pub mod manager;
+pub mod reconciliation_lifecycle;

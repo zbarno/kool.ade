@@ -1,4 +1,5 @@
 # 003 — Pin the board class-to-hue mapping to the approved sage and lavender table
+<!-- packet-artifact-id:v1 {"uid":"8444f3ce-c518-48af-9bd8-5f369bcf516f","displayId":"003","title":"Pin the board class-to-hue mapping to the approved sage and lavender table","parentUid":"3874b3fb-347f-4208-864b-570bcc7158c9"} -->
 
 Feature: Board Card Display — Red-Line Activity Graph and Class-Colored Cards (CHG-002)
 

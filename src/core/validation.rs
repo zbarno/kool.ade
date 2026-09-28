@@ -2,7 +2,7 @@
 //! §16): EVERYTHING is checked before any file mutates; a single fatal
 //! problem rolls the whole turn back (zero artifact writes, no commit).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::core::ids;
 use crate::core::routing::{self, Eligibility};
@@ -30,6 +30,9 @@ pub struct UpdatePatch {
 #[cfg(test)]
 #[path = "validation/decision_tests.rs"]
 mod decision_tests;
+mod human_resolution;
+mod plan_comparison;
+pub(crate) use plan_comparison::validate_persisted;
 #[path = "validation/requested_action.rs"]
 mod requested_action_validation;
 
@@ -41,6 +44,8 @@ pub struct NormalizedTurn {
     /// Complete replacement specification (verified non-blank).
     pub spec_markdown: Option<String>,
     pub document_updates: Vec<(String, String)>,
+    /// Typed lifecycle changes requested for feature documents in this turn.
+    pub change_status_updates: BTreeMap<String, crate::domain::ChangeStatus>,
     /// Application-owned planning records included in the same artifact transaction.
     pub additional_planning_artifacts: Vec<(String, String)>,
     pub added: Vec<OpenItem>,
@@ -55,6 +60,7 @@ pub struct NormalizedTurn {
     pub warnings: Vec<String>,
     pub workflow: Option<crate::core::workflow::Workflow>,
     pub task_batch: Option<crate::core::workflow::TaskBatch>,
+    pub plan_comparison: Option<crate::domain::PlanComparison>,
 }
 
 const QUESTION_CHAR_CAP: usize = 2000;
@@ -79,6 +85,19 @@ pub fn validate_for_turn(
     user: &CurrentUser,
     purpose: crate::core::workflow::TurnPurpose,
 ) -> Result<NormalizedTurn, Vec<String>> {
+    validate_for_turn_with_resolutions(envelope, state, user, purpose, &[])
+}
+
+/// Validate model output with the narrow Human items explicitly addressed by
+/// an application-scoped user reply. Main Chat and other unscoped turns pass
+/// no IDs, so repository content cannot authorize resolving Human decisions.
+pub fn validate_for_turn_with_resolutions(
+    envelope: &TurnEnvelope,
+    state: &PlannerState,
+    user: &CurrentUser,
+    purpose: crate::core::workflow::TurnPurpose,
+    user_replied_item_ids: &[String],
+) -> Result<NormalizedTurn, Vec<String>> {
     let mut fatals: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     let requested_action = match requested_action_validation::validate(envelope, purpose) {
@@ -99,6 +118,14 @@ pub fn validate_for_turn(
     if envelope.assistant().trim().is_empty() {
         fatals.push("assistant_message is empty".into());
     }
+    let plan_comparison = if purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        plan_comparison::validate(envelope, state, &mut fatals)
+    } else {
+        if envelope.plans.is_some() || envelope.recommendation.is_some() {
+            fatals.push("plan alternatives are only accepted in a Compare Plans turn".into());
+        }
+        None
+    };
 
     // ---- specification -----------------------------------------------------
     let spec_markdown = match envelope.updated_spec() {
@@ -151,6 +178,7 @@ pub fn validate_for_turn(
         fatals.push("updated_specification and document_updates cannot be combined".into());
     }
     let mut document_updates = Vec::new();
+    let mut change_status_updates = BTreeMap::new();
     let mut seen_documents = HashSet::new();
     for update in envelope.document_updates.as_deref().unwrap_or_default() {
         if !seen_documents.insert(update.document_id.as_str()) {
@@ -172,6 +200,12 @@ pub fn validate_for_turn(
             fatals.push(format!("{}: content must not be blank", update.document_id));
             continue;
         }
+        if update.document_id.starts_with("product:") && update.status.is_some() {
+            fatals.push(format!(
+                "{}: lifecycle status is only valid for change documents",
+                update.document_id
+            ));
+        }
         if update.document_id.starts_with("product:") {
             if let Err(error) = crate::artifacts::product_docs::validate_module(&update.content) {
                 fatals.push(format!("{}: {error}", update.document_id));
@@ -183,10 +217,52 @@ pub fn validate_for_turn(
                 fatals.push(format!("{}: {error}", update.document_id));
             }
         }
-        if let Some(id) = update.document_id.strip_prefix("feature:")
-            && let Err(error) = crate::core::specification::validate_feature(id, &update.content)
-        {
-            fatals.push(format!("{}: {error}", update.document_id));
+        if let Some(id) = update.document_id.strip_prefix("feature:") {
+            if let Err(error) = crate::core::specification::validate_feature(id, &update.content) {
+                fatals.push(format!("{}: {error}", update.document_id));
+            }
+            let existing_status = match std::fs::read_to_string(&path) {
+                Ok(previous) => match crate::domain::ChangeMetadata::require_markdown(&previous) {
+                    Ok(metadata) => Some(metadata.status),
+                    Err(error) => {
+                        fatals.push(format!("{}: {error}", update.document_id));
+                        None
+                    }
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    fatals.push(format!(
+                        "{}: cannot read existing change: {error}",
+                        update.document_id
+                    ));
+                    None
+                }
+            };
+            match (existing_status, update.status) {
+                (Some(current), Some(next)) if !current.can_transition_to(next) => {
+                    fatals.push(format!(
+                        "{}: change status cannot transition from {} to {}",
+                        update.document_id,
+                        current.wire_name(),
+                        next.wire_name()
+                    ));
+                }
+                (Some(current), requested) => {
+                    change_status_updates.insert(id.to_owned(), requested.unwrap_or(current));
+                }
+                (None, Some(initial))
+                    if matches!(
+                        initial,
+                        crate::domain::ChangeStatus::Draft | crate::domain::ChangeStatus::Ready
+                    ) =>
+                {
+                    change_status_updates.insert(id.to_owned(), initial);
+                }
+                (None, _) => fatals.push(format!(
+                    "{}: a new change requires an explicit Draft or Ready status",
+                    update.document_id
+                )),
+            }
         }
         match std::fs::symlink_metadata(&path) {
             Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {}
@@ -206,8 +282,14 @@ pub fn validate_for_turn(
     let existing: HashSet<&str> = state.items.iter().map(|i| i.id.as_str()).collect();
     let mut resolved: Vec<String> = Vec::new();
     for rid in envelope.resolved() {
-        if !existing.contains(rid.as_str()) {
+        let Some(item) = state.items.iter().find(|item| item.id == *rid) else {
             fatals.push(format!("open_items_resolved references unknown id “{rid}”"));
+            continue;
+        };
+        if let Some(problem) =
+            human_resolution::unauthorized_resolution(item, user_replied_item_ids)
+        {
+            fatals.push(problem);
             continue;
         }
         if !resolved.iter().any(|r| r == rid) {
@@ -488,6 +570,7 @@ pub fn validate_for_turn(
         change_summary,
         spec_markdown,
         document_updates,
+        change_status_updates,
         additional_planning_artifacts: Vec::new(),
         added,
         updates,
@@ -497,6 +580,7 @@ pub fn validate_for_turn(
         warnings,
         workflow: None,
         task_batch: None,
+        plan_comparison,
     };
     crate::core::workflow::prepare(state, envelope, &mut normalized, purpose)?;
     Ok(normalized)
@@ -569,6 +653,8 @@ mod tests {
             task_stories: None,
             requested_action: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 
@@ -688,7 +774,14 @@ mod tests {
         // … an id being resolved this turn …
         let mut er = env(Some("CLR-004"));
         er.open_items_resolved = Some(vec!["CLR-004".into()]);
-        let mid_resolve = validate(&er, &st, &zach).unwrap();
+        let mid_resolve = validate_for_turn_with_resolutions(
+            &er,
+            &st,
+            &zach,
+            crate::core::workflow::TurnPurpose::Interview,
+            &["CLR-004".into()],
+        )
+        .unwrap();
         assert_eq!(mid_resolve.next_question_id, None);
         assert!(
             mid_resolve
@@ -940,7 +1033,44 @@ mod tests {
             },
         );
 
-        // 3. Resolve referencing an unknown id.
+        // 3. A Main Chat response cannot resolve a Human item on the
+        //    authority of repository content alone.
+        pin(
+            &seated,
+            "human-resolution-without-user-reply",
+            "Human authority requires an explicit user reply",
+            || {
+                let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
+                let mut e = env(None);
+                e.open_items_resolved = Some(vec!["CLR-001".into()]);
+                (st, e)
+            },
+        );
+
+        // A scoped task reply explicitly authorizes only its own Human item.
+        let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
+        let mut e = env(None);
+        e.open_items_resolved = Some(vec!["CLR-001".into()]);
+        let authorized = validate_for_turn_with_resolutions(
+            &e,
+            &st,
+            &seated,
+            TurnPurpose::Interview,
+            &["CLR-001".into()],
+        )
+        .unwrap();
+        assert_eq!(authorized.resolved, vec!["CLR-001".to_string()]);
+        let wrong_scope = validate_for_turn_with_resolutions(
+            &e,
+            &st,
+            &seated,
+            TurnPurpose::Interview,
+            &["CLR-002".into()],
+        )
+        .unwrap_err();
+        assert!(wrong_scope[0].contains("Human authority requires an explicit user reply"));
+
+        // 4. Resolve referencing an unknown id.
         pin(
             &seated,
             "resolve-unknown-id",
@@ -955,14 +1085,14 @@ mod tests {
             },
         );
 
-        // 4. Blank updated_specification.
+        // 5. Blank updated_specification.
         pin(&seated, "blank-updated-specification", "is blank", || {
             let mut e = env(None);
             e.updated_specification = Some("   \n  ".into());
             (base_state(Vec::new()), e)
         });
 
-        // 5. Unsupported normalized schema_version (wire versions are handled by the decoder).
+        // 6. Unsupported normalized schema_version (wire versions are handled by the decoder).
         pin(
             &seated,
             "unsupported-schema-version",
@@ -974,7 +1104,7 @@ mod tests {
             },
         );
 
-        // 6. New Review-kind item lacking a provisional recommendation.
+        // 7. New Review-kind item lacking a provisional recommendation.
         pin(
             &seated,
             "review-without-recommendation",

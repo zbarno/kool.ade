@@ -161,6 +161,8 @@ pub struct DocumentUpdate {
     #[serde(alias = "document_id")]
     pub document_id: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<crate::domain::ChangeStatus>,
 }
 
 /// Normalized internal planning projection. Raw operation responses are
@@ -199,6 +201,11 @@ pub struct TurnEnvelope {
     pub task_stories: Option<Vec<crate::core::workflow::TaskStory>>,
     #[serde(alias = "task_outline", skip_serializing_if = "Option::is_none")]
     pub task_outline: Option<Vec<crate::core::workflow::TaskOutline>>,
+    /// Packet-authored alternatives and advisory lean for Compare Plans.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plans: Option<Vec<crate::domain::PlanAlternative>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommendation: Option<crate::domain::PlanRecommendation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

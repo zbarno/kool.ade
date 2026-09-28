@@ -12,6 +12,8 @@ use crate::domain::CurrentUser;
 
 #[path = "context_build/mcp.rs"]
 mod mcp;
+#[path = "context_build/resolved_history.rs"]
+mod resolved_history;
 
 const CONVERSATION_TAIL_MESSAGES: usize = 6;
 const MESSAGE_CLIP_CHARS: usize = 1200;
@@ -133,21 +135,7 @@ impl TurnContext {
             active_feature,
             selected_documents,
             selected_areas,
-            open_items_markdown: format!(
-                "{open_items}\n\nCompleted item outcomes (durable state):\n{}",
-                clip(
-                    &items_io::serialize(
-                        &state
-                            .resolved_items
-                            .iter()
-                            .rev()
-                            .take(8)
-                            .cloned()
-                            .collect::<Vec<_>>()
-                    ),
-                    8000
-                )
-            ),
+            open_items_markdown: resolved_history::with_summary(open_items, &state.resolved_items),
             config_markdown: clip(&config_io::serialize(&state.config), 5000),
             imports,
             mcp_summary,

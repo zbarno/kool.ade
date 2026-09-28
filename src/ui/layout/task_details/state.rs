@@ -149,7 +149,7 @@ fn paint_failure(
         }
         Some(crate::core::attention::View::Error(message)) => {
             ui.colored_label(theme::WARNING, "Could not prepare the explanation.");
-            ui.label(message);
+            ui.add(egui::Label::new(message).wrap());
             if ui.small_button("Retry explanation").clicked() {
                 surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
                     crate::ui::task_detail::Command::RetryExplanation {
@@ -163,7 +163,10 @@ fn paint_failure(
             ui.label(failure_summary(error));
         }
     }
-    ui.collapsing("Full report", |ui| {
-        reply::full_message(ui, error, "implementation_failure");
-    });
+    ui.label(egui::RichText::new("Full blocker report").strong());
+    ui.set_width(ui.available_width());
+    crate::ui::markdown::paint(ui, error, crate::ui::markdown::CHAT);
+    if ui.small_button("Copy full report").clicked() {
+        ui.ctx().copy_text(error.to_owned());
+    }
 }

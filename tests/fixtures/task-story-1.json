@@ -42,11 +42,10 @@
         "A storage permission error or interrupted replacement must preserve the last valid store and expose an actionable error without clearing other saved searches."
       ],
       "rollout_notes": "Add the local store lazily. Existing ad hoc searches continue to work without a saved-search file. Rolling back the feature leaves the additive store unused.",
-      "definition_of_done": [
-        "All specified success and failure acceptance criteria have corresponding passing tests with recorded commands and actual observed results.",
-        "Existing ad hoc search behavior remains compatible, with no changes to sharing or synchronization scope and no silent data loss.",
-        "The implementing model records changed files, verification evidence and any unresolved discrepancy before marking the story complete."
-      ],
+  "definition_of_done": [
+    "Applicable tests and verification pass.",
+    "Changed files and unresolved discrepancies are recorded."
+  ],
       "intent": "Named filter records currently have no durable storage contract, so restarting the application loses them and forces analysts to rebuild their filters. This ticket establishes reliable persistence so later interfaces can save and restore records without data loss.",
       "goal": "Deliver an atomic local saved-search store that restores identical named filter records across process restarts and preserves valid records when writes fail.",
       "context": "The approved feature is local saved searches for operations analysts; sharing and synchronization are explicitly excluded. The current application supports ad hoc queries but has no saved-search persistence contract. Introduce src/search_store.rs as a proposed module and locate the existing search controller before integration. Persist a versioned record containing identifier, display name and the complete filter payload. Do not store rendered results because restoration must query current data. The store must tolerate an absent file and report corrupted or unsupported records without silently deleting them.",

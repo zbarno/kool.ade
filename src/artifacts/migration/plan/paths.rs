@@ -79,6 +79,9 @@ pub(super) fn entry(repo: &Path, source_path: &Path) -> anyhow::Result<Entry> {
 
 pub(in crate::artifacts::migration) fn destination(source: &str) -> anyhow::Result<String> {
     use crate::artifacts::layout::{canonical, legacy};
+    if source == crate::artifacts::layout::previous::WORK {
+        return Ok(canonical::WORK.into());
+    }
     if source == legacy::SPECIFICATION {
         return Ok(canonical::LEGACY_SPEC_ARCHIVE.into());
     }

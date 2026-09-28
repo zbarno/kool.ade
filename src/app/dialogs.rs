@@ -30,7 +30,7 @@ pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{
     DlgPersona, PERSONA_SUBORDINATION_NOTICE, PersonaSaveOutcome, paint_persona_card,
 };
-pub use settings::{DlgSettings, Row, paint_import_card, paint_settings_card};
+pub use settings::{DlgSettings, RepositoryNameRow, Row, paint_import_card, paint_settings_card};
 #[cfg(test)]
 use settings::{
     GuideLine, GuideLineKind, ProbeReport, ProbeView, drain_probe, harness_guide_lines,
@@ -95,10 +95,7 @@ mod tests {
             queue_lock: None,
             active_implementations: Default::default(),
             pr_refresh: None,
-            reconciliation: None,
-            reconciliation_attempted: Default::default(),
-            reconciliation_error: None,
-            reconciliation_cooldown_until: None,
+            reconciliation: Default::default(),
             investigation: None,
             investigation_attempted: Default::default(),
             investigation_cooldown_until: None,
@@ -297,7 +294,7 @@ mod tests {
         assert_eq!(proj.state.effective_user().name, "Ada Lovelace");
         let log = String::from_utf8_lossy(&git(&["log", "-1", "--pretty=%s"]).stdout).into_owned();
         assert!(
-            log.contains("settings: update stakeholders and identity"),
+            log.contains("settings: update workspace settings"),
             "checkpoint subject: {log}"
         );
         // Storing the echoed git name in the block is benign redundancy.
@@ -1176,6 +1173,7 @@ mod ownership_picker_tests {
                     members: "Morgan, platform, (owner TBD)".into(),
                 },
             ],
+            repositories: Vec::new(),
             feedback: None,
             probe_rx: None,
             probe_view: ProbeView::Pending,

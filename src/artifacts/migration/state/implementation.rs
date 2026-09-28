@@ -1,4 +1,5 @@
 mod files;
+mod merge;
 use files::*;
 
 use std::{
@@ -14,6 +15,7 @@ struct Move {
     source: PathBuf,
     target: PathBuf,
     state: Implementation,
+    merge: Option<merge::TargetMerge>,
 }
 
 pub(super) struct MovePlan {
@@ -109,24 +111,11 @@ impl MovePlan {
                     &source.to_string_lossy().to_string(),
                     target.to_string_lossy().as_ref(),
                 );
-                if target != source && target.exists() {
-                    let existing = crate::core::implementation::decode_state_bytes(&fs::read(
-                        target.join("state.json"),
-                    )?)
-                    .map_err(|error| {
-                        anyhow::anyhow!(
-                            "Cannot inspect existing implementation state {}: {error}",
-                            target.display()
-                        )
-                    })?;
-                    let mut normalized = existing;
-                    normalized.ticket = new_ticket.clone();
-                    anyhow::ensure!(
-                        same_tree(&source, &target, &state, &normalized)?,
-                        "Implementation state for {old_ticket} conflicts with existing state at {}; both copies were preserved",
-                        target.display()
-                    );
-                }
+                let merge = if target != source && target.exists() {
+                    Some(merge::plan(&source, &target, &state)?)
+                } else {
+                    None
+                };
                 if target != source {
                     if let Some((other_source, other_state)) = planned_targets.get(&target) {
                         anyhow::ensure!(
@@ -147,6 +136,7 @@ impl MovePlan {
                     source,
                     target,
                     state,
+                    merge,
                 });
             }
         }
@@ -172,16 +162,14 @@ impl MovePlan {
                 continue;
             }
             if item.target.exists() {
-                let existing = crate::core::implementation::decode_state_bytes(&fs::read(
-                    item.target.join("state.json"),
-                )?)?;
-                let mut normalized = existing;
-                normalized.ticket = item.state.ticket.clone();
-                anyhow::ensure!(
-                    same_tree(&item.source, &item.target, &item.state, &normalized)?,
-                    "Implementation state changed while migrating {}; both copies were preserved",
-                    item.state.ticket
-                );
+                merge::apply(
+                    &item.source,
+                    &item.target,
+                    &item.state,
+                    item.merge
+                        .as_ref()
+                        .expect("existing destination was checked during preflight"),
+                )?;
             } else {
                 let parent = item.target.parent().expect("state record has a parent");
                 fs::create_dir_all(parent)?;

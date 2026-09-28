@@ -54,6 +54,15 @@ create ADRs, and task completion does not create one. Implementation reports,
 verification commands, and acceptance evidence stay in the separate implementation
 evidence directory.
 
+When a ready feature has materially different implementation approaches, Packet
+can present two plans with their phases, affected files, state changes, failure
+modes, effort, risks, and reversibility. Its evidence-backed recommendation is
+advisory: the operator explicitly adopts a plan before approval or task generation.
+The versioned comparison record, transcript, status, selected alternative, and
+update time live in `.kool-ade-packet/state/workflow.json`. The feature contract
+also records the adopted plan so the approval fingerprint covers the chosen intent.
+Deferring leaves the feature unapproved and creates no implementation tasks.
+
 Task conversations use the item's durable content, referenced specification
 sections, related tasks, and current implementation state. They do not inherit
 Main Chat or other task histories, and cannot start project interviews or generate
@@ -78,6 +87,35 @@ PACKET_TURN_TIMEOUT_SECS=36000 cargo run --offline
 
 Invalid or zero values use the default. The timeout is fixed when each turn begins; already-running turns keep their original deadline. Restart Packet with the rebuilt binary to use the new default.
 
+## Host execution capabilities
+
+Packet's desktop UI can run on Linux, macOS, and Windows. Autonomous execution
+depends on a secure operating-system boundary and is detected at runtime:
+
+| Capability | Linux with working Bubblewrap | macOS | Windows |
+| --- | --- | --- | --- |
+| Planning UI | Yes | Yes | Yes |
+| Planning, task-generation, and investigation repository reads | Sandboxed, read-only | Supplied context only; repository tools are disabled | Supplied context only; repository tools are disabled |
+| Read-only analysis, reconciliation, and decision explanation tools | None | None | None |
+| Sandboxed implementation | Yes | Unavailable | Unavailable |
+
+If Packet cannot establish Bubblewrap on Linux, planning continues from the
+bounded context Packet provides and repository tools are disabled. Implementation
+is stopped before the model starts with an explanation; planned artifacts remain
+available. A successful build on macOS or Windows does not mean autonomous
+implementation is available there.
+
+Planning sandboxes clear inherited environment variables, hide host home and
+credential directories, mount the project and registered local repositories
+read-only, and isolate the network namespace. For a configured private HTTP
+OpenAI-compatible provider, Packet keeps the credential in its host-side
+relay and exposes only that provider over a mounted Unix socket and a loopback
+relay. The model process receives a harmless placeholder key; it cannot read
+the provider credential or use the host network for other destinations.
+Public/HTTPS providers are not currently supported by this relay and fail
+closed. Context-only mode on unsupported hosts supplies Packet-selected context
+and disables repository tools.
+
 ## From interview to task stories
 
 The planner first clarifies the product or feature's goal, intended users, desired
@@ -89,9 +127,9 @@ readiness assessment after further changes.
 Generation builds an ordered outline, then gives the local model a separate response
 for each detailed story. Dependencies are passed forward so the stories agree on
 interfaces. Invalid or incomplete responses receive precise repair feedback, with
-at most three attempts per outline/story under the same configured turn timeout
-(default twelve hours). Harmless title or purpose paraphrases retain the outline's
-stable identity instead of failing generation.
+up to six attempts for the outline and six for each story under the same
+configured turn timeout (default twelve hours). Harmless title or purpose
+paraphrases retain the outline's stable identity instead of failing generation.
 
 Example output:
 

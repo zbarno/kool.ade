@@ -45,6 +45,86 @@ fn planning_legacy_version_is_normalized_at_the_decoder_boundary() {
 }
 
 #[test]
+fn planning_envelope_round_trips_two_plan_alternatives_and_advisory_recommendation() {
+    let wire = r#"{
+        "schema_version": 2,
+        "assistant_message": "Compare the two approaches.",
+        "plans": [
+            {"id":"A","objective":"Ship safely","phases":[{"name":"shadow","subtasks":["Write marker"]},{"name":"cut over","subtasks":["Switch reads"]},{"name":"verify","subtasks":["Check results"]}],"files_touched":["src/a.rs"],"state_changes":["Add marker"],"failure_modes":["Stale marker"],"effort_band":"small","known_risks":["Extra read"],"reversibility":"Remove marker"},
+            {"id":"B","objective":"Ship in one step","phases":[{"name":"replace","subtasks":["Swap path"]},{"name":"migrate","subtasks":["Move records"]},{"name":"verify","subtasks":["Check results"]}],"files_touched":["src/b.rs"],"state_changes":["Replace path"],"failure_modes":["Partial write"],"effort_band":"medium","known_risks":["Rollback"],"reversibility":"Restore backup"}
+        ],
+        "recommendation": {"plan_id":"A","rationale":"It has a safer transition.","evidence":["src/a.rs:12"]}
+    }"#;
+    let decoded = decode_turn(wire, TurnPurpose::ComparePlans).unwrap();
+    let plans = decoded.plans.as_ref().unwrap();
+    assert_eq!(plans.len(), 2);
+    assert_eq!(
+        plans[0]
+            .phases
+            .iter()
+            .map(|phase| phase.name.as_str())
+            .collect::<Vec<_>>(),
+        ["shadow", "cut over", "verify"]
+    );
+    assert_eq!(plans[1].known_risks, ["Rollback"]);
+    assert_eq!(decoded.recommendation.as_ref().unwrap().plan_id, "A");
+
+    let encoded = serde_json::to_string(&decoded).unwrap();
+    let round_trip = decode_turn(&encoded, TurnPurpose::ComparePlans).unwrap();
+    assert_eq!(round_trip.plans, decoded.plans);
+    assert_eq!(round_trip.recommendation, decoded.recommendation);
+}
+
+#[test]
+fn comparison_decoder_names_cross_purpose_story_payload() {
+    let error = decode_turn(
+        r#"{"schema_version":2,"assistant_message":"Comparison only.","task_stories":[{}]}"#,
+        TurnPurpose::ComparePlans,
+    )
+    .unwrap_err();
+    assert!(error.contains("Compare Plans forbids cross-purpose field `task_stories`"));
+}
+
+#[test]
+fn compare_plans_requires_schema_v2_and_turn_purpose_round_trips() {
+    let legacy = decode_turn(
+        r#"{"schema_version":1,"assistant_message":"Old response."}"#,
+        TurnPurpose::ComparePlans,
+    )
+    .unwrap_err();
+    assert!(legacy.contains("Compare plans schema_version 1"));
+
+    let serialized = serde_json::to_string(&TurnPurpose::ComparePlans).unwrap();
+    assert_eq!(serialized, "\"compare_plans\"");
+    assert_eq!(
+        serde_json::from_str::<TurnPurpose>(&serialized).unwrap(),
+        TurnPurpose::ComparePlans
+    );
+}
+
+#[test]
+fn planning_v1_without_comparison_fields_remains_backward_compatible() {
+    let decoded = decode_turn(
+        r#"{"schema_version":1,"assistant_message":"Legacy planning response."}"#,
+        TurnPurpose::Interview,
+    )
+    .unwrap();
+    assert_eq!(decoded.plans, None);
+    assert_eq!(decoded.recommendation, None);
+}
+
+#[test]
+fn task_generation_rejects_comparison_only_fields() {
+    for field in ["plans", "recommendation"] {
+        let value = serde_json::json!({"schema_version": 1, field: null});
+        assert!(
+            serde_json::from_value::<TaskGenerationResponse>(value).is_err(),
+            "accepted comparison-only field {field}"
+        );
+    }
+}
+
+#[test]
 fn unsupported_operation_versions_are_rejected_before_core_normalization() {
     let planning = decode_turn(
         r#"{"schema_version":3,"assistant_message":"Done."}"#,

@@ -1,4 +1,5 @@
 # CHG-003-TASK-spawn-a-detached-second-packet-instance-from-the-workspace-menu-open-workspace-action — Spawn a detached second Packet instance from the Workspace menu Open workspace action
+<!-- packet-artifact-id:v1 {"uid":"544a1afc-cf9a-4a83-b405-7ca94051a216","displayId":"CHG-003-TASK-spawn-a-detached-second-packet-instance-from-the-workspace-menu-open-workspace-action","title":"Spawn a detached second Packet instance from the Workspace menu Open workspace action","parentUid":"474c99dc-369a-4425-a490-f8443b37e774"} -->
 
 Feature: Switch Workspaces
 

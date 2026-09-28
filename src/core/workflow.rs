@@ -3,19 +3,28 @@ use crate::core::{state::PlannerState, validation::NormalizedTurn};
 use crate::harness::TurnEnvelope;
 use serde::{Deserialize, Serialize};
 
+mod comparison_record;
+#[cfg(test)]
+#[path = "workflow/contract_tests.rs"]
+mod contract_tests;
+mod outline_validation;
 mod story_validation;
+pub use comparison_record::{PlanComparisonRecord, PlanComparisonStatus};
+pub use outline_validation::validate_outline;
 use story_validation::validate_stories;
 pub use story_validation::{descriptive_title, story_detail_errors};
 
 pub const WORKFLOW_FILE: &str = crate::artifacts::layout::canonical::WORKFLOW;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TurnPurpose {
     #[default]
     Interview,
     /// Refresh a stale brief for an already authorized generation action.
     ReviewForGeneration,
     GenerateTasks,
+    ComparePlans,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +58,10 @@ pub struct Workflow {
     pub task_batches: Vec<TaskBatchRef>,
     #[serde(default)]
     pub approved_features: std::collections::BTreeMap<String, String>,
+    /// Current typed plan comparison state, keyed by stable feature ID.
+    /// Legacy feature-document comparisons remain readable and are promoted on adoption.
+    #[serde(default)]
+    pub plan_comparisons: std::collections::BTreeMap<String, PlanComparisonRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -118,62 +131,6 @@ pub struct TaskOutline {
     pub dependencies: Vec<usize>,
 }
 
-pub fn validate_outline(
-    brief: &InterviewBrief,
-    outline: &[TaskOutline],
-) -> Result<(), Vec<String>> {
-    let mut errors = Vec::new();
-    let mut titles = std::collections::HashSet::new();
-    let mut scope = std::collections::HashSet::new();
-    let mut criteria = std::collections::HashSet::new();
-    if outline.is_empty() || outline.len() > 200 {
-        errors.push("The outline must contain between 1 and 200 tasks.".into());
-    }
-    for (i, task) in outline.iter().enumerate() {
-        let n = i + 1;
-        if !descriptive_title(&task.title)
-            || !substantive(&task.purpose)
-            || !titles.insert(task.title.trim().to_lowercase())
-        {
-            errors.push(format!(
-                "Outline task {n}: supply a unique title and concrete purpose."
-            ));
-        }
-        if task.dependencies.iter().any(|d| *d == 0 || *d >= n) {
-            errors.push(format!(
-                "Outline task {n}: dependencies must refer to earlier tasks."
-            ));
-        }
-        if task.scope_items.is_empty() {
-            errors.push(format!(
-                "Outline task {n}: at least one scope reference is required."
-            ));
-        }
-        for r in &task.scope_items {
-            if *r == 0 || *r > brief.in_scope.len() {
-                errors.push(format!("Outline task {n}: invalid scope reference."));
-            } else {
-                scope.insert(*r);
-            }
-        }
-        for r in &task.success_criteria {
-            if *r == 0 || *r > brief.success_criteria.len() {
-                errors.push(format!("Outline task {n}: invalid success criterion."));
-            } else {
-                criteria.insert(*r);
-            }
-        }
-    }
-    if scope.len() != brief.in_scope.len() || criteria.len() != brief.success_criteria.len() {
-        errors.push("The outline must cover every scope item and success criterion.".into());
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct TaskBatch {
     pub brief: InterviewBrief,
@@ -197,6 +154,7 @@ pub fn feature_contract(text: &str) -> String {
                 "Requirements",
                 "Decisions and Assumptions",
                 "Acceptance Criteria",
+                "Selected Plan",
             ]
             .contains(&heading);
         }
@@ -228,9 +186,23 @@ pub fn approve_feature_if_current(
     let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
     let text = std::fs::read_to_string(path)?;
     crate::core::specification::validate_feature(id, &text)?;
+    let metadata = crate::domain::ChangeMetadata::require_markdown(&text)?;
+    let status = metadata.status;
     anyhow::ensure!(
-        text.contains("**Status:** Ready") || text.contains("**Status:** Implementing"),
+        status.approval_eligible(),
         "Only a ready or already implementing feature may be approved"
+    );
+    let current_workflow = crate::artifacts::task_docs::load_workflow(repo)?;
+    let comparison_ready = current_workflow.plan_comparisons.get(id).map_or(
+        metadata.selected_alt.is_some(),
+        |record| {
+            record.status == PlanComparisonStatus::Adopted
+                && record.selected_plan == metadata.selected_alt
+        },
+    );
+    anyhow::ensure!(
+        metadata.schema_version != 2 || comparison_ready,
+        "Compare and adopt a plan before approving this feature"
     );
     let contract = feature_contract(&text);
     anyhow::ensure!(!contract.trim().is_empty(), "Feature contract is empty");
@@ -260,6 +232,20 @@ pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -
     let Ok(text) = std::fs::read_to_string(path) else {
         return false;
     };
+    let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(&text) else {
+        return false;
+    };
+    let comparison_ready =
+        workflow
+            .plan_comparisons
+            .get(id)
+            .map_or(metadata.selected_alt.is_some(), |record| {
+                record.status == PlanComparisonStatus::Adopted
+                    && record.selected_plan == metadata.selected_alt
+            });
+    if metadata.schema_version == 2 && !comparison_ready {
+        return false;
+    }
     workflow
         .approved_features
         .get(id)
@@ -571,6 +557,17 @@ mod tests {
         };
         assert!(validate_outline(&brief(), &[small]).is_ok());
 
+        let missing_references = TaskOutline {
+            title: "Prepare the task batch".into(),
+            purpose: "Separate the approved scope into implementable work.".into(),
+            ..Default::default()
+        };
+        let feedback = validate_outline(&brief(), &[missing_references])
+            .unwrap_err()
+            .join(" ");
+        assert!(feedback.contains("scope item index(es) [1]"));
+        assert!(feedback.contains("success criterion index(es) [1]"));
+
         let mut concise = story();
         concise.title = "Show full blocker".into();
         concise.intent = "Long blocker reports hide the choices the user needs.".into();
@@ -773,9 +770,22 @@ mod tests {
             .join(format!("{id}-fixture-{state_tag}"));
         std::fs::create_dir_all(&dir).unwrap();
         let body = format!(
-            "#{id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
+            "# {id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
         );
-        std::fs::write(dir.join("specification.md"), &body).unwrap();
+        let path = dir.join("specification.md");
+        let body =
+            crate::artifacts::product_docs::identity::preserve_feature_identity(&path, id, &body)
+                .unwrap();
+        let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
+            .unwrap()
+            .unwrap();
+        let body = crate::domain::ChangeMetadata::write_markdown(
+            &body,
+            &identity,
+            crate::domain::ChangeStatus::Ready,
+        )
+        .unwrap();
+        std::fs::write(path, &body).unwrap();
         body
     }
 

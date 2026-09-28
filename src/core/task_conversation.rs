@@ -1,6 +1,8 @@
 //! Focused prompts assembled from board identity and durable planning artifacts.
 use crate::core::{context_build::clip, state::PlannerState};
 
+mod feature_planning;
+
 /// Immediate opening copy from the current in-memory board. Opening a chat
 /// must not wait for a model or perform repository I/O on an input frame.
 pub fn presentation(
@@ -154,11 +156,18 @@ pub fn prompt(
     {
         format!("{}\n{}\n{}", doc.path, doc.title, doc.text)
     } else {
-        return crate::core::planning_work::context(state, key).map(|context| format!(
-            "Plan this feature using the same validated document and open-item contract. Record every question, ambiguity and assumption as an open item. Next feature ID: {}. Return document_updates and open-item changes; never write files directly.\n{context}\nConversation: {history:?}\nUser: {message}",
-            crate::artifacts::product_docs::next_feature_id(&state.repo_root)
-        )).ok_or_else(|| format!(
-            "Board item {key} no longer exists; refresh the board."
+        let context = crate::core::planning_work::context(state, key)
+            .ok_or_else(|| format!("Board item {key} no longer exists; refresh the board."))?;
+        return Ok(feature_planning::build(
+            &context,
+            &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
+            &history
+                .iter()
+                .map(|(speaker, text)| format!("{speaker}: {text}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            message,
+            crate::artifacts::product_docs::next_feature_id(&state.repo_root),
         ));
     };
     if let Some(worker) = crate::core::implementation::load(&state.repo_root, key) {

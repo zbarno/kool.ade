@@ -1,4 +1,5 @@
 # CHG-003-TASK-clone-a-pasted-github-url-on-the-initial-screen-and-open-it-through-the-existing-connect-path — Clone a pasted GitHub URL on the initial screen and open it through the existing connect path
+<!-- packet-artifact-id:v1 {"uid":"4aedb4dd-24ec-494c-b44d-0c6f1ecc8bd6","displayId":"CHG-003-TASK-clone-a-pasted-github-url-on-the-initial-screen-and-open-it-through-the-existing-connect-path","title":"Clone a pasted GitHub URL on the initial screen and open it through the existing connect path","parentUid":"474c99dc-369a-4425-a490-f8443b37e774"} -->
 
 Feature: Switch Workspaces
 

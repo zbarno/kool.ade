@@ -1,4 +1,5 @@
 # 004 — Lock the Option-1 boundary with adversarial-persona tests proving machine validation stays inviolate
+<!-- packet-artifact-id:v1 {"uid":"a47cc6a8-b2aa-4645-980b-c9c318207847","displayId":"004","title":"Lock the Option-1 boundary with adversarial-persona tests proving machine validation stays inviolate","parentUid":"75b345b5-4459-4270-820d-bdbe857debaa"} -->
 
 Feature: Editable Operator Persona (markdown persona system with shipped default voice)
 

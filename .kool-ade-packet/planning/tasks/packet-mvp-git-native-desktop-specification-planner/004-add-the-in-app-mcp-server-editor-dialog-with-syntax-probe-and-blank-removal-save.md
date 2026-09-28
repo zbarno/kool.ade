@@ -1,4 +1,5 @@
 # 004 — Add the in-app MCP server editor dialog with syntax probe and blank removal save
+<!-- packet-artifact-id:v1 {"uid":"bb5c5e21-5338-48b6-b256-7682545b6919","displayId":"004","title":"Add the in-app MCP server editor dialog with syntax probe and blank removal save","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

@@ -30,13 +30,9 @@ pub(super) fn render(state: &PlannerState) -> String {
                 .unwrap_or_else(|| "no stable ID".into());
             let approved =
                 crate::core::workflow::feature_approved(&state.repo_root, &state.workflow, id);
-            let status = if body.contains("**Status:** Ready") {
-                "ready"
-            } else if body.contains("**Status:** Implementing") {
-                "implementing"
-            } else {
-                "not ready"
-            };
+            let status = crate::domain::ChangeMetadata::require_markdown(body)
+                .map(|metadata| metadata.status.wire_name().to_owned())
+                .unwrap_or_else(|_| "invalid structured status".into());
             format!(
                 "change {id}; target={uid}; status={status}; approval={}; active={}",
                 if approved { "current" } else { "needed" },

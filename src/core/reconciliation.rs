@@ -171,7 +171,7 @@ fn prompt(state: &PlannerState, candidate: &Candidate, evidence: &str) -> anyhow
         ));
     }
     Ok(format!(
-        "Reconcile the approved feature with ACTUAL MERGED implementation. Inspect the merged commits in their target repositories using read-only git show/diff; the current checkout may not contain those commits. The product specification must describe only resulting current truth. If implementation matches the approved feature, return full replacements for affected product modules and the feature specification with Status: Implemented plus commit references near its status block. Preserve the approved feature's normative sections verbatim. If there is a material disagreement, do NOT change product modules: change feature Status to Reconciliation and create one Review or Human open item with feature_id, recommendation, evidence, and a question describing the discrepancy. Do not silently rewrite intent. Return schema_version 2 JSON with assistant_message, document_updates, open_items_added, open_items_updated=[], open_items_resolved=[], next_question_id=null, updated_specification=null. Only product IDs in the affected modules and feature:{} are writable. All changes are validated as one transaction.\n\n=== APPROVED FEATURE ===\n{}\n\n=== CURRENT FEATURE ===\n{}\n\n=== AFFECTED PRODUCT MODULES ===\n{}\n\n=== MERGED IMPLEMENTATION EVIDENCE ===\n{}\n",
+        "Reconcile the approved feature with ACTUAL MERGED implementation. Inspect the merged commits in their target repositories using read-only git show/diff; the current checkout may not contain those commits. The product specification must describe only resulting current truth. If implementation matches the approved feature, return full replacements for affected product modules and the feature specification, set that document update's typed status to `implemented`, and include the merged commit references. Preserve the approved feature's normative sections verbatim. If there is a material disagreement, do NOT change product modules: set the feature update's typed status to `reconciliation` and create one Review or Human open item with feature_id, recommendation, evidence, and a question describing the discrepancy. The `status` field is machine-authoritative; the visible Status line is rendered from it. Do not silently rewrite intent. Return schema_version 2 JSON with assistant_message, document_updates, open_items_added, open_items_updated=[], open_items_resolved=[], next_question_id=null, updated_specification=null. Only product IDs in the affected modules and feature:{} are writable. All changes are validated as one transaction.\n\n=== APPROVED FEATURE ===\n{}\n\n=== CURRENT FEATURE ===\n{}\n\n=== AFFECTED PRODUCT MODULES ===\n{}\n\n=== MERGED IMPLEMENTATION EVIDENCE ===\n{}\n",
         candidate.feature_id,
         candidate.contract.feature_specification,
         current_feature,
@@ -222,14 +222,8 @@ fn validate_response(
             == workflow::feature_contract(&candidate.contract.feature_specification),
         "Reconciliation changed the approved feature contract"
     );
-    let implemented = feature_update
-        .content
-        .lines()
-        .any(|line| line.starts_with("**Status:** Implemented"));
-    let discrepancy = feature_update
-        .content
-        .lines()
-        .any(|line| line.starts_with("**Status:** Reconciliation"));
+    let implemented = feature_update.status == Some(crate::domain::ChangeStatus::Implemented);
+    let discrepancy = feature_update.status == Some(crate::domain::ChangeStatus::Reconciliation);
     anyhow::ensure!(
         implemented || discrepancy,
         "Feature must become Implemented or Reconciliation"
@@ -580,7 +574,7 @@ mod tests {
         let env: crate::harness::responses::ReconciliationResponse =
             serde_json::from_value(serde_json::json!({
                 "schema_version":2,"assistant_message":"Reconciled merged search behavior.",
-                "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature},
+                "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature,"status":"implemented"},
                     {"document_id":"product:current-capabilities","content":product}]
             }))
             .unwrap();
@@ -600,7 +594,7 @@ mod tests {
         let revised = feature.replace("**Status:** Implementing", "**Status:** Reconciliation");
         let discrepancy: crate::harness::responses::ReconciliationResponse = serde_json::from_value(serde_json::json!({
             "schema_version":2,"assistant_message":"Found a mismatch.",
-            "document_updates":[{"document_id":"feature:CHG-001","content":revised}],
+            "document_updates":[{"document_id":"feature:CHG-001","content":revised,"status":"reconciliation"}],
             "open_items_added":[{"kind":"Assumption","priority":"Normal","authority":"Review",
                 "category":"General","assigned_to":"All","feature_id":"CHG-001",
                 "question":"Reconciliation found missing persisted queries; approve a corrective task?",
@@ -623,7 +617,7 @@ mod tests {
         let product = candidate.contract.product_modules["current-capabilities"].clone()
             + "\nSearch queries persist across restart in the merged implementation.\n";
         let response = serde_json::json!({"schema_version":2,"assistant_message":"Reconciled persisted search queries.",
-            "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature},
+            "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature,"status":"implemented"},
                 {"document_id":"product:current-capabilities","content":product}]}).to_string();
         let (progress, _events) = mpsc::channel();
         let (updated, _) = run(
@@ -697,7 +691,7 @@ mod tests {
         let product = candidate.contract.product_modules["current-capabilities"].clone()
             + "\nSearch queries persist across restart in the merged implementation.\n";
         let response = serde_json::json!({"schema_version":2,"assistant_message":"Reconciled persisted search queries.",
-            "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature},
+            "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature,"status":"implemented"},
                 {"document_id":"product:current-capabilities","content":product}]}).to_string();
         let feature_path =
             repo.join(".kool-ade-packet/planning/changes/CHG-001-search/specification.md");
@@ -785,7 +779,7 @@ mod tests {
             std::fs::read(repo.join(".kool-ade-packet/planning/product/current-capabilities.md"))
                 .unwrap();
         let response = serde_json::json!({"schema_version":2,"assistant_message":"Merged code differs from approved intent.",
-            "document_updates":[{"document_id":"feature:CHG-001","content":feature.replace("**Status:** Implementing", "**Status:** Reconciliation")}],
+            "document_updates":[{"document_id":"feature:CHG-001","content":feature.replace("**Status:** Implementing", "**Status:** Reconciliation"),"status":"reconciliation"}],
             "open_items_added":[{"kind":"Assumption","priority":"Normal","authority":"Review",
                 "category":"General","assigned_to":"All","feature_id":"CHG-001",
                 "question":"Reconciliation found a material mismatch in saved-query retention; approve a corrective task?",

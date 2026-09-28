@@ -68,13 +68,33 @@ impl Plan {
             Err(error) => return Err(error.into()),
         }
 
+        let previous_work = crate::artifacts::layout::previous::WORK;
+        match fs::symlink_metadata(repo.join(previous_work)) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "Previous planning work ledger must be a regular file"
+                );
+                entries.push(entry(repo, &repo.join(previous_work))?);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+
         for item in &mut entries {
             if item.source == crate::artifacts::layout::legacy::WORKFLOW {
                 item.target_bytes = migrate_workflow(&item.source_bytes)?;
             }
         }
 
-        let generated = super::product::bootstrap_files(repo, None)?;
+        let mut generated = super::product::bootstrap_files(repo, None)?;
+        if !entries
+            .iter()
+            .any(|entry| entry.target == crate::artifacts::layout::canonical::PROJECT_MANIFEST)
+            && let Some(file) = project_manifest_file(repo)?
+        {
+            generated.push(file);
+        }
         let mut destinations = BTreeMap::<String, Vec<u8>>::new();
         for item in &entries {
             validate_relative(&item.source)?;
@@ -145,5 +165,50 @@ impl Plan {
     /// boundary is retryable: equal source/target bytes are deduplicated.
     pub(super) fn apply(&self, repo: &Path) -> anyhow::Result<()> {
         apply::apply(self, repo)
+    }
+}
+
+fn project_manifest_file(repo: &Path) -> anyhow::Result<Option<Generated>> {
+    use crate::artifacts::layout::{ArtifactLayout, canonical};
+
+    let path = ArtifactLayout::new(repo).project_manifest();
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "Project repository manifest must be a regular file"
+            );
+            let manifest: crate::core::project_repos::ProjectManifest =
+                serde_json::from_slice(&fs::read(path)?)?;
+            manifest.validate()?;
+            Ok(None)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let output = std::process::Command::new("git")
+                .args(["remote", "get-url", "origin"])
+                .current_dir(repo)
+                .output()?;
+            if !output.status.success() {
+                return Ok(None);
+            }
+            let remote = String::from_utf8(output.stdout)?.trim().to_owned();
+            if !crate::core::project_repos::portable_remote(&remote) {
+                return Ok(None);
+            }
+            let manifest = crate::core::project_repos::ProjectManifest {
+                repositories: vec![crate::core::project_repos::Repository {
+                    id: "root".into(),
+                    role: "Planning root".into(),
+                    remote,
+                    display_name: None,
+                }],
+            };
+            manifest.validate()?;
+            Ok(Some(Generated {
+                target: canonical::PROJECT_MANIFEST.into(),
+                bytes: serde_json::to_vec_pretty(&manifest)?,
+            }))
+        }
+        Err(error) => Err(error.into()),
     }
 }

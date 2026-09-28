@@ -1,4 +1,5 @@
 # 001 — Derive operator identity from the connected repository's git config with settings echo and override
+<!-- packet-artifact-id:v1 {"uid":"d69bcb43-d720-4edb-a537-9f09a81494d2","displayId":"001","title":"Derive operator identity from the connected repository's git config with settings echo and override","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

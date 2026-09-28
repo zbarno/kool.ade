@@ -1,4 +1,5 @@
 # 006 — Certify the NFR-8 invariant leg with the full regression suite green and warning-free build
+<!-- packet-artifact-id:v1 {"uid":"27f1da89-f47f-4f69-b55e-34ee7b7dcce7","displayId":"006","title":"Certify the NFR-8 invariant leg with the full regression suite green and warning-free build","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

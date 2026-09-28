@@ -1,4 +1,5 @@
 # 007 — Perform the binding seven-outcome exit demonstration against the seeded fixture repository
+<!-- packet-artifact-id:v1 {"uid":"9995b6a6-22a2-4649-9207-762e8d359104","displayId":"007","title":"Perform the binding seven-outcome exit demonstration against the seeded fixture repository","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

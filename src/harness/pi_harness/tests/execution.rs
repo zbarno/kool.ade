@@ -21,49 +21,62 @@ if [ "$1" = --help ]; then
     printf '%s\n' '--print' '--mode <mode> json' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
     exit 0
 fi
-printf '%s\n' "$@" > "$(dirname "$0")/received-args.txt"
+args="$*"
+system=''
 while [ "$#" -gt 0 ]; do
     if [ "$1" = --append-system-prompt ]; then
         shift
-        printf '%s' "$1" > "$(dirname "$0")/received-system.txt"
+        system=$1
     fi
     shift
 done
 cat >/dev/null
-printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"fixture completed"}]}]}'
+case "$system" in *"Custom persona remains intact"*) persona=yes ;; *) persona=no ;; esac
+case "$system" in *"PID "*) supervisor=yes ;; *) supervisor=no ;; esac
+case "$system" in *"Do not use pkill/killall"*) ownership=yes ;; *) ownership=no ;; esac
+case "$system" in *"unique inherited run marker"*) marker=yes ;; *) marker=no ;; esac
+case "$system" in *"Planning reads are restricted by an operating-system sandbox"*) policy=yes ;; *) policy=no ;; esac
+case "$args" in *"read,grep,find,ls"*) readonly_tools=yes ;; *) readonly_tools=no ;; esac
+printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"fixture completed|%s|%s|%s|%s|%s|%s"}]}]}\n' "$persona" "$supervisor" "$ownership" "$marker" "$policy" "$readonly_tools"
 "#).unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
     let previous = std::env::var_os(PI_BINARY_ENV);
     unsafe {
         std::env::set_var(PI_BINARY_ENV, &script);
     }
-    let (progress_tx, _rx) = mpsc::channel();
-    let outcome = PiHarness.execute(&PlanningRequest {
-        mode: crate::harness::ExecutionMode::Planning,
-        reasoning_level: "low".into(),
-        repo_root: root.clone(),
-        prompt_body: "test".into(),
-        system_instructions: "Custom persona remains intact".into(),
-        timeout: Duration::from_secs(5),
-        progress_tx,
-        cancel: Arc::new(AtomicBool::new(false)),
-    });
+    let outcomes = [
+        crate::harness::ExecutionMode::Planning,
+        crate::harness::ExecutionMode::TaskGeneration,
+        crate::harness::ExecutionMode::Investigation,
+    ]
+    .into_iter()
+    .map(|mode| {
+        let (progress_tx, _rx) = mpsc::channel();
+        PiHarness.execute(&PlanningRequest {
+            mode,
+            reasoning_level: "low".into(),
+            repo_root: root.clone(),
+            prompt_body: "test".into(),
+            system_instructions: "Custom persona remains intact".into(),
+            timeout: Duration::from_secs(5),
+            progress_tx,
+            cancel: Arc::new(AtomicBool::new(false)),
+        })
+    })
+    .collect::<Result<Vec<_>, _>>();
     unsafe {
         match previous {
             Some(value) => std::env::set_var(PI_BINARY_ENV, value),
             None => std::env::remove_var(PI_BINARY_ENV),
         }
     }
-    assert_eq!(outcome.unwrap().final_text, "fixture completed");
-    let sent = fs::read_to_string(root.join("received-system.txt")).unwrap();
-    assert!(sent.ends_with("Custom persona remains intact"));
-    assert!(sent.contains(&format!("PID {}", std::process::id())));
-    assert!(sent.contains("Do not use pkill/killall"));
-    assert!(sent.contains("unique inherited run marker"));
-    let received_args = fs::read_to_string(root.join("received-args.txt")).unwrap();
-    assert!(received_args.contains("--tools\nread,grep,find,ls\n"));
-    assert!(!received_args.contains("--no-tools"));
-    assert!(!received_args.contains("--no-builtin-tools"));
+    let outcomes = outcomes.unwrap();
+    assert_eq!(outcomes.len(), 3);
+    assert!(
+        outcomes
+            .iter()
+            .all(|outcome| outcome.final_text == "fixture completed|yes|yes|yes|yes|yes|yes")
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -88,6 +101,7 @@ fn implementation_harness_exposes_only_the_bounded_shell_extension() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     fs::create_dir_all(&root).unwrap();
+    let (progress_tx, _rx) = mpsc::channel();
     let repository = root.join("repository");
     fs::create_dir(&repository).unwrap();
     let init = std::process::Command::new("git")
@@ -166,7 +180,6 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
     let previous = std::env::var_os(PI_BINARY_ENV);
     unsafe { std::env::set_var(PI_BINARY_ENV, &script) };
-    let (progress_tx, _rx) = mpsc::channel();
     let outcome = PiHarness.execute(&PlanningRequest {
         mode: crate::harness::ExecutionMode::Implementation,
         reasoning_level: "low".into(),

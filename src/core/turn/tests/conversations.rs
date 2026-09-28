@@ -102,6 +102,10 @@ fn focused_conversation_persists_resolution_without_other_chat_context() {
     .unwrap();
     assert!(body.contains("Which authentication provider?"));
     assert!(body.contains("Our employees need access"));
+    assert!(
+        crate::core::prompt::TASK_CONVERSATION_MODE_NOTE
+            .contains("open_items_resolved is an array of item-ID strings")
+    );
     assert!(!body.contains("=== INTERVIEW BRIEF ==="));
     let c = TurnController::start_scoped(inputs, Box::new(ScriptedHarness {
             canned: None,

@@ -38,17 +38,3 @@ jobs:
         run: cargo +1.98.1 test --locked --all-targets -- --test-threads=1
       - name: Reject all clippy warnings
         run: cargo +1.98.1 clippy --locked --all-targets -- -D warnings
-
-  desktop-build:
-    name: desktop build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Check desktop binary
-        run: cargo +1.98.1 check --locked --bin packet

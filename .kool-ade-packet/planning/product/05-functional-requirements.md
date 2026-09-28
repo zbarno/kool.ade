@@ -1,0 +1,24 @@
+## 5. Functional Requirements
+
+- **FR-1** The product specification MUST render as one complete current document from independently replaceable modules. A feature specification MUST describe a proposed delta until reconciliation (D-28).
+- **FR-2** The UI MUST treat accepted planner artifacts as authoritative. The model may propose only allowlisted logical-document replacements; direct UI editing of the product specification is not offered.
+- **FR-3** Each accepted mutating planning turn MUST create a scoped git checkpoint; a no-op turn MUST NOT create one.
+- **FR-4** Validation failure MUST leave document, item, workflow, and git state unchanged. A failed multi-file apply MUST roll back or recover its pre-turn bytes.
+- **FR-5** Cancel MUST stop an in-flight turn without adopting streamed fragments; interrupted artifacts MUST remain recoverable.
+- **FR-6** Chat MUST ask at most one eligible Human/Blocking question. D-14 ownership routing determines eligibility; other open items remain on the board.
+- **FR-7** A used non-General category without a configured owner MUST have an actionable Ownership nomination item. Seat inheritance keeps the lane answerable (D-14, D-25).
+- **FR-8** Packet MUST allocate stable, monotonic `CLR-nnn` identifiers; retired IDs MUST NOT be reused.
+- **FR-9** Pi MUST run in the relevant repository and may inspect source before a human question. Packet compiles bounded initial context and allows on-demand evidence reads.
+- **FR-10** Imports MUST remain in the planning repository and be inspectable by the harness.
+- **FR-11** After an accepted apply, in-memory state MUST mirror written artifacts even if the subsequent git checkpoint reports an error.
+- **FR-12** A turn's timeout MUST be fixed at start. Invalid or zero `PACKET_TURN_TIMEOUT_SECS` MUST fall back to the twelve-hour default (D-24).
+- **FR-13** Operator identity MUST follow git `user.name`, git `user.email`, config fallback, then `(guest)` (D-14).
+- **FR-14** A material new capability MUST receive a stable `CHG-` feature document; its approval MUST be explicit before task generation or Auto implementation.
+- **FR-15** A planning turn MUST replace only changed logical documents; unchanged product modules MUST retain their bytes. Product and feature documents MUST use full-document replacements rather than model-authored path patches.
+- **FR-16** Open items MUST keep authority separate from priority. Agent items MAY be resolved from evidence; Review items MUST have a provisional recommendation; an explicitly Human-owned item MUST NOT be silently downgraded.
+- **FR-17** Task batches MUST freeze approved feature intent, affected product modules, repository revisions, and configuration. Each story MUST target one logical repository; dependencies MUST be explicit.
+- **FR-18** Reconciliation MUST inspect actual merged commits before changing affected product modules. A material mismatch MUST create an actionable Review/Human item and leave product truth unchanged.
+- **FR-19** The Kanban MUST project actionable items and tasks from validated state. A user MUST be able to resolve a nonblocking provisional feature decision from the board without a chat turn.
+- **FR-20** Settings MUST let operators set, edit, or clear an optional shared repository display name. The Welcome picker and Workspace menu MUST show that name, falling back to role and then stable ID. Missing or colliding labels MUST include the stable ID for disambiguation. Names are trimmed, limited to 40 characters, and reject control or invisible formatting characters; duplicate names are allowed. Labels MUST NOT replace repository IDs or verified paths for routing.
+- **FR-21** A Ready feature without an adopted plan MUST offer comparison and MUST NOT offer approval. Packet MUST produce exactly two complete, materially distinct plans and an evidence-backed recommendation; the recommendation is advisory and the operator's explicit selection controls adoption.
+- **FR-22** Adoption MUST persist the selected plan in the feature contract and typed workflow record, create its decision record, invalidate any stale approval, and require explicit approval against the updated contract. Comparison and adoption state MUST survive restart; invalid or failed comparisons MUST leave approval gated, and existing approved features MUST retain their behavior.

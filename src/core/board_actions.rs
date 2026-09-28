@@ -110,6 +110,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         document_updates: Some(vec![DocumentUpdate {
             document_id: format!("feature:{feature_id}"),
             content: revised,
+            status: None,
         }]),
         updated_specification: None,
         open_items_added: None,
@@ -120,6 +121,8 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         interview: None,
         task_stories: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let mut normalized = validation::validate(&envelope, state, &state.effective_user())
         .map_err(|problems| anyhow::anyhow!(problems.join("; ")))?;

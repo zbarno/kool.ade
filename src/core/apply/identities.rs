@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) fn preserve_feature_updates(
     repo: &std::path::Path,
     updates: &mut [(String, String)],
+    statuses: &std::collections::BTreeMap<String, crate::domain::ChangeStatus>,
 ) -> anyhow::Result<BTreeMap<String, String>> {
     let mut feature_uids = BTreeMap::new();
     for (id, content) in updates {
@@ -12,11 +13,44 @@ pub(super) fn preserve_feature_updates(
             continue;
         };
         let path = crate::artifacts::product_docs::document_path_for_update(repo, id, content)?;
+        let previous_status = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "Feature specification must be a regular file"
+                );
+                Some(
+                    crate::domain::ChangeMetadata::require_markdown(&std::fs::read_to_string(
+                        &path,
+                    )?)?
+                    .status,
+                )
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        let clean_content = crate::domain::ChangeMetadata::strip_markers(content);
         *content = crate::artifacts::product_docs::identity::preserve_feature_identity(
-            &path, feature_id, content,
+            &path,
+            feature_id,
+            &clean_content,
         )?;
         let identity = crate::domain::ArtifactIdentity::from_markdown(content)?
             .ok_or_else(|| anyhow::anyhow!("Feature identity was not written"))?;
+        let status = statuses
+            .get(feature_id)
+            .copied()
+            .or(previous_status)
+            .ok_or_else(|| anyhow::anyhow!("New feature {feature_id} has no typed status"))?;
+        if let Some(previous) = previous_status {
+            anyhow::ensure!(
+                previous.can_transition_to(status),
+                "Feature {feature_id} cannot transition from {} to {}",
+                previous.wire_name(),
+                status.wire_name()
+            );
+        }
+        *content = crate::domain::ChangeMetadata::write_markdown(content, &identity, status)?;
         anyhow::ensure!(
             feature_uids
                 .insert(feature_id.to_owned(), identity.uid)
@@ -89,7 +123,7 @@ mod tests {
         let dir = root.join(".kool-ade-packet/planning/changes/F1-feature");
         std::fs::create_dir_all(&dir).unwrap();
         let feature_text = ArtifactIdentity::preserve_markdown(
-            "# F1: Feature\n\n## Intent\n\nKeep a stable feature identity.\n",
+            "# F1: Feature\n\n**Status:** Draft\n\n## Intent\n\nKeep a stable feature identity.\n",
             None,
             "F1",
             "Feature",

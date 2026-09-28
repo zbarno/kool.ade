@@ -1,4 +1,7 @@
-use super::{PiHarness, compress_completed_events, configured_stall_timeout, tail};
+mod limits;
+
+use super::read_budget::PlanningReadBudget;
+use super::{PiHarness, compress_completed_events, configured_stall_timeout, diagnostics, tail};
 use crate::error::AppError;
 use crate::harness::pi_events::EventFold;
 use crate::harness::pi_extract::extract_json_object;
@@ -24,15 +27,30 @@ impl AiHarness for PiHarness {
     fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
         let exe = Self::locate_binary()?;
         super::capabilities::validate(&exe, req.mode)?;
+        let exe = exe
+            .canonicalize()
+            .map_err(|error| AppError::Other(format!("Cannot resolve Pi executable: {error}")))?;
+        let runtime = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
+        let tool_access = runtime.tool_access(req.mode);
+        let planning_reads = tool_access == ToolAccess::ReadOnly;
         let mut argv = vec![exe.to_string_lossy().into_owned()];
-        let system_instructions = if req.mode == ExecutionMode::Implementation {
-            format!(
+        let system_instructions = match req.mode {
+            ExecutionMode::Implementation => format!(
                 "{}\n\n{}",
                 req.system_instructions,
                 crate::harness::pi_sandbox::IMPLEMENTATION_POLICY
-            )
-        } else {
-            req.system_instructions.clone()
+            ),
+            mode if mode.tool_access() == ToolAccess::ReadOnly && planning_reads => format!(
+                "{}\n\n{}",
+                req.system_instructions,
+                crate::harness::pi_sandbox::PLANNING_POLICY
+            ),
+            mode if mode.tool_access() == ToolAccess::ReadOnly => format!(
+                "{}\n\n{}",
+                req.system_instructions,
+                crate::harness::pi_sandbox::PLANNING_CONTEXT_ONLY_POLICY
+            ),
+            _ => req.system_instructions.clone(),
         };
         argv.extend([
             "-p".into(),
@@ -52,11 +70,12 @@ impl AiHarness for PiHarness {
 
         let mut _extension_files = None;
         let mut _sandbox = None;
+        let mut _planning_sandbox = None;
         let mut git_common_dir = None;
         let mut child_env = Vec::new();
         if req.mode == ExecutionMode::Implementation {
-            let sandbox =
-                crate::harness::pi_sandbox::Sandbox::new(&req.repo_root).map_err(|error| {
+            let sandbox = crate::harness::pi_sandbox::Sandbox::new_for_pi(&req.repo_root, &exe)
+                .map_err(|error| {
                     AppError::Other(format!("Cannot start bounded implementation: {error:#}"))
                 })?;
             let files = sandbox.extension_files().map_err(|error| {
@@ -81,10 +100,25 @@ impl AiHarness for PiHarness {
             _extension_files = Some(files);
             _sandbox = Some(sandbox);
         } else {
-            match req.mode.tool_access() {
+            match tool_access {
                 ToolAccess::None => argv.push("--no-tools".into()),
                 ToolAccess::ReadOnly => {
-                    argv.extend(["--tools".into(), "read,grep,find,ls".into()]);
+                    if planning_reads {
+                        argv.extend(["--tools".into(), "read,grep,find,ls".into()]);
+                        let sandbox =
+                            crate::harness::pi_sandbox::PlanningSandbox::new(&req.repo_root, &exe)
+                                .map_err(|error| {
+                                    AppError::Other(format!(
+                                        "Cannot start bounded planning reads: {error:#}"
+                                    ))
+                                })?;
+                        let mut wrapped = vec![sandbox.bwrap.to_string_lossy().into_owned()];
+                        wrapped.extend(sandbox.command_args(&argv));
+                        argv = wrapped;
+                        _planning_sandbox = Some(sandbox);
+                    } else {
+                        argv.push("--no-tools".into());
+                    }
                 }
                 ToolAccess::BoundedImplementation => {
                     return Err(AppError::Other(
@@ -96,25 +130,8 @@ impl AiHarness for PiHarness {
         if req.mode == ExecutionMode::Implementation {
             argv.retain(|arg| arg != "--no-context-files");
         }
-        let mut diagnostics = if req.mode == ExecutionMode::Implementation {
-            let directory = git_common_dir
-                .as_ref()
-                .ok_or_else(|| AppError::Other("Cannot locate Git metadata directory".into()))?
-                .join("packet-harness");
-            std::fs::create_dir_all(&directory).map_err(|e| AppError::Other(e.to_string()))?;
-            let path = directory.join(format!(
-                "{}-events.jsonl",
-                chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-            ));
-            let file = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path)
-                .map_err(|e| AppError::Other(e.to_string()))?;
-            Some((path, file))
-        } else {
-            None
-        };
+        let mut diagnostics =
+            diagnostics::open(&req.repo_root, req.mode, git_common_dir.as_deref())?;
         let task = crate::harness::pi_proc::spawn_with_input_env(
             &argv,
             &req.repo_root,
@@ -130,6 +147,7 @@ impl AiHarness for PiHarness {
         let mut last_preview = crate::harness::LiveProgress::default();
         let mut last_emit = Instant::now() - Duration::from_millis(50);
         let mut preview_dirty = false;
+        let mut planning_read_budget = PlanningReadBudget::default();
 
         loop {
             if req.cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -180,6 +198,16 @@ impl AiHarness for PiHarness {
                             AppError::Other(format!("Cannot write harness diagnostics: {e}"))
                         })?;
                     }
+                    if planning_reads && let Err(reason) = planning_read_budget.observe_line(&line)
+                    {
+                        return Err(limits::fail(
+                            &task,
+                            diagnostics.as_ref(),
+                            reason,
+                            &req.progress_tx,
+                            &stderr_tail,
+                        ));
+                    }
                     crate::harness::pi_events::fold_line(&line, &mut fold);
                     preview_dirty = true;
                 }
@@ -220,14 +248,17 @@ impl AiHarness for PiHarness {
         if final_text.trim().is_empty() {
             return Err(AppError::HarnessFailed {
                 reason: format!(
-                    "pi finished but produced no final assistant message ({} parsed events, {} unparsed lines, agent_end={}; diagnostics: {})",
+                    "pi finished but produced no final assistant message ({} parsed events, {} unparsed lines, agent_end={}, last_stop_reason={}, last_error_class={}, tool_executions={}; diagnostics: {})",
                     fold.events_seen,
                     fold.unparsed_lines,
                     fold.saw_agent_end,
+                    fold.last_stop_reason.as_deref().unwrap_or("unknown"),
+                    fold.last_error_class.unwrap_or("unknown"),
+                    fold.tool_executions,
                     diagnostics
                         .as_ref()
                         .map(|(path, _)| path.display().to_string())
-                        .unwrap_or_else(|| "not recorded for planning turns".into())
+                        .unwrap_or_else(|| "not recorded (no writable Git metadata)".into())
                 ),
                 stderr_tail: tail(&stderr_tail),
             });

@@ -28,11 +28,14 @@ mod feature_approval;
 mod attention;
 mod implementation_controller;
 mod implementation_decision;
+mod repository_switcher;
 mod requested_action;
+mod task_batch;
 #[cfg(test)]
 #[path = "root/task_detail_tests.rs"]
 mod task_detail_tests;
 mod ui_actions;
+use task_batch::has_current_task_batch;
 
 /// Root of the packet app.
 pub struct PacketApp {
@@ -62,22 +65,11 @@ pub struct PacketApp {
     /// dispatch can be proven hermetically (no network, no real git
     /// process). Shipping code never writes it (`Default` installs `None`).
     clone_computation_override: Option<CloneWorkerCalc>,
-    last_reconciliation_probe: Option<Instant>,
-    reconciliation_probe: Option<
-        std::thread::JoinHandle<(
-            crate::core::state::PlannerState,
-            anyhow::Result<Option<crate::core::reconciliation::Candidate>>,
-        )>,
-    >,
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
     attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
     #[cfg(test)]
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
-    /// D-14 configuration stand-in shown off-project (welcome screen):
-    /// an empty map means every category classifies as unowned, so the
-    /// pane degrades gracefully until a project connects.
-    fallback_stakes: crate::domain::Stakeholders,
     /// Synthesized ownership-gap items for the side pane.
     synth: Vec<OpenItem>,
 }
@@ -149,45 +141,6 @@ type CloneWorkerCalc = std::sync::Arc<
     dyn Fn(String, String) -> Result<std::path::PathBuf, crate::error::AppError> + Send + Sync,
 >;
 
-fn has_current_task_batch(project: &Project) -> bool {
-    if let Some((id, _)) = &project.state.active_feature {
-        let tagged = project
-            .task_documents
-            .iter()
-            .filter(|doc| !doc.path.ends_with("/README.md"))
-            .filter_map(|doc| {
-                doc.text
-                    .lines()
-                    .find_map(|line| line.strip_prefix("Feature ID: "))
-                    .map(|feature| (feature, doc))
-            });
-        let docs = tagged.collect::<Vec<_>>();
-        if !docs.is_empty() {
-            return docs.iter().any(|(feature, doc)| {
-                feature == id
-                    && project
-                        .state
-                        .workflow
-                        .task_batches
-                        .iter()
-                        .any(|batch| doc.path.starts_with(&format!("{}/", batch.directory)))
-            });
-        }
-    }
-    project
-        .task_documents
-        .iter()
-        .any(|doc| !doc.path.ends_with("/README.md"))
-        && project.state.workflow.brief.as_ref().is_none_or(|brief| {
-            project
-                .state
-                .workflow
-                .task_batches
-                .last()
-                .is_some_and(|batch| batch.feature == brief.feature_name)
-        })
-}
-
 enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
@@ -230,13 +183,10 @@ impl Default for PacketApp {
             display_refresh: None,
             clone_job: None,
             clone_computation_override: None,
-            last_reconciliation_probe: None,
-            reconciliation_probe: None,
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),
             #[cfg(test)]
             attention_fixture: Default::default(),
-            fallback_stakes: crate::domain::Stakeholders::default(),
             synth: Vec::new(),
         }
     }
@@ -708,7 +658,7 @@ impl PacketApp {
                 if (p.active_turn.is_some()
                     || !p.task_turns.is_empty()
                     || !p.active_implementations.is_empty()
-                    || p.reconciliation.is_some()
+                    || p.reconciliation.is_running()
                     || p.investigation.is_some()
                     || p.activity.manager.is_some()) =>
             {
@@ -723,123 +673,74 @@ impl PacketApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if let Some(controller) = &project.reconciliation
-            && let Some(result) = controller.poll()
-        {
-            let feature_id = controller.feature_id.clone();
-            project.reconciliation = None;
-            match result {
-                Ok((state, message)) => {
-                    project.state = state;
-                    project.reconciliation_cooldown_until = None;
-                    project.task_documents = crate::artifacts::task_docs::load_board(
-                        &project.state.repo_root,
-                        &project.state.workflow,
-                    );
-                    project.refresh_git();
-                    project.reconciliation_error = None;
-                    project
-                        .activity
-                        .pending
-                        .push(format!("Reconciled {feature_id}: {message}"));
-                    self.toasts.success(format!("Reconciled {feature_id}"));
-                }
-                Err(error) => {
-                    if let Ok(current) =
-                        crate::core::state::PlannerState::load(&project.state.repo_root)
-                    {
-                        project.state = current;
-                    }
-                    let error = error.to_string();
-                    if error.starts_with(crate::core::reconciliation::DEFER_PREFIX) {
-                        // Benign: the live project moved while we ran.
-                        // Cool down and retry later; no alarm.
-                        project.reconciliation_cooldown_until =
-                            Some(Instant::now() + Duration::from_secs(300));
-                        project.activity.pending.push(format!(
-                                "Reconciliation of {feature_id} deferred - the project is still moving; Packet will check again shortly."
-                            ));
-                    } else {
-                        // Record the attempt so a failure cannot
-                        // instantly re-fire the model loop within this
-                        // session; a fresh session retries anew.
-                        project.reconciliation_attempted.insert(feature_id.clone());
-                        project.activity.pending.push(format!(
-                            "Reconciliation of {feature_id} needs attention: {error}"
-                        ));
-                        project.reconciliation_error = Some(error.clone());
-                        self.toasts
-                            .warning(format!("Reconciliation needs attention: {error}"));
-                    }
-                }
-            }
-        }
-        if project.reconciliation.is_some()
-            || project
-                .reconciliation_cooldown_until
-                .is_some_and(|until| until > Instant::now())
-        {
-            return;
-        }
-        let Some((feature_id, _)) = &project.state.active_feature else {
-            return;
-        };
-        if project.reconciliation_attempted.contains(feature_id) {
-            return;
-        }
-        // Candidate discovery reads contracts and invokes Git for task records.
-        // An unfinished batch used to repeat this work on every keystroke.
-        let result = if self
-            .reconciliation_probe
-            .as_ref()
-            .is_some_and(|job| job.is_finished())
-        {
-            self.last_reconciliation_probe = Some(Instant::now());
-            let Ok((state, result)) = self.reconciliation_probe.take().unwrap().join() else {
-                return;
-            };
-            if state.repo_root != project.state.repo_root
-                || state.active_feature != project.state.active_feature
-                || state.workflow != project.state.workflow
-                || state.items != project.state.items
-            {
-                return;
-            }
-            result
-        } else {
-            if self.reconciliation_probe.is_none()
-                && self
-                    .last_reconciliation_probe
-                    .is_none_or(|last| last.elapsed() >= Duration::from_secs(3))
-            {
-                let state = project.state.clone();
-                self.reconciliation_probe = Some(std::thread::spawn(move || {
-                    let result = crate::core::reconciliation::candidate(&state);
-                    (state, result)
-                }));
-            }
-            return;
-        };
-        match result {
-            Ok(Some(candidate)) => {
-                project
-                    .reconciliation_attempted
-                    .insert(candidate.feature_id.clone());
-                project.activity.pending.push(format!("All tasks for {} have merged; checking actual implementation against the approved feature.", candidate.feature_id));
-                let harness = configured_harness(&mut self.task_harness);
-                project.reconciliation = Some(crate::core::reconciliation::Controller::start(
-                    project.state.clone(),
-                    candidate,
-                    harness,
+        let event =
+            project
+                .reconciliation
+                .advance(&project.state, &mut self.task_harness, Instant::now());
+        let mut toast = None;
+        match event {
+            Some(crate::app::reconciliation_lifecycle::Event::Started { feature_id }) => {
+                project.activity.pending.push(format!(
+                    "All tasks for {feature_id} have merged; checking actual implementation against the approved feature."
                 ));
             }
-            Ok(None) => {}
-            Err(error) => {
-                project.reconciliation_attempted.insert(feature_id.clone());
-                project.reconciliation_error = Some(error.to_string());
+            Some(crate::app::reconciliation_lifecycle::Event::Completed {
+                feature_id,
+                state,
+                message,
+            }) => {
+                project.state = state;
+                project.task_documents = crate::artifacts::task_docs::load_board(
+                    &project.state.repo_root,
+                    &project.state.workflow,
+                );
+                project.refresh_git();
+                project
+                    .activity
+                    .pending
+                    .push(format!("Reconciled {feature_id}: {message}"));
+                toast = Some((true, format!("Reconciled {feature_id}")));
+            }
+            Some(crate::app::reconciliation_lifecycle::Event::Deferred {
+                feature_id,
+                error,
+                state,
+            }) => {
+                if let Some(state) = state {
+                    project.state = state;
+                }
+                project.activity.pending.push(format!(
+                    "Reconciliation of {feature_id} deferred - the project is still moving; Packet will check again shortly. ({error})"
+                ));
+            }
+            Some(crate::app::reconciliation_lifecycle::Event::Failed {
+                feature_id,
+                error,
+                state,
+            }) => {
+                if let Some(state) = state {
+                    project.state = state;
+                }
                 project.activity.pending.push(format!(
                     "Reconciliation of {feature_id} needs attention: {error}"
                 ));
+                toast = Some((false, format!("Reconciliation needs attention: {error}")));
+            }
+            Some(crate::app::reconciliation_lifecycle::Event::ProbeFailed {
+                feature_id,
+                error,
+            }) => {
+                project.activity.pending.push(format!(
+                    "Reconciliation of {feature_id} needs attention: {error}"
+                ));
+            }
+            None => {}
+        }
+        if let Some((success, message)) = toast {
+            if success {
+                self.toasts.success(message);
+            } else {
+                self.toasts.warning(message);
             }
         }
     }
@@ -1250,6 +1151,7 @@ impl PacketApp {
             user_message: text,
             recent_chat,
             purpose: crate::core::workflow::TurnPurpose::Interview,
+            comparison_feature: None,
         };
         project.task_chats.drafts.remove(key);
         let harness = configured_harness(&mut self.task_harness);
@@ -1347,6 +1249,24 @@ impl PacketApp {
     }
 
     fn start_turn_with_purpose(&mut self, text: &str, purpose: crate::core::workflow::TurnPurpose) {
+        self.start_turn_for_feature(text, purpose, None);
+    }
+
+    pub(super) fn start_comparison_turn(&mut self, feature_id: &str) {
+        let request = format!("Compare plans for feature {feature_id}.");
+        self.start_turn_for_feature(
+            &request,
+            crate::core::workflow::TurnPurpose::ComparePlans,
+            Some(feature_id),
+        );
+    }
+
+    fn start_turn_for_feature(
+        &mut self,
+        text: &str,
+        purpose: crate::core::workflow::TurnPurpose,
+        comparison_feature: Option<&str>,
+    ) {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -1406,6 +1326,7 @@ impl PacketApp {
             ),
             recent_chat: recent,
             purpose,
+            comparison_feature: comparison_feature.map(str::to_owned),
         };
         let harness = configured_harness(&mut self.task_harness);
         let ctrl = TurnController::start(inputs, harness);
@@ -1538,6 +1459,10 @@ impl Surface for PacketApp {
         matches!(&self.screen, Screen::Connected(_))
     }
 
+    fn registered_repositories(&self) -> Vec<crate::ui::RepositoryChoice> {
+        repository_switcher::choices(&self.screen)
+    }
+
     fn git_branch(&self) -> &str {
         match &self.screen {
             Screen::Connected(p) => p.git.branch.as_str(),
@@ -1598,12 +1523,6 @@ impl Surface for PacketApp {
             ));
         }
         Some(context)
-    }
-    fn resolved_items(&self) -> &[OpenItem] {
-        match &self.screen {
-            Screen::Connected(p) => &p.state.resolved_items,
-            _ => &[],
-        }
     }
     fn task_draft(&mut self, key: &str) -> Option<&mut String> {
         match &mut self.screen {
@@ -1866,50 +1785,41 @@ impl Surface for PacketApp {
             _ => "",
         }
     }
-    fn task_documents(&self) -> &[crate::artifacts::task_docs::TaskDocument] {
+    fn planning_board(&self) -> crate::ui::planning_board::ViewModel {
         match &self.screen {
-            Screen::Connected(p) => &p.task_documents,
-            _ => &[],
-        }
-    }
-
-    fn task_archived(&self, ticket: &str) -> bool {
-        matches!(&self.screen, Screen::Connected(p) if p.archived_tasks.contains(ticket))
-    }
-
-    fn planning_work(&self) -> Vec<crate::core::planning_work::Work> {
-        match &self.screen {
-            Screen::Connected(p) => crate::core::planning_work::cards(&p.state, &p.planning_work),
-            _ => Vec::new(),
-        }
-    }
-
-    fn items(&self) -> &[OpenItem] {
-        match &self.screen {
-            Screen::Connected(p) => p.state.items.as_slice(),
-            Screen::Welcome => &[],
-        }
-    }
-
-    fn synthetic_items(&self) -> &[OpenItem] {
-        self.synth.as_slice()
-    }
-
-    fn items_len(&self) -> usize {
-        match &self.screen {
-            Screen::Connected(p) => p.state.items.len(),
-            Screen::Welcome => 0,
-        }
-    }
-
-    fn current_user(&self) -> &CurrentUser {
-        &self.cached_user
-    }
-
-    fn stakeholders(&self) -> &crate::domain::Stakeholders {
-        match &self.screen {
-            Screen::Connected(p) => &p.state.config.stakeholders,
-            Screen::Welcome => &self.fallback_stakes,
+            Screen::Connected(p) => {
+                let mut planning_items = p
+                    .state
+                    .items
+                    .iter()
+                    .chain(&self.synth)
+                    .chain(&p.state.resolved_items)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                planning_items.sort_by_key(|item| (item.priority.rank(), item.id.clone()));
+                planning_items.dedup_by(|a, b| a.id == b.id);
+                let eligible_item_ids = planning_items
+                    .iter()
+                    .filter(|item| {
+                        crate::core::routing::eligible_items(
+                            std::slice::from_ref(item),
+                            &self.cached_user,
+                            &p.state.config.stakeholders,
+                        )
+                        .len()
+                            == 1
+                    })
+                    .map(|item| item.id.clone())
+                    .collect();
+                crate::ui::planning_board::ViewModel {
+                    task_documents: p.task_documents.clone(),
+                    planning_work: crate::core::planning_work::cards(&p.state, &p.planning_work),
+                    planning_items,
+                    eligible_item_ids,
+                    archived: p.archived_tasks.clone(),
+                }
+            }
+            _ => crate::ui::planning_board::ViewModel::default(),
         }
     }
 
@@ -2342,10 +2252,7 @@ mod board_tests {
                 active_implementations: Default::default(),
                 implementation_states: states,
                 pr_refresh: None,
-                reconciliation: None,
-                reconciliation_attempted: Default::default(),
-                reconciliation_error: None,
-                reconciliation_cooldown_until: None,
+                reconciliation: Default::default(),
                 investigation: None,
                 investigation_attempted: Default::default(),
                 investigation_cooldown_until: None,
@@ -2446,10 +2353,9 @@ mod board_tests {
             .is_some()
         );
         assert!(text_position(&output, "Operator: Record the display demonstration.").is_some());
-        assert!(text_position(&output, "Full report").is_some());
-        assert!(text_position(&output, "Full report: saved-report.json").is_none());
-        let output = click_text(&mut app, &ctx, "Full report");
-        assert!(text_position(&output, "Copy full message").is_some());
+        assert!(text_position(&output, "Full blocker report").is_some());
+        assert!(text_position(&output, "Full report: saved-report.json").is_some());
+        assert!(text_position(&output, "Copy full report").is_some());
         assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
             egui::Shape::Text(text) if text.galley.text().contains("Full report: saved-report.json"))),
             "the complete failure text must be rendered, not shortened to a summary");
@@ -2961,6 +2867,7 @@ mod board_tests {
                     user_message: "Please continue".into(),
                     recent_chat: Vec::new(),
                     purpose: crate::core::workflow::TurnPurpose::Interview,
+                    comparison_feature: None,
                 },
                 Box::new(HangingTurnHarness),
             ))
@@ -3122,7 +3029,7 @@ mod board_tests {
         );
         assert!(text_position(
             &output,
-            "When enabled, Packet adds verified changes to the project automatically. When off, verified work stays on this device until you choose Share for review."
+            "Packet checks its work locally first. When Auto Publish is on, it also waits for the project's separate checks before sharing. If those checks fail or are unavailable, verified work stays on this device. Enabling Auto Publish turns on this check."
         ).is_some());
         let policy_repo = match &app.screen {
             Screen::Connected(project) => project.state.repo_root.clone(),
@@ -3172,12 +3079,10 @@ mod board_tests {
         assert!(!saved.auto_build && !saved.auto_publish);
         click_text(&mut app, &ctx, "Publish verified changes automatically");
         assert!(matches!(&app.screen, Screen::Connected(project)
-            if !project.queue.auto_build && project.queue.auto_publish));
+            if !project.queue.auto_build && project.queue.auto_publish
+                && project.queue.require_independent_checks));
         let saved = crate::core::implementation_queue::Queue::load(&policy_repo).unwrap();
-        assert!(!saved.auto_build && saved.auto_publish);
-        click_text(&mut app, &ctx, "Wait for project checks before publishing");
-        assert!(matches!(&app.screen, Screen::Connected(project)
-            if project.queue.require_independent_checks));
+        assert!(!saved.auto_build && saved.auto_publish && saved.require_independent_checks);
         assert!(
             crate::core::implementation_queue::Queue::load(&policy_repo)
                 .unwrap()
@@ -3196,6 +3101,24 @@ mod board_tests {
         );
         let output = frame(&mut app, &ctx, vec![]);
         assert!(text_position(&output, "Workspace settings").is_none());
+    }
+
+    #[test]
+    fn workspace_repository_menu_uses_the_shared_display_label() {
+        let mut app = fixture();
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state.repositories.repositories[0].display_name =
+                Some("Planning repository".into());
+        }
+        let ctx = egui::Context::default();
+        frame(&mut app, &ctx, vec![]);
+        frame(&mut app, &ctx, vec![]);
+        click_text(&mut app, &ctx, "Workspace");
+        let output = click_text(&mut app, &ctx, "Registered repositories");
+        assert!(text_contains(
+            &output,
+            "Open Planning repository in a new window"
+        ));
     }
 
     #[test]
@@ -3325,22 +3248,28 @@ mod board_tests {
     #[test]
     fn document_switcher_displays_product_and_multiple_features_without_task_story_tab() {
         let mut app = fixture();
+        let feature = |id: &str, title: &str, marker: &str| {
+            let markdown = format!("# {id}: {title}\n\n{marker}\n");
+            let identified =
+                crate::domain::ArtifactIdentity::preserve_markdown(&markdown, None, id, title)
+                    .unwrap();
+            let identity = crate::domain::ArtifactIdentity::from_markdown(&identified)
+                .unwrap()
+                .unwrap();
+            crate::domain::ChangeMetadata::write_markdown(
+                &identified,
+                &identity,
+                crate::domain::ChangeStatus::Draft,
+            )
+            .unwrap()
+        };
+        let first = feature("CHG-001", "First feature", "First proposal marker");
+        let second = feature("CHG-002", "Second feature", "Second proposal marker");
         if let Screen::Connected(project) = &mut app.screen {
             project.state.spec_text = Some("# Product\n\nProduct behavior marker".into());
-            project.state.active_feature = Some((
-                "CHG-001".into(),
-                "# CHG-001: First feature\n\nFirst proposal marker".into(),
-            ));
-            project.state.active_features = vec![
-                (
-                    "CHG-001".into(),
-                    "# CHG-001: First feature\n\nFirst proposal marker".into(),
-                ),
-                (
-                    "CHG-002".into(),
-                    "# CHG-002: Second feature\n\nSecond proposal marker".into(),
-                ),
-            ];
+            project.state.active_feature = Some(("CHG-001".into(), first.clone()));
+            project.state.active_features =
+                vec![("CHG-001".into(), first), ("CHG-002".into(), second)];
         }
         let ctx = egui::Context::default();
         ctx.data_mut(|data| data.insert_temp(egui::Id::new("packet_document_tab"), false));
@@ -3904,6 +3833,33 @@ mod board_tests {
     }
 
     #[test]
+    fn unsupported_platform_rejects_implementation_before_dispatch() {
+        let mut app = fixture();
+        let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities {
+            planning_access:
+                crate::harness::runtime_capabilities::PlanningAccess::SuppliedContextOnly,
+            implementation: false,
+        };
+        app.start_implementation_with_capabilities(
+            ".kool-ade-packet/planning/tasks/fixture/001-task.md".into(),
+            false,
+            capabilities,
+        );
+        let Screen::Connected(project) = &app.screen else {
+            panic!("disconnected");
+        };
+        assert!(project.active_implementations.is_empty());
+        assert!(!project.queue.running);
+        assert!(project.queue.in_flight.is_empty());
+        assert!(
+            project
+                .queue
+                .last_error
+                .contains("Planning remains available")
+        );
+    }
+
+    #[test]
     fn auto_queue_cannot_start_task_from_unapproved_feature() {
         let mut app = fixture();
         let ticket = ".kool-ade-packet/planning/tasks/fixture/001-task.md";
@@ -4211,6 +4167,18 @@ mod board_tests {
             }
         }
         let _restore = Restore(std::env::var_os("PACKET_PI_BIN"));
+        struct RestorePath(Option<std::ffi::OsString>);
+        impl Drop for RestorePath {
+            fn drop(&mut self) {
+                unsafe {
+                    match self.0.take() {
+                        Some(value) => std::env::set_var("PATH", value),
+                        None => std::env::remove_var("PATH"),
+                    }
+                }
+            }
+        }
+        let _restore_path = RestorePath(std::env::var_os("PATH"));
         let root = std::env::temp_dir().join(format!(
             "packet-auto-e2e-{}",
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
@@ -4258,11 +4226,31 @@ mod board_tests {
         git(&repo, &["add", "."]);
         git(&repo, &["commit", "-qm", "baseline"]);
         git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
+        let github_remote = "https://github.com/packet-fixture/fixture.git";
+        git(&repo, &["remote", "add", "origin", github_remote]);
         git(
             &repo,
-            &["remote", "add", "origin", remote.to_str().unwrap()],
+            &[
+                "config",
+                &format!("url.{}.insteadOf", remote.display()),
+                github_remote,
+            ],
         );
         git(&repo, &["push", "-q", "origin", "main"]);
+        let fake_bin = root.join("fake-bin");
+        std::fs::create_dir_all(&fake_bin).unwrap();
+        let fake_gh = fake_bin.join("gh");
+        std::fs::write(
+            &fake_gh,
+            "#!/bin/sh\ncommit=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --commit ]; then shift; commit=$1; fi\n  shift\ndone\nprintf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\",\"workflowName\":\"fixture\",\"createdAt\":\"2099-01-01T00:00:00Z\",\"url\":\"https://github.com/packet-fixture/fixture/actions/runs/1\"}]\\n' \"$commit\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake_gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let test_path = std::env::join_paths(std::iter::once(fake_bin.clone()).chain(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+        ))
+        .unwrap();
+        unsafe { std::env::set_var("PATH", test_path) };
         // Planning approval commonly exists only in the planning-root checkout
         // when Auto starts. Its commit must remain an ancestor of published work.
         std::fs::write(
@@ -4505,10 +4493,7 @@ mod tests {
             queue_lock: None,
             active_implementations: Default::default(),
             pr_refresh: None,
-            reconciliation: None,
-            reconciliation_attempted: Default::default(),
-            reconciliation_error: None,
-            reconciliation_cooldown_until: None,
+            reconciliation: Default::default(),
             investigation: None,
             investigation_attempted: Default::default(),
             investigation_cooldown_until: None,
@@ -4555,7 +4540,7 @@ mod tests {
         );
         let log = String::from_utf8_lossy(&git(&["log", "-1", "--pretty=%s"]).stdout).into_owned();
         assert!(
-            log.contains("settings: update stakeholders and identity"),
+            log.contains("settings: update workspace settings"),
             "checkpoint subject: {log}"
         );
         let _ = std::fs::remove_dir_all(&root);

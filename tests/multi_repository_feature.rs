@@ -53,8 +53,8 @@ impl AiHarness for MultiHarness {
                 .prompt_body
                 .contains("APPROVED FEATURE SPECIFICATION")
         );
-        assert!(request.prompt_body.contains("repositoryBases"));
-        assert!(request.prompt_body.contains("productModules"));
+        assert!(request.prompt_body.contains("repository_bases"));
+        assert!(request.prompt_body.contains("product_modules"));
         let mut value: serde_json::Value =
             if request.prompt_body.contains("ONLY detailed story 1 of 2") {
                 serde_json::from_str(include_str!("fixtures/task-story-1.json")).unwrap()
@@ -64,6 +64,13 @@ impl AiHarness for MultiHarness {
                 assert!(request.prompt_body.contains("ONLY detailed story 2 of 2"));
                 serde_json::from_str(include_str!("fixtures/task-story-2.json")).unwrap()
             };
+        if let Some(story) = value
+            .get_mut("task_stories")
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|stories| stories.first_mut())
+        {
+            story["definition_of_done"] = serde_json::json!(["Behavior and tests pass."]);
+        }
         if let Some(outline) = value
             .get_mut("task_outline")
             .and_then(serde_json::Value::as_array_mut)
@@ -99,10 +106,26 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
         planning.join(".kool-ade-packet/planning/changes/CHG-001-saved-searches"),
     )
     .unwrap();
-    let feature = "# CHG-001: Saved searches\n\n**Status:** Ready\n\n**Affected repositories:** api, web\n\n## Intent\n\nAnalysts resume searches.\n\n## Current Behavior\n\nSearches are transient.\n\n## Desired Behavior\n\nSearches persist and are selectable.\n\n## Scope\n\nAPI persistence and web picker.\n\n## Affected Product Areas\n\n`product:current-capabilities`; repositories `api`, `web`.\n\n## Requirements\n\nSave and restore named searches.\n\n## Decisions and Assumptions\n\nUse versioned records.\n\n## Acceptance Criteria\n\nA saved search survives restart and can be selected.\n";
+    let feature_content = "# CHG-001: Saved searches\n\n**Status:** Ready\n\n**Affected repositories:** api, web\n\n## Intent\n\nAnalysts resume searches.\n\n## Current Behavior\n\nSearches are transient.\n\n## Desired Behavior\n\nSearches persist and are selectable.\n\n## Scope\n\nAPI persistence and web picker.\n\n## Affected Product Areas\n\n`product:current-capabilities`; repositories `api`, `web`.\n\n## Requirements\n\nSave and restore named searches.\n\n## Decisions and Assumptions\n\nUse versioned records.\n\n## Acceptance Criteria\n\nA saved search survives restart and can be selected.\n";
+    let identified = packet::domain::ArtifactIdentity::preserve_markdown(
+        feature_content,
+        None,
+        "CHG-001",
+        "Saved searches",
+    )
+    .unwrap();
+    let identity = packet::domain::ArtifactIdentity::from_markdown(&identified)
+        .unwrap()
+        .unwrap();
+    let feature = packet::domain::ChangeMetadata::write_markdown(
+        &identified,
+        &identity,
+        packet::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
     std::fs::write(
         planning.join(".kool-ade-packet/planning/changes/CHG-001-saved-searches/specification.md"),
-        feature,
+        &feature,
     )
     .unwrap();
     let manifest = ProjectManifest {
@@ -111,16 +134,19 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
                 id: "root".into(),
                 role: "Planning root".into(),
                 remote: "git@example.test:product/planning.git".into(),
+                display_name: None,
             },
             Repository {
                 id: "api".into(),
                 role: "Backend API".into(),
                 remote: "git@example.test:product/api.git".into(),
+                display_name: None,
             },
             Repository {
                 id: "web".into(),
                 role: "Web client".into(),
                 remote: "git@example.test:product/web.git".into(),
+                display_name: None,
             },
         ],
     };
@@ -135,7 +161,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
         serde_json::from_str(include_str!("fixtures/interview-ready.json")).unwrap();
     let mut workflow = Workflow {
         brief: ready.interview,
-        reviewed_specification: Some(feature.into()),
+        reviewed_specification: Some(feature.clone()),
         ..Default::default()
     };
     packet::artifacts::task_docs::save_workflow(&planning, &workflow).unwrap();
@@ -146,6 +172,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             user_message: "Generate tasks".into(),
             recent_chat: Vec::new(),
             purpose: TurnPurpose::GenerateTasks,
+            comparison_feature: None,
         },
         Box::new(MultiHarness),
     );
@@ -162,7 +189,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
     );
     workflow
         .approved_features
-        .insert("CHG-001".into(), feature_contract(feature));
+        .insert("CHG-001".into(), feature_contract(&feature));
     packet::artifacts::task_docs::save_workflow(&planning, &workflow).unwrap();
     git(&planning, &["add", "-A"]);
     git(&planning, &["commit", "-qm", "approve feature"]);
@@ -174,6 +201,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             user_message: "Generate approved tasks".into(),
             recent_chat: Vec::new(),
             purpose: TurnPurpose::GenerateTasks,
+            comparison_feature: None,
         },
         Box::new(MultiHarness),
     );

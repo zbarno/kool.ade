@@ -31,6 +31,8 @@ fn happy_path_writes_files_and_commits() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let c = TurnController::start(
         inputs,
@@ -77,10 +79,12 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
             crate::harness::DocumentUpdate {
                 document_id: "product:overview".into(),
                 content: changed_vision.into(),
+                status: None,
             },
             crate::harness::DocumentUpdate {
                 document_id: "product:users-and-outcomes".into(),
                 content: changed_scope.into(),
+                status: None,
             },
         ]),
         updated_specification: None,
@@ -92,6 +96,8 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let result = drain(&TurnController::start(
         inputs.clone(),
@@ -156,6 +162,7 @@ fn planner_can_add_a_project_specific_module_and_apply_it_atomically() {
         document_updates: Some(vec![crate::harness::DocumentUpdate {
             document_id: "product:billing".into(),
             content: content.into(),
+            status: None,
         }]),
         updated_specification: None,
         open_items_added: None,
@@ -166,6 +173,8 @@ fn planner_can_add_a_project_specific_module_and_apply_it_atomically() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let result = drain(&TurnController::start(
         inputs,
@@ -224,6 +233,7 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         document_updates: Some(vec![crate::harness::DocumentUpdate {
             document_id: "feature:F1".into(),
             content: feature.into(),
+            status: Some(crate::domain::ChangeStatus::Draft),
         }]),
         updated_specification: None,
         open_items_added: None,
@@ -234,6 +244,8 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         task_stories: None,
         requested_action: None,
         task_outline: None,
+        plans: None,
+        recommendation: None,
     };
     let result = drain(&TurnController::start(
         inputs,
@@ -275,7 +287,10 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
     assert_eq!(identity.title, "Saved searches");
     let visible_feature = saved_feature
         .lines()
-        .filter(|line| !line.starts_with("<!-- packet-artifact-id:v1 "))
+        .filter(|line| {
+            !line.starts_with("<!-- packet-artifact-id:v1 ")
+                && !line.starts_with("<!-- packet-change:v1 ")
+        })
         .collect::<Vec<_>>()
         .join("\n")
         + "\n";

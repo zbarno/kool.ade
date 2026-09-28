@@ -4,6 +4,7 @@
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::core::workflow::{InterviewBrief, TaskOutline, TaskStory, TurnPurpose};
+use crate::domain::{PlanAlternative, PlanRecommendation};
 
 use super::{DocumentUpdate, RequestedAction, TurnEnvelope, TurnItem, TurnItemUpdate};
 
@@ -31,6 +32,9 @@ pub struct PlanningTurnResponse {
     #[serde(alias = "requested_action")]
     pub requested_action: Option<RequestedAction>,
     pub interview: Option<InterviewBrief>,
+    #[serde(alias = "plan_alternatives")]
+    pub plans: Option<Vec<PlanAlternative>>,
+    pub recommendation: Option<PlanRecommendation>,
 }
 
 impl From<PlanningTurnResponse> for TurnEnvelope {
@@ -51,6 +55,8 @@ impl From<PlanningTurnResponse> for TurnEnvelope {
             interview: response.interview,
             task_stories: None,
             task_outline: None,
+            plans: response.plans,
+            recommendation: response.recommendation,
         }
     }
 }
@@ -106,6 +112,8 @@ impl From<TaskGenerationResponse> for TurnEnvelope {
             requested_action: None,
             interview: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 }
@@ -147,6 +155,8 @@ impl From<InvestigationResponse> for TurnEnvelope {
             interview: None,
             task_stories: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 }
@@ -188,6 +198,8 @@ impl From<ReconciliationResponse> for TurnEnvelope {
             interview: None,
             task_stories: None,
             task_outline: None,
+            plans: None,
+            recommendation: None,
         }
     }
 }
@@ -208,8 +220,25 @@ pub fn decode_turn_object(json: &str, purpose: TurnPurpose) -> Result<TurnEnvelo
         check_version("Task generation", response.schema_version, &[1])?;
         Ok(response.into())
     } else {
+        if purpose == TurnPurpose::ComparePlans {
+            let value: serde_json::Value =
+                serde_json::from_str(json).map_err(|error| error.to_string())?;
+            if let Some(object) = value.as_object() {
+                for field in ["task_stories", "taskStories", "task_outline", "taskOutline"] {
+                    if object.contains_key(field) {
+                        return Err(format!(
+                            "Compare Plans forbids cross-purpose field `{field}`; return only the two plans and recommendation"
+                        ));
+                    }
+                }
+            }
+        }
         let response = serde_json::from_str::<PlanningTurnResponse>(json)
             .map_err(|error| error.to_string())?;
+        if purpose == TurnPurpose::ComparePlans {
+            check_version("Compare plans", response.schema_version, &[2])?;
+            return Ok(response.into());
+        }
         // Schema 1 is accepted only at this decoder boundary so old
         // single-document responses cannot leak version logic into core.
         check_version("Planning", response.schema_version, &[1, 2])?;

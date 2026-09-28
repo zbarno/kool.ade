@@ -1,4 +1,5 @@
 # 003 — Render the pi harness setup guide section inside the planner settings dialog
+<!-- packet-artifact-id:v1 {"uid":"e05ef129-45db-4d0d-9ea8-de0ecd0133e3","displayId":"003","title":"Render the pi harness setup guide section inside the planner settings dialog","parentUid":"c5f73d34-bd71-42b4-95eb-daaee11b098a"} -->
 
 Feature: Packet MVP — git-native desktop specification planner
 

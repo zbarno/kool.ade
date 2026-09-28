@@ -23,7 +23,9 @@ pub(super) fn wait_for_independent_checks(
     runner: &Runner,
     auto_publish_gate: Option<&AtomicBool>,
 ) -> anyhow::Result<()> {
-    let remote = runner.git(repo, &["remote", "get-url", "origin"])?;
+    // Keep the configured hosting identity. `remote get-url` applies
+    // insteadOf rewrites that can point at a local mirror or transport alias.
+    let remote = runner.git(repo, &["config", "--get", "remote.origin.url"])?;
     let Some(provider) = checks::for_remote(&remote) else {
         state.independent_check = Some(IndependentCheck {
             provider: "Unsupported provider".into(),
@@ -140,6 +142,13 @@ pub(super) fn wait_with_provider(
         match result {
             checks::ResultState::Passed => {
                 check.detail = Some("All project workflows passed for this exact commit.".into());
+                if !publication::auto_publish_enabled(auto_publish_gate) {
+                    state.independent_check.as_mut().unwrap().detail = Some(
+                        "Checks passed for this commit, but Auto Publish was turned off while they ran. The default branch was not updated.".into(),
+                    );
+                    save(dir, state)?;
+                    return publication::hold_for_review(dir, state);
+                }
                 state.status = ImplementationStatus::Publishing;
                 state.detail = "Project checks passed. Publishing the verified change.".into();
                 save(dir, state)?;

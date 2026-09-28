@@ -94,6 +94,22 @@ fn generate_request_cannot_approve_a_feature_as_a_side_effect() {
     let specification = format!(
         "# {feature_id}: Export run history\n\n**Status:** Ready\n\n## Intent\n\nExport the selected run history.\n"
     );
+    let specification = crate::domain::ArtifactIdentity::preserve_markdown(
+        &specification,
+        None,
+        feature_id,
+        "Export run history",
+    )
+    .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&specification)
+        .unwrap()
+        .unwrap();
+    let specification = crate::domain::ChangeMetadata::write_markdown(
+        &specification,
+        &identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
     if let Screen::Connected(project) = &mut app.screen {
         project.state.active_feature = Some((feature_id.into(), specification.clone()));
         project
@@ -174,4 +190,28 @@ fn former_trigger_phrases_are_sent_to_the_model_and_do_nothing_without_a_typed_a
         );
         let _ = std::fs::remove_dir_all(root);
     }
+}
+
+#[test]
+fn temporary_live_fixture_approval_dispatch() {
+    let Ok(root) = std::env::var("PACKET_APPROVAL_FIXTURE") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    let id = std::env::var("PACKET_APPROVAL_FEATURE").unwrap();
+    let mut app = super::super::board_tests::fixture();
+    if let Screen::Connected(project) = &mut app.screen {
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        project.chat_slug = root.join("runtime").to_string_lossy().into_owned();
+        project.task_documents.clear();
+    }
+    dispatch(
+        &mut app,
+        RequestedAction {
+            action: ApplicationAction::ApproveChange,
+            target_uid: Some(id.clone()),
+        },
+    );
+    assert!(matches!(&app.screen, Screen::Connected(project)
+        if crate::core::workflow::feature_approved(&project.state.repo_root, &project.state.workflow, &id)));
 }

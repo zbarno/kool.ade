@@ -120,6 +120,8 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
             members: String::new(),
         });
     }
+    ui.add_space(8.0);
+    super::repository_names::paint(ui, dlg);
     ui.add_space(12.0);
     ui.separator();
     ui.collapsing("AI harness setup", |ui| paint_harness_guide(ui, dlg));

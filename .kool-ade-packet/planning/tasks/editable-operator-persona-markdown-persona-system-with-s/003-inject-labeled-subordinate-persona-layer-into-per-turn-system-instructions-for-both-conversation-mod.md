@@ -1,4 +1,5 @@
 # 003 — Inject labeled subordinate persona layer into per-turn system instructions for both conversation modes
+<!-- packet-artifact-id:v1 {"uid":"53d9f630-4f22-402c-9bd6-1aa525be4ac9","displayId":"003","title":"Inject labeled subordinate persona layer into per-turn system instructions for both conversation modes","parentUid":"75b345b5-4459-4270-820d-bdbe857debaa"} -->
 
 Feature: Editable Operator Persona (markdown persona system with shipped default voice)
 

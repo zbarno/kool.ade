@@ -1,3 +1,6 @@
+mod decode;
+pub(super) use decode::{EnvelopeDecode, decode_envelope};
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -10,7 +13,7 @@ use crate::core::prompt;
 use crate::core::state::PlannerState;
 use crate::core::validation::{self};
 use crate::error::AppError;
-use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, TurnEnvelope};
+use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest};
 
 use super::{TurnInputs, TurnOutcome};
 
@@ -70,6 +73,57 @@ pub(super) fn run_turn(
             _ => return TurnOutcome::Rejected { problems: vec!["Planning files changed since the readiness offer. Reopen the repository and review the current plan before generating tasks.".into()], final_text: String::new(), elapsed: started.elapsed() },
         }
     }
+    let comparison_state = if inputs.purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+        let Some(feature_id) = inputs.comparison_feature.as_deref() else {
+            return TurnOutcome::Rejected {
+                problems: vec!["Compare Plans requires a stable feature ID.".into()],
+                final_text: String::new(),
+                elapsed: started.elapsed(),
+            };
+        };
+        let Some((_, body)) = inputs
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == feature_id)
+        else {
+            return TurnOutcome::Rejected {
+                problems: vec![format!(
+                    "Compared feature {feature_id} is no longer active."
+                )],
+                final_text: String::new(),
+                elapsed: started.elapsed(),
+            };
+        };
+        if !crate::domain::ChangeMetadata::require_markdown(body)
+            .is_ok_and(|metadata| metadata.status == crate::domain::ChangeStatus::Ready)
+        {
+            return TurnOutcome::Rejected {
+                problems: vec![format!("Compared feature {feature_id} is not Ready.")],
+                final_text: String::new(),
+                elapsed: started.elapsed(),
+            };
+        }
+        let mut state = inputs.state.clone();
+        state.active_feature = Some((feature_id.to_owned(), body.clone()));
+        Some(state)
+    } else {
+        None
+    };
+    let prompt_state = comparison_state.as_ref().unwrap_or(&inputs.state);
+    let comparison_message = inputs
+        .comparison_feature
+        .as_deref()
+        .map(|feature_id| format!("Compare plans for feature {feature_id}."));
+    let prompt_message = comparison_message
+        .as_deref()
+        .unwrap_or(&inputs.user_message);
+    let prompt_chat: &[(String, String)] =
+        if inputs.purpose == crate::core::workflow::TurnPurpose::ComparePlans {
+            &[]
+        } else {
+            &inputs.recent_chat
+        };
     // Operator persona layer (editable-operator-persona feature): load
     // the operator-owned document FRESH on every turn, deliberately
     // UNCACHED — a Settings save must bind from the very next turn with
@@ -95,9 +149,9 @@ pub(super) fn run_turn(
     let retrieval = if task.is_none() {
         match crate::core::context_retrieval::select(
             harness,
-            &inputs.state,
-            &inputs.user_message,
-            &inputs.recent_chat,
+            prompt_state,
+            prompt_message,
+            prompt_chat,
             timeout.saturating_sub(started.elapsed()),
             progress_tx.clone(),
             Arc::clone(cancel),
@@ -143,13 +197,17 @@ pub(super) fn run_turn(
         }
     } else {
         let ctx = TurnContext::build_with_retrieval(
-            &inputs.state,
-            &inputs.user_message,
-            &inputs.recent_chat,
+            prompt_state,
+            prompt_message,
+            prompt_chat,
             retrieval.as_ref(),
         );
         let mut body = prompt::render_prompt(&ctx);
-        body.push_str(&prompt::workflow_context(&inputs.state, inputs.purpose));
+        body.push_str(&prompt::workflow_context_for_turn(
+            prompt_state,
+            inputs.purpose,
+            inputs.comparison_feature.as_deref(),
+        ));
         body
     };
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
@@ -161,7 +219,11 @@ pub(super) fn run_turn(
         } else {
             crate::harness::ExecutionMode::Planning
         },
-        reasoning_level: "xhigh".into(),
+        reasoning_level: match inputs.purpose {
+            crate::core::workflow::TurnPurpose::GenerateTasks => "off",
+            _ => "xhigh",
+        }
+        .into(),
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),
@@ -212,7 +274,15 @@ pub(super) fn run_turn(
                 }
             }
             // Validate against the PRE-mutation snapshot.
-            match validation::validate_for_turn(&env, &inputs.state, &user, inputs.purpose) {
+            let user_replied_item_ids =
+                super::controller::user_replied_human_item_ids(&inputs.state, task);
+            match validation::validate_for_turn_with_resolutions(
+                &env,
+                &inputs.state,
+                &user,
+                inputs.purpose,
+                &user_replied_item_ids,
+            ) {
                 Err(problems) => TurnOutcome::Rejected {
                     problems,
                     final_text: outcome.final_text,
@@ -277,26 +347,6 @@ pub(super) fn run_turn(
             problems: vec![format!("Structured JSON block is malformed ({detail}); NO changes were saved.")],
             final_text: outcome.final_text,
             elapsed: started.elapsed(),
-        },
-    }
-}
-
-pub(super) enum EnvelopeDecode {
-    Env(Box<TurnEnvelope>),
-    Absent,
-    Malformed(String),
-}
-
-pub(super) fn decode_envelope(
-    final_text: &str,
-    purpose: crate::core::workflow::TurnPurpose,
-) -> EnvelopeDecode {
-    use crate::harness::pi_extract::extract_json_object;
-    match extract_json_object(final_text) {
-        None => EnvelopeDecode::Absent,
-        Some(blob) => match crate::harness::responses::decode_turn_object(&blob, purpose) {
-            Ok(env) => EnvelopeDecode::Env(Box::new(env)),
-            Err(e) => EnvelopeDecode::Malformed(e.to_string()),
         },
     }
 }

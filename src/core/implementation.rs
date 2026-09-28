@@ -838,7 +838,10 @@ mod tests {
             } else if self.mode != "evidence_only" {
                 fs::write(req.repo_root.join("implemented.txt"), "implemented\n").unwrap();
             }
-            if self.mode == "harness_retry" && call == 0 || self.mode == "harness_dead" {
+            if (self.mode == "harness_retry" && call == 0)
+                || (self.mode == "sidecar" && call == 0)
+                || self.mode == "harness_dead"
+            {
                 return Err(AppError::HarnessFailed {
                     reason: "pi finished but produced no final assistant message".into(),
                     stderr_tail: String::new(),
@@ -904,18 +907,6 @@ mod tests {
             } else {
                 report.to_string()
             };
-            if self.mode == "sidecar" {
-                let path = req
-                    .prompt_body
-                    .lines()
-                    .find_map(|line| line.strip_prefix("RECOVERY REPORT FILE: "))
-                    .unwrap();
-                fs::write(path, &final_text).unwrap();
-                return Err(AppError::HarnessFailed {
-                    reason: "pi finished but produced no final assistant message".into(),
-                    stderr_tail: String::new(),
-                });
-            }
             Ok(crate::harness::HarnessOutcome {
                 final_text,
                 envelope: None,
@@ -1002,15 +993,16 @@ mod tests {
                 "-q",
                 root.join("remote.git").to_str().unwrap(),
             ]);
+            let github_remote = "https://github.com/fixture/repo.git";
+            git(&["remote", "add", "origin", github_remote]);
             git(&[
-                "remote",
-                "add",
-                "origin",
-                root.join("remote.git").to_str().unwrap(),
+                "config",
+                &format!("url.{}.insteadOf", root.join("remote.git").display()),
+                github_remote,
             ]);
             git(&["push", "-q", "origin", "main"]);
             let gh = root.join("gh-fixture");
-            fs::write(&gh, "#!/bin/sh\nroot=$(dirname \"$0\")\nif [ -f \"$root/offline\" ]; then echo 'simulated GitHub unavailable' >&2; exit 1; fi\nif [ \"$2\" = list ]; then\n if [ -f \"$root/pr-created\" ]; then echo '[{\"url\":\"https://github.com/fixture/repo/pull/1\",\"state\":\"OPEN\"}]'; else echo '[]'; fi\nelse\n echo created >> \"$root/pr-created\"\n echo 'https://github.com/fixture/repo/pull/1'\nfi\n").unwrap();
+            fs::write(&gh, "#!/bin/sh\nroot=$(dirname \"$0\")\nif [ -f \"$root/offline\" ]; then echo 'simulated GitHub unavailable' >&2; exit 1; fi\nif [ \"$1\" = run ] && [ \"$2\" = list ]; then\n commit=''\n while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --commit ]; then shift; commit=$1; fi; shift; done\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\",\"workflowName\":\"fixture\",\"createdAt\":\"2099-01-01T00:00:00Z\",\"url\":\"https://github.com/fixture/repo/actions/runs/1\"}]\\n' \"$commit\"\nelif [ \"$2\" = list ]; then\n if [ -f \"$root/pr-created\" ]; then echo '[{\"url\":\"https://github.com/fixture/repo/pull/1\",\"state\":\"OPEN\"}]'; else echo '[]'; fi\nelse\n echo created >> \"$root/pr-created\"\n echo 'https://github.com/fixture/repo/pull/1'\nfi\n").unwrap();
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -1114,6 +1106,28 @@ mod tests {
             })
         }
     }
+
+    struct DisablingCheck(Arc<AtomicBool>);
+    impl checks::Provider for DisablingCheck {
+        fn name(&self) -> &'static str {
+            "Disable during checks"
+        }
+
+        fn repository(&self, _remote: &str) -> Option<String> {
+            Some("github.com/fixture/repo".into())
+        }
+
+        fn check(
+            &self,
+            _runner: &Runner,
+            _cwd: &Path,
+            _repository: &str,
+            _commit: &str,
+        ) -> anyhow::Result<checks::ResultState> {
+            self.0.store(false, Ordering::SeqCst);
+            Ok(checks::ResultState::Passed)
+        }
+    }
     #[test]
     fn isolated_implementation_verifies_pushes_and_reuses_pr() {
         let s = Sandbox::new();
@@ -1209,6 +1223,19 @@ mod tests {
     #[test]
     fn required_independent_checks_fail_closed_for_unsupported_git_hosting() {
         let s = Sandbox::new();
+        let unsupported_remote = "https://example.test/team/repo.git";
+        s.git(
+            &s.repo,
+            &["config", "remote.origin.url", unsupported_remote],
+        );
+        s.git(
+            &s.repo,
+            &[
+                "config",
+                &format!("url.{}.insteadOf", s.root.join("remote.git").display()),
+                unsupported_remote,
+            ],
+        );
         let remote_main = s.git(&s.repo, &["rev-parse", "origin/main"]);
         let calls = Arc::new(AtomicUsize::new(0));
         let error = s
@@ -1291,6 +1318,52 @@ mod tests {
                 "the exact integration commit should be on the temporary checks ref"
             );
         }
+    }
+
+    #[test]
+    fn disabling_auto_publish_during_successful_checks_keeps_default_branch_unchanged() {
+        let s = Sandbox::new();
+        let remote_main = s.git(&s.repo, &["rev-parse", "origin/main"]);
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut state = s.run("complete", calls).unwrap();
+        let commit = state.verified_head.clone().unwrap();
+        let candidate_ref = checks::candidate_ref("fixture", &commit);
+        let worktree = state.worktree.clone();
+        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        let (progress, _updates) = mpsc::channel();
+        let runner = Runner {
+            gh: s.gh.to_string_lossy().into_owned(),
+            deadline: Instant::now() + Duration::from_secs(60),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress,
+        };
+        let gate = Arc::new(AtomicBool::new(true));
+        checks_gate::wait_with_provider(
+            checks_gate::CheckRequest {
+                provider: &DisablingCheck(gate.clone()),
+                repository: "github.com/fixture/repo",
+                candidate_ref: &candidate_ref,
+                worktree: &worktree,
+                commit: &commit,
+            },
+            &dir,
+            &mut state,
+            &runner,
+            Some(&gate),
+        )
+        .unwrap();
+
+        assert!(!gate.load(Ordering::SeqCst));
+        assert_eq!(state.status, ImplementationStatus::ReadyToPublish);
+        assert_eq!(
+            state.independent_check.as_ref().unwrap().status,
+            IndependentCheckStatus::Passed
+        );
+        assert_eq!(s.git(&s.repo, &["rev-parse", "origin/main"]), remote_main);
+        assert!(
+            s.git(&s.repo, &["ls-remote", "origin", &candidate_ref])
+                .contains(&commit)
+        );
     }
     #[test]
     fn explicit_evidence_only_task_completes_without_commit_or_pr() {
@@ -2045,8 +2118,8 @@ mod tests {
     }
 
     #[test]
-    fn harness_failures_retry_and_sidecar_survives_lost_final_message() {
-        for (mode, expected) in [("harness_retry", 2), ("sidecar", 1), ("healing", 5)] {
+    fn harness_failures_retry_and_saved_diagnostics_survive_lost_final_message() {
+        for (mode, expected) in [("harness_retry", 2), ("sidecar", 2), ("healing", 5)] {
             let s = Sandbox::new();
             let calls = Arc::new(AtomicUsize::new(0));
             let result = s.run(mode, calls.clone()).unwrap();
@@ -2077,7 +2150,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_mode_integrates_atomically_without_gh_and_recovers_a_lost_push_response() {
+    fn auto_mode_integrates_atomically_after_checks_without_creating_pr_and_recovers_lost_push() {
         let s = Sandbox::new();
         let original = s.git(&s.repo, &["rev-parse", "HEAD"]);
         fs::write(s.repo.join("draft.txt"), "preserve this draft").unwrap();
@@ -2093,7 +2166,7 @@ mod tests {
                 },
                 Arc::new(AtomicBool::new(false)),
                 tx,
-                "must-not-invoke-gh",
+                s.gh.to_str().unwrap(),
                 true,
             )
         };
@@ -2181,7 +2254,7 @@ mod tests {
                 },
                 cancel: Arc::new(AtomicBool::new(false)),
                 progress: tx,
-                gh: "must-not-run-gh",
+                gh: s.gh.to_str().unwrap(),
                 publication_mode: PublicationMode::AutoPublish,
                 require_independent_checks: false,
                 user_context: Some(
@@ -2217,7 +2290,7 @@ mod tests {
             },
             Arc::new(AtomicBool::new(false)),
             tx,
-            "must-not-run-gh",
+            s.gh.to_str().unwrap(),
             true,
         )
         .unwrap();
@@ -2279,7 +2352,7 @@ mod tests {
             },
             Arc::new(AtomicBool::new(false)),
             tx,
-            "must-not-run-gh",
+            s.gh.to_str().unwrap(),
             true,
         )
         .unwrap();
@@ -2358,7 +2431,7 @@ mod tests {
             },
             Arc::new(AtomicBool::new(false)),
             tx,
-            "must-not-run",
+            s.gh.to_str().unwrap(),
             true,
         )
         .unwrap();

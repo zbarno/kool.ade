@@ -5,6 +5,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::core::state::PlannerState;
+use crate::domain::Authority;
 use crate::harness::{AiHarness, LiveProgress};
 
 use super::execute::run_turn;
@@ -123,6 +124,18 @@ impl TurnController {
     pub fn poll(&self, wait: Duration) -> Option<TurnEvt> {
         self.rx.recv_timeout(wait).ok()
     }
+}
+
+pub(super) fn user_replied_human_item_ids(state: &PlannerState, task: Option<&str>) -> Vec<String> {
+    let Some(scope) = task else {
+        return Vec::new();
+    };
+    state
+        .items
+        .iter()
+        .find(|item| item.conversation_key() == scope && item.authority == Authority::Human)
+        .map(|item| vec![item.id.clone()])
+        .unwrap_or_default()
 }
 
 impl Drop for TurnController {

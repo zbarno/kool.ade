@@ -186,13 +186,15 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
     #[test]
-    fn persisted_journal_recovers_partial_write_on_restart() {
+    fn interrupted_plan_adoption_bundle_recovers_after_restart() {
         let root = std::env::temp_dir().join(format!(
             "packet_tx_recover_{}-{}",
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        fs::create_dir_all(root.join(".kool-ade-packet/planning/product")).unwrap();
+        fs::create_dir_all(root.join(".kool-ade-packet/planning/changes")).unwrap();
+        fs::create_dir_all(root.join(".kool-ade-packet/planning/decisions")).unwrap();
+        fs::create_dir_all(root.join(".kool-ade-packet/state")).unwrap();
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
@@ -201,19 +203,27 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        let first = root.join(".kool-ade-packet/planning/product/01-vision.md");
-        let second = root.join(".kool-ade-packet/planning/product/02-scope.md");
-        fs::write(&first, "old vision").unwrap();
+        let feature = root.join(".kool-ade-packet/planning/changes/F7/specification.md");
+        let adr = root.join(".kool-ade-packet/planning/decisions/ADR-001.md");
+        let workflow = root.join(".kool-ade-packet/state/workflow.json");
+        fs::create_dir_all(feature.parent().unwrap()).unwrap();
+        fs::write(&feature, "old feature").unwrap();
+        fs::write(&workflow, "old workflow").unwrap();
         let entries = vec![
             Entry {
-                path: ".kool-ade-packet/planning/product/01-vision.md".into(),
-                before: Some("old vision".into()),
-                after: "new vision".into(),
+                path: ".kool-ade-packet/planning/changes/F7/specification.md".into(),
+                before: Some("old feature".into()),
+                after: "adopted Plan B".into(),
             },
             Entry {
-                path: ".kool-ade-packet/planning/product/02-scope.md".into(),
+                path: ".kool-ade-packet/planning/decisions/ADR-001.md".into(),
                 before: None,
-                after: "new scope".into(),
+                after: "Plan B decision record".into(),
+            },
+            Entry {
+                path: ".kool-ade-packet/state/workflow.json".into(),
+                before: Some("old workflow".into()),
+                after: "adopted comparison record".into(),
             },
         ];
         fs::write(
@@ -221,11 +231,12 @@ mod tests {
             serde_json::to_vec(&Journal { entries }).unwrap(),
         )
         .unwrap();
-        fs::write(&first, "new vision").unwrap();
-        fs::write(&second, "new scope").unwrap();
+        fs::write(&feature, "adopted Plan B").unwrap();
+        fs::write(&adr, "Plan B decision record").unwrap();
         assert!(recover(&root).unwrap());
-        assert_eq!(fs::read_to_string(&first).unwrap(), "old vision");
-        assert!(!second.exists());
+        assert_eq!(fs::read_to_string(&feature).unwrap(), "old feature");
+        assert_eq!(fs::read_to_string(&workflow).unwrap(), "old workflow");
+        assert!(!adr.exists());
         assert!(!journal_path(&root).unwrap().exists());
         assert!(!recover(&root).unwrap());
         let _ = fs::remove_dir_all(root);

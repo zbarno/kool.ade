@@ -1,4 +1,5 @@
 # Board Card Display — Red-Line Activity Graph and Class-Colored Cards (CHG-002) — task stories
+<!-- packet-artifact-id:v1 {"uid":"3874b3fb-347f-4208-864b-570bcc7158c9","displayId":"BATCH-3874B3FB","title":"Board Card Display — Red-Line Activity Graph and Class-Colored Cards (CHG-002)"} -->
 
 **Status: Complete — all stories and batch checks validated.**
 

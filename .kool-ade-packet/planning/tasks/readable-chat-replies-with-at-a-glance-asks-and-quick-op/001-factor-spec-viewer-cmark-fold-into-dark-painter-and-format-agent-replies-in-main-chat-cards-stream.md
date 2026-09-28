@@ -1,4 +1,5 @@
 # 001 — Factor spec-viewer cmark fold into dark painter and format agent replies in Main Chat, cards, stream
+<!-- packet-artifact-id:v1 {"uid":"ea671b35-5202-46d0-9aa4-ab3109c68846","displayId":"001","title":"Factor spec-viewer cmark fold into dark painter and format agent replies in Main Chat, cards, stream","parentUid":"1ee9cc82-9452-47f8-b61d-f28b4e52fb8e"} -->
 
 Feature: Readable Chat Replies with At-a-Glance Asks and Quick Option Chips (CHG-003)
 

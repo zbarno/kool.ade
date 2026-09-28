@@ -1,4 +1,5 @@
 # 001 — Add operator-home persona store with shipped four-beat default, first-run seed and corrupt-file fallback
+<!-- packet-artifact-id:v1 {"uid":"ce825a38-6f3e-41b0-9c63-d2da00da6c51","displayId":"001","title":"Add operator-home persona store with shipped four-beat default, first-run seed and corrupt-file fallback","parentUid":"75b345b5-4459-4270-820d-bdbe857debaa"} -->
 
 Feature: Editable Operator Persona (markdown persona system with shipped default voice)
 

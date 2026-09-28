@@ -133,9 +133,8 @@ pub fn refreshed_index_from(
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid feature path"))?;
         entries.retain(|entry| directory_feature_id(entry) != directory_feature_id(name));
-        if !content.contains("**Status:** Implemented")
-            && !content.contains("**Status:** Abandoned")
-        {
+        let status = crate::domain::ChangeMetadata::require_markdown(content)?.status;
+        if !status.is_terminal() {
             entries.push(name.to_owned());
         }
     }

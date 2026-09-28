@@ -1,5 +1,9 @@
 # CHG-001 acceptance evidence
 
+Historical evidence note: the repository path recorded below refers to the
+pre-migration artifact layout. Current live artifacts use `.kool-ade-packet/`;
+see [the artifact layout](artifact-layout.md).
+
 This index maps the feature's numbered acceptance criteria to current repository evidence. The feature specification remains the normative acceptance list; this file points reviewers to the smallest proof for each item.
 
 | AC | Evidence |

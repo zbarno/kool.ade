@@ -105,7 +105,7 @@ fn version_two_auto_mode_migrates_to_separate_policy_without_granting_auto_publi
 }
 
 #[test]
-fn version_three_queue_migration_keeps_publication_policy_conservative() {
+fn version_three_auto_publish_migration_requires_independent_checks() {
     let old = serde_json::json!({
         "schemaVersion": 3,
         "auto_plan": true,
@@ -121,7 +121,27 @@ fn version_three_queue_migration_keeps_publication_policy_conservative() {
     assert!(migrated);
     assert!(queue.auto_publish);
     assert!(!queue.auto_build);
-    assert!(!queue.require_independent_checks);
+    assert!(queue.require_independent_checks);
+}
+
+#[test]
+fn current_auto_publish_without_independent_checks_is_repaired_and_saved() {
+    let current = serde_json::json!({
+        "schemaVersion": 4,
+        "auto_plan": true,
+        "auto_build": false,
+        "auto_publish": true,
+        "require_independent_checks": false,
+        "tasks": {},
+        "legacy_tasks": {},
+        "task_identity_aliases": {}
+    });
+    let (queue, migrated) =
+        Queue::decode_persisted(&serde_json::to_vec(&current).unwrap()).unwrap();
+    assert!(migrated);
+    assert!(queue.auto_publish && queue.require_independent_checks);
+    let saved = serde_json::to_value(queue).unwrap();
+    assert_eq!(saved["require_independent_checks"], true);
 }
 
 #[test]

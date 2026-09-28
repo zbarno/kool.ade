@@ -101,6 +101,16 @@ impl AiHarness for FixtureHarness {
             }
         };
         let mut text = text.to_owned();
+        if self.generation
+            && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text)
+            && let Some(story) = value
+                .get_mut("task_stories")
+                .and_then(serde_json::Value::as_array_mut)
+                .and_then(|stories| stories.first_mut())
+        {
+            story["definition_of_done"] = serde_json::json!(["Behavior and tests pass."]);
+            text = value.to_string();
+        }
         if self.generation && (self.failure_mode == 3 && n == 1 || self.failure_mode == 6 && n >= 1)
         {
             text = r#"{"task_stories":[{"title":"Generic task"}]}"#.into();
@@ -140,6 +150,7 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
             } else {
                 TurnPurpose::Interview
             },
+            comparison_feature: None,
         },
         Box::new(FixtureHarness {
             calls: calls.clone(),
@@ -155,11 +166,14 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
                 calls.load(Ordering::SeqCst),
                 if !generation || failure_mode == 5 {
                     1
-                } else if matches!(failure_mode, 3 | 6) {
+                } else if failure_mode == 3 {
                     4
+                } else if failure_mode == 6 {
+                    7
                 } else {
                     3
-                }
+                },
+                "failure mode {failure_mode}"
             );
             return *outcome;
         }
@@ -200,7 +214,11 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             let TurnOutcome::HarnessFailed { error, .. } = outcome else {
                 panic!("invalid stories must fail closed")
             };
-            assert!(error.detail().contains("after 3 attempts"));
+            assert!(
+                error.detail().contains("after 6 attempts"),
+                "unexpected generation failure: {}",
+                error.detail()
+            );
             assert!(
                 !root
                     .join(".kool-ade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md")

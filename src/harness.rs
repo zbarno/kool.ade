@@ -14,6 +14,7 @@ pub mod pi_harness;
 pub mod pi_proc;
 pub(crate) mod pi_sandbox;
 pub mod responses;
+pub mod runtime_capabilities;
 
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,

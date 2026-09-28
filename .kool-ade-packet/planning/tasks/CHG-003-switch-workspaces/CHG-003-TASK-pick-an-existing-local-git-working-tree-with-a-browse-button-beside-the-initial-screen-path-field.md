@@ -1,4 +1,5 @@
 # CHG-003-TASK-pick-an-existing-local-git-working-tree-with-a-browse-button-beside-the-initial-screen-path-field — Pick an existing local git working tree with a browse button beside the initial-screen path field
+<!-- packet-artifact-id:v1 {"uid":"942a8ce6-1978-45ec-a9c7-05519a22b645","displayId":"CHG-003-TASK-pick-an-existing-local-git-working-tree-with-a-browse-button-beside-the-initial-screen-path-field","title":"Pick an existing local git working tree with a browse button beside the initial-screen path field","parentUid":"474c99dc-369a-4425-a490-f8443b37e774"} -->
 
 Feature: Switch Workspaces
 
