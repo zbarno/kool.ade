@@ -61,22 +61,3 @@ What should the period report hand the operator for invoicing?
 ### Reason
 Defines the outbound surface that actually meets the invoice; it does not gate the capture or unit decisions but must settle before the reporting milestone is built.
 
-## CLR-032
-
-**UID:** 0c605d84-cebf-45b6-bde2-55e765fa6682
-**Priority:** Normal
-**Authority:** Agent
-**Type:** Assumption
-**Category:** Development
-**Feature:** F7
-**Feature UID:** c72bff0b-3d5a-45e8-9833-27f0d0b8ebc8
-**Assigned To:** Zachary Barno
-**Status:** Open
-
-### Question
-Assume the time ledger is a dedicated git-backed artifact whose commit cadence Packet picks at task generation.
-
-
-### Reason
-NFR-1 demands git-backed truth while the per-turn checkpoint culture (FR-3) warns against history flooding from per-tick commits; a dedicated ledger artifact committed on coarse grains (session save, end of day, export) is the safe reversible default. Surfaced on the board so the assumption is visible and challengeable rather than buried in prose.
-
