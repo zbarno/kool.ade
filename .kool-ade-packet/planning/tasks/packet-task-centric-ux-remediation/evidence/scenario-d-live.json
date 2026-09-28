@@ -1,0 +1,28 @@
+{
+  "board_attention_ids": [],
+  "conversation": [
+    {
+      "role": "agent",
+      "text": "Packet uses Bubblewrap because it gives unprivileged, per-process kernel isolation with precise per-mount control: unshared user/PID/net/IPC/UTS namespaces remove network and sibling visibility, tmpfs overlays hide host home, SSH keys and credentials, ro-binds expose only approved toolchain paths, and die-with-parent prevents orphans. It spawns fast per invocation (no VM/Docker needed) and locates itself strictly (refuses binaries inside the workspace, fails closed when absent) — making it ideal for both the read-only planning profile and the constrained-worktree implementation profile in src/harness/pi_sandbox/{config,mounts,planning}.rs. Without it Packet would need a container engine or MAC policy, which is heavier and less granular. No spec update, no decision was uncovered; modules remain scaffolding stubs."
+    }
+  ],
+  "features": [],
+  "open_items": [],
+  "planning_work": {
+    "detail": "Packet uses Bubblewrap because it gives unprivileged, per-process kernel isolation with precise per-mount control: unshared user/PID/net/IPC/UTS namespaces remove network and sibling visibility, tmpfs overlays hide host home, SSH keys and credentials, ro-binds expose only approved toolchain paths, and die-with-parent prevents orphans. It spawns fast per invocation (no VM/Docker needed) and locates itself strictly (refuses binaries inside the workspace, fails closed when absent) — making it ideal for both the read-only planning profile and the constrained-worktree implementation profile in src/harness/pi_sandbox/{config,mounts,planning}.rs. Without it Packet would need a container engine or MAC policy, which is heavier and less granular. No spec update, no decision was uncovered; modules remain scaffolding stubs.",
+    "feature_id": null,
+    "follow_up_task": null,
+    "kind": "question",
+    "status": "done",
+    "title": "Question: Why does Packet use Bubblewrap?",
+    "uid": "54783e94-0bd3-49f9-b64b-bb852edad9f9"
+  },
+  "product_specification": "# packet-live-dogfood-314008-eb53ee93-3c23-4ed4-a516-3e1b8707830a — Living Technical Specification\n\n## Overview\n\nPurpose, current behavior and goals are not established. Describe the project in chat to begin.\n\n## Users and Outcomes\n\nTarget users, their needs, desired outcomes and ownership require confirmation.\n\n## Current Capabilities\n\nCurrent behavior, in-scope capabilities, boundaries and deferred work require evidence and confirmation.\n\n## Architecture and Constraints\n\nArchitecture, important data, runtime constraints and deployment assumptions require repository inspection.\n\n## Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n\n## Quality and Acceptance\n\nQuality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.\n\n",
+  "provider": "local-vllm/qwen3.8-27b-fp8",
+  "reasoning_level": "off (live dogfood latency override)",
+  "request": "Why does Packet use Bubblewrap?",
+  "resolved_items": [],
+  "scenario": "D",
+  "turn_completed": true,
+  "workflow_ready": false
+}

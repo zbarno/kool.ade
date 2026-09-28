@@ -263,6 +263,7 @@ struct ReplyHarness {
 struct StoppedHarness {
     wait_for_cancel: bool,
 }
+
 impl crate::harness::AiHarness for StoppedHarness {
     fn label(&self) -> String {
         "stopped fixture".into()
@@ -289,6 +290,18 @@ impl crate::harness::AiHarness for StoppedHarness {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "conversation_tests/setup_failure.rs"]
+mod setup_failure;
+
+#[cfg(test)]
+#[path = "conversation_tests/new_task.rs"]
+mod new_task;
+
+#[cfg(test)]
+#[path = "conversation_tests/dogfood.rs"]
+mod dogfood;
 
 #[test]
 fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state() {
@@ -551,7 +564,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert_eq!(app.task_messages("CLR-001").len(), 3);
     assert_eq!(app.chat_messages().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "In progress · 1").is_some());
+    assert!(text_position(&output, "Needs attention · 1").is_some());
     click_text(&mut app, &ctx, question);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Your answer needed").is_some());
@@ -951,11 +964,11 @@ fn tabs_load_persisted_item_histories_without_main_or_other_task_messages() {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        for marker in [
-            "MAIN HISTORY MARKER",
-            "FIRST TASK HISTORY",
-            "SECOND TASK HISTORY",
-        ] {
+        assert!(
+            !texts.contains(&"MAIN HISTORY MARKER"),
+            "legacy history hidden: {texts:?}"
+        );
+        for marker in ["FIRST TASK HISTORY", "SECOND TASK HISTORY"] {
             assert_eq!(
                 texts.contains(&marker),
                 marker == expected,
@@ -975,11 +988,10 @@ fn tabs_load_persisted_item_histories_without_main_or_other_task_messages() {
     );
     let output = click_text(&mut app, &ctx, "TASK-002");
     assert_history(&output, "SECOND TASK HISTORY");
-    let output = click_text(&mut app, &ctx, "Main Chat");
-    assert_history(&output, "MAIN HISTORY MARKER");
     let output = click_text(&mut app, &ctx, "TASK-001");
     assert_history(&output, "FIRST TASK HISTORY");
-    let output = click_text(&mut app, &ctx, "×");
-    assert_history(&output, "MAIN HISTORY MARKER");
+    click_text(&mut app, &ctx, "×");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "MAIN HISTORY MARKER").is_none());
     std::fs::remove_dir_all(dir).unwrap();
 }

@@ -10,9 +10,15 @@ pub fn presentation(
     docs: &[crate::artifacts::task_docs::TaskDocument],
     key: &str,
 ) -> Option<(String, String)> {
-    if key.starts_with("planning:") || key.starts_with("feature:") {
+    if key.starts_with("planning:") || key.starts_with("feature:") || key.starts_with("task:") {
         let context = crate::core::planning_work::context(state, key)?;
-        return Some((context, "Continue planning this feature here. Questions and assumptions are tracked on the board.".into()));
+        let kind = crate::core::planning_work::find(state, key)?.kind;
+        let greeting = if kind == crate::core::planning_work::WorkKind::Question {
+            "Continue investigating this question here. Any user decision Packet discovers will appear on the board."
+        } else {
+            "Continue planning this task here. Questions and assumptions are tracked on the board."
+        };
+        return Some((context, greeting.into()));
     }
     use crate::domain::{Authority, ItemStatus};
     let synthetic = crate::core::ownership::synthesize_for_state(state);
@@ -158,14 +164,20 @@ pub fn prompt(
     } else {
         let context = crate::core::planning_work::context(state, key)
             .ok_or_else(|| format!("Board item {key} no longer exists; refresh the board."))?;
+        let work = crate::core::planning_work::find(state, key)
+            .ok_or_else(|| format!("Board item {key} no longer exists; refresh the board."))?;
+        let history = history
+            .iter()
+            .map(|(speaker, text)| format!("{speaker}: {}", clip(text, 2000)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if work.kind == crate::core::planning_work::WorkKind::Question {
+            return Ok(question::build(&context, &history, message));
+        }
         return Ok(feature_planning::build(
             &context,
             &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
-            &history
-                .iter()
-                .map(|(speaker, text)| format!("{speaker}: {text}"))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            &history,
             message,
             crate::artifacts::product_docs::next_feature_id(&state.repo_root),
         ));
@@ -255,7 +267,7 @@ pub fn prompt(
         .collect::<Vec<_>>()
         .join("\n");
     Ok(format!(
-        "=== TASK CONVERSATION: {key} ===\nYou are responding inside this item's single focused conversation. Main Chat remains the primary project planning interface. Do not start a new interview, generate tasks, advance the overall planning workflow, or ask about unrelated items. Persist significant answers, decisions and assumptions through validated document_updates and item changes, recording the actual conclusion in document_updates or item evidence. Resolve only existing CLR-numbered items. Ownership assignments are made through the item's Assign ownership control; explain that control when needed. Ask follow-up questions only about this item. Set next_question_id to null when no focused eligible question is needed. Do not claim implementation worker status changes through prose.\n\nPROJECT: {}\nCURRENT USER: {:?}\n\nDURABLE TASK CONTEXT\n{}\n\nEXPLICITLY RELATED ITEMS\n{}\n\nREFERENCED SPECIFICATION\n{}\nRead referenced source artifacts if more context is needed; never write files directly.\n\nTHIS TASK'S CONVERSATION ONLY\n{history}\n\nUSER REPLY\n{message}",
+        "=== TASK CONVERSATION: {key} ===\nYou are continuing this board task, not generic Main Chat. Do not generate task stories or claim implementation work. Persist the user's answer through validated specification and item updates. Resolve only existing CLR-numbered items. Resolve Agent-owned uncertainty from evidence; add all actionable independent Human/Review items together, include their consequences and rationale, and set blocked_by for dependent decisions that must wait. Never ask an actionable question only in prose; summarize progress and point to the board. Ownership assignments are made through the item's Assign ownership control. Do not claim implementation worker status changes through prose.\n\nPROJECT: {}\nCURRENT USER: {:?}\n\nDURABLE TASK CONTEXT\n{}\n\nEXPLICITLY RELATED ITEMS\n{}\n\nREFERENCED SPECIFICATION\n{}\nRead referenced source artifacts if more context is needed; never write files directly.\n\nTHIS TASK'S CONVERSATION ONLY\n{history}\n\nUSER REPLY\n{message}",
         state.title,
         state.effective_user(),
         clip(&subject, 16000),
@@ -263,6 +275,8 @@ pub fn prompt(
         clip(&references, 16000)
     ))
 }
+
+mod question;
 
 #[cfg(test)]
 mod tests {

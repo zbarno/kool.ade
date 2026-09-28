@@ -1,208 +1,15 @@
-//! Operation-specific wire responses. Decode these strictly at the boundary,
-//! then normalize into the planning pipeline's internal model.
+//! Operation-specific wire response decoding and normalization.
 
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 
-use crate::core::workflow::{InterviewBrief, TaskOutline, TaskStory, TurnPurpose};
-use crate::domain::{PlanAlternative, PlanRecommendation};
+use crate::core::workflow::{TaskOutline, TaskStory, TurnPurpose};
+use crate::harness::TurnEnvelope;
 
-use super::{DocumentUpdate, RequestedAction, TurnEnvelope, TurnItem, TurnItemUpdate};
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlanningTurnResponse {
-    #[serde(alias = "schema_version")]
-    pub schema_version: Option<u32>,
-    #[serde(alias = "assistant_message")]
-    pub assistant_message: Option<String>,
-    #[serde(alias = "change_summary")]
-    pub change_summary: Option<String>,
-    #[serde(alias = "document_updates")]
-    pub document_updates: Option<Vec<DocumentUpdate>>,
-    #[serde(alias = "updated_specification")]
-    pub updated_specification: Option<String>,
-    #[serde(alias = "open_items_added")]
-    pub open_items_added: Option<Vec<TurnItem>>,
-    #[serde(alias = "open_items_updated")]
-    pub open_items_updated: Option<Vec<TurnItemUpdate>>,
-    #[serde(alias = "open_items_resolved")]
-    pub open_items_resolved: Option<Vec<String>>,
-    #[serde(alias = "next_question_id")]
-    pub next_question_id: Option<String>,
-    #[serde(alias = "requested_action")]
-    pub requested_action: Option<RequestedAction>,
-    pub interview: Option<InterviewBrief>,
-    #[serde(alias = "plan_alternatives")]
-    pub plans: Option<Vec<PlanAlternative>>,
-    pub recommendation: Option<PlanRecommendation>,
-}
-
-impl From<PlanningTurnResponse> for TurnEnvelope {
-    fn from(response: PlanningTurnResponse) -> Self {
-        Self {
-            // Raw legacy/current versions are resolved here; core sees only
-            // the normalized current planning envelope.
-            schema_version: Some(2),
-            assistant_message: response.assistant_message,
-            change_summary: response.change_summary,
-            document_updates: response.document_updates,
-            updated_specification: response.updated_specification,
-            open_items_added: response.open_items_added,
-            open_items_updated: response.open_items_updated,
-            open_items_resolved: response.open_items_resolved,
-            next_question_id: response.next_question_id,
-            requested_action: response.requested_action,
-            interview: response.interview,
-            task_stories: None,
-            task_outline: None,
-            plans: response.plans,
-            recommendation: response.recommendation,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct TaskOutlineResponse {
-    #[serde(alias = "schema_version")]
-    pub schema_version: Option<u32>,
-    #[serde(alias = "assistant_message")]
-    pub assistant_message: Option<String>,
-    #[serde(alias = "task_stories")]
-    pub task_stories: Option<Vec<TaskStory>>,
-    #[serde(alias = "task_outline")]
-    pub task_outline: Option<Vec<TaskOutline>>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct TaskStoryResponse {
-    #[serde(alias = "schema_version")]
-    pub schema_version: Option<u32>,
-    #[serde(alias = "assistant_message")]
-    pub assistant_message: Option<String>,
-    #[serde(alias = "task_stories")]
-    pub task_stories: Option<Vec<TaskStory>>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct TaskGenerationResponse {
-    #[serde(alias = "schema_version")]
-    pub schema_version: Option<u32>,
-    #[serde(alias = "assistant_message")]
-    pub assistant_message: Option<String>,
-    #[serde(alias = "task_stories")]
-    pub task_stories: Option<Vec<TaskStory>>,
-}
-
-impl From<TaskGenerationResponse> for TurnEnvelope {
-    fn from(response: TaskGenerationResponse) -> Self {
-        Self {
-            schema_version: Some(2),
-            assistant_message: response.assistant_message,
-            task_stories: response.task_stories,
-            change_summary: None,
-            document_updates: None,
-            updated_specification: None,
-            open_items_added: None,
-            open_items_updated: None,
-            open_items_resolved: None,
-            next_question_id: None,
-            requested_action: None,
-            interview: None,
-            task_outline: None,
-            plans: None,
-            recommendation: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct InvestigationResponse {
-    #[serde(alias = "schema_version")]
-    pub schema_version: Option<u32>,
-    #[serde(alias = "assistant_message")]
-    pub assistant_message: Option<String>,
-    #[serde(alias = "change_summary")]
-    pub change_summary: Option<String>,
-    #[serde(alias = "document_updates")]
-    pub document_updates: Option<Vec<DocumentUpdate>>,
-    #[serde(alias = "open_items_added")]
-    pub open_items_added: Option<Vec<TurnItem>>,
-    #[serde(alias = "open_items_updated")]
-    pub open_items_updated: Option<Vec<TurnItemUpdate>>,
-    #[serde(alias = "open_items_resolved")]
-    pub open_items_resolved: Option<Vec<String>>,
-    #[serde(alias = "next_question_id")]
-    pub next_question_id: Option<String>,
-}
-
-impl From<InvestigationResponse> for TurnEnvelope {
-    fn from(response: InvestigationResponse) -> Self {
-        Self {
-            schema_version: Some(2),
-            assistant_message: response.assistant_message,
-            change_summary: response.change_summary,
-            document_updates: response.document_updates,
-            open_items_added: response.open_items_added,
-            open_items_updated: response.open_items_updated,
-            open_items_resolved: response.open_items_resolved,
-            next_question_id: response.next_question_id,
-            updated_specification: None,
-            requested_action: None,
-            interview: None,
-            task_stories: None,
-            task_outline: None,
-            plans: None,
-            recommendation: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReconciliationResponse {
-    #[serde(alias = "schema_version")]
-    pub schema_version: Option<u32>,
-    #[serde(alias = "assistant_message")]
-    pub assistant_message: Option<String>,
-    #[serde(alias = "change_summary")]
-    pub change_summary: Option<String>,
-    #[serde(alias = "document_updates")]
-    pub document_updates: Option<Vec<DocumentUpdate>>,
-    #[serde(alias = "open_items_added")]
-    pub open_items_added: Option<Vec<TurnItem>>,
-    #[serde(alias = "open_items_updated")]
-    pub open_items_updated: Option<Vec<TurnItemUpdate>>,
-    #[serde(alias = "open_items_resolved")]
-    pub open_items_resolved: Option<Vec<String>>,
-    #[serde(alias = "next_question_id")]
-    pub next_question_id: Option<String>,
-}
-
-impl From<ReconciliationResponse> for TurnEnvelope {
-    fn from(response: ReconciliationResponse) -> Self {
-        Self {
-            schema_version: Some(2),
-            assistant_message: response.assistant_message,
-            change_summary: response.change_summary,
-            document_updates: response.document_updates,
-            open_items_added: response.open_items_added,
-            open_items_updated: response.open_items_updated,
-            open_items_resolved: response.open_items_resolved,
-            next_question_id: response.next_question_id,
-            updated_specification: None,
-            requested_action: None,
-            interview: None,
-            task_stories: None,
-            task_outline: None,
-            plans: None,
-            recommendation: None,
-        }
-    }
-}
+mod wire;
+pub use wire::{
+    InvestigationResponse, PlanningTurnResponse, ReconciliationResponse, TaskGenerationResponse,
+    TaskOutlineResponse, TaskStoryResponse,
+};
 
 /// A model-generated blocker explanation; the alias gives the wire operation
 /// a stable name while reusing its persisted, UI-facing domain model.
@@ -233,7 +40,8 @@ pub fn decode_turn_object(json: &str, purpose: TurnPurpose) -> Result<TurnEnvelo
                 }
             }
         }
-        let response = serde_json::from_str::<PlanningTurnResponse>(json)
+        let planning_json = normalize_planning_noops(json)?;
+        let response = serde_json::from_str::<PlanningTurnResponse>(&planning_json)
             .map_err(|error| error.to_string())?;
         if purpose == TurnPurpose::ComparePlans {
             check_version("Compare plans", response.schema_version, &[2])?;
@@ -244,6 +52,48 @@ pub fn decode_turn_object(json: &str, purpose: TurnPurpose) -> Result<TurnEnvelo
         check_version("Planning", response.schema_version, &[1, 2])?;
         Ok(response.into())
     }
+}
+
+/// Some models include a known cross-purpose field with a null value even
+/// when the operation-specific instructions forbid it. A null task-story
+/// field carries no payload, so discard only that no-op spelling before the
+/// strict planning schema decode. Non-null story data remains unknown here
+/// and is still rejected at the boundary.
+fn normalize_planning_noops(json: &str) -> Result<String, String> {
+    let mut value: serde_json::Value =
+        serde_json::from_str(json).map_err(|error| error.to_string())?;
+    if let Some(object) = value.as_object_mut() {
+        for field in ["task_stories", "taskStories"] {
+            if object.get(field).is_some_and(serde_json::Value::is_null) {
+                object.remove(field);
+            }
+        }
+        // Some models mark unchanged product modules with a prose sentinel.
+        // Product documents have no lifecycle status; discard only this exact
+        // no-op spelling there. Feature status remains strictly typed.
+        if let Some(updates) = object
+            .get_mut("document_updates")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for update in updates {
+                let Some(update) = update.as_object_mut() else {
+                    continue;
+                };
+                let is_product = update
+                    .get("document_id")
+                    .or_else(|| update.get("documentId"))
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| id.starts_with("product:"));
+                if is_product
+                    && update.get("status").and_then(serde_json::Value::as_str)
+                        == Some("unchanged-placeholder")
+                {
+                    update.remove("status");
+                }
+            }
+        }
+    }
+    serde_json::to_string(&value).map_err(|error| error.to_string())
 }
 
 pub fn decode_investigation(text: &str) -> Result<InvestigationResponse, String> {

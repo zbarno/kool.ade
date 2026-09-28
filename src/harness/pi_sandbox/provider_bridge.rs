@@ -18,6 +18,10 @@ mod config;
 #[cfg(test)]
 mod tests;
 
+pub(crate) fn configuration_error() -> Option<String> {
+    config::provider_error()
+}
+
 pub(super) struct ProviderBridge {
     pub socket_dir: PathBuf,
     pub agent_dir: PathBuf,

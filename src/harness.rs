@@ -18,8 +18,8 @@ pub mod runtime_capabilities;
 
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,
-    LivePost, LiveProgress, PlanningRequest, RequestedAction, RetrievalPlan, ToolAccess,
-    TurnEnvelope, TurnItem, TurnItemUpdate,
+    LivePost, LiveProgress, PlanningRequest, PlanningTaskOffer, RequestedAction, RetrievalPlan,
+    ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use pi_harness::PiHarness;
 

@@ -1,0 +1,31 @@
+{
+  "board_attention_ids": [],
+  "conversation": [
+    {
+      "role": "agent",
+      "text": "Packet intentionally refuses hosted Anthropic: Pi's planning sandbox is network-isolated and its only outbound path is a host-side relay restricted (in src/harness/pi_sandbox/provider_bridge/) to OpenAI-compatible APIs on private-HTTP endpoints, with the real credential injected on the host and a placeholder key given to the sandbox. Hosted Anthropic uses the anthropic-messages API over public HTTPS, which fails closed both at protocol ('Planning provider relay currently supports only OpenAI-compatible local providers') and endpoint-scheme/address checks. The supported route to Claude is a local OpenAI-compatible translation proxy on a private address holding your API key.\n\n---\n- Need: no decision required to answer this question\n- Pointer: consider a future feature to allow an anthropic-messages relay only if you actually want hosted Claude"
+    }
+  ],
+  "features": [],
+  "open_items": [],
+  "planning_work": {
+    "detail": "Packet intentionally refuses hosted Anthropic: Pi's planning sandbox is network-isolated and its only outbound path is a host-side relay restricted (in src/harness/pi_sandbox/provider_bridge/) to OpenAI-compatible APIs on private-HTTP endpoints, with the real credential injected on the host and a placeholder key given to the sandbox. Hosted Anthropic uses the anthropic-messages API over public HTTPS, which fails closed both at protocol ('Planning provider relay currently supports only OpenAI-compatible local providers') and endpoint-scheme/address checks. The supported route to Claude is a local OpenAI-compatible translation proxy on a private address holding your API key.\n\n---\n- Need: no decision required to answer this question\n- Pointer: consider a future feature to allow an anthropic-messages relay only if you actually want hosted Claude",
+    "feature_id": null,
+    "follow_up_task": {
+      "description": "Plan support for hosted Anthropic through Pi while preserving Packet's sandbox security boundaries.",
+      "title": "Add hosted Anthropic support through Pi"
+    },
+    "kind": "question",
+    "status": "done",
+    "title": "Question: Why can't Packet use hosted Anthropic through Pi?",
+    "uid": "8e17d1e3-f97f-4aad-a4fc-7ab35bc7ccf4"
+  },
+  "product_specification": "# packet-live-dogfood-727596-ae5d63da-b340-4bac-8292-4ae5fd031002 — Living Technical Specification\n\n## Overview\n\nPurpose, current behavior and goals are not established. Describe the project in chat to begin.\n\n## Users and Outcomes\n\nTarget users, their needs, desired outcomes and ownership require confirmation.\n\n## Current Capabilities\n\nCurrent behavior, in-scope capabilities, boundaries and deferred work require evidence and confirmation.\n\n## Architecture and Constraints\n\nArchitecture, important data, runtime constraints and deployment assumptions require repository inspection.\n\n## Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n\n## Quality and Acceptance\n\nQuality expectations, risks and acceptance evidence are unspecified. Establish the relevant bar before claiming completion.\n\n",
+  "provider": "local-vllm/qwen3.8-27b-fp8",
+  "reasoning_level": "off",
+  "request": "Why can't Packet use hosted Anthropic through Pi?",
+  "resolved_items": [],
+  "scenario": "E",
+  "turn_completed": true,
+  "workflow_ready": false
+}

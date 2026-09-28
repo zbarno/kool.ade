@@ -75,6 +75,7 @@ fn bad_envelope_types_reject_cleanly() {
         interview: None,
         task_stories: None,
         requested_action: None,
+        follow_up_task: None,
         task_outline: None,
         plans: None,
         recommendation: None,

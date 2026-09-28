@@ -176,7 +176,7 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
         &fs::read(root.join(crate::artifacts::layout::canonical::MANIFEST)).unwrap(),
     )
     .unwrap();
-    assert_eq!(manifest["schemaVersion"], 3);
+    assert_eq!(manifest["schemaVersion"], 4);
 
     let feature_id = ArtifactIdentity::from_markdown(&fs::read_to_string(&feature_path).unwrap())
         .unwrap()
@@ -188,12 +188,9 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
     assert_eq!(feature_metadata.status, crate::domain::ChangeStatus::Ready);
     assert_eq!(feature_metadata.uid, feature_id.uid);
     assert_eq!(feature_metadata.schema_version, 2);
-    let comparison = feature_metadata.plan_comparison.unwrap();
-    assert_eq!(comparison.alternatives.len(), 2);
-    assert_eq!(comparison.recommendation.plan_id, "A");
-    assert_eq!(comparison.selected_plan.as_deref(), Some("B"));
-    assert_eq!(feature_metadata.selected_alt.as_deref(), Some("B"));
-    assert_eq!(feature_metadata.comparison_history.len(), 1);
+    assert!(feature_metadata.plan_comparison.is_none());
+    assert!(feature_metadata.selected_alt.is_none());
+    assert!(feature_metadata.comparison_history.is_empty());
     let readme = fs::read_to_string(batch_path.join("README.md")).unwrap();
     let batch_id = ArtifactIdentity::from_markdown(&readme).unwrap().unwrap();
     assert_eq!(
@@ -203,6 +200,12 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
     let workflow: crate::core::workflow::Workflow =
         serde_json::from_slice(&fs::read(workflow_path).unwrap()).unwrap();
     assert_eq!(workflow.task_batches[0].identity.as_ref(), Some(&batch_id));
+    let legacy = workflow
+        .legacy_plan_comparison_evidence
+        .get("F7")
+        .unwrap_or_else(|| panic!("workflow did not migrate comparison: {workflow:#?}"));
+    assert_eq!(legacy.len(), 2);
+    assert!(!workflow.plan_comparisons.contains_key("F7"));
 
     let task_markdown = fs::read_to_string(root.join(&task_path)).unwrap();
     let task_id = ArtifactIdentity::from_markdown(&task_markdown)

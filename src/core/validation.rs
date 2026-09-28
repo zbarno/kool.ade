@@ -10,6 +10,8 @@ use crate::core::state::PlannerState;
 use crate::domain::{Authority, CurrentUser, DecisionBrief, ItemKind, OpenItem, Priority};
 use crate::harness::TurnEnvelope;
 
+mod dependency_graph;
+
 /// Field-wise patch for an existing item: `Some` = set, `None` = untouched.
 /// Clearing an assignment is intentionally unsupported in the MVP.
 #[derive(Debug, Clone, Default)]
@@ -25,6 +27,7 @@ pub struct UpdatePatch {
     pub recommendation: Option<String>,
     pub evidence: Option<String>,
     pub decision_brief: Option<DecisionBrief>,
+    pub blocked_by: Option<Vec<String>>,
 }
 
 #[cfg(test)]
@@ -55,6 +58,7 @@ pub struct NormalizedTurn {
     /// Model-interpreted application intent, dispatched only after this
     /// turn passes validation and is adopted by the Main Chat.
     pub requested_action: Option<crate::harness::RequestedAction>,
+    pub follow_up_task: Option<crate::harness::PlanningTaskOffer>,
     /// Non-fatal observations shown to the user (e.g. why next-question was
     /// dropped — routing sovereignty, §18).
     pub warnings: Vec<String>,
@@ -65,6 +69,20 @@ pub struct NormalizedTurn {
 
 const QUESTION_CHAR_CAP: usize = 2000;
 const SUMMARY_CHAR_CAP: usize = 60;
+
+fn validate_blocked_by(item_id: &str, blocked_by: &[String], fatals: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    if blocked_by.len() > 24 {
+        fatals.push(format!("{item_id}: too many blocked_by board items"));
+    }
+    for dependency in blocked_by {
+        if !crate::core::ids::is_valid_id(dependency) || !seen.insert(dependency) {
+            fatals.push(format!(
+                "{item_id}: blocked_by contains an invalid or duplicate board item ID ({dependency})"
+            ));
+        }
+    }
+}
 
 pub fn validate(
     envelope: &TurnEnvelope,
@@ -106,6 +124,22 @@ pub fn validate_for_turn_with_resolutions(
             fatals.extend(problems);
             None
         }
+    };
+    let follow_up_task = match &envelope.follow_up_task {
+        Some(offer) if purpose != crate::core::workflow::TurnPurpose::Question => {
+            fatals.push("follow_up_task is only valid for a Question task".into());
+            None
+        }
+        Some(offer)
+            if offer.title.trim().is_empty()
+                || offer.title.chars().count() > 160
+                || offer.description.trim().is_empty()
+                || offer.description.chars().count() > 2000 =>
+        {
+            fatals.push("follow_up_task needs a concise title and task description".into());
+            None
+        }
+        offer => offer.clone(),
     };
 
     if let Some(v) = envelope.schema_version
@@ -185,10 +219,15 @@ pub fn validate_for_turn_with_resolutions(
             fatals.push(format!("duplicate document_id {}", update.document_id));
             continue;
         }
+        let content = if update.document_id.starts_with("feature:") {
+            crate::core::specification::normalize_feature_headings(&update.content)
+        } else {
+            update.content.clone()
+        };
         let path = match crate::artifacts::product_docs::document_path_for_update(
             &state.repo_root,
             &update.document_id,
-            &update.content,
+            &content,
         ) {
             Ok(path) => path,
             Err(error) => {
@@ -196,7 +235,7 @@ pub fn validate_for_turn_with_resolutions(
                 continue;
             }
         };
-        if update.content.trim().is_empty() {
+        if content.trim().is_empty() {
             fatals.push(format!("{}: content must not be blank", update.document_id));
             continue;
         }
@@ -207,18 +246,17 @@ pub fn validate_for_turn_with_resolutions(
             ));
         }
         if update.document_id.starts_with("product:") {
-            if let Err(error) = crate::artifacts::product_docs::validate_module(&update.content) {
+            if let Err(error) = crate::artifacts::product_docs::validate_module(&content) {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
             if let Ok(old) = std::fs::read_to_string(&path)
-                && let Err(error) =
-                    crate::artifacts::product_docs::preserved_ids(&old, &update.content)
+                && let Err(error) = crate::artifacts::product_docs::preserved_ids(&old, &content)
             {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
         }
         if let Some(id) = update.document_id.strip_prefix("feature:") {
-            if let Err(error) = crate::core::specification::validate_feature(id, &update.content) {
+            if let Err(error) = crate::core::specification::validate_feature(id, &content) {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
             let existing_status = match std::fs::read_to_string(&path) {
@@ -275,7 +313,7 @@ pub fn validate_for_turn_with_resolutions(
                 update.document_id
             )),
         }
-        document_updates.push((update.document_id.clone(), update.content.clone()));
+        document_updates.push((update.document_id.clone(), content));
     }
 
     // ---- resolutions --------------------------------------------------------
@@ -382,6 +420,10 @@ pub fn validate_for_turn_with_resolutions(
         }
         if let Some(value) = &u.evidence {
             patch.evidence = Some(value.trim().to_string());
+        }
+        if let Some(ids) = &u.blocked_by {
+            validate_blocked_by(&uid, ids, &mut fatals);
+            patch.blocked_by = Some(ids.clone());
         }
         if let Some(brief) = &u.decision_brief {
             let mut brief = brief.clone();
@@ -493,6 +535,8 @@ pub fn validate_for_turn_with_resolutions(
                 }
                 item.recommendation = a.recommendation.as_deref().unwrap_or("").trim().to_string();
                 item.evidence = a.evidence.as_deref().unwrap_or("").trim().to_string();
+                validate_blocked_by(&item.id, &a.blocked_by, &mut fatals);
+                item.blocked_by = a.blocked_by.clone();
                 if let Some(brief) = &a.decision_brief {
                     let mut brief = brief.clone();
                     match brief.bind_to_item(&item.id) {
@@ -526,6 +570,38 @@ pub fn validate_for_turn_with_resolutions(
         }
     }
 
+    let known_ids = state
+        .items
+        .iter()
+        .chain(&state.resolved_items)
+        .map(|item| item.id.as_str())
+        .chain(added.iter().map(|item| item.id.as_str()))
+        .collect::<HashSet<_>>();
+    for item in &added {
+        for dependency in &item.blocked_by {
+            if dependency == &item.id || !known_ids.contains(dependency.as_str()) {
+                fatals.push(format!(
+                    "{}: blocked_by must reference another existing or newly created board item ({dependency})",
+                    item.id
+                ));
+            }
+        }
+    }
+    for (item_id, patch) in &updates {
+        if let Some(dependencies) = &patch.blocked_by {
+            for dependency in dependencies {
+                if dependency == item_id || !known_ids.contains(dependency.as_str()) {
+                    fatals.push(format!(
+                        "{item_id}: blocked_by must reference another existing or newly created board item ({dependency})"
+                    ));
+                }
+            }
+        }
+    }
+    fatals.extend(dependency_graph::cycle_errors(
+        state, &added, &updates, &resolved,
+    ));
+
     // ---- next question: the D-14 routing law is decided HERE, not by the
     //         agent (§8, §18). A misrouted id is a FATAL problem — the whole
     //         turn is rejected with zero mutation. Unknown/resolved/ownership
@@ -539,6 +615,13 @@ pub fn validate_for_turn_with_resolutions(
             }
             Some(item) if item.kind == ItemKind::Ownership => warnings.push(format!(
                 "next question “{}” dropped: ownership gaps are handled in the Settings panel, not asked in chat",
+                item.id
+            )),
+            Some(item) if item.blocked_by.iter().any(|dependency| {
+                state.items.iter().any(|candidate| candidate.id == *dependency)
+                    && !resolved.iter().any(|resolved_id| resolved_id == dependency)
+            }) => warnings.push(format!(
+                "next question {} dropped: a prerequisite board item is still open",
                 item.id
             )),
             Some(item) => match routing::evaluate(item, user, &state.config.stakeholders) {
@@ -577,6 +660,7 @@ pub fn validate_for_turn_with_resolutions(
         resolved,
         next_question_id,
         requested_action,
+        follow_up_task,
         warnings,
         workflow: None,
         task_batch: None,
@@ -652,10 +736,58 @@ mod tests {
             interview: None,
             task_stories: None,
             requested_action: None,
+            follow_up_task: None,
             task_outline: None,
             plans: None,
             recommendation: None,
         }
+    }
+
+    #[test]
+    fn follow_up_feature_offer_is_limited_to_question_turns_and_requires_concise_content() {
+        let state = base_state(Vec::new());
+        let user = CurrentUser::new("Riley", vec![]);
+        let mut envelope = env(None);
+        envelope.follow_up_task = Some(crate::harness::PlanningTaskOffer {
+            title: "Add hosted provider support".into(),
+            description: "Plan a safe hosted Anthropic provider option.".into(),
+        });
+        let normalized = validate_for_turn(
+            &envelope,
+            &state,
+            &user,
+            crate::core::workflow::TurnPurpose::Question,
+        )
+        .unwrap();
+        assert_eq!(
+            normalized.follow_up_task.as_ref().unwrap().title,
+            "Add hosted provider support"
+        );
+
+        let errors = validate(&envelope, &state, &user).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("only valid for a Question task"))
+        );
+        envelope
+            .follow_up_task
+            .as_mut()
+            .unwrap()
+            .description
+            .clear();
+        let errors = validate_for_turn(
+            &envelope,
+            &state,
+            &user,
+            crate::core::workflow::TurnPurpose::Question,
+        )
+        .unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("concise title and task description"))
+        );
     }
 
     #[test]
@@ -677,6 +809,7 @@ mod tests {
                 recommendation: None,
                 evidence: None,
                 decision_brief: None,
+                blocked_by: Vec::new(),
             },
             TurnItem {
                 authority: None,
@@ -692,6 +825,7 @@ mod tests {
                 recommendation: None,
                 evidence: None,
                 decision_brief: None,
+                blocked_by: Vec::new(),
             },
         ]);
         let v = validate(
@@ -857,6 +991,7 @@ mod tests {
                 recommendation: None,
                 evidence: None,
                 decision_brief: None,
+                blocked_by: Vec::new(),
                 reason: Some("login scoping depends on it".into()),
             },
             TurnItem {
@@ -872,6 +1007,7 @@ mod tests {
                 recommendation: None,
                 evidence: None,
                 decision_brief: None,
+                blocked_by: Vec::new(),
                 reason: None,
             },
         ]);
@@ -899,6 +1035,7 @@ mod tests {
             recommendation: None,
             evidence: None,
             decision_brief: None,
+            blocked_by: Vec::new(),
             reason: None,
         };
         e.open_items_added = Some(vec![mk(), mk()]);
@@ -939,6 +1076,7 @@ mod tests {
             recommendation: None,
             evidence: None,
             decision_brief: None,
+            blocked_by: None,
         }]);
         let v = validate(&e, &st, &u).unwrap();
         assert_eq!(v.updates.len(), 1);
@@ -1028,6 +1166,7 @@ mod tests {
                     recommendation: None,
                     evidence: None,
                     decision_brief: None,
+                    blocked_by: None,
                 }]);
                 (st, e)
             },
@@ -1125,6 +1264,7 @@ mod tests {
                     recommendation: None,
                     evidence: None,
                     decision_brief: None,
+                    blocked_by: Vec::new(),
                 }]);
                 (base_state(Vec::new()), e)
             },

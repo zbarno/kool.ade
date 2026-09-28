@@ -70,6 +70,18 @@ fn brief_rejects_an_invented_recommendation_and_one_option_menu() {
 }
 
 #[test]
+fn brief_requires_each_option_to_explain_its_consequence() {
+    let mut decision = brief(vec![option("path-a"), option("path-b")]);
+    decision.options[1].consequences.clear();
+    assert!(
+        decision
+            .validate()
+            .unwrap_err()
+            .contains("understandable consequence")
+    );
+}
+
+#[test]
 fn material_record_needs_real_alternatives_and_a_revisit_condition() {
     let mut decision = brief(vec![option("path-a"), option("path-b")]);
     let assessment = decision.adr_assessment.as_mut().unwrap();

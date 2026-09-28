@@ -20,6 +20,7 @@ impl PacketApp {
                 .danger(format!("Feature {id} is no longer available."));
             return;
         };
+        let body = body.clone();
         if let Some(mut record) = project.state.workflow.plan_comparisons.get(id).cloned() {
             let guard = crate::core::writer_gate::acquire();
             record.status = crate::core::workflow::PlanComparisonStatus::Discarded;
@@ -31,9 +32,56 @@ impl PacketApp {
                 .unwrap_or(record.updated_at_ms);
             let mut workflow = project.state.workflow.clone();
             workflow.plan_comparisons.insert(id.to_owned(), record);
+            let feature_path = match crate::artifacts::product_docs::document_path(
+                &project.state.repo_root,
+                &format!("feature:{id}"),
+            ) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.toasts
+                        .danger(format!("Cannot locate feature: {error}"));
+                    return;
+                }
+            };
+            let current_feature = match crate::artifacts::read_utf8_lossy(&feature_path) {
+                Ok(current) if current == body => current,
+                Ok(_) => {
+                    self.toasts
+                        .warning("The feature changed. Reopen it and review the current plans.");
+                    return;
+                }
+                Err(error) => {
+                    self.toasts.danger(format!("Cannot read feature: {error}"));
+                    return;
+                }
+            };
+            let discarded_feature =
+                match crate::domain::ChangeMetadata::discard_plan_comparison(&current_feature) {
+                    Ok(updated) => updated,
+                    Err(error) => {
+                        self.toasts
+                            .danger(format!("Cannot discard comparison details: {error}"));
+                        return;
+                    }
+                };
+            let updated_feature = match crate::domain::ChangeMetadata::clear_legacy_comparison_state(
+                &discarded_feature,
+            ) {
+                Ok(updated) => updated,
+                Err(error) => {
+                    self.toasts
+                        .danger(format!("Cannot migrate comparison metadata: {error}"));
+                    return;
+                }
+            };
             let layout = crate::artifacts::layout::ArtifactLayout::new(&project.state.repo_root);
             let path = layout.workflow_state();
-            let relative = path
+            let workflow_relative = path
+                .strip_prefix(&project.state.repo_root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
+            let feature_relative = feature_path
                 .strip_prefix(&project.state.repo_root)
                 .unwrap()
                 .to_string_lossy()
@@ -46,18 +94,36 @@ impl PacketApp {
                     return;
                 }
             };
-            let paths = match crate::artifacts::transaction::apply(
-                &project.state.repo_root,
-                &[(relative, content)],
-            ) {
-                Ok(paths) => paths,
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Discard was rolled back: {error}"));
-                    return;
-                }
-            };
+            let changes = vec![
+                (workflow_relative, content),
+                (feature_relative, updated_feature.clone()),
+            ];
+            let paths =
+                match crate::artifacts::transaction::apply(&project.state.repo_root, &changes) {
+                    Ok(paths) => paths,
+                    Err(error) => {
+                        self.toasts
+                            .danger(format!("Discard was rolled back: {error}"));
+                        return;
+                    }
+                };
             project.state.workflow = workflow;
+            if let Some((_, feature)) = project
+                .state
+                .active_features
+                .iter_mut()
+                .find(|(feature_id, _)| feature_id == id)
+            {
+                *feature = updated_feature.clone();
+            }
+            if project
+                .state
+                .active_feature
+                .as_ref()
+                .is_some_and(|(feature_id, _)| feature_id == id)
+            {
+                project.state.active_feature = Some((id.to_owned(), updated_feature));
+            }
             let commit = crate::core::gitops::commit(
                 &project.state.repo_root,
                 &format!("planner: discard plan comparison for {id}"),

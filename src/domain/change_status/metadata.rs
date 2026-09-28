@@ -17,10 +17,14 @@ pub struct ChangeMetadata {
     pub uid: String,
     pub display_id: String,
     pub status: ChangeStatus,
+    /// Legacy migration inputs only; Workflow owns current comparison state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_comparison: Option<crate::domain::PlanComparison>,
+    /// Legacy comparison history copied into Workflow during artifact migration.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comparison_history: Vec<crate::domain::PlanComparison>,
+    /// Legacy migration input only; adopted choice is stored in Workflow and
+    /// rendered in the feature's Selected Plan section.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_alt: Option<String>,
 }
@@ -220,6 +224,24 @@ impl ChangeMetadata {
             rendered.push('\n');
         }
         Ok(rendered)
+    }
+
+    /// Drop legacy comparison copies after their contents have been promoted
+    /// into the workflow record. Human-readable comparison sections remain.
+    pub fn clear_legacy_comparison_state(markdown: &str) -> anyhow::Result<String> {
+        let Some(mut metadata) = Self::from_markdown(markdown)? else {
+            return Ok(markdown.to_owned());
+        };
+        if metadata.plan_comparison.is_none()
+            && metadata.comparison_history.is_empty()
+            && metadata.selected_alt.is_none()
+        {
+            return Ok(markdown.to_owned());
+        }
+        metadata.plan_comparison = None;
+        metadata.comparison_history.clear();
+        metadata.selected_alt = None;
+        replace_metadata(markdown, &metadata)
     }
 }
 

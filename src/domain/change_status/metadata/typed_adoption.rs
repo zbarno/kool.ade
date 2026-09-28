@@ -35,7 +35,9 @@ impl ChangeMetadata {
             .iter()
             .find(|plan| plan.id == plan_id)
             .ok_or_else(|| anyhow::anyhow!("Selected plan is missing from the comparison"))?;
-        metadata.selected_alt = Some(plan_id.to_owned());
+        // Workflow state owns adoption lifecycle and selected alternative;
+        // keep the selected plan's complete specification in readable text.
+        metadata.selected_alt = None;
         metadata.plan_comparison = None;
         metadata.comparison_history.clear();
         let mut updated = replace_metadata(markdown, &metadata)?;

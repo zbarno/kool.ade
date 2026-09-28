@@ -122,6 +122,9 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             if let Some(brief) = &patch.decision_brief {
                 it.decision_brief = Some(brief.clone());
             }
+            if let Some(blocked_by) = &patch.blocked_by {
+                it.blocked_by = blocked_by.clone();
+            }
         }
     }
     // 3) Agent-added items (validated + numbered already).

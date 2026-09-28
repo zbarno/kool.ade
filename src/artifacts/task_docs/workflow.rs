@@ -49,9 +49,86 @@ pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
                 );
                 record.validate()?;
             }
-            Ok(workflow)
+            promote_legacy_comparisons(repo, workflow)
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Workflow::default()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            promote_legacy_comparisons(repo, Workflow::default())
+        }
         Err(e) => Err(e.into()),
     }
+}
+
+/// Reconstruct old feature-metadata comparisons into the authoritative
+/// workflow index. The next workflow write persists this migration; repeated
+/// loads remain deterministic until then.
+fn promote_legacy_comparisons(repo: &Path, mut workflow: Workflow) -> anyhow::Result<Workflow> {
+    for (feature_id, markdown) in crate::artifacts::product_docs::active_features(repo) {
+        if workflow.plan_comparisons.contains_key(&feature_id) {
+            continue;
+        }
+        let metadata = crate::domain::ChangeMetadata::require_markdown(&markdown)?;
+        if metadata.schema_version != 2 {
+            continue;
+        }
+        let mut history = metadata.comparison_history;
+        let (mut alternatives, status, selected_plan) =
+            if let Some(mut comparison) = metadata.plan_comparison {
+                let selected = comparison
+                    .selected_plan
+                    .clone()
+                    .or(metadata.selected_alt.clone());
+                comparison.selected_plan = selected.clone();
+                let status = if selected.is_some() {
+                    crate::core::workflow::PlanComparisonStatus::Adopted
+                } else {
+                    crate::core::workflow::PlanComparisonStatus::Proposed
+                };
+                (comparison, status, selected)
+            } else if let Some(mut last) = history.pop() {
+                last.selected_plan = None;
+                (
+                    last,
+                    crate::core::workflow::PlanComparisonStatus::Discarded,
+                    None,
+                )
+            } else {
+                continue;
+            };
+        alternatives.selected_plan = selected_plan.clone();
+        let all_evidence = history
+            .iter()
+            .cloned()
+            .chain(std::iter::once(alternatives.clone()))
+            .collect::<Vec<_>>();
+        let mut retained_history = Vec::new();
+        let mut legacy_history = Vec::new();
+        for comparison in history.drain(..) {
+            if crate::core::validation::validate_persisted(&comparison).is_ok() {
+                retained_history.push(comparison);
+            } else {
+                legacy_history.push(comparison);
+            }
+        }
+        let record = crate::core::workflow::PlanComparisonRecord {
+            schema_version: 1,
+            feature_id: feature_id.clone(),
+            alternatives,
+            history: retained_history,
+            transcript: String::new(),
+            status,
+            selected_plan,
+            updated_at_ms: 0,
+        };
+        if record.validate().is_ok() {
+            workflow.plan_comparisons.insert(feature_id.clone(), record);
+        } else {
+            legacy_history = all_evidence;
+        }
+        if !legacy_history.is_empty() {
+            workflow
+                .legacy_plan_comparison_evidence
+                .insert(feature_id, legacy_history);
+        }
+    }
+    Ok(workflow)
 }

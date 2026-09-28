@@ -158,7 +158,7 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
     )
     .unwrap();
     assert!(saved.plan_comparison.is_none());
-    assert_eq!(saved.selected_alt.as_deref(), Some("B"));
+    assert!(saved.selected_alt.is_none());
     let persisted = crate::artifacts::task_docs::load_workflow(&root).unwrap();
     let record = persisted.plan_comparisons.get("CHG-004").unwrap();
     assert_eq!(
@@ -315,7 +315,7 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
         .unwrap()
         .1;
     let metadata = crate::domain::ChangeMetadata::require_markdown(feature).unwrap();
-    assert_eq!(metadata.selected_alt.as_deref(), Some("B"));
+    assert!(metadata.selected_alt.is_none());
     assert!(metadata.plan_comparison.is_none());
     app.approve_feature_only("CHG-004");
     assert!(
@@ -392,8 +392,13 @@ fn discard_recompare_action_keeps_the_previous_plan_transcript() {
     let saved = std::fs::read_to_string(path).unwrap();
     let metadata = crate::domain::ChangeMetadata::require_markdown(&saved).unwrap();
     assert!(metadata.plan_comparison.is_none());
-    assert_eq!(metadata.comparison_history.len(), 1);
+    assert!(metadata.comparison_history.is_empty());
     assert!(saved.contains("## Plan Comparison History"));
+    let workflow = crate::artifacts::task_docs::load_workflow(&root).unwrap();
+    assert_eq!(
+        workflow.plan_comparisons["CHG-004"].status,
+        crate::core::workflow::PlanComparisonStatus::Discarded
+    );
     assert_eq!(
         app.feature_actions(None)[0].label(),
         "Compare plans for CHG-004"

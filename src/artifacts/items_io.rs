@@ -48,6 +48,9 @@ fn render_one(i: &OpenItem) -> String {
     if let Some(uid) = &i.feature_uid {
         let _ = writeln!(s, "**Feature UID:** {uid}");
     }
+    if !i.blocked_by.is_empty() {
+        let _ = writeln!(s, "**Blocked By:** {}", i.blocked_by.join(", "));
+    }
     if let Some(brief) = &i.decision_brief {
         let encoded = serde_json::to_string(brief).expect("decision brief JSON serialization");
         let _ = writeln!(s, "**Decision Brief:** {encoded}");

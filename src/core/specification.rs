@@ -139,13 +139,53 @@ pub fn validate_feature(id: &str, markdown: &str) -> anyhow::Result<()> {
         );
     }
     if seen.contains("Selected Plan") && !seen.contains("Plan Comparison") {
-        let metadata = crate::domain::ChangeMetadata::require_markdown(markdown)?;
+        let selected_plan = h2_content(markdown, "Selected Plan").unwrap_or_default();
         anyhow::ensure!(
-            metadata.schema_version == 2 && metadata.selected_alt.is_some(),
-            "Selected Plan requires a selected alternative in structured change metadata"
+            selected_plan.contains("**Alternative:** A")
+                || selected_plan.contains("**Alternative:** B"),
+            "Selected Plan must name the adopted A or B alternative"
         );
     }
     Ok(())
+}
+
+/// Correct the two common UK-localized variants of Packet's fixed feature
+/// headings before validating and saving a model-authored replacement.
+/// Only complete H2 heading lines are changed; prose and code examples remain
+/// byte-identical.
+pub fn normalize_feature_headings(markdown: &str) -> String {
+    let mut in_fence = false;
+    markdown
+        .split_inclusive('\n')
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                in_fence = !in_fence;
+                return line.to_owned();
+            }
+            if in_fence {
+                return line.to_owned();
+            }
+            match line.trim_end_matches(&['\r', '\n'][..]) {
+                "## Current Behaviour" => line.replace("Current Behaviour", "Current Behavior"),
+                "## Desired Behaviour" => line.replace("Desired Behaviour", "Desired Behavior"),
+                _ => line.to_owned(),
+            }
+        })
+        .collect()
+}
+
+fn h2_content(markdown: &str, heading: &str) -> Option<String> {
+    let target = format!("## {heading}");
+    let lines = markdown.lines().collect::<Vec<_>>();
+    let start = lines.iter().position(|line| *line == target)? + 1;
+    let end = lines
+        .iter()
+        .enumerate()
+        .skip(start)
+        .find_map(|(index, line)| line.starts_with("## ").then_some(index))
+        .unwrap_or(lines.len());
+    Some(lines[start..end].join("\n"))
 }
 
 #[cfg(test)]
@@ -199,5 +239,14 @@ mod tests {
         ] {
             assert!(validate_layout(&invalid).is_err());
         }
+    }
+
+    #[test]
+    fn feature_heading_normalization_changes_only_exact_uk_heading_lines() {
+        let text = "# F1: Example\n## Current Behaviour\r\nThe Behaviour stays as written.\n```md\n## Desired Behaviour\n```\n";
+        assert_eq!(
+            normalize_feature_headings(text),
+            "# F1: Example\n## Current Behavior\r\nThe Behaviour stays as written.\n```md\n## Desired Behaviour\n```\n"
+        );
     }
 }

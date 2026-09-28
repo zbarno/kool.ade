@@ -6,6 +6,9 @@ pub struct PlanComparisonRecord {
     pub schema_version: u32,
     pub feature_id: String,
     pub alternatives: crate::domain::PlanComparison,
+    /// Prior proposals for this feature, retained when a comparison is retried.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub history: Vec<crate::domain::PlanComparison>,
     pub transcript: String,
     pub status: PlanComparisonStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -34,6 +37,9 @@ impl PlanComparisonRecord {
         );
         let comparison = &self.alternatives;
         crate::core::validation::validate_persisted(comparison)?;
+        for previous in &self.history {
+            crate::core::validation::validate_persisted(previous)?;
+        }
         anyhow::ensure!(
             comparison.alternatives.len() == 2
                 && comparison.alternatives[0].id == "A"

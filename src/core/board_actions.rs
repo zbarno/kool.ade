@@ -118,6 +118,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         open_items_resolved: Some(vec![id.to_string()]),
         next_question_id: None,
         requested_action: None,
+        follow_up_task: None,
         interview: None,
         task_stories: None,
         task_outline: None,

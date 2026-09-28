@@ -13,9 +13,11 @@ pub fn extract_json_object(text: &str) -> Option<String> {
     // Scan the JSON object before looking for its closing Markdown fence.
     // Task stories and specifications may themselves contain fenced code.
     let mut last = None;
+    let mut malformed_fence_start = None;
     let mut i = 0;
     while let Some(found) = find_needle(text, i, "```json") {
         let content_start = found + 7;
+        malformed_fence_start.get_or_insert(content_start);
         let inner = text[content_start..].trim_start();
         if let Some(end) = object_end(inner) {
             let tail = inner[end..].trim_start();
@@ -29,6 +31,18 @@ pub fn extract_json_object(text: &str) -> Option<String> {
     }
     if last.is_some() {
         return last;
+    }
+    // If malformed quoting prevents balanced-brace scanning, retain the
+    // fenced payload so serde can report a syntax error instead of making a
+    // present-but-invalid JSON response look absent. This fallback is used
+    // only after no well-formed object/fence pair was found.
+    if let (Some(start), Some(end)) = (malformed_fence_start, text.rfind("```"))
+        && end > start
+    {
+        let candidate = text[start..end].trim();
+        if candidate.starts_with('{') {
+            return Some(candidate.to_owned());
+        }
     }
     // 2) Bare object with no trailing commentary. A short model preface is
     // harmless because only the trailing object is decoded and schema-checked.
@@ -147,6 +161,14 @@ mod tests {
         assert!(balanced_object("{\"a\":{\"b\":1").is_none());
         assert!(balanced_object("no object at all").is_none());
         assert!(extract_json_object("```json\nbroken\n```").is_none());
+    }
+
+    #[test]
+    fn malformed_fenced_json_remains_available_for_a_specific_decode_error() {
+        let text = "```json\n{\"assistantMessage\": \"unterminated}\n```";
+        let candidate = extract_json_object(text).expect("retain fenced JSON payload");
+        let error = serde_json::from_str::<serde_json::Value>(&candidate).unwrap_err();
+        assert!(error.to_string().contains("EOF") || error.to_string().contains("end of"));
     }
     #[test]
     fn story_code_fences_do_not_end_the_response_envelope() {

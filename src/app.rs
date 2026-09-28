@@ -3,6 +3,7 @@
 pub mod dialogs;
 pub mod root;
 pub mod session;
+pub(crate) mod setup_attention;
 pub mod spawn;
 pub mod welcome;
 
