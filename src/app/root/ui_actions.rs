@@ -31,6 +31,7 @@ impl PacketApp {
             ApplicationCommand::SetMaxParallelTasks { count } => self.set_max_parallel_tasks(count),
             ApplicationCommand::SetAutoPlan { enabled } => self.set_auto_plan(enabled),
             ApplicationCommand::SetAutoBuild { enabled } => self.set_auto_build(enabled),
+            ApplicationCommand::StartTodoImplementations => self.start_todo_implementations(),
             ApplicationCommand::SetAutoPublish { enabled } => self.set_auto_publish(enabled),
             ApplicationCommand::SetRequireIndependentChecks { enabled } => {
                 self.set_require_independent_checks(enabled)
@@ -209,6 +210,23 @@ impl PacketApp {
             }
             if let Err(error) = persist_automation_settings(project) {
                 project.queue.last_error = error;
+            }
+        }
+    }
+
+    fn start_todo_implementations(&mut self) {
+        if let Screen::Connected(project) = &mut self.screen {
+            project.queue.auto_build = true;
+            project.queue.running = true;
+            project.queue.recovery_paused = false;
+            project.queue.last_error.clear();
+            if let Err(error) = persist_automation_settings(project) {
+                project.queue.running = false;
+                project.queue.last_error = format!("Cannot start TODO implementations: {error}");
+            } else {
+                project.activity.pending.push(
+                    "Started the implementation queue for eligible TODO tasks. Feature tasks still require explicit current approval; verified work stays local unless Auto Publish is enabled.".into(),
+                );
             }
         }
     }

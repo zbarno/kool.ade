@@ -376,7 +376,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
                     enabled: auto_build,
                 });
             }
-            ui.label("After a feature is explicitly approved and implementation starts, Packet can continue eligible tasks and run verification. Turning this off pauses automatic queue starts.");
+            ui.label("The TODO column can start implementation for eligible tasks. Feature tasks still need explicit approval. Packet continues dependencies and verification automatically; verified work stays local unless Auto Publish is on.");
             let mut auto_publish = s.auto_publish();
             if ui
                 .checkbox(&mut auto_publish, "Publish verified changes automatically")
@@ -788,6 +788,12 @@ fn paint_tasks(
                                 ))
                                 .strong(),
                             );
+                            if column == 0
+                                && !cards.is_empty()
+                                && ui.button("Implement eligible TODO tasks").clicked()
+                            {
+                                s.dispatch(ApplicationCommand::StartTodoImplementations);
+                            }
                             ui.separator();
                             egui::ScrollArea::vertical()
                                 .id_salt(("task_board_column", column))
