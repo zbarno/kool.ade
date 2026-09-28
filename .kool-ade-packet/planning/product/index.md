@@ -13,25 +13,26 @@
 
 Packet is a git-backed desktop planning partner. The index orients an agent; individual modules supply the current product truth. Active feature documents describe pending deltas.
 
-## Modules
+## Product modules
 
-- [`01-vision.md`](01-vision.md) — 1. Vision
-- [`02-scope.md`](02-scope.md) — 2. Scope
-- [`03-actors-and-roles.md`](03-actors-and-roles.md) — 3. Actors and Roles
-- [`04-feature-inventory.md`](04-feature-inventory.md) — 4. Feature Inventory
-- [`05-functional-requirements.md`](05-functional-requirements.md) — 5. Functional Requirements
-- [`06-non-functional-requirements.md`](06-non-functional-requirements.md) — 6. Non-Functional Requirements
-- [`07-data-model.md`](07-data-model.md) — 7. Data Model
-- [`08-architecture.md`](08-architecture.md) — 8. Architecture
-- [`09-environment.md`](09-environment.md) — 9. Environment, Launch, and Preconditions
-- [`10-decisions.md`](10-decisions.md) — 10. Decisions Log
-- [`11-risks.md`](11-risks.md) — 11. Risks and Open Concerns
-- [`12-acceptance.md`](12-acceptance.md) — 12. Acceptance / Definition of Done
-- [`13-source-map.md`](13-source-map.md) — 13. Source Map
+- [1. Vision](01-vision.md) — required: Overview
+- [2. Scope](02-scope.md)
+- [3. Actors and Roles](03-actors-and-roles.md) — required: Users and Outcomes
+- [4. Feature Inventory](04-feature-inventory.md)
+- [5. Functional Requirements](05-functional-requirements.md) — required: Current Capabilities
+- [6. Non-Functional Requirements](06-non-functional-requirements.md) — required: Quality and Acceptance
+- [7. Data Model](07-data-model.md)
+- [8. Architecture](08-architecture.md) — required: Architecture and Constraints
+- [9. Environment, Launch, and Preconditions](09-environment.md)
+- [10. Decisions Log](10-decisions.md) — required: Decisions
+- [11. Risks and Open Concerns](11-risks.md)
+- [12. Acceptance / Definition of Done](12-acceptance.md)
+- [13. Source Map](13-source-map.md)
 
 ## Active features
 
-- [`CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask`](../features/CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask/specification.md)
-- [`CHG-004-post-publication-worktree-cleanup`](../features/CHG-004-post-publication-worktree-cleanup/specification.md)
-- [`CHG-005-editable-operator-persona`](../features/CHG-005-editable-operator-persona/specification.md)
-- [`CHG-006-packet-self-review-and-enhancement-pipeline-log-mining-g`](../features/CHG-006-packet-self-review-and-enhancement-pipeline-log-mining-g/specification.md)
+- [`CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask`](../changes/CHG-003-readable-chat-replies-formatted-markdown-at-a-glance-ask/specification.md)
+- [`CHG-004-post-publication-worktree-cleanup`](../changes/CHG-004-post-publication-worktree-cleanup/specification.md)
+- [`CHG-005-editable-operator-persona`](../changes/CHG-005-editable-operator-persona/specification.md)
+- [`CHG-006-packet-self-review-and-enhancement-pipeline-log-mining-g`](../changes/CHG-006-packet-self-review-and-enhancement-pipeline-log-mining-g/specification.md)
+- [`F7-client-billing-time-tracking`](../changes/F7-client-billing-time-tracking/specification.md)
