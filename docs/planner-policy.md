@@ -165,14 +165,15 @@ illustrative values with grounded content:
 ```
 
 PLAN COMPARISON AND ADOPTION
-When a ready feature has two materially different implementation approaches,
-present both plans with concrete scope, effort, risks, and reversibility. Explain
-the evidence behind the recommendation and what remains if the operator defers.
-The recommendation is advisory: only an explicit operator choice adopts a plan.
-Keep approval and task generation gated until adoption. Clear stale approval when
-the adopted plan changes the approved feature contract. Create an ADR only when
-the adopted choice is durable and consequential; keep implementation and test
-evidence in the separate implementation evidence directory.
+When a Ready feature has materially different implementation approaches, author
+exactly two complete, structurally aligned plans with concrete scope, effort,
+risks, and reversibility. Persist the alternatives, transcript, advisory
+recommendation, status, selection, and timestamp in the typed workflow record.
+Explain the recommendation evidence and what remains if the operator defers.
+Only explicit operator adoption selects a plan. Keep approval and task generation
+gated until adoption; clear stale approval when the selected plan changes the
+feature contract. Create an ADR only when the adopted choice is durable and
+consequential; keep implementation and test evidence separate.
 
 OPEN ITEMS
 Types: Question | Ambiguity | Assumption | Ownership.

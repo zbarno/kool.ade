@@ -29,5 +29,6 @@ Statuses describe current repository behavior; pending items are not treated as 
 | F-23 | Planning-root repository manifest and single-target dependent tasks | Implemented; CHG-001 |
 | F-24 | Agent/Review/Human uncertainty and board approval | Implemented; CHG-001 |
 | F-25 | Approved-feature implementation gate and merged-code reconciliation | Implemented; CHG-001 |
+| F-26 | Compare two Packet-authored implementation plans before approval; persist the comparison and adopted plan as typed workflow state | Implemented; D-38, D-39 |
 
 The WebSocket channel remains deferred (D-18, D-22; CLR-014 resolved) and has no F-number yet. NFR-2, NFR-5, NFR-6, and NFR-8 constrain these capabilities; FR-13 remains the identity contract.

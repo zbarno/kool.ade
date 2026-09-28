@@ -8,6 +8,7 @@ Packet is a native desktop application for planning software projects through co
 - Use Rust's directory module layout: declare a module in `foo.rs` and place its child modules in `foo/` (for example, `core.rs` and `core/implementation.rs`).
 - Treat `.kool-ade-packet/` as the only live shared Packet project-artifact root; legacy roots are migration inputs or historical records only.
 - Keep Markdown human-readable and derive workflow behavior from structured metadata and state.
+- Treat plan recommendations as advisory; only explicit operator adoption selects a plan and unlocks approval.
 
 # Never
 

@@ -10,3 +10,9 @@ Both legs are required:
 The timeboxed real-team pilot and a standalone automated replacement for the live interview are excluded from this MVP bar. No new numerical performance/usability gate is implied (D-19). Only a fresh operator ruling can widen or weaken the bar.
 
 CHG-001's separate 23-point feature acceptance list remains in its feature specification. That feature adds modular planning, authority, multi-repository tasks and reconciliation without silently altering this older MVP demonstration. F-19/F-20 board displays (D-26, D-27) are implemented and remain outside this original bar; CLR-007 is resolved.
+
+## F-26 Comparative Plan Approval
+
+- A Ready feature with no adopted plan exposes Compare Plans and keeps Approve unavailable. Packet presents exactly two complete, materially distinct plans and an evidence-backed advisory recommendation.
+- The operator can adopt either plan regardless of the recommendation. Adoption records the choice in the typed workflow and feature contract, creates an ADR, invalidates stale approval, and enables explicit approval against the new contract.
+- Discard, failed comparison, and restart preserve a safe approval gate and recoverable comparison state. Features already approved before the gate retain their existing behavior.

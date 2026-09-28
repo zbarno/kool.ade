@@ -16,7 +16,7 @@
 | `.kool-ade-packet/planning/decisions/` | Material decisions approved through planning | Recoverable planning transaction |
 | `.kool-ade-packet/planning/imports/` | Reference documents | Operator import |
 | `.kool-ade-packet/planning/archive/` | Superseded product documents and historical implementation summaries | Artifact migration |
-| `.kool-ade-packet/state/workflow.json`, `work.json` | Feature approvals, task batches, and persistent planning-work cards | Packet workflow |
+| `.kool-ade-packet/state/workflow.json`, `work.json` | Feature approvals, task batches, versioned plan-comparison records, and persistent planning-work cards | Packet workflow |
 | `.kool-ade-packet/implementation/` | Local reports, responses, verification results, and recovery evidence; ignored by Git | Implementation workers and Packet |
 | `$PACKET_HOME/projects/<slug>/` | Operator-local chat, task conversations, and task-generation checkpoints | Local Packet process |
 | `$PACKET_HOME/projects/<slug>/repositories.json` | Private mapping from stable repository IDs to verified local checkout paths | Repository settings/resolution |
@@ -46,6 +46,11 @@ repository base commits, and configuration. Each story targets one logical
 repository and carries dependency UIDs. Implementation records bind worktrees,
 verification, recovery, pull-request/publication state, and merged commits to the
 stable task UID.
+
+`PlanComparisonRecord` binds two validated alternatives, the advisory
+recommendation, transcript, lifecycle status, selected alternative, and update
+time to a stable feature ID. Adoption mirrors the chosen plan in the feature
+contract so its approval fingerprint changes with the user's decision.
 
 ### 7.3 Structured protocol
 

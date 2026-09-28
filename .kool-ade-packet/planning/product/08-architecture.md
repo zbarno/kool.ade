@@ -40,6 +40,12 @@ Rust enforces identity,
 schema, legal transitions, containment, approvals, routing, transaction safety,
 Git safety, and tool capabilities independently of prompt compliance.
 
+For Ready features, Compare Plans produces exactly two validated candidates and
+an advisory recommendation. The versioned comparison record is workflow state;
+adoption writes the operator's selected plan into the feature contract, creates
+an ADR when the choice is material, and invalidates approval before explicit
+re-approval against the new fingerprint.
+
 An approved feature freezes the affected product modules, repository heads, and
 configuration into its task-batch contract. Implementation runs in isolated
 worktrees and verifies before any sharing. Auto Plan, Auto Build, and Auto Publish

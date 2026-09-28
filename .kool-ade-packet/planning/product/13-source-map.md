@@ -15,6 +15,11 @@
 | Registered repository display-name model, validation, and shared-manifest persistence | `src/core/project_repos.rs`, `src/core/project_repos/names.rs`, `src/core/project_repos/save.rs`, `src/app/dialogs/settings/repository_names.rs` |
 | Repository display-name settings and Welcome/Workspace listings | `src/app/dialogs/settings/painter.rs`, `src/app/welcome/repository_picker.rs`, `src/ui/layout/workspace_repositories.rs`, `src/app/root/repository_switcher.rs` |
 | Repository display-name validation, duplicate fallback, settings clear/save/reload, and checkout routing regressions | `src/core/project_repos/names.rs`, `src/core/project_repos/save.rs`, `src/app/dialogs/settings/repository_names/tests.rs`, `src/app/welcome/repository_picker/tests.rs`, `src/app/root/repository_switcher/tests.rs` |
+| F-26 typed comparison records and backward-compatible workflow loading | `src/core/workflow.rs`, `src/core/workflow/comparison_record.rs`, `src/artifacts/task_docs/workflow.rs` |
+| F-26 comparison envelope validation, contrast checks, and planner prompt | `src/harness/responses.rs`, `src/core/validation/plan_comparison.rs`, `src/core/prompt/compare_plans.rs` |
+| F-26 ComparePlans turn dispatch and typed proposal persistence | `src/core/turn.rs`, `src/core/turn/execute.rs`, `src/core/apply/comparison.rs` |
+| F-26 plan adoption, ADR creation, approval invalidation, and selected-plan fingerprint | `src/app/feature_approval/selection/`, `src/domain/change_status/metadata/typed_adoption.rs`, `src/core/contract_snapshot.rs` |
+| F-26 approval gate, comparison view, restart, failure, and adoption regressions | `src/app/feature_approval.rs`, `src/ui/feature_approval.rs`, `src/app/root/feature_approval/tests/` |
 | Regression and demonstration evidence | `tests/`, module-local unit tests, `examples/`, `docs/exit-demo-runbook.md` |
 
 Legacy paths listed here are migration inputs, not active runtime locations.

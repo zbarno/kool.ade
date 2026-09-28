@@ -139,3 +139,7 @@ pub fn paint(ui: &mut egui::Ui, actions: &[Action], busy: bool) -> Option<(Strin
     }
     selected
 }
+
+#[cfg(test)]
+#[path = "feature_approval/tests.rs"]
+mod tests;
