@@ -1,5 +1,7 @@
 use crate::core::task_generation::generation::model_batch_context;
-use crate::core::task_generation::run::{previous_response_for_repair, repair_is_response_only};
+use crate::core::task_generation::run::{
+    previous_response_for_repair, repair_execution_mode, repair_is_response_only,
+};
 use crate::core::task_generation::{
     prompt::{STORY_CONTRACT, SYSTEM, TASK_OUTLINE_STEP},
     response::{decode_outline, decode_stories, same_refs, story_response},
@@ -165,6 +167,17 @@ fn read_budget_failures_retry_as_response_only_repairs() {
     let prior = previous_response_for_repair(&feedback, "partial JSON response");
     assert!(prior.contains("Do not call tools again"));
     assert!(repair_is_response_only(&feedback));
+    assert_eq!(
+        repair_execution_mode(crate::harness::ExecutionMode::TaskGeneration, &feedback),
+        crate::harness::ExecutionMode::ReadOnlyAnalysis
+    );
+    assert_eq!(
+        repair_execution_mode(
+            crate::harness::ExecutionMode::TaskGeneration,
+            &["Story changed its approved scope references".into()]
+        ),
+        crate::harness::ExecutionMode::TaskGeneration
+    );
 }
 
 #[test]

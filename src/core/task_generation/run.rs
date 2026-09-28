@@ -8,7 +8,7 @@ use crate::{
         workflow::{TaskOutline, TaskStory, story_detail_errors, validate_outline},
     },
     error::AppError,
-    harness::{AiHarness, LiveProgress, PlanningRequest},
+    harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest},
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::atomic::Ordering, time::Instant};
@@ -78,6 +78,20 @@ pub(super) fn repair_is_response_only(feedback: &[String]) -> bool {
             || problem.contains("Return exactly one complete story in task_stories")
             || problem.contains("read-only planning")
     })
+}
+
+pub(super) fn repair_execution_mode(
+    requested: ExecutionMode,
+    feedback: &[String],
+) -> ExecutionMode {
+    if feedback.is_empty() || !repair_is_response_only(feedback) {
+        requested
+    } else {
+        // A repair corrects an already gathered response. Enforce the
+        // response-only contract through harness capabilities, not just
+        // prompt wording, so retries cannot spend the read budget again.
+        ExecutionMode::ReadOnlyAnalysis
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -215,6 +229,7 @@ impl Run {
         let mut previous = String::new();
         for attempt in 1..=max_attempts {
             let mut request = req.clone();
+            request.mode = repair_execution_mode(request.mode, &feedback);
             request.timeout = self.remaining(req)?;
             request.system_instructions = SYSTEM.into();
             request.prompt_body = prompt.clone();
