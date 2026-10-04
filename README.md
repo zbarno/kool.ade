@@ -240,9 +240,9 @@ Approving a plan does **not** publish code.
 
 Verified work can remain local for inspection until you decide what happens next.
 
-If automatic publication is enabled, Kool.ad/e integrates work against the latest remote branch, reruns verification, and publishes an atomic commit only after the checks pass.
+When automatic publication is enabled, Kool.ad/e integrates work against the latest remote branch and reruns verification. The verified result stays local for your review until you choose **Share verified work**; sharing pushes a branch and opens a pull request.
 
-No green checks, no push.
+No green checks, no share.
 
 The robots have boundaries.
 
@@ -600,6 +600,8 @@ They are ignored.
 Coding agents keep getting better at implementation.
 
 That shifts the bottleneck.
+
+As coding gets faster, unclear requirements can also get you to the wrong thing faster.
 
 The hard part increasingly becomes:
 
