@@ -1,0 +1,286 @@
+use super::*;
+
+#[test]
+fn board_mockup_hierarchy_and_centered_legend_at_desktop_sizes() {
+    for width in [1280.0, 1600.0] {
+        let mut app = fixture();
+        let Screen::Connected(project) = &mut app.screen else {
+            unreachable!()
+        };
+        let doc = &mut project.task_documents[0];
+        doc.path =
+            ".koolade-packet/planning/tasks/fixture/F7-TASK-generate-completed-month-report.md"
+                .into();
+        doc.title =
+            "F7-TASK-generate-completed-month-report — Generate completed-month report".into();
+        doc.text = "# Report\n\n## Intent\nBuild a report from recorded activity.\n\n## Acceptance criteria\n- Handle empty months\n- Preserve day ordering\n- Sum recorded time\n- Keep workspaces separate\n- Include report totals\n".into();
+        let ctx = styled_context();
+        let size = egui::vec2(width, 900.0);
+        for _ in 0..3 {
+            frame_at(&mut app, &ctx, vec![], size);
+        }
+        let output = frame_at(&mut app, &ctx, vec![], size);
+        let title = text_position(&output, "Generate completed-month report").expect("human title");
+        assert!(
+            text_position(
+                &output,
+                "F7-TASK-generate-completed-month-report — Generate completed-month report"
+            )
+            .is_none()
+        );
+        assert!(text_position(&output, "+ 2 more in task details").is_some());
+        assert!(text_position(&output, "Keep workspaces separate").is_none());
+        let first = text_position(&output, "Task").expect("legend starts");
+        let last = text_position(&output, "Ownership").expect("legend ends");
+        let board_tab = text_position(&output, "Board  3").unwrap();
+        let new_task = text_position(&output, "+ New Task").unwrap();
+        assert!(
+            first.x > board_tab.x && last.x < new_task.x,
+            "legend fits between Board and New Task"
+        );
+        assert!(
+            (first.y - board_tab.y).abs() < 6.0 && (last.y - new_task.y).abs() < 6.0,
+            "legend shares the navigation row"
+        );
+        assert!(title.y > first.y);
+        let lanes: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect) if rect.fill == crate::ui::theme::COLUMN => Some(rect.rect),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lanes.len(), 5);
+        assert!(
+            lanes
+                .iter()
+                .all(|rect| rect.right() <= width && rect.left() >= 0.0)
+        );
+        let criteria = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "Handle empty months" => {
+                    Some(text)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            criteria
+                .galley
+                .job
+                .sections
+                .iter()
+                .all(|section| section.format.font_id.size >= 12.0)
+        );
+    }
+}
+
+// The redesigned lane header paints its label and count separately. Locate the
+// matching count inside the same lane and on the same row, preserving count checks.
+pub(super) fn lane_position(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> {
+    let (label, count) = needle.split_once(" · ")?;
+    if !crate::core::implementation::BOARD_COLUMNS.contains(&label) {
+        return None;
+    }
+    let label_pos = output.shapes.iter().find_map(|shape| match &shape.shape {
+        egui::Shape::Text(text) if text.galley.text() == label => {
+            Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+        }
+        _ => None,
+    })?;
+    let lane = output.shapes.iter().find_map(|shape| match &shape.shape {
+        egui::Shape::Rect(rect)
+            if rect.fill == crate::ui::theme::COLUMN && rect.rect.contains(label_pos) =>
+        {
+            Some(rect.rect)
+        }
+        _ => None,
+    })?;
+    output.shapes.iter().find_map(|shape| match &shape.shape {
+        egui::Shape::Text(text) if text.galley.text() == count => {
+            let pos = text.pos + text.galley.mesh_bounds.center().to_vec2();
+            (lane.contains(pos) && pos.x > label_pos.x && (pos.y - label_pos.y).abs() < 5.0)
+                .then_some(label_pos)
+        }
+        _ => None,
+    })
+}
+
+pub(super) fn styled_context() -> egui::Context {
+    let ctx = egui::Context::default();
+    ctx.set_visuals(crate::ui::theme::koolade_visuals());
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
+        style
+            .text_styles
+            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Button, egui::FontId::proportional(13.0));
+        style
+            .text_styles
+            .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 7.0);
+    });
+    ctx
+}
+
+#[test]
+fn short_desktop_keeps_blocker_action_visible_and_branch_badge_compact() {
+    let mut app = fixture();
+    let Screen::Connected(project) = &mut app.screen else {
+        unreachable!()
+    };
+    project.git.branch = "master".into();
+    let doc = &mut project.task_documents[0];
+    doc.title = "Prove the dual-instance, browse and clone flows end to end and meet the D-34 warning and regression gates".into();
+    doc.text = format!(
+        "## Purpose\n{}\n\n## Acceptance criteria\n{}",
+        "The brief's success criteria couple behaviors across the connected workspace.",
+        "- Given the in-repo connected fixture with spawn task evidence preserved\n".repeat(6)
+    );
+    project.queue.blocked.insert(doc.path.clone(), crate::core::implementation::Failure::other(
+        "### Next action(s)\n- ADJUDICATOR: review the preserved evidence and approve the next action."));
+    let ctx = styled_context();
+    let size = egui::vec2(1280.0, 720.0);
+    for _ in 0..3 {
+        frame_at(&mut app, &ctx, vec![], size);
+    }
+    let output = frame_at(&mut app, &ctx, vec![], size);
+    let action = text_position(&output, "Review next action").expect("visible blocker action");
+    assert!(
+        action.y < 620.0,
+        "the main action must fit above the fold: {action:?}"
+    );
+    if let Some(checklist) = text_position(&output, "0 of 6 complete") {
+        assert!(
+            action.y < checklist.y,
+            "the blocker takes priority over checklist detail"
+        );
+    }
+    let branch = text_position(&output, "master").unwrap();
+    let badge = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect)
+                if rect.rect.contains(branch) && rect.fill == crate::ui::theme::PANEL_ALT =>
+            {
+                Some(rect.rect)
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.area().total_cmp(&b.area()))
+        .unwrap();
+    assert!(
+        badge.height() <= 30.0,
+        "branch badge must not stretch: {badge:?}"
+    );
+}
+
+#[test]
+fn red_banner_covers_full_width_and_clips_splash_behind_controls() {
+    for width in [360.0, 1280.0] {
+        let mut app = fixture();
+        let ctx = styled_context();
+        let size = egui::vec2(width, 720.0);
+        for _ in 0..3 {
+            frame_at(&mut app, &ctx, vec![], size);
+        }
+        let output = frame_at(&mut app, &ctx, vec![], size);
+        let banner = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Rect(rect)
+                    if rect.fill == crate::ui::theme::PUNCH_DEEP
+                        && rect.rect.width() >= width - 1.0 =>
+                {
+                    Some(rect.rect)
+                }
+                _ => None,
+            })
+            .expect("red panel background covers the banner including its margins");
+        assert!(banner.left().abs() < 1.0 && (banner.right() - width).abs() < 1.0);
+        let texture = ctx
+            .data_mut(|data| {
+                data.get_temp::<egui::TextureHandle>(egui::Id::new("kool_ade_punch_splash_texture"))
+            })
+            .unwrap();
+        let (splash_index, splash) = output.shapes.iter().enumerate().find(|(_, shape)| {
+            matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.texture_id == texture.id())
+        }).expect("supplied splash is painted");
+        assert!(splash.clip_rect.bottom() <= banner.bottom() + 1.0);
+        let workspace_index = output.shapes.iter().position(|shape| {
+            matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "Workspace")
+        }).unwrap();
+        assert!(
+            splash_index < workspace_index,
+            "splash stays behind the controls"
+        );
+    }
+}
+
+#[test]
+fn active_work_keeps_equal_lanes_and_uses_the_larger_logo() {
+    let mut app = fixture();
+    let Screen::Connected(project) = &mut app.screen else {
+        unreachable!()
+    };
+    let ticket = project.task_documents[0].path.clone();
+    project.task_documents[0].title = "Prove the dual-instance, browse and clone flows end to end and meet the D-34 warning and regression gates".into();
+    project.active_implementations.insert(
+        ticket,
+        crate::core::implementation::Controller::idle_fixture(),
+    );
+    let ctx = styled_context();
+    let size = egui::vec2(1280.0, 740.0);
+    for _ in 0..3 {
+        frame_at(&mut app, &ctx, vec![], size);
+    }
+    let output = frame_at(&mut app, &ctx, vec![], size);
+    let lanes: Vec<_> = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect) if rect.fill == crate::ui::theme::COLUMN => Some(rect.rect),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lanes.len(), 5);
+    assert!(
+        lanes
+            .iter()
+            .all(|lane| (lane.width() - lanes[0].width()).abs() < 1.0 && lane.right() <= size.x)
+    );
+    let logo = ctx
+        .data_mut(|data| {
+            data.get_temp::<egui::TextureHandle>(egui::Id::new("kool_ade_logo_texture"))
+        })
+        .unwrap();
+    let bounds = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Rect(rect) if rect.fill_texture_id() == logo.id() => Some(rect.rect),
+            _ => None,
+        })
+        .unwrap();
+    assert!((bounds.width() - 128.0).abs() < 1.0);
+    let title = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text)
+                if text.galley.text().starts_with("Prove the dual-instance") =>
+            {
+                Some(&text.galley)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(title.rows.len() <= 3);
+}

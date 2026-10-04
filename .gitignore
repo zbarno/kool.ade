@@ -1,0 +1,15 @@
+/target
+*.swp
+
+# Pi
+.pi-*
+
+# Kool.ad/e
+.koolade-packet/config/mcp.json
+.koolade-packet/implementation/
+.koolade-packet/planning/tasks/**/.koolade-progress.json
+.koolade-packet/state/time-ledger.log
+.koolade-packet/**/run.lock
+.koolade-packet/**/activity.json
+.koolade-packet/**/state.json
+.koolade-packet/**/*.tmp

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "assistant_message": "I have planned the persistence and picker stories.",
+  "task_outline": [
+    {
+      "title": "Persist named search filters",
+      "purpose": "Retain analysts’ complete named filter configurations across application sessions without changing existing ad hoc query behavior.",
+      "scope_items": [
+        1
+      ],
+      "success_criteria": [
+        1,
+        2
+      ],
+      "dependencies": []
+    },
+    {
+      "title": "Build the saved search picker",
+      "purpose": "Let analysts resume named searches through a keyboard-accessible picker with recoverable errors and predictable focus behavior.",
+      "scope_items": [
+        2
+      ],
+      "success_criteria": [
+        1,
+        2
+      ],
+      "dependencies": [
+        1
+      ]
+    }
+  ]
+}

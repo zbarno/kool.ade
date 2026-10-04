@@ -1,0 +1,256 @@
+//! The connected-project session: loaded artifacts, chat (persisted OUTSIDE
+//! git under ~/.koolade), running-turn bookkeeping, and refresh cadence.
+
+use std::rc::Rc;
+
+use crate::core::gitops::{self, GitSnapshot};
+use crate::core::state::PlannerState;
+use crate::core::turn::TurnController;
+use crate::domain::chatlog::ChatMessage;
+use crate::persistence::chat_store;
+
+#[cfg(test)]
+pub(crate) mod test_support;
+
+pub struct Project {
+    pub task_chats: crate::persistence::task_chats::TaskChats,
+    pub activity: super::manager::WorkspaceActivity,
+    pub state: PlannerState,
+    /// Project slug keying the ~/.koolade chat store.
+    pub chat_slug: String,
+    pub chat: Vec<ChatMessage>,
+    pub draft: String,
+    pub queue: crate::core::implementation_queue::Queue,
+    pub queue_lock: Option<std::fs::File>,
+    pub active_implementations:
+        std::collections::BTreeMap<String, crate::core::implementation::Controller>,
+    pub implementation_states:
+        std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    pub pr_refresh: Option<crate::core::implementation::PrRefresh>,
+    pub reconciliation: crate::app::reconciliation_lifecycle::Lifecycle,
+    pub investigation: Option<crate::core::investigation::Controller>,
+    pub investigation_attempted: std::collections::HashSet<String>,
+    /// Suppresses agent-item investigation spawning until this instant; set
+    /// after a drift deferral so a live project stops churning model calls.
+    pub investigation_cooldown_until: Option<std::time::Instant>,
+    pub last_pr_refresh: Option<std::time::Instant>,
+    pub active_turn: Option<Rc<TurnController>>,
+    pub task_turns: std::collections::BTreeMap<String, Rc<TurnController>>,
+    pub task_live: std::collections::BTreeMap<String, crate::harness::LiveProgress>,
+    pub planning_work: Vec<crate::core::planning_work::Work>,
+    pub active_planning_work: Option<String>,
+    pub live_progress: crate::harness::LiveProgress,
+    /// Which item the app decided to press the user with (routing verdict).
+    pub next_question_id: Option<String>,
+    pub git: GitSnapshot,
+    pub task_documents: Vec<crate::artifacts::task_docs::TaskDocument>,
+    pub archived_tasks: std::collections::BTreeSet<String>,
+}
+
+impl Project {
+    pub fn save_planning_work(&mut self) -> Result<(), String> {
+        match crate::core::planning_work::save(&self.state.repo_root, &self.planning_work) {
+            Ok(()) => {
+                self.activity.pending_planning_work = false;
+                self.activity
+                    .pending
+                    .retain(|event| !event.starts_with("Planning work could not be saved:"));
+                Ok(())
+            }
+            Err(error) => {
+                self.activity.pending_planning_work = true;
+                if !self
+                    .activity
+                    .pending
+                    .iter()
+                    .any(|event| event.starts_with("Planning work could not be saved:"))
+                {
+                    self.activity.pending.push(format!(
+                        "Planning work could not be saved: {error}. Kool.ad/e will retry automatically."
+                    ));
+                }
+                Err(error.to_string())
+            }
+        }
+    }
+
+    pub fn bind_task_conversation_identities(&mut self) {
+        match self.queue.bind_task_documents(&self.task_documents) {
+            Ok(true) => {
+                if let Err(error) = self.queue.save(&self.state.repo_root) {
+                    self.queue.last_error =
+                        format!("Task identity migration could not be saved: {error}");
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                self.queue.last_error =
+                    format!("Task queue references could not be linked: {error}")
+            }
+        }
+        if let Err(error) = self.task_chats.bind_task_documents(&self.task_documents) {
+            self.task_chats.error =
+                Some(format!("Task conversations could not be linked: {error}"));
+        }
+    }
+
+    pub fn task_interaction_context(&self, focus: &str) -> String {
+        let context = self.task_chats.project_context(focus, 24000);
+        if context.is_empty() {
+            return context;
+        }
+        format!(
+            "{context}\nConversation storage status: {}\nComplete task conversation history: {}\n",
+            self.task_chats.error.as_deref().unwrap_or("Saved"),
+            crate::persistence::project_dir(&self.chat_slug)
+                .join("task-conversations.json")
+                .display()
+        )
+    }
+
+    /// Snapshot the most recent chat for the turn's prompt context.
+    pub fn recent_chat_tuples(&self, max_msgs: usize, clip_chars: usize) -> Vec<(String, String)> {
+        let start = self.chat.len().saturating_sub(max_msgs);
+        self.chat[start..]
+            .iter()
+            .map(|m| {
+                let who = match m.role {
+                    crate::domain::chatlog::ChatRole::User => "you".to_string(),
+                    crate::domain::chatlog::ChatRole::Agent => "planner".to_string(),
+                    crate::domain::chatlog::ChatRole::System => "system".to_string(),
+                };
+                (who, clip(&m.text, clip_chars))
+            })
+            .collect()
+    }
+
+    /// Push messages into memory AND the durable ~/.koolade store.
+    pub fn remember_chat(&mut self, msgs: Vec<ChatMessage>) {
+        if msgs.is_empty() {
+            return;
+        }
+        let _ = chat_store::append(&self.chat_slug, &msgs);
+        self.chat.extend(msgs);
+    }
+
+    pub fn remember_turn_chat(&mut self, msgs: Vec<ChatMessage>) {
+        if let Some(key) = self.task_chats.active.clone() {
+            self.activity.pending.push(format!(
+                "Task conversation {key} updated: {}",
+                msgs.iter()
+                    .map(|m| format!(
+                        "{:?}: {}",
+                        m.role,
+                        crate::core::context_build::clip(&m.text, 1600)
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+            self.task_chats
+                .remember_response(&self.chat_slug, &key, msgs);
+        } else {
+            self.remember_chat(msgs);
+        }
+    }
+
+    pub fn refresh_implementations(&mut self) {
+        let latest = crate::core::implementation::load_board_states(&self.state.repo_root);
+        self.adopt_implementations(latest);
+        for ticket in self.implementation_states.keys() {
+            if !self.activity.tasks.contains_key(ticket)
+                && let Some(activity) =
+                    crate::core::implementation::load_activity(&self.state.repo_root, ticket)
+            {
+                self.activity.tasks.insert(ticket.clone(), activity);
+            }
+        }
+    }
+
+    pub fn adopt_implementations(
+        &mut self,
+        latest: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
+    ) {
+        for (ticket, state) in &latest {
+            if let Some(previous) = self.implementation_states.get(ticket)
+                && (previous.status != state.status || previous.pr_state != state.pr_state)
+            {
+                self.activity.pending.push(format!(
+                    "{ticket}: {} → {}; PR {:?}",
+                    previous.status, state.status, state.pr_state
+                ));
+            }
+        }
+        self.implementation_states = latest;
+    }
+
+    pub fn save_task_activity(&mut self, ticket: &str) {
+        if let Some(activity) = self.activity.tasks.get(ticket)
+            && let Err(error) =
+                crate::core::implementation::save_activity(&self.state.repo_root, ticket, activity)
+        {
+            // Record the failure beside (not over) the last real status
+            // so a terminal snapshot does not reduce to infra noise.
+            const MARK: &str = "Activity could not be saved: ";
+            let previous = self
+                .activity
+                .tasks
+                .get(ticket)
+                .and_then(|progress| progress.activity.clone())
+                .unwrap_or_default();
+            // Keep exactly ONE annotation slot: collapse any earlier
+            // failure note so repeated faults cannot stack diagnostics.
+            let head = previous
+                .split(MARK)
+                .next()
+                .unwrap_or("")
+                .trim_end_matches('\n');
+            let rendered = if head.is_empty() {
+                format!("{MARK}{error}")
+            } else {
+                format!("{head}\n{MARK}{error}")
+            };
+            self.activity.tasks.get_mut(ticket).unwrap().activity = Some(rendered);
+        }
+    }
+
+    pub fn refresh_git(&mut self) {
+        self.git = gitops::snapshot(&self.state.repo_root);
+    }
+}
+
+/// Hydrate display chat from ~/.koolade (tolerant of corruption by design).
+pub fn load_chat(slug: &str) -> Vec<ChatMessage> {
+    chat_store::load(slug).0
+}
+
+fn clip(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        s.to_string()
+    } else {
+        let mut out: String = s.chars().take(max).collect();
+        out.push('…');
+        out
+    }
+}
+
+/// Seed a helpful first line for freshly-connected projects.
+pub fn welcome_message(project_title: &str) -> ChatMessage {
+    let text = format!(
+        "Connected to “{project_title}”. Describe your idea, paste requirements, \
+         or ask me to draft the initial specification. I keep the spec and the \
+         open-items queue in git and only ever talk to you through this chat."
+    );
+    crate::domain::chatlog::ChatMessage::new(crate::domain::chatlog::ChatRole::System, text, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clip_bounds_hold() {
+        assert_eq!(clip("abc", 10), "abc");
+        assert_eq!(clip("abcdefghij", 4), "abcd…");
+    }
+}

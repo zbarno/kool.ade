@@ -1,0 +1,140 @@
+use std::path::{Path, PathBuf};
+
+pub(super) fn mount_toolchains(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+) -> anyhow::Result<bool> {
+    let home = std::env::var_os("HOME").and_then(|path| PathBuf::from(path).canonicalize().ok());
+    let cargo = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|path| path.join(".cargo")))
+        .and_then(|path| approved_home_directory(path, home.as_deref()));
+    let rustup = std::env::var_os("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .or_else(|| home.as_ref().map(|path| path.join(".rustup")))
+        .and_then(|path| approved_home_directory(path, home.as_deref()));
+    if let Some(cargo) = cargo {
+        for (name, source) in [
+            ("koolade-tools/cargo-bin", cargo.join("bin")),
+            ("koolade-tools/cargo-home/registry", cargo.join("registry")),
+            ("koolade-tools/cargo-home/git", cargo.join("git")),
+        ] {
+            if let Some(source) = approved_home_directory(source, home.as_deref()) {
+                let destination = Path::new("/tmp").join(name);
+                bind_readonly(args, created, &source, &destination)?;
+            }
+        }
+    }
+    let mounted_rustup = if let Some(rustup) = rustup {
+        bind_readonly(
+            args,
+            created,
+            &rustup,
+            Path::new("/tmp/koolade-tools/rustup-home"),
+        )?;
+        true
+    } else {
+        false
+    };
+    make_dir(args, created, Path::new("/tmp/koolade-tools/cargo-home"));
+    Ok(mounted_rustup)
+}
+
+fn approved_home_directory(path: PathBuf, home: Option<&Path>) -> Option<PathBuf> {
+    let home = home?;
+    let path = path.canonicalize().ok()?;
+    (path != home && path.starts_with(home) && path.is_dir()).then_some(path)
+}
+
+pub(super) fn bind_readonly(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+    source: &Path,
+    destination: &Path,
+) -> anyhow::Result<()> {
+    ensure_parents(args, created, destination);
+    if destination != Path::new("/") {
+        make_dir(args, created, destination);
+    }
+    args.extend([
+        "--ro-bind".into(),
+        source.to_string_lossy().into_owned(),
+        destination.to_string_lossy().into_owned(),
+    ]);
+    Ok(())
+}
+
+pub(super) fn bind_readonly_file(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+    source: &Path,
+    destination: &Path,
+) {
+    ensure_parents(args, created, destination);
+    args.extend([
+        "--ro-bind".into(),
+        source.to_string_lossy().into_owned(),
+        destination.to_string_lossy().into_owned(),
+    ]);
+}
+
+pub(super) fn bind_readwrite(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+    source: &Path,
+    destination: &Path,
+) -> anyhow::Result<()> {
+    ensure_parents(args, created, destination);
+    make_dir(args, created, destination);
+    args.extend([
+        "--bind".into(),
+        source.to_string_lossy().into_owned(),
+        destination.to_string_lossy().into_owned(),
+    ]);
+    Ok(())
+}
+
+pub(super) fn mount_tmpfs(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+    path: &Path,
+    size: u64,
+) {
+    ensure_parents(args, created, path);
+    make_dir(args, created, path);
+    args.extend([
+        "--size".into(),
+        size.to_string(),
+        "--tmpfs".into(),
+        path.to_string_lossy().into_owned(),
+    ]);
+}
+
+pub(super) fn make_dir(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+    path: &Path,
+) {
+    let value = path.to_string_lossy().into_owned();
+    if created.insert(value.clone()) {
+        args.extend(["--dir".into(), value]);
+    }
+}
+
+fn ensure_parents(
+    args: &mut Vec<String>,
+    created: &mut std::collections::BTreeSet<String>,
+    path: &Path,
+) {
+    let mut current = PathBuf::from("/");
+    for component in path.parent().into_iter().flat_map(Path::components) {
+        if let std::path::Component::Normal(part) = component {
+            current.push(part);
+            make_dir(args, created, &current);
+        }
+    }
+}
+
+pub(super) fn push_env(args: &mut Vec<String>, name: &str, value: &str) {
+    args.extend(["--setenv".into(), name.into(), value.into()]);
+}

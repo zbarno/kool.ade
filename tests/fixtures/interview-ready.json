@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "assistant_message": "The goal is to let analysts resume daily searches without rebuilding filters. Local saved searches and a picker are in scope; sharing is excluded.",
+  "interview": {
+    "feature_name": "Saved searches",
+    "problem": "Analysts rebuild the same search filters every morning.",
+    "goal": "Resume useful searches without repeating setup.",
+    "target_users": "Operations analysts reviewing daily changes.",
+    "intended_outcome": "Select a named search and immediately see current results.",
+    "success_criteria": [
+      "A named search can be restored after restarting the application.",
+      "Saving an invalid search preserves existing saved records and shows a clear error."
+    ],
+    "in_scope": [
+      "Persist named filter records.",
+      "Provide a saved-search picker with accessible error feedback."
+    ],
+    "out_of_scope": [
+      "Sharing saved searches between users."
+    ],
+    "constraints": [
+      "Preserve existing ad hoc search behavior."
+    ],
+    "ready_for_tasks": true
+  },
+  "document_updates": [
+    {
+      "document_id": "product:overview",
+      "content": "# Overview\n\nHelp operations analysts resume daily searches without rebuilding filters.\n"
+    },
+    {
+      "document_id": "product:users-and-outcomes",
+      "content": "# Users and Outcomes\n\nOperations analysts reuse filters to review daily changes with less repeated setup.\n"
+    },
+    {
+      "document_id": "product:current-capabilities",
+      "content": "# Current Capabilities\n\nThe application supports ad hoc search. **FR-1:** Users can save named filters, restart, and load current results from them.\n"
+    },
+    {
+      "document_id": "product:architecture-and-constraints",
+      "content": "# Architecture and Constraints\n\nPreserve the existing search workflow while adding versioned local records and a picker.\n"
+    },
+    {
+      "document_id": "product:decisions",
+      "content": "# Decisions\n\n| ID | Decision | Basis | Status |\n| --- | --- | --- | --- |\n| D-01 | Exclude sharing between users | Fixture scenario | Confirmed |\n"
+    },
+    {
+      "document_id": "product:quality-and-acceptance",
+      "content": "# Quality and Acceptance\n\n**NFR-1:** Invalid saves preserve existing records and show clear feedback. Verify restore-after-restart and invalid-save behavior.\n"
+    }
+  ],
+  "open_items_added": [],
+  "open_items_updated": [],
+  "open_items_resolved": [],
+  "next_question_id": null
+}

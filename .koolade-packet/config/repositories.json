@@ -1,0 +1,9 @@
+{
+  "repositories": [
+    {
+      "id": "root",
+      "role": "Planning root",
+      "remote": "https://github.com/zbarno/kool.ade.git"
+    }
+  ]
+}

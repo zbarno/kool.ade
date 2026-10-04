@@ -1,0 +1,294 @@
+use super::*;
+
+mod commit;
+mod prompt;
+mod workspace;
+
+pub(super) fn prepare_worktree(
+    repo: &Path,
+    state: &Implementation,
+    runner: &Runner,
+) -> anyhow::Result<(bool, String)> {
+    workspace::prepare_worktree(repo, state, runner)
+}
+
+pub(super) fn prepare_verified(
+    repo: &Path,
+    dir: &Path,
+    state: &mut Implementation,
+    harness: &dyn AiHarness,
+    runner: &Runner,
+    user_context: Option<&str>,
+    accrual: Option<&crate::core::time_accrual::AgentSpan>,
+) -> anyhow::Result<()> {
+    let (clean, head) = workspace::prepare_worktree(repo, state, runner)?;
+    let already_verified = clean
+        && state.verified_head.as_deref() == Some(head.as_str())
+        && (!state.auto_merge || dir.join("verified-report.json").exists());
+    if already_verified && state.pr_url.is_some() {
+        return Ok(());
+    }
+    if !already_verified {
+        // Report and verification corrections each have a limit of three; all share the original deadline.
+        // Prior-run evidence is context, never part of this run's retry accounting.
+        let prior_detail = state.detail.clone();
+        if !prior_detail.is_empty() {
+            crate::artifacts::atomic_write(
+                &dir.join(format!(
+                    "{}-resume-context.txt",
+                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+                )),
+                &prior_detail,
+            )?;
+        }
+        let prior_failure = resume_failure_context(&prior_detail);
+        let mut feedback = String::new();
+        state.detail =
+            "Starting a fresh attempt budget; previous work and evidence are preserved.".into();
+        let mut previous_response = String::new();
+        let specification = state
+            .approved_specification
+            .clone()
+            .or_else(|| {
+                Path::new(&state.ticket)
+                    .parent()
+                    .map(|p| repo.join(p).join("specification.md"))
+                    .and_then(|p| fs::read_to_string(p).ok())
+            })
+            .unwrap_or_default();
+        let specification = if specification_matches_task(&state.ticket_text, &specification) {
+            specification
+        } else {
+            "The saved feature specification names a different feature. Use the ticket and its approved product context; inspect the planning artifacts before making changes.".into()
+        };
+        let mut attempt = 0;
+        let mut report_corrections = 0;
+        let mut verification_corrections = 0;
+        let mut harness_failures = 0;
+        let mut healing_attempts = 0;
+        let report = loop {
+            runner.remaining()?;
+            attempt += 1;
+            anyhow::ensure!(
+                common(&state.worktree)?.canonicalize()? == common(repo)?.canonicalize()?,
+                "Implementation worktree belongs to a different repository"
+            );
+            anyhow::ensure!(
+                runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
+                "Implementation changed branches; refusing to continue"
+            );
+            state.status = ImplementationStatus::Implementing;
+            save(dir, state)?;
+            runner.update(format!(
+                "Implementing {} (attempt {attempt})…",
+                state.ticket
+            ));
+            let status = runner.git(&state.worktree, &["status", "--short"])?;
+            let log = runner.git(&state.worktree, &["log", "-5", "--oneline"])?;
+            let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
+            let history_evidence = history_preflight_context(
+                runner,
+                &state.worktree,
+                &state.base_commit,
+                &state.ticket_text,
+            )?;
+            // This is a snapshot of the immutable base/history contract. A
+            // fresh timestamped copy on every correction adds no evidence.
+            let history_evidence_path = dir.join("history-preflight.txt");
+            if fs::read_to_string(&history_evidence_path).ok().as_deref()
+                != Some(history_evidence.as_str())
+            {
+                crate::artifacts::atomic_write(&history_evidence_path, &history_evidence)?;
+            }
+            let (prompt, report_path) = prompt::build(prompt::Context {
+                state,
+                status: &status,
+                log: &log,
+                specification: &specification,
+                history_path: &history_evidence_path,
+                history_evidence: &history_evidence,
+                user_context,
+                prior_failure: &prior_failure,
+                feedback: &feedback,
+                previous_response: &previous_response,
+                dir,
+                stamp,
+            });
+            let request = PlanningRequest { mode: crate::harness::ExecutionMode::Implementation, reasoning_level: "medium".into(), repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. Git metadata is read-only inside your sandbox: do not run git add or commit. For new files, inspect their contents directly; Kool.ad/e stages them and runs final verification. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
+            // F7 accrual (AD-4): charge exactly the agent process lifetime.
+            // The guard settles the workspace interval on every escape route
+            // (Ok, Err-return, budget expiry, cancellation); the normal
+            // fall-through settles it here so report parsing, verify-command
+            // execution, and publication never join the bill.
+            let span_guard = accrual.and_then(crate::core::time_accrual::span_begin);
+            let outcome = match harness.execute(&request) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    runner.remaining()?;
+                    let detail = error.detail();
+                    crate::artifacts::atomic_write(&dir.join(format!("{stamp}-harness-error.txt")), &detail)
+                        .map_err(|write_error| anyhow::anyhow!("Harness failed: {detail}\nCould not save diagnostics at {}: {write_error}. Check available disk space and permissions before resuming.", dir.display()))?;
+                    if let Ok(report) = fs::read_to_string(&report_path) {
+                        crate::harness::HarnessOutcome {
+                            final_text: report,
+                            envelope: None,
+                            stderr_tail: detail,
+                        }
+                    } else {
+                        harness_failures += 1;
+                        feedback
+                            .push_str(&format!("\nHarness failure {harness_failures}: {detail}\n"));
+                        state.detail = feedback.clone();
+                        save(dir, state)?;
+                        if harness_failures >= 3 {
+                            feedback.push_str("\nSELF-REPAIR REQUIRED: repeated harness failures. Diagnose their cause using the saved diagnostics, repair preventable causes in this worktree, and add a regression check. Do not repeat the same failed approach. Return the complete JSON report in your final response so Kool.ad/e can save it.\n");
+                        }
+                        anyhow::ensure!(
+                            harness_failures <= 5,
+                            "Harness recovery exhausted after {harness_failures} failures in this run. Latest failure: {detail}. Full diagnostics are preserved in {}",
+                            dir.display()
+                        );
+                        runner.update(format!("Recovering harness failure {harness_failures}; existing work preserved…"));
+                        continue;
+                    }
+                }
+            };
+            if let Some(handle) = span_guard {
+                handle.close(crate::core::time_accrual::StopReason::Completed);
+            }
+            runner.remaining()?;
+            runner.remaining()?;
+            let final_is_report =
+                crate::harness::pi_extract::extract_json_object(&outcome.final_text)
+                    .is_some_and(|json| parse_report(&json).is_ok());
+            let report_text = if final_is_report {
+                outcome.final_text.clone()
+            } else {
+                fs::read_to_string(&report_path)
+                    .ok()
+                    .filter(|text| !text.trim().is_empty())
+                    .unwrap_or_else(|| outcome.final_text.clone())
+            };
+            if final_is_report && !report_path.exists() {
+                crate::artifacts::atomic_write(&report_path, &report_text)?;
+            }
+            if outcome.final_text != report_text || !final_is_report {
+                crate::artifacts::atomic_write(
+                    &dir.join(format!("{stamp}-response.txt")),
+                    &outcome.final_text,
+                )?;
+            }
+            let parsed = crate::harness::pi_extract::extract_json_object(&report_text)
+                .ok_or_else(|| anyhow::anyhow!("No complete JSON implementation report. Return JSON with status, blocker_disposition, summary, acceptance_criteria, verification, and remaining."))
+                .and_then(|json| parse_report(&json));
+            // A blocked report is a recovery checkpoint, not an immediate
+            // terminal state. Feed its evidence and remaining work through the
+            // same bounded correction loop used for report and verification
+            // failures. The shared deadline and healing limit still prevent an
+            // unrecoverable external dependency from looping forever.
+            let blocked_report = parsed
+                .as_ref()
+                .is_ok_and(|report| report.status == ReportStatus::Blocked);
+            let mut failure = None;
+            let mut verification_failure = false;
+            match parsed {
+                Err(error) => failure = Some(error.to_string()),
+                Ok(report) => {
+                    if external_blocker(&report) {
+                        let detail = external_blocker_detail(&report, &report_path);
+                        state.detail = detail.clone();
+                        save(dir, state)?;
+                        return Err(anyhow::Error::new(status::FailureCause(Failure::new(
+                            FailureKind::ExternalPrerequisite,
+                            RecoveryDisposition::UserAction,
+                            detail,
+                        ))));
+                    }
+                    if let Err(error) = validate_report(&report, &state.ticket_text) {
+                        failure = Some(error.to_string());
+                    } else {
+                        state.status = ImplementationStatus::Verifying;
+                        save(dir, state)?;
+                        let mut evidence = Vec::new();
+                        for command in &report.verification {
+                            runner.update(format!("Verifying: {command}"));
+                            let result = runner.verify(&state.worktree, command);
+                            evidence.push(serde_json::json!({
+                                "command": command,
+                                "output": result.as_ref().ok().map(|text| crate::error::redact_secrets(text)),
+                                "error": result.as_ref().err().map(ToString::to_string).map(|text| crate::error::redact_secrets(&text)),
+                            }));
+                            crate::artifacts::atomic_write_bytes(
+                                &dir.join(format!("{stamp}-verification.json")),
+                                &serde_json::to_vec_pretty(&evidence)?,
+                            )?;
+                            if let Err(error) = result {
+                                verification_failure = true;
+                                failure = Some(format!(
+                                    "Verification command failed: {command}\n{error}"
+                                ));
+                                break;
+                            }
+                        }
+                        anyhow::ensure!(
+                            runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])?
+                                == state.branch,
+                            "Implementation changed branches; refusing to publish"
+                        );
+                        if failure.is_none()
+                            && let Err(error) = runner.git(&state.worktree, &["diff", "--check"])
+                        {
+                            verification_failure = true;
+                            failure = Some(format!("git diff --check failed: {error}"));
+                        }
+                        if failure.is_none() {
+                            break report;
+                        }
+                    }
+                }
+            }
+            let failure = failure.expect("unsuccessful attempt must have a failure");
+            let phase = if verification_failure {
+                "verification"
+            } else {
+                "report"
+            };
+            feedback.push_str(&format!("\nAttempt {attempt} ({phase}): {failure}\n"));
+            if blocked_report {
+                feedback.push_str("AUTOMATIC BLOCKER RECOVERY REQUIRED: treat the blocked report as a checkpoint, preserve its evidence and completed work, and execute every remaining remediation available from this worktree. Diagnose and repair local tooling, scripts, tests, or implementation defects before reporting blocked again. Do not weaken acceptance criteria or fabricate evidence.\n");
+                runner.update(format!(
+                    "Recovering reported blocker in the preserved worktree (attempt {attempt})…"
+                ));
+            }
+            state.detail = feedback.clone();
+            save(dir, state)?;
+            crate::artifacts::atomic_write(&dir.join(format!("{stamp}-correction.txt")), &failure)?;
+            runner.remaining()?;
+            let corrections = if verification_failure {
+                &mut verification_corrections
+            } else {
+                &mut report_corrections
+            };
+            *corrections += 1;
+            if *corrections > 3 {
+                anyhow::ensure!(
+                    healing_attempts < 2,
+                    "Automatic correction limit and self-repair attempts exhausted for {phase} in this run ({attempt} attempts). Latest failure: {failure}\nFull correction evidence is preserved in {}. Resume implementation starts a fresh attempt budget.",
+                    dir.display()
+                );
+                healing_attempts += 1;
+                feedback.push_str("\nSELF-REPAIR REQUIRED: ordinary retries are exhausted. Diagnose and fix the root cause in this worktree, add a regression check that reproduces the failure, and rerun the complete verification. Preserve existing task work and checks. Kool.ad/e will commit the verified repair atomically with this task.\n");
+                runner.update(format!(
+                    "Diagnosing root cause and self-repairing ({healing_attempts}/2)…"
+                ));
+            }
+            previous_response.clear();
+            append_tail(&mut previous_response, &outcome.final_text);
+            runner.update(format!(
+                "Automatically correcting attempt {attempt}: {feedback}"
+            ));
+        };
+        return commit::finalize_verified(dir, state, runner, report, &head);
+    }
+    Ok(())
+}

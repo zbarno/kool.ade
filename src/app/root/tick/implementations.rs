@@ -1,0 +1,135 @@
+use super::*;
+
+impl KooladeApp {
+    pub(super) fn poll_implementations(&mut self) {
+        if let Screen::Connected(project) = &mut self.screen {
+            let mut finished = Vec::new();
+            for (ticket, ctrl) in &project.active_implementations {
+                for _ in 0..64 {
+                    match ctrl.poll() {
+                        Some(crate::core::implementation::Event::Progress(p)) => {
+                            project
+                                .activity
+                                .overall
+                                .as_mut()
+                                .unwrap()
+                                .update(Default::default());
+                            {
+                                project
+                                    .activity
+                                    .tasks
+                                    .entry(ticket.clone())
+                                    .or_default()
+                                    .update(p);
+                            }
+                            project.activity.mark_ticket_dirty(ticket);
+                        }
+                        Some(crate::core::implementation::Event::Done(result)) => {
+                            finished.push((ticket.clone(), *result));
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+            }
+            for (ticket, result) in finished {
+                project.active_implementations.remove(&ticket);
+                project.queue.in_flight.remove(&ticket);
+                if project.queue.current_ticket.as_ref() == Some(&ticket) {
+                    project.queue.current_ticket = None;
+                }
+                {
+                    if let Some(progress) = project.activity.tasks.get_mut(&ticket) {
+                        progress.telemetry.finished_ms =
+                            Some(chrono::Utc::now().timestamp_millis());
+                        progress.activity = Some(match &result {
+                            Ok(record) => record.status.label().to_owned(),
+                            Err(_) => "Needs attention".into(),
+                        });
+                    }
+                    project.save_task_activity(&ticket);
+                    project.activity.dirty_tickets.remove(&ticket);
+                }
+                project.refresh_implementations();
+                project.last_pr_refresh = None;
+                let cleanup_note = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|record| record.cleanup.error.clone());
+                let mut text = match result {
+                    Ok(record) => {
+                        project
+                            .implementation_states
+                            .insert(ticket.clone(), record.clone());
+                        if !record.auto_merge || record.status != ImplementationStatus::Completed {
+                            project.queue.running = false;
+                        }
+                        if crate::core::implementation::permits_evidence_only_completion(
+                            &record.ticket_text,
+                        ) {
+                            format!(
+                                "Evidence-only task verified against {} at {}. {}",
+                                record.base,
+                                record.merged_commit.unwrap_or_default(),
+                                if project.queue.running {
+                                    "Continuing the Auto queue."
+                                } else {
+                                    "Queue paused."
+                                }
+                            )
+                        } else if record.auto_merge {
+                            format!(
+                                "Task merged into {} at {}. {}",
+                                record.base,
+                                record.merged_commit.unwrap_or_default(),
+                                if project.queue.running {
+                                    "Continuing the Auto queue."
+                                } else {
+                                    "Queue paused."
+                                }
+                            )
+                        } else if record.status == ImplementationStatus::ReadyToPublish {
+                            "Implementation verified and saved locally. Auto Publish is off, so nothing was shared. Choose Share verified work for review when you are ready.".into()
+                        } else {
+                            format!(
+                                "Implementation verified. Pull request: {}",
+                                record.pr_url.unwrap_or_default()
+                            )
+                        }
+                    }
+                    Err(error) => {
+                        project.queue.blocked.insert(ticket.clone(), error.clone());
+                        project.queue.last_error = error.message.clone();
+                        if project
+                            .queue
+                            .recoverable_tickets(&project.task_documents)
+                            .contains(&ticket)
+                        {
+                            "Recoverable orchestration failure; automatically resuming preserved task work.".into()
+                        } else {
+                            format!(
+                                "The task needs attention after automatic recovery. Its work is preserved. Failure: {}",
+                                error.message
+                            )
+                        }
+                    }
+                };
+                if let Some(error) = cleanup_note {
+                    text.push_str(&format!("\nTask completed, but worktree cleanup needs attention: {error}. Cleanup will retry automatically."));
+                }
+                if project.queue_lock.is_some()
+                    && let Err(error) = project.queue.save(&project.state.repo_root)
+                {
+                    project.queue.running = false;
+                    project.queue.last_error.push_str(&format!("\nCannot save queue: {error}. Check disk space and permissions; this failure may not survive a restart."));
+                }
+                if !project.queue.running && project.active_implementations.is_empty() {
+                    project.queue_lock = None;
+                }
+                project.activity.pending.push(text.clone());
+                project.remember_chat(vec![ChatMessage::new(ChatRole::System, text, None)]);
+                project.refresh_git();
+            }
+        }
+    }
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 2,
+  "items": [
+    {
+      "uid": "bcc4c468-5fbf-48d7-beb2-00a0b7138c40",
+      "key": "task:bcc4c468-5fbf-48d7-beb2-00a0b7138c40",
+      "kind": "documentation_refresh",
+      "title": "Refresh Documentation: generate the documentation for this project",
+      "request": "generate the documentation for this project",
+      "status": "done",
+      "featureId": "F8",
+      "featureUid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+      "detail": "Archived the incomplete F8 planning draft. The six populated product modules remain the current specification; broader research was not completed."
+    },
+    {
+      "uid": "af2764cb-c57c-4359-b748-5e2066220e65",
+      "key": "task-generation:af2764cb-c57c-4359-b748-5e2066220e65",
+      "kind": "task_generation",
+      "title": "Generate tasks: F9: Relabel product index to the canonical name",
+      "request": "Generate implementation tasks for approved feature F9.",
+      "status": "done",
+      "featureId": "F9",
+      "featureUid": "6a552dd8-caee-40e5-8ef3-92ae855394ee",
+      "detail": "Implementation tasks were generated and added to the Kanban board."
+    },
+    {
+      "uid": "493e15bb-268d-4303-b629-ba7277090203",
+      "key": "task-generation:493e15bb-268d-4303-b629-ba7277090203",
+      "kind": "task_generation",
+      "title": "Generate tasks: F10: Restore the green test baseline",
+      "request": "Generate implementation tasks for approved feature F10.",
+      "status": "done",
+      "featureId": "F10",
+      "featureUid": "975b7c28-2565-42d2-9276-b101df28c928",
+      "detail": "The partial batch (2 of 6 proposed stories) is archived with F10. No repair or per-test classification report was completed."
+    },
+    {
+      "uid": "1a01a7f2-5982-4927-a0dd-9b51097b3440",
+      "key": "planning:65cd7b34b4eee-52-1984763",
+      "kind": "feature",
+      "title": "Plan Revise the product specification: are we stuck?",
+      "request": "Revise the product specification: are we stuck?",
+      "status": "done",
+      "detail": "Historical status inquiry closed at the 2026-10-04 launch snapshot: F8 is archived, F9 is implemented, and F10 is archived as incomplete. The historic 49-test classification remains unverified."
+    },
+    {
+      "uid": "da82b491-90f6-4f81-8337-719d53e5e1a3",
+      "key": "planning:65cdc559dd000-2-266793",
+      "kind": "feature",
+      "title": "Plan Revise the product specification: what is the current status?",
+      "request": "Revise the product specification: what is the current status?",
+      "status": "done",
+      "detail": "Historical status inquiry closed at the 2026-10-04 launch snapshot: the six product modules are retained, the index uses Kool.ad/e, F8 is archived, and F10 is archived incomplete. No claim is made about the causes of the historic 49 failures."
+    }
+  ]
+}

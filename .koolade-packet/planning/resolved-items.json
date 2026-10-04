@@ -1,0 +1,606 @@
+[
+  {
+    "uid": "50d14309-73f6-491f-b740-9b9edf3eeeb1",
+    "id": "CLR-003",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "What exactly does \"generate the documentation for this project\" cover — only the Kool.ad/e-managed living specification, or also rewrites of repository files such as README and docs/?",
+    "reason": "Scope assumption made as Agent work (reversible): the primary deliverable is the Kool.ad/e-managed living specification, with the repository README and docs/ used as verified evidence. The planner has read-only repository access, so any overhaul of those files would need a separate operator-driven track or a later feature; if the intended scope is wider, this assumption is overturned and the feature scope grows.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: Investigated CLR-003 against repository evidence. Three independent sources confirm the scope: (1) `docs/artifact-layout.md` classifies `docs/` and `SPECIFICATION.md` as 'project files, not Kool.ad/e's live planning store', separate from `.koolade-packet/planning/`; (2) the planning profile grants the planner only read-only repository access — only the application applies validated document updates, so rewriting README or docs/ is impossible for the planner; (3) F8's existing Scope already excludes repository files outside Kool.ad/e-managed artifacts. Conclusion: 'generate the documentation' covers the Kool.ad/e-managed living specification (`.koolade-packet/planning/product/` modules + this feature document + board items), with README and docs/ serving as verified evidence, not rewrite targets. Any broader repository-file overhaul would need a separate operator-driven implementation task or a later feature. Recorded this as a confirmed reversible assumption in the feature document. No user input needed.\n\n---\n- No decision needed from you; this scope reading stands unless you say otherwise.\n- If you do want README/docs/ rewritten too, flag it and I'll grow F8's scope or propose a follow-up feature.",
+    "status": "resolved"
+  },
+  {
+    "uid": "6b8631e6-b12c-4152-aa90-05d11560c7b9",
+    "id": "CLR-001",
+    "priority": "normal",
+    "authority": "human",
+    "kind": "ambiguity",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Which name should the documentation treat as canonical for the project: \"Packet\" (repository and specification index title), \"Kool.ad/e\" (product and crate display name), or keep the two identities explicitly distinct (repository Packet hosts product Kool.ad/e)?",
+    "reason": "The name anchors every document this refresh produces, starting with the specification index title and each module's introduction; settling it now prevents rework, and the repository currently presents both identities.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: Recorded at the time: Kool.ad/e is the canonical project name; the then-named Packet repository was expected to be renamed to koolade. That rename proposal was superseded by the 2026-10-04 public-launch decision to retain zbarno/kool.ade. CLR-001 remains resolved for product naming; the later repository decision is recorded in product/decisions.md and product/overview.md. The original record is preserved here as history.",
+    "decision_brief": {
+      "id": "CLR-001",
+      "question": "Which name should the documentation treat as canonical for the project: Packet, Kool.ad/e, or both kept distinct?",
+      "whyNow": "The refreshed specification modules lead with project identity, and future feature documents inherit whatever convention is picked first; a mid-project flip would mean renaming passes across the spec.",
+      "recommendation": {
+        "optionId": "keep-distinction",
+        "rationale": "Every observed artifact already pairs repository \"Packet\" with product \"Kool.ad/e\"; documenting both identities distinctly matches the evidence and assumes no rebrand the operator has not announced."
+      },
+      "confidence": {
+        "level": "medium",
+        "explanation": "Grounded in observation (remote URL, PRODUCT_NAME constant, index title, README heading), but no document states whether unifying the names is intended someday."
+      },
+      "options": [
+        {
+          "id": "keep-distinction",
+          "label": "Distict: repository Packet hosts product Kool.ad/e",
+          "summary": "Define both names once in the documentation and keep them separate thereafter, mirroring how the repository presents today.",
+          "benefits": [
+            "Matches every existing artifact",
+            "Assumes no rename the operator has not decided"
+          ],
+          "costs": [
+            "Documents must introduce both names early"
+          ],
+          "risks": [
+            "Readers may wonder which is official until the relationship is explained"
+          ],
+          "consequences": [
+            "The index keeps its Packet title while describing the product Kool.ad/e"
+          ],
+          "reversibility": "A later unification is a small prose edit across module introductions."
+        },
+        {
+          "id": "koolade-canonical",
+          "label": "Kool.ad/e is the project name",
+          "summary": "Present the documented project uniformly as Kool.ad/e, noting Packet only as the hosting repository name.",
+          "benefits": [
+            "One unambiguous name for readers of the specification"
+          ],
+          "costs": [
+            "Demotes the repository name and implies a branding stance"
+          ],
+          "risks": [
+            "Could drift from the GitHub repository name in links and tooling output"
+          ],
+          "consequences": [
+            "Index title and module intros would be reworded to Kool.ad/e"
+          ],
+          "reversibility": "Reversible with a rename pass over the six modules."
+        },
+        {
+          "id": "packet-canonical",
+          "label": "Packet is the project name",
+          "summary": "Treat Packet as the project name and Kool.ad/e as the application's branding inside it.",
+          "benefits": [
+            "Alignment with the remote repository name"
+          ],
+          "costs": [
+            "Downgrades the brand the app, README, and code all use as primary"
+          ],
+          "risks": [
+            "Contradicts the README and in-app branding without an announced rebrand"
+          ],
+          "consequences": [
+            "Documents would lead with Packet and mention Kool.ad/e as the display name"
+          ],
+          "reversibility": "Same rename-pass cost as the alternative."
+        }
+      ],
+      "benefits": [
+        "Stable identity across all refreshed modules",
+        "Avoids rework from a half-applied rename"
+      ],
+      "costs": [
+        "One operator decision before module intros are finalized"
+      ],
+      "risks": [
+        "A later preference change would require a rename pass, though a cheap one"
+      ],
+      "ramifications": [
+        "Affects the specification index title, module intros, and the framing of future feature documents"
+      ],
+      "reversibility": "Pure documentation change; no data or code is affected.",
+      "deferConsequence": "Modules temporarily carry both names with a note, and identity stays mildly ambiguous until you pick one.",
+      "evidence": [
+        "Remote superseded Packet-era repository remote in .koolade-packet/config/repositories.json",
+        "PRODUCT_NAME = \"Kool.ad/e\" in src/lib.rs",
+        "Product index titled \"legacy Packet-branded specification title\"",
+        "README opens with \"# Kool.ad/e\""
+      ],
+      "adrAssessment": {
+        "create": false,
+        "title": "",
+        "rationale": "A low-reversibility-cost naming convention; it earns a durable record only if a rebrand is actually decided.",
+        "revisitWhen": [
+          "The operator announces a rebrand in either direction",
+          "The repository is renamed"
+        ]
+      }
+    },
+    "status": "resolved"
+  },
+  {
+    "uid": "9013781c-a509-4f15-bc4c-e9754a429022",
+    "id": "CLR-005",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Will the application-maintained product index re-render its title (currently 'legacy Packet-branded specification title') to match the adopted Kool.ad/e canonical naming, and if not, should the operator request a relabel through app maintenance?",
+    "reason": "The index is app-managed and I cannot edit it directly, so this leftover cannot be settled by the planner alone; until it is verified, the specification's front page advertises the superseded name, contradicting the module bodies (F8 R1/R2).",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "product/index.md still carries the H1 'legacy Packet-branded specification title' while product:overview now names Kool.ad/e canonical; standing planner rules forbid direct product:index edits.\n\nResolution outcome: Investigated CLR-005: the product index will NOT self-heal its H1. `refreshed_index_from()` in `src/artifacts/product_docs/feature_index.rs` rebuilds the index on every app-applied change by copying the existing H1 and intro verbatim (falling back to `Product — Living Technical Specification` only when there is no H1 at all). Bootstrap title `'legacy Packet-branded specification title'` therefore persists indefinitely. Per F8 R2 this contradiction is filed as a new board item; CLR-005 is closed with the finding recorded in the feature spec.",
+    "status": "resolved"
+  },
+  {
+    "uid": "7cc617aa-cf64-42e0-97c0-b13f321d7109",
+    "id": "CLR-007",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "question",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Where is `PRODUCT_TAGLINE` (`src/lib.rs`) actually rendered — window title, welcome screens, specification viewer, settings guide, dialogs, or toasts — and do any of those surfaces coincide with full-lockup brand moments under the adopted tagline ruling?",
+    "reason": "Constant-alignment follow-up from CLR-004 after the operator ruled `Drink it and get S*** done!` is the tagline. Determines whether the constant should carry the brand tagline at coinciding surfaces, stay as functional chrome copy with a clarifying one-line comment, or is unused and droppable. Next diagnostic step: enumerate all `PRODUCT_TAGLINE` usage sites and classify each against the lockup placement rule in `docs/kool-ad-e-redesign.md`.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "src/lib.rs defines PRODUCT_TAGLINE = \"Project planning, made clear\"; the header banner paints the logo image rather than the constant, and lockup taglines ride in the logo assets (src/ui/layout/brand.rs).\n\nResolution outcome: Investigated CLR-007. Examined header, brand assets, spec viewer placeholder, and toasts: none renders PRODUCT_TAGLINE — full-lockup brand moments are embedded PNG artwork (header logo/splash) carrying the tagline in the image, not via the constant. So the constant never coincides with a brand moment under the redesign rule. Recommended reversible disposition: keep it as functional chrome copy with a clarifying one-line comment noting the brand tagline lives in the lockup artwork per docs/kool-ad-e-redesign.md; drop only in a later code task after whole-tree unused confirmation. Caveat: the sandbox had no search tool, so this is a spot-check of the candidate chrome surfaces, not an exhaustive whole-tree scan.",
+    "status": "resolved"
+  },
+  {
+    "uid": "6ce7b64c-dacc-4a68-9fdf-ec09699b8290",
+    "id": "CLR-002",
+    "priority": "normal",
+    "authority": "review",
+    "kind": "question",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Documentation cites approved decisions (D-14, D-15, D-22, D-23, FR-13) but no records exist under .koolade-packet/planning/decisions/ (the directory is absent) — should concise reconstructed decision records be created there, or are documentation citations acceptable as the durable provenance?",
+    "reason": "The refreshed specification now cites these IDs for enforced behaviors (routing law, seat identity, single-operator operation); without records in the designated location, provenance rests on scattered doc prose and a future turn could quote them without their original conditions.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: Answer recorded, CLR-002 resolved. The prior planning documentation was lost, so the rebuild is codebase-first: the Decisions module now carries the five reconstructed IDs (D-14, D-15, D-22, D-23, FR-13) with code-primary, doc-corroborated provenance, and F8 records the rebuild posture. Note per-file ADR issuance under planning/decisions/ is app-reserved for future approved decisions; the register is the durable record. No reply needed.",
+    "decision_brief": {
+      "id": "CLR-002",
+      "question": "Create concise reconstructed decision records for the cited D-/FR- IDs, or accept documentation citations as the durable provenance?",
+      "whyNow": "The refreshed Decisions module depends on these citations; the artifact layout reserves planning/decisions/ exactly for this purpose, so the gap either gets closed or consciously accepted.",
+      "recommendation": {
+        "optionId": "recreate-summaries",
+        "rationale": "docs/artifact-layout.md designates that directory as the home of published decisions; short records flagged as reconstructions restore an auditable single source for the routing, identity, and single-operator constraints."
+      },
+      "confidence": {
+        "level": "medium",
+        "explanation": "The citations are consistent across multiple documents, but the original decision prose may be unrecoverable, so records would remain reconstructions."
+      },
+      "options": [
+        {
+          "id": "recreate-summaries",
+          "label": "Recreate concise records",
+          "summary": "Author one short record per cited ID under .koolade-packet/planning/decisions/, each quoting its documentation basis and marked as a reconstruction.",
+          "benefits": [
+            "Single auditable source",
+            "Completes the documented artifact layout"
+          ],
+          "costs": [
+            "Modest authoring plus one review cycle"
+          ],
+          "risks": [
+            "Reconstructed summaries might miss original conditions or caveats"
+          ],
+          "consequences": [
+            "The product Decisions module links formal records instead of staying qualified as referenced-only"
+          ],
+          "reversibility": "Records can be amended or retired freely; they change no product behavior."
+        },
+        {
+          "id": "accept-citations",
+          "label": "Keep doc citations as the record",
+          "summary": "Retain the citation table in the Decisions module and create no new files.",
+          "benefits": [
+            "Smallest footprint"
+          ],
+          "costs": [
+            "Provenance stays spread across narrative documents"
+          ],
+          "risks": [
+            "A condition or later reversal is easy to miss unless every citing document is read"
+          ],
+          "consequences": [
+            "The Decisions module keeps its \"referenced only\" qualification indefinitely"
+          ],
+          "reversibility": "Records can still be created later at the same cost."
+        }
+      ],
+      "benefits": [
+        "Clear origins for behaviors the application enforces",
+        "Less archaeology in future planning turns"
+      ],
+      "costs": [
+        "One small authoring effort"
+      ],
+      "risks": [
+        "Slight over-formalization of history that was originally informal"
+      ],
+      "ramifications": [
+        "Determines how future decisions and amendments are cited in the specification"
+      ],
+      "reversibility": "Either direction is a modest documentation change.",
+      "deferConsequence": "Cited decisions stay documentary-only, and every spec passage that uses them carries the caveat.",
+      "evidence": [
+        "No decisions/ directory exists under .koolade-packet/planning/ in this checkout",
+        "docs/exit-demo-runbook.md cites D-14, D-15, D-22, D-23, and FR-13",
+        "docs/artifact-layout.md: planning/decisions/ holds durable decisions approved through planning"
+      ],
+      "adrAssessment": {
+        "create": false,
+        "title": "",
+        "rationale": "This is bookkeeping about record-keeping, not a product decision; the underlying decisions already govern behavior.",
+        "revisitWhen": [
+          "A cited decision is challenged or reversed",
+          "Collaboration support arrives and identity records gain new consumers"
+        ]
+      }
+    },
+    "status": "resolved"
+  },
+  {
+    "uid": "283169e7-3567-4ae1-b0fe-21c093e2d7a9",
+    "id": "CLR-006",
+    "priority": "normal",
+    "authority": "human",
+    "kind": "question",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "The product index front page still reads 'Packet — Live Technical Specification'— actually 'legacy Packet-branded specification title'— while all refreshed module bodies adopt Kool.ad/e. Because the index H1 is frozen bootstrap text (confirmed by `refreshed_index_from` in `src/artifacts/product_docs/feature_index.rs` copying the existing H1 verbatim, with fallback only when no H1 is present), it will not self-heal through any app-applied module update. Should the operator request an app-maintenance relabel, or simply accept the residue?",
+    "reason": "Per F8 R1/R2, the front page advertising the superseded name contradicts the refreshed module bodies; because neither the planner nor future app-applied turns can rewrite `product:index`, the resolution is purely an operator-action decision and leaving it open misrepresents the front door of the living specification.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: Done — F9 is re-pointed for immediate execution, and CLR-006 is resolved (act, not accept). The index is frozen to planner writes, so the relabel lands via the approve action on the F9 board card (routes through implementation + reconciliation) or, faster, by your direct edit of the H1 line in `product/index.md` — it sticks through every future regeneration. No reply needed once either path runs.\n---\n- Needed: pick the path that lands the relabel now\n- Recommended: Option 2 — a seconds-long edit that sticks, then abandon F9 as moot\n- Option 1: approve F9 from its board card — worker implements, verifies stickiness, reconciles\n- Option 2: direct-edit the H1 in `product/index.md`, then mark F9 abandoned",
+    "decision_brief": {
+      "id": "CLR-006",
+      "question": "Should we request an app-maintenance relabel of the product index H1 from 'legacy Packet-branded specification title' to 'Kool.ad/e — Living Technical Specification', or accept the residue?",
+      "whyNow": "The index is the very first screen of the living specification; continuing to advertise the superseded name undermines the trust goal of this refresh (F8) and perpetuates a contradiction that no later planning turn will ever clear by itself.",
+      "recommendation": {
+        "optionId": "request-app-maintenance",
+        "rationale": "The evidence conclusively shows no self-healing path; a single app-maintenance relabel is the minimal durable correction and restores index/module consistency for every future viewer at near-zero cost to the planning workflow."
+      },
+      "confidence": {
+        "level": "medium",
+        "explanation": "Source evidence about index regeneration is direct and conclusive (single-file, single-function behavior). Uncertainty lies in upstream maintainer responsiveness and preference between product-name vs repo-name titling, not in mechanism."
+      },
+      "options": [
+        {
+          "id": "request-app-maintenance",
+          "label": "Request an app-maintenance relabel",
+          "summary": "Ask the Kool.ad/e maintainers for a one-off maintenance change: rewrite `product/index.md`'s H1 (and possibly its intro paragraph) to reflect Kool.ad/e as the canonical product name, leaving module structure intact. The next `refreshed_index_from` run will then propagate the corrected H1.",
+          "benefits": [
+            "Front page agrees with the body of the specification",
+            "One-shot fix; every subsequent app-applied turn propagates it",
+            "Preserves audit trail of the relabel inside app maintenance"
+          ],
+          "costs": [
+            "Requires operator to initiate a maintainer contact / ticket against Kool.ad/e upstream (outside this repository's planning authority)"
+          ],
+          "risks": [
+            "Upstream timeline is unpredictable; the residue persists meanwhile",
+            "If upstream prefers to tie the title to the repository name (rather than to the adopted product name), the requested label may differ"
+          ],
+          "consequences": [
+            "After merge, the front page reads 'Kool.ad/e — Living Technical Specification' and all downstream index regenerations preserve it",
+            "Until merge, the front-page/body mismatch continues to exist"
+          ],
+          "reversibility": "Any later relabel is trivial; the string lives in a single managed file that the app itself rewrote."
+        },
+        {
+          "id": "accept-residue",
+          "label": "Accept the residue and note it",
+          "summary": "Do nothing on the index itself. The contradiction remains visible; module bodies and any direct readers of modules see the correct name.",
+          "benefits": [
+            "Zero external coordination cost",
+            "Keeps this feature strictly documentation-scoped"
+          ],
+          "costs": [
+            "Front page keeps advertising the deprecated name indefinitely",
+            "New viewers reaching via the index see a first impression inconsistent with the body"
+          ],
+          "risks": [
+            "The residue is likely to confuse reviewers or future operators into reverting to the old name",
+            "Contradicts the intent of CLR-001 (adopt Kool.ad/e canonically)"
+          ],
+          "consequences": [
+            "Index retains 'legacy Packet-branded specification title'",
+            "Board item and feature spec keep documenting the discrepancy"
+          ],
+          "reversibility": "Can flip to option A later at the same low cost."
+        }
+      ],
+      "benefits": [
+        "Coherent brand story from first glance",
+        "Removes a standing contradiction F8 R2 flags"
+      ],
+      "costs": [
+        "Optional upstream coordination"
+      ],
+      "risks": [
+        "Timeline slip upstream leaves temporary inconsistency"
+      ],
+      "ramifications": [
+        "Sets precedent that front-door consistency is worth a tiny maintenance request",
+        "Leaves future naming decisions (repo rename to 'koolade') decoupled from specification titling"
+      ],
+      "reversibility": "Either path is reversible via the same one-line title edit, whichever way it lands.",
+      "deferConsequence": "The specification front page keeps advertising the superseded product name on every viewing session until an external actor intervenes.",
+      "evidence": [
+        "`src/artifacts/product_docs/feature_index.rs::refreshed_index_from` copies the existing index H1 verbatim on every regeneration; falls back to the generic 'Product — Living Technical Specification' only if no H1 is found.",
+        ".koolade-packet/planning/product/index.md current H1 is 'legacy Packet-branded specification title'.",
+        "Standing planner policy forbids planner-side `product:index` edits; only app-side maintenance can change that file.",
+        "Module `product:overview` and F8 spec declare Kool.ad/e as canonical post-CLR-001."
+      ],
+      "adrAssessment": {
+        "create": false,
+        "title": "",
+        "rationale": "Cosmetic titling fix, not a durable architectural or product decision; handled in app maintenance.",
+        "revisitWhen": [
+          "Repository is actually renamed to 'koolade'",
+          "Multiple hosted products share Kool.ad/e and need disambiguated indices"
+        ]
+      }
+    },
+    "status": "resolved"
+  },
+  {
+    "uid": "3de6a2c5-b3d2-4ee4-80d5-a5bf5d86512c",
+    "id": "CLR-004",
+    "priority": "normal",
+    "authority": "review",
+    "kind": "ambiguity",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Disposition of the stale SPECIFICATION.md section cites in the doc comments of `src/core.rs` (§10–12, §16–17, §20, plus inline §8/§11/§20) and `src/harness.rs` (§14–15), now that sub-issue (a) is settled by the operator's tagline ruling: re-point the cites at the living modularized product-specification paths, or annotate in the documentation only?",
+    "reason": "Part (a) is closed: the operator ruled `Drink it and get S*** done!` canonical (recorded in F8 Decisions and product:decisions). Part (b) awaits the review ruling: no SPECIFICATION.md exists anywhere in the tree (find-verified), `src/lib.rs` already shows the re-pointing precedent (its header now cites `.koolade-packet/planning/product/index.md`), and `docs/artifact-layout.md` classifies the root copy as retained historical input. The PRODUCT_TAGLINE constant follow-up is carved out to a separate Agent triage item.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "Operator ruling in this item conversation: \"Drink it and get S*** done!\" is the tagline; find reports no SPECIFICATION*-named file anywhere in the tree; src/lib.rs header already cites .koolade-packet/planning/product/index.md; src/core.rs and src/harness.rs still cite SPECIFICATION.md sections; docs/artifact-layout.md classifies the root SPECIFICATION.md as retained historical input.\n\nResolution outcome: Applied your ruling: CLR-004 cleared — the stale SPECIFICATION.md section cites in src/core.rs / src/harness.rs will be re-pointed at the living product-spec paths, matching the src/lib.rs header precedent. Ruling recorded in F8's decisions and the decisions register; the physical comment edits ride on a later code task, tracked on the board as an Agent assumption card. No reply needed.",
+    "decision_brief": {
+      "id": "CLR-004",
+      "question": "Which tagline and which specification-location citations are canonical, and should stale comments be corrected?",
+      "whyNow": "The refreshed specification documents branding and module structure; until the tagline's canonical places are confirmed and dead section references are explained, the docs will keep presenting contradictory statements to future readers.",
+      "recommendation": {
+        "optionId": "redesign-canonical",
+        "rationale": "The rebrand document is the most recent, explicit branding contract (carrying dated 2026-09-29 corrections); aligning the internal constant with it — or annotating the divergence deliberately — ends the contradiction, and re-pointing stale SPECIFICATION.md references at the living specification removes a dead pointer."
+      },
+      "confidence": {
+        "level": "low",
+        "explanation": "Usage sites of PRODUCT_TAGLINE could not be enumerated in this pass (no search tooling available in the planning sandbox), so the practical impact of the constant is unverified."
+      },
+      "options": [
+        {
+          "id": "redesign-canonical",
+          "label": "Rebrand doc governs; fix stale references",
+          "summary": "Treat docs/kool-ad-e-redesign.md as canonical for brand placements; update or annotate the internal tagline constant accordingly, and re-point the dangling SPECIFICATION.md section comments at the current living specification paths.",
+          "benefits": [
+            "One consistent branding statement",
+            "Comments point at files that exist"
+          ],
+          "costs": [
+            "Small code-comment and constant edit in a later implementation task"
+          ],
+          "risks": [
+            "If the internal tagline was deliberately different, this overrides an unstated intention"
+          ],
+          "consequences": [
+            "Tagline references converge on the brand lockup wording; module comments cite live paths"
+          ],
+          "reversibility": "Trivial revert; no behavioral coupling known."
+        },
+        {
+          "id": "annotate-only",
+          "label": "Annotate without changing code",
+          "summary": "Leave code untouched; record the tagline placement rule and the missing historical SPECIFICATION.md as notes in the refreshed specification instead.",
+          "benefits": [
+            "Zero code churn from a documentation task"
+          ],
+          "costs": [
+            "The contradiction remains visible in source for the next reader"
+          ],
+          "risks": [
+            "Future implementers may follow the stale section numbers"
+          ],
+          "consequences": [
+            "Specification carries the caveats permanently until a code task addresses them"
+          ],
+          "reversibility": "Annotation can be withdrawn when/if the code is aligned."
+        }
+      ],
+      "benefits": [
+        "Consistent branding and navigable source commentary"
+      ],
+      "costs": [
+        "A follow-up implementation task if alignment is wanted"
+      ],
+      "risks": [
+        "Misreading intent if the divergence was deliberate"
+      ],
+      "ramifications": [
+        "Affects how branding is stated in docs and how module comments are maintained"
+      ],
+      "reversibility": "Both directions are small edits to comments, constants, or notes.",
+      "deferConsequence": "Branding wording stays inconsistent across documents and stale section references keep misleading readers.",
+      "evidence": [
+        "src/lib.rs defines PRODUCT_TAGLINE = \"Project planning, made clear\"",
+        "docs/kool-ad-e-redesign.md specifies the exact tagline \"Drink it and get S*** done!\" where the full lockup appears",
+        "src/core.rs and src/harness.rs doc comments cite SPECIFICATION.md sections; find reports no SPECIFICATION.md in the tree",
+        "docs/artifact-layout.md states the root SPECIFICATION.md is retained as historical input"
+      ],
+      "adrAssessment": {
+        "create": false,
+        "title": "",
+        "rationale": "Housekeeping over documentation consistency; not durable or consequential enough for a formal record.",
+        "revisitWhen": [
+          "The tagline ships in the UI and the constant's role is confirmed",
+          "An archived SPECIFICATION.md is located or confirmed gone"
+        ]
+      }
+    },
+    "status": "resolved"
+  },
+  {
+    "uid": "a1d86e9e-3603-42cc-b9b3-9b663ad1f399",
+    "id": "CLR-008",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Execute the physical re-pointing of the stale SPECIFICATION.md section cites (settled in CLR-004: `src/core.rs` §10–§12/§16–§17/§20 incl. inline §8/§11/§20, `src/harness.rs` §14–§15 → living `.koolade-packet/planning/product/` module paths) by folding it into the next operator-driven code task that touches those files, rather than filing a standalone change now?",
+    "reason": "The CLR-004 ruling is recorded in F8's Decisions and the decisions register, but the comment edits themselves are outside F8's read-only scope; this card keeps the pending execution discoverable on the board instead of in prose. Working assumption (reversible): yes, fold it into the next relevant code task, map each cite to the covering live module at edit time, and optionally pair it with the PRODUCT_TAGLINE comment disposition from CLR-007 since both edits live in adjacent doc comments.",
+    "feature_id": "F8",
+    "feature_uid": "3b8bb369-98ee-4fd7-b35f-300acfc7c72b",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: Confirmed and folded the CLR-008 assumption: re-point the stale SPECIFICATION.md cites (src/core.rs, src/harness.rs) together with the next operator-driven code task that touches those files. Both headers still carry the stale markers, as settled in CLR-004. Per-module mapping at edit time: core → product:architecture-and-constraints (module map) + current-capabilities (runtime/host behaviors), with the inline §11/§8/§20 submarkers mapped to the naming paragraphs; harness → current-capabilities' Host-integration paragraph and the harness entry in the architecture-and-constraints module map. Recorded in F8's Decisions; optional pairing with the PRODUCT_TAGLINE disposition (CLR-007) noted but not gating.\n\n---\n- Adopted: fold the cite re-pointing into the next operator-driven code task touching src/core.rs or src/harness.rs.\n- Paired-with-option: the PRODUCT_TAGLINE comment disposition (CLR-007) may ride the same edit, same doc-comment region.\n- Pointer: F8 §Decisions (bullet 4, \"Physical execution of the cite re-pointing\"); CLR-008 closes.",
+    "status": "resolved"
+  },
+  {
+    "uid": "40612896-c447-4354-9258-c24561e33045",
+    "id": "CLR-009",
+    "priority": "blocking",
+    "authority": "human",
+    "kind": "question",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "The verified two-line F9 relabel is held against a red test gate that measurements proved unrelated to it: land F9 now with the 49 base failures as carried debt (narrow recorded gate exception for this markdown-only commit), or hold F9 until F10 restores a green baseline?",
+    "reason": "The F9 task is paused awaiting exactly this disposition, and the standing gates-must-pass-before-commit rule means F9's closure needs a sanctioned basis; the same ruling sets the precedent for every later delivery while the baseline is red.",
+    "feature_id": "F9",
+    "feature_uid": "6a552dd8-caee-40e5-8ef3-92ae855394ee",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: Recorded: repair-first. The verified F9 edit stays in the worktree with no gate exception; it commits only after F10 returns the base suite green, and the exception path is now closed in both feature records. F10 is marked Ready for approval.\n---\n- Approve the F10 card when ready to schedule the baseline repair\n- Recommended: approve now — F9 releases immediately on the green gate\n- Pointer: F10 card; the hold is recorded in F9's Decisions and Assumptions",
+    "decision_brief": {
+      "id": "CLR-009",
+      "question": "Should the verified two-line F9 relabel land now while the base test gate is red, or wait for the F10 baseline repair?",
+      "whyNow": "F9 is complete and byte-verified in the worktree but unmergeable until you sanction either a one-off gate exception (markdown-only change, zero compiled inputs altered) or a wait on the baseline repair; deferring keeps the specification's front page mislabeled and forces the same exception-or-wait fork onto every subsequent delivery.",
+      "recommendation": {
+        "optionId": "approve-f9-docsonly",
+        "rationale": "The evidence proves the 49 failures pre-date F9 and that its diff changes no compiled input (docs-only, fmt and clippy green), so shipping the smallest verified increment now is zero-risk, while the needed repair proceeds independently under F10; record the exception narrowly as a markdown-only, one-commit carve-out so it does not harden into a general red-gate workaround."
+      },
+      "confidence": {
+        "level": "medium",
+        "explanation": "Orthogonality is well-supported (identical failure fingerprint at pristine base and on the docs-only worktree, 2-of-2-line diff), but the repair size is not yet quantified, so the cost of holding stays uncertain."
+      },
+      "options": [
+        {
+          "id": "approve-f9-docsonly",
+          "label": "Land F9 now; carry the test debt",
+          "summary": "Merge the verified two-line product/index.md relabel immediately with a recorded, markdown-only gate exception, and track the 49 base failures as explicit debt under F10.",
+          "benefits": [
+            "Verified work ships this week and F9 closes with a clean audit trail",
+            "The smallest increment is not hostage to the largest open repair",
+            "F10 can be approved and scheduled in parallel"
+          ],
+          "costs": [
+            "One recorded deviation from gates-must-pass-before-commit, however narrow",
+            "The suite stays red for every other delivery until F10 lands"
+          ],
+          "risks": [
+            "The exception habit could creep toward code commits if later invocations drift from markdown-only",
+            "Carried debt can stagnate if F10 deprioritizes in scheduling"
+          ],
+          "consequences": [
+            "F9 closes now with an exception-plus-debt-note closure; the mandated test gate remains red in this sandbox until F10 delivers"
+          ],
+          "reversibility": "Cheap: F9's edit stays a pure documentation change, and the debt remains scheduled on its own board card; switching to wait-for-repair later only unpicks F9's timing."
+        },
+        {
+          "id": "repair-tests-first",
+          "label": "Repair the baseline before F9 lands",
+          "summary": "Hold the verified F9 edit in the worktree and let F10 land first, so the two-line relabel ships through a fully green gate when it is finally released.",
+          "benefits": [
+            "Zero gate exceptions; the standing rule stands unmodified",
+            "Removes the systemic commit block for all subsequent features"
+          ],
+          "costs": [
+            "The verified two-line change waits on an unsized repair (49 tests, at least two mechanisms)",
+            "The specification front page keeps advertising the superseded name for longer"
+          ],
+          "risks": [
+            "Diagnosis may reveal true regressions, growing F10's scope beyond environment fixes",
+            "A longer wait magnifies delay on a trivial win"
+          ],
+          "consequences": [
+            "F9 merges shortly after F10 goes green; the relabel's landing is delayed but gate-clean"
+          ],
+          "reversibility": "Trivial: the edit stays staged in the worktree and ships whenever the gate clears."
+        }
+      ],
+      "benefits": [
+        "Either option turns an implicit red-gate jam into an explicit, recorded disposition",
+        "The F10 carrier guarantees the repair gets scheduled under either ordering"
+      ],
+      "costs": [
+        "At least one board item remains open this turn (the debt card, or held F9)",
+        "Option A adds one recorded gate exception; Option B prolongs the front-page mislabel"
+      ],
+      "risks": [
+        "Precedent erosion from exceptions if Option A broadens beyond markdown-only",
+        "Scope growth under F10 if any of the 49 masks a true regression, under Option B"
+      ],
+      "ramifications": [
+        "Sets the precedent for every commit while the baseline is red",
+        "Determines F9's closure note (exception versus green gate) and how urgent F10 is perceived"
+      ],
+      "reversibility": "Low-cost either way: the two-line edit survives in the worktree regardless of the choice, and scheduling order can be swapped later at will.",
+      "deferConsequence": "F9 stays parked and no further delivery can commit cleanly, so every later delivery repeats the same exception-or-wait fork.",
+      "evidence": [
+        "F9 implementation report: 728 passed / 49 failed (exit 101); sorted distinct failed-test name set sha1 03222112b0e56ca5bb2ea855a8bbc2ad1177dfab, identical between pristine base 557240e and the F9 worktree",
+        "Worker verification scripts: H1 byte-exact, intro matches manifest order, git diff numstat exactly 2-of-2 in one .md file (no compiled inputs altered); fmt and clippy green",
+        "Report localizes the failure families to worker-sandbox baseline defects: swglue ws fixture seeding and artifact-migration /tmp temp-dir idempotency behaviors",
+        "Standing gate rule: fmt, test, and clippy must pass before any resulting commit (product:decisions)",
+        "Checkout product/index.md still reads 'legacy Packet-branded specification title', confirming the relabel has not landed"
+      ],
+      "adrAssessment": {
+        "create": false,
+        "title": "",
+        "rationale": "A sequencing call with cheap undo; a durable record is earned only if the operator settles a standing policy for commits under a red baseline, which would itself merit the record.",
+        "revisitWhen": [
+          "The operator codifies or waives a formal red-baseline commit policy",
+          "The F10 repair lands and the gate is stably green"
+        ]
+      }
+    },
+    "status": "resolved"
+  },
+  {
+    "uid": "a80d6f08-eb61-423b-a6f8-0483db24860f",
+    "id": "CLR-010",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "General",
+    "assigned_to": "Alex Developer",
+    "question": "Are all 49 test failures measured at base 557240e environment-bound, or do some represent true regressions?",
+    "reason": "The F10 task batch was partial and is archived. The launch snapshot defers the per-test causal classification rather than claiming the original assumption was proven.",
+    "feature_id": "F10",
+    "feature_uid": "975b7c28-2565-42d2-9276-b101df28c928",
+    "recommendation": "",
+    "evidence": "\n\nResolution outcome: F10 and its two-of-six story batch are archived as incomplete. The 2026-10-04 required all-target gate passed (820 library tests, 4 integration tests, 1 intentionally ignored). That later green run does not classify the 49 historic failures individually. Their original causes remain unverified; this record closes the launch snapshot disposition as deferred and makes no claim that all 49 were environment-bound or fixed.\n",
+    "status": "resolved"
+  }
+]

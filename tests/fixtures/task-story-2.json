@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "assistant_message": "Detailed story 2 is ready.",
+  "task_stories": [
+    {
+      "title": "Build the saved search picker",
+      "purpose": "Let analysts resume named searches through a keyboard-accessible picker with recoverable errors and predictable focus behavior.",
+      "scope_items": [
+        2
+      ],
+      "success_criteria": [
+        1,
+        2
+      ],
+      "dependencies": [
+        1
+      ],
+      "user_story": "As an operations analyst I want to save and restore a named search so that I can resume daily analysis without rebuilding filters.",
+      "affected_files": [
+        "src/ui/search_picker.rs (proposed): display saved searches and report restore failures."
+      ],
+      "implementation_steps": [
+        "Locate the search controller and existing shared controls, then create the proposed picker module using their established state and accessibility conventions.",
+        "Load saved-search metadata and render labeled loading, empty, populated and recoverable-error states; disable selection until a valid record list is available.",
+        "Restore the selected identifier through the dependency\u2019s persistence API, validate all filters before replacing controller state, and execute the existing query path.",
+        "Surface restore failures inline with a retry action, retaining the previous active filter values, selected identifier and focus on the initiating control.",
+        "Add keyboard traversal and selection behavior, wire successful restore feedback, and verify the complete save-restart-select workflow alongside normal ad hoc searching."
+      ],
+      "acceptance_criteria": [
+        "Given saved searches exist, when the analyst selects one using the keyboard, then matching filters are restored and the normal current-data query executes.",
+        "Given restore fails, when the error is displayed, then the previous active filters remain unchanged and keyboard focus stays on the initiating control.",
+        "Given no saved searches exist, when the picker opens, then it shows a clear empty state and leaves ad hoc searching fully available.",
+        "Given a previously failed restore becomes available, when the analyst activates retry, then the same identifier is restored successfully without duplicated query execution."
+      ],
+      "test_plan": [
+        "Seed two distinct saved records, navigate the picker using only the keyboard, select the second record, and assert exact filters and one query invocation.",
+        "Inject a restore error after selection and assert inline feedback, retained active filters, stable focus and an enabled retry action for that identifier.",
+        "Render loading and empty store states independently; assert unavailable actions are disabled and normal ad hoc query controls remain usable throughout.",
+        "Fail the first restore and succeed on retry; assert exactly one successful query executes, stale errors clear and focus follows the existing success convention."
+      ],
+      "edge_cases": [
+        "A selected record deleted after listing must produce recoverable feedback, retain the active search and allow refreshing the list without crashing.",
+        "Repeated activation while a restore is pending must not enqueue duplicate queries; disable the relevant action until the pending operation settles.",
+        "A failed restore followed by keyboard retry must retain stable focus and selected identity, even when the displayed list has changed order."
+      ],
+      "rollout_notes": "Add the local store lazily. Existing ad hoc searches continue to work without a saved-search file. Rolling back the feature leaves the additive store unused.",
+      "definition_of_done": [
+        "All specified success and failure acceptance criteria have corresponding passing tests with recorded commands and actual observed results.",
+        "Existing ad hoc search behavior remains compatible, with no changes to sharing or synchronization scope and no silent data loss.",
+        "The implementing model records changed files, verification evidence and any unresolved discrepancy before marking the story complete."
+      ],
+      "intent": "Persisted named searches are not yet selectable from the search interface, leaving analysts unable to reuse the stored records in their normal workflow. This ticket provides that selection path and prevents failed restores from disrupting the active search.",
+      "goal": "Deliver a keyboard-accessible saved-search picker that restores the selected filter configuration, executes current results, and preserves the active search when restoration fails.",
+      "context": "This story depends on the completed persistence task, which provides versioned named search records and atomic save and validated restore operations. Introduce src/ui/search_picker.rs as a proposed UI module and locate the existing search controller and shared controls before wiring interactions. Reuse the persistence task\u2019s record and error types rather than defining competing payloads. The picker restores filters and then runs the normal query path against current data. Sharing, synchronization and automatic migration are outside this feature. Errors must preserve the current filter state and keyboard focus.",
+      "technical_design": [
+        "Represent picker state explicitly as loading, empty, ready or error; selection tracks a stable saved-search identifier rather than a display index.",
+        "Call the task 1 restore operation first, validate the returned filters, then replace controller filters and execute the existing query operation.",
+        "Use existing accessible control patterns for labels, keyboard navigation and inline errors; preserve initiating-control focus after a failed restore or retry."
+      ],
+      "verification_commands": [
+        "Run the repository\u2019s existing search test command after locating its documented runner; record the exact command, exit status and passing case names.",
+        "Run the documented application launch command and exercise save, restart, select and failed-restore recovery; record observed filter values and error behavior."
+      ]
+    }
+  ]
+}

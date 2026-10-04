@@ -1,0 +1,30 @@
+[package]
+name = "koolade"
+version = "0.1.0"
+edition = "2024"
+description = "Conversational project planning with a living specification and implementation workflow."
+license = "MIT"
+
+[[bin]]
+name = "koolade"
+path = "src/main.rs"
+
+[lib]
+name = "koolade"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
+egui = "0.36.1"
+eframe = "0.36.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+pulldown-cmark = "0.13.4"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+uuid = { version = "1.26.0", features = ["v4"] }
+unicode-general-category = "1.1.0"
+
+[profile.release]
+lto = "thin"

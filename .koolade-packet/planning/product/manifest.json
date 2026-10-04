@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "modules": [
+    {
+      "uid": "e8375065-778c-41ec-a33e-7b66c943ebe5",
+      "id": "overview",
+      "title": "Overview",
+      "path": "overview.md",
+      "coreConcept": "overview"
+    },
+    {
+      "uid": "125dcd9f-1258-466a-9ee1-dc8b016d44cb",
+      "id": "users-and-outcomes",
+      "title": "Users and Outcomes",
+      "path": "users-and-outcomes.md",
+      "coreConcept": "users-and-outcomes"
+    },
+    {
+      "uid": "3f360e4d-2eb8-486a-90b5-a9963af5d9ab",
+      "id": "current-capabilities",
+      "title": "Current Capabilities",
+      "path": "current-capabilities.md",
+      "coreConcept": "current-capabilities"
+    },
+    {
+      "uid": "bf95a3e3-1cb3-4683-a4c1-fbc4e1d215d9",
+      "id": "architecture-and-constraints",
+      "title": "Architecture and Constraints",
+      "path": "architecture-and-constraints.md",
+      "coreConcept": "architecture-and-constraints"
+    },
+    {
+      "uid": "50783144-266b-4f5d-9f4e-34f4ece700d3",
+      "id": "decisions",
+      "title": "Decisions",
+      "path": "decisions.md",
+      "coreConcept": "decisions"
+    },
+    {
+      "uid": "41004821-c58c-4efe-a209-33b3801eb693",
+      "id": "quality-and-acceptance",
+      "title": "Quality and Acceptance",
+      "path": "quality-and-acceptance.md",
+      "coreConcept": "quality-and-acceptance"
+    }
+  ]
+}

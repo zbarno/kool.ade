@@ -1,0 +1,13 @@
+{
+  "routes": [
+    {
+      "route": "/",
+      "redirect": "/e",
+      "statusCode": 301
+    },
+    {
+      "route": "/e",
+      "rewrite": "/index.html"
+    }
+  ]
+}
