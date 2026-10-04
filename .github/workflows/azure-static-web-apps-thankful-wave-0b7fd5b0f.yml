@@ -1,15 +1,7 @@
-name: Azure Static Web Apps CI/CD
+name: Azure Static Web Apps Deploy
 
 on:
-  push:
-    branches:
-      - main
-      - master
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches:
-      - main
-      - master
+  workflow_dispatch:
 
 concurrency:
   group: azure-static-web-apps-${{ github.workflow }}-${{ github.ref }}
@@ -20,7 +12,6 @@ permissions:
 
 jobs:
   build_and_deploy_job:
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     name: Build and Deploy Job
     steps:
