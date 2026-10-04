@@ -2,6 +2,22 @@
 
 Kool.ad/e is a native desktop application for planning software projects through conversation. It maintains a living specification, routes open questions and decisions, and organizes implementation stories and work in a Git repository. Kool.ad/e teases out ambiguity and drives clear focused specifications.
 
+# Public repository
+
+- `https://github.com/zbarno/kool.ade` is public. Treat source, Git history, branch names, commits, pull request text, workflow logs, artifacts, screenshots, and examples as public and potentially permanent.
+- Never commit credentials, private customer data, personal contact details, private endpoints, or host-specific paths. Use synthetic identities and data in tests, fixtures, examples, and screenshots.
+- Use the project's approved public identity or a GitHub noreply address for commits. Check the author and co-author metadata that the selected merge method will publish; GitHub squash merges can use the account's configured identity.
+- Keep all changes on a topic branch and submit them to `main` through a pull request. Do not push directly to `main` or use an owner/admin bypass to avoid required checks or review.
+- Do not force-push, delete protected branches, change repository visibility, or rewrite published history without explicit operator approval. Use the owner/admin bypass only for an explicitly authorized emergency.
+
+## Branches and pull requests
+
+- Create branches from the latest `main` using `<type>/<short-kebab-case-summary>`. Use one of these types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, or `build` (for example, `docs/public-repo-guidance`).
+- Keep branch names lowercase and descriptive. Do not include names, email addresses, credentials, customer identifiers, or confidential task details.
+- Use pull request titles in `<type>: <imperative summary>` form, with the same type as the branch where practical (for example, `docs: document public-repository workflow`).
+- Keep each pull request focused. Its description must state the purpose, the changes, validation performed, and any known risks or follow-up; include screenshots for visible UI changes when useful.
+- Wait for the required `format, tests, and clippy` check and any relevant deployment checks to pass. Resolve review conversations before merging. Prefer a merge method that preserves the approved public commit identity.
+
 # Confirmation
 
 - Before starting work explain the goal of the task you are about to work on and have the user confirm that your understanding is correct
