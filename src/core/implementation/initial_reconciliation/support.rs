@@ -1,6 +1,8 @@
 mod quality_checks;
+mod verification;
 
 use super::*;
+pub(super) use verification::verification_needs_environment;
 
 pub(super) fn required_baseline_checks(
     worktree: &Path,

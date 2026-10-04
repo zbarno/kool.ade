@@ -34,6 +34,14 @@ Only a dedicated package-cache directory is exposed. NuGet configuration and
 credentials remain hidden. The sandbox still has no network route, so package
 dependencies must already be present in that cache.
 
+Node verification follows the same offline policy. Kool.ad/e mounts only the
+host npm content cache at `~/.npm/_cacache` (or the dedicated path supplied in
+`KOOLADE_NPM_CACHE`) read-only; it does not expose `.npmrc` or registry tokens.
+npm audit and network access are disabled inside the sandbox. If a lockfile
+dependency is missing from the cache, verification waits for the environment to
+be provisioned instead of asking the implementation agent to retry an
+unrunnable command.
+
 Auto Plan controls investigation of Agent-owned items. The read-only
 Kool.ad/e Man.ager patrol is separate: it watches board events and task
 progress while the workspace is open, even when Auto Plan is off. It reports

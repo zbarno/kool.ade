@@ -1,23 +1,30 @@
 //! Narrow read-only mounts for host toolchains and durable package caches.
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use super::mounts::{bind_readonly, push_env};
 
 mod dotnet;
+mod npm;
 mod nuget;
 mod path_safety;
 
 use dotnet::{host_dotnet_root, mount_dotnet_root};
+pub(super) use npm::host_npm_cache;
 pub(super) use nuget::host_nuget_packages;
 #[cfg(test)]
 use nuget::prepare_nuget_packages;
 
 const SANDBOX_DOTNET_ROOT: &str = "/tmp/koolade-tools/dotnet";
 const SANDBOX_NUGET_PACKAGES: &str = "/tmp/koolade-home/.nuget/packages";
+const SANDBOX_NPM_CACHE: &str = "/tmp/koolade-home/.npm/_cacache";
 
 pub(super) struct RuntimeComponents {
     dotnet_root: Option<PathBuf>,
     nuget_packages: PathBuf,
+    npm_cache: Option<PathBuf>,
 }
 
 impl RuntimeComponents {
@@ -31,9 +38,14 @@ impl RuntimeComponents {
         let host_packages = host_nuget_packages()?;
         let nuget_packages = PathBuf::from(SANDBOX_NUGET_PACKAGES);
         bind_readonly(args, created, &host_packages, &nuget_packages)?;
+        let npm_cache = host_npm_cache()?;
+        if let Some(host_cache) = &npm_cache {
+            bind_readonly(args, created, host_cache, Path::new(SANDBOX_NPM_CACHE))?;
+        }
         Ok(Self {
             dotnet_root,
             nuget_packages,
+            npm_cache,
         })
     }
 
@@ -49,6 +61,11 @@ impl RuntimeComponents {
             "NUGET_PACKAGES",
             &self.nuget_packages.to_string_lossy(),
         );
+        push_env(args, "npm_config_offline", "true");
+        push_env(args, "npm_config_audit", "false");
+        if self.npm_cache.is_some() {
+            push_env(args, "npm_config_cache", "/tmp/koolade-home/.npm");
+        }
         if let Some(root) = &self.dotnet_root {
             push_env(args, "DOTNET_ROOT", &root.to_string_lossy());
         }

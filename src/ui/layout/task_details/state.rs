@@ -202,6 +202,7 @@ fn paint_saved_blocker(ui: &mut egui::Ui, error: &str) {
     let summary = error
         .trim()
         .strip_prefix("## Waiting for user action")
+        .or_else(|| error.trim().strip_prefix("## Waiting for environment"))
         .unwrap_or(error)
         .trim();
     let summary = summary.split("\n### ").next().unwrap_or(summary);

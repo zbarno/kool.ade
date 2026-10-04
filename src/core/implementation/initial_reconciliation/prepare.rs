@@ -1,4 +1,5 @@
 mod auto_verify;
+mod external_blocker;
 
 use super::support::*;
 use super::*;
@@ -173,8 +174,7 @@ pub fn prepare(
             }
         };
         if super::report::external_blocker(&report) {
-            let detail = super::report::external_blocker_detail(&report, &report_path);
-            return Err(user_action(detail));
+            return Err(external_blocker::error(&report, &report_path));
         }
         if let Err(error) = super::report::validate_report(&report, CONTRACT) {
             last_failure = format!("Reconciliation report needs correction: {error:#}");
@@ -212,6 +212,12 @@ pub fn prepare(
         }
         let evidence = run_verification(runner, state, dir, stamp, &commands)?;
         if let Some(error) = evidence.error {
+            if verification_needs_environment(&error) {
+                return Err(external_blocker::verification_error(
+                    &error,
+                    &dir.join(format!("base-reconciliation-{stamp}-verification.json")),
+                ));
+            }
             last_failure = error;
             feedback = format!(
                 "The combined baseline did not pass its reported verification. Repair the reconciliation and return the full corrected report.\n{}",
