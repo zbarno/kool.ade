@@ -53,20 +53,38 @@ pub fn extract_json_object(text: &str) -> Option<String> {
     balanced_object(trimmed).map(str::to_string)
 }
 
-/// Return a complete balanced JSON-object candidate at the end of the text.
-/// Leading explanation may contain braces; trailing text is rejected.
+/// Return a complete balanced object candidate at the end of the text.
+/// Leading explanation may contain braces; trailing text is rejected. Valid
+/// candidates are parsed before scanning nested braces, and malformed final
+/// candidates are retained for specific decoder feedback.
 pub fn balanced_object(json: &str) -> Option<&str> {
     let text = json.trim();
-    let mut candidate = None;
-    for (start, _) in text.char_indices().filter(|(_, ch)| *ch == '{') {
+    let mut cursor = 0;
+    let mut malformed_at_end = None;
+    while let Some(relative) = text[cursor..].find('{') {
+        let start = cursor + relative;
         let Some(end) = object_end(&text[start..]) else {
+            cursor = start + 1;
             continue;
         };
-        if text[start + end..].trim().is_empty() {
-            candidate = Some(&text[start..start + end]);
+        let finish = start + end;
+        let candidate = &text[start..finish];
+        let ends_text = text[finish..].trim().is_empty();
+        if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+            if ends_text {
+                return Some(candidate);
+            }
+            // A valid object before trailing prose is part of the preface;
+            // skip its strings so braces inside them are never candidates.
+            cursor = finish;
+        } else {
+            if ends_text {
+                malformed_at_end = Some(candidate);
+            }
+            cursor = start + 1;
         }
     }
-    candidate
+    malformed_at_end
 }
 
 fn object_end(json: &str) -> Option<usize> {
@@ -153,6 +171,18 @@ mod tests {
         assert_eq!(
             extract_json_object(t4).as_deref(),
             Some(r#"{"schemaVersion":1,"assistantMessage":"bare"}"#)
+        );
+    }
+
+    #[test]
+    fn bare_object_with_brace_group_in_string_is_not_truncated() {
+        let text = r#"{"schemaVersion":2,"summary":"Verification ran `{ echo \"conflicting modules\"; }`.","status":"complete"}"#;
+        let candidate = extract_json_object(text).expect("find complete envelope");
+        let parsed: serde_json::Value = serde_json::from_str(&candidate).unwrap();
+        assert_eq!(parsed["status"], "complete");
+        assert_eq!(
+            parsed["summary"],
+            "Verification ran `{ echo \"conflicting modules\"; }`."
         );
     }
 

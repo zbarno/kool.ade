@@ -10,9 +10,10 @@ pub(super) fn start_from_button(app: &mut KooladeApp) {
     let feature_id = match &app.screen {
         Screen::Connected(project) => {
             let active = project.active_implementations.keys().cloned().collect();
-            let ticket = crate::core::implementation_queue::next_ready_ticket(
+            let ticket = crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
                 &project.task_documents,
                 &project.implementation_states,
+                &active,
                 &active,
             )
             .ok()
@@ -100,9 +101,10 @@ pub(super) fn start(app: &mut KooladeApp, target: Option<String>, resume: bool) 
             _ => Err("More than one task needs resuming. Open the task you want and use its Resume action.".into()),
         }
     } else {
-        crate::core::implementation_queue::next_ready_ticket(
+        crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
             &project.task_documents,
             &project.implementation_states,
+            &active,
             &active,
         )
         .map_err(|reason| format!("No task can start yet: {reason}"))

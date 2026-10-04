@@ -21,7 +21,7 @@ mod state_paths;
 pub mod status;
 mod task;
 mod verification;
-pub use activity::{load_activity, save_activity};
+pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
 pub use board_states::{BOARD_COLUMNS, board_column, load_board_states};
 pub use controller::Controller;
 pub use execution::run;

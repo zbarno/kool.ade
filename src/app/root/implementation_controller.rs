@@ -51,11 +51,17 @@ impl KooladeApp {
                         excluded.insert(doc.path.clone());
                     }
                 }
+                let running = project
+                    .active_implementations
+                    .keys()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>();
                 if !matches!(
-                    crate::core::implementation_queue::next_ready_ticket(
+                    crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
                         &project.task_documents,
                         &project.implementation_states,
                         &excluded,
+                        &running,
                     ),
                     Ok(Some(_))
                 ) {
@@ -152,10 +158,16 @@ impl KooladeApp {
                     approval_notes.insert(format!("{0} (feature {id}): {reason}", doc.path));
                 }
             }
-            let choice = crate::core::implementation_queue::next_ready_ticket(
+            let running = project
+                .active_implementations
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            let choice = crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
                 &project.task_documents,
                 &project.implementation_states,
                 &excluded,
+                &running,
             );
             match choice {
                 Ok(Some(ticket)) => Some(ticket),

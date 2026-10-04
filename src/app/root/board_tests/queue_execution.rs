@@ -51,13 +51,25 @@ fn auto_queue_stops_for_review_before_sharing_verified_independent_tasks() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
-    let docs = (1..=3).map(|number| crate::artifacts::task_docs::TaskDocument {
-            path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"), title: format!("Task {number}"),
-            text: format!("# Task {number}\n\n## Dependencies\n{}\n\n## Acceptance criteria\n- File exists.\n", if number == 3 { "- [Task 001](001-task.md) must be complete.\n- [Task 002](002-task.md) must be complete." } else { "None." }),
-            identity: None,
+    let docs = (1..=3)
+        .map(|number| {
+            let dependencies = if number == 3 {
+                "- [Task 001](001-task.md) must be complete.\n- [Task 002](002-task.md) must be complete."
+            } else {
+                "None."
+            };
+            crate::artifacts::task_docs::TaskDocument {
+                path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"),
+                title: format!("Task {number}"),
+                text: format!(
+                    "# Task {number}\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
+                ),
+                identity: None,
                 metadata: None,
                 metadata_error: None,
-        }).collect::<Vec<_>>();
+            }
+        })
+        .collect::<Vec<_>>();
     for doc in &docs {
         std::fs::create_dir_all(repo.join(&doc.path).parent().unwrap()).unwrap();
         std::fs::write(repo.join(&doc.path), &doc.text).unwrap();

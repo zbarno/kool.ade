@@ -164,6 +164,35 @@ impl Project {
                 self.activity.tasks.insert(ticket.clone(), activity);
             }
         }
+        let finished_ms = chrono::Utc::now().timestamp_millis();
+        let tickets = self
+            .implementation_states
+            .iter()
+            .map(|(ticket, state)| (ticket.clone(), state.task_uid.clone(), state.status))
+            .collect::<Vec<_>>();
+        let mut finalized = Vec::new();
+        for (ticket, task_uid, status) in tickets {
+            if self.active_implementations.contains_key(&ticket) {
+                continue;
+            }
+            let Some(activity) = self.activity.tasks.get_mut(&ticket) else {
+                continue;
+            };
+            if crate::core::implementation::finalize_terminal_activity_if_stale(
+                &self.state.repo_root,
+                &ticket,
+                task_uid.as_deref(),
+                status,
+                activity,
+                finished_ms,
+            ) {
+                finalized.push(ticket);
+            }
+        }
+        for ticket in finalized {
+            self.activity.mark_ticket_dirty(&ticket);
+            self.save_task_activity(&ticket);
+        }
     }
 
     pub fn adopt_implementations(

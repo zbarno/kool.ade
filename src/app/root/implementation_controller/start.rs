@@ -73,6 +73,19 @@ impl KooladeApp {
                 p.queue.last_error = error;
                 return;
             }
+            let running = p
+                .active_implementations
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            if let Some(reason) = crate::core::implementation_queue::active_scope_conflict(
+                &p.task_documents,
+                &ticket,
+                &running,
+            ) {
+                p.queue.last_error = reason;
+                return;
+            }
             let explicit_publish = manual
                 && p.implementation_states
                     .get(&ticket)

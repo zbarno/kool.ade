@@ -14,7 +14,16 @@ pub fn next_ticket(
 pub fn next_ready_ticket(
     docs: &[TaskDocument],
     states: &BTreeMap<String, Implementation>,
-    active: &std::collections::BTreeSet<String>,
+    excluded: &std::collections::BTreeSet<String>,
+) -> Result<Option<String>, String> {
+    next_ready_ticket_with_running_scopes(docs, states, excluded, &Default::default())
+}
+
+pub fn next_ready_ticket_with_running_scopes(
+    docs: &[TaskDocument],
+    states: &BTreeMap<String, Implementation>,
+    excluded: &std::collections::BTreeSet<String>,
+    running: &std::collections::BTreeSet<String>,
 ) -> Result<Option<String>, String> {
     let mut docs = docs
         .iter()
@@ -29,7 +38,7 @@ pub fn next_ready_ticket(
     };
     let mut waiting = Vec::new();
     'tasks: for doc in &docs {
-        if done(&doc.path) || active.contains(&doc.path) {
+        if done(&doc.path) || excluded.contains(&doc.path) {
             continue;
         }
         if states
@@ -53,6 +62,11 @@ pub fn next_ready_ticket(
             continue;
         }
         if let Err(reason) = dependency_waiting_reason(doc, &docs, states) {
+            waiting.push(reason);
+            continue 'tasks;
+        }
+        if let Some(reason) = super::scope_conflicts::conflict_for_active_docs(doc, &docs, running)
+        {
             waiting.push(reason);
             continue 'tasks;
         }

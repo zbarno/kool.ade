@@ -1,8 +1,12 @@
 //! Durable Auto-mode preferences and dependency-aware queue selection.
+mod scope_conflicts;
 mod selection;
 mod state;
 
-pub use selection::{next_ready_ticket, next_ticket, ticket_readiness};
+pub use scope_conflicts::active_scope_conflict;
+pub use selection::{
+    next_ready_ticket, next_ready_ticket_with_running_scopes, next_ticket, ticket_readiness,
+};
 pub use state::Queue;
 #[cfg(test)]
 use state::directory;
