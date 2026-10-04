@@ -78,12 +78,22 @@ impl AiHarness for PiHarness {
         let mut _extension_files = None;
         let mut _sandbox = None;
         let mut _planning_sandbox = None;
+        let mut resource_bridge = None;
         let mut git_common_dir = None;
         let mut child_env = Vec::new();
         if req.mode == ExecutionMode::Implementation {
-            let sandbox = crate::harness::pi_sandbox::Sandbox::new_for_pi(&req.repo_root, &exe)
+            let bridge = crate::harness::resource_bridge::ResourceBridge::start(&req.repo_root)
+                .map_err(|error| {
+                    AppError::Other(format!("Cannot start resource broker: {error:#}"))
+                })?;
+            let mut sandbox = crate::harness::pi_sandbox::Sandbox::new_for_pi(&req.repo_root, &exe)
                 .map_err(|error| {
                     AppError::Other(format!("Cannot start bounded implementation: {error:#}"))
+                })?;
+            sandbox
+                .mount_resource_cache(bridge.cache_path())
+                .map_err(|error| {
+                    AppError::Other(format!("Cannot mount resource cache: {error:#}"))
                 })?;
             let files = sandbox.extension_files().map_err(|error| {
                 AppError::Other(format!(
@@ -98,14 +108,19 @@ impl AiHarness for PiHarness {
             argv.extend([
                 "--no-builtin-tools".into(),
                 "--tools".into(),
-                "koolade_bash".into(),
+                "koolade_bash,koolade_resource".into(),
                 "--extension".into(),
                 files.extension.to_string_lossy().into_owned(),
             ]);
             child_env.push(("KOOLADE_SANDBOX_CONFIG".into(), config));
+            child_env.push((
+                "KOOLADE_RESOURCE_SOCKET".into(),
+                bridge.socket_path().to_string_lossy().into_owned(),
+            ));
             git_common_dir = Some(sandbox.git_common_dir.clone());
             _extension_files = Some(files);
             _sandbox = Some(sandbox);
+            resource_bridge = Some(bridge);
         } else {
             match tool_access {
                 ToolAccess::None => argv.push("--no-tools".into()),
@@ -226,6 +241,9 @@ impl AiHarness for PiHarness {
                     }
                 }
                 Ok(StreamEvt::Exited(ok)) => {
+                    if let Some(error) = resource_attention(resource_bridge.as_ref()) {
+                        return Err(error);
+                    }
                     if !ok {
                         return Err(AppError::HarnessFailed {
                             reason: fold
@@ -238,6 +256,9 @@ impl AiHarness for PiHarness {
                     break;
                 }
                 Err(crate::harness::pi_proc::PollState::Closed) => {
+                    if let Some(error) = resource_attention(resource_bridge.as_ref()) {
+                        return Err(error);
+                    }
                     // Pipe disconnected without an Exited event (defensive).
                     if !fold.saw_agent_end && fold.final_assistant_text.is_empty() {
                         return Err(AppError::HarnessFailed {
@@ -251,6 +272,9 @@ impl AiHarness for PiHarness {
         }
 
         let _ = req.progress_tx.send(fold.preview());
+        if let Some(error) = resource_attention(resource_bridge.as_ref()) {
+            return Err(error);
+        }
         let final_text = std::mem::take(&mut fold.final_assistant_text);
         if final_text.trim().is_empty() {
             return Err(AppError::HarnessFailed {
@@ -293,4 +317,12 @@ impl AiHarness for PiHarness {
             .map(Some)
             .map_err(|error| AppError::Other(format!("Invalid retrieval plan: {error}")))
     }
+}
+
+fn resource_attention(
+    bridge: Option<&crate::harness::resource_bridge::ResourceBridge>,
+) -> Option<AppError> {
+    bridge?.attention_detail().map(|detail| AppError::Other(format!(
+        "Needs Attention: the worker requested a resource that requires operator review. {detail}"
+    )))
 }

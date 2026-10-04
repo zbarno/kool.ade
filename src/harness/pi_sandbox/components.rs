@@ -7,11 +7,13 @@ use std::{
 use super::mounts::{bind_readonly, push_env};
 
 mod dotnet;
+mod node;
 mod npm;
 mod nuget;
 mod path_safety;
 
 use dotnet::{host_dotnet_root, mount_dotnet_root};
+use node::{add_node_path, mount_node_runtime};
 pub(super) use npm::host_npm_cache;
 pub(super) use nuget::host_nuget_packages;
 #[cfg(test)]
@@ -23,6 +25,7 @@ const SANDBOX_NPM_CACHE: &str = "/tmp/koolade-home/.npm/_cacache";
 
 pub(super) struct RuntimeComponents {
     dotnet_root: Option<PathBuf>,
+    node_root: Option<PathBuf>,
     nuget_packages: PathBuf,
     npm_cache: Option<PathBuf>,
 }
@@ -35,6 +38,7 @@ impl RuntimeComponents {
         let dotnet_root = host_dotnet_root()
             .map(|root| mount_dotnet_root(args, created, &root))
             .transpose()?;
+        let node_root = mount_node_runtime(args, created)?;
         let host_packages = host_nuget_packages()?;
         let nuget_packages = PathBuf::from(SANDBOX_NUGET_PACKAGES);
         bind_readonly(args, created, &host_packages, &nuget_packages)?;
@@ -44,6 +48,7 @@ impl RuntimeComponents {
         }
         Ok(Self {
             dotnet_root,
+            node_root,
             nuget_packages,
             npm_cache,
         })
@@ -55,6 +60,8 @@ impl RuntimeComponents {
             .as_ref()
             .map(|root| format!("{}:{base_path}", root.display()))
             .unwrap_or_else(|| base_path.to_owned());
+        let mut path = path;
+        add_node_path(&mut path, self.node_root.as_deref());
         push_env(args, "PATH", &path);
         push_env(
             args,

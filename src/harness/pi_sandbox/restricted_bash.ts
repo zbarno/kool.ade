@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { connect } from "node:net";
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -7,6 +8,28 @@ const DEFAULT_TIMEOUT_SECONDS = 300;
 const MAX_TIMEOUT_SECONDS = 1_200;
 
 type Sandbox = { bwrap: string; root: string; args: string[] };
+
+type ResourceResponse = { status: string; summary: string; content?: string; path?: string };
+
+function requestResource(socketPath: string, url: string, purpose: string): Promise<ResourceResponse> {
+	return new Promise((resolve, reject) => {
+		const socket = connect(socketPath);
+		let response = "";
+		socket.setTimeout(35_000, () => socket.destroy(new Error("Resource request timed out")));
+		socket.on("connect", () => socket.end(JSON.stringify({ url, purpose }) + "\n"));
+		socket.on("data", (chunk: Buffer) => {
+			response += chunk.toString("utf8");
+			if (response.length > 1_000_000) socket.destroy(new Error("Resource response is too large"));
+			const newline = response.indexOf("\n");
+			if (newline >= 0) {
+				try { resolve(JSON.parse(response.slice(0, newline)) as ResourceResponse); }
+				catch (error) { reject(error); }
+				socket.end();
+			}
+		});
+		socket.on("error", reject);
+	});
+}
 
 function appendTail(current: string, chunk: string): string {
 	const joined = current + chunk;
@@ -17,6 +40,27 @@ export default function (pi: ExtensionAPI) {
 	const raw = process.env.KOOLADE_SANDBOX_CONFIG;
 	if (!raw) throw new Error("Koolade sandbox configuration is missing");
 	const sandbox = JSON.parse(raw) as Sandbox;
+	const resourceSocket = process.env.KOOLADE_RESOURCE_SOCKET;
+	if (!resourceSocket) throw new Error("Koolade resource broker is unavailable");
+
+	pi.registerTool({
+		name: "koolade_resource",
+		label: "request public resource",
+		description: "Ask Kool.ad/e to retrieve a specific public HTTPS resource. Approved public npm registry URLs may be fetched automatically. Other requests are surfaced to the operator as Needs Attention.",
+		parameters: Type.Object({
+			url: Type.String({ description: "Exact HTTPS URL of the needed resource" }),
+			purpose: Type.String({ description: "Brief explanation of why the task needs this resource" }),
+		}),
+		async execute(_toolCallId, params) {
+			try {
+				const result = await requestResource(resourceSocket, params.url, params.purpose);
+				const text = [result.summary, result.content, result.path ? `Saved file: ${result.path}` : undefined].filter(Boolean).join("\n");
+				return { content: [{ type: "text", text }], details: result, isError: result.status !== "allowed" };
+			} catch (error) {
+				return { content: [{ type: "text", text: `Resource request failed: ${String(error)}` }], isError: true };
+			}
+		},
+	});
 
 	pi.registerTool({
 		name: "koolade_bash",

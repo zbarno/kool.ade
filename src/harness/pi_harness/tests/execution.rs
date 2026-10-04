@@ -199,12 +199,14 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     assert_eq!(outcome.unwrap().final_text, "bounded fixture completed");
     let received_args = fs::read_to_string(root.join("received-args.txt")).unwrap();
     assert!(received_args.contains("--no-builtin-tools"));
-    assert!(received_args.contains("--tools\nkoolade_bash\n"));
+    assert!(received_args.contains("--tools\nkoolade_bash,koolade_resource\n"));
     assert!(received_args.contains("--extension\n"));
     assert!(!received_args.contains("--tools\nread,grep,find,ls\n"));
     assert!(!received_args.contains("--no-tools"));
     let extension = fs::read_to_string(root.join("extension.ts")).unwrap();
     assert!(extension.contains("name: \"koolade_bash\""));
+    assert!(extension.contains("name: \"koolade_resource\""));
+    assert!(extension.contains("KOOLADE_RESOURCE_SOCKET"));
     assert!(extension.contains("child.kill(\"SIGKILL\")"));
     let config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(root.join("sandbox.json")).unwrap()).unwrap();
