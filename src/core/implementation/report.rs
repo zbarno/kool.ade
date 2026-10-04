@@ -45,6 +45,7 @@ pub(crate) enum BlockerDisposition {
     None,
     MachineRepair,
     HumanAction,
+    EnvironmentPrerequisite,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -189,7 +190,7 @@ fn validate_human_choices(report: &Report) -> anyhow::Result<()> {
 }
 
 pub(crate) fn response_contract() -> &'static str {
-    "\n\nREPORT FORMAT: Include schemaVersion: 2 and blocker_disposition: `none` for complete, `machine_repair` for a code, test, or tool failure this worktree can repair, or `human_action` for a decision or prerequisite outside this worktree. Classify the actual cause, not the role name. Include the exact issue and consequence in summary. Return `human_choices` as an array of issue-specific `{id,label,meaning,consequence}` objects only when a person must choose between real alternatives; use an empty array for a single required action. Give each choice a unique short ID, explain what it means and what happens if chosen, and do not invent alternatives or impose a fixed option count. Put required human steps in `remaining`, separate from Kool.ad/e's follow-up.\n"
+    "\n\nREPORT FORMAT: Include schemaVersion: 2 and blocker_disposition: `none` for complete, `machine_repair` for a code, test, or tool failure this worktree can repair, `human_action` for a decision that needs an operator, or `environment_prerequisite` when required host tools, dependencies, caches, or network access are unavailable to this sandbox. Environment prerequisites are not machine repairs: state the missing resource and the smallest action needed to provide it, then stop. Classify the actual cause, not the role name. Include the exact issue and consequence in summary. Return `human_choices` as an array of issue-specific `{id,label,meaning,consequence}` objects only when a person must choose between real alternatives; use an empty array for a single required action. Give each choice a unique short ID, explain what it means and what happens if chosen, and do not invent alternatives or impose a fixed option count. Put required human steps in `remaining`, separate from Kool.ad/e's follow-up.\n"
 }
 
 pub(crate) fn feasibility_preflight() -> &'static str {
@@ -198,7 +199,10 @@ pub(crate) fn feasibility_preflight() -> &'static str {
 
 pub(super) fn external_blocker(report: &Report) -> bool {
     report.status == ReportStatus::Blocked
-        && report.blocker_disposition == BlockerDisposition::HumanAction
+        && matches!(
+            report.blocker_disposition,
+            BlockerDisposition::HumanAction | BlockerDisposition::EnvironmentPrerequisite
+        )
 }
 
 pub(super) fn external_blocker_detail(report: &Report, report_path: &Path) -> String {
@@ -217,73 +221,25 @@ pub(super) fn external_blocker_detail(report: &Report, report_path: &Path) -> St
     } else {
         format!("\n\n### Options\n\n{}", choices.join("\n"))
     };
-    format!(
-        "## Waiting for user action\n\n{}{}\n\n### Next action(s)\n\n- {}\n\nFull report: {}\n\nResume implementation after these actions are complete.",
-        report.summary,
-        choices,
-        report.remaining.join("\n- "),
-        report_path.display()
-    )
+    if report.blocker_disposition == BlockerDisposition::EnvironmentPrerequisite {
+        format!(
+            "## Waiting for environment\n\n{}{}\n\n### Next action(s)\n\n- {}\n\nFull report: {}\n\nProvision the required tools or dependencies, then resume implementation.",
+            report.summary,
+            choices,
+            report.remaining.join("\n- "),
+            report_path.display()
+        )
+    } else {
+        format!(
+            "## Waiting for user action\n\n{}{}\n\n### Next action(s)\n\n- {}\n\nFull report: {}\n\nResume implementation after these actions are complete.",
+            report.summary,
+            choices,
+            report.remaining.join("\n- "),
+            report_path.display()
+        )
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn report_migration_and_blocker_classification_use_typed_cause() {
-        let old = r#"{"status":"blocked","summary":"The old report lacks a disposition.","acceptance_criteria":[],"verification":[],"remaining":["Adjudicator: review"]}"#;
-        let migrated = parse_report(old).unwrap();
-        assert!(external_blocker(&migrated));
-
-        let current = r#"{"schemaVersion":1,"status":"blocked","blocker_disposition":"machine_repair","summary":"Display test needs a code fix.","acceptance_criteria":[],"verification":[],"remaining":["Operator: run the display workstation test"]}"#;
-        assert!(!external_blocker(&parse_report(current).unwrap()));
-
-        let invalid_current = r#"{"schemaVersion":1,"status":"blocked","summary":"Missing required type.","acceptance_criteria":[],"verification":[],"remaining":[]}"#;
-        assert!(parse_report(invalid_current).is_err());
-    }
-
-    #[test]
-    fn report_v2_carries_dynamic_issue_choices_and_v1_defaults_empty() {
-        let current = r#"{"schemaVersion":2,"status":"blocked","blocker_disposition":"human_action","summary":"Published history conflicts with this task's footprint.","acceptance_criteria":[],"verification":[],"remaining":["Adjudicator: select the policy."],"human_choices":[{"id":"effective-base","label":"Use the published base","meaning":"Compare against the actual branch starting point.","consequence":"The counted files include earlier published work."},{"id":"rewrite-rule","label":"Correct the footprint rule","meaning":"Measure only files added for this task.","consequence":"The written acceptance rule changes."}]}"#;
-        let parsed = parse_report(current).unwrap();
-        assert_eq!(parsed.human_choices.len(), 2);
-        assert!(validate_human_choices(&parsed).is_ok());
-        let detail = external_blocker_detail(&parsed, Path::new("report.json"));
-        assert!(detail.contains("Use the published base"));
-        assert!(detail.contains("The counted files include earlier published work."));
-
-        let legacy = parse_report(r#"{"schemaVersion":1,"status":"blocked","blocker_disposition":"human_action","summary":"Needs a person.","acceptance_criteria":[],"verification":[],"remaining":["Owner: wait for reset"]}"#).unwrap();
-        assert!(legacy.human_choices.is_empty());
-    }
-
-    #[test]
-    fn blocker_guidance_does_not_seed_issue_specific_remedies() {
-        let instructions = feasibility_preflight().to_ascii_lowercase();
-        for unrelated_remedy in [
-            "realized footprint",
-            "revise the predicate",
-            "history repair",
-            "quota",
-        ] {
-            assert!(
-                !instructions.contains(unrelated_remedy),
-                "shared blocker guidance must not seed {unrelated_remedy}"
-            );
-        }
-        assert!(
-            instructions.contains("derive any decision options only from this task's evidence")
-        );
-        assert!(instructions.contains("report a step instead of inventing choices"));
-    }
-
-    #[test]
-    fn legacy_null_fields_keep_issue_choices_for_the_generated_explanation() {
-        let legacy = r#"{"status":"blocked","blocker_disposition":null,"summary":"The published file list conflicts with this task's frozen requirement.","acceptance_criteria":[],"verification":[],"remaining":["Adjudicator: pick exactly one remedy: (a) ratify the effective base; (b) reissue the footprint rule; (c) approve exemptions; or (d) authorize history repair."],"human_choices":null}"#;
-        let report = parse_report(legacy).unwrap();
-        assert_eq!(report.blocker_disposition, BlockerDisposition::HumanAction);
-        assert!(report.human_choices.is_empty());
-        assert_eq!(report.remaining.len(), 1);
-        assert!(report.remaining[0].contains("ratify the effective base"));
-    }
-}
+#[path = "report/tests.rs"]
+mod tests;

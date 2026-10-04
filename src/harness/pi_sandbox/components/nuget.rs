@@ -5,7 +5,9 @@ use std::{
 
 use anyhow::Context;
 
-use super::path_safety::{canonical_path_with_missing_tail, ensure_narrow_host_directory};
+use super::path_safety::{
+    SENSITIVE_HOST_PATH_COMPONENTS, canonical_path_with_missing_tail, ensure_narrow_host_directory,
+};
 
 const DEDICATED_NUGET_DIRECTORY_NAMES: [&str; 4] = [
     "packages",
@@ -14,23 +16,6 @@ const DEDICATED_NUGET_DIRECTORY_NAMES: [&str; 4] = [
     "nuget_packages",
 ];
 const TEMPORARY_HOST_ROOTS: [&str; 3] = ["/tmp", "/var/tmp", "/dev/shm"];
-const SENSITIVE_PATH_COMPONENTS: [&str; 14] = [
-    ".aws",
-    ".ssh",
-    ".config",
-    ".kube",
-    ".azure",
-    ".docker",
-    ".gnupg",
-    ".pki",
-    "keyrings",
-    "credentials",
-    "secret",
-    "secrets",
-    ".secret",
-    ".secrets",
-];
-
 pub(in crate::harness::pi_sandbox) fn host_nuget_packages() -> anyhow::Result<PathBuf> {
     let configured = env::var_os("NUGET_PACKAGES").map(PathBuf::from);
     let home = env::var_os("HOME").map(PathBuf::from);
@@ -97,7 +82,7 @@ fn validate_nuget_packages(path: &Path, home: Option<&Path>) -> anyhow::Result<(
                 _ => None,
             })
             .any(|name| {
-                SENSITIVE_PATH_COMPONENTS
+                SENSITIVE_HOST_PATH_COMPONENTS
                     .iter()
                     .any(|blocked| name.eq_ignore_ascii_case(blocked))
             }),
