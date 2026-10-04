@@ -1687,6 +1687,7 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-general-category",
+ "url",
  "uuid",
 ]
 

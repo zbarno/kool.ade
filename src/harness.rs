@@ -24,3 +24,4 @@ pub use api::{
 pub use pi_harness::PiHarness;
 
 mod api;
+mod resource_bridge;
