@@ -57,6 +57,13 @@ fn verification_worktree_path_survives_cd_and_spaces() {
     runner
         .verify(
             &cwd,
+            "test -d /tmp/koolade-home/.npm-prepared/_cacache && \
+             if touch /tmp/koolade-home/.npm-prepared/_cacache/.koolade-write-guard 2>/dev/null; then exit 31; fi",
+        )
+        .unwrap();
+    runner
+        .verify(
+            &cwd,
             "cd / && test \"$(cat \"$KOOLADE_WORKTREE/marker\")\" = proof",
         )
         .unwrap();
