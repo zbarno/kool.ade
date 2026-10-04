@@ -601,6 +601,8 @@ Coding agents keep getting better at implementation.
 
 That shifts the bottleneck.
 
+As coding gets faster, unclear requirements can also get you to the wrong thing faster.
+
 The hard part increasingly becomes:
 
 - deciding what should be built
