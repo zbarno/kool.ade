@@ -25,3 +25,14 @@ pub use pi_harness::PiHarness;
 
 mod api;
 mod resource_bridge;
+
+pub(crate) fn prepared_npm_cache_path() -> anyhow::Result<std::path::PathBuf> {
+    resource_bridge::prepared_npm_cache_path()
+}
+
+pub(crate) fn prepared_npm_cache_covers(
+    worktree: &std::path::Path,
+    cache: &std::path::Path,
+) -> bool {
+    resource_bridge::prepared_npm_cache_covers(worktree, cache)
+}

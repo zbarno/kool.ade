@@ -13,6 +13,7 @@ mod nuget;
 mod path_safety;
 
 use dotnet::{host_dotnet_root, mount_dotnet_root};
+pub(super) use node::host_node_root;
 use node::{add_node_path, mount_node_runtime};
 pub(super) use npm::host_npm_cache;
 pub(super) use nuget::host_nuget_packages;

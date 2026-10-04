@@ -10,7 +10,7 @@ use crate::harness::pi_sandbox::mounts::{bind_readonly, make_dir};
 const VISIBLE_RUNTIME_ROOTS: [&str; 6] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/usr/local"];
 const SANDBOX_NODE_ROOT: &str = "/tmp/koolade-tools/node";
 
-pub(super) fn host_node_root() -> anyhow::Result<Option<PathBuf>> {
+pub(in crate::harness::pi_sandbox) fn host_node_root() -> anyhow::Result<Option<PathBuf>> {
     let Some(path) = env::var_os("PATH") else {
         return Ok(None);
     };

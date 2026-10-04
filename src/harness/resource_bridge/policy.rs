@@ -57,14 +57,24 @@ fn safe_npm_path(path: &str) -> bool {
         return false;
     }
     let segments = value.split('/').collect::<Vec<_>>();
-    let package = segments.first().copied().unwrap_or_default();
-    if !safe_package_name(package) {
+    let (package, remainder) = if segments
+        .first()
+        .is_some_and(|part| part.starts_with('@') && !part.to_ascii_lowercase().contains("%2f"))
+    {
+        let Some(scope_package) = segments.get(1) else {
+            return false;
+        };
+        (format!("{}/{}", segments[0], scope_package), &segments[2..])
+    } else {
+        (segments[0].to_owned(), &segments[1..])
+    };
+    if !safe_package_name(&package) {
         return false;
     }
-    match segments.as_slice() {
-        [_] => true,
-        [_, version] => safe_version(version),
-        [_, dash, filename] if *dash == "-" => safe_tarball(filename),
+    match remainder {
+        [] => true,
+        [version] => safe_version(version),
+        [dash, filename] if *dash == "-" => safe_tarball(filename),
         _ => false,
     }
 }

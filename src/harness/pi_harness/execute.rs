@@ -95,6 +95,11 @@ impl AiHarness for PiHarness {
                 .map_err(|error| {
                     AppError::Other(format!("Cannot mount resource cache: {error:#}"))
                 })?;
+            sandbox
+                .mount_npm_cache(bridge.npm_cache_path(), true)
+                .map_err(|error| {
+                    AppError::Other(format!("Cannot mount prepared npm cache: {error:#}"))
+                })?;
             let files = sandbox.extension_files().map_err(|error| {
                 AppError::Other(format!(
                     "Cannot prepare bounded implementation tools: {error:#}"
