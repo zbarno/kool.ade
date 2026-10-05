@@ -46,7 +46,7 @@ async function runSandbox(
 	const child = spawn(sandbox.bwrap, [
 		...sandbox.args,
 		"--", "/bin/bash", "-c",
-		'ulimit -u 128; ulimit -f 2097152; ulimit -c 0; exec /bin/bash -c "$1"',
+		'ulimit -u 1024; ulimit -f 2097152; ulimit -c 0; exec /bin/bash -c "$1"',
 		"koolade-sandbox", command,
 	], {
 		cwd: sandbox.root,
