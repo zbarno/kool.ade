@@ -618,5 +618,21 @@
     "recommendation": "",
     "evidence": "Searched .koolade-packet/ (state, planning, config), docs/, README, site/index.html, and AGENTS.md: no reference to issue #23. The planning profile isolates the network namespace, exposing only the configured provider relay socket. Follow-up recheck (docs/, .koolade-packet/planning/changes/) confirms no mirror document appeared. Operator replied 'pasted in chat' in the task thread, but no issue content accompanied the message; awaiting re-paste or a repository document pointer.\n\nResolution outcome: Issue #23 is now in F11: goal, requirements, and all 27 acceptance criteria transcribed from your paste; CLR-011 resolved. The spec is grounded against the current ledger, the $KOOLADE_HOME project store, and the pi event fold. Two Agent assumption cards (telemetry store/format; cost fallback) sit on the board. F11 is Ready; implementation waits on the F11 card's approval action. No reply needed.",
     "status": "resolved"
+  },
+  {
+    "uid": "efc1920d-2f26-45a4-8f05-e2e76b924b8a",
+    "id": "CLR-012",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "General",
+    "assigned_to": "(owner TBD)",
+    "question": "Adopt $KOOLADE_HOME/projects/<project>/telemetry/ as the canonical telemetry store and append-oriented, version-tagged JSON Lines as the initial record format?",
+    "reason": "Issue #23 permits 'an equivalent user-local location' and only advises (does not mandate) an append-oriented versioned format. Pinning both keeps the F11 task stories concretely testable. The chosen location coincides with the existing operator-local project-directory layout and matches the issue's preferred path; the JSONL format follows the existing chat-store precedent. Both are reversible before rollout (reparsing or relocating a young format).",
+    "feature_id": "F11",
+    "feature_uid": "8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae",
+    "recommendation": "",
+    "evidence": "src/persistence/home.rs: state_root() honors $KOOLADE_HOME (default ~/.koolade-packet) and project_dir(slug) builds '<root>/projects/<slug>'; chat stores are JSONL. .gitignore keeps .koolade-packet/state/time-ledger.log untracked. Issue #23 as transcribed into F11 names $KOOLADE_HOME/projects/<project>/telemetry/ as its preferred location and suggests an append-oriented versioned format 'is likely easier to evolve'.\n\nResolution outcome: CLR-012 investigated and settled. Source evidence confirms the premise: `project_dir()` yields exactly `$KOOLADE_HOME/projects/<slug>/` (src/persistence/home.rs), the chat store is a proven JSONL append-with-compaction pattern (src/persistence/chat_store.rs), and version tagging has house precedent (`time-ledger:v1` header; `schemaVersion` in the task-chat store). So: yes — adopt `$KOOLADE_HOME/projects/<project>/telemetry/` as the canonical store and append-oriented, per-record version-tagged JSONL as the initial format. Recorded as decided in the F11 spec; item resolved.",
+    "status": "resolved"
   }
 ]
