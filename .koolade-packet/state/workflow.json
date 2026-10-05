@@ -1,7 +1,30 @@
 {
   "brief": null,
   "reviewedSpecification": null,
-  "taskBatches": [],
+  "taskBatches": [
+    {
+      "identity": {
+        "uid": "106cdc43-203a-42fb-8104-297c38b9b8c0",
+        "displayId": "BATCH-106CDC43",
+        "title": "Restore the green test baseline (F10)",
+        "parentUid": "975b7c28-2565-42d2-9276-b101df28c928"
+      },
+      "feature": "Restore the green test baseline (F10)",
+      "directory": ".koolade-packet/planning/tasks/F10-restore-the-green-test-baseline",
+      "count": 2
+    },
+    {
+      "identity": {
+        "uid": "006525e9-d85f-4b17-b05b-0dc1320d09d8",
+        "displayId": "BATCH-006525E9",
+        "title": "Relabel product index to the canonical name (F9)",
+        "parentUid": "6a552dd8-caee-40e5-8ef3-92ae855394ee"
+      },
+      "feature": "Relabel product index to the canonical name (F9)",
+      "directory": ".koolade-packet/planning/tasks/F9-relabel-product-index-to-the-canonical-name",
+      "count": 2
+    }
+  ],
   "approvedFeatures": {},
   "planComparisons": {}
 }
