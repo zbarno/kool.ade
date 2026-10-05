@@ -17,6 +17,72 @@ fn cancelled_worktree_is_reviewed_and_resumed() {
 }
 
 #[test]
+fn accepting_resume_moves_blocked_state_to_preparing_and_keeps_failure_history() {
+    let s = Sandbox::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    assert!(s.run("cancel", calls).is_err());
+    let mut blocked = load(&s.repo, &s.ticket).unwrap();
+    blocked.status = ImplementationStatus::Blocked;
+    blocked.detail = "NuGet audit feed was unreachable".into();
+    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    save(&dir, &blocked).unwrap();
+
+    let resumed = crate::core::implementation::mark_resume_started(&s.repo, &s.ticket)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(resumed.status, ImplementationStatus::Preparing);
+    assert!(resumed.detail.contains("Resume accepted"));
+    assert!(resumed.detail.contains("NuGet audit feed was unreachable"));
+    assert_eq!(
+        load(&s.repo, &s.ticket).unwrap().status,
+        ImplementationStatus::Preparing
+    );
+    let history = fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("-resume-context.txt")
+        })
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(history).unwrap(),
+        "NuGet audit feed was unreachable"
+    );
+
+    let failed = crate::core::implementation::record_failed_attempt(
+        &s.repo,
+        &s.ticket,
+        "Retry failed before implementation began: task lock is busy.",
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(failed.status, ImplementationStatus::Blocked);
+    assert_eq!(
+        failed.detail,
+        "Retry failed before implementation began: task lock is busy."
+    );
+    assert_eq!(
+        load(&s.repo, &s.ticket).unwrap().status,
+        ImplementationStatus::Blocked
+    );
+}
+
+#[test]
+fn active_resume_overrides_a_persisted_blocked_board_status() {
+    let s = Sandbox::new();
+    let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+    state.status = ImplementationStatus::Blocked;
+
+    assert_eq!(board_column(Some(&state), true), 1);
+    assert_eq!(board_column(Some(&state), false), 3);
+}
+
+#[test]
 fn feature_named_workspace_ticket_resumes_preserved_work() {
     let mut s = Sandbox::new();
     let ticket = ".koolade-packet/planning/tasks/feature/CHG-003-TASK-verify-workspace.md";

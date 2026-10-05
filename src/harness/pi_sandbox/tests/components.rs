@@ -32,6 +32,14 @@ fn sandbox_reuses_host_toolchains_and_package_caches_across_invocations() {
                 && env[1] == "NUGET_PACKAGES"
                 && env[2] == "/tmp/koolade-home/.nuget/packages"
         }));
+        assert!(sandbox.args.windows(3).any(|mount| {
+            mount[0] == "--ro-bind" && mount[2] == "/tmp/koolade-home/.nuget/http-cache"
+        }));
+        assert!(sandbox.args.windows(3).any(|env| {
+            env[0] == "--setenv"
+                && env[1] == "NUGET_HTTP_CACHE_PATH"
+                && env[2] == "/tmp/koolade-home/.nuget/http-cache"
+        }));
         for (key, expected) in [
             ("npm_config_offline", "true"),
             ("npm_config_audit", "false"),

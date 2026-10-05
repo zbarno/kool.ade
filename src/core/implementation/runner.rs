@@ -117,6 +117,29 @@ impl Runner {
     }
     pub(super) fn verify(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
         self.check_storage(cwd)?;
+        match self.verify_once(cwd, command) {
+            Ok(output) => Ok(output),
+            Err(error) if is_nuget_audit_failure(&error) => {
+                self.update(
+                    "Refreshing public NuGet vulnerability data, then retrying verification…",
+                );
+                let timeout = self.remaining()?.min(Duration::from_secs(90));
+                crate::harness::refresh_nuget_audit_cache(timeout).map_err(|refresh_error| {
+                    anyhow::anyhow!(
+                        "{error}\nKool.ad/e could not refresh the public NuGet audit cache: {refresh_error:#}"
+                    )
+                })?;
+                self.verify_once(cwd, command).map_err(|retry_error| {
+                    anyhow::anyhow!(
+                        "{retry_error}\nKool.ad/e refreshed the public NuGet audit cache and retried verification, but the feed error remains."
+                    )
+                })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn verify_once(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
         cwd.to_str()
             .ok_or_else(|| anyhow::anyhow!("Non-UTF8 worktree path"))?;
         let mut sandbox = crate::harness::pi_sandbox::Sandbox::new(cwd)?;
@@ -198,6 +221,14 @@ impl Runner {
         }
     }
 }
+
+fn is_nuget_audit_failure(error: &anyhow::Error) -> bool {
+    error
+        .to_string()
+        .to_ascii_lowercase()
+        .contains("error nu1900:")
+}
+
 pub(super) fn append_tail(out: &mut String, line: &str) {
     out.push_str(line);
     out.push('\n');
@@ -208,5 +239,23 @@ pub(super) fn append_tail(out: &mut String, line: &str) {
             .find(|i| *i >= out.len() - 24_000)
             .unwrap_or(0);
         out.drain(..boundary);
+    }
+}
+
+#[cfg(test)]
+mod audit_recovery_tests {
+    use super::is_nuget_audit_failure;
+
+    #[test]
+    fn refresh_retry_is_limited_to_fatal_nuget_audit_errors() {
+        assert!(is_nuget_audit_failure(&anyhow::anyhow!(
+            "dotnet build failed: error NU1900: audit feed unavailable"
+        )));
+        assert!(!is_nuget_audit_failure(&anyhow::anyhow!(
+            "dotnet build failed: warning NU1900: audit feed unavailable"
+        )));
+        assert!(!is_nuget_audit_failure(&anyhow::anyhow!(
+            "dotnet build failed: error CS0246: missing type"
+        )));
     }
 }

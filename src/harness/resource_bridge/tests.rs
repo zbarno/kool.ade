@@ -22,6 +22,20 @@ fn public_npm_registry_package_paths_are_auto_allowed() {
 }
 
 #[test]
+fn prepare_nuget_audit_action_is_a_recognized_mediated_resource_request() {
+    let request = ResourceRequest {
+        action: super::ResourceAction::PrepareNugetAudit,
+        manager: None,
+        url: None,
+        purpose: "Retry verification with public NuGet vulnerability data".into(),
+    };
+    let encoded = serde_json::to_string(&request).unwrap();
+    assert!(encoded.contains("prepare_nuget_audit"));
+    let decoded: ResourceRequest = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded.action, super::ResourceAction::PrepareNugetAudit);
+}
+
+#[test]
 fn uncertain_resource_request_is_returned_and_recorded_for_operator_attention() {
     let worktree =
         std::env::temp_dir().join(format!("koolade-resource-test-{}", uuid::Uuid::new_v4()));

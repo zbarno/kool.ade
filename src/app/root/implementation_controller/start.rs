@@ -109,6 +109,13 @@ impl KooladeApp {
                     }
                 }
             }
+            let previous_queue = p.queue.clone();
+            let resuming = p.implementation_states.get(&ticket).is_some_and(|state| {
+                matches!(
+                    state.status,
+                    ImplementationStatus::Blocked | ImplementationStatus::Interrupted
+                )
+            });
             if p.queue.auto_build {
                 p.queue.running = true;
                 p.queue.recovery_paused = false;
@@ -128,6 +135,30 @@ impl KooladeApp {
                     p.queue_lock = None;
                 }
                 return;
+            }
+            if resuming {
+                match crate::core::implementation::mark_resume_started(&p.state.repo_root, &ticket)
+                {
+                    Ok(Some(state)) => {
+                        p.implementation_states.insert(ticket.clone(), state);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        p.queue = previous_queue;
+                        p.queue.last_error =
+                            format!("Cannot record the resumed attempt: {error:#}");
+                        if let Err(save_error) = p.queue.save(&p.state.repo_root) {
+                            p.queue
+                                .last_error
+                                .push_str(&format!("\nCannot restore queue state: {save_error:#}"));
+                        }
+                        p.queue.in_flight.remove(&ticket);
+                        if p.active_implementations.is_empty() {
+                            p.queue_lock = None;
+                        }
+                        return;
+                    }
+                }
             }
             p.activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
             p.remember_chat(vec![ChatMessage::new(

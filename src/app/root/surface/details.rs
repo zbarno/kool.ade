@@ -90,12 +90,17 @@ impl KooladeApp {
             Screen::Welcome => return None,
         };
         let failure = queued_failure.or_else(|| {
-            implementation
-                .as_ref()
-                .filter(|record| {
-                    record.status == crate::core::implementation::ImplementationStatus::Blocked
+            (!implementation_active)
+                .then(|| {
+                    implementation
+                        .as_ref()
+                        .filter(|record| {
+                            record.status
+                                == crate::core::implementation::ImplementationStatus::Blocked
+                        })
+                        .map(|record| record.detail.clone())
                 })
-                .map(|record| record.detail.clone())
+                .flatten()
         });
         let attention = failure
             .as_deref()

@@ -24,7 +24,16 @@ pub use api::{
 pub use pi_harness::PiHarness;
 
 mod api;
+mod nuget_audit;
 mod resource_bridge;
+
+pub(crate) fn nuget_audit_cache_path() -> anyhow::Result<std::path::PathBuf> {
+    nuget_audit::cache_path()
+}
+
+pub(crate) fn refresh_nuget_audit_cache(timeout: std::time::Duration) -> anyhow::Result<()> {
+    nuget_audit::refresh(timeout)
+}
 
 pub(crate) fn prepared_npm_cache_path() -> anyhow::Result<std::path::PathBuf> {
     resource_bridge::prepared_npm_cache_path()

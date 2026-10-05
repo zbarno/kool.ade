@@ -207,6 +207,8 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     assert!(extension.contains("name: \"koolade_bash\""));
     assert!(extension.contains("name: \"koolade_resource\""));
     assert!(extension.contains("KOOLADE_RESOURCE_SOCKET"));
+    assert!(extension.contains("prepare_nuget_audit"));
+    assert!(extension.contains("could not refresh the public NuGet audit feed"));
     assert!(extension.contains("child.kill(\"SIGKILL\")"));
     let config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(root.join("sandbox.json")).unwrap()).unwrap();

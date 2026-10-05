@@ -200,6 +200,18 @@ pub(super) fn adopt(
                     &["ls-files", "--others", "--exclude-standard", "-z"],
                 )?
                 .is_empty()
+            || !runner
+                .git(
+                    &state.worktree,
+                    &[
+                        "ls-files",
+                        "--others",
+                        "--ignored",
+                        "--exclude-standard",
+                        "-z",
+                    ],
+                )?
+                .is_empty()
         {
             return Ok(false);
         }

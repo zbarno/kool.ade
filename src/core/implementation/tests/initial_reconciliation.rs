@@ -8,6 +8,8 @@ mod cache_reuse;
 mod crash_recovery;
 #[path = "initial_reconciliation/legacy_recovery.rs"]
 mod legacy_recovery;
+#[path = "initial_reconciliation/merge_recovery.rs"]
+mod merge_recovery;
 #[path = "initial_reconciliation/report_envelope.rs"]
 mod report_envelope;
 

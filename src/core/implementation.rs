@@ -24,6 +24,8 @@ mod verification;
 pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
 pub use board_states::{BOARD_COLUMNS, board_column, load_board_states};
 pub use controller::Controller;
+pub(crate) use execution::mark_resume_started;
+pub(crate) use execution::record_failed_attempt;
 pub use execution::run;
 use execution::run_with_project_options;
 pub use pr_refresh::PrRefresh;

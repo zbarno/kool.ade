@@ -1,4 +1,6 @@
 use super::*;
+mod resume_state;
+pub(crate) use resume_state::{mark_resume_started, record_failed_attempt};
 
 pub fn run(
     repo: &Path,
