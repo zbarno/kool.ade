@@ -11,7 +11,7 @@ pub(super) fn finalize_verified(
         runner.git(&state.worktree, &["rev-parse", "HEAD"])? == head,
         "Agent changed commit history; refusing a non-atomic task commit"
     );
-    runner.git(&state.worktree, &["add", "--all"])?;
+    initial_reconciliation::support::generated::stage_task(runner, state, dir)?;
     if !runner
         .git(&state.worktree, &["diff", "--cached", "--name-only"])?
         .is_empty()
@@ -26,9 +26,7 @@ pub(super) fn finalize_verified(
         )?;
     }
     anyhow::ensure!(
-        runner
-            .git(&state.worktree, &["status", "--porcelain"])?
-            .is_empty(),
+        initial_reconciliation::support::generated::clean(runner, state, dir)?,
         "Worktree is not clean after verification and commit; resume to review"
     );
     let changed_paths = runner.git(

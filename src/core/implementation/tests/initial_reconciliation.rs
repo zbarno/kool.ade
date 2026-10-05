@@ -12,6 +12,10 @@ mod legacy_recovery;
 mod merge_recovery;
 #[path = "initial_reconciliation/report_envelope.rs"]
 mod report_envelope;
+#[path = "initial_reconciliation/resilience.rs"]
+mod resilience;
+#[path = "initial_reconciliation/whitespace.rs"]
+mod whitespace;
 
 struct ReconcilingAgent {
     calls: Arc<AtomicUsize>,

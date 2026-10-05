@@ -1,6 +1,6 @@
 use super::super::support::*;
 use super::super::*;
-use super::{auto_verify, external_blocker, scope};
+use super::{auto_verify, external_blocker, scope, whitespace};
 use std::path::Path;
 
 pub(super) struct Context<'a> {
@@ -74,7 +74,7 @@ pub(super) fn run(
             harness.execute(&request)
         };
         drop(span);
-        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, plan)?;
+        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, plan, dir, state, false)?;
         let response = match outcome {
             Ok(outcome) => outcome.final_text,
             Err(error) => {
@@ -111,13 +111,13 @@ pub(super) fn run(
         if super::report::external_blocker(&report) {
             return Err(external_blocker::error(&report, &report_path));
         }
-        if let Err(error) = super::report::validate_report(&report, CONTRACT) {
+        if let Err(error) = super::report::validate_reconciliation_report(&report, CONTRACT) {
             last_failure = format!("Reconciliation report needs correction: {error:#}");
             feedback = last_failure.clone();
             continue;
         }
 
-        runner.git(&state.worktree, &["add", "--all"])?;
+        scope::stage_pinned_changes(repo, runner, state, plan)?;
         let unresolved = unmerged_paths(runner, &state.worktree)?;
         if !unresolved.is_empty() {
             last_failure = format!("Unresolved merge paths remain: {}", unresolved.join(", "));
@@ -145,6 +145,12 @@ pub(super) fn run(
                 commands.push(command.clone());
             }
         }
+        if let Err(error) = whitespace::check(runner, &state.worktree, plan) {
+            last_failure = format!("Reconciliation introduced whitespace errors: {error:#}");
+            feedback = last_failure.clone();
+            automatically_verified = false;
+            continue;
+        }
         let evidence = run_verification(runner, state, dir, stamp, &commands)?;
         if let Some(error) = evidence.error {
             if verification_needs_environment(&error) {
@@ -161,11 +167,11 @@ pub(super) fn run(
             automatically_verified = false;
             continue;
         }
-        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, plan)?;
+        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, plan, dir, state, false)?;
         validate_worktree(repo, state, runner)?;
         let merge_head = auto_verify::current_merge_head(runner, &state.worktree)?;
         let merge_in_progress = merge_head.is_some();
-        runner.git(&state.worktree, &["diff", "--cached", "--check"])?;
+        whitespace::check(runner, &state.worktree, plan)?;
         let staged = runner.git(&state.worktree, &["diff", "--cached", "--name-only"])?;
         if merge_in_progress || !staged.is_empty() {
             runner.git(
@@ -187,9 +193,7 @@ pub(super) fn run(
         let combined = runner.git(&state.worktree, &["rev-parse", "HEAD"])?;
         ensure_combines(repo, runner, plan, &combined)?;
         anyhow::ensure!(
-            runner
-                .git(&state.worktree, &["status", "--porcelain"])?
-                .is_empty(),
+            generated::clean(runner, state, dir)?,
             "Reconciled worktree is not clean after its verified commit"
         );
         plan.verified_commit = Some(combined);

@@ -10,12 +10,14 @@ pub(super) enum DisjointMergeState {
 
 pub(super) fn inspect_disjoint_merge(
     repo: &Path,
-    worktree: &Path,
     runner: &Runner,
     plan: &Plan,
+    dir: &Path,
+    state: &Implementation,
     head: &str,
     merge_head: Option<&str>,
 ) -> anyhow::Result<DisjointMergeState> {
+    let worktree = &state.worktree;
     if head != plan.remote_commit
         || merge_head != Some(plan.local_commit.as_str())
         || !unmerged_paths(runner, worktree)?.is_empty()
@@ -48,10 +50,17 @@ pub(super) fn inspect_disjoint_merge(
             "-z",
         ],
     )?;
+    let generated = generated::trusted(runner, state, dir)?;
+    let unknown = |paths: &str| {
+        paths
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .any(|path| !generated.contains(path))
+    };
     if staged_paths != expected_local
         || !unstaged.is_empty()
-        || !unexpected_paths.is_empty()
-        || !ignored.is_empty()
+        || unknown(&unexpected_paths)
+        || unknown(&ignored)
     {
         return Ok(DisjointMergeState::UnexpectedChanges);
     }
@@ -82,7 +91,7 @@ pub(super) fn report(already_in_base: bool) -> serde_json::Value {
         "blocker_disposition": "none",
         "summary": "Disjoint local and shared changes were combined; required verification will run before the baseline is accepted.",
         "acceptance_criteria": criteria,
-        "verification": ["git diff --cached --check"],
+        "verification": ["git diff --cached --name-only"],
         "remaining": [],
         "human_choices": []
     })
@@ -99,4 +108,32 @@ pub(super) fn current_merge_head(
             Ok(None)
         }
     }
+}
+
+pub(super) fn cache_is_safe(
+    runner: &Runner,
+    state: &Implementation,
+    dir: &Path,
+) -> anyhow::Result<bool> {
+    let generated = generated::trusted(runner, state, dir)?;
+    for args in [
+        vec!["ls-files", "--others", "--exclude-standard", "-z"],
+        vec![
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+        ],
+    ] {
+        if runner
+            .git(&state.worktree, &args)?
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .any(|path| !generated.contains(path))
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

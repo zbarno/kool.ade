@@ -1,3 +1,4 @@
+pub(in crate::core::implementation) mod generated;
 mod pinned_commits;
 pub(super) mod quality_checks;
 mod verification;
@@ -151,7 +152,9 @@ pub(super) fn run_verification(
     let mut results = Vec::new();
     let mut failure = None;
     for command in commands {
+        let before = generated::before(runner, state, dir)?;
         let result = runner.verify(&state.worktree, command);
+        let artifacts = generated::after(runner, state, dir, before);
         let (output, error) = match result {
             Ok(output) => (Some(crate::error::redact_secrets(&output)), None),
             Err(error) => {
@@ -161,6 +164,11 @@ pub(super) fn run_verification(
             }
         };
         results.push(serde_json::json!({"command":command,"output":output,"error":error}));
+        if let Err(error) = artifacts {
+            failure.get_or_insert_with(|| {
+                format!("Could not record verification artifacts: {error:#}")
+            });
+        }
         if failure.is_some() {
             break;
         }
