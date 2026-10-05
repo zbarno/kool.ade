@@ -1,5 +1,6 @@
 mod auto_verify;
 mod external_blocker;
+mod requirements;
 
 use super::support::*;
 use super::*;
@@ -18,6 +19,13 @@ pub fn prepare(
         return Ok(());
     }
     let mut plan = read_plan(&path)?;
+    support::validate_pinned_commits(
+        repo,
+        runner,
+        &crate::core::implementation::key_for_ticket(&state.ticket),
+        &plan,
+    )?;
+    requirements::refresh(repo, runner, &path, &mut plan)?;
     if let Some(verified) = plan.verified_commit.as_deref() {
         ensure_combines(repo, runner, &plan, verified)?;
         if state.base_commit != verified {
@@ -48,7 +56,7 @@ pub fn prepare(
     let head = runner.git(&state.worktree, &["rev-parse", "HEAD"])?;
     let local_in_head = is_ancestor(runner, &state.worktree, &plan.local_commit, &head)?;
     let remote_in_head = is_ancestor(runner, &state.worktree, &plan.remote_commit, &head)?;
-    let mut merge_head = current_merge_head(runner, &state.worktree)?;
+    let mut merge_head = auto_verify::current_merge_head(runner, &state.worktree)?;
     let mut merge_in_progress = merge_head.is_some();
     if merge_in_progress {
         anyhow::ensure!(
@@ -80,7 +88,7 @@ pub fn prepare(
                 "Could not combine local and shared histories: {error}"
             );
         }
-        merge_head = current_merge_head(runner, &state.worktree)?;
+        merge_head = auto_verify::current_merge_head(runner, &state.worktree)?;
         merge_in_progress = merge_head.is_some();
         anyhow::ensure!(
             merge_in_progress,
@@ -206,7 +214,7 @@ pub fn prepare(
             }
         }
         for command in &report.verification {
-            if !commands.contains(command) {
+            if !report_check_is_covered(&commands, command) && !commands.contains(command) {
                 commands.push(command.clone());
             }
         }
@@ -227,7 +235,7 @@ pub fn prepare(
             continue;
         }
         validate_worktree(repo, state, runner)?;
-        merge_head = current_merge_head(runner, &state.worktree)?;
+        merge_head = auto_verify::current_merge_head(runner, &state.worktree)?;
         merge_in_progress = merge_head.is_some();
         runner.git(&state.worktree, &["diff", "--cached", "--check"])?;
         let staged = runner.git(&state.worktree, &["diff", "--cached", "--name-only"])?;
@@ -285,14 +293,4 @@ pub fn prepare(
             ),
         ),
     )))
-}
-
-fn current_merge_head(runner: &Runner, worktree: &Path) -> anyhow::Result<Option<String>> {
-    match runner.git(worktree, &["rev-parse", "--verify", "MERGE_HEAD"]) {
-        Ok(commit) => Ok(Some(commit)),
-        Err(_) => {
-            runner.remaining()?;
-            Ok(None)
-        }
-    }
 }

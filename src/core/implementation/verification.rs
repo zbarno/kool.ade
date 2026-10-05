@@ -2,6 +2,7 @@ use super::*;
 
 mod commit;
 mod prompt;
+mod requirements;
 mod workspace;
 
 pub(super) fn prepare_worktree(
@@ -22,9 +23,7 @@ pub(super) fn prepare_verified(
     accrual: Option<&crate::core::time_accrual::AgentSpan>,
 ) -> anyhow::Result<()> {
     let (clean, head) = workspace::prepare_worktree(repo, state, runner)?;
-    let already_verified = clean
-        && state.verified_head.as_deref() == Some(head.as_str())
-        && (!state.auto_merge || dir.join("verified-report.json").exists());
+    let already_verified = requirements::already_verified(dir, state, clean, &head)?;
     if already_verified && state.pr_url.is_some() {
         return Ok(());
     }
@@ -193,7 +192,7 @@ pub(super) fn prepare_verified(
             let mut verification_failure = false;
             match parsed {
                 Err(error) => failure = Some(error.to_string()),
-                Ok(report) => {
+                Ok(mut report) => {
                     if external_blocker(&report) {
                         let detail = external_blocker_detail(&report, &report_path);
                         state.detail = detail.clone();
@@ -209,8 +208,9 @@ pub(super) fn prepare_verified(
                     } else {
                         state.status = ImplementationStatus::Verifying;
                         save(dir, state)?;
+                        let commands = requirements::commands_to_run(dir, &report.verification)?;
                         let mut evidence = Vec::new();
-                        for command in &report.verification {
+                        for command in &commands {
                             runner.update(format!("Verifying: {command}"));
                             let result = runner.verify(&state.worktree, command);
                             evidence.push(serde_json::json!({
@@ -242,6 +242,7 @@ pub(super) fn prepare_verified(
                             failure = Some(format!("git diff --check failed: {error}"));
                         }
                         if failure.is_none() {
+                            report.verification = commands;
                             break report;
                         }
                     }

@@ -1,7 +1,11 @@
-mod quality_checks;
+mod pinned_commits;
+pub(super) mod quality_checks;
 mod verification;
 
 use super::*;
+pub(in crate::core::implementation) use pinned_commits::{
+    pin_plan_commits, validate_pinned_commits,
+};
 pub(super) use verification::verification_needs_environment;
 
 pub(super) fn required_baseline_checks(
@@ -63,7 +67,13 @@ pub(in crate::core::implementation) fn required_baseline_checks_for_commits(
             }
             let object = format!("{commit}:{path}");
             let contents = runner.git(repo, &["show", &object])?;
-            checks.extend(quality_checks::required_commands_in_markdown(&contents));
+            let instruction_directory = Path::new(path.as_ref())
+                .parent()
+                .unwrap_or_else(|| Path::new(""));
+            checks.extend(quality_checks::required_commands_in_markdown(
+                &contents,
+                instruction_directory,
+            )?);
         }
     }
     let mut unique = Vec::new();
@@ -196,63 +206,6 @@ pub(super) fn is_ancestor(
     };
     let ancestor = runner.git(repo, &["rev-parse", &format!("{ancestor}^{{commit}}")])?;
     Ok(merge_base == ancestor)
-}
-
-pub(in crate::core::implementation) fn pin_plan_commits(
-    repo: &Path,
-    runner: &Runner,
-    task_key: &str,
-    local: &str,
-    remote: &str,
-) -> anyhow::Result<()> {
-    for (side, commit) in [("local", local), ("remote", remote)] {
-        runner.git(
-            repo,
-            &[
-                "update-ref",
-                &format!("refs/koolade-reconciliations/{task_key}/{side}"),
-                commit,
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-pub(in crate::core::implementation) fn validate_pinned_commits(
-    repo: &Path,
-    runner: &Runner,
-    task_key: &str,
-    plan: &Plan,
-) -> anyhow::Result<()> {
-    let pinned = [
-        ("local", plan.local_commit.as_str()),
-        ("remote", plan.remote_commit.as_str()),
-    ];
-    for (_, expected) in pinned {
-        runner.git(repo, &["cat-file", "-e", &format!("{expected}^{{commit}}")])?;
-    }
-    for (side, expected) in pinned {
-        let reference = format!("refs/koolade-reconciliations/{task_key}/{side}");
-        if runner
-            .git(repo, &["update-ref", &reference, expected, expected])
-            .is_err()
-        {
-            let missing = "0".repeat(expected.len());
-            runner
-                .git(repo, &["update-ref", &reference, expected, &missing])
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "The saved reconciliation history reference changed and could not be restored safely: {error:#}"
-                    )
-                })?;
-        }
-        let actual = runner.git(repo, &["rev-parse", "--verify", &reference])?;
-        anyhow::ensure!(
-            actual == expected,
-            "Saved reconciliation commit pin mismatch"
-        );
-    }
-    Ok(())
 }
 
 pub(super) fn ensure_combines(

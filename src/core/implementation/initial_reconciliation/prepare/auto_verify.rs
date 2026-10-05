@@ -64,3 +64,16 @@ pub(super) fn report() -> serde_json::Value {
         "human_choices": []
     })
 }
+
+pub(super) fn current_merge_head(
+    runner: &Runner,
+    worktree: &Path,
+) -> anyhow::Result<Option<String>> {
+    match runner.git(worktree, &["rev-parse", "--verify", "MERGE_HEAD"]) {
+        Ok(commit) => Ok(Some(commit)),
+        Err(_) => {
+            runner.remaining()?;
+            Ok(None)
+        }
+    }
+}
