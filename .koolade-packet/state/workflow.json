@@ -1,5 +1,20 @@
 {
-  "brief": null,
+  "brief": {
+    "featureName": "Implement zbarno/kool.ade issue #23",
+    "problem": "The operator pointed at GitHub issue #23 as the next unit of work, but its content is unreachable from the offline planning sandbox, so nothing in the specification is grounded yet.",
+    "goal": "",
+    "targetUsers": "",
+    "intendedOutcome": "",
+    "successCriteria": [],
+    "inScope": [],
+    "outOfScope": [],
+    "constraints": [
+      "Requested behavior must come from issue #23's content; no scope is inferred from the issue number or from nearby F8-F10 work.",
+      "The planning profile has no outbound network, so issue content must be supplied by the operator or exist in a synced repository document.",
+      "The standing three-gate rule (fmt, test, clippy on Rust 1.98.1) applies to any resulting implementation before commit."
+    ],
+    "readyForTasks": false
+  },
   "reviewedSpecification": null,
   "taskBatches": [
     {

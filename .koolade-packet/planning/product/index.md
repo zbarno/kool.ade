@@ -13,4 +13,4 @@ This living specification records Kool.ad/e's overview, users and outcomes, curr
 
 ## Active features
 
-None.
+- [`F11-implement-zbarno-kool-ade-issue-23`](../changes/F11-implement-zbarno-kool-ade-issue-23/specification.md)
