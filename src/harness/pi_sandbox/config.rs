@@ -151,6 +151,7 @@ pub(super) fn arguments(
     if has_rustup {
         push_env(&mut args, "RUSTUP_HOME", "/tmp/koolade-tools/rustup-home");
     }
+    super::runtime_config::mount(&mut args, root)?;
     Ok((args, common_dir))
 }
 
@@ -200,7 +201,11 @@ fn mount_git_metadata(
     Ok(common)
 }
 
-fn validate_koolade_worktree(root: &Path, admin: &Path, common: &Path) -> anyhow::Result<()> {
+pub(super) fn validate_koolade_worktree(
+    root: &Path,
+    admin: &Path,
+    common: &Path,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         admin != common && admin.starts_with(common.join("worktrees")),
         "Implementation worktree is not registered under its repository Git metadata"
@@ -235,7 +240,7 @@ fn validate_koolade_worktree(root: &Path, admin: &Path, common: &Path) -> anyhow
     Ok(())
 }
 
-fn git_path(root: &Path, option: &str) -> anyhow::Result<PathBuf> {
+pub(super) fn git_path(root: &Path, option: &str) -> anyhow::Result<PathBuf> {
     let output = Command::new(locate_git(root)?)
         .args(["rev-parse", "--path-format=absolute", option])
         .current_dir(root)

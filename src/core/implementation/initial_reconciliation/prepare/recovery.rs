@@ -18,6 +18,7 @@ struct Snapshot {
     unstaged_paths: Vec<String>,
     untracked_paths: Vec<String>,
     ignored_paths: Vec<String>,
+    retained_configuration_paths: Vec<String>,
     stash_commit: Option<String>,
     private_ref: Option<String>,
     detail: Option<String>,
@@ -47,6 +48,7 @@ pub(super) fn recover_unexpected_merge(
         history::archive(repo, &snapshot_path, state, runner, plan)?;
     }
 
+    let config = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
     let status = Snapshot {
         schema_version: 1,
         phase: "snapshot_pending".into(),
@@ -77,6 +79,7 @@ pub(super) fn recover_unexpected_merge(
                 "-z",
             ],
         )?,
+        retained_configuration_paths: config.iter().cloned().collect(),
         stash_commit: None,
         private_ref: None,
         detail: None,
@@ -88,9 +91,24 @@ pub(super) fn recover_unexpected_merge(
         "koolade-reconciliation:{}:{nonce}",
         key_for_ticket(&state.ticket)
     );
+    let mut stash_args = vec![
+        "stash".to_owned(),
+        "push".into(),
+        "--all".into(),
+        "--message".into(),
+        marker.clone(),
+    ];
+    if !config.is_empty() {
+        stash_args.extend(["--".into(), ".".into()]);
+        stash_args.extend(
+            config
+                .iter()
+                .map(|path| format!(":(exclude,literal){path}")),
+        );
+    }
     if let Err(error) = runner.git(
         &state.worktree,
-        &["stash", "push", "--all", "--message", &marker],
+        &stash_args.iter().map(String::as_str).collect::<Vec<_>>(),
     ) {
         let mut failed = status;
         failed.phase = "snapshot_failed".into();
@@ -139,19 +157,32 @@ pub(super) fn recover_unexpected_merge(
     if super::auto_verify::current_merge_head(runner, &state.worktree)?.is_some() {
         runner.git(&state.worktree, &["merge", "--abort"])?;
     }
-    let clean = runner.git(
-        &state.worktree,
-        &[
-            "status",
-            "--porcelain",
+    let mut clean = runner
+        .git(&state.worktree, &["diff", "--name-only", "-z"])?
+        .is_empty()
+        && runner
+            .git(&state.worktree, &["diff", "--cached", "--name-only", "-z"])?
+            .is_empty();
+    for args in [
+        vec!["ls-files", "--others", "--exclude-standard", "-z"],
+        vec![
+            "ls-files",
+            "--others",
             "--ignored",
-            "--untracked-files=all",
+            "--exclude-standard",
+            "-z",
         ],
-    )?;
+    ] {
+        clean &= runner
+            .git(&state.worktree, &args)?
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .all(|path| config.contains(path));
+    }
     anyhow::ensure!(
         runner.git(&state.worktree, &["rev-parse", "HEAD"])? == plan.remote_commit
             && super::auto_verify::current_merge_head(runner, &state.worktree)?.is_none()
-            && clean.is_empty(),
+            && clean,
         "The saved reconciliation worktree could not be restored to its recorded clean base; its recovery snapshot is at {}",
         snapshot_path.display()
     );

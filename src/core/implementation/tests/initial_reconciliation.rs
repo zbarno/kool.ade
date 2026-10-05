@@ -14,6 +14,8 @@ mod merge_recovery;
 mod report_envelope;
 #[path = "initial_reconciliation/resilience.rs"]
 mod resilience;
+#[path = "initial_reconciliation/runtime_config.rs"]
+mod runtime_config;
 #[path = "initial_reconciliation/whitespace.rs"]
 mod whitespace;
 

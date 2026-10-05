@@ -74,7 +74,11 @@ fn prepared_cache_is_selected_only_when_it_covers_every_locked_archive() {
     fs::create_dir_all(content.parent().unwrap()).unwrap();
     fs::write(&content, package).unwrap();
     assert!(cache_covers_lockfile(&root, &cache));
+    assert!(super::verified_offline_cache(&root, &cache));
+    fs::write(&content, b"tampered cache archive").unwrap();
+    assert!(!super::verified_offline_cache(&root, &cache));
     fs::remove_file(content).unwrap();
+    assert!(!super::verified_offline_cache(&root, &cache));
     assert!(!cache_covers_lockfile(&root, &cache));
     fs::remove_dir_all(root).unwrap();
 }
