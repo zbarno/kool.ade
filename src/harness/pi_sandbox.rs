@@ -114,7 +114,7 @@ impl Sandbox {
             "--".into(),
             "/bin/bash".into(),
             "-c".into(),
-            "ulimit -u 128; ulimit -f 2097152; ulimit -c 0; exec \"$1\" -c \"$2\"".into(),
+            "ulimit -u 1024; ulimit -f 2097152; ulimit -c 0; exec \"$1\" -c \"$2\"".into(),
             "koolade-verification".into(),
             shell.into(),
             command.into(),
