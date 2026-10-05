@@ -9,7 +9,7 @@ use support::{read_plan, write_plan};
 
 const PLAN_FILE: &str = "base-reconciliation.json";
 const MAX_ATTEMPTS: usize = 3;
-pub(super) const CONTRACT: &str = "## Acceptance criteria\n- Local and fetched shared changes are both preserved in the reconciled starting point.\n- Repository-required baseline checks pass on the combined result.\n";
+pub(super) const CONTRACT: &str = "## Acceptance criteria\n- Local and fetched shared changes are both preserved in the reconciled starting point.\n- Combined source is ready for application-owned repository baseline verification.\n";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

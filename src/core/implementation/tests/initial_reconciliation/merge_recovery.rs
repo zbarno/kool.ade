@@ -5,7 +5,7 @@ mod cases;
 #[path = "merge_recovery/snapshots.rs"]
 mod snapshots;
 
-fn make_divergent(s: &Sandbox) -> (String, String, String) {
+pub(super) fn make_divergent(s: &Sandbox) -> (String, String, String) {
     fs::write(s.repo.join(".gitignore"), ".cache/\n").unwrap();
     s.git(&s.repo, &["add", ".gitignore"]);
     s.git(&s.repo, &["commit", "-qm", "ignore generated cache"]);
@@ -20,14 +20,14 @@ fn make_divergent(s: &Sandbox) -> (String, String, String) {
     (remote, local, common)
 }
 
-fn recovery_snapshot(s: &Sandbox) -> (std::path::PathBuf, serde_json::Value) {
+pub(super) fn recovery_snapshot(s: &Sandbox) -> (std::path::PathBuf, serde_json::Value) {
     let dir = state_dir(&s.repo, &s.ticket).unwrap();
     let path = dir.join("base-reconciliation-recovery.json");
     let snapshot = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     (path, snapshot)
 }
 
-fn task_worktree(s: &Sandbox) -> std::path::PathBuf {
+pub(super) fn task_worktree(s: &Sandbox) -> std::path::PathBuf {
     let key = crate::core::implementation::key_for_ticket(&s.ticket);
     s.repo
         .parent()
@@ -39,7 +39,7 @@ fn task_worktree(s: &Sandbox) -> std::path::PathBuf {
         .join(key)
 }
 
-fn agent() -> (Arc<AtomicUsize>, ReconcilingAgent) {
+pub(super) fn agent() -> (Arc<AtomicUsize>, ReconcilingAgent) {
     let calls = Arc::new(AtomicUsize::new(0));
     (
         calls.clone(),

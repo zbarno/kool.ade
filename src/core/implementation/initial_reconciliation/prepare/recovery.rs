@@ -1,3 +1,5 @@
+mod history;
+
 use super::super::*;
 use std::path::Path;
 
@@ -28,15 +30,21 @@ pub(super) fn recover_unexpected_merge(
     runner: &Runner,
     plan: &Plan,
     merge_head: &str,
+    explicit_resume: bool,
 ) -> anyhow::Result<()> {
     let snapshot_path = dir.join(SNAPSHOT_FILE);
     if snapshot_path.exists() {
-        return Err(review_required(
-            state,
-            plan,
-            &snapshot_path,
-            "The one automatic preservation-and-retry attempt has already been used.",
-        ));
+        anyhow::ensure!(
+            explicit_resume,
+            "{}",
+            review_required(
+                state,
+                plan,
+                &snapshot_path,
+                "The prior recovery is retained. Explicitly resume to authorize one fresh preservation attempt."
+            )
+        );
+        history::archive(repo, &snapshot_path, state, runner, plan)?;
     }
 
     let status = Snapshot {

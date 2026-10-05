@@ -4,6 +4,7 @@ mod reconcile;
 mod recovery;
 mod requirements;
 mod scope;
+mod whitespace;
 
 use super::support::*;
 use super::*;
@@ -42,9 +43,10 @@ pub fn prepare(
     runner.update("Combining local and shared changes in an isolated worktree…");
     verification::prepare_worktree(repo, state, runner)?;
     validate_worktree(repo, state, runner)?;
-    scope::ensure_pinned_path_scope(repo, &state.worktree, runner, &plan)?;
+    scope::ensure_pinned_path_scope(repo, &state.worktree, runner, &plan, dir, state, true)?;
 
-    if let Some(cached) = cache::load(repo, &plan, runner)?
+    if auto_verify::cache_is_safe(runner, state, dir)?
+        && let Some(cached) = cache::load(repo, &plan, runner)?
         && cache::adopt(repo, state, &plan, &cached, runner)?
     {
         plan.verified_commit = Some(cached.verified_commit.clone());
@@ -71,15 +73,8 @@ pub fn prepare(
 
     let already_in_base = local_in_head && remote_in_head && !merge_in_progress;
     if already_in_base {
-        let status = runner.git(
-            &state.worktree,
-            &[
-                "status",
-                "--porcelain",
-                "--ignored",
-                "--untracked-files=all",
-            ],
-        )?;
+        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, &plan, dir, state, true)?;
+        let status = runner.git(&state.worktree, &["diff", "--name-only"])?;
         if !status.is_empty() {
             return Err(support::user_action(format!(
                 "Both pinned prerequisite histories are already in the recorded base {}, but the task worktree has existing changes. They are preserved at {} for review; no duplicate dependency reconciliation was started.",
@@ -122,9 +117,10 @@ pub fn prepare(
 
     let automatically_verified = match auto_verify::inspect_disjoint_merge(
         repo,
-        &state.worktree,
         runner,
         &plan,
+        dir,
+        state,
         &head,
         merge_head.as_deref(),
     )? {
@@ -132,12 +128,21 @@ pub fn prepare(
         auto_verify::DisjointMergeState::NotApplicable => already_in_base,
         auto_verify::DisjointMergeState::UnexpectedChanges => {
             let merge_head = merge_head.as_deref().unwrap_or_default();
-            recovery::recover_unexpected_merge(repo, dir, state, runner, &plan, merge_head)?;
-            match auto_verify::inspect_disjoint_merge(
+            recovery::recover_unexpected_merge(
                 repo,
-                &state.worktree,
+                dir,
+                state,
                 runner,
                 &plan,
+                merge_head,
+                state.detail.starts_with("Resume accepted;"),
+            )?;
+            match auto_verify::inspect_disjoint_merge(
+                repo,
+                runner,
+                &plan,
+                dir,
+                state,
                 &head,
                 Some(merge_head),
             )? {

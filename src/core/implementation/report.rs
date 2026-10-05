@@ -105,6 +105,14 @@ pub(crate) fn parse_report(text: &str) -> anyhow::Result<Report> {
 }
 
 pub(super) fn validate_report(report: &Report, ticket: &str) -> anyhow::Result<()> {
+    validate_contract(report, ticket, true)
+}
+
+pub(super) fn validate_reconciliation_report(report: &Report, ticket: &str) -> anyhow::Result<()> {
+    validate_contract(report, ticket, false)
+}
+
+fn validate_contract(report: &Report, ticket: &str, require_commands: bool) -> anyhow::Result<()> {
     validate_human_choices(report)?;
     anyhow::ensure!(
         report.status == ReportStatus::Complete
@@ -144,7 +152,7 @@ pub(super) fn validate_report(report: &Report, ticket: &str) -> anyhow::Result<(
         }
     }
     anyhow::ensure!(
-        !report.verification.is_empty()
+        (!require_commands || !report.verification.is_empty())
             && report
                 .verification
                 .iter()
