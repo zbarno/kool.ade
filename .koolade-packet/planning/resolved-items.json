@@ -634,5 +634,21 @@
     "recommendation": "",
     "evidence": "src/persistence/home.rs: state_root() honors $KOOLADE_HOME (default ~/.koolade-packet) and project_dir(slug) builds '<root>/projects/<slug>'; chat stores are JSONL. .gitignore keeps .koolade-packet/state/time-ledger.log untracked. Issue #23 as transcribed into F11 names $KOOLADE_HOME/projects/<project>/telemetry/ as its preferred location and suggests an append-oriented versioned format 'is likely easier to evolve'.\n\nResolution outcome: CLR-012 investigated and settled. Source evidence confirms the premise: `project_dir()` yields exactly `$KOOLADE_HOME/projects/<slug>/` (src/persistence/home.rs), the chat store is a proven JSONL append-with-compaction pattern (src/persistence/chat_store.rs), and version tagging has house precedent (`time-ledger:v1` header; `schemaVersion` in the task-chat store). So: yes — adopt `$KOOLADE_HOME/projects/<project>/telemetry/` as the canonical store and append-oriented, per-record version-tagged JSONL as the initial format. Recorded as decided in the F11 spec; item resolved.",
     "status": "resolved"
+  },
+  {
+    "uid": "8b33d675-7a8e-4a99-b563-1b6f00adba7c",
+    "id": "CLR-013",
+    "priority": "normal",
+    "authority": "agent",
+    "kind": "assumption",
+    "category": "General",
+    "assigned_to": "(owner TBD)",
+    "question": "When a harness or provider reports no cost, should Kool.ad/e estimate from a vendor-independent, versioned per-model price table bundled with the app, render n/a for calls with no known price, and never recompute historical runs when the table or pricing changes?",
+    "reason": "The issue requires displaying 'Estimated API cost' unless authoritative billing data exists, and requires historical estimated cost to remain stable under later pricing or configuration changes. A deterministic fallback prevents silent zero-cost reports while preserving run-level cost stability; the choice is reversible by swapping the estimator without touching stored records.",
+    "feature_id": "F11",
+    "feature_uid": "8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae",
+    "recommendation": "",
+    "evidence": "Issue #23 cost-semantics section (transcribed into F11 R6): report cost as estimated unless authoritative billing data exists; preserve the cost associated with the historical execution rather than recomputing old runs. No cost, token, or pricing fields appear in the inspected harness fold (src/harness/pi_events.rs EventFold: final text, activity, stop reason, error class, tool counts), so estimation cannot piggy-back on existing reported data today.\n\nResolution outcome: Resolved CLR-013: adopt versioned price-table fallback for cost estimation. Rationale: prevents silent zeros, keeps historical estimates stable (AC20), and is reversible by swapping estimators later without touching stored records.",
+    "status": "resolved"
   }
 ]
