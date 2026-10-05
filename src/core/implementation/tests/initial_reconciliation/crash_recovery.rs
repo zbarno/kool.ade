@@ -72,6 +72,55 @@ fn failed_required_baseline_check_prevents_reconciliation_commit_and_task_agent(
 }
 
 #[test]
+fn legacy_nested_project_check_is_rescoped_when_reconciliation_resumes() {
+    let s = Sandbox::new();
+    let remote = s.advance_remote();
+    s.git(&s.repo, &["fetch", "-q", "origin", "main"]);
+    fs::create_dir_all(s.repo.join("Source")).unwrap();
+    fs::write(
+        s.repo.join("Source/AGENTS.md"),
+        "## Validation entry points\n\n- Backend build: `test -f marker`\n",
+    )
+    .unwrap();
+    fs::write(s.repo.join("Source/marker"), "ready\n").unwrap();
+    fs::write(s.repo.join("local.txt"), "local change\n").unwrap();
+    s.git(&s.repo, &["add", "Source", "local.txt"]);
+    s.git(&s.repo, &["commit", "-qm", "add nested project checks"]);
+    let local = s.git(&s.repo, &["rev-parse", "HEAD"]);
+    let common = s.git(&s.repo, &["merge-base", &local, &remote]);
+    let dir = super::super::super::state_paths::state_dir(&s.repo, &s.ticket).unwrap();
+    fs::create_dir_all(&dir).unwrap();
+    super::super::super::initial_reconciliation::save_plan(
+        &dir,
+        "main",
+        &local,
+        &remote,
+        &common,
+        &["test -f marker".into()],
+    )
+    .unwrap();
+    let agent = ReconcilingAgent {
+        calls: Arc::new(AtomicUsize::new(0)),
+        conflict: false,
+        block: false,
+        expect_snapshot: false,
+        wrap_report: false,
+    };
+
+    let result = run_with_agent(&s, &agent, None).unwrap();
+
+    let plan = super::super::super::initial_reconciliation::load_plan(&dir)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        plan.required_verification,
+        ["cd -- 'Source' && test -f marker"]
+    );
+    assert_eq!(result.base_commit, plan.verified_commit.unwrap());
+    assert_eq!(agent.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn missing_task_state_resumes_the_saved_commit_snapshots() {
     let s = Sandbox::new();
     let original_remote = s.advance_remote();

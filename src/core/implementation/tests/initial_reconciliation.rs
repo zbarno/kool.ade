@@ -6,6 +6,8 @@ mod auto_verify;
 mod cache_reuse;
 #[path = "initial_reconciliation/crash_recovery.rs"]
 mod crash_recovery;
+#[path = "initial_reconciliation/legacy_recovery.rs"]
+mod legacy_recovery;
 #[path = "initial_reconciliation/report_envelope.rs"]
 mod report_envelope;
 

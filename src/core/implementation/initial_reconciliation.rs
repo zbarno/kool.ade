@@ -68,3 +68,54 @@ pub(super) fn load_plan(dir: &Path) -> anyhow::Result<Option<Plan>> {
     }
     Ok(Some(read_plan(&path)?))
 }
+
+pub(super) fn pending_required_verification(dir: &Path) -> anyhow::Result<Vec<String>> {
+    let Some(plan) = load_plan(dir)? else {
+        return Ok(Vec::new());
+    };
+    Ok(plan
+        .required_verification
+        .into_iter()
+        .filter(|command| !plan.verification.contains(command))
+        .collect())
+}
+
+pub(super) fn required_verification(dir: &Path) -> anyhow::Result<Vec<String>> {
+    Ok(load_plan(dir)?
+        .map(|plan| plan.required_verification)
+        .unwrap_or_default())
+}
+
+pub(super) fn report_check_is_covered(required: &[String], reported: &str) -> bool {
+    support::quality_checks::report_check_is_covered(required, reported)
+}
+
+pub(super) fn required_command_for_report<'a>(
+    required: &'a [String],
+    reported: &str,
+) -> Option<&'a str> {
+    support::quality_checks::required_command_for_report(required, reported)
+}
+
+pub(super) fn verified_report_covers(dir: &Path, required: &[String]) -> bool {
+    if required.is_empty() {
+        return true;
+    }
+    let Ok(report) = fs::read(dir.join("verified-report.json")) else {
+        return false;
+    };
+    let Ok(report) = serde_json::from_slice::<serde_json::Value>(&report) else {
+        return false;
+    };
+    let Some(commands) = report
+        .get("verification")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return false;
+    };
+    required.iter().all(|required| {
+        commands
+            .iter()
+            .any(|command| command.as_str() == Some(required))
+    })
+}
