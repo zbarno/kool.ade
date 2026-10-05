@@ -1,4 +1,5 @@
 use super::*;
+mod verification_command;
 
 pub(super) struct Runner {
     pub(super) gh: String,
@@ -116,6 +117,7 @@ impl Runner {
         Ok(())
     }
     pub(super) fn verify(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
+        verification_command::validate(command)?;
         self.check_storage(cwd)?;
         match self.verify_once(cwd, command) {
             Ok(output) => Ok(output),

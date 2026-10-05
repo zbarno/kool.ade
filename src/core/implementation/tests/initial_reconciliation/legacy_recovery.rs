@@ -38,7 +38,7 @@ fn bare_nested_check_report_uses_the_scoped_command_after_baseline_verification(
     fs::create_dir_all(peer.join("Source")).unwrap();
     fs::write(
         peer.join("Source/AGENTS.md"),
-        "## Validation entry points\n\n- Backend tests: `test -f marker`\n",
+        "## Quality Gates\n\n- Backend tests: `test -f marker`\n",
     )
     .unwrap();
     fs::write(peer.join("Source/marker"), "ready\n").unwrap();
@@ -85,7 +85,7 @@ fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
     fs::create_dir_all(peer.join("Source")).unwrap();
     fs::write(
         peer.join("Source/AGENTS.md"),
-        "## Validation entry points\n\n- Backend tests: `test -f marker`\n",
+        "## Quality Gates\n\n- Backend tests: `test -f marker`\n",
     )
     .unwrap();
     fs::write(peer.join("Source/marker"), "ready\n").unwrap();

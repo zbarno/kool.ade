@@ -45,7 +45,7 @@ pub(in crate::core::implementation) fn required_baseline_checks_for_commits(
     }
 
     let mut instruction_paths = std::collections::BTreeSet::from([PathBuf::from("AGENTS.md")]);
-    for path in changed_paths {
+    for path in &changed_paths {
         let mut directory = Path::new(&path).parent().unwrap_or_else(|| Path::new(""));
         loop {
             instruction_paths.insert(directory.join("AGENTS.md"));
@@ -71,9 +71,10 @@ pub(in crate::core::implementation) fn required_baseline_checks_for_commits(
             let instruction_directory = Path::new(path.as_ref())
                 .parent()
                 .unwrap_or_else(|| Path::new(""));
-            checks.extend(quality_checks::required_commands_in_markdown(
+            checks.extend(quality_checks::required_commands_in_markdown_for_changes(
                 &contents,
                 instruction_directory,
+                &changed_paths.iter().map(PathBuf::from).collect::<Vec<_>>(),
             )?);
         }
     }

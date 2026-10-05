@@ -1,10 +1,20 @@
 mod commands;
+mod headings;
 
 use std::path::{Component, Path, PathBuf};
 
-pub(in crate::core::implementation::initial_reconciliation::support) fn required_commands_in_markdown(
+#[cfg(test)]
+fn required_commands_in_markdown(
     markdown: &str,
     instruction_directory: &Path,
+) -> anyhow::Result<Vec<String>> {
+    required_commands_in_markdown_for_changes(markdown, instruction_directory, &[])
+}
+
+pub(in crate::core::implementation::initial_reconciliation::support) fn required_commands_in_markdown_for_changes(
+    markdown: &str,
+    instruction_directory: &Path,
+    changed_paths: &[PathBuf],
 ) -> anyhow::Result<Vec<String>> {
     let mut checks = Vec::new();
     let mut quality_heading = false;
@@ -15,18 +25,11 @@ pub(in crate::core::implementation::initial_reconciliation::support) fn required
         let trimmed = line.trim();
         if trimmed.starts_with('#') {
             let heading = trimmed.trim_start_matches('#').to_ascii_lowercase();
-            quality_heading = [
-                "quality",
-                "verification",
-                "test",
-                "check",
-                "validation",
-                "gate",
-            ]
-            .iter()
-            .any(|word| heading.contains(word));
+            quality_heading = headings::is_quality_heading(&heading);
         }
-        if line_marks_required_checks(trimmed) {
+        let applies_to_changes =
+            headings::scope_applies_to_changes(trimmed, instruction_directory, changed_paths);
+        if line_marks_required_checks(trimmed) && applies_to_changes {
             required_fence = true;
         }
         if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
@@ -40,12 +43,15 @@ pub(in crate::core::implementation::initial_reconciliation::support) fn required
             continue;
         }
         if in_fence {
-            if fence_is_quality && let Some(command) = commands::command_line(trimmed) {
+            if fence_is_quality
+                && applies_to_changes
+                && let Some(command) = commands::command_line(trimmed)
+            {
                 checks.push(scope_command(&command, instruction_directory)?);
             }
             continue;
         }
-        if quality_heading || line_marks_required_checks(trimmed) {
+        if applies_to_changes && (quality_heading || line_marks_required_checks(trimmed)) {
             for command in commands::inline_commands(trimmed) {
                 let directory = working_directory(instruction_directory, trimmed)?;
                 checks.push(scope_command(&command, &directory)?);
@@ -247,6 +253,7 @@ fn line_marks_required_checks(line: &str) -> bool {
     line.contains("quality gate")
         || line.contains("required check")
         || line.contains("required test")
+        || line.contains("required after")
         || line.contains("must run")
         || line.contains("before completing")
         || line.contains("before marking")

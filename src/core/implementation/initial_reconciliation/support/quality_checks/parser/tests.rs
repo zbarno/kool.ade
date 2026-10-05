@@ -28,26 +28,72 @@ fn does_not_turn_plain_quality_guidance_into_a_command() {
 }
 
 #[test]
-fn commands_use_the_instruction_directory_and_explicit_project_directory() {
+fn validation_entry_point_catalog_is_not_a_required_gate() {
     let commands = required_commands_in_markdown(
-        "## Validation entry points\n\n- Backend build: `dotnet build`\n- Backend run: `dotnet run` from `xleratehealth/`\n- Backend tests: `dotnet test`; narrow with `--filter \\\"FullyQualifiedName~Controller\\\"` when useful.\n",
+        "## Validation entry points\n\n- Backend build: `dotnet build`\n- Backend run: `dotnet run` from `xleratehealth/`\n- Backend tests: `dotnet test`\n- Frontend tests: `npm run test --prefix xleratehealth/ClientApp -- --runTestsByPath <path>`\n",
         Path::new("Source"),
     )
     .unwrap();
 
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn conditional_validation_gate_is_selected_only_for_matching_changes() {
+    let instructions = "## Validation entry points\n\n- Backend build: `dotnet build`\n- Backend run: `dotnet run` from `xleratehealth/`\n- Frontend lint: `npm run lint --prefix xleratehealth/ClientApp` — required after any change under `ClientApp/src`, and must stay at 0 errors\n";
+    let backend_changes = [PathBuf::from(
+        "Source/xleratehealth/Controllers/StartupController.cs",
+    )];
+    let frontend_changes = [PathBuf::from(
+        "Source/xleratehealth/ClientApp/src/components/StartupProfile.tsx",
+    )];
+
+    let backend_commands = required_commands_in_markdown_for_changes(
+        instructions,
+        Path::new("Source"),
+        &backend_changes,
+    )
+    .unwrap();
+    let frontend_commands = required_commands_in_markdown_for_changes(
+        instructions,
+        Path::new("Source"),
+        &frontend_changes,
+    )
+    .unwrap();
+
+    assert!(backend_commands.is_empty());
     assert_eq!(
-        commands,
-        [
-            "cd -- 'Source' && dotnet build",
-            "cd -- 'Source/xleratehealth' && dotnet run",
-            "cd -- 'Source' && dotnet test",
-        ]
+        frontend_commands,
+        ["cd -- 'Source' && npm run lint --prefix xleratehealth/ClientApp"]
     );
-    assert!(report_check_is_covered(&commands, "dotnet build"));
-    assert!(report_check_is_covered(
-        &commands,
-        "cd -- 'Source' && dotnet build"
-    ));
+}
+
+#[test]
+fn conditional_validation_gate_does_not_match_a_same_named_nested_package() {
+    let instructions = "## Validation entry points\n\n- Frontend lint: `npm run lint --prefix xleratehealth/ClientApp` — required after any change under `ClientApp/src`, and must stay at 0 errors\n";
+    let unrelated_changes = [PathBuf::from(
+        "Source/AnotherPackage/ClientApp/src/StartupProfile.tsx",
+    )];
+
+    let commands = required_commands_in_markdown_for_changes(
+        instructions,
+        Path::new("Source"),
+        &unrelated_changes,
+    )
+    .unwrap();
+
+    assert!(commands.is_empty());
+}
+
+#[test]
+fn explicitly_required_validation_entry_point_heading_is_a_gate() {
+    let commands = required_commands_in_markdown(
+        "## Required validation entry points\n\n- Backend tests: `dotnet test`\n",
+        Path::new(""),
+    )
+    .unwrap();
+
+    assert_eq!(commands, ["dotnet test"]);
 }
 
 #[test]
