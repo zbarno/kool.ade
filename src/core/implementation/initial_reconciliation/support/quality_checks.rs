@@ -1,10 +1,10 @@
 mod parser;
 
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path, path::PathBuf};
 
 pub(in crate::core::implementation::initial_reconciliation) use parser::report_check_is_covered;
 pub(in crate::core::implementation::initial_reconciliation) use parser::required_command_for_report;
-pub(super) use parser::required_commands_in_markdown;
+pub(super) use parser::required_commands_in_markdown_for_changes;
 
 pub(super) fn required_baseline_checks(
     worktree: &Path,
@@ -47,9 +47,14 @@ pub(super) fn required_baseline_checks(
             .strip_prefix(worktree)?
             .parent()
             .unwrap_or_else(|| Path::new(""));
-        checks.extend(parser::required_commands_in_markdown(
+        checks.extend(parser::required_commands_in_markdown_for_changes(
             &fs::read_to_string(canonical)?,
             instruction_directory,
+            &changed
+                .split('\0')
+                .filter(|path| !path.is_empty())
+                .map(PathBuf::from)
+                .collect::<Vec<_>>(),
         )?);
     }
     let mut unique = Vec::new();

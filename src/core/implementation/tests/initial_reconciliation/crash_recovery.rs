@@ -79,7 +79,7 @@ fn legacy_nested_project_check_is_rescoped_when_reconciliation_resumes() {
     fs::create_dir_all(s.repo.join("Source")).unwrap();
     fs::write(
         s.repo.join("Source/AGENTS.md"),
-        "## Validation entry points\n\n- Backend build: `test -f marker`\n",
+        "## Quality Gates\n\n- Backend build: `test -f marker`\n",
     )
     .unwrap();
     fs::write(s.repo.join("Source/marker"), "ready\n").unwrap();
