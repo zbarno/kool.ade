@@ -602,5 +602,21 @@
     "recommendation": "",
     "evidence": "\n\nResolution outcome: F10 and its two-of-six story batch are archived as incomplete. The 2026-10-04 required all-target gate passed (820 library tests, 4 integration tests, 1 intentionally ignored). That later green run does not classify the 49 historic failures individually. Their original causes remain unverified; this record closes the launch snapshot disposition as deferred and makes no claim that all 49 were environment-bound or fixed.\n",
     "status": "resolved"
+  },
+  {
+    "uid": "1e888e3f-3c45-47bd-83b6-850a57073844",
+    "id": "CLR-011",
+    "priority": "blocking",
+    "authority": "human",
+    "kind": "question",
+    "category": "General",
+    "assigned_to": "(owner TBD)",
+    "question": "What does zbarno/kool.ade issue #23 ask for? Paste the issue's title and body here (or point at a document in this repository that mirrors its content).",
+    "reason": "The planning sandbox is network-isolated and cannot fetch the issue, and no repository artifact quotes it, so F11's intent, scope, requirements, and acceptance criteria cannot be grounded until the operator supplies the content.",
+    "feature_id": "F11",
+    "feature_uid": "8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae",
+    "recommendation": "",
+    "evidence": "Searched .koolade-packet/ (state, planning, config), docs/, README, site/index.html, and AGENTS.md: no reference to issue #23. The planning profile isolates the network namespace, exposing only the configured provider relay socket. Follow-up recheck (docs/, .koolade-packet/planning/changes/) confirms no mirror document appeared. Operator replied 'pasted in chat' in the task thread, but no issue content accompanied the message; awaiting re-paste or a repository document pointer.\n\nResolution outcome: Issue #23 is now in F11: goal, requirements, and all 27 acceptance criteria transcribed from your paste; CLR-011 resolved. The spec is grounded against the current ledger, the $KOOLADE_HOME project store, and the pi event fold. Two Agent assumption cards (telemetry store/format; cost fallback) sit on the board. F11 is Ready; implementation waits on the F11 card's approval action. No reply needed.",
+    "status": "resolved"
   }
 ]
