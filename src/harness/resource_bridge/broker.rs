@@ -249,6 +249,13 @@ fn prepare_request(
             &request.purpose,
             context.downloaded_bytes,
         )?,
+        ResourceAction::PrepareNugetAudit => {
+            crate::harness::refresh_nuget_audit_cache(Duration::from_secs(90))?;
+            ResourceResponse::prepared(
+                "Kool.ad/e refreshed public NuGet vulnerability data for the verification retry"
+                    .into(),
+            )
+        }
         ResourceAction::UnsupportedManager => ResourceResponse::needs_attention(format!(
             "Automatic package cache preparation does not yet support {}. Kool.ad/e can currently prepare lockfile-pinned npm dependencies; this package manager needs an operator-provided cache or support.",
             request.manager.as_deref().unwrap_or("this package manager")

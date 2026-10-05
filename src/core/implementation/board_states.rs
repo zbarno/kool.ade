@@ -63,8 +63,11 @@ pub const BOARD_COLUMNS: [&str; 5] = [
     "Done",
 ];
 pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
+    if busy {
+        return 1;
+    }
     let Some(state) = state else {
-        return if busy { 1 } else { 0 };
+        return 0;
     };
     match state.pr_state {
         Some(PullRequestState::Merged) => return 4,
@@ -79,11 +82,7 @@ pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
         | ImplementationStatus::Verifying
         | ImplementationStatus::ReadyToPublish
         | ImplementationStatus::Publishing
-        | ImplementationStatus::WaitingToMerge
-            if busy =>
-        {
-            1
-        }
+        | ImplementationStatus::WaitingToMerge => 1,
         _ => 3,
     }
 }

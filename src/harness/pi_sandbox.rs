@@ -15,6 +15,10 @@ pub(crate) fn host_node_root_for_resource_broker() -> anyhow::Result<Option<Path
     components::host_node_root()
 }
 
+pub(crate) fn host_dotnet_executable() -> Option<PathBuf> {
+    components::host_dotnet_executable()
+}
+
 pub(crate) use planning::PlanningSandbox;
 
 pub(crate) fn provider_configuration_error() -> Option<String> {

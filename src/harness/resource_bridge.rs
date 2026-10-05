@@ -45,6 +45,7 @@ enum ResourceAction {
     #[default]
     Fetch,
     PrepareNpm,
+    PrepareNugetAudit,
     UnsupportedManager,
 }
 

@@ -58,14 +58,16 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
     let planning_work = planning_context(&project.planning_work, active_planning_turn);
     let waiting_on_user = waiting_on_user.into_iter().take(12).collect::<Vec<_>>();
     let blocked_elsewhere = blocked_elsewhere.into_iter().take(12).collect::<Vec<_>>();
+    let active_progress = active_worker_progress(project);
     let update = crate::core::context_build::clip(
         &format!(
-            "PROJECT MANAGER UPDATE\nProject: {}\nEvents: {:?}\nTask count: {}\nBoard tasks: {:?}\n{}\nActive worker: {:?}\nQueue running: {}\nWaiting on user: {:?}\nBlocked on external work or dependencies: {:?}",
+            "PROJECT MANAGER UPDATE\nProject: {}\nEvents: {:?}\nTask count: {}\nBoard tasks: {:?}\n{}\nActive worker progress: {:?}\nActive worker: {:?}\nQueue running: {}\nWaiting on user: {:?}\nBlocked on external work or dependencies: {:?}",
             project.state.title,
             events.iter().rev().take(8).collect::<Vec<_>>(),
             project.task_documents.len(),
             tasks,
             planning_work,
+            active_progress,
             project.active_implementations.keys().collect::<Vec<_>>(),
             project.queue.running,
             waiting_on_user,
@@ -89,6 +91,49 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
         crate::core::context_build::clip(&features, 16000),
         project.task_interaction_context(&events.join("\n"))
     )
+}
+
+fn active_worker_progress(project: &Project) -> Vec<String> {
+    project
+        .active_implementations
+        .keys()
+        .take(8)
+        .map(|ticket| {
+            let title = project
+                .task_documents
+                .iter()
+                .find(|document| &document.path == ticket)
+                .map(|document| document.title.as_str())
+                .unwrap_or(ticket);
+            let activity = project
+                .activity
+                .tasks
+                .get(ticket)
+                .and_then(|progress| progress.activity.as_deref());
+            format!("{title}: {}", progress_label(activity))
+        })
+        .collect()
+}
+
+fn progress_label(activity: Option<&str>) -> &'static str {
+    let Some(activity) = activity else {
+        return "active; no current progress signal";
+    };
+    if activity.starts_with("Verifying:") {
+        "running required verification"
+    } else if activity.starts_with("Refreshing public NuGet vulnerability data") {
+        "refreshing the public NuGet audit feed before retrying verification"
+    } else if activity.starts_with("koolade_bash") {
+        "running a sandbox command"
+    } else if activity.starts_with("koolade_resource") {
+        "requesting a sandbox resource"
+    } else if activity.contains("reconcil") || activity.contains("merge") {
+        "reconciling repository history"
+    } else if activity.starts_with("Preparing implementation") {
+        "preparing the task worktree"
+    } else {
+        "active; latest progress is available in task activity"
+    }
 }
 
 fn planning_context(
@@ -124,14 +169,19 @@ fn summarize_task(
         ));
     }
     let state = project.implementation_states.get(&doc.path);
-    let status = state.map(|record| record.status);
+    let active = project.active_implementations.contains_key(&doc.path);
+    let status = if active {
+        Some(crate::core::implementation::ImplementationStatus::Preparing)
+    } else {
+        state.map(|record| record.status)
+    };
     let pull_request_closed = state.is_some_and(|record| {
         record.pr_state == Some(crate::core::implementation::PullRequestState::Closed)
     });
     if pull_request_closed {
         waiting_on_user.push(format!("{}: Pull request closed", doc.title));
     }
-    if let Some(failure) = project.queue.blocked.get(&doc.path) {
+    if !active && let Some(failure) = project.queue.blocked.get(&doc.path) {
         let summary =
             crate::core::context_build::clip(&format!("{}: {}", doc.title, failure.message), 400);
         match failure.recovery {
@@ -205,6 +255,25 @@ fn unresolved_dependency(
 mod tests {
     use super::*;
     use crate::core::planning_work::{Work, WorkStatus};
+
+    #[test]
+    fn manager_receives_a_sanitized_worker_phase() {
+        assert_eq!(
+            progress_label(Some("koolade_bash · {\"command\":\"printf secret\"}")),
+            "running a sandbox command"
+        );
+        assert_eq!(
+            progress_label(Some("Verifying: dotnet build")),
+            "running required verification"
+        );
+        assert_eq!(
+            progress_label(Some(
+                "Refreshing public NuGet vulnerability data, then retrying verification…"
+            )),
+            "refreshing the public NuGet audit feed before retrying verification"
+        );
+        assert_eq!(progress_label(None), "active; no current progress signal");
+    }
 
     #[test]
     fn manager_context_lists_planning_statuses_and_active_turn() {

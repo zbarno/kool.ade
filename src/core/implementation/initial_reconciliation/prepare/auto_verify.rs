@@ -2,22 +2,27 @@ use super::super::support::*;
 use super::super::*;
 use std::path::Path;
 
-pub(super) fn clean_disjoint_merge(
+pub(super) enum DisjointMergeState {
+    NotApplicable,
+    Clean,
+    UnexpectedChanges,
+}
+
+pub(super) fn inspect_disjoint_merge(
     repo: &Path,
     worktree: &Path,
     runner: &Runner,
     plan: &Plan,
     head: &str,
     merge_head: Option<&str>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<DisjointMergeState> {
     if head != plan.remote_commit
         || merge_head != Some(plan.local_commit.as_str())
         || !unmerged_paths(runner, worktree)?.is_empty()
         || !change_sets_are_disjoint(repo, runner, plan)?
     {
-        return Ok(false);
+        return Ok(DisjointMergeState::NotApplicable);
     }
-    verify_disjoint_changes_preserved(worktree, runner, plan)?;
     let staged = runner.git(
         worktree,
         &["diff", "--cached", "--name-only", "--no-renames", "-z"],
@@ -33,20 +38,38 @@ pub(super) fn clean_disjoint_merge(
         &["ls-files", "--others", "--exclude-standard", "-z"],
     )?;
     let unstaged = runner.git(worktree, &["diff", "--name-only", "--no-renames", "-z"])?;
-    anyhow::ensure!(
-        staged_paths == expected_local && unstaged.is_empty() && unexpected_paths.is_empty(),
-        "The clean merge includes unexpected worktree or index changes; reconciliation needs review"
-    );
-    Ok(true)
+    let ignored = runner.git(
+        worktree,
+        &[
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+        ],
+    )?;
+    if staged_paths != expected_local
+        || !unstaged.is_empty()
+        || !unexpected_paths.is_empty()
+        || !ignored.is_empty()
+    {
+        return Ok(DisjointMergeState::UnexpectedChanges);
+    }
+    verify_disjoint_changes_preserved(worktree, runner, plan)?;
+    Ok(DisjointMergeState::Clean)
 }
 
-pub(super) fn report() -> serde_json::Value {
+pub(super) fn report(already_in_base: bool) -> serde_json::Value {
     let criteria = CONTRACT
         .lines()
         .filter_map(|line| line.strip_prefix("- "))
         .map(|criterion| {
             let evidence = if criterion.starts_with("Local and fetched shared changes") {
-                "The source histories changed separate paths; Git merged them cleanly and each changed path matches its source commit."
+                if already_in_base {
+                    "Both pinned source commits are already ancestors of the recorded task base; no duplicate dependency merge was needed."
+                } else {
+                    "The source histories changed separate paths; Git merged them cleanly and each changed path matches its source commit."
+                }
             } else {
                 "The application will run every repository-required baseline check on the combined result before accepting it."
             };

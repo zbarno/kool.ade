@@ -99,7 +99,22 @@ impl KooladeApp {
                     }
                     Err(error) => {
                         project.queue.blocked.insert(ticket.clone(), error.clone());
-                        project.queue.last_error = error.message.clone();
+                        project.queue.last_error =
+                            match crate::core::implementation::record_failed_attempt(
+                                &project.state.repo_root,
+                                &ticket,
+                                &error.message,
+                            ) {
+                                Ok(Some(record)) => {
+                                    project.implementation_states.insert(ticket.clone(), record);
+                                    error.message.clone()
+                                }
+                                Ok(None) => error.message.clone(),
+                                Err(persist_error) => format!(
+                                    "{}\nCould not persist the blocked retry state: {persist_error:#}",
+                                    error.message
+                                ),
+                            };
                         if project
                             .queue
                             .recoverable_tickets(&project.task_documents)
