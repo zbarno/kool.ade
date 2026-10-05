@@ -50,6 +50,7 @@ pub(super) fn refresh(timeout: Duration) -> anyhow::Result<()> {
 }
 
 fn refresh_in(root: &Path, timeout: Duration) -> anyhow::Result<()> {
+    let started = Instant::now();
     let home = root.join("home");
     let packages = root.join("packages");
     fs::create_dir_all(&home)?;
@@ -57,16 +58,23 @@ fn refresh_in(root: &Path, timeout: Duration) -> anyhow::Result<()> {
     let project = root.join("audit-refresh.csproj");
     let config = root.join("NuGet.Config");
     let dotnet = find_dotnet()?;
-    let sdk = Command::new(&dotnet)
+    let sdk_stdout_path = root.join("sdk.stdout");
+    let sdk_stderr_path = root.join("sdk.stderr");
+    let sdk_stdout = fs::File::create(&sdk_stdout_path)?;
+    let sdk_stderr = fs::File::create(&sdk_stderr_path)?;
+    let mut sdk = Command::new(&dotnet)
         .env_clear()
         .env("PATH", env::var_os("PATH").unwrap_or_default())
         .env("HOME", &home)
         .env("DOTNET_CLI_HOME", &home)
         .env("DOTNET_NOLOGO", "1")
         .arg("--version")
-        .output()?;
-    anyhow::ensure!(sdk.status.success(), "Cannot inspect the host .NET SDK");
-    let version = String::from_utf8_lossy(&sdk.stdout);
+        .stdout(Stdio::from(sdk_stdout))
+        .stderr(Stdio::from(sdk_stderr))
+        .spawn()?;
+    let sdk_status = wait_for_child(&mut sdk, started, timeout, "inspecting the host .NET SDK")?;
+    anyhow::ensure!(sdk_status.success(), "Cannot inspect the host .NET SDK");
+    let version = fs::read_to_string(sdk_stdout_path)?;
     let major = version
         .trim()
         .split('.')
@@ -123,21 +131,12 @@ fn refresh_in(root: &Path, timeout: Duration) -> anyhow::Result<()> {
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .spawn()?;
-    let started = Instant::now();
-    let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
-        }
-        if started.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            anyhow::bail!(
-                "Timed out refreshing the public NuGet audit feed after {} seconds",
-                timeout.as_secs()
-            );
-        }
-        thread::sleep(Duration::from_millis(100));
-    };
+    let status = wait_for_child(
+        &mut child,
+        started,
+        timeout,
+        "refreshing the public NuGet audit feed",
+    )?;
     let stdout = fs::read_to_string(stdout_path)?;
     let detail = fs::read_to_string(stderr_path)?;
     let logs = format!("{stdout}\n{detail}");
@@ -151,6 +150,25 @@ fn refresh_in(root: &Path, timeout: Duration) -> anyhow::Result<()> {
         "NuGet restore completed without caching public vulnerability data"
     );
     Ok(())
+}
+
+fn wait_for_child(
+    child: &mut std::process::Child,
+    started: Instant,
+    timeout: Duration,
+    operation: &str,
+) -> anyhow::Result<std::process::ExitStatus> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("Timed out {operation} after {} seconds", timeout.as_secs());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn cache_contains_audit_data(path: &Path) -> bool {
