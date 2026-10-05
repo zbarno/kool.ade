@@ -90,7 +90,7 @@ pub(in crate::core::implementation) fn trusted(
     dir: &Path,
 ) -> anyhow::Result<BTreeSet<String>> {
     let ledger = load(dir, state)?;
-    let mut trusted = BTreeSet::new();
+    let mut trusted = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
     for path in inventory(runner, &state.worktree)? {
         if !eligible(&path) {
             continue;
@@ -173,7 +173,7 @@ pub(in crate::core::implementation) fn clean(
     let generated = if dir.join(FILE).exists() {
         trusted(runner, state, dir)?
     } else {
-        BTreeSet::new()
+        crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?
     };
     for args in [
         vec!["diff", "--name-only", "-z"],
@@ -197,20 +197,20 @@ pub(in crate::core::implementation) fn stage_task(
     state: &Implementation,
     dir: &Path,
 ) -> anyhow::Result<()> {
-    if !dir.join(FILE).exists() {
-        runner.git(&state.worktree, &["add", "--all"])?;
-        return Ok(());
+    let mut protected = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
+    if dir.join(FILE).exists() {
+        let ledger = load(dir, state)?;
+        let trusted = trusted(runner, state, dir)?;
+        let current = inventory(runner, &state.worktree)?;
+        anyhow::ensure!(
+            ledger
+                .files
+                .keys()
+                .all(|path| !current.contains(path) || trusted.contains(path)),
+            "Verification output changed outside application verification; preserved for review"
+        );
+        protected.extend(trusted);
     }
-    let ledger = load(dir, state)?;
-    let trusted = trusted(runner, state, dir)?;
-    let current = inventory(runner, &state.worktree)?;
-    anyhow::ensure!(
-        ledger
-            .files
-            .keys()
-            .all(|path| !current.contains(path) || trusted.contains(path)),
-        "Verification output changed outside application verification; preserved for review"
-    );
     let mut args = vec!["add".to_owned(), "--all".into(), "--".into(), ".".into()];
     let visible = runner.git(
         &state.worktree,
@@ -218,9 +218,8 @@ pub(in crate::core::implementation) fn stage_task(
     )?;
     let visible = visible.split('\0').collect::<BTreeSet<_>>();
     args.extend(
-        ledger
-            .files
-            .keys()
+        protected
+            .iter()
             .filter(|path| visible.contains(path.as_str()))
             .map(|path| format!(":(exclude,literal){path}")),
     );

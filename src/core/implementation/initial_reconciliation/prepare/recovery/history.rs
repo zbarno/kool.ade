@@ -33,6 +33,15 @@ pub(super) fn archive(
             "The prior recovery is incomplete or belongs to different pinned histories."
         )
     );
+    let retained: Vec<String> = match saved.get("retained_configuration_paths") {
+        Some(value) => serde_json::from_value(value.clone())?,
+        None => Vec::new(),
+    };
+    let current = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
+    anyhow::ensure!(
+        retained.iter().all(|path| current.contains(path)),
+        "Previously retained runtime configuration is no longer granted; recovery is preserved for review"
+    );
     let stash = saved["stash_commit"]
         .as_str()
         .filter(|id| id.len() == 40 && id.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -68,6 +77,21 @@ pub(super) fn archive(
             && runner.git(repo, &["rev-parse", "--verify", private_ref])? == stash,
         "The prior recovery preservation ref changed; review is required"
     );
+    let ancestry = runner.git(repo, &["rev-list", "--parents", "-n", "1", stash])?;
+    let parents = ancestry.split_whitespace().collect::<Vec<_>>();
+    anyhow::ensure!(
+        matches!(parents.len(), 3 | 4) && parents[0] == stash,
+        "Prior recovery has an invalid stash shape; preserved for review"
+    );
+    for tree in std::iter::once(stash).chain(parents.iter().skip(2).copied()) {
+        let files = runner.git(repo, &["ls-tree", "-r", "--name-only", "-z", tree])?;
+        anyhow::ensure!(
+            !files.split('\0').any(|file| current
+                .iter()
+                .any(|path| file == path || file.starts_with(&format!("{path}/")))),
+            "Prior recovery already contains newly granted configuration; its snapshot is preserved for review"
+        );
+    }
     let archive = path
         .parent()
         .unwrap()

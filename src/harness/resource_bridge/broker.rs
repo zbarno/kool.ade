@@ -29,6 +29,7 @@ pub(crate) struct ResourceBridge {
 
 struct BrokerContext<'a> {
     worktree: &'a Path,
+    private_configuration: bool,
     resource_dir: &'a Path,
     npm_cache: &'a Path,
     attention: &'a Arc<Mutex<Option<String>>>,
@@ -44,6 +45,8 @@ impl ResourceBridge {
             worktree.is_dir(),
             "Resource broker worktree is not a directory"
         );
+        let private_configuration = worktree.join(".git").try_exists()?
+            && !crate::harness::pi_sandbox::runtime_config::paths(&worktree)?.is_empty();
         let temp = std::env::temp_dir().join(format!(
             "koolade-resources-{}-{}",
             std::process::id(),
@@ -88,6 +91,7 @@ impl ResourceBridge {
                         let request_worker = thread::spawn(move || {
                             let context = BrokerContext {
                                 worktree: &worktree,
+                                private_configuration,
                                 resource_dir: &resource_dir,
                                 npm_cache: &npm_cache,
                                 attention: &attention,
@@ -220,6 +224,18 @@ fn prepare_request(
         used < MAX_SESSION_BYTES,
         "Resource download budget reached for this task run"
     );
+    if context.private_configuration && request.action == ResourceAction::PrepareNpm {
+        return Ok(
+            if npm::verified_offline_cache(context.worktree, context.npm_cache) {
+                ResourceResponse::prepared("Verified existing offline npm caches; downloads are disabled while private project configuration is mounted.".into())
+            } else {
+                ResourceResponse::needs_attention("Offline npm caches are incomplete; downloads are disabled while private project configuration is mounted. Prepare dependencies before this run.".into())
+            },
+        );
+    }
+    if context.private_configuration && request.action != ResourceAction::PrepareNugetAudit {
+        return Ok(ResourceResponse::needs_attention("Resource downloads are disabled while private project configuration is mounted. Prepare dependency caches before this verification run.".into()));
+    }
     let response = match request.action {
         ResourceAction::Fetch => {
             let url = request

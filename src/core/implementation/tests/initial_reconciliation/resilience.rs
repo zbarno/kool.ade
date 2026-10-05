@@ -18,6 +18,10 @@ impl AiHarness for StopAfterVerification {
 }
 
 fn interrupted() -> Sandbox {
+    interrupted_with_configuration(false)
+}
+
+pub(super) fn interrupted_with_configuration(granted: bool) -> Sandbox {
     let s = Sandbox::new();
     fs::write(s.repo.join("AGENTS.md"), "# Instructions\n\n- Required quality gates: `mkdir -p .cache; if test -f .cache/ready; then test -f build/cache.txt; else mkdir -p build; printf cache > build/cache.txt; printf ready > .cache/ready; exit 1; fi`.\n").unwrap();
     s.git(&s.repo, &["add", "AGENTS.md"]);
@@ -65,6 +69,20 @@ fn interrupted() -> Sandbox {
         "preserve preexisting cache\n",
     )
     .unwrap();
+    fs::write(
+        worktree.join(".cache/.env"),
+        "SYNTHETIC_CONFIG=task-cache\n",
+    )
+    .unwrap();
+    if granted {
+        fs::create_dir_all(s.repo.join(".cache")).unwrap();
+        fs::write(
+            s.repo.join(".cache/.env"),
+            "SYNTHETIC_CONFIG=source-cache\n",
+        )
+        .unwrap();
+        super::runtime_config::approve_path(&s, ".cache/.env");
+    }
     let error = run_with_agent(&s, &StopAfterVerification, None)
         .unwrap_err()
         .to_string();

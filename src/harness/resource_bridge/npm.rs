@@ -25,6 +25,15 @@ pub(super) fn cache_covers_lockfile(worktree: &Path, cache: &Path) -> bool {
     lockfile::cache_covers_lockfile(worktree, cache)
 }
 
+pub(super) fn verified_offline_cache(worktree: &Path, cache: &Path) -> bool {
+    lockfile::collect_lockfiles(worktree).is_ok_and(|packages| {
+        packages.iter().all(|package| {
+            lockfile::npm_cache_digest_path(cache, &package.integrity)
+                .is_some_and(|path| lockfile::verify_sha512_file(&path, &package.integrity))
+        })
+    })
+}
+
 pub(super) fn prepare(
     worktree: &Path,
     response_dir: &Path,
