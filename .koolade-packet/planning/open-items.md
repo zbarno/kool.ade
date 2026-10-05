@@ -22,5 +22,5 @@ The planning sandbox is network-isolated and cannot fetch the issue, and no repo
 
 
 ### Evidence
-Searched .koolade-packet/ (state, planning, config), docs/, README, site/index.html, and AGENTS.md: no reference to issue #23. The planning profile isolates the network namespace, exposing only the configured provider relay socket.
+Searched .koolade-packet/ (state, planning, config), docs/, README, site/index.html, and AGENTS.md: no reference to issue #23. The planning profile isolates the network namespace, exposing only the configured provider relay socket. Follow-up recheck (docs/, .koolade-packet/planning/changes/) confirms no mirror document appeared. Operator replied 'pasted in chat' in the task thread, but no issue content accompanied the message; awaiting re-paste or a repository document pointer.
 
