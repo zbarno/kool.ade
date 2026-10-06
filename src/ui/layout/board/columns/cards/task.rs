@@ -20,6 +20,32 @@ pub(in crate::ui::layout::board::columns) fn task(
         column == 3,
         complete,
         |ui| {
+            let needs_user_action = matches!(
+                s.implementation_recovery(&doc.path),
+                Some(crate::core::implementation::RecoveryDisposition::UserAction)
+            );
+            let failed_or_interrupted = s.implementation_state(&doc.path).is_some_and(|state| {
+                (state.status == crate::core::implementation::ImplementationStatus::Blocked
+                    && !needs_user_action)
+                    || state.status
+                        == crate::core::implementation::ImplementationStatus::Interrupted
+            }) || (s.implementation_failure(&doc.path).is_some()
+                && !needs_user_action);
+            if (activity_active || needs_user_action)
+                && !failed_or_interrupted
+                && let Some(item) = super::super::attention::linked_user_action(board, &doc.path)
+            {
+                super::super::attention::user_action(
+                    ui,
+                    &format!("{} · {}", item.id, task_cards::card_summary(&item.question)),
+                );
+                ui.label(
+                    RichText::new("This feature is waiting on your decision.")
+                        .size(12.0)
+                        .strong()
+                        .color(theme::WARNING),
+                );
+            }
             let blocked_by = matches!(column, 0 | 3)
                 .then(|| dependency_blocker(s, board, doc))
                 .flatten();

@@ -21,6 +21,7 @@ pub(in crate::ui::layout::board::columns) fn work(
         |ui| {
             if column == 3 {
                 super::super::attention::badge(ui, super::super::attention::Kind::WaitingOnUser);
+                super::super::attention::user_action(ui, "Open the conversation to continue");
             }
             if ui
                 .add(

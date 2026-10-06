@@ -87,7 +87,12 @@ fn add(tags: &mut BTreeMap<String, Vec<String>>, key: &str, kind: &str, value: &
 
 fn feature_id_in_path(path: &str) -> Option<&str> {
     let directory = path.split('/').rev().nth(1)?;
-    let candidate = directory.split('-').next()?;
+    let candidate = if let Some(rest) = directory.strip_prefix("CHG-") {
+        let digits = rest.split_once('-')?.0;
+        directory.get(..4 + digits.len())?
+    } else {
+        directory.split_once('-')?.0
+    };
     crate::artifacts::product_docs::valid_feature_id(candidate).then_some(candidate)
 }
 
