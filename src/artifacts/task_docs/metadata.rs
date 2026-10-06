@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -14,6 +14,10 @@ pub struct TaskMetadata {
     pub batch_uid: String,
     pub repository_id: String,
     pub dependency_uids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_branch: Option<String>,
 }
 
 impl TaskMetadata {
@@ -31,9 +35,21 @@ impl TaskMetadata {
                 .ok_or_else(|| anyhow::anyhow!("Generated task identity has no batch identity"))?,
             repository_id: repository_id.into(),
             dependency_uids,
+            source_branch: None,
+            destination_branch: None,
         };
         metadata.validate(Some(identity))?;
         Ok(metadata)
+    }
+
+    pub fn with_branch_targets(
+        mut self,
+        targets: Option<&crate::core::workflow::BranchTargets>,
+    ) -> anyhow::Result<Self> {
+        self.source_branch = targets.map(|targets| targets.source.clone());
+        self.destination_branch = targets.map(|targets| targets.destination.clone());
+        self.validate(None)?;
+        Ok(self)
     }
 
     pub fn validate(
@@ -41,7 +57,7 @@ impl TaskMetadata {
         identity: Option<&crate::domain::ArtifactIdentity>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.schema_version == VERSION,
+            (1..=VERSION).contains(&self.schema_version),
             "Unsupported task metadata version {}",
             self.schema_version
         );
@@ -61,6 +77,18 @@ impl TaskMetadata {
             self.dependency_uids.len() <= MAX_DEPENDENCIES,
             "Task metadata has too many dependencies"
         );
+        for branch in [
+            self.source_branch.as_deref(),
+            self.destination_branch.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            anyhow::ensure!(
+                valid_branch(branch),
+                "Task metadata has an invalid branch name"
+            );
+        }
         let mut dependencies = BTreeSet::new();
         for uid in &self.dependency_uids {
             anyhow::ensure!(
@@ -85,6 +113,18 @@ impl TaskMetadata {
         }
         Ok(())
     }
+}
+
+fn valid_branch(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch.len() <= 255
+        && !branch.starts_with('-')
+        && !branch.ends_with('/')
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch
+            .chars()
+            .any(|ch| ch.is_whitespace() || "~^:?*[\\".contains(ch))
 }
 
 pub fn parse(markdown: &str) -> anyhow::Result<Option<TaskMetadata>> {

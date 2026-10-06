@@ -78,9 +78,12 @@ pub fn prepare(
         nt.task_batch = Some(TaskBatch {
             brief,
             specification: state.planning_contract().unwrap().to_string(),
-            feature_id,
+            feature_id: feature_id.clone(),
             contract: crate::core::contract_snapshot::freeze(state)
                 .map_err(|error| vec![error.to_string()])?,
+            branch_targets: feature_id
+                .as_deref()
+                .and_then(|id| workflow.feature_branch_targets.get(id).cloned()),
             stories,
         });
         workflow.brief.as_mut().unwrap().ready_for_tasks = false;

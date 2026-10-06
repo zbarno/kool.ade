@@ -91,6 +91,10 @@ pub struct Implementation {
     #[serde(default)]
     pub completed_dependency_context: Option<String>,
     pub branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_branch: Option<String>,
     pub base: String,
     pub base_commit: String,
     pub worktree: PathBuf,

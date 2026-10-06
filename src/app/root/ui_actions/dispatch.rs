@@ -16,8 +16,16 @@ impl KooladeApp {
                 kind,
                 description,
                 parent_uid,
+                source_branch,
+                destination_branch,
             } => {
-                self.create_planning_task(kind, &description, parent_uid);
+                self.create_planning_task(
+                    kind,
+                    &description,
+                    parent_uid,
+                    source_branch,
+                    destination_branch,
+                );
             }
             ApplicationCommand::DrainTaskChatSaves => self.drain_task_chat_saves(),
             ApplicationCommand::CancelTask => self.cancel_task(),

@@ -45,6 +45,8 @@ pub enum ApplicationCommand {
         kind: crate::core::planning_work::WorkKind,
         description: String,
         parent_uid: Option<String>,
+        source_branch: Option<String>,
+        destination_branch: Option<String>,
     },
     DrainTaskChatSaves,
     CancelTask,
@@ -121,6 +123,15 @@ pub trait Surface {
         Vec::new()
     }
     fn git_branch(&self) -> &str;
+    fn repository_branches(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn repository_destination_branches(&self) -> Vec<String> {
+        self.repository_branches()
+    }
+    fn default_repository_branch(&self) -> &str {
+        self.git_branch()
+    }
     fn git_head(&self) -> &str;
     fn git_dirty(&self) -> bool;
     // ------- chat pane -------

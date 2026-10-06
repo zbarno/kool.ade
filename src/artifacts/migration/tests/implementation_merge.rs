@@ -58,6 +58,8 @@ fn setup(tag: &str, conflicting_report: bool) -> Paths {
         approved_product_context: None,
         completed_dependency_context: None,
         branch: "koolade/legacy-state-key".into(),
+        source_branch: None,
+        destination_branch: None,
         base: "master".into(),
         base_commit: "base".into(),
         worktree: root.join("worktree"),

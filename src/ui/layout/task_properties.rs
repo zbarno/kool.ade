@@ -86,8 +86,43 @@ pub(crate) fn paint_task_properties(
             }
         }
     }
+    if doc.metadata.as_ref().is_some_and(|metadata| {
+        metadata.source_branch.is_some() || metadata.destination_branch.is_some()
+    }) {
+        let metadata = doc.metadata.as_ref().unwrap();
+        ui.collapsing("Branch intent", |ui| {
+            ui.label(format!(
+                "Source branch: {}",
+                metadata
+                    .source_branch
+                    .as_deref()
+                    .unwrap_or("Legacy task default")
+            ));
+            ui.label(format!(
+                "Destination branch: {}",
+                metadata
+                    .destination_branch
+                    .as_deref()
+                    .unwrap_or("Legacy task default")
+            ));
+        });
+    }
     if let Some(record) = &state {
         ui.collapsing("Implementation properties", |ui| {
+            ui.label(format!(
+                "Source branch: {}",
+                record
+                    .source_branch
+                    .as_deref()
+                    .unwrap_or("Legacy task default")
+            ));
+            ui.label(format!(
+                "Destination branch: {}",
+                record
+                    .destination_branch
+                    .as_deref()
+                    .unwrap_or(record.base.as_str())
+            ));
             for (label, value) in [
                 ("Branch", record.branch.as_str()),
                 ("Base", record.base.as_str()),

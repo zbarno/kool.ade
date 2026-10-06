@@ -88,7 +88,8 @@ pub fn save_progress(
                 &story.target_repository
             },
             dependency_uids,
-        )?;
+        )?
+        .with_branch_targets(batch.branch_targets.as_ref())?;
         let expected = super::metadata::embed(&identified[i].1, &metadata)?;
         if path.exists() {
             let saved = std::fs::read_to_string(&path)?;

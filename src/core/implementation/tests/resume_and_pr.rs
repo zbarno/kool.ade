@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "resume_and_pr/branch_intent.rs"]
+mod branch_intent;
+
 #[test]
 fn cancelled_worktree_is_reviewed_and_resumed() {
     let s = Sandbox::new();

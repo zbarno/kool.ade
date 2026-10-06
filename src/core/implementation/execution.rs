@@ -1,4 +1,5 @@
 use super::*;
+mod initial_base;
 mod resume_state;
 pub(crate) use resume_state::{mark_resume_started, record_failed_attempt};
 
@@ -84,6 +85,43 @@ pub(super) fn run_with_project_options(
                     .is_none_or(|uid| task_uid.as_deref() == Some(uid)),
             "Ticket changed since implementation started. Review the existing worktree before starting a revised ticket."
         );
+        if let Some(source) = state.source_branch.as_deref() {
+            let local_exists = runner
+                .git(
+                    repo,
+                    &["show-ref", "--verify", &format!("refs/heads/{source}")],
+                )
+                .is_ok();
+            let remote_exists = runner
+                .git(
+                    repo,
+                    &[
+                        "ls-remote",
+                        "--exit-code",
+                        "--heads",
+                        "origin",
+                        &format!("refs/heads/{source}"),
+                    ],
+                )
+                .is_ok();
+            if !local_exists && !remote_exists {
+                return Err(
+                    crate::core::implementation::initial_reconciliation::support::user_action(
+                        format!(
+                            "Selected source branch '{source}' no longer exists or cannot be reached. Restore it or select an existing source branch before resuming."
+                        ),
+                    ),
+                );
+            }
+        }
+        if let Some(metadata) = &metadata {
+            anyhow::ensure!(
+                state.source_branch.as_deref() == metadata.source_branch.as_deref()
+                    && state.destination_branch.as_deref()
+                        == metadata.destination_branch.as_deref(),
+                "Task branch intent changed after implementation started. Review the existing worktree before resuming."
+            );
+        }
         state.ticket = ticket.to_owned();
         if task_uid.is_some() {
             state.task_uid = task_uid.clone();
@@ -91,93 +129,8 @@ pub(super) fn run_with_project_options(
         save(&dir, &state)?;
         state
     } else {
-        // A reconciliation plan is durable before task state. If the process
-        // stopped between those writes, resume its immutable snapshots instead
-        // of fetching and constructing a different task base.
-        let saved_plan = crate::core::implementation::initial_reconciliation::load_plan(&dir)?;
-        let (base, head) = if let Some(plan) = saved_plan {
-            crate::core::implementation::initial_reconciliation::support::validate_pinned_commits(
-                repo,
-                &runner,
-                &key(ticket),
-                &plan,
-            )?;
-            let head = plan
-                .verified_commit
-                .clone()
-                .unwrap_or_else(|| plan.remote_commit.clone());
-            (plan.base, head)
-        } else {
-            let base = if publication_mode == PublicationMode::AutoPublish {
-                publication::default_branch(repo, &runner)?
-            } else {
-                runner.git(repo, &["symbolic-ref", "--short", "HEAD"])?
-            };
-            runner.update(format!("Fetching latest origin/{base}…"));
-            // Fetch an explicit branch and resolve its immutable commit. Do not pull
-            // into the user's checkout, which may contain unrelated drafts.
-            let remote_ref = format!("refs/koolade-bases/{}", key(ticket));
-            runner.git(
-                repo,
-                &[
-                    "fetch",
-                    "--no-tags",
-                    "--no-write-fetch-head",
-                    "origin",
-                    &format!("+refs/heads/{base}:{remote_ref}"),
-                ],
-            )?;
-            let local = runner.git(repo, &["rev-parse", "HEAD"])?;
-            let remote = runner.git(repo, &["rev-parse", &remote_ref])?;
-            runner.git(repo, &["cat-file", "-e", &format!("{local}^{{commit}}")])?;
-            runner.git(repo, &["cat-file", "-e", &format!("{remote}^{{commit}}")])?;
-            let common_base = runner.merge_base(repo, &local, &remote)?;
-            let head = match common_base {
-                Some(common_base) if common_base == local => remote.clone(),
-                Some(common_base) if common_base == remote => local.clone(),
-                Some(_common_base) if publication_mode == PublicationMode::AutoPublish => {
-                    // Auto workers start from current remote truth, leaving divergent
-                    // local development history intact in the operator's checkout.
-                    remote.clone()
-                }
-                Some(common_base) => {
-                    let required_verification = crate::core::implementation::initial_reconciliation::support::required_baseline_checks_for_commits(
-                        repo,
-                        &runner,
-                        &common_base,
-                        &local,
-                        &remote,
-                    )?;
-                    crate::core::implementation::initial_reconciliation::save_plan(
-                        &dir,
-                        &base,
-                        &local,
-                        &remote,
-                        &common_base,
-                        &required_verification,
-                    )?;
-                    crate::core::implementation::initial_reconciliation::support::pin_plan_commits(
-                        repo,
-                        &runner,
-                        &key(ticket),
-                        &local,
-                        &remote,
-                    )?;
-                    remote.clone()
-                }
-                None if publication_mode == PublicationMode::AutoPublish => remote.clone(),
-                None => {
-                    return Err(
-                        crate::core::implementation::initial_reconciliation::support::user_action(
-                            format!(
-                                "Local {base} and freshly fetched origin/{base} have no common history to reconcile automatically. Both versions are preserved; review the branch histories before implementing."
-                            ),
-                        ),
-                    );
-                }
-            };
-            (base, head)
-        };
+        let (destination, head, explicit_source) =
+            initial_base::prepare(repo, &dir, ticket, &metadata, publication_mode, &runner)?;
         let root = repo
             .parent()
             .ok_or_else(|| anyhow::anyhow!("Repository has no parent"))?
@@ -195,7 +148,11 @@ pub(super) fn run_with_project_options(
             approved_product_context: scoped_product_context(planning_root, ticket)?,
             completed_dependency_context: dependency_context,
             branch: format!("koolade/{}", key(ticket)),
-            base,
+            source_branch: explicit_source,
+            destination_branch: metadata
+                .as_ref()
+                .and_then(|metadata| metadata.destination_branch.clone()),
+            base: destination,
             base_commit: head,
             worktree: root.join(key(ticket)),
             status: ImplementationStatus::Preparing,

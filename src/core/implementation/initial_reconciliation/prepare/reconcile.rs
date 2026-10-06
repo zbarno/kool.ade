@@ -185,7 +185,7 @@ pub(super) fn run(
                     "-m",
                     &format!(
                         "Reconcile local and origin/{} before implementation",
-                        state.base
+                        plan.base
                     ),
                 ],
             )?;
