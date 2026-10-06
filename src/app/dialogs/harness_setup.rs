@@ -154,15 +154,22 @@ fn apply_probe_results(
             })
             .map(str::to_owned)
             .or_else(|| {
-                ["pi", "codex", "claude", "opencode", "copilot"]
-                    .into_iter()
-                    .find_map(|id| {
-                        settings
-                            .discovered
-                            .get(id)
-                            .is_some_and(|entry| entry.ready)
-                            .then(|| id.to_owned())
-                    })
+                [
+                    "pi",
+                    "codex",
+                    "claude",
+                    "opencode",
+                    "copilot",
+                    "antigravity",
+                ]
+                .into_iter()
+                .find_map(|id| {
+                    settings
+                        .discovered
+                        .get(id)
+                        .is_some_and(|entry| entry.ready)
+                        .then(|| id.to_owned())
+                })
             });
     }
 }

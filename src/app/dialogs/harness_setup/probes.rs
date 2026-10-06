@@ -103,6 +103,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
     let pi = crate::harness::PiHarness::probe_report();
     let codex = crate::harness::CodexHarness::probe_report();
     let claude = crate::harness::ClaudeHarness::probe_report();
+    let antigravity = crate::harness::AntigravityHarness::probe_report();
     let opencode = crate::harness::OpenCodeHarness::probe_report();
     let copilot = crate::harness::CopilotHarness::probe_report();
     vec![
@@ -150,6 +151,24 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             configuration_required: claude.readiness
                 == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
             status: claude.status,
+        },
+        HarnessProbe {
+            id: "antigravity".into(),
+            version: antigravity.version.clone(),
+            executable: antigravity
+                .binary
+                .as_ref()
+                .map(|path| path.to_string_lossy().into()),
+            diagnostic: (!antigravity.diagnostic.is_empty()).then_some(antigravity.diagnostic),
+            ready: antigravity.ready,
+            models: antigravity.models,
+            default_model: std::env::var(
+                crate::harness::antigravity_harness::ANTIGRAVITY_MODEL_ENV,
+            )
+            .ok()
+            .filter(|m| !m.trim().is_empty()),
+            configuration_required: false,
+            status: antigravity.status,
         },
         HarnessProbe {
             id: "opencode".into(),

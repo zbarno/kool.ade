@@ -7,6 +7,7 @@
 //! * `pi_events.rs`    — NDJSON event-stream folding
 //! * `pi_extract.rs`   — JSON-block extraction from final prose
 
+pub mod antigravity_harness;
 pub mod claude_harness;
 pub mod codex_harness;
 pub mod copilot_harness;
@@ -22,6 +23,7 @@ pub mod runtime_capabilities;
 
 pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
 
+pub use antigravity_harness::AntigravityHarness;
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,
     LivePost, LiveProgress, ModelCallUsage, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
