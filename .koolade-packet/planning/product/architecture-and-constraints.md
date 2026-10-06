@@ -19,11 +19,11 @@ Style constraints (`AGENTS.md`): directory module layout, never `mod.rs`, split 
 
 - Shared, Git-backed: `.koolade-packet/` — config (`project.md`, `repositories.json`, `mcp.json`), planning (product modules, changes, tasks, open/resolved items, decisions, imports, archive), `state/workflow.json`, and the Git-ignored `implementation/` evidence (`docs/artifact-layout.md`).
 - Operator-private: `~/.koolade-packet/projects/<slug>/` or `$KOOLADE_HOME` — chat, task conversations, resumable generation checkpoints, and the local checkout-path mapping.
-- Git common-directory metadata: cross-process locks, migration/transaction journals, implementation queue and task state, private refs, Pi event streams. Locks prevent competing Kool.ad/e windows from racing on publication or queue advancement.
+- Git common-directory metadata: per-clone process locks, migration/transaction journals, implementation queue and task state, private refs, Pi event streams. The queue lock prevents competing windows in one clone; temporary atomic `refs/heads/koolade/claims/<task-uid>` claims coordinate implementation across independent clones through a writable, reachable `origin`. Active workers refresh claims every five minutes; claims appear stale after fifteen minutes without a refresh and support explicit stale-only compare-and-swap takeover. They do not enable collaborative planning.
 
 **Runtime constraints.**
 
-- Single-writer per project (NFR-3): one app instance performs writes; queue and publication locks arbitrate even across windows.
+- Single-writer per clone: queue and publication locks arbitrate across windows sharing a Git common directory. Independent clones coordinate implementation of the same task through remote claims. With no configured origin, manual and automatic work remain usable with a visible local-only warning. If a configured origin is unreachable, an explicit manual start may proceed with that warning while automatic work waits for remote coordination (`docs/artifact-layout.md`).
 - The AI boundary is a Pi CLI child process only; no embedded model. Turn timeouts default to twelve hours and are fixed when a turn begins (`README.md`).
 - Autonomous capabilities (sandboxed planning reads, investigation, implementation) require Bubblewrap on Linux x86_64; without it those modes stop with setup guidance while the planning UI remains available. The provider relay accepts only a private HTTP OpenAI-compatible endpoint; public/HTTPS endpoints fail closed (`README.md`, Host execution capabilities).
 - Environment knobs: `KOOLADE_HOME`, `KOOLADE_TURN_TIMEOUT_SECS`, and `KOOLADE_PI_BIN` (discovery order documented in `docs/exit-demo-runbook.md`).
