@@ -19,10 +19,11 @@ pub(in crate::ui::layout::board::columns) fn item(
         column == 4,
         |ui| {
             if column == 3 {
-                super::super::attention::badge(
-                    ui,
-                    super::super::attention::item_kind(board.eligible_item_ids.contains(&item.id)),
-                );
+                if board.eligible_item_ids.contains(&item.id) {
+                    super::super::attention::user_action(ui, &format!("Answer {}", item.id));
+                } else {
+                    super::super::attention::badge(ui, super::super::attention::Kind::Blocked);
+                }
             }
             super::super::super::presentation::metadata(ui, Some(item.kind), &item.id);
             if ui

@@ -1,14 +1,14 @@
 use super::*;
 
 #[test]
-fn new_task_tabs_show_context_and_help_without_starting_a_model_turn() {
+fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() {
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Open conversation");
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Task context").is_some());
+    let output = click_text(&mut app, &ctx, "First task");
+    assert!(text_position(&output, "Task conversation").is_some());
+    assert!(text_position(&output, "How can I help you with First task?").is_some());
     assert!(
         app.task_messages(key)[0]
             .text
@@ -89,7 +89,7 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
 }
 
 #[test]
-fn tabs_select_persisted_item_histories_without_loading_main_chat() {
+fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() {
     let mut app = fixture();
     let ctx = egui::Context::default();
     let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
@@ -129,21 +129,9 @@ fn tabs_select_persisted_item_histories_without_loading_main_chat() {
         p.task_chats.ensure_loaded(slug);
     }
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Open conversation");
-    // Add the second loaded conversation to the same tab strip, then exercise
-    // actual pointer-driven tab selection and closing below.
-    ctx.data_mut(|d| {
-        let id = egui::Id::new("koolade_chat_tabs");
-        let mut tabs = d.get_temp::<crate::ui::layout::ChatTabs>(id).unwrap();
-        tabs.keys.push(second.into());
-        d.insert_temp(id, tabs);
-    });
     let assert_history = |output: &egui::FullOutput, expected_key: &str| {
         assert!(text_position(output, "MAIN HISTORY MARKER").is_none());
-        // Both histories may be previewed inline on their own board items. The
-        // tab's active key controls which one is opened in the conversation pane.
-        assert!(text_position(output, "FIRST TASK HISTORY").is_some());
-        assert!(text_position(output, "SECOND TASK HISTORY").is_some());
+        assert!(text_position(output, "Task conversation").is_some());
         let first_history = output.shapes.iter().find_map(|shape| match &shape.shape {
             egui::Shape::Text(text)
                 if matches!(
@@ -161,29 +149,29 @@ fn tabs_select_persisted_item_histories_without_loading_main_chat() {
             "SECOND TASK HISTORY"
         };
         assert_eq!(first_history, Some(expected_marker));
-        ctx.data_mut(|d| {
-            let tabs = d
-                .get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-                .unwrap();
-            assert_eq!(tabs.active.as_deref(), Some(expected_key));
-        });
     };
-    let output = frame(&mut app, &ctx, vec![]);
+    let output = click_text(&mut app, &ctx, "First task");
     assert_history(&output, first);
-    let label = text_position(&output, "TASK-001").unwrap();
-    let close = text_position(&output, "×").unwrap();
-    assert!(
-        output.shapes.iter().any(|shape| matches!(&shape.shape,
-        egui::Shape::Rect(rect) if rect.fill == crate::ui::theme::ACCENT_SOFT
-            && rect.rect.contains(label) && rect.rect.contains(close))),
-        "ID and close button must share one tab background"
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
     );
-    let output = click_text(&mut app, &ctx, "TASK-002");
+    let output = click_text(&mut app, &ctx, "Review task");
     assert_history(&output, second);
-    let output = click_text(&mut app, &ctx, "TASK-001");
-    assert_history(&output, first);
-    click_text(&mut app, &ctx, "×");
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "MAIN HISTORY MARKER").is_none());
+    assert!(text_position(&output, "FIRST TASK HISTORY").is_none());
+    assert!(text_position(&output, "SECOND TASK HISTORY").is_some());
+    assert!(
+        ctx.data_mut(
+            |data| data.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
+        )
+        .is_none_or(|tabs| tabs.active.is_none())
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

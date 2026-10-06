@@ -1,16 +1,30 @@
 use super::*;
+mod actions;
+mod claim;
+mod review;
 
 impl KooladeApp {
-    pub(in crate::app::root) fn start_implementation(&mut self, ticket: String, manual: bool) {
+    pub(in crate::app::root) fn take_over_stale_task_claim(&mut self, ticket: String) {
+        let session = match &self.screen {
+            Screen::Connected(project) => project
+                .queue
+                .stale_claim
+                .as_ref()
+                .filter(|(claimed_ticket, _)| claimed_ticket == &ticket)
+                .map(|(_, record)| record.session_id.clone()),
+            Screen::Welcome => None,
+        };
+        let Some(session) = session else { return };
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_capabilities(ticket, manual, capabilities);
+        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session));
     }
 
-    pub(in crate::app::root) fn start_implementation_with_capabilities(
+    fn start_implementation_with_claim_mode(
         &mut self,
         ticket: String,
         manual: bool,
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
+        stale_session: Option<String>,
     ) {
         if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
@@ -25,6 +39,9 @@ impl KooladeApp {
             return;
         }
         if let Screen::Connected(p) = &mut self.screen {
+            if p.task_cancelled(&ticket) {
+                return;
+            }
             if p.implementation_states.get(&ticket).is_some_and(|state| {
                 state.pr_url.is_some() || state.status == ImplementationStatus::Completed
             }) {
@@ -73,6 +90,21 @@ impl KooladeApp {
                 p.queue.last_error = error;
                 return;
             }
+            let claim_request = match claim::prepare(
+                &p.state.repo_root,
+                &p.task_documents,
+                &ticket,
+                stale_session.as_deref(),
+                manual && stale_session.is_none(),
+            ) {
+                Ok(request) => request,
+                Err(error) => {
+                    p.queue.last_error = error.to_string();
+                    self.toasts.warning(error.to_string());
+                    return;
+                }
+            };
+            p.queue.stale_claim = None;
             let running = p
                 .active_implementations
                 .keys()
@@ -87,11 +119,21 @@ impl KooladeApp {
                 return;
             }
             let explicit_publish = manual
-                && p.implementation_states
-                    .get(&ticket)
-                    .is_some_and(|state| state.status == ImplementationStatus::ReadyToPublish);
+                && p.implementation_states.get(&ticket).is_some_and(|state| {
+                    matches!(
+                        state.status,
+                        ImplementationStatus::ReadyToPublish
+                            | ImplementationStatus::AwaitingApproval
+                    )
+                });
+            let requested_changes = p
+                .implementation_states
+                .get(&ticket)
+                .is_some_and(|state| state.status == ImplementationStatus::ChangesRequested);
             let publication_mode = if explicit_publish {
                 crate::core::implementation::PublicationMode::CreatePullRequest
+            } else if requested_changes {
+                crate::core::implementation::PublicationMode::HoldForReview
             } else if p.queue.auto_publish {
                 crate::core::implementation::PublicationMode::AutoPublish
             } else {
@@ -195,16 +237,35 @@ impl KooladeApp {
                 p.task_chats.messages.get(&ticket).and_then(|messages| {
                     implementation_decision::latest_context(messages, &user_name)
                 });
+            let task_routes = p
+                .task_documents
+                .iter()
+                .find(|doc| doc.path == ticket)
+                .and_then(|doc| doc.metadata.as_ref())
+                .map(|metadata| metadata.routing_overrides.clone())
+                .unwrap_or_default();
+            let harness = super::super::configured_harness_for_task(
+                &mut self.task_harness,
+                Some(crate::persistence::harness_settings::IMPLEMENTATION),
+                &task_routes,
+            );
+            let route_label = harness.label();
+            if let Some(progress) = p.activity.tasks.get_mut(&ticket) {
+                progress.selected_route = Some(route_label.clone());
+            }
             p.active_implementations.insert(
                 ticket.clone(),
-                crate::core::implementation::Controller::start_project_with_policy(
+                crate::core::implementation::Controller::start_project_with_policy_and_claim_request(
                     p.state.repo_root.clone(),
                     target_repo,
                     ticket,
-                    publication_mode,
-                    require_independent_checks,
+                    crate::core::implementation::StartPolicy {
+                        publication_mode,
+                        require_independent_checks,
+                    },
                     user_context,
-                    super::super::configured_harness(&mut self.task_harness),
+                    harness,
+                    Some(claim_request),
                 ),
             );
         }

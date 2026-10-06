@@ -28,15 +28,16 @@ pub(super) fn paint(
                 {
                     let planning = work
                         .iter()
-                        .filter(|item| {
-                            item.board_column() == column && !board.is_archived(&item.key)
-                        })
+                        .filter(|item| item.board_column() == column
+                            && !board.is_archived(&item.key)
+                            && !board.cancelled.contains(&crate::persistence::cancelled_work::planning_id(&item.uid)))
                         .collect::<Vec<_>>();
                     let cards = docs
                         .iter()
                         .filter(|doc| {
                             !doc.path.ends_with("/README.md")
                                 && !board.is_archived(&doc.path)
+                                && !board.cancelled.contains(&crate::persistence::cancelled_work::task_id(doc))
                                 && task_board_column(s, &doc.path) == column
                         })
                         .collect::<Vec<_>>();

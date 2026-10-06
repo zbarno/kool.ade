@@ -88,6 +88,25 @@ pub(super) fn paint(
                 ui.separator();
                 ui.label(s.queue_status());
             }
+            if let Some((ticket, claim)) = s.stale_task_claim() {
+                ui.separator();
+                ui.label(format!(
+                    "{} is held by {} (session {}) since {} on base {}.",
+                    ticket,
+                    claim.owner,
+                    claim.session_id,
+                    chrono::DateTime::from_timestamp(claim.claimed_at, 0)
+                        .map(|time| time.to_rfc3339())
+                        .unwrap_or_else(|| claim.claimed_at.to_string()),
+                    claim.base_commit
+                ));
+                if ui
+                    .button("I confirmed the old worker stopped — take over stale claim")
+                    .clicked()
+                {
+                    s.dispatch(ApplicationCommand::TakeOverStaleTaskClaim { ticket });
+                }
+            }
             for doc in board
                 .task_documents
                 .iter()

@@ -84,6 +84,35 @@ fn task_cards_link_through_shared_batch_and_feature_path() {
     assert!(map[second].contains(first));
 }
 
+#[test]
+fn task_cards_link_to_chg_feature_decisions() {
+    let mut board = crate::ui::planning_board::ViewModel::default();
+    let mut item = crate::domain::item::OpenItem::new(
+        "CLR-900".into(),
+        crate::domain::Priority::Blocking,
+        crate::domain::ItemKind::Question,
+        "Product".into(),
+        None,
+        "Choose a release behavior".into(),
+        "This decision gates implementation".into(),
+    );
+    item.feature_id = Some("CHG-900".into());
+    board.planning_items.push(item);
+    let mut identity =
+        crate::domain::ArtifactIdentity::new("CHG-900-TASK-1", "Preserve implementation");
+    identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
+    let metadata =
+        crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new()).unwrap();
+    board.task_documents.push(task_doc(
+        "CHG-900-migration/CHG-900-TASK-preserve-implementation.md",
+        identity,
+        metadata,
+    ));
+
+    let map = build(&board);
+    assert!(map["CLR-900"].contains(&board.task_documents[0].path));
+}
+
 fn task_identity(id: &str, batch_uid: &str) -> crate::domain::ArtifactIdentity {
     let mut identity = crate::domain::ArtifactIdentity::new(id, id);
     identity.parent_uid = Some(batch_uid.into());

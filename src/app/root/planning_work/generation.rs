@@ -12,6 +12,58 @@ impl KooladeApp {
         }) else {
             return;
         };
+        let default_branch = if !project.git.default_branch.is_empty() {
+            project.git.default_branch.as_str()
+        } else if !project.git.branch.is_empty() {
+            project.git.branch.as_str()
+        } else {
+            "main"
+        };
+        let targets = feature_branch_targets(
+            &project.planning_work,
+            feature_id,
+            project.planning_work[index].feature_uid.as_deref(),
+            default_branch,
+        );
+        let destination_branches = if !project.git.has_origin {
+            &project.git.branches
+        } else {
+            &project.git.remote_branches
+        };
+        let source_available = project.git.branches.contains(&targets.source)
+            || (!project.git.has_origin
+                && project.git.branches.is_empty()
+                && targets.source == default_branch);
+        let destination_available = destination_branches.contains(&targets.destination)
+            || (!project.git.has_origin
+                && destination_branches.is_empty()
+                && targets.destination.as_str() == default_branch);
+        if !source_available || !destination_available {
+            project.planning_work[index].status =
+                crate::core::planning_work::WorkStatus::NeedsAttention;
+            project.planning_work[index].detail = format!(
+                "The saved source or destination branch is no longer available. Select an existing branch before generating tasks. Source: {}; destination: {}.",
+                targets.source, targets.destination
+            );
+            if let Err(error) = project.save_planning_work() {
+                self.toasts
+                    .danger(format!("Could not save branch attention state: {error}"));
+            }
+            return;
+        }
+        let mut workflow = project.state.workflow.clone();
+        workflow
+            .feature_branch_targets
+            .insert(feature_id.to_owned(), targets);
+        if let Err(error) =
+            crate::artifacts::task_docs::save_workflow(&project.state.repo_root, &workflow)
+        {
+            self.toasts.danger(format!(
+                "Cannot save the feature branch selection before task generation: {error}"
+            ));
+            return;
+        }
+        project.state.workflow = workflow;
         if project.active_turn.is_some() || !project.active_implementations.is_empty() {
             self.toasts.warning(
                 "Wait for current planning or implementation work before generating tasks.",
@@ -80,5 +132,47 @@ impl KooladeApp {
             None,
             Some(work_key.to_owned()),
         );
+    }
+}
+
+fn feature_branch_targets(
+    works: &[crate::core::planning_work::Work],
+    feature_id: &str,
+    feature_uid: Option<&str>,
+    default_branch: &str,
+) -> crate::core::workflow::BranchTargets {
+    let selected = works.iter().find(|work| {
+        work.kind != crate::core::planning_work::WorkKind::TaskGeneration
+            && (work.feature_uid.as_deref() == feature_uid && feature_uid.is_some()
+                || work.feature_id.as_deref() == Some(feature_id))
+    });
+    crate::core::workflow::BranchTargets {
+        source: selected
+            .and_then(|work| work.source_branch.clone())
+            .unwrap_or_else(|| default_branch.to_owned()),
+        destination: selected
+            .and_then(|work| work.destination_branch.clone())
+            .unwrap_or_else(|| default_branch.to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generation_preserves_branch_intent_when_new_feature_uid_is_not_linked_yet() {
+        let mut work = crate::core::planning_work::Work::new(
+            "feature:export".into(),
+            "Export feature".into(),
+            "Export project data".into(),
+            String::new(),
+        );
+        work.feature_id = Some("F-38".into());
+        work.source_branch = Some("release/2.1".into());
+        work.destination_branch = Some("integration".into());
+        let targets = feature_branch_targets(&[work], "F-38", None, "main");
+        assert_eq!(targets.source, "release/2.1");
+        assert_eq!(targets.destination, "integration");
     }
 }

@@ -19,6 +19,7 @@ pub fn write_batch(
         p.total == batch.stories.len()
             && p.brief == batch.brief
             && p.specification == batch.specification
+            && p.task_routing == batch.task_routing
             && serde_json::to_value(&p.stories).ok() == serde_json::to_value(&batch.stories).ok()
     }) {
         let batch_identity = save_progress(repo, &progress.run, batch, progress.total)?;
@@ -142,6 +143,12 @@ pub fn write_batch(
                     &story.target_repository
                 },
                 dependency_uids,
+            )?
+            .with_branch_targets(batch.branch_targets.as_ref())?
+            .with_task_routing(
+                &batch.task_routing.overrides,
+                batch.task_routing.source_work_uid.as_deref(),
+                batch.task_routing.inherited_from.as_deref(),
             )?;
             let contents = super::metadata::embed(&identified[i].0, &metadata)?;
             std::fs::write(stage.join(&names[i]), contents)?;

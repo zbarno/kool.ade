@@ -10,6 +10,8 @@ pub(super) struct ProgressBatch {
     pub(super) specification: String,
     pub(super) stories: Vec<TaskStory>,
     #[serde(default)]
+    pub(super) task_routing: crate::core::workflow::TaskRoutingSnapshot,
+    #[serde(default)]
     pub(super) feature_id: Option<String>,
     #[serde(default)]
     pub(super) identity: Option<crate::domain::ArtifactIdentity>,

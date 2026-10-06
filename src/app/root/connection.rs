@@ -2,6 +2,13 @@ use super::*;
 
 impl KooladeApp {
     pub(super) fn submit_task_reply(&mut self, key: &str) {
+        let review_changes = matches!(&self.screen, Screen::Connected(project)
+            if project.implementation_states.get(key).is_some_and(|state|
+                state.status == crate::core::implementation::ImplementationStatus::ChangesRequested));
+        if review_changes {
+            self.submit_review_changes(key);
+            return;
+        }
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -48,7 +55,9 @@ impl KooladeApp {
             .filter(|m| m.id != sent_id)
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
-        let purpose = crate::core::planning_work::find(&project.state, key)
+        let work = crate::core::planning_work::find(&project.state, key);
+        let purpose = work
+            .as_ref()
             .filter(|work| work.kind == crate::core::planning_work::WorkKind::Question)
             .map(|_| crate::core::workflow::TurnPurpose::Question)
             .unwrap_or(crate::core::workflow::TurnPurpose::Interview);
@@ -60,7 +69,16 @@ impl KooladeApp {
             comparison_feature: None,
         };
         project.task_chats.drafts.remove(key);
-        let harness = configured_harness(&mut self.task_harness);
+        let work_type = work
+            .as_ref()
+            .filter(|work| work.kind == crate::core::planning_work::WorkKind::DocumentationRefresh)
+            .map(|_| crate::persistence::harness_settings::DOCUMENTATION);
+        let task_routes = work
+            .as_ref()
+            .map(|work| work.routing_overrides.clone())
+            .unwrap_or_default();
+        let harness = configured_harness_for_task(&mut self.task_harness, work_type, &task_routes);
+        let route_label = harness.label();
         project.task_turns.insert(
             key.into(),
             std::rc::Rc::new(TurnController::start_scoped(
@@ -69,7 +87,52 @@ impl KooladeApp {
                 Some(key.into()),
             )),
         );
-        project.task_live.insert(key.into(), Default::default());
+        project.task_live.insert(
+            key.into(),
+            crate::harness::LiveProgress {
+                selected_route: Some(route_label),
+                ..Default::default()
+            },
+        );
+    }
+
+    fn submit_review_changes(&mut self, key: &str) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if project.task_turns.contains_key(key) {
+            return;
+        }
+        let text = project
+            .task_chats
+            .drafts
+            .get(key)
+            .cloned()
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            return;
+        }
+        project.bind_task_conversation_identities();
+        project.task_chats.ensure_loaded(&project.chat_slug);
+        if project
+            .task_chats
+            .append(
+                &project.chat_slug,
+                key,
+                vec![ChatMessage::new(ChatRole::User, &text, Some(key.into()))],
+            )
+            .is_err()
+        {
+            self.toasts
+                .warning("The requested changes could not be saved to this task's conversation.");
+            return;
+        }
+        project.task_chats.drafts.remove(key);
+        project.activity.pending.push(format!(
+            "Requested changes for task {key}: {}",
+            crate::core::context_build::clip(&text, 1600)
+        ));
+        self.start_implementation(key.to_owned(), true);
     }
 
     // ---------------------------------------------------------------- actions

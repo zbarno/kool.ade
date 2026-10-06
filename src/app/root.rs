@@ -13,7 +13,6 @@ use crate::core::turn::{TurnController, TurnEvt, TurnOutcome};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 use crate::domain::item::OpenItem;
 use crate::domain::user::CurrentUser;
-use crate::harness::PiHarness;
 use crate::ui::{Surface, ToastQueue};
 
 #[cfg(test)]
@@ -22,6 +21,7 @@ mod conversation_tests;
 
 #[path = "feature_approval.rs"]
 mod feature_approval;
+mod harness_selection;
 
 mod adoption;
 mod agent_updates;
@@ -94,9 +94,25 @@ pub struct KooladeApp {
 pub(super) fn configured_harness(
     override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
 ) -> Box<dyn crate::harness::AiHarness> {
-    override_harness
-        .take()
-        .unwrap_or_else(|| Box::new(PiHarness))
+    harness_selection::configured_harness(override_harness)
+}
+
+pub(super) fn configured_harness_for(
+    override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+    work_type: Option<&str>,
+) -> Box<dyn crate::harness::AiHarness> {
+    harness_selection::configured_harness_for(override_harness, work_type)
+}
+
+pub(super) fn configured_harness_for_task(
+    override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+    work_type: Option<&str>,
+    task_routes: &std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
+) -> Box<dyn crate::harness::AiHarness> {
+    harness_selection::configured_harness_for_task(override_harness, work_type, task_routes)
 }
 
 enum Screen {
@@ -159,6 +175,7 @@ type CloneWorkerCalc = std::sync::Arc<
 enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
+    HarnessSetup(app_dialogs::DlgHarnessSetup),
     Mcp(DlgMcp),
     #[cfg(test)]
     Browse(DlgBrowse),

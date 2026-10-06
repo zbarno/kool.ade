@@ -1,6 +1,6 @@
 ## Users and Outcomes
 
-**Primary user.** A single developer-operator, the "chair seat," identified by Git identity (`user.name`/`user.email`; D-23 in `docs/exit-demo-runbook.md`). One seated operator acts per project checkout; collaboration channels are deliberately unbuilt (D-22 in the same document parks the MVP walk around them; the single-writer invariant NFR-3 assumes one app instance per project).
+**Primary user.** A developer-operator, the "chair seat," identified by Git identity (`user.name`/`user.email`; D-23 in `docs/exit-demo-runbook.md`). Queue and publication locks serialize app windows in one clone; remote task claims prevent concurrent implementation of the same task in independent clones when a writable origin is reachable. Planning and decision workflows remain local to each checkout; this is not collaborative editing (D-22 in the same document).
 
 **Working context.**
 

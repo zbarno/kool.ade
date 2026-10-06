@@ -65,10 +65,19 @@ pub struct Workflow {
     /// Authoritative plan comparison lifecycle, keyed by stable feature ID.
     #[serde(default)]
     pub plan_comparisons: std::collections::BTreeMap<String, PlanComparisonRecord>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub feature_branch_targets: std::collections::BTreeMap<String, BranchTargets>,
     /// Unvalidated pre-contract comparison snapshots kept as history only.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub legacy_plan_comparison_evidence:
         std::collections::BTreeMap<String, Vec<crate::domain::PlanComparison>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BranchTargets {
+    pub source: String,
+    pub destination: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,7 +153,17 @@ pub struct TaskBatch {
     pub specification: String,
     pub feature_id: Option<String>,
     pub contract: Option<crate::core::contract_snapshot::BatchContract>,
+    pub branch_targets: Option<BranchTargets>,
+    pub task_routing: TaskRoutingSnapshot,
     pub stories: Vec<TaskStory>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRoutingSnapshot {
+    pub overrides:
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    pub source_work_uid: Option<String>,
+    pub inherited_from: Option<String>,
 }
 
 pub use feature_approval::{

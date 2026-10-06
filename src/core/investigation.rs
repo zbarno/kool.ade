@@ -142,6 +142,7 @@ fn run_with_settle_window(
         let request = PlanningRequest {
             mode: ExecutionMode::Investigation,
             reasoning_level: "off".into(),
+            telemetry_phase: None,
             repo_root: state.repo_root.clone(),
             prompt_body: format!("{base}\n{correction}"),
             system_instructions: prompt::PLANNER_POLICY.into(),
@@ -219,7 +220,7 @@ fn run_with_settle_window(
 }
 
 pub enum Event {
-    Progress(LiveProgress),
+    Progress(Box<LiveProgress>),
     Done(Box<anyhow::Result<(PlannerState, String)>>),
 }
 pub struct Controller {
@@ -240,7 +241,7 @@ impl Controller {
             let forward = tx.clone();
             let forwarder = std::thread::spawn(move || {
                 for update in updates {
-                    let _ = forward.send(Event::Progress(update));
+                    let _ = forward.send(Event::Progress(Box::new(update)));
                 }
             });
             let result = run(

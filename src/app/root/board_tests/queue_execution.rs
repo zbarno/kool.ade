@@ -257,17 +257,10 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
         assert_eq!(max_workers, 2, "Independent implementations must overlap");
         assert_eq!(project.queue.recovery_attempts.get(&docs[1].path), Some(&1));
         for doc in &docs[..2] {
-            assert!(matches!(
-                project.queue.blocked.get(&doc.path),
-                Some(crate::core::implementation::Failure {
-                    kind: crate::core::implementation::FailureKind::ExternalPrerequisite,
-                    recovery: crate::core::implementation::RecoveryDisposition::UserAction,
-                    ..
-                })
-            ));
+            assert!(!project.queue.blocked.contains_key(&doc.path));
             assert_eq!(
                 project.implementation_states.get(&doc.path).unwrap().status,
-                ImplementationStatus::ReadyToPublish
+                ImplementationStatus::AwaitingApproval
             );
         }
         assert!(!project.implementation_states.contains_key(&docs[2].path));

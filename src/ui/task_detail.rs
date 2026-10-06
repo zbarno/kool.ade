@@ -19,6 +19,8 @@ pub struct ViewModel {
     pub draft: String,
     pub activity_samples: Vec<(i64, u64)>,
     pub activity_active: bool,
+    pub implementation_metrics: Option<crate::persistence::telemetry::ImplementationMetrics>,
+    pub feature_metrics: Option<crate::persistence::telemetry::ImplementationMetrics>,
 }
 
 pub enum Command {

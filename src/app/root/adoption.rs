@@ -42,7 +42,16 @@ impl KooladeApp {
         {
             project.planning_work = work;
         }
-        let requested_action = if project.task_chats.active.is_none() {
+        let cancelled_planning_turn = project
+            .active_planning_work
+            .as_deref()
+            .and_then(|key| project.planning_work.iter().find(|work| work.key == key))
+            .is_some_and(|work| {
+                project
+                    .cancelled_work
+                    .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+            });
+        let requested_action = if project.task_chats.active.is_none() && !cancelled_planning_turn {
             match &outcome {
                 TurnOutcome::Applied { normalized, .. } => normalized.requested_action.clone(),
                 _ => None,
@@ -61,7 +70,12 @@ impl KooladeApp {
                     .pending_feature_generation
                     .as_ref()
                     .is_some_and(|(_, _, _, pending_key)| pending_key == &key);
-                if let Some(work) = project.planning_work.iter_mut().find(|w| w.key == key) {
+                if let Some(work) = project.planning_work.iter_mut().find(|w| {
+                    w.key == key
+                        && !project
+                            .cancelled_work
+                            .contains(&crate::persistence::cancelled_work::planning_id(&w.uid))
+                }) {
                     match &outcome {
                         TurnOutcome::Applied { normalized, .. } => {
                             let model_offer = normalized.follow_up_task.clone().map(|offer| {

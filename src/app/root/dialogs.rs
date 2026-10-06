@@ -45,8 +45,26 @@ impl KooladeApp {
                     self.perform_settings(&mut d);
                 }
                 let positive = d.feedback.as_ref().is_some_and(|(ok, _)| *ok);
-                if !closed && !*close_slot.borrow() && !positive {
+                if d.open_harness_setup {
+                    self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
+                } else if !closed && !*close_slot.borrow() && !positive {
                     self.dialog = Some(Dialog::Settings(d));
+                }
+            }
+            Dialog::HarnessSetup(mut d) => {
+                let close_slot = std::cell::RefCell::new(false);
+                let closed = crate::ui::overlays::show_modal(
+                    ui,
+                    true,
+                    "Coding tool configuration",
+                    620.0,
+                    |ui| {
+                        let (_, close) = app_dialogs::paint_harness_setup_card(ui, &mut d);
+                        *close_slot.borrow_mut() = close;
+                    },
+                );
+                if !closed && !*close_slot.borrow() {
+                    self.dialog = Some(Dialog::HarnessSetup(d));
                 }
             }
             Dialog::Mcp(mut d) => {

@@ -61,6 +61,8 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         approved_product_context: Some("frozen product context".into()),
         completed_dependency_context: None,
         branch: "koolade/old-task-branch".into(),
+        source_branch: None,
+        destination_branch: None,
         base: "main".into(),
         base_commit: "base-commit".into(),
         worktree: root.join("../.koolade-worktrees/demo/old-ticket"),

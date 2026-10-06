@@ -11,7 +11,7 @@ pub(super) fn auto_publish_enabled(gate: Option<&AtomicBool>) -> bool {
 pub(super) fn hold_for_review(dir: &Path, state: &mut Implementation) -> anyhow::Result<()> {
     state.auto_merge = false;
     state.merged_commit = None;
-    state.status = ImplementationStatus::ReadyToPublish;
+    state.status = ImplementationStatus::AwaitingApproval;
     update_pull_request_detail(state);
     if !state
         .detail
@@ -32,6 +32,24 @@ pub(super) fn create_pull_request(
     runner: &Runner,
 ) -> anyhow::Result<()> {
     runner.remaining()?;
+    if state.destination_branch.is_some() {
+        runner
+            .git(
+                &state.worktree,
+                &[
+                    "ls-remote",
+                    "--exit-code",
+                    "--heads",
+                    "origin",
+                    &format!("refs/heads/{}", state.base),
+                ],
+            )
+            .map_err(|error| {
+                crate::core::implementation::initial_reconciliation::support::user_action(
+                    format!("Selected destination branch '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base),
+                )
+            })?;
+    }
     anyhow::ensure!(
         !matches!(state.branch.as_str(), "main" | "master"),
         "Refusing to push implementation changes from the main or master branch"

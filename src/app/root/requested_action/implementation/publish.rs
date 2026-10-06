@@ -21,7 +21,12 @@ pub(super) fn publish(app: &mut KooladeApp, target: Option<String>) {
         let mut ready = project
             .implementation_states
             .iter()
-            .filter(|(_, state)| state.status == ImplementationStatus::ReadyToPublish)
+            .filter(|(_, state)| {
+                matches!(
+                    state.status,
+                    ImplementationStatus::ReadyToPublish | ImplementationStatus::AwaitingApproval
+                )
+            })
             .map(|(ticket, _)| ticket.clone())
             .collect::<Vec<_>>();
         ready.sort();
@@ -55,7 +60,11 @@ pub(super) fn publish(app: &mut KooladeApp, target: Option<String>) {
                 "Kool.ad/e is still working on {title}. It will finish verification before any sharing action."
             ),
         ),
-        Some((ImplementationStatus::ReadyToPublish, false, false)) => {
+        Some((
+            ImplementationStatus::ReadyToPublish | ImplementationStatus::AwaitingApproval,
+            false,
+            false,
+        )) => {
             app.start_implementation(ticket.clone(), true);
             let started = matches!(&app.screen, Screen::Connected(project) if project.active_implementations.contains_key(&ticket));
             action_feedback(

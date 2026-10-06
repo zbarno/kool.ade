@@ -51,10 +51,14 @@ pub fn next_ready_ticket_with_running_scopes(
             ));
             continue;
         }
-        if states
-            .get(&doc.path)
-            .is_some_and(|state| state.status == ImplementationStatus::ReadyToPublish)
-        {
+        if states.get(&doc.path).is_some_and(|state| {
+            matches!(
+                state.status,
+                ImplementationStatus::ReadyToPublish
+                    | ImplementationStatus::AwaitingApproval
+                    | ImplementationStatus::ChangesRequested
+            )
+        }) {
             waiting.push(format!(
                 "{} is verified and waiting for you to publish",
                 doc.title

@@ -20,6 +20,7 @@ fn rep(status: &str, diagnostic: &str, binary: Option<&str>, ok: bool) -> ProbeR
         diagnostic: diagnostic.into(),
         binary: binary.map(std::path::PathBuf::from),
         ok,
+        configuration_required: false,
     }
 }
 

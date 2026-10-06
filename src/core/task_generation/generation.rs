@@ -29,6 +29,19 @@ pub fn generate(
         .brief
         .as_ref()
         .ok_or_else(|| AppError::Other("No approved interview brief.".into()))?;
+    let task_routing = state
+        .active_feature
+        .as_ref()
+        .map(|(id, body)| {
+            let uid = crate::domain::ArtifactIdentity::from_markdown(body)
+                .ok()
+                .flatten()
+                .map(|identity| identity.uid);
+            crate::core::planning_work::routing_for_feature(&state.repo_root, id, uid.as_deref())
+                .map_err(|error| AppError::Other(format!("Cannot load task routing: {error}")))
+        })
+        .transpose()?
+        .unwrap_or_default();
     let base = format!(
         "=== APPLICATION TURN MODE ===\nGENERATE TASK STORIES. The user explicitly approved the current reviewed specification.\n\n=== APPROVED BRIEF ===\n{}\n\n=== APPROVED FEATURE SPECIFICATION ===\n{}\n\n=== FROZEN AFFECTED PRODUCT MODULES AND REPOSITORY BASES ===\n{}\n",
         serde_json::to_string_pretty(brief).unwrap_or_default(),
@@ -106,11 +119,30 @@ pub fn generate(
             crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow,
             "Interview changed during generation"
         );
+        if let Some((id, body)) = &state.active_feature {
+            let uid = crate::domain::ArtifactIdentity::from_markdown(body)
+                .ok()
+                .flatten()
+                .map(|identity| identity.uid);
+            anyhow::ensure!(
+                crate::core::planning_work::routing_for_feature(
+                    &state.repo_root,
+                    id,
+                    uid.as_deref()
+                )? == task_routing,
+                "Task routing changed during generation"
+            );
+        }
         let batch = crate::core::workflow::TaskBatch {
             brief: brief.clone(),
             specification: state.planning_contract().unwrap_or_default().to_string(),
             feature_id: state.active_feature.as_ref().map(|(id, _)| id.clone()),
             contract: crate::core::contract_snapshot::freeze(state)?,
+            branch_targets: state
+                .active_feature
+                .as_ref()
+                .and_then(|(id, _)| state.workflow.feature_branch_targets.get(id).cloned()),
+            task_routing: task_routing.clone(),
             stories: cp.stories.clone(),
         };
         // Defense in depth at publish: the batch must carry one consistent

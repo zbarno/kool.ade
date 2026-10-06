@@ -25,6 +25,41 @@ impl Surface for KooladeApp {
         }
     }
 
+    fn repository_branches(&self) -> Vec<String> {
+        match &self.screen {
+            Screen::Connected(project) if project.git.branches.is_empty() => {
+                (!project.git.branch.is_empty())
+                    .then(|| project.git.branch.clone())
+                    .into_iter()
+                    .collect()
+            }
+            Screen::Connected(project) => project.git.branches.clone(),
+            Screen::Welcome => Vec::new(),
+        }
+    }
+
+    fn repository_destination_branches(&self) -> Vec<String> {
+        match &self.screen {
+            Screen::Connected(project) if !project.git.has_origin => self.repository_branches(),
+            Screen::Connected(project) => project.git.remote_branches.clone(),
+            Screen::Welcome => Vec::new(),
+        }
+    }
+
+    fn default_repository_branch(&self) -> &str {
+        match &self.screen {
+            Screen::Connected(project) if project.git.default_branch.is_empty() => {
+                if project.git.branch.is_empty() {
+                    "main"
+                } else {
+                    &project.git.branch
+                }
+            }
+            Screen::Connected(project) => &project.git.default_branch,
+            Screen::Welcome => "",
+        }
+    }
+
     fn git_head(&self) -> &str {
         match &self.screen {
             Screen::Connected(p) => p.git.head_short.as_str(),
@@ -253,6 +288,12 @@ impl Surface for KooladeApp {
             Screen::Connected(p) if !p.queue.last_error.is_empty() => &p.queue.last_error,
             Screen::Connected(p) if p.queue.running => "Automatic build queue is running",
             _ => "",
+        }
+    }
+    fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
+        match &self.screen {
+            Screen::Connected(project) => project.queue.stale_claim.clone(),
+            Screen::Welcome => None,
         }
     }
     fn planning_board(&self) -> crate::ui::planning_board::ViewModel {

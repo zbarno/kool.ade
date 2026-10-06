@@ -18,7 +18,7 @@ pub(crate) use conversation::paint_with_board;
 pub(crate) use status::board_column;
 #[cfg(test)]
 pub(crate) use status::{Reply, split_reply};
+pub(crate) use transcript::history_with_max_height;
 pub use transcript::paint_history;
-pub(crate) use transcript::paint_history_messages;
 #[cfg(test)]
 pub(crate) use transcript::transcript;

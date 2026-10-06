@@ -58,7 +58,7 @@ fn disabled_auto_publish_keeps_verified_work_local_until_explicit_pr_action() {
             false,
         )
         .unwrap();
-    assert_eq!(held.status, ImplementationStatus::ReadyToPublish);
+    assert_eq!(held.status, ImplementationStatus::AwaitingApproval);
     assert!(held.pr_url.is_none() && held.merged_commit.is_none());
     assert!(held.worktree.exists());
     assert!(
@@ -90,6 +90,42 @@ fn disabled_auto_publish_keeps_verified_work_local_until_explicit_pr_action() {
         "verified implementation is reused"
     );
     assert!(s.root.join("pr-created").exists());
+}
+
+#[test]
+fn pr_creation_failure_moves_the_approved_task_to_actionable_attention() {
+    let s = Sandbox::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let held = s
+        .run_with_publication_policy(
+            "complete",
+            calls.clone(),
+            PublicationMode::HoldForReview,
+            None,
+            false,
+        )
+        .unwrap();
+    assert_eq!(held.status, ImplementationStatus::AwaitingApproval);
+
+    fs::write(s.root.join("offline"), "").unwrap();
+    let error = s
+        .run_with_publication_policy(
+            "complete",
+            calls.clone(),
+            PublicationMode::CreatePullRequest,
+            None,
+            false,
+        )
+        .unwrap_err();
+    let failure = Failure::from_error(&error);
+    let blocked = record_failed_attempt(&s.repo, &s.ticket, &failure.message)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(blocked.status, ImplementationStatus::Blocked);
+    assert_eq!(board_column(Some(&blocked), false), 3);
+    assert!(blocked.detail.contains("GitHub unavailable"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -220,7 +256,7 @@ fn disabling_auto_publish_during_successful_checks_keeps_default_branch_unchange
     .unwrap();
 
     assert!(!gate.load(Ordering::SeqCst));
-    assert_eq!(state.status, ImplementationStatus::ReadyToPublish);
+    assert_eq!(state.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(
         state.independent_check.as_ref().unwrap().status,
         IndependentCheckStatus::Passed

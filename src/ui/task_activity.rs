@@ -231,6 +231,9 @@ pub fn full(ui: &mut egui::Ui, progress: &LiveProgress, active: bool) {
             .strong(),
         );
         ui.label(timing(progress, active));
+        if let Some(route) = &progress.selected_route {
+            ui.label(format!("Route: {route}"));
+        }
         if let Some(last) = progress.telemetry.updated_ms {
             let seconds = (chrono::Utc::now().timestamp_millis() - last).max(0) / 1000;
             if active {

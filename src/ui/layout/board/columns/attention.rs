@@ -30,12 +30,57 @@ pub(super) fn badge(ui: &mut egui::Ui, kind: Kind) {
     theme::badge(ui, label, color.gamma_multiply(0.14), color);
 }
 
-pub(super) fn item_kind(user_can_act: bool) -> Kind {
-    if user_can_act {
-        Kind::WaitingOnUser
+pub(super) fn user_action(ui: &mut egui::Ui, action: &str) {
+    let (color, fill) = user_action_colors(ui.visuals().dark_mode);
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.5, color))
+        .corner_radius(6)
+        .inner_margin(egui::Margin::same(4))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new("NEEDS YOUR INPUT")
+                        .strong()
+                        .color(color),
+                );
+                ui.label(egui::RichText::new(action).strong());
+            });
+        });
+}
+
+fn user_action_colors(dark_mode: bool) -> (egui::Color32, egui::Color32) {
+    if dark_mode {
+        (theme::WARNING, theme::WARNING.gamma_multiply(0.12))
     } else {
-        Kind::Blocked
+        (
+            egui::Color32::from_rgb(142, 93, 0),
+            egui::Color32::from_rgb(255, 245, 205),
+        )
     }
+}
+
+pub(super) fn linked_user_action<'a>(
+    board: &'a crate::ui::planning_board::ViewModel,
+    task_path: &str,
+) -> Option<&'a crate::domain::item::OpenItem> {
+    let feature_id = feature_id_in_task_path(task_path)?;
+    board.planning_items.iter().find(|item| {
+        item.status == crate::domain::ItemStatus::Open
+            && item.feature_id.as_deref() == Some(feature_id.as_str())
+            && board.eligible_item_ids.contains(&item.id)
+    })
+}
+
+fn feature_id_in_task_path(path: &str) -> Option<String> {
+    let directory = path.split('/').rev().nth(1)?;
+    let candidate = if let Some(rest) = directory.strip_prefix("CHG-") {
+        format!("CHG-{}", rest.split_once('-')?.0)
+    } else {
+        directory.split_once('-')?.0.to_owned()
+    };
+    crate::artifacts::product_docs::valid_feature_id(&candidate).then_some(candidate)
 }
 
 fn recovery_kind(recovery: crate::core::implementation::RecoveryDisposition) -> Kind {
@@ -65,6 +110,8 @@ pub(super) fn task_kind(s: &dyn Surface, key: &str) -> Kind {
         ) => Kind::Blocked,
         Some(
             crate::core::implementation::ImplementationStatus::ReadyToPublish
+            | crate::core::implementation::ImplementationStatus::AwaitingApproval
+            | crate::core::implementation::ImplementationStatus::ChangesRequested
             | crate::core::implementation::ImplementationStatus::PullRequestClosed
             | crate::core::implementation::ImplementationStatus::Interrupted,
         ) => Kind::WaitingOnUser,

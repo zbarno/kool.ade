@@ -1,4 +1,5 @@
 use super::*;
+mod telemetry;
 
 impl KooladeApp {
     pub(super) fn activity_samples_for_surface(&self, key: Option<&str>) -> Vec<(i64, u64)> {
@@ -102,6 +103,10 @@ impl KooladeApp {
                 })
                 .flatten()
         });
+        let (implementation_metrics, feature_metrics) = match &self.screen {
+            Screen::Connected(project) => telemetry::reports(project, ticket),
+            Screen::Welcome => (None, None),
+        };
         let attention = failure
             .as_deref()
             .and_then(|detail| self.attention_view(ticket, detail));
@@ -132,6 +137,8 @@ impl KooladeApp {
             draft,
             activity_samples: self.activity_samples(Some(ticket)),
             activity_active: self.activity_active(ticket),
+            implementation_metrics,
+            feature_metrics,
         })
     }
     pub(super) fn planning_board_for_surface(&self) -> crate::ui::planning_board::ViewModel {
@@ -173,6 +180,7 @@ impl KooladeApp {
                     setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,
                     archived: p.archived_tasks.clone(),
+                    cancelled: p.cancelled_work.clone(),
                 }
             }
             _ => crate::ui::planning_board::ViewModel::default(),

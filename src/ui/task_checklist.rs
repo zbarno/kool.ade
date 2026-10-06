@@ -58,6 +58,8 @@ pub fn from_task(
             && matches!(
                 state.status,
                 Status::ReadyToPublish
+                    | Status::AwaitingApproval
+                    | Status::ChangesRequested
                     | Status::Publishing
                     | Status::WaitingForIndependentChecks
                     | Status::AwaitingReview

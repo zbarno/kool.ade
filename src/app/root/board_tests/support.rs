@@ -36,6 +36,8 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             approved_product_context: None,
             completed_dependency_context: None,
             branch: "koolade/fixture".into(),
+            source_branch: None,
+            destination_branch: None,
             base: "main".into(),
             base_commit: "fixture".into(),
             worktree: root.join("worktree"),
@@ -86,6 +88,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             git: Default::default(),
             task_documents: docs,
             archived_tasks: Default::default(),
+            cancelled_work: Default::default(),
         })),
         ..Default::default()
     }

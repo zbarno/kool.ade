@@ -12,6 +12,7 @@ pub struct ViewModel {
     pub setup_checking: bool,
     pub eligible_item_ids: BTreeSet<String>,
     pub archived: BTreeSet<String>,
+    pub cancelled: BTreeSet<String>,
 }
 
 impl ViewModel {

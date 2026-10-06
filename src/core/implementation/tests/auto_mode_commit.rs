@@ -22,7 +22,7 @@ fn auto_mode_verifies_and_stops_for_review_without_pushing_or_creating_pr() {
         )
     };
     let result = run().unwrap();
-    assert_eq!(result.status, ImplementationStatus::ReadyToPublish);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert!(result.pr_url.is_none());
     assert!(result.worktree.exists());
     assert!(
@@ -130,7 +130,7 @@ fn auto_mode_starts_on_remote_when_local_history_diverged() {
         true,
     )
     .unwrap();
-    assert_eq!(result.status, ImplementationStatus::ReadyToPublish);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(result.base_commit, remote);
     assert_eq!(
         s.git(&s.root.join("remote.git"), &["rev-parse", "main"]),
@@ -196,7 +196,7 @@ fn auto_mode_includes_remote_changes_that_arrive_during_implementation() {
         true,
     )
     .unwrap();
-    assert_eq!(result.status, ImplementationStatus::ReadyToPublish);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         fs::read_to_string(s.repo.join("local-only.txt")).unwrap(),

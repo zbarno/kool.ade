@@ -59,6 +59,7 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
         git: Default::default(),
         task_documents: Vec::new(),
         archived_tasks: Default::default(),
+        cancelled_work: Default::default(),
     };
     // Connect: the git seat is projected — not the block's 'Bob',
     // not the project title.

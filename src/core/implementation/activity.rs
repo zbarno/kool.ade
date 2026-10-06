@@ -39,6 +39,8 @@ pub fn finalize_terminal_activity_if_stale(
         super::ImplementationStatus::Blocked
             | super::ImplementationStatus::Interrupted
             | super::ImplementationStatus::ReadyToPublish
+            | super::ImplementationStatus::AwaitingApproval
+            | super::ImplementationStatus::ChangesRequested
             | super::ImplementationStatus::AwaitingReview
             | super::ImplementationStatus::Completed
             | super::ImplementationStatus::PullRequestClosed
@@ -190,6 +192,46 @@ mod tests {
     }
 
     #[test]
+    fn checklist_progress_survives_activity_reload_and_terminal_states() {
+        let repo = temp_repo();
+        let ticket = "planning/tasks/001-task.md";
+        let mut progress = unfinished_activity();
+        progress.checklist = vec![0, 2];
+        progress.checklist_revision = 42;
+        save_activity(&repo, ticket, &progress).unwrap();
+
+        let loaded = load_activity(&repo, ticket).unwrap();
+        assert_eq!(loaded.checklist, [0, 2]);
+        assert_eq!(loaded.checklist_revision, 42);
+        let mut resumed = loaded;
+        resumed.update(crate::harness::LiveProgress {
+            checklist: vec![0, 2, 3],
+            checklist_revision: 43,
+            ..Default::default()
+        });
+        resumed.update(crate::harness::LiveProgress {
+            checklist: vec![0],
+            checklist_revision: 42,
+            ..Default::default()
+        });
+        assert_eq!(resumed.checklist, [0, 2, 3]);
+        save_activity(&repo, ticket, &resumed).unwrap();
+        for status in [
+            ImplementationStatus::Blocked,
+            ImplementationStatus::Interrupted,
+            ImplementationStatus::AwaitingReview,
+            ImplementationStatus::Completed,
+        ] {
+            let mut resumed = load_activity(&repo, ticket).unwrap();
+            finalize_terminal_activity_if_stale(&repo, ticket, None, status, &mut resumed, 30);
+            assert_eq!(resumed.checklist, [0, 2, 3]);
+            save_activity(&repo, ticket, &resumed).unwrap();
+            assert_eq!(load_activity(&repo, ticket).unwrap().checklist, [0, 2, 3]);
+        }
+        fs::remove_dir_all(repo).unwrap();
+    }
+
+    #[test]
     fn live_worker_lock_prevents_premature_activity_finish() {
         let repo = temp_repo();
         let ticket = "planning/tasks/001-task.md";
@@ -241,6 +283,8 @@ mod tests {
             approved_product_context: None,
             completed_dependency_context: None,
             branch: "koolade/task".into(),
+            source_branch: None,
+            destination_branch: None,
             base: "main".into(),
             base_commit: "base".into(),
             worktree: repo.join("worktree"),

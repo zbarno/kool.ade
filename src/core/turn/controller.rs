@@ -45,7 +45,7 @@ impl TurnController {
                         continue;
                     }
                     last = line.clone();
-                    if fwd.send(TurnEvt::Progress(line)).is_err() {
+                    if fwd.send(TurnEvt::Progress(Box::new(line))).is_err() {
                         break;
                     }
                 }

@@ -17,6 +17,55 @@ fn tracks_final_assistant_text_last_wins() {
 }
 
 #[test]
+fn provider_usage_is_normalized_and_repeated_snapshots_do_not_duplicate_calls() {
+    let mut f = EventFold::default();
+    let line = r#"{"type":"message_end","message":{"role":"assistant","id":"resp-1","provider":"anthropic","api":"messages","model":"sonnet","stopReason":"toolUse","usage":{"input":12,"output":4,"cacheRead":8,"cacheWrite":2,"reasoning":3,"totalTokens":26,"cost":{"total":0.001234}},"content":[]}}"#;
+    fold_line(line, &mut f);
+    fold_line(line, &mut f);
+    let progress = f.preview();
+    assert_eq!(progress.model_calls.len(), 1);
+    assert_eq!(progress.model_calls[0].call_id, "resp-1");
+    assert_eq!(progress.model_calls[0].input_tokens, Some(12));
+    assert_eq!(
+        progress.model_calls[0].estimated_cost_usd_micros,
+        Some(1234)
+    );
+    assert_eq!(
+        progress.model_calls[0].stop_reason.as_deref(),
+        Some("toolUse")
+    );
+}
+
+#[test]
+fn cumulative_usage_updates_replace_tokens_and_survive_the_final_message() {
+    let mut f = EventFold::default();
+    fold_line(
+        r#"{"type":"message_start","message":{"role":"assistant"}}"#,
+        &mut f,
+    );
+    fold_line(
+        r#"{"type":"message_update","usage":{"input":10,"output":1,"totalTokens":11,"cost":{"total":0.0001}},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"a"}}"#,
+        &mut f,
+    );
+    fold_line(
+        r#"{"type":"message_update","usage":{"input":10,"output":3,"totalTokens":13,"cost":{"total":0.0003}},"assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"b"}}"#,
+        &mut f,
+    );
+    let partial = f.preview();
+    assert_eq!(partial.model_calls.len(), 1);
+    assert_eq!(partial.model_calls[0].total_tokens, Some(13));
+    assert_eq!(partial.model_calls[0].estimated_cost_usd_micros, Some(300));
+    fold_line(
+        r#"{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"ab"}]}}"#,
+        &mut f,
+    );
+    let complete = f.preview();
+    assert_eq!(complete.model_calls.len(), 1);
+    assert_eq!(complete.model_calls[0].output_tokens, Some(3));
+    assert_eq!(complete.model_calls[0].total_tokens, Some(13));
+}
+
+#[test]
 fn tool_activity_and_errors_recorded() {
     let mut f = EventFold::default();
     fold_line(
@@ -207,4 +256,37 @@ fn pending_assistant_does_not_reuse_an_earlier_completed_message() {
         &mut fold,
     );
     assert!(fold.final_assistant_text.is_empty());
+}
+
+#[test]
+fn checklist_markers_update_live_snapshots_and_old_snapshots_cannot_revert_them() {
+    let mut fold = EventFold::default();
+    delta(
+        &mut fold,
+        "text",
+        0,
+        "Progress update.\n<!-- koolade-checklist: 0,2 -->",
+    );
+    let first = fold.preview();
+    assert_eq!(first.checklist, [0, 2]);
+    assert_eq!(first.checklist_revision, 1);
+    assert!(!first.response.contains("koolade-checklist"));
+
+    delta(&mut fold, "text", 0, "\n<!-- koolade-checklist: 2 -->");
+    let newer = fold.preview();
+    assert_eq!(newer.checklist, [2]);
+    assert_eq!(newer.checklist_revision, 2);
+    assert!(!newer.response.contains("koolade-checklist"));
+
+    let mut display = newer;
+    display.update(first);
+    assert_eq!(display.checklist, [2]);
+    assert_eq!(display.checklist_revision, 2);
+
+    delta(&mut fold, "text", 0, "\n<!-- koolade-checklist: -->");
+    let cleared = fold.preview();
+    assert!(cleared.checklist.is_empty());
+    assert_eq!(cleared.checklist_revision, 3);
+    display.update(cleared);
+    assert!(display.checklist.is_empty());
 }

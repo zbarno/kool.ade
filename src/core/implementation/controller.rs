@@ -79,19 +79,104 @@ impl Controller {
         user_context: Option<String>,
         harness: Box<dyn AiHarness>,
     ) -> Self {
+        Self::start_project_with_policy_and_claim_request(
+            planning_root,
+            target_repo,
+            ticket,
+            super::StartPolicy {
+                publication_mode,
+                require_independent_checks,
+            },
+            user_context,
+            harness,
+            None,
+        )
+    }
+
+    pub(crate) fn start_project_with_policy_and_claim_request(
+        planning_root: PathBuf,
+        target_repo: PathBuf,
+        ticket: String,
+        policy: super::StartPolicy,
+        user_context: Option<String>,
+        harness: Box<dyn AiHarness>,
+        claim_request: Option<crate::core::task_claim::ClaimRequest>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         let auto_publish_gate = Arc::new(AtomicBool::new(
-            publication_mode == PublicationMode::AutoPublish,
+            policy.publication_mode == PublicationMode::AutoPublish,
         ));
         let worker_publish_gate = auto_publish_gate.clone();
+        let previous_revision = super::load_activity(&planning_root, &ticket)
+            .map(|progress| progress.checklist_revision)
+            .unwrap_or_default();
+        let checklist_epoch =
+            checklist_revision_epoch(chrono::Utc::now().timestamp_millis(), previous_revision);
         std::thread::spawn(move || {
-            let (progress, updates) = mpsc::channel();
+            if worker_cancel.load(Ordering::SeqCst) {
+                let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
+                    FailureKind::Other,
+                    RecoveryDisposition::ExplicitResume,
+                    "Implementation was canceled before remote task coordination began.",
+                )))));
+                return;
+            }
+            let claim = if let Some(request) = claim_request {
+                match request.acquire() {
+                    Ok(attempt) => {
+                        if let Some(warning) = attempt.warning {
+                            let _ = tx.send(Event::ClaimWarning(warning));
+                        }
+                        attempt.lease
+                    }
+                    Err(error) => {
+                        let _ = tx.send(Event::ClaimBlocked(Box::new(error)));
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            if worker_cancel.load(Ordering::SeqCst) {
+                drop(claim);
+                let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
+                    FailureKind::Other,
+                    RecoveryDisposition::ExplicitResume,
+                    "Implementation was canceled while acquiring its remote task claim.",
+                )))));
+                return;
+            }
+            let heartbeat = claim.map(|claim| {
+                let heartbeat_cancel = worker_cancel.clone();
+                let (stop, stopped) = mpsc::channel();
+                let thread = std::thread::spawn(move || {
+                    let mut claim = claim;
+                    while let Err(mpsc::RecvTimeoutError::Timeout) =
+                        stopped.recv_timeout(std::time::Duration::from_secs(
+                            crate::core::task_claim::HEARTBEAT_INTERVAL_SECONDS,
+                        ))
+                    {
+                        if claim.refresh().is_err() {
+                            heartbeat_cancel.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                    }
+                    drop(claim);
+                });
+                (stop, thread)
+            });
+            let (progress, updates) = mpsc::channel::<LiveProgress>();
             let fwd = tx.clone();
             let forward = std::thread::spawn(move || {
-                for p in updates {
-                    let _ = fwd.send(Event::Progress(p));
+                for mut p in updates {
+                    p.checklist_revision = if p.checklist_revision == 0 {
+                        0
+                    } else {
+                        checklist_epoch.saturating_add(p.checklist_revision)
+                    };
+                    let _ = fwd.send(Event::Progress(Box::new(p)));
                 }
             });
             let result = run_with_project_options(
@@ -103,12 +188,16 @@ impl Controller {
                     cancel: worker_cancel,
                     progress,
                     gh: "gh",
-                    publication_mode,
-                    require_independent_checks,
+                    publication_mode: policy.publication_mode,
+                    require_independent_checks: policy.require_independent_checks,
                     user_context: user_context.as_deref(),
                     auto_publish_gate: Some(worker_publish_gate),
                 },
             );
+            if let Some((stop, thread)) = heartbeat {
+                let _ = stop.send(());
+                let _ = thread.join();
+            }
             let _ = forward.join();
             let _ = tx.send(Event::Done(Box::new(
                 result.map_err(|error| Failure::from_error(&error)),
@@ -143,8 +232,28 @@ impl Controller {
         self.auto_publish_gate.store(false, Ordering::SeqCst);
     }
 }
+
+fn checklist_revision_epoch(now_ms: i64, previous_revision: u64) -> u64 {
+    let time_revision = (now_ms.max(0) as u64) << 20;
+    time_revision.max(previous_revision)
+}
+
 impl Drop for Controller {
     fn drop(&mut self) {
         self.request_cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::checklist_revision_epoch;
+
+    #[test]
+    fn checklist_resume_revision_exceeds_durable_revision_even_if_clock_does_not_advance() {
+        for now_ms in [1_000, -1] {
+            let previous = 2_000_000;
+            let epoch = checklist_revision_epoch(now_ms, previous);
+            assert!(epoch.saturating_add(1) > previous);
+        }
     }
 }

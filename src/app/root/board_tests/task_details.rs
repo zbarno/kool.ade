@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "task_details/proactive_attention.rs"]
+mod proactive_attention;
+
 #[test]
 fn task_details_show_full_state_and_inline_reply() {
     let mut app = fixture();
@@ -27,8 +30,10 @@ fn task_details_show_full_state_and_inline_reply() {
     );
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = click_text(&mut app, &ctx, "First task");
+    let output = click_text(&mut app, &ctx, "Review next action");
     for label in [
+        "Task conversation",
+        "Task details & state",
         "CURRENT STATE",
         "YOUR NEXT STEP",
         "Activity",
@@ -38,6 +43,12 @@ fn task_details_show_full_state_and_inline_reply() {
     ] {
         assert!(text_position(&output, label).is_some(), "missing {label}");
     }
+    let conversation = text_position(&output, "Task conversation").unwrap();
+    let state = text_position(&output, "Task details & state").unwrap();
+    assert!(
+        conversation.x < state.x,
+        "conversation should be the left pane"
+    );
     assert!(
         text_position(
             &output,
@@ -62,6 +73,17 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     if let Screen::Connected(project) = &mut app.screen {
+        let mut identity = crate::domain::ArtifactIdentity::new("TASK-1", "First task");
+        identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
+        let targets = crate::core::workflow::BranchTargets {
+            source: "release/2.1".into(),
+            destination: "integration".into(),
+        };
+        let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", vec![])
+            .unwrap()
+            .with_branch_targets(Some(&targets))
+            .unwrap();
+        project.task_documents[0].metadata = Some(metadata);
         project.implementation_states.insert(
             key.into(),
             crate::core::implementation::Implementation {
@@ -72,6 +94,8 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
                 approved_product_context: None,
                 completed_dependency_context: None,
                 branch: "koolade/fixture".into(),
+                source_branch: Some("release/2.1".into()),
+                destination_branch: Some("integration".into()),
                 base: "main".into(),
                 base_commit: "fixture-base".into(),
                 worktree: std::path::PathBuf::from("/tmp/koolade-fixture"),
@@ -101,7 +125,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
     for expected in [
-        "Completed",
+        "Done",
         "GitHub Actions · Passed",
         "commit 0123456789ab",
         "All project workflows passed for this exact commit.",
@@ -111,6 +135,10 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             "missing {expected}"
         );
     }
+    click_text(&mut app, &ctx, "Technical details");
+    let output = click_text(&mut app, &ctx, "Branch intent");
+    assert!(text_position(&output, "Source branch: release/2.1").is_some());
+    assert!(text_position(&output, "Destination branch: integration").is_some());
 }
 
 #[test]

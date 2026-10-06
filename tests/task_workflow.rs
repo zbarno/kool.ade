@@ -252,6 +252,8 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                     specification: reloaded.spec_text.clone().unwrap(),
                     feature_id: None,
                     contract: None,
+                    branch_targets: None,
+                    task_routing: Default::default(),
                     stories: envelope.task_stories.unwrap(),
                 };
                 let edited = format!("{saved}\nUser correction\n");

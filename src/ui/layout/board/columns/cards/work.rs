@@ -21,6 +21,7 @@ pub(in crate::ui::layout::board::columns) fn work(
         |ui| {
             if column == 3 {
                 super::super::attention::badge(ui, super::super::attention::Kind::WaitingOnUser);
+                super::super::attention::user_action(ui, "Open the conversation to continue");
             }
             if ui
                 .add(
@@ -150,6 +151,9 @@ pub(in crate::ui::layout::board::columns) fn work(
                         kind: crate::core::planning_work::WorkKind::Feature,
                         description: offer.description.clone(),
                         parent_uid: Some(work.uid.clone()),
+                        source_branch: None,
+                        destination_branch: None,
+                        routing_overrides: Default::default(),
                     });
                 }
             }
@@ -165,6 +169,14 @@ pub(in crate::ui::layout::board::columns) fn work(
             if column == 4 && ui.small_button("Archive").clicked() {
                 s.dispatch(ApplicationCommand::ArchiveTask {
                     ticket: work.key.clone(),
+                });
+            }
+            let cancellable = column != 4
+                || (work.kind == crate::core::planning_work::WorkKind::Feature
+                    && work.feature_id.is_some());
+            if cancellable && ui.small_button("Cancel").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(egui::Id::new("koolade_cancel_pending"), work.key.clone())
                 });
             }
             ui.label(

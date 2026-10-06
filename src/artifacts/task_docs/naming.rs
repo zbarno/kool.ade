@@ -240,6 +240,8 @@ mod tests {
             specification: String::new(),
             feature_id: None,
             contract: None,
+            branch_targets: None,
+            task_routing: Default::default(),
             stories: Vec::new(),
         };
         let story = TaskStory {

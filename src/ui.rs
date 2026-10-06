@@ -45,6 +45,10 @@ pub enum ApplicationCommand {
         kind: crate::core::planning_work::WorkKind,
         description: String,
         parent_uid: Option<String>,
+        source_branch: Option<String>,
+        destination_branch: Option<String>,
+        routing_overrides:
+            std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
     },
     DrainTaskChatSaves,
     CancelTask,
@@ -63,8 +67,20 @@ pub enum ApplicationCommand {
     SetRequireIndependentChecks {
         enabled: bool,
     },
+    TakeOverStaleTaskClaim {
+        ticket: String,
+    },
     ArchiveTask {
         ticket: String,
+    },
+    ApprovePublication {
+        ticket: String,
+    },
+    RequestPublicationChanges {
+        ticket: String,
+    },
+    CancelWork {
+        key: String,
     },
     ApproveReviewItem {
         id: String,
@@ -112,6 +128,18 @@ pub trait Surface {
         Vec::new()
     }
     fn git_branch(&self) -> &str;
+    fn repository_branches(&self) -> Vec<String> {
+        Vec::new()
+    }
+    fn repository_destination_branches(&self) -> Vec<String> {
+        self.repository_branches()
+    }
+    fn default_repository_branch(&self) -> &str {
+        self.git_branch()
+    }
+    fn harness_settings(&self) -> crate::persistence::harness_settings::HarnessSettings {
+        crate::persistence::harness_settings::load().0
+    }
     fn git_head(&self) -> &str;
     fn git_dirty(&self) -> bool;
     // ------- chat pane -------
@@ -191,6 +219,9 @@ pub trait Surface {
     fn auto_publish(&self) -> bool;
     fn require_independent_checks(&self) -> bool;
     fn queue_status(&self) -> &str;
+    fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
+        None
+    }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     fn active_planning_work(&self) -> Option<&str> {
         None

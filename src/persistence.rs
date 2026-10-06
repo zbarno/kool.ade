@@ -7,11 +7,15 @@
 //! * `home.rs` — `~/.koolade` location math and project slugs
 //! * `chat_store.rs` — JSONL chat history per project
 //! * `persona.rs` — operator-level persona document at the state root
+//! * `telemetry/` — F11 invocation records: versioned JSONL, append store
 
 pub mod archived_tasks;
+pub mod cancelled_work;
 pub mod chat_store;
+pub mod harness_settings;
 pub mod persona;
 pub mod task_chats;
+pub mod telemetry;
 
 mod home;
 

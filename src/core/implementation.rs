@@ -20,6 +20,7 @@ mod state;
 mod state_paths;
 pub mod status;
 mod task;
+mod telemetry;
 mod verification;
 pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
 pub use board_states::{BOARD_COLUMNS, board_column, load_board_states};
@@ -40,10 +41,10 @@ pub use recovery::latest_external_blocker;
 pub(crate) use report::{BlockerDisposition, Report, ReportStatus, parse_report};
 use report::{external_blocker, external_blocker_detail, validate_report};
 use runner::{Runner, append_tail};
-use state::save;
+pub(crate) use state::save;
 pub(crate) use state::{decode_state_bytes, read_state_file, serialize_state};
-use state_paths::{common, key, state_dir_for_task};
-pub(crate) use state_paths::{key_for_ticket, state_dir};
+use state_paths::{common, key};
+pub(crate) use state_paths::{key_for_ticket, state_dir, state_dir_for_task};
 pub(crate) use task::permits_evidence_only_completion;
 #[cfg(test)]
 use task::read_ticket;
@@ -91,6 +92,10 @@ pub struct Implementation {
     #[serde(default)]
     pub completed_dependency_context: Option<String>,
     pub branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_branch: Option<String>,
     pub base: String,
     pub base_commit: String,
     pub worktree: PathBuf,
@@ -116,8 +121,10 @@ pub struct Implementation {
     pub cleanup: cleanup::Cleanup,
 }
 pub enum Event {
-    Progress(LiveProgress),
+    Progress(Box<LiveProgress>),
     Done(Box<Result<Implementation, Failure>>),
+    ClaimBlocked(Box<crate::core::task_claim::ClaimError>),
+    ClaimWarning(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +132,11 @@ pub(crate) enum PublicationMode {
     HoldForReview,
     CreatePullRequest,
     AutoPublish,
+}
+
+pub(crate) struct StartPolicy {
+    pub publication_mode: PublicationMode,
+    pub require_independent_checks: bool,
 }
 
 struct RunOptions<'a> {

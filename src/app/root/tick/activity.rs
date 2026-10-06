@@ -69,13 +69,20 @@ impl KooladeApp {
                 Instant::now(),
             ) {
                 let events = std::mem::take(&mut project.activity.pending);
-                let harness = configured_harness(&mut self.task_harness);
+                let harness = configured_harness_for(
+                    &mut self.task_harness,
+                    Some(crate::persistence::harness_settings::MANAGER),
+                );
+                let route_label = harness.label();
                 project.activity.manager = Some(crate::app::manager::Manager::start(
                     project, &events, harness,
                 ));
                 project.activity.last_update = Some(Instant::now());
                 project.live_progress = crate::harness::LiveProgress {
-                    activity: Some("Kool.ad/e Man is checking the board…".into()),
+                    activity: Some(format!(
+                        "Kool.ad/e Manager is checking the board with {route_label}…"
+                    )),
+                    selected_route: Some(route_label),
                     ..Default::default()
                 };
             }
@@ -97,8 +104,21 @@ fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) 
         active.status = crate::core::planning_work::WorkStatus::InProgress;
         active.detail = "Planning in progress".into();
     }
-    let mut changes =
-        crate::core::planning_work::reconcile_inactive(&project.state, &mut updated, active_key);
+    let cancelled = updated
+        .iter()
+        .filter(|work| {
+            project
+                .cancelled_work
+                .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+        })
+        .map(|work| work.uid.clone())
+        .collect();
+    let mut changes = crate::core::planning_work::reconcile_inactive_excluding(
+        &project.state,
+        &mut updated,
+        active_key,
+        &cancelled,
+    );
     if retry {
         changes.push("previously reconciled planning work".to_owned());
     }

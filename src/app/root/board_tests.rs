@@ -2,6 +2,8 @@ use super::*;
 #[path = "board_tests/support.rs"]
 mod support;
 pub(super) use support::*;
+#[path = "board_tests/cancellation.rs"]
+mod cancellation;
 #[path = "board_tests/card_activity.rs"]
 mod card_activity;
 #[path = "board_tests/card_navigation.rs"]
@@ -22,6 +24,8 @@ mod queue_recovery;
 mod relationships;
 #[path = "board_tests/responsive_layout.rs"]
 mod responsive_layout;
+#[path = "board_tests/review_approval.rs"]
+mod review_approval;
 #[path = "board_tests/task_completion.rs"]
 mod task_completion;
 #[path = "board_tests/task_details.rs"]

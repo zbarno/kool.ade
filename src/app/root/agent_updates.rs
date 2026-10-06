@@ -99,7 +99,7 @@ impl KooladeApp {
                             .tasks
                             .entry(item_id.clone())
                             .or_default()
-                            .update(update);
+                            .update(*update);
                         project.activity.mark_ticket_dirty(&item_id);
                     }
                     Some(crate::core::investigation::Event::Done(result)) => {

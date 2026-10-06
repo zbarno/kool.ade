@@ -2,7 +2,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-const VERSION: u32 = 1;
+mod routing;
+
+const VERSION: u32 = 3;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -14,6 +16,17 @@ pub struct TaskMetadata {
     pub batch_uid: String,
     pub repository_id: String,
     pub dependency_uids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub routing_overrides:
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_source_uid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_inherited_from: Option<String>,
 }
 
 impl TaskMetadata {
@@ -31,9 +44,40 @@ impl TaskMetadata {
                 .ok_or_else(|| anyhow::anyhow!("Generated task identity has no batch identity"))?,
             repository_id: repository_id.into(),
             dependency_uids,
+            source_branch: None,
+            destination_branch: None,
+            routing_overrides: Default::default(),
+            routing_source_uid: None,
+            routing_inherited_from: None,
         };
         metadata.validate(Some(identity))?;
         Ok(metadata)
+    }
+
+    pub fn with_branch_targets(
+        mut self,
+        targets: Option<&crate::core::workflow::BranchTargets>,
+    ) -> anyhow::Result<Self> {
+        self.source_branch = targets.map(|targets| targets.source.clone());
+        self.destination_branch = targets.map(|targets| targets.destination.clone());
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_task_routing(
+        mut self,
+        routes: &std::collections::BTreeMap<
+            String,
+            crate::persistence::harness_settings::WorkRoute,
+        >,
+        source_uid: Option<&str>,
+        inherited_from: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        self.routing_overrides = routes.clone();
+        self.routing_source_uid = source_uid.map(str::to_owned);
+        self.routing_inherited_from = inherited_from.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
     }
 
     pub fn validate(
@@ -41,7 +85,7 @@ impl TaskMetadata {
         identity: Option<&crate::domain::ArtifactIdentity>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
-            self.schema_version == VERSION,
+            (1..=VERSION).contains(&self.schema_version),
             "Unsupported task metadata version {}",
             self.schema_version
         );
@@ -61,6 +105,30 @@ impl TaskMetadata {
             self.dependency_uids.len() <= MAX_DEPENDENCIES,
             "Task metadata has too many dependencies"
         );
+        routing::validate_routing(&self.routing_overrides)?;
+        for (label, uid) in [
+            ("routing source", self.routing_source_uid.as_deref()),
+            ("routing parent", self.routing_inherited_from.as_deref()),
+        ] {
+            if let Some(uid) = uid {
+                anyhow::ensure!(
+                    uuid::Uuid::parse_str(uid).is_ok(),
+                    "Task metadata has an invalid {label} UID"
+                );
+            }
+        }
+        for branch in [
+            self.source_branch.as_deref(),
+            self.destination_branch.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            anyhow::ensure!(
+                valid_branch(branch),
+                "Task metadata has an invalid branch name"
+            );
+        }
         let mut dependencies = BTreeSet::new();
         for uid in &self.dependency_uids {
             anyhow::ensure!(
@@ -85,6 +153,18 @@ impl TaskMetadata {
         }
         Ok(())
     }
+}
+
+fn valid_branch(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch.len() <= 255
+        && !branch.starts_with('-')
+        && !branch.ends_with('/')
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && !branch
+            .chars()
+            .any(|ch| ch.is_whitespace() || "~^:?*[\\".contains(ch))
 }
 
 pub fn parse(markdown: &str) -> anyhow::Result<Option<TaskMetadata>> {

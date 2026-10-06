@@ -20,6 +20,32 @@ pub(in crate::ui::layout::board::columns) fn task(
         column == 3,
         complete,
         |ui| {
+            let needs_user_action = matches!(
+                s.implementation_recovery(&doc.path),
+                Some(crate::core::implementation::RecoveryDisposition::UserAction)
+            );
+            let failed_or_interrupted = s.implementation_state(&doc.path).is_some_and(|state| {
+                (state.status == crate::core::implementation::ImplementationStatus::Blocked
+                    && !needs_user_action)
+                    || state.status
+                        == crate::core::implementation::ImplementationStatus::Interrupted
+            }) || (s.implementation_failure(&doc.path).is_some()
+                && !needs_user_action);
+            if (activity_active || needs_user_action)
+                && !failed_or_interrupted
+                && let Some(item) = super::super::attention::linked_user_action(board, &doc.path)
+            {
+                super::super::attention::user_action(
+                    ui,
+                    &format!("{} · {}", item.id, task_cards::card_summary(&item.question)),
+                );
+                ui.label(
+                    RichText::new("This feature is waiting on your decision.")
+                        .size(12.0)
+                        .strong()
+                        .color(theme::WARNING),
+                );
+            }
             let blocked_by = matches!(column, 0 | 3)
                 .then(|| dependency_blocker(s, board, doc))
                 .flatten();
@@ -70,9 +96,49 @@ pub(in crate::ui::layout::board::columns) fn task(
             {
                 *selected_path = Some(doc.path.clone());
             }
+            if ui.small_button("Open task details").clicked() {
+                *selected_path = Some(doc.path.clone());
+            }
             super::super::super::presentation::description(ui, &doc.text);
-            let checklist =
+            let implementation = s.implementation_state(&doc.path);
+            if implementation.is_some_and(|record| {
+                matches!(
+                    record.status,
+                    crate::core::implementation::ImplementationStatus::AwaitingApproval
+                        | crate::core::implementation::ImplementationStatus::ReadyToPublish
+                ) && record.pr_url.is_none()
+            }) {
+                ui.colored_label(
+                    theme::BLUE_BRIGHT,
+                    "Implementation complete · approval required",
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Approve").clicked() {
+                        s.dispatch(ApplicationCommand::ApprovePublication {
+                            ticket: doc.path.clone(),
+                        });
+                    }
+                    if ui.button("Request changes").clicked() {
+                        s.dispatch(ApplicationCommand::RequestPublicationChanges {
+                            ticket: doc.path.clone(),
+                        });
+                        *selected_path = Some(doc.path.clone());
+                    }
+                });
+            } else if implementation.is_some_and(|record| {
+                record.status == crate::core::implementation::ImplementationStatus::ChangesRequested
+            }) {
+                ui.colored_label(theme::WARNING, "Changes requested · implementation paused");
+            }
+            let mut checklist =
                 crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(&doc.path));
+            if let Some(progress) = s.task_progress(&doc.path) {
+                for index in &progress.checklist {
+                    if let Some(item) = checklist.get_mut(*index) {
+                        item.complete = true;
+                    }
+                }
+            }
             let elapsed = s.implementation_elapsed(&doc.path);
             if active {
                 ui.horizontal(|ui| {
@@ -104,12 +170,14 @@ pub(in crate::ui::layout::board::columns) fn task(
                 active,
                 elapsed.as_deref(),
             );
-            if task_cards::task_conversation(ui, s, board, &doc.path, false) {
-                *selected_path = Some(doc.path.clone());
-            }
             if column == 4 && ui.small_button("Archive").clicked() {
                 s.dispatch(ApplicationCommand::ArchiveTask {
                     ticket: doc.path.clone(),
+                });
+            }
+            if column != 4 && ui.small_button("Cancel").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(egui::Id::new("koolade_cancel_pending"), doc.path.clone())
                 });
             }
             if active {
