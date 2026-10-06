@@ -2,7 +2,7 @@
 <!-- koolade-artifact-id:v1 {"uid":"8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae","displayId":"F11","title":"Add user-local implementation telemetry and cost reporting"} -->
 <!-- koolade-change:v1 {"schemaVersion":1,"uid":"8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae","displayId":"F11","status":"ready"} -->
 
-**Status:** Planning snapshot — implementation completed in [PR #54](https://github.com/zbarno/kool.ade/pull/54). This artifact preserves the requirements and three generated stories; the full nine-story breakdown was not completed.
+**Status:** Planning snapshot — [PR #54](https://github.com/zbarno/kool.ade/pull/54) closed Issue #23 and implemented telemetry. This artifact preserves the requirements and three generated stories; the full nine-story breakdown was not completed. The plan's R6 versioned price-table fallback was not implemented; PR #54 leaves cost as “Not reported” when a provider supplies no cost.
 
 ## Intent
 
