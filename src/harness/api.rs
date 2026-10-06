@@ -97,6 +97,12 @@ pub struct RetrievalPlan {
 #[serde(default)]
 pub struct LiveProgress {
     pub telemetry: ActivityTelemetry,
+    /// Zero-based acceptance-criterion indexes reported complete by the task worker.
+    /// This is a full snapshot and is persisted with the task activity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checklist: Vec<usize>,
+    #[serde(default)]
+    pub checklist_revision: u64,
     pub posts: Vec<LivePost>,
     pub thoughts: String,
     pub response: String,
@@ -126,6 +132,13 @@ pub struct LivePost {
 
 impl LiveProgress {
     pub fn update(&mut self, mut next: Self) {
+        // Progress snapshots can be delayed behind a newer snapshot. Checklist
+        // reports carry a worker-local revision so late snapshots cannot roll
+        // the durable board state back.
+        if next.checklist_revision < self.checklist_revision {
+            next.checklist = std::mem::take(&mut self.checklist);
+            next.checklist_revision = self.checklist_revision;
+        }
         for post in next.posts.drain(..) {
             if let Some(existing) = self.posts.iter_mut().find(|p| p.id == post.id) {
                 *existing = post;

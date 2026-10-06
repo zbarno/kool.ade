@@ -116,7 +116,7 @@ pub struct Implementation {
     pub cleanup: cleanup::Cleanup,
 }
 pub enum Event {
-    Progress(LiveProgress),
+    Progress(Box<LiveProgress>),
     Done(Box<Result<Implementation, Failure>>),
 }
 

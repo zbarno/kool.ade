@@ -32,11 +32,13 @@ pub struct EventFold {
     message_id: u64,
     prior_thoughts: String,
     prior_response: String,
+    checklist: Vec<usize>,
+    checklist_revision: u64,
 }
 
 impl EventFold {
     pub fn preview(&self) -> LiveProgress {
-        let current_text = self.block_text("text");
+        let current_text = strip_checklist_marker(&self.block_text("text"));
         let (response, specification) = super::live_preview::project(&current_text);
         LiveProgress {
             telemetry: Default::default(),
@@ -50,6 +52,8 @@ impl EventFold {
             response: joined(&self.prior_response, &response),
             specification,
             activity: self.last_activity.clone(),
+            checklist: self.checklist.clone(),
+            checklist_revision: self.checklist_revision,
         }
     }
 
@@ -58,7 +62,7 @@ impl EventFold {
             .iter()
             .filter_map(|(index, (kind, text))| {
                 let text = if kind == "text" {
-                    super::live_preview::project(text).0
+                    super::live_preview::project(&strip_checklist_marker(text)).0
                 } else {
                     text.clone()
                 };
@@ -243,6 +247,13 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                 {
                     block.1 = content.to_owned();
                 }
+                let text = sink.block_text("text");
+                if let Some(checklist) = parse_checklist_marker(&text)
+                    && checklist != sink.checklist
+                {
+                    sink.checklist = checklist;
+                    sink.checklist_revision = sink.checklist_revision.saturating_add(1);
+                }
             }
         }
         "message_end" => {
@@ -280,6 +291,13 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                     sink.blocks
                         .insert(0, ("text".into(), sink.final_assistant_text.clone()));
                 }
+                let text = sink.block_text("text");
+                if let Some(checklist) = parse_checklist_marker(&text)
+                    && checklist != sink.checklist
+                {
+                    sink.checklist = checklist;
+                    sink.checklist_revision = sink.checklist_revision.saturating_add(1);
+                }
             }
         }
         t if t.contains("error") => {
@@ -287,6 +305,35 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
         }
         _ => {}
     }
+}
+
+fn parse_checklist_marker(text: &str) -> Option<Vec<usize>> {
+    let marker = "<!-- koolade-checklist:";
+    let start = text.rfind(marker)? + marker.len();
+    let end = text[start..].find("-->")? + start;
+    let value = text[start..end].trim();
+    let mut indexes = Vec::new();
+    if !value.is_empty() {
+        for index in value.split(',') {
+            indexes.push(index.trim().parse().ok()?);
+        }
+    }
+    indexes.sort_unstable();
+    indexes.dedup();
+    Some(indexes)
+}
+
+fn strip_checklist_marker(text: &str) -> String {
+    let marker = "<!-- koolade-checklist:";
+    let mut visible = text.to_owned();
+    while let Some(start) = visible.rfind(marker) {
+        let end = visible[start..]
+            .find("-->")
+            .map(|end| start + end + 3)
+            .unwrap_or(visible.len());
+        visible.replace_range(start..end, "");
+    }
+    visible.trim().to_owned()
 }
 
 #[cfg(test)]

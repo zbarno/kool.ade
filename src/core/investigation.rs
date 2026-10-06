@@ -219,7 +219,7 @@ fn run_with_settle_window(
 }
 
 pub enum Event {
-    Progress(LiveProgress),
+    Progress(Box<LiveProgress>),
     Done(Box<anyhow::Result<(PlannerState, String)>>),
 }
 pub struct Controller {
@@ -240,7 +240,7 @@ impl Controller {
             let forward = tx.clone();
             let forwarder = std::thread::spawn(move || {
                 for update in updates {
-                    let _ = forward.send(Event::Progress(update));
+                    let _ = forward.send(Event::Progress(Box::new(update)));
                 }
             });
             let result = run(

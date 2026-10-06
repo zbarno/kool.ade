@@ -30,6 +30,7 @@ pub(super) fn build(c: Context<'_>) -> (String, PathBuf) {
     );
     prompt.push_str(report::response_contract());
     prompt.insert_str(0, report::feasibility_preflight());
+    prompt.push_str("\n\nLIVE TASK CHECKLIST: Report checklist progress while implementing by adding a complete snapshot on its own line in an assistant message: `<!-- koolade-checklist: 0,2 -->`. Use zero-based indexes in the exact order of the ticket's acceptance criteria. Include only criteria you have completed; use an empty value to clear all items. Emit a new snapshot whenever progress changes. This updates the task card immediately and survives reconnects. Do not claim a criterion is complete until its outcome is implemented; final verification still determines whether the task can finish.\n");
     prompt.push_str(&format!(
         "\n\nMECHANICALLY COLLECTED HISTORY PREFLIGHT (also saved at {}):\n{}\nCompare any ticket-stated exact footprint with these reachable-history facts before editing. Explicitly say whether the expected table describes cumulative feature history or this ticket's changes from its task base.\n",
         c.history_path.display(), c.history_evidence
