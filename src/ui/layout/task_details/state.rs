@@ -1,6 +1,7 @@
 //! Current task state and the evidence that explains it.
 use super::*;
 
+#[derive(Clone, Copy)]
 pub(super) struct Presentation<'a> {
     pub ticket: &'a str,
     pub view: &'a crate::ui::task_detail::ViewModel,

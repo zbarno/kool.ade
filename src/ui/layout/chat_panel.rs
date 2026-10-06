@@ -6,11 +6,7 @@ pub(super) fn paint(
     board: &crate::ui::planning_board::ViewModel,
     compact: bool,
 ) {
-    let has_task_conversation = ui.ctx().data_mut(|data| {
-        data.get_temp::<ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-            .and_then(|tabs| tabs.active)
-            .is_some()
-    });
+    let has_task_conversation = chat_tabs::retain_planning_conversations(ui.ctx(), board);
     let specification_open = !ui.ctx().data_mut(|data| {
         data.get_temp::<bool>(egui::Id::new("koolade_document_tab"))
             .unwrap_or(true)
