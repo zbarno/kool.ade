@@ -1,6 +1,6 @@
 pub(super) mod motion;
-
 use super::ChatTabs;
+
 use crate::core::implementation::ImplementationStatus;
 use crate::ui::{Surface, theme};
 
@@ -156,12 +156,14 @@ pub(crate) fn task_conversation(
     key: &str,
     expanded: bool,
 ) -> bool {
-    if crate::ui::task_chat::paint_with_board(ui, s, key, expanded, board) {
+    if !crate::artifacts::layout::ArtifactLayout::is_task_ticket_path(key)
+        && crate::ui::task_chat::paint_with_board(ui, s, key, expanded, board)
+    {
         let id = egui::Id::new("koolade_chat_tabs");
-        ui.ctx().data_mut(|d| {
-            let mut tabs = d.get_temp::<ChatTabs>(id).unwrap_or_default();
+        ui.ctx().data_mut(|data| {
+            let mut tabs = data.get_temp::<ChatTabs>(id).unwrap_or_default();
             tabs.open(key);
-            d.insert_temp(id, tabs);
+            data.insert_temp(id, tabs);
         });
         ui.ctx().request_repaint();
     }

@@ -1,6 +1,8 @@
-//! State, reply, and activity for the task modal.
+//! Conversation and task state for the task modal.
 use super::*;
 mod activity;
+mod conversation;
+mod details;
 mod hero;
 mod reply;
 mod state;
@@ -9,7 +11,7 @@ pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
     doc: &crate::artifacts::task_docs::TaskDocument,
-    _height: f32,
+    height: f32,
     activity_path: &mut Option<String>,
 ) {
     if ui.available_width() < 500.0 {
@@ -21,6 +23,9 @@ pub(super) fn paint(
         return;
     }
     let ticket = &doc.path;
+    s.dispatch(crate::ui::ApplicationCommand::PrepareTaskChat {
+        key: ticket.to_owned(),
+    });
     let Some(mut view) = s.task_detail_view(ticket) else {
         ui.label("Task state is unavailable.");
         return;
@@ -32,7 +37,9 @@ pub(super) fn paint(
         })
     });
     let active = view.implementation_active;
-    let cleanup_error = record.as_ref().and_then(|r| r.cleanup.error.clone());
+    let cleanup_error = record
+        .as_ref()
+        .and_then(|record| record.cleanup.error.clone());
     let failure = view.failure.clone();
     let brief = match &view.attention {
         Some(crate::core::attention::View::Ready(brief)) => Some(brief.clone()),
@@ -46,17 +53,17 @@ pub(super) fn paint(
             .messages
             .iter()
             .rev()
-            .find(|m| m.role == crate::domain::ChatRole::User)
-            .is_some_and(|m| m.text.starts_with("I choose option ("));
+            .find(|message| message.role == crate::domain::ChatRole::User)
+            .is_some_and(|message| message.text.starts_with("I choose option ("));
     let column = view.board_column;
-    let pull_request_closed = record.as_ref().is_some_and(|r| {
-        r.pr_state == Some(crate::core::implementation::PullRequestState::Closed)
-            || r.status == crate::core::implementation::ImplementationStatus::PullRequestClosed
+    let pull_request_closed = record.as_ref().is_some_and(|record| {
+        record.pr_state == Some(crate::core::implementation::PullRequestState::Closed)
+            || record.status == crate::core::implementation::ImplementationStatus::PullRequestClosed
     });
     let interrupted = !active
-        && record.as_ref().is_some_and(|r| {
+        && record.as_ref().is_some_and(|record| {
             matches!(
-                r.status,
+                record.status,
                 crate::core::implementation::ImplementationStatus::Preparing
                     | crate::core::implementation::ImplementationStatus::Implementing
                     | crate::core::implementation::ImplementationStatus::Verifying
@@ -73,7 +80,7 @@ pub(super) fn paint(
     } else if active {
         record
             .as_ref()
-            .map(|r| r.status.label())
+            .map(|record| record.status.label())
             .unwrap_or("Starting")
     } else if failure.is_some() {
         "Needs attention"
@@ -82,13 +89,45 @@ pub(super) fn paint(
     } else {
         record
             .as_ref()
-            .map(|r| r.status.label())
+            .map(|record| record.status.label())
             .unwrap_or(crate::core::implementation::BOARD_COLUMNS[column])
     };
-    state::paint(
-        ui,
-        s,
-        state::Presentation {
+    if ui.available_width() >= 700.0 {
+        ui.columns(2, |columns| {
+            conversation::paint(
+                &mut columns[0],
+                s,
+                ticket,
+                &mut view,
+                brief.as_ref(),
+                height,
+            );
+            let presentation = state::Presentation {
+                ticket,
+                view: &view,
+                record: record.as_ref(),
+                failure: failure.as_deref(),
+                cleanup_error: cleanup_error.as_deref(),
+                status,
+                open_ask,
+                decision_sent,
+                column,
+                active,
+                pull_request_closed,
+                interrupted,
+            };
+            details::paint(
+                &mut columns[1],
+                s,
+                doc,
+                presentation,
+                checks_unavailable,
+                failure.as_deref(),
+                activity_path,
+            );
+        });
+    } else {
+        let presentation = state::Presentation {
             ticket,
             view: &view,
             record: record.as_ref(),
@@ -101,196 +140,17 @@ pub(super) fn paint(
             active,
             pull_request_closed,
             interrupted,
-        },
-    );
-    ui.add_space(10.0);
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(14, 31, 44))
-        .stroke(egui::Stroke::new(1.5, theme::BLUE))
-        .corner_radius(10)
-        .inner_margin(if ui.available_width() < 500.0 { 10 } else { 14 })
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(
-                RichText::new("YOUR NEXT STEP")
-                    .size(10.5)
-                    .strong()
-                    .color(theme::BLUE_BRIGHT),
-            );
-            if active {
-                ui.label("Kool.ad/e is working. You can stop this task and pause the queue.");
-                if ui.add(egui::Button::new("Stop task and pause queue").min_size(egui::vec2(0.0, 34.0)).stroke(egui::Stroke::new(1.0, theme::DANGER))).clicked() {
-                    s.dispatch(crate::ui::ApplicationCommand::TaskDetail(crate::ui::task_detail::Command::StopAndPause {
-                        ticket: ticket.to_owned(),
-                    }));
-                }
-            } else if let Some(url) = record.as_ref().and_then(|r| r.pr_url.as_ref()) {
-                ui.label(if pull_request_closed {
-                    "Reopen the pull request on GitHub to continue review."
-                } else {
-                    "Review the published changes."
-                });
-                ui.hyperlink_to("Open PR", url);
-            } else if column == 4 {
-                ui.label("No action needed.");
-            } else {
-                if let Some(brief) = &brief {
-                    if decision_sent {
-                        ui.label("Decision saved in this task's conversation.");
-                    }
-                    if !brief.options.is_empty() {
-                        ui.label("Your project lead needs to choose how to proceed. Kool.ad/e has paused so it won't guess. Your work is safe.");
-                    } else if !brief.steps.is_empty() {
-                        ui.label("Kool.ad/e is waiting for the step below. Your work is safe.");
-                    } else {
-                        ui.label("Kool.ad/e couldn't complete this check. Your work is safe. Select Resume implementation to try again.");
-                    }
-                    reply::paint_recommendation(ui, brief);
-                    for step in &brief.steps {
-                        ui.add(egui::Label::new(format!("{}: {}", step.owner, step.action)).wrap());
-                    }
-                    if !brief.options.is_empty() {
-                        if decision_sent {
-                            ui.collapsing("Change decision", |ui| {
-                                paint_reply(ui, s, ticket, &mut view, &brief.options);
-                            });
-                        } else {
-                            paint_reply(ui, s, ticket, &mut view, &brief.options);
-                        }
-                    }
-                    ui.label(RichText::new(&brief.after).small().weak());
-                } else if checks_unavailable {
-                    ui.label("Kool.ad/e couldn't complete the project check. Your work is safe and hasn't been published. Select Resume after action when the check is available again.");
-                } else if let Some(error) = &failure {
-                    let actions = reply::failure_actions(error);
-                    if actions.is_empty() {
-                        ui.label(if view.failure_disposition == Some(crate::core::implementation::RecoveryDisposition::UserAction) {
-                            "Review the blocker above and provide the missing action or decision. Resume after it is resolved."
-                        } else {
-                            "Review the blocker above. Resume implementation to retry with the preserved work, or reply below with more information."
-                        });
-                    } else {
-                        for action in actions {
-                            ui.add(egui::Label::new(format!("• {action}")).wrap());
-                        }
-                    }
-                } else if record.as_ref().is_some_and(|record| {
-                    record.status == crate::core::implementation::ImplementationStatus::ReadyToPublish
-                }) {
-                    ui.label("Verification is complete. The work is saved locally; Auto Publish is off. Choose Share verified work for review when ready.");
-                } else if open_ask.is_some() {
-                    ui.label("Answer Kool.ad/e's question below.");
-                } else if interrupted {
-                    ui.label("Resume the preserved implementation.");
-                } else {
-                    ui.label("Start implementation when this task is ready.");
-                }
-                let label = if record.as_ref().is_some_and(|record| {
-                    record.status == crate::core::implementation::ImplementationStatus::ReadyToPublish
-                }) {
-                    "Share verified work for review"
-                } else if checks_unavailable
-                    || view.failure_disposition
-                        == Some(crate::core::implementation::RecoveryDisposition::UserAction)
-                {
-                    "Resume after action"
-                } else if record.is_some() || failure.is_some() {
-                    "Resume implementation"
-                } else if view.auto_build {
-                    "Implement & continue queue"
-                } else {
-                    "Implement"
-                };
-                if ui
-                    .add_enabled(
-                        view.can_start,
-                        egui::Button::new(RichText::new(label).strong().color(theme::TEXT)).fill(theme::BLUE).min_size(egui::vec2(0.0, 36.0)),
-                    )
-                    .clicked()
-                {
-                    s.dispatch(crate::ui::ApplicationCommand::TaskDetail(crate::ui::task_detail::Command::StartOrResume {
-                        ticket: ticket.to_owned(),
-                    }));
-                }
-            }
-        });
-    activity::paint(ui, &view, ticket, active, activity_path);
-    if !active
-        && column != 4
-        && (open_ask.is_some() || failure.is_some())
-        && brief.as_ref().is_none_or(|brief| brief.options.is_empty())
-    {
-        ui.add_space(10.0);
-        egui::Frame::NONE
-            .fill(theme::ACCENT_SOFT)
-            .corner_radius(8)
-            .inner_margin(12)
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                paint_reply(ui, s, ticket, &mut view, &[]);
-            });
-    }
-    ui.add_space(12.0);
-    ui.separator();
-    let checklist = crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(ticket));
-    if !checklist.is_empty() {
-        ui.collapsing("Checklist", |ui| {
-            let elapsed = s.implementation_elapsed(ticket);
-            crate::ui::task_checklist::paint(
-                ui,
-                &checklist,
-                column == 4,
-                false,
-                active,
-                elapsed.as_deref(),
-            );
-        });
-    }
-    ui.collapsing("Discussion history", |ui| {
-        crate::ui::task_chat::paint_history_messages(ui, &view.messages, view.conversation_active)
-    });
-    ui.collapsing("Task description & acceptance criteria", |ui| {
-        crate::ui::spec_viewer::render(ui, Some(&doc.text));
-    });
-    ui.collapsing("Technical details", |ui| paint_task_properties(ui, s, doc));
-}
-
-fn paint_reply(
-    ui: &mut egui::Ui,
-    s: &mut dyn Surface,
-    ticket: &str,
-    view: &mut crate::ui::task_detail::ViewModel,
-    choices: &[crate::core::attention::OptionBrief],
-) {
-    let old_draft = view.draft.clone();
-    let outcome = reply::paint(
-        ui,
-        ticket,
-        &mut view.draft,
-        view.conversation_active,
-        &view.messages,
-        choices,
-        view.conversation_error.as_deref(),
-    );
-    if outcome.retry_save {
-        s.dispatch(crate::ui::ApplicationCommand::TaskDetail(
-            crate::ui::task_detail::Command::RetryChatSave,
-        ));
-    }
-    if let Some(decision) = outcome.submit_decision {
-        s.dispatch(crate::ui::ApplicationCommand::TaskDetail(
-            crate::ui::task_detail::Command::SubmitReply {
-                ticket: ticket.to_owned(),
-                draft: view.draft.clone(),
-                decision,
-            },
-        ));
-    } else if view.draft != old_draft {
-        s.dispatch(crate::ui::ApplicationCommand::TaskDetail(
-            crate::ui::task_detail::Command::UpdateDraft {
-                ticket: ticket.to_owned(),
-                draft: view.draft.clone(),
-            },
-        ));
+        };
+        details::paint(
+            ui,
+            s,
+            doc,
+            presentation,
+            checks_unavailable,
+            failure.as_deref(),
+            activity_path,
+        );
+        ui.separator();
+        conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height * 0.35);
     }
 }

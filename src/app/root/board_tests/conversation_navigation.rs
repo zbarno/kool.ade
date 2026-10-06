@@ -19,7 +19,7 @@ fn board_is_primary_and_legacy_main_chat_is_hidden() {
 }
 
 #[test]
-fn conversation_tabs_focus_deduplicate_close_and_preserve_drafts() {
+fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolated() {
     let mut app = fixture();
     let ctx = egui::Context::default();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
@@ -35,33 +35,54 @@ fn conversation_tabs_focus_deduplicate_close_and_preserve_drafts() {
             )],
         );
     }
+    let mut stale_tabs = crate::ui::layout::ChatTabs::default();
+    stale_tabs.open(key);
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("koolade_chat_tabs"), stale_tabs));
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Open conversation");
-    let output = frame(&mut app, &ctx, vec![]);
-    let tabs = || {
-        ctx.data_mut(|d| {
-            d.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-        })
-        .unwrap()
-    };
-    assert_eq!(tabs().keys, vec![key.to_owned()]);
-    assert_eq!(tabs().active.as_deref(), Some(key));
+    let output = click_text(&mut app, &ctx, "First task");
     assert!(text_position(&output, "Task draft stays with this item").is_some());
     assert!(text_position(&output, "Task-only previous reply").is_some());
+    assert!(text_position(&output, "Task conversation").is_some());
+    assert!(text_position(&output, "Task details & state").is_some());
+    assert!(text_position(&output, "Send response").is_some());
     assert!(text_position(&output, "Keep my project draft").is_none());
     assert_eq!(output.viewport_output.len(), 1);
-    click_text(&mut app, &ctx, "×");
-    assert!(tabs().keys.is_empty());
-    assert!(tabs().active.is_none());
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Keep my project draft").is_none());
     assert_eq!(
         app.task_draft(key).unwrap(),
         "Task draft stays with this item"
     );
     assert_eq!(app.chat_draft(), "Keep my project draft");
-    click_text(&mut app, &ctx, "Open conversation");
-    assert_eq!(tabs().active.as_deref(), Some(key));
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
+    );
+    let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    *app.task_draft(second).unwrap() = "Second task draft".into();
+    if let Screen::Connected(project) = &mut app.screen {
+        project.task_chats.messages.insert(
+            second.into(),
+            vec![ChatMessage::new(ChatRole::Agent, "Second task only", None)],
+        );
+    }
+    let output = click_text(&mut app, &ctx, "Review task");
+    assert!(text_position(&output, "Second task only").is_some());
+    assert!(text_position(&output, "Second task draft").is_some());
+    assert!(text_position(&output, "Task-only previous reply").is_none());
+    let active_tabs = ctx.data_mut(|data| {
+        data.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
+            .and_then(|tabs| tabs.active)
+    });
+    assert!(
+        active_tabs.is_none(),
+        "story chats must leave the global panel"
+    );
 }
 
 #[test]

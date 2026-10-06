@@ -27,8 +27,10 @@ fn task_details_show_full_state_and_inline_reply() {
     );
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = click_text(&mut app, &ctx, "First task");
+    let output = click_text(&mut app, &ctx, "Review next action");
     for label in [
+        "Task conversation",
+        "Task details & state",
         "CURRENT STATE",
         "YOUR NEXT STEP",
         "Activity",
@@ -38,6 +40,12 @@ fn task_details_show_full_state_and_inline_reply() {
     ] {
         assert!(text_position(&output, label).is_some(), "missing {label}");
     }
+    let conversation = text_position(&output, "Task conversation").unwrap();
+    let state = text_position(&output, "Task details & state").unwrap();
+    assert!(
+        conversation.x < state.x,
+        "conversation should be the left pane"
+    );
     assert!(
         text_position(
             &output,
@@ -101,7 +109,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
     for expected in [
-        "Completed",
+        "Done",
         "GitHub Actions · Passed",
         "commit 0123456789ab",
         "All project workflows passed for this exact commit.",

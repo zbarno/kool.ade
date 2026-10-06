@@ -24,6 +24,28 @@ impl ChatTabs {
     }
 }
 
+pub(super) fn retain_planning_conversations(
+    ctx: &egui::Context,
+    board: &crate::ui::planning_board::ViewModel,
+) -> bool {
+    let id = egui::Id::new("koolade_chat_tabs");
+    let mut tabs = ctx
+        .data_mut(|data| data.get_temp::<ChatTabs>(id))
+        .unwrap_or_default();
+    tabs.keys
+        .retain(|key| !board.task_documents.iter().any(|doc| doc.path == *key));
+    if tabs
+        .active
+        .as_ref()
+        .is_some_and(|key| !tabs.keys.contains(key))
+    {
+        tabs.active = None;
+    }
+    let active = tabs.active.is_some();
+    ctx.data_mut(|data| data.insert_temp(id, tabs));
+    active
+}
+
 fn conversation_title(board: &crate::ui::planning_board::ViewModel, key: &str) -> String {
     board
         .planning_items
