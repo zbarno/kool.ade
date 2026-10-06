@@ -1,5 +1,6 @@
 use crate::harness::{
-    AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, OpenCodeHarness, PiHarness,
+    AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, CopilotHarness, OpenCodeHarness,
+    PiHarness,
 };
 
 pub(crate) fn validate_task_routes(
@@ -236,6 +237,7 @@ fn resolve(selected: Option<&str>) -> Box<dyn AiHarness> {
         None | Some("pi") => Box::new(PiHarness),
         Some("codex") => Box::new(CodexHarness),
         Some("claude") => Box::new(ClaudeHarness),
+        Some("copilot") => Box::new(CopilotHarness),
         Some("opencode") => Box::new(OpenCodeHarness),
         Some("antigravity") => Box::new(AntigravityHarness),
         Some(id) => Box::new(UnavailableHarness(id.to_owned())),
