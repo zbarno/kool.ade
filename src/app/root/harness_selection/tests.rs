@@ -69,6 +69,7 @@ fn saved_supported_harness_ids_resolve_to_their_adapters() {
     assert!(resolve(Some("pi")).label().starts_with("pi "));
     assert!(resolve(Some("codex")).label().starts_with("codex "));
     assert!(resolve(Some("claude")).label().starts_with("claude "));
+    assert!(resolve(Some("opencode")).label().starts_with("opencode"));
 }
 
 #[test]
