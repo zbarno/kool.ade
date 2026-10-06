@@ -4,9 +4,12 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 pub const FILE: &str = crate::artifacts::layout::canonical::WORK;
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 mod projection;
+mod validation;
+use validation::validate;
+pub use validation::{routing_for_feature, save};
 mod reconcile;
 #[cfg(test)]
 mod tests;
@@ -116,6 +119,13 @@ pub struct Work {
     pub source_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_branch: Option<String>,
+    /// Explicit task-owned routes; missing categories remain application defaults.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub routing_overrides:
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    /// UID of the related task whose route overrides were copied here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_inherited_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_up_task: Option<FollowUpTaskOffer>,
     pub detail: String,
@@ -142,6 +152,8 @@ impl Work {
             parent_uid: None,
             source_branch: None,
             destination_branch: None,
+            routing_overrides: std::collections::BTreeMap::new(),
+            routing_inherited_from: None,
             follow_up_task: None,
             detail,
         }
@@ -213,53 +225,13 @@ fn migrate_legacy(work: LegacyWork) -> anyhow::Result<Work> {
         parent_uid: None,
         source_branch: None,
         destination_branch: None,
+        routing_overrides: std::collections::BTreeMap::new(),
+        routing_inherited_from: None,
         follow_up_task: None,
         detail: work.detail,
     })
 }
 
-fn validate(work: &[Work]) -> anyhow::Result<()> {
-    let mut uids = std::collections::BTreeSet::new();
-    for item in work {
-        anyhow::ensure!(
-            uuid::Uuid::parse_str(&item.uid).is_ok(),
-            "Planning work has invalid UID: {}",
-            item.uid
-        );
-        anyhow::ensure!(
-            uids.insert(item.uid.as_str()),
-            "Duplicate planning work UID"
-        );
-        if let Some(uid) = &item.parent_uid {
-            anyhow::ensure!(
-                uuid::Uuid::parse_str(uid).is_ok(),
-                "Invalid parent work UID"
-            );
-        }
-        if let Some(uid) = &item.feature_uid {
-            anyhow::ensure!(uuid::Uuid::parse_str(uid).is_ok(), "Invalid feature UID");
-        }
-    }
-    Ok(())
-}
-
-pub fn save(repo: &Path, work: &[Work]) -> anyhow::Result<()> {
-    validate(work)?;
-    crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::canonical::STATE)?;
-    let path = repo.join(FILE);
-    anyhow::ensure!(
-        !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()),
-        "Linked planning work ledger"
-    );
-    let file = WorkFile {
-        schema_version: SCHEMA_VERSION,
-        items: work.to_vec(),
-    };
-    crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(&file)?)
-}
-
-/// Build the versioned work ledger content for validated discovery tasks so
-/// the caller can include it in the same artifact transaction as documents.
 pub fn append_discovered(
     repo: &Path,
     drafts: &[crate::harness::PlanningTaskDraft],

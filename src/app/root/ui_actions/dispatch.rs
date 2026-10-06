@@ -18,6 +18,7 @@ impl KooladeApp {
                 parent_uid,
                 source_branch,
                 destination_branch,
+                routing_overrides,
             } => {
                 self.create_planning_task(
                     kind,
@@ -25,6 +26,7 @@ impl KooladeApp {
                     parent_uid,
                     source_branch,
                     destination_branch,
+                    routing_overrides,
                 );
             }
             ApplicationCommand::DrainTaskChatSaves => self.drain_task_chat_saves(),

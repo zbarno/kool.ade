@@ -174,6 +174,22 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
         assert_eq!(parent.status, crate::core::planning_work::WorkStatus::Done);
         parent.source_branch = Some("release/2.1".into());
         parent.destination_branch = Some("integration".into());
+        parent.routing_overrides = std::collections::BTreeMap::from([
+            (
+                crate::persistence::harness_settings::IMPLEMENTATION.into(),
+                crate::persistence::harness_settings::WorkRoute {
+                    harness: "codex".into(),
+                    model: Some("task-model".into()),
+                },
+            ),
+            (
+                crate::persistence::harness_settings::DOCUMENTATION.into(),
+                crate::persistence::harness_settings::WorkRoute {
+                    harness: "claude".into(),
+                    model: None,
+                },
+            ),
+        ]);
         let parent_uid = parent.uid.clone();
         project.git.branches = vec!["main".into(), "release/2.1".into(), "integration".into()];
         project.save_planning_work().unwrap();
@@ -199,6 +215,17 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
     let child = project.planning_work.last().unwrap();
     assert_eq!(child.kind, crate::core::planning_work::WorkKind::Feature);
     assert_eq!(child.parent_uid.as_deref(), Some(parent_uid.as_str()));
+    assert_eq!(
+        child.routing_inherited_from.as_deref(),
+        Some(parent_uid.as_str())
+    );
+    assert_eq!(child.routing_overrides.len(), 2);
+    assert_eq!(
+        child.routing_overrides[crate::persistence::harness_settings::IMPLEMENTATION]
+            .model
+            .as_deref(),
+        Some("task-model")
+    );
     assert_eq!(
         child.request,
         "Plan support for hosted Anthropic through Pi while preserving Kool.ad/e's sandbox security boundaries."

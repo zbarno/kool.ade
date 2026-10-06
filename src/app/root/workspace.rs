@@ -127,7 +127,11 @@ impl KooladeApp {
             .as_ref()
             .filter(|work| work.kind == crate::core::planning_work::WorkKind::DocumentationRefresh)
             .map(|_| crate::persistence::harness_settings::DOCUMENTATION);
-        let harness = configured_harness_for(&mut self.task_harness, work_type);
+        let task_routes = work
+            .as_ref()
+            .map(|work| work.routing_overrides.clone())
+            .unwrap_or_default();
+        let harness = configured_harness_for_task(&mut self.task_harness, work_type, &task_routes);
         let route_label = harness.label();
         let ctrl = TurnController::start(inputs, harness);
         project.active_turn = Some(std::rc::Rc::new(ctrl));

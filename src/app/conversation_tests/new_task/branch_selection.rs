@@ -109,6 +109,7 @@ fn origin_backed_destination_selection_rejects_local_only_branches() {
         parent_uid: None,
         source_branch: Some("main".into()),
         destination_branch: Some("local-only".into()),
+        routing_overrides: Default::default(),
     });
     let Screen::Connected(project) = &app.screen else {
         panic!("project remains connected");

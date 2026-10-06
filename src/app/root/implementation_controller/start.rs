@@ -237,9 +237,17 @@ impl KooladeApp {
                 p.task_chats.messages.get(&ticket).and_then(|messages| {
                     implementation_decision::latest_context(messages, &user_name)
                 });
-            let harness = super::super::configured_harness_for(
+            let task_routes = p
+                .task_documents
+                .iter()
+                .find(|doc| doc.path == ticket)
+                .and_then(|doc| doc.metadata.as_ref())
+                .map(|metadata| metadata.routing_overrides.clone())
+                .unwrap_or_default();
+            let harness = super::super::configured_harness_for_task(
                 &mut self.task_harness,
                 Some(crate::persistence::harness_settings::IMPLEMENTATION),
+                &task_routes,
             );
             let route_label = harness.label();
             if let Some(progress) = p.activity.tasks.get_mut(&ticket) {
@@ -256,7 +264,7 @@ impl KooladeApp {
                         require_independent_checks,
                     },
                     user_context,
-                    super::super::configured_harness(&mut self.task_harness),
+                    harness,
                     Some(claim_request),
                 ),
             );

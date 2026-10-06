@@ -18,6 +18,10 @@ pub fn save_progress(
         .into_iter()
         .find(|(_, p)| p.run == run);
     let (directory, naming_id, recorded_identity) = if let Some((directory, progress)) = existing {
+        anyhow::ensure!(
+            progress.task_routing == batch.task_routing,
+            "Task routing changed since generation was interrupted"
+        );
         (directory, progress.feature_id, progress.identity)
     } else {
         let feature = batch_slug(batch);
@@ -89,7 +93,12 @@ pub fn save_progress(
             },
             dependency_uids,
         )?
-        .with_branch_targets(batch.branch_targets.as_ref())?;
+        .with_branch_targets(batch.branch_targets.as_ref())?
+        .with_task_routing(
+            &batch.task_routing.overrides,
+            batch.task_routing.source_work_uid.as_deref(),
+            batch.task_routing.inherited_from.as_deref(),
+        )?;
         let expected = super::metadata::embed(&identified[i].1, &metadata)?;
         if path.exists() {
             let saved = std::fs::read_to_string(&path)?;
@@ -139,6 +148,7 @@ pub fn save_progress(
             brief: batch.brief.clone(),
             specification: batch.specification.clone(),
             stories: batch.stories.clone(),
+            task_routing: batch.task_routing.clone(),
             feature_id: naming_id,
             identity: Some(batch_identity.clone()),
         })?,

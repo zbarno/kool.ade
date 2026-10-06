@@ -154,7 +154,16 @@ pub struct TaskBatch {
     pub feature_id: Option<String>,
     pub contract: Option<crate::core::contract_snapshot::BatchContract>,
     pub branch_targets: Option<BranchTargets>,
+    pub task_routing: TaskRoutingSnapshot,
     pub stories: Vec<TaskStory>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskRoutingSnapshot {
+    pub overrides:
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    pub source_work_uid: Option<String>,
+    pub inherited_from: Option<String>,
 }
 
 pub use feature_approval::{

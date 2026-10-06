@@ -84,6 +84,7 @@ pub fn prepare(
             branch_targets: feature_id
                 .as_deref()
                 .and_then(|id| workflow.feature_branch_targets.get(id).cloned()),
+            task_routing: Default::default(),
             stories,
         });
         workflow.brief.as_mut().unwrap().ready_for_tasks = false;
