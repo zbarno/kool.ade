@@ -120,6 +120,14 @@ pub struct ActivityTelemetry {
     pub updates: u64,
     /// Ten-second buckets: UTC bucket number and received update count.
     pub samples: Vec<(i64, u64)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_microusd: Option<u64>,
 }
 
 /// A stable, chronologically placed block of external agent output.
@@ -152,6 +160,10 @@ impl LiveProgress {
         telemetry.started_ms.get_or_insert(now);
         telemetry.updated_ms = Some(now);
         telemetry.updates += 1;
+        telemetry.input_tokens = next.telemetry.input_tokens.or(telemetry.input_tokens);
+        telemetry.output_tokens = next.telemetry.output_tokens.or(telemetry.output_tokens);
+        telemetry.model = next.telemetry.model.take().or(telemetry.model);
+        telemetry.cost_microusd = next.telemetry.cost_microusd.or(telemetry.cost_microusd);
         let bucket = now / 10_000;
         if let Some((_, count)) = telemetry
             .samples

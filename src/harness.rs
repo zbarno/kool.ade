@@ -7,6 +7,7 @@
 //! * `pi_events.rs`    — NDJSON event-stream folding
 //! * `pi_extract.rs`   — JSON-block extraction from final prose
 
+pub mod claude_harness;
 pub mod live_preview;
 pub mod pi_events;
 pub mod pi_extract;
@@ -21,6 +22,7 @@ pub use api::{
     LivePost, LiveProgress, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, RequestedAction,
     RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
+pub use claude_harness::ClaudeHarness;
 pub use pi_harness::PiHarness;
 
 mod api;

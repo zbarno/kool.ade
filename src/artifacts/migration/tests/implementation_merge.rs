@@ -97,6 +97,7 @@ fn progress(updated_ms: i64, activity: &str) -> crate::harness::LiveProgress {
             finished_ms: None,
             updates: 1,
             samples: vec![(updated_ms / 10_000, 1)],
+            ..Default::default()
         },
         checklist: Vec::new(),
         checklist_revision: 0,
