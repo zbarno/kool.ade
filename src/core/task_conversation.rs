@@ -11,13 +11,23 @@ pub fn presentation(
     docs: &[crate::artifacts::task_docs::TaskDocument],
     key: &str,
 ) -> Option<(String, String)> {
-    if key.starts_with("planning:") || key.starts_with("feature:") || key.starts_with("task:") {
+    if key.starts_with("planning:")
+        || key.starts_with("feature:")
+        || key.starts_with("task:")
+        || key.starts_with("task-generation:")
+    {
         let context = crate::core::planning_work::context(state, key)?;
         let kind = crate::core::planning_work::find(state, key)?.kind;
-        let greeting = if kind == crate::core::planning_work::WorkKind::Question {
-            "Continue investigating this question here. Any user decision Kool.ad/e discovers will appear on the board."
-        } else {
-            "Continue planning this task here. Questions and assumptions are tracked on the board."
+        let greeting = match kind {
+            crate::core::planning_work::WorkKind::Question => {
+                "Continue investigating this question here. Any user decision Kool.ad/e discovers will appear on the board."
+            }
+            crate::core::planning_work::WorkKind::TaskGeneration => {
+                "Review this task's story-generation status here. Resolve the issue described in its details, then choose Generate tasks on the board to try again."
+            }
+            _ => {
+                "Continue planning this task here. Questions and assumptions are tracked on the board."
+            }
         };
         return Some((context, greeting.into()));
     }
