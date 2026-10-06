@@ -290,6 +290,12 @@ impl Surface for KooladeApp {
             _ => "",
         }
     }
+    fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
+        match &self.screen {
+            Screen::Connected(project) => project.queue.stale_claim.clone(),
+            Screen::Welcome => None,
+        }
+    }
     fn planning_board(&self) -> crate::ui::planning_board::ViewModel {
         self.planning_board_for_surface()
     }

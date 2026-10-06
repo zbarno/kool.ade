@@ -36,6 +36,9 @@ impl KooladeApp {
             ApplicationCommand::SetRequireIndependentChecks { enabled } => {
                 self.set_require_independent_checks(enabled)
             }
+            ApplicationCommand::TakeOverStaleTaskClaim { ticket } => {
+                self.take_over_stale_task_claim(ticket)
+            }
             ApplicationCommand::ArchiveTask { ticket } => self.archive_task(&ticket),
             ApplicationCommand::CancelWork { key } => self.cancel_board_work(&key),
             ApplicationCommand::ApprovePublication { ticket } => self.approve_publication(&ticket),

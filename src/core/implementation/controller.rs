@@ -79,11 +79,34 @@ impl Controller {
         user_context: Option<String>,
         harness: Box<dyn AiHarness>,
     ) -> Self {
+        Self::start_project_with_policy_and_claim_request(
+            planning_root,
+            target_repo,
+            ticket,
+            super::StartPolicy {
+                publication_mode,
+                require_independent_checks,
+            },
+            user_context,
+            harness,
+            None,
+        )
+    }
+
+    pub(crate) fn start_project_with_policy_and_claim_request(
+        planning_root: PathBuf,
+        target_repo: PathBuf,
+        ticket: String,
+        policy: super::StartPolicy,
+        user_context: Option<String>,
+        harness: Box<dyn AiHarness>,
+        claim_request: Option<crate::core::task_claim::ClaimRequest>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         let auto_publish_gate = Arc::new(AtomicBool::new(
-            publication_mode == PublicationMode::AutoPublish,
+            policy.publication_mode == PublicationMode::AutoPublish,
         ));
         let worker_publish_gate = auto_publish_gate.clone();
         let previous_revision = super::load_activity(&planning_root, &ticket)
@@ -92,6 +115,58 @@ impl Controller {
         let checklist_epoch =
             checklist_revision_epoch(chrono::Utc::now().timestamp_millis(), previous_revision);
         std::thread::spawn(move || {
+            if worker_cancel.load(Ordering::SeqCst) {
+                let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
+                    FailureKind::Other,
+                    RecoveryDisposition::ExplicitResume,
+                    "Implementation was canceled before remote task coordination began.",
+                )))));
+                return;
+            }
+            let claim = if let Some(request) = claim_request {
+                match request.acquire() {
+                    Ok(attempt) => {
+                        if let Some(warning) = attempt.warning {
+                            let _ = tx.send(Event::ClaimWarning(warning));
+                        }
+                        attempt.lease
+                    }
+                    Err(error) => {
+                        let _ = tx.send(Event::ClaimBlocked(Box::new(error)));
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            if worker_cancel.load(Ordering::SeqCst) {
+                drop(claim);
+                let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
+                    FailureKind::Other,
+                    RecoveryDisposition::ExplicitResume,
+                    "Implementation was canceled while acquiring its remote task claim.",
+                )))));
+                return;
+            }
+            let heartbeat = claim.map(|claim| {
+                let heartbeat_cancel = worker_cancel.clone();
+                let (stop, stopped) = mpsc::channel();
+                let thread = std::thread::spawn(move || {
+                    let mut claim = claim;
+                    while let Err(mpsc::RecvTimeoutError::Timeout) =
+                        stopped.recv_timeout(std::time::Duration::from_secs(
+                            crate::core::task_claim::HEARTBEAT_INTERVAL_SECONDS,
+                        ))
+                    {
+                        if claim.refresh().is_err() {
+                            heartbeat_cancel.store(true, Ordering::SeqCst);
+                            break;
+                        }
+                    }
+                    drop(claim);
+                });
+                (stop, thread)
+            });
             let (progress, updates) = mpsc::channel::<LiveProgress>();
             let fwd = tx.clone();
             let forward = std::thread::spawn(move || {
@@ -113,12 +188,16 @@ impl Controller {
                     cancel: worker_cancel,
                     progress,
                     gh: "gh",
-                    publication_mode,
-                    require_independent_checks,
+                    publication_mode: policy.publication_mode,
+                    require_independent_checks: policy.require_independent_checks,
                     user_context: user_context.as_deref(),
                     auto_publish_gate: Some(worker_publish_gate),
                 },
             );
+            if let Some((stop, thread)) = heartbeat {
+                let _ = stop.send(());
+                let _ = thread.join();
+            }
             let _ = forward.join();
             let _ = tx.send(Event::Done(Box::new(
                 result.map_err(|error| Failure::from_error(&error)),

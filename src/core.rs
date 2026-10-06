@@ -42,6 +42,7 @@ pub mod implementation_queue;
 pub mod specification;
 
 pub mod project_repos;
+pub mod task_claim;
 pub mod task_conversation;
 pub mod time_accrual;
 pub mod time_totals;

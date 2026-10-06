@@ -65,6 +65,9 @@ pub enum ApplicationCommand {
     SetRequireIndependentChecks {
         enabled: bool,
     },
+    TakeOverStaleTaskClaim {
+        ticket: String,
+    },
     ArchiveTask {
         ticket: String,
     },
@@ -211,6 +214,9 @@ pub trait Surface {
     fn auto_publish(&self) -> bool;
     fn require_independent_checks(&self) -> bool;
     fn queue_status(&self) -> &str;
+    fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
+        None
+    }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     fn active_planning_work(&self) -> Option<&str> {
         None

@@ -23,7 +23,8 @@ Connection runs the restartable migration before loading planning state.
 | `.koolade-packet/state/work.json` | Persistent planning-work cards. |
 | `.koolade-packet/implementation/` | Local implementation reports, responses, verification results, and recovery evidence. Git ignores these files; back them up separately when moving a live workspace. |
 | `~/.koolade-packet/projects/<slug>/` or `$KOOLADE_HOME/projects/<slug>/` | Operator-local chat, task conversations, resumable generation checkpoints, and `repositories.json` mapping stable IDs to local checkout paths; not shared project truth. |
-| Git common directory | Cross-process locks, migration/transaction journals, implementation queue and task state, private Git refs, and Pi event streams. |
+| Git common directory | Per-clone process locks, migration/transaction journals, implementation queue and task state, private Git refs, and Pi event streams. |
+| Origin branches `refs/heads/koolade/claims/<task-uid>` | Temporary cross-clone implementation claims. Atomic creation prevents two clones with a reachable writable origin from starting the same task. Claims identify a Kool.ad/e session, claim time, and base commit; active workers refresh them and remove them on exit. |
 | `docs/` and `SPECIFICATION.md` | Maintainer guidance and historical references. These are project files, not Kool.ad/e's live planning store. |
 
 The old `planning/` and `.planner/` trees and `adr/` are migration inputs, not
@@ -44,6 +45,18 @@ cannot set it. Decision records under `.koolade-packet/planning/decisions/`
 describe durable choices and their rationale. Implementation reports and
 transcripts are evidence and belong under `.koolade-packet/implementation/` or
 the historical archive, not in the decision record collection.
+
+The local queue lock coordinates app windows that share one Git common
+directory. A remote claim coordinates independent clones only while `origin` is
+reachable and allows claim branch writes. With no configured origin, manual
+and automatic work remain usable with a visible local-only warning. If an
+origin is configured but unreachable, an explicit manual start can proceed
+locally with a warning; automatic work waits. Stale claims show their session,
+time, and base commit. Active workers refresh claims every five minutes; a
+claim appears stale after fifteen minutes without a refresh. Recovery requires
+an explicit stale-only compare-and-swap takeover, so a competing recovery
+cannot replace a newer claim. Neither mechanism makes planning edits
+collaborative.
 
 Migration preflights all sources and destinations before moving files. If a
 legacy and canonical destination conflict, it preserves both and reports the
