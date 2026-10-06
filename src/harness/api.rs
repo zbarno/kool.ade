@@ -10,77 +10,14 @@
 //! [`crate::AppError`]. Nothing Pi-specific leaks upward. Future harnesses
 //! (Codex CLI, Copilot CLI, Claude Code…) plug in by implementing the trait.
 
-use std::time::Duration;
-
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 
-/// A harness operation's fixed authority and tool capability class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionMode {
-    Planning,
-    ReadOnlyAnalysis,
-    TaskGeneration,
-    Investigation,
-    Implementation,
-    Reconciliation,
-    DecisionExplanation,
-}
-
-impl ExecutionMode {
-    pub const ALL: [Self; 7] = [
-        Self::Planning,
-        Self::ReadOnlyAnalysis,
-        Self::TaskGeneration,
-        Self::Investigation,
-        Self::Implementation,
-        Self::Reconciliation,
-        Self::DecisionExplanation,
-    ];
-
-    pub fn tool_access(self) -> ToolAccess {
-        match self {
-            Self::Planning | Self::TaskGeneration | Self::Investigation => ToolAccess::ReadOnly,
-            Self::Implementation => ToolAccess::BoundedImplementation,
-            Self::ReadOnlyAnalysis | Self::Reconciliation | Self::DecisionExplanation => {
-                ToolAccess::None
-            }
-        }
-    }
-}
-
-/// Tool authority is derived from an operation mode instead of independently
-/// configurable booleans.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolAccess {
-    None,
-    ReadOnly,
-    BoundedImplementation,
-}
-
-/** One planning turn submitted to the external harness.
-/// Transport-neutral: the app supplies *context it owns*; the harness
-/// renders it in whatever shape the backing CLI prefers. */
-#[derive(Debug, Clone)]
-pub struct PlanningRequest {
-    /// The only source of execution capabilities for this request.
-    pub mode: ExecutionMode,
-    /// Pi thinking level selected by the Koolade role that owns this turn.
-    pub reasoning_level: String,
-    /// Repository working directory the harness process must run in (§18).
-    pub repo_root: std::path::PathBuf,
-    /// Fully rendered prompt body (system instructions travel separately).
-    pub prompt_body: String,
-    /// Planner system-persona instructions (appended to the harness defaults).
-    pub system_instructions: String,
-    /// Wall-clock budget for the whole turn.
-    pub timeout: Duration,
-    /// Sink for transient thinking, response, document, and activity snapshots.
-    pub progress_tx: std::sync::mpsc::Sender<LiveProgress>,
-    /// Cooperative cancellation set by the UI's Cancel button.
-    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-}
+mod activity;
+mod execution;
+pub use activity::{ActivityTelemetry, LivePost, LiveProgress, ModelCallUsage};
+pub use execution::{ExecutionMode, PlanningRequest, ToolAccess};
 
 /// Model-selected logical sources for a bounded planning turn. References are
 /// suggestions only; the application resolves each against its current catalog.
@@ -90,94 +27,6 @@ pub struct RetrievalPlan {
     pub documents: Vec<String>,
     pub open_items: Vec<String>,
     pub repository_areas: Vec<String>,
-}
-
-/// Display snapshot; task snapshots are persisted privately, never as planning artifacts.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LiveProgress {
-    pub telemetry: ActivityTelemetry,
-    /// Zero-based acceptance-criterion indexes reported complete by the task worker.
-    /// This is a full snapshot and is persisted with the task activity.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub checklist: Vec<usize>,
-    #[serde(default)]
-    pub checklist_revision: u64,
-    pub posts: Vec<LivePost>,
-    pub thoughts: String,
-    pub response: String,
-    pub specification: Option<String>,
-    pub activity: Option<String>,
-}
-
-/// Observed stream updates, not estimated token counts. Persisted with task activity.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ActivityTelemetry {
-    pub started_ms: Option<i64>,
-    pub updated_ms: Option<i64>,
-    pub finished_ms: Option<i64>,
-    pub updates: u64,
-    /// Ten-second buckets: UTC bucket number and received update count.
-    pub samples: Vec<(i64, u64)>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost_microusd: Option<u64>,
-}
-
-/// A stable, chronologically placed block of external agent output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LivePost {
-    pub id: (u64, usize),
-    pub kind: String,
-    pub text: String,
-}
-
-impl LiveProgress {
-    pub fn update(&mut self, mut next: Self) {
-        // Progress snapshots can be delayed behind a newer snapshot. Checklist
-        // reports carry a worker-local revision so late snapshots cannot roll
-        // the durable board state back.
-        if next.checklist_revision < self.checklist_revision {
-            next.checklist = std::mem::take(&mut self.checklist);
-            next.checklist_revision = self.checklist_revision;
-        }
-        for post in next.posts.drain(..) {
-            if let Some(existing) = self.posts.iter_mut().find(|p| p.id == post.id) {
-                *existing = post;
-            } else {
-                self.posts.push(post);
-            }
-        }
-        next.posts = std::mem::take(&mut self.posts);
-        let now = chrono::Utc::now().timestamp_millis();
-        let mut telemetry = std::mem::take(&mut self.telemetry);
-        telemetry.started_ms.get_or_insert(now);
-        telemetry.updated_ms = Some(now);
-        telemetry.updates += 1;
-        telemetry.input_tokens = next.telemetry.input_tokens.or(telemetry.input_tokens);
-        telemetry.output_tokens = next.telemetry.output_tokens.or(telemetry.output_tokens);
-        telemetry.model = next.telemetry.model.take().or(telemetry.model);
-        telemetry.cost_microusd = next.telemetry.cost_microusd.or(telemetry.cost_microusd);
-        let bucket = now / 10_000;
-        if let Some((_, count)) = telemetry
-            .samples
-            .last_mut()
-            .filter(|(last, _)| *last == bucket)
-        {
-            *count += 1;
-        } else {
-            telemetry.samples.push((bucket, 1));
-        }
-        telemetry.samples.retain(|(time, _)| *time >= bucket - 59);
-        next.telemetry = telemetry;
-        *self = next;
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -2,6 +2,8 @@
 use super::{KooladeApp, Screen};
 use crate::core::attention::{self, Brief, Controller, View};
 
+mod proactive;
+
 pub(super) enum Status {
     Pending(Controller),
     Ready(Brief),
@@ -34,6 +36,7 @@ impl KooladeApp {
             );
             ctx.request_repaint();
         }
+        self.surface_new_attention(ctx);
     }
 
     pub(super) fn attention_view(&mut self, ticket: &str, detail: &str) -> Option<View> {

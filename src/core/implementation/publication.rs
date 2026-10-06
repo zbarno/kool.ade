@@ -32,6 +32,24 @@ pub(super) fn create_pull_request(
     runner: &Runner,
 ) -> anyhow::Result<()> {
     runner.remaining()?;
+    if state.destination_branch.is_some() {
+        runner
+            .git(
+                &state.worktree,
+                &[
+                    "ls-remote",
+                    "--exit-code",
+                    "--heads",
+                    "origin",
+                    &format!("refs/heads/{}", state.base),
+                ],
+            )
+            .map_err(|error| {
+                crate::core::implementation::initial_reconciliation::support::user_action(
+                    format!("Selected destination branch '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base),
+                )
+            })?;
+    }
     anyhow::ensure!(
         !matches!(state.branch.as_str(), "main" | "master"),
         "Refusing to push implementation changes from the main or master branch"

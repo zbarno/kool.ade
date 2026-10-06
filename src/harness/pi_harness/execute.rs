@@ -236,7 +236,15 @@ impl AiHarness for PiHarness {
                         ));
                     }
                     crate::harness::pi_events::fold_line(&line, &mut fold);
-                    preview_dirty = true;
+                    let usage_preview = fold.preview();
+                    if usage_preview.model_calls != last_preview.model_calls {
+                        let _ = req.progress_tx.send(usage_preview.clone());
+                        last_preview = usage_preview;
+                        preview_dirty = false;
+                        last_emit = Instant::now();
+                    } else {
+                        preview_dirty = true;
+                    }
                 }
                 Ok(StreamEvt::Stderr(line)) => {
                     last_output = Instant::now();

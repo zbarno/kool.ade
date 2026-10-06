@@ -43,6 +43,7 @@ pub(super) fn run(
         let request = PlanningRequest {
             mode: crate::harness::ExecutionMode::Implementation,
             reasoning_level: "medium".into(),
+            telemetry_phase: Some("reconciliation".into()),
             repo_root: state.worktree.clone(),
             prompt_body: prompt::build(
                 plan,
@@ -185,7 +186,7 @@ pub(super) fn run(
                     "-m",
                     &format!(
                         "Reconcile local and origin/{} before implementation",
-                        state.base
+                        plan.base
                     ),
                 ],
             )?;

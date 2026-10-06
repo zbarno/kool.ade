@@ -1,4 +1,5 @@
 use super::*;
+mod metrics;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -103,6 +104,7 @@ pub(super) fn paint(
             }
         });
     activity::paint(ui, view, ticket, active, activity_path);
+    metrics::paint(ui, view);
     let checklist = crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(ticket));
     if !checklist.is_empty() {
         ui.collapsing("Checklist", |ui| {

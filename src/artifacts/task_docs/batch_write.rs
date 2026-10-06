@@ -142,7 +142,8 @@ pub fn write_batch(
                     &story.target_repository
                 },
                 dependency_uids,
-            )?;
+            )?
+            .with_branch_targets(batch.branch_targets.as_ref())?;
             let contents = super::metadata::embed(&identified[i].0, &metadata)?;
             std::fs::write(stage.join(&names[i]), contents)?;
             index.push_str(&format!("{}. [{}]({})\n", i + 1, story.title, names[i]));

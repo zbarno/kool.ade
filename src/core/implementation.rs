@@ -20,6 +20,7 @@ mod state;
 mod state_paths;
 pub mod status;
 mod task;
+mod telemetry;
 mod verification;
 pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
 pub use board_states::{BOARD_COLUMNS, board_column, load_board_states};
@@ -91,6 +92,10 @@ pub struct Implementation {
     #[serde(default)]
     pub completed_dependency_context: Option<String>,
     pub branch: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_branch: Option<String>,
     pub base: String,
     pub base_commit: String,
     pub worktree: PathBuf,

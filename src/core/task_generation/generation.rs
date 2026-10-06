@@ -111,6 +111,10 @@ pub fn generate(
             specification: state.planning_contract().unwrap_or_default().to_string(),
             feature_id: state.active_feature.as_ref().map(|(id, _)| id.clone()),
             contract: crate::core::contract_snapshot::freeze(state)?,
+            branch_targets: state
+                .active_feature
+                .as_ref()
+                .and_then(|(id, _)| state.workflow.feature_branch_targets.get(id).cloned()),
             stories: cp.stories.clone(),
         };
         // Defense in depth at publish: the batch must carry one consistent

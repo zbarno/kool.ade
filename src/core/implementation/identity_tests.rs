@@ -50,6 +50,8 @@ fn board_state_follows_task_uid_after_story_path_changes() {
         approved_product_context: None,
         completed_dependency_context: None,
         branch: "koolade/old-name".into(),
+        source_branch: None,
+        destination_branch: None,
         base: "main".into(),
         base_commit: "base".into(),
         worktree: root.join("worktree"),
