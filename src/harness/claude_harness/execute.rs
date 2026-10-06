@@ -4,7 +4,9 @@ use super::stream::{ClaudeEvent, command, parse_event, prompt_input};
 use super::{CLAUDE_MODEL_ENV, ClaudeHarness};
 use crate::error::AppError;
 use crate::harness::pi_proc::{PollState, StreamEvt};
-use crate::harness::{AiHarness, HarnessOutcome, LivePost, LiveProgress, PlanningRequest};
+use crate::harness::{
+    AiHarness, HarnessOutcome, LivePost, LiveProgress, ModelCallUsage, PlanningRequest,
+};
 
 impl AiHarness for ClaudeHarness {
     fn label(&self) -> String {
@@ -40,6 +42,9 @@ impl AiHarness for ClaudeHarness {
         let effort = normalize_effort(&request.reasoning_level);
         argv.extend(["--effort".into(), effort.into()]);
 
+        let requested_model = std::env::var(CLAUDE_MODEL_ENV)
+            .ok()
+            .filter(|model| !model.trim().is_empty());
         let task = crate::harness::pi_proc::spawn_with_input(
             &argv,
             &request.repo_root,
@@ -50,11 +55,12 @@ impl AiHarness for ClaudeHarness {
         let mut exit_status = None;
         let mut final_text = String::new();
         let mut posts = Vec::new();
+        let started_at = chrono::Utc::now();
+        let started = Instant::now();
+        let mut model_name = requested_model.clone();
+        let mut model_calls = Vec::new();
         let mut telemetry = crate::harness::ActivityTelemetry {
-            started_ms: Some(chrono::Utc::now().timestamp_millis()),
-            model: std::env::var(CLAUDE_MODEL_ENV)
-                .ok()
-                .filter(|model| !model.trim().is_empty()),
+            started_ms: Some(started_at.timestamp_millis()),
             ..Default::default()
         };
 
@@ -89,20 +95,25 @@ impl AiHarness for ClaudeHarness {
                                 cost,
                             } => {
                                 final_text = text;
-                                telemetry.input_tokens = input.or(telemetry.input_tokens);
-                                telemetry.output_tokens = output.or(telemetry.output_tokens);
-                                telemetry.cost_microusd = cost.or(telemetry.cost_microusd);
+                                let end = chrono::Utc::now();
+                                model_calls.push(ModelCallUsage {
+                                    call_id: format!("claude:call-{}", model_calls.len()),
+                                    provider: Some("anthropic".into()),
+                                    model: model_name.clone(),
+                                    requested_model: requested_model.clone(),
+                                    input_tokens: input,
+                                    output_tokens: output,
+                                    total_tokens: input.zip(output).map(|(i, o)| i + o),
+                                    estimated_cost_usd_micros: cost,
+                                    started_at: Some(started_at),
+                                    ended_at: Some(end),
+                                    duration_millis: Some(started.elapsed().as_millis() as u64),
+                                    stop_reason: Some("completed".into()),
+                                    ..Default::default()
+                                });
                             }
-                            ClaudeEvent::Usage {
-                                input,
-                                output,
-                                cost,
-                                model,
-                            } => {
-                                telemetry.input_tokens = input.or(telemetry.input_tokens);
-                                telemetry.output_tokens = output.or(telemetry.output_tokens);
-                                telemetry.cost_microusd = cost.or(telemetry.cost_microusd);
-                                telemetry.model = model.or_else(|| telemetry.model.clone());
+                            ClaudeEvent::Usage { model, .. } => {
+                                model_name = model.or_else(|| model_name.clone());
                             }
                             ClaudeEvent::Failure(reason) => {
                                 return Err(AppError::HarnessFailed {
@@ -112,9 +123,12 @@ impl AiHarness for ClaudeHarness {
                             }
                             ClaudeEvent::Other => {}
                         }
-                        let _ = request
-                            .progress_tx
-                            .send(snapshot(&telemetry, &posts, &final_text));
+                        let _ = request.progress_tx.send(snapshot(
+                            &telemetry,
+                            &model_calls,
+                            &posts,
+                            &final_text,
+                        ));
                     }
                 }
                 Ok(StreamEvt::Stderr(line)) => {
@@ -147,7 +161,7 @@ impl AiHarness for ClaudeHarness {
         telemetry.finished_ms = Some(chrono::Utc::now().timestamp_millis());
         let _ = request
             .progress_tx
-            .send(snapshot(&telemetry, &posts, &final_text));
+            .send(snapshot(&telemetry, &model_calls, &posts, &final_text));
         Ok(HarnessOutcome {
             final_text,
             envelope: None,
@@ -166,11 +180,13 @@ fn normalize_effort(value: &str) -> &'static str {
 
 fn snapshot(
     telemetry: &crate::harness::ActivityTelemetry,
+    model_calls: &[ModelCallUsage],
     names: &[String],
     response: &str,
 ) -> LiveProgress {
     LiveProgress {
         telemetry: telemetry.clone(),
+        model_calls: model_calls.to_vec(),
         posts: names
             .iter()
             .enumerate()

@@ -107,10 +107,18 @@ fn executes_normalized_result_and_usage_from_fake_claude() {
     let result = ClaudeHarness.execute(&request(root.clone(), tx)).unwrap();
     assert_eq!(result.final_text, r#"{"ok":true}"#);
     let activity = rx.try_iter().last().unwrap();
-    assert_eq!(activity.telemetry.model.as_deref(), Some("sonnet-5"));
-    assert_eq!(activity.telemetry.input_tokens, Some(12));
-    assert_eq!(activity.telemetry.output_tokens, Some(4));
-    assert_eq!(activity.telemetry.cost_microusd, Some(20_000));
+    assert_eq!(activity.model_calls.len(), 1);
+    assert_eq!(activity.model_calls[0].model.as_deref(), Some("sonnet-5"));
+    assert_eq!(
+        activity.model_calls[0].provider.as_deref(),
+        Some("anthropic")
+    );
+    assert_eq!(activity.model_calls[0].input_tokens, Some(12));
+    assert_eq!(activity.model_calls[0].output_tokens, Some(4));
+    assert_eq!(
+        activity.model_calls[0].estimated_cost_usd_micros,
+        Some(20_000)
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -159,6 +167,7 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
     PlanningRequest {
         mode: ExecutionMode::Implementation,
         reasoning_level: "high".into(),
+        telemetry_phase: None,
         repo_root: root,
         prompt_body: "fixture task".into(),
         system_instructions: "fixture policy".into(),
