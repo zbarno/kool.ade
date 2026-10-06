@@ -22,10 +22,6 @@ pub(super) fn changes_requested(
     })
 }
 
-pub(super) fn waiting(record: Option<&crate::core::implementation::Implementation>) -> bool {
-    approval_required(record) || changes_requested(record)
-}
-
 pub(super) fn paint_approval(ui: &mut egui::Ui, s: &mut dyn Surface, ticket: &str) {
     ui.label("Implementation is complete and verified. Approve to create a pull request, or request changes.");
     if ui.button("Approve and create pull request").clicked() {
