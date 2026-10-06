@@ -18,11 +18,11 @@ pub(super) struct Config {
     settings: Value,
 }
 
-pub(super) fn load() -> anyhow::Result<Config> {
+pub(super) fn load(model_override: Option<&str>) -> anyhow::Result<Config> {
     let home = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("Cannot find Pi home for planning provider"))?;
-    load_from(&home.join(".pi/agent"))
+    load_from_with_model(&home.join(".pi/agent"), model_override)
 }
 
 pub(super) fn provider_error() -> Option<String> {
@@ -38,17 +38,55 @@ pub(super) fn provider_error() -> Option<String> {
         .map(|error| error.to_string())
 }
 
+pub(super) fn configured_models() -> anyhow::Result<Vec<String>> {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find Pi home for model discovery"))?;
+    let agent = home.join(".pi/agent");
+    let settings: Value = read_json(&agent.join("settings.json"))?;
+    let model_store: Value = read_json(&agent.join("models.json"))?;
+    let provider = settings["defaultProvider"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("Pi has no default model provider"))?;
+    let models = model_store["providers"][provider]["models"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Pi's configured provider has no model catalog"))?;
+    let mut ids = models
+        .iter()
+        .filter_map(|model| model["id"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+pub(super) fn configured_default_model() -> anyhow::Result<String> {
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("Cannot find Pi home for model discovery"))?;
+    let settings: Value = read_json(&home.join(".pi/agent/settings.json"))?;
+    settings["defaultModel"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("Pi has no default model"))
+}
+
 fn load_from(agent: &Path) -> anyhow::Result<Config> {
+    load_from_with_model(agent, None)
+}
+
+fn load_from_with_model(agent: &Path, model_override: Option<&str>) -> anyhow::Result<Config> {
     let settings: Value = read_json(&agent.join("settings.json"))?;
     let model_store: Value = read_json(&agent.join("models.json"))?;
     let provider = settings["defaultProvider"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Pi has no default model provider"))?
         .to_owned();
-    let model_id = settings["defaultModel"]
+    let configured_model_id = settings["defaultModel"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Pi has no default model"))?
         .to_owned();
+    let model_id = model_override.unwrap_or(&configured_model_id).to_owned();
     let definition = &model_store["providers"][&provider];
     ensure_supported_api(definition["api"].as_str())?;
     let target = parse_target(
@@ -67,9 +105,9 @@ fn load_from(agent: &Path) -> anyhow::Result<Config> {
         .and_then(|models| {
             models
                 .iter()
-                .find(|model| model["id"].as_str() == Some(&model_id))
+                .find(|model| model["id"].as_str() == Some(model_id.as_str()))
         })
-        .ok_or_else(|| anyhow::anyhow!("Pi's selected model is absent from its provider config"))?;
+        .ok_or_else(|| anyhow::anyhow!("Selected Pi model '{model_id}' is absent from the configured provider's model catalog"))?;
     let listener = TcpListener::bind(("127.0.0.1", 0))?;
     let port = listener.local_addr()?.port();
     drop(listener);
@@ -235,6 +273,44 @@ mod tests {
             Some(error.as_str()),
             "the connection setup check must report the same unsupported-provider cause"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn model_override_must_exist_in_the_selected_provider_catalog() {
+        let root = std::env::temp_dir().join(format!(
+            "koolade_provider_model_catalog_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("settings.json"),
+            r#"{"defaultProvider":"hosted","defaultModel":"model"}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("models.json"),
+            r#"{"providers":{"hosted":{"api":"openai-completions","baseUrl":"http://127.0.0.1:8000/v1","models":[{"id":"model"},{"id":"other"}]}}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("auth.json"),
+            r#"{"hosted":{"key":"synthetic-key"}}"#,
+        )
+        .unwrap();
+        let selected = load_from_with_model(&root, Some("other")).unwrap();
+        assert!(
+            selected
+                .model_args
+                .windows(2)
+                .any(|args| args[0] == "--model" && args[1] == "other")
+        );
+        let error = match load_from_with_model(&root, Some("missing")) {
+            Ok(_) => panic!("model absent from the configured catalog must fail"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("configured provider's model catalog"));
         fs::remove_dir_all(root).unwrap();
     }
 

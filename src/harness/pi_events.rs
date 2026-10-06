@@ -44,6 +44,7 @@ impl EventFold {
         let (response, specification) = super::live_preview::project(&current_text);
         LiveProgress {
             telemetry: Default::default(),
+            selected_route: None,
             posts: self
                 .history
                 .iter()

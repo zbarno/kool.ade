@@ -245,6 +245,14 @@ impl KooladeApp {
                 p.task_chats.messages.get(&ticket).and_then(|messages| {
                     implementation_decision::latest_context(messages, &user_name)
                 });
+            let harness = super::super::configured_harness_for(
+                &mut self.task_harness,
+                Some(crate::persistence::harness_settings::IMPLEMENTATION),
+            );
+            let route_label = harness.label();
+            if let Some(progress) = p.activity.tasks.get_mut(&ticket) {
+                progress.selected_route = Some(route_label.clone());
+            }
             p.active_implementations.insert(
                 ticket.clone(),
                 crate::core::implementation::Controller::start_project_with_policy(
@@ -254,7 +262,7 @@ impl KooladeApp {
                     publication_mode,
                     require_independent_checks,
                     user_context,
-                    super::super::configured_harness(&mut self.task_harness),
+                    harness,
                 ),
             );
         }

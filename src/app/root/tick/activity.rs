@@ -69,13 +69,20 @@ impl KooladeApp {
                 Instant::now(),
             ) {
                 let events = std::mem::take(&mut project.activity.pending);
-                let harness = configured_harness(&mut self.task_harness);
+                let harness = configured_harness_for(
+                    &mut self.task_harness,
+                    Some(crate::persistence::harness_settings::MANAGER),
+                );
+                let route_label = harness.label();
                 project.activity.manager = Some(crate::app::manager::Manager::start(
                     project, &events, harness,
                 ));
                 project.activity.last_update = Some(Instant::now());
                 project.live_progress = crate::harness::LiveProgress {
-                    activity: Some("Kool.ad/e Man is checking the board…".into()),
+                    activity: Some(format!(
+                        "Kool.ad/e Manager is checking the board with {route_label}…"
+                    )),
+                    selected_route: Some(route_label),
                     ..Default::default()
                 };
             }

@@ -22,6 +22,14 @@ impl AiHarness for ClaudeHarness {
     }
 
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+        self.execute_with_model(request, None)
+    }
+
+    fn execute_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<HarnessOutcome, AppError> {
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Claude Code executable: {error}"))
         })?;
@@ -33,18 +41,17 @@ impl AiHarness for ClaudeHarness {
         developer.push_str(&request.system_instructions);
         let mut argv = argv;
         argv.extend(["--append-system-prompt".into(), developer]);
-        if let Some(model) = std::env::var(CLAUDE_MODEL_ENV)
-            .ok()
-            .filter(|model| !model.trim().is_empty())
-        {
-            argv.extend(["--model".into(), model]);
+        let requested_model = model.map(str::to_owned).or_else(|| {
+            std::env::var(CLAUDE_MODEL_ENV)
+                .ok()
+                .filter(|model| !model.trim().is_empty())
+        });
+        if let Some(model) = &requested_model {
+            argv.extend(["--model".into(), model.clone()]);
         }
         let effort = normalize_effort(&request.reasoning_level);
         argv.extend(["--effort".into(), effort.into()]);
 
-        let requested_model = std::env::var(CLAUDE_MODEL_ENV)
-            .ok()
-            .filter(|model| !model.trim().is_empty());
         let task = crate::harness::pi_proc::spawn_with_input(
             &argv,
             &request.repo_root,
