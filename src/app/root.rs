@@ -104,6 +104,17 @@ pub(super) fn configured_harness_for(
     harness_selection::configured_harness_for(override_harness, work_type)
 }
 
+pub(super) fn configured_harness_for_task(
+    override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+    work_type: Option<&str>,
+    task_routes: &std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
+) -> Box<dyn crate::harness::AiHarness> {
+    harness_selection::configured_harness_for_task(override_harness, work_type, task_routes)
+}
+
 enum Screen {
     Welcome,
     Connected(Box<Project>),

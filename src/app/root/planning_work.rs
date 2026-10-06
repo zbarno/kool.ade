@@ -31,6 +31,10 @@ impl KooladeApp {
         parent_uid: Option<String>,
         source_branch: Option<String>,
         destination_branch: Option<String>,
+        routing_overrides: std::collections::BTreeMap<
+            String,
+            crate::persistence::harness_settings::WorkRoute,
+        >,
     ) {
         let description = description.trim();
         if description.is_empty() {
@@ -47,6 +51,16 @@ impl KooladeApp {
                 let inherited = parent_uid
                     .as_deref()
                     .and_then(|uid| project.planning_work.iter().find(|work| work.uid == uid));
+                let inherited_routes = inherited.map(|work| work.routing_overrides.clone());
+                let routes = inherited_routes.unwrap_or(routing_overrides);
+                if parent_uid.is_none() {
+                    let settings = crate::persistence::harness_settings::load().0;
+                    if let Err(error) =
+                        super::harness_selection::validate_task_routes(&settings, &routes)
+                    {
+                        failure = Some(error);
+                    }
+                }
                 let default_branch = if project.git.default_branch.is_empty() {
                     if project.git.branch.is_empty() {
                         "main"
@@ -111,6 +125,11 @@ impl KooladeApp {
                         );
                         work.kind = kind;
                         work.parent_uid = parent_uid.clone();
+                        work.routing_overrides = routes;
+                        work.routing_inherited_from = parent_uid
+                            .as_ref()
+                            .filter(|_| !work.routing_overrides.is_empty())
+                            .cloned();
                         work.source_branch = Some(source_branch);
                         work.destination_branch = Some(destination_branch);
                         work.key = format!("task:{}", work.uid);

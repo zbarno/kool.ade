@@ -3,6 +3,9 @@ use crate::{
     ui::{ApplicationCommand, Surface, theme},
 };
 use egui::{RichText, Ui};
+use routing::routing_editor;
+
+mod routing;
 
 #[derive(Clone, Default)]
 struct Draft {
@@ -11,6 +14,8 @@ struct Draft {
     description: String,
     source_branch: String,
     destination_branch: String,
+    routing_overrides:
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
 }
 
 pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
@@ -23,6 +28,7 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
     let mut dismissed = false;
     let branches = surface.repository_branches();
     let destination_branches = surface.repository_destination_branches();
+    let harness_settings = surface.harness_settings();
     if draft.source_branch.is_empty() {
         draft.source_branch = surface.default_repository_branch().to_owned();
     }
@@ -80,6 +86,7 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                     &destination_branches,
                 );
             });
+            routing_editor(ui, &harness_settings, &mut draft.routing_overrides);
             ui.horizontal(|ui| {
                 if ui.button("Cancel").clicked() {
                     dismissed = true;
@@ -101,21 +108,25 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                         draft.description.trim().to_owned(),
                         draft.source_branch.clone(),
                         draft.destination_branch.clone(),
+                        draft.routing_overrides.clone(),
                     ));
                 }
             });
         });
         dismissed |= closed;
     }
-    if let Some((kind, description, source_branch, destination_branch)) = created {
+    if let Some((kind, description, source_branch, destination_branch, routing_overrides)) = created
+    {
         surface.dispatch(ApplicationCommand::CreatePlanningTask {
             kind,
             description,
             parent_uid: None,
             source_branch: Some(source_branch),
             destination_branch: Some(destination_branch),
+            routing_overrides,
         });
         draft.description.clear();
+        draft.routing_overrides.clear();
         open = false;
     }
     if dismissed {

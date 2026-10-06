@@ -103,6 +103,8 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 parent_uid: None,
                 source_branch: None,
                 destination_branch: None,
+                routing_overrides: Default::default(),
+                routing_inherited_from: None,
                 follow_up_task: None,
                 detail: "Feature planning".into(),
             });

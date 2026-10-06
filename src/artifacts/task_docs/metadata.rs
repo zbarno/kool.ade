@@ -2,7 +2,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-const VERSION: u32 = 2;
+mod routing;
+
+const VERSION: u32 = 3;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -18,6 +20,13 @@ pub struct TaskMetadata {
     pub source_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub routing_overrides:
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_source_uid: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_inherited_from: Option<String>,
 }
 
 impl TaskMetadata {
@@ -37,6 +46,9 @@ impl TaskMetadata {
             dependency_uids,
             source_branch: None,
             destination_branch: None,
+            routing_overrides: Default::default(),
+            routing_source_uid: None,
+            routing_inherited_from: None,
         };
         metadata.validate(Some(identity))?;
         Ok(metadata)
@@ -48,6 +60,22 @@ impl TaskMetadata {
     ) -> anyhow::Result<Self> {
         self.source_branch = targets.map(|targets| targets.source.clone());
         self.destination_branch = targets.map(|targets| targets.destination.clone());
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_task_routing(
+        mut self,
+        routes: &std::collections::BTreeMap<
+            String,
+            crate::persistence::harness_settings::WorkRoute,
+        >,
+        source_uid: Option<&str>,
+        inherited_from: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        self.routing_overrides = routes.clone();
+        self.routing_source_uid = source_uid.map(str::to_owned);
+        self.routing_inherited_from = inherited_from.map(str::to_owned);
         self.validate(None)?;
         Ok(self)
     }
@@ -77,6 +105,18 @@ impl TaskMetadata {
             self.dependency_uids.len() <= MAX_DEPENDENCIES,
             "Task metadata has too many dependencies"
         );
+        routing::validate_routing(&self.routing_overrides)?;
+        for (label, uid) in [
+            ("routing source", self.routing_source_uid.as_deref()),
+            ("routing parent", self.routing_inherited_from.as_deref()),
+        ] {
+            if let Some(uid) = uid {
+                anyhow::ensure!(
+                    uuid::Uuid::parse_str(uid).is_ok(),
+                    "Task metadata has an invalid {label} UID"
+                );
+            }
+        }
         for branch in [
             self.source_branch.as_deref(),
             self.destination_branch.as_deref(),

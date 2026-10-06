@@ -61,6 +61,68 @@ fn typed_work_roundtrips_kind_parent_and_feature_uid() {
 }
 
 #[test]
+fn task_routing_overrides_roundtrip_with_parent_provenance_and_manager_is_rejected() {
+    use crate::persistence::harness_settings::{IMPLEMENTATION, QA, WorkRoute};
+    let root = root();
+    let mut parent = Work::new(
+        "task:parent".into(),
+        "Parent".into(),
+        "Plan".into(),
+        "Open".into(),
+    );
+    parent.feature_id = Some("F-37".into());
+    parent.routing_overrides = std::collections::BTreeMap::from([
+        (
+            IMPLEMENTATION.into(),
+            WorkRoute {
+                harness: "codex".into(),
+                model: Some("gpt-model".into()),
+            },
+        ),
+        (
+            QA.into(),
+            WorkRoute {
+                harness: "claude".into(),
+                model: None,
+            },
+        ),
+    ]);
+    let mut child = Work::new(
+        "task:child".into(),
+        "Child".into(),
+        "Follow up".into(),
+        "Open".into(),
+    );
+    child.parent_uid = Some(parent.uid.clone());
+    child.routing_inherited_from = Some(parent.uid.clone());
+    child.routing_overrides = parent.routing_overrides.clone();
+    save(&root, &[parent.clone(), child.clone()]).unwrap();
+
+    let restored = load(&root).unwrap();
+    assert_eq!(restored[1].routing_overrides, child.routing_overrides);
+    assert_eq!(
+        restored[1].routing_inherited_from.as_deref(),
+        Some(parent.uid.as_str())
+    );
+    let snapshot = routing_for_feature(&root, "F-37", Some(&parent.uid)).unwrap();
+    assert_eq!(snapshot.overrides, parent.routing_overrides);
+    assert_eq!(
+        snapshot.source_work_uid.as_deref(),
+        Some(parent.uid.as_str())
+    );
+
+    child.routing_overrides.insert(
+        crate::persistence::harness_settings::MANAGER.into(),
+        WorkRoute {
+            harness: "pi".into(),
+            model: None,
+        },
+    );
+    assert!(validate(&[parent, child]).is_err());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn discovered_refresh_tasks_keep_questions_in_attention_and_findings_in_todo() {
     let root = root();
     let content = append_discovered(

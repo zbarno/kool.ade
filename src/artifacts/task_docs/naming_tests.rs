@@ -21,6 +21,7 @@ fn feature_tasks_carry_the_feature_id_in_file_heading_and_dependencies() {
         feature_id: Some("F10".into()),
         contract: None,
         branch_targets: None,
+        task_routing: Default::default(),
         stories: vec![first.clone(), second.clone()],
     };
     let names = batch

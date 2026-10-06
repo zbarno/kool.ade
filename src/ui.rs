@@ -47,6 +47,8 @@ pub enum ApplicationCommand {
         parent_uid: Option<String>,
         source_branch: Option<String>,
         destination_branch: Option<String>,
+        routing_overrides:
+            std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
     },
     DrainTaskChatSaves,
     CancelTask,
@@ -134,6 +136,9 @@ pub trait Surface {
     }
     fn default_repository_branch(&self) -> &str {
         self.git_branch()
+    }
+    fn harness_settings(&self) -> crate::persistence::harness_settings::HarnessSettings {
+        crate::persistence::harness_settings::load().0
     }
     fn git_head(&self) -> &str;
     fn git_dirty(&self) -> bool;

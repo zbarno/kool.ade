@@ -42,6 +42,9 @@ fn invalid_metadata_fails_closed_and_legacy_parser_is_bounded_to_dependency_sect
         dependency_uids: vec![],
         source_branch: None,
         destination_branch: None,
+        routing_overrides: Default::default(),
+        routing_source_uid: None,
+        routing_inherited_from: None,
     };
     assert!(bad_repo.validate(None).is_err());
 
@@ -81,6 +84,55 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
 }
 
 #[test]
+fn generated_task_routing_round_trips_with_parent_attribution_and_rejects_manager() {
+    use crate::persistence::harness_settings::{IMPLEMENTATION, MANAGER, QA, WorkRoute};
+    let (identity, _, _) = identified_story();
+    let source_uid = uuid::Uuid::new_v4().to_string();
+    let parent_uid = uuid::Uuid::new_v4().to_string();
+    let routes = std::collections::BTreeMap::from([
+        (
+            IMPLEMENTATION.into(),
+            WorkRoute {
+                harness: "codex".into(),
+                model: Some("gpt-task".into()),
+            },
+        ),
+        (
+            QA.into(),
+            WorkRoute {
+                harness: "claude".into(),
+                model: None,
+            },
+        ),
+    ]);
+    let metadata = TaskMetadata::new(&identity, "root", vec![])
+        .unwrap()
+        .with_task_routing(&routes, Some(&source_uid), Some(&parent_uid))
+        .unwrap();
+    let saved = embed("# Story\n", &metadata).unwrap();
+    let loaded = parse(&saved).unwrap().unwrap();
+    assert_eq!(loaded.routing_overrides, routes);
+    assert_eq!(
+        loaded.routing_source_uid.as_deref(),
+        Some(source_uid.as_str())
+    );
+    assert_eq!(
+        loaded.routing_inherited_from.as_deref(),
+        Some(parent_uid.as_str())
+    );
+
+    let mut invalid = metadata;
+    invalid.routing_overrides.insert(
+        MANAGER.into(),
+        WorkRoute {
+            harness: "pi".into(),
+            model: None,
+        },
+    );
+    assert!(invalid.validate(None).is_err());
+}
+
+#[test]
 fn generated_task_stories_copy_the_batch_source_and_destination() {
     let root = std::env::temp_dir().join(format!(
         "koolade-branch-metadata-{}-{}",
@@ -101,6 +153,7 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
         feature_id: None,
         contract: None,
         branch_targets: Some(targets),
+        task_routing: Default::default(),
         stories: vec![crate::core::workflow::TaskStory {
             title: "Implement branch selection".into(),
             ..Default::default()
@@ -112,6 +165,59 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
     let metadata = docs[0].metadata.as_ref().unwrap();
     assert_eq!(metadata.source_branch.as_deref(), Some("release/2.1"));
     assert_eq!(metadata.destination_branch.as_deref(), Some("integration"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn generated_task_stories_embed_the_batch_routing_snapshot() {
+    use crate::persistence::harness_settings::{IMPLEMENTATION, WorkRoute};
+    let root = std::env::temp_dir().join(format!(
+        "koolade-task-routing-metadata-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let source_uid = uuid::Uuid::new_v4().to_string();
+    let inherited_from = uuid::Uuid::new_v4().to_string();
+    let routes = std::collections::BTreeMap::from([(
+        IMPLEMENTATION.into(),
+        WorkRoute {
+            harness: "codex".into(),
+            model: Some("gpt-task".into()),
+        },
+    )]);
+    let batch = crate::core::workflow::TaskBatch {
+        brief: crate::core::workflow::InterviewBrief {
+            feature_name: "Task routing metadata".into(),
+            ..Default::default()
+        },
+        specification: "# Task routing metadata".into(),
+        feature_id: None,
+        contract: None,
+        branch_targets: None,
+        task_routing: crate::core::workflow::TaskRoutingSnapshot {
+            overrides: routes.clone(),
+            source_work_uid: Some(source_uid.clone()),
+            inherited_from: Some(inherited_from.clone()),
+        },
+        stories: vec![crate::core::workflow::TaskStory {
+            title: "Implement task routing".into(),
+            ..Default::default()
+        }],
+    };
+    crate::artifacts::task_docs::save_progress(&root, "routing-run", &batch, 1).unwrap();
+    let docs =
+        crate::artifacts::task_docs::load_board(&root, &crate::core::workflow::Workflow::default());
+    let metadata = docs[0].metadata.as_ref().unwrap();
+    assert_eq!(metadata.routing_overrides, routes);
+    assert_eq!(
+        metadata.routing_source_uid.as_deref(),
+        Some(source_uid.as_str())
+    );
+    assert_eq!(
+        metadata.routing_inherited_from.as_deref(),
+        Some(inherited_from.as_str())
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

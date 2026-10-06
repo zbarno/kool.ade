@@ -79,6 +79,23 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         let dialog = ctx.memory(|memory| memory.area_rect(window_id)).unwrap();
         assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(dialog));
     }
+    let dialog = ctx
+        .memory(|memory| memory.area_rect(initial_window_id))
+        .unwrap();
+    super::super::board_tests::frame_at(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(dialog.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -1200.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: Default::default(),
+            },
+        ],
+        egui::vec2(1800.0, 900.0),
+    );
     click_text(&mut app, &ctx, "Question task");
     click_text(&mut app, &ctx, "Describe what you want to do…");
     frame(
