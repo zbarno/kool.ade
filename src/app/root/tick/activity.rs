@@ -97,8 +97,21 @@ fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) 
         active.status = crate::core::planning_work::WorkStatus::InProgress;
         active.detail = "Planning in progress".into();
     }
-    let mut changes =
-        crate::core::planning_work::reconcile_inactive(&project.state, &mut updated, active_key);
+    let cancelled = updated
+        .iter()
+        .filter(|work| {
+            project
+                .cancelled_work
+                .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+        })
+        .map(|work| work.uid.clone())
+        .collect();
+    let mut changes = crate::core::planning_work::reconcile_inactive_excluding(
+        &project.state,
+        &mut updated,
+        active_key,
+        &cancelled,
+    );
     if retry {
         changes.push("previously reconciled planning work".to_owned());
     }

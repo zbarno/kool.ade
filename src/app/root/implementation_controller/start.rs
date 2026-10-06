@@ -62,6 +62,9 @@ impl KooladeApp {
             return;
         }
         if let Screen::Connected(p) = &mut self.screen {
+            if p.task_cancelled(&ticket) {
+                return;
+            }
             if p.implementation_states.get(&ticket).is_some_and(|state| {
                 state.pr_url.is_some() || state.status == ImplementationStatus::Completed
             }) {

@@ -149,6 +149,11 @@ pub(in crate::ui::layout::board::columns) fn task(
                     ticket: doc.path.clone(),
                 });
             }
+            if column != 4 && ui.small_button("Cancel").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(egui::Id::new("koolade_cancel_pending"), doc.path.clone())
+                });
+            }
             if active {
                 let samples = s.activity_samples(Some(&doc.path));
                 task_card_activity_band(

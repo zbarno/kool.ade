@@ -72,6 +72,9 @@ pub enum ApplicationCommand {
     RequestPublicationChanges {
         ticket: String,
     },
+    CancelWork {
+        key: String,
+    },
     ApproveReviewItem {
         id: String,
     },

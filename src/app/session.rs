@@ -9,6 +9,7 @@ use crate::core::turn::TurnController;
 use crate::domain::chatlog::ChatMessage;
 use crate::persistence::chat_store;
 
+mod cancellation;
 #[cfg(test)]
 pub(crate) mod test_support;
 
@@ -45,6 +46,7 @@ pub struct Project {
     pub git: GitSnapshot,
     pub task_documents: Vec<crate::artifacts::task_docs::TaskDocument>,
     pub archived_tasks: std::collections::BTreeSet<String>,
+    pub cancelled_work: std::collections::BTreeSet<String>,
 }
 
 impl Project {

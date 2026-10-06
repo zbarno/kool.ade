@@ -2,6 +2,8 @@ use super::*;
 #[path = "board_tests/support.rs"]
 mod support;
 pub(super) use support::*;
+#[path = "board_tests/cancellation.rs"]
+mod cancellation;
 #[path = "board_tests/card_activity.rs"]
 mod card_activity;
 #[path = "board_tests/card_navigation.rs"]

@@ -4,7 +4,13 @@ use super::*;
 impl KooladeApp {
     pub(super) fn advance_auto_queue(&mut self) {
         let next = if let Screen::Connected(project) = &mut self.screen {
-            let recovery = project.queue.recoverable_tickets(&project.task_documents);
+            let cancelled = project.cancelled_task_paths();
+            let recovery = project
+                .queue
+                .recoverable_tickets(&project.task_documents)
+                .into_iter()
+                .filter(|ticket| !cancelled.contains(ticket))
+                .collect::<Vec<_>>();
             if !recovery.is_empty() {
                 if project.queue_lock.is_none() {
                     match crate::core::implementation_queue::Queue::acquire(
@@ -36,6 +42,7 @@ impl KooladeApp {
                     .keys()
                     .cloned()
                     .collect::<std::collections::BTreeSet<_>>();
+                excluded.extend(cancelled.iter().cloned());
                 excluded.extend(project.queue.blocked.keys().cloned());
                 for doc in &project.task_documents {
                     if let Some(id) = doc
@@ -126,6 +133,7 @@ impl KooladeApp {
                 .keys()
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
+            excluded.extend(project.cancelled_task_paths());
             excluded.extend(project.queue.blocked.keys().cloned());
             // Remember WHY a ticket is excluded so a parked queue can tell the
             // operator which approval is missing or lapsed instead of sitting
@@ -243,6 +251,7 @@ impl KooladeApp {
                     .iter()
                     .filter(|(ticket, state)| {
                         state.status == ImplementationStatus::ReadyToPublish
+                            && !project.task_cancelled(ticket)
                             && !project.active_implementations.contains_key(*ticket)
                             && !project.queue.blocked.contains_key(*ticket)
                     })

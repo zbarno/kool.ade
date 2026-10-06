@@ -30,5 +30,6 @@ pub(crate) fn project_from(root: &Path) -> Project {
         git: Default::default(),
         task_documents: Vec::new(),
         archived_tasks: Default::default(),
+        cancelled_work: Default::default(),
     }
 }

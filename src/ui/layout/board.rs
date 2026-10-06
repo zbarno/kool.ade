@@ -1,5 +1,6 @@
 use super::*;
 
+mod cancellation;
 mod columns;
 mod empty_lane;
 pub(super) mod presentation;
@@ -38,6 +39,7 @@ pub(super) fn paint(
         );
     });
     columns::paint(ui, s, board, &mut selected_path, &mut planning_selection);
+    cancellation::confirm(ui, s, board);
     let active_hover = egui::Id::new("koolade_board_hover_active");
     let next_hover = egui::Id::new("koolade_board_hover_next");
     let previous = ui

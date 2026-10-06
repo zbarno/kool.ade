@@ -86,6 +86,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             git: Default::default(),
             task_documents: docs,
             archived_tasks: Default::default(),
+            cancelled_work: Default::default(),
         })),
         ..Default::default()
     }
