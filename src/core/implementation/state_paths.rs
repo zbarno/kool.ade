@@ -64,7 +64,7 @@ fn state_dir_by_task_uid(repo: &Path, uid: &str) -> anyhow::Result<Option<PathBu
     Ok(matches.pop())
 }
 
-pub(super) fn state_dir_for_task(
+pub(crate) fn state_dir_for_task(
     repo: &Path,
     ticket: &str,
     task_uid: Option<&str>,

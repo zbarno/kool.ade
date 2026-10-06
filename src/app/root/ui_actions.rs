@@ -36,6 +36,10 @@ impl KooladeApp {
                 self.set_require_independent_checks(enabled)
             }
             ApplicationCommand::ArchiveTask { ticket } => self.archive_task(&ticket),
+            ApplicationCommand::ApprovePublication { ticket } => self.approve_publication(&ticket),
+            ApplicationCommand::RequestPublicationChanges { ticket } => {
+                self.request_publication_changes(&ticket)
+            }
             ApplicationCommand::ApproveReviewItem { id } => self.approve_review_item(&id),
             ApplicationCommand::ApproveFeature { id } => self.approve_and_prepare_feature(&id),
             ApplicationCommand::ApproveFeatureForBoard { id } => {

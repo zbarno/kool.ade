@@ -67,6 +67,28 @@ impl KooladeApp {
                         project
                             .implementation_states
                             .insert(ticket.clone(), record.clone());
+                        let task_event = match record.status {
+                            ImplementationStatus::AwaitingApproval => Some(
+                                "Implementation complete. Work is verified and saved locally; approval is required before creating a pull request.".to_owned(),
+                            ),
+                            ImplementationStatus::AwaitingReview => record.pr_url.as_ref().map(|url| {
+                                format!("Pull request created for the verified implementation: {url}")
+                            }),
+                            _ => None,
+                        };
+                        if let Some(event) = task_event {
+                            project.bind_task_conversation_identities();
+                            project.task_chats.ensure_loaded(&project.chat_slug);
+                            project.task_chats.remember_response(
+                                &project.chat_slug,
+                                &ticket,
+                                vec![ChatMessage::new(
+                                    ChatRole::System,
+                                    event,
+                                    Some(ticket.clone()),
+                                )],
+                            );
+                        }
                         if !record.auto_merge || record.status != ImplementationStatus::Completed {
                             project.queue.running = false;
                         }
@@ -94,8 +116,12 @@ impl KooladeApp {
                                     "Queue paused."
                                 }
                             )
-                        } else if record.status == ImplementationStatus::ReadyToPublish {
-                            "Implementation verified and saved locally. Auto Publish is off, so nothing was shared. Choose Share verified work for review when you are ready.".into()
+                        } else if matches!(
+                            record.status,
+                            ImplementationStatus::ReadyToPublish
+                                | ImplementationStatus::AwaitingApproval
+                        ) {
+                            "Implementation verified and saved locally. PR approval is required before anything is shared.".into()
                         } else {
                             format!(
                                 "Implementation verified. Pull request: {}",
@@ -104,6 +130,17 @@ impl KooladeApp {
                         }
                     }
                     Err(error) => {
+                        project.bind_task_conversation_identities();
+                        project.task_chats.ensure_loaded(&project.chat_slug);
+                        project.task_chats.remember_response(
+                            &project.chat_slug,
+                            &ticket,
+                            vec![ChatMessage::new(
+                                ChatRole::System,
+                                format!("Implementation or pull request creation failed and needs attention: {}", error.message),
+                                Some(ticket.clone()),
+                            )],
+                        );
                         project.queue.blocked.insert(ticket.clone(), error.clone());
                         project.queue.last_error =
                             match crate::core::implementation::record_failed_attempt(

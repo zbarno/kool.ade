@@ -76,11 +76,13 @@ pub fn board_column(state: Option<&Implementation>, busy: bool) -> usize {
     }
     match state.status {
         ImplementationStatus::Completed => 4,
-        ImplementationStatus::AwaitingReview => 2,
+        ImplementationStatus::AwaitingReview
+        | ImplementationStatus::ReadyToPublish
+        | ImplementationStatus::AwaitingApproval
+        | ImplementationStatus::ChangesRequested => 2,
         ImplementationStatus::Preparing
         | ImplementationStatus::Implementing
         | ImplementationStatus::Verifying
-        | ImplementationStatus::ReadyToPublish
         | ImplementationStatus::Publishing
         | ImplementationStatus::WaitingToMerge => 1,
         _ => 3,

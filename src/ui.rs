@@ -66,6 +66,12 @@ pub enum ApplicationCommand {
     ArchiveTask {
         ticket: String,
     },
+    ApprovePublication {
+        ticket: String,
+    },
+    RequestPublicationChanges {
+        ticket: String,
+    },
     ApproveReviewItem {
         id: String,
     },

@@ -205,6 +205,8 @@ fn summarize_task(
         ) => blocked_elsewhere.push(format!("{}: {}", doc.title, current.label())),
         Some(
             current @ (crate::core::implementation::ImplementationStatus::ReadyToPublish
+            | crate::core::implementation::ImplementationStatus::AwaitingApproval
+            | crate::core::implementation::ImplementationStatus::ChangesRequested
             | crate::core::implementation::ImplementationStatus::PullRequestClosed
             | crate::core::implementation::ImplementationStatus::Interrupted),
         ) => waiting_on_user.push(format!("{}: {}", doc.title, current.label())),

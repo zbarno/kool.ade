@@ -263,6 +263,21 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
 }
 
 #[test]
+fn approval_and_change_request_states_stay_in_review() {
+    let s = Sandbox::new();
+    let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+    state.pr_url = None;
+    state.pr_state = None;
+    for status in [
+        ImplementationStatus::AwaitingApproval,
+        ImplementationStatus::ChangesRequested,
+    ] {
+        state.status = status;
+        assert_eq!(board_column(Some(&state), false), 2);
+    }
+}
+
+#[test]
 fn pr_refresh_does_not_overwrite_an_active_implementation() {
     let s = Sandbox::new();
     s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();

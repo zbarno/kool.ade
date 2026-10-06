@@ -71,6 +71,36 @@ pub(in crate::ui::layout::board::columns) fn task(
                 *selected_path = Some(doc.path.clone());
             }
             super::super::super::presentation::description(ui, &doc.text);
+            let implementation = s.implementation_state(&doc.path);
+            if implementation.is_some_and(|record| {
+                matches!(
+                    record.status,
+                    crate::core::implementation::ImplementationStatus::AwaitingApproval
+                        | crate::core::implementation::ImplementationStatus::ReadyToPublish
+                ) && record.pr_url.is_none()
+            }) {
+                ui.colored_label(
+                    theme::BLUE_BRIGHT,
+                    "Implementation complete · approval required",
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Approve").clicked() {
+                        s.dispatch(ApplicationCommand::ApprovePublication {
+                            ticket: doc.path.clone(),
+                        });
+                    }
+                    if ui.button("Request changes").clicked() {
+                        s.dispatch(ApplicationCommand::RequestPublicationChanges {
+                            ticket: doc.path.clone(),
+                        });
+                        *selected_path = Some(doc.path.clone());
+                    }
+                });
+            } else if implementation.is_some_and(|record| {
+                record.status == crate::core::implementation::ImplementationStatus::ChangesRequested
+            }) {
+                ui.colored_label(theme::WARNING, "Changes requested · implementation paused");
+            }
             let mut checklist =
                 crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(&doc.path));
             if let Some(progress) = s.task_progress(&doc.path) {

@@ -11,7 +11,7 @@ pub(super) fn auto_publish_enabled(gate: Option<&AtomicBool>) -> bool {
 pub(super) fn hold_for_review(dir: &Path, state: &mut Implementation) -> anyhow::Result<()> {
     state.auto_merge = false;
     state.merged_commit = None;
-    state.status = ImplementationStatus::ReadyToPublish;
+    state.status = ImplementationStatus::AwaitingApproval;
     update_pull_request_detail(state);
     if !state
         .detail

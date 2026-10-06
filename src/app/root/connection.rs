@@ -2,6 +2,13 @@ use super::*;
 
 impl KooladeApp {
     pub(super) fn submit_task_reply(&mut self, key: &str) {
+        let review_changes = matches!(&self.screen, Screen::Connected(project)
+            if project.implementation_states.get(key).is_some_and(|state|
+                state.status == crate::core::implementation::ImplementationStatus::ChangesRequested));
+        if review_changes {
+            self.submit_review_changes(key);
+            return;
+        }
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -70,6 +77,45 @@ impl KooladeApp {
             )),
         );
         project.task_live.insert(key.into(), Default::default());
+    }
+
+    fn submit_review_changes(&mut self, key: &str) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if project.task_turns.contains_key(key) {
+            return;
+        }
+        let text = project
+            .task_chats
+            .drafts
+            .get(key)
+            .cloned()
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            return;
+        }
+        project.bind_task_conversation_identities();
+        project.task_chats.ensure_loaded(&project.chat_slug);
+        if project
+            .task_chats
+            .append(
+                &project.chat_slug,
+                key,
+                vec![ChatMessage::new(ChatRole::User, &text, Some(key.into()))],
+            )
+            .is_err()
+        {
+            self.toasts
+                .warning("The requested changes could not be saved to this task's conversation.");
+            return;
+        }
+        project.task_chats.drafts.remove(key);
+        project.activity.pending.push(format!(
+            "Requested changes for task {key}: {}",
+            crate::core::context_build::clip(&text, 1600)
+        ));
+        self.start_implementation(key.to_owned(), true);
     }
 
     // ---------------------------------------------------------------- actions
