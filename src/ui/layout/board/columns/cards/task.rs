@@ -70,6 +70,9 @@ pub(in crate::ui::layout::board::columns) fn task(
             {
                 *selected_path = Some(doc.path.clone());
             }
+            if ui.small_button("Open task details").clicked() {
+                *selected_path = Some(doc.path.clone());
+            }
             super::super::super::presentation::description(ui, &doc.text);
             let implementation = s.implementation_state(&doc.path);
             if implementation.is_some_and(|record| {
@@ -141,9 +144,6 @@ pub(in crate::ui::layout::board::columns) fn task(
                 active,
                 elapsed.as_deref(),
             );
-            if task_cards::task_conversation(ui, s, board, &doc.path, false) {
-                *selected_path = Some(doc.path.clone());
-            }
             if column == 4 && ui.small_button("Archive").clicked() {
                 s.dispatch(ApplicationCommand::ArchiveTask {
                     ticket: doc.path.clone(),

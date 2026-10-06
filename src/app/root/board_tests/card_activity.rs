@@ -67,7 +67,7 @@ fn compact_task_cards_only_show_inputs_for_pending_answers() {
     assert!(text_position(&output, "Add context").is_none());
     assert!(text_position(&output, "Your answer…").is_none());
     assert!(text_position(&output, "Send answer").is_none());
-    assert!(text_position(&output, "Open conversation").is_some());
+    assert!(text_position(&output, "Open task details").is_some());
 }
 
 #[test]
