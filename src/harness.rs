@@ -7,6 +7,7 @@
 //! * `pi_events.rs`    — NDJSON event-stream folding
 //! * `pi_extract.rs`   — JSON-block extraction from final prose
 
+pub mod codex_harness;
 pub mod live_preview;
 pub mod pi_events;
 pub mod pi_extract;
@@ -16,11 +17,14 @@ pub(crate) mod pi_sandbox;
 pub mod responses;
 pub mod runtime_capabilities;
 
+pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
+
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,
     LivePost, LiveProgress, ModelCallUsage, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
     RequestedAction, RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
+pub use codex_harness::CodexHarness;
 pub use pi_harness::PiHarness;
 
 mod api;
