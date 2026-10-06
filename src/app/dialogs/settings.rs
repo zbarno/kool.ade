@@ -1,14 +1,13 @@
 use super::*;
 
-mod guide;
 mod ownership;
 mod painter;
+mod project;
 mod repository_names;
 
-#[cfg(test)]
-pub(super) use guide::GuideLine;
-pub(super) use guide::{GuideLineKind, ProbeReport, ProbeView, drain_probe, harness_guide_lines};
 pub use painter::{paint_import_card, paint_settings_card};
+pub use project::DlgProjectSettings;
+pub use project::paint_project_settings_card;
 pub use repository_names::RepositoryNameRow;
 
 // Settings dialog (current user + stakeholder categories)
@@ -28,15 +27,7 @@ pub struct DlgSettings {
     /// also states that the fields act as the override.
     pub identity_note: String,
     pub rows: Vec<Row>,
-    pub repositories: Vec<RepositoryNameRow>,
     pub feedback: Option<(bool, String)>,
-    pub open_harness_setup: bool,
-    /// Per-open background probe (F-16 guide, D-15): `Some` while the
-    /// detached thread may still deliver its report; drained by
-    /// `paint_harness_guide`, then dropped.
-    pub probe_rx: Option<std::sync::mpsc::Receiver<ProbeReport>>,
-    /// Live guide state: pending until the probe thread replies.
-    pub probe_view: ProbeView,
 }
 
 impl DlgSettings {
@@ -89,22 +80,7 @@ impl DlgSettings {
             user_groups,
             identity_note,
             rows,
-            repositories: repository_names::rows(&proj.state.repositories),
             feedback: None,
-            open_harness_setup: false,
-            // Per-open, DETACHED probe (D-15): bounded near ~12 s off the UI
-            // thread (10 s poll + 2 s settle, NFR-4). The closure is 'static
-            // and panic-free, and the send result is ignored, so an
-            // abandoned open (dialog closed early) just lets the thread die
-            // into a dead channel — no join, no accumulated handles.
-            probe_rx: {
-                let (tx, rx) = std::sync::mpsc::channel();
-                std::thread::spawn(move || {
-                    let _ = tx.send(crate::harness::PiHarness::probe_report());
-                });
-                Some(rx)
-            },
-            probe_view: ProbeView::Pending,
         }
     }
 
@@ -112,7 +88,6 @@ impl DlgSettings {
     pub fn apply(&mut self, proj: &mut Project) -> Result<String, AppError> {
         // Writer section: config write + checkpoint share the index.
         let _guard = crate::core::writer_gate::acquire();
-        let manifest_changed = repository_names::persist(proj, &mut self.repositories)?;
         let previously_synthesized = crate::core::ownership::synthesize_for_state(&proj.state);
         let user = CurrentUser::new(self.user_name.trim(), csv_parts(&self.user_groups));
         let mut sk = Stakeholders::new(Vec::new());
@@ -151,9 +126,6 @@ impl DlgSettings {
             ));
         }
         let mut changed_paths = vec![CONFIG_FILE.to_string()];
-        if manifest_changed {
-            changed_paths.push(crate::artifacts::layout::canonical::PROJECT_MANIFEST.into());
-        }
         if ownership::persist_assigned_resolutions(
             proj,
             previously_synthesized,
@@ -216,65 +188,4 @@ pub(super) fn set_owner_selected(members: &mut String, owner: &str, selected: bo
         owners.retain(|existing| !existing.eq_ignore_ascii_case(owner));
     }
     *members = owners.join(", ");
-}
-
-/// Paint the F-16 "Set up the pi harness" section (private; rendered-only —
-/// no text inputs, no file writes, no navigation). Drains the probe (so the
-/// pending → resolved flip lands within the repaint cadence, no reopen
-/// needed), then composes and styles the golden-pinned line set. Keeps
-/// `paint_settings_card`'s `(bool, bool)` footer contract intact.
-fn paint_harness_guide(ui: &mut egui::Ui, dlg: &mut DlgSettings) {
-    drain_probe(dlg);
-    // Mirror `locate_binary`: HOME unset ⇔ home sites skipped in code, so the
-    // composer renders literal "$HOME" lines for the reduced search.
-    let home_raw = std::env::var("HOME").ok();
-    let home = home_raw.as_deref();
-    let lines = harness_guide_lines(&dlg.probe_view, home);
-    let probe_failed = matches!(&dlg.probe_view, ProbeView::Report(r) if !r.ok);
-    for line in &lines {
-        let rt = match line.kind {
-            GuideLineKind::Title => RichText::new(&line.text)
-                .size(13.0)
-                .strong()
-                .color(theme::TEXT),
-            GuideLineKind::Lead | GuideLineKind::Rule => {
-                RichText::new(&line.text).size(11.0).weak()
-            }
-            GuideLineKind::Status => {
-                RichText::new(&line.text)
-                    .size(12.0)
-                    .strong()
-                    .color(match &dlg.probe_view {
-                        ProbeView::Pending => theme::TEXT_DIM,
-                        ProbeView::Report(r) if r.ok => theme::SUCCESS,
-                        ProbeView::Report(_) => theme::DANGER,
-                    })
-            }
-            GuideLineKind::Detail if probe_failed => RichText::new(&line.text)
-                .size(11.0)
-                .weak()
-                .color(theme::DANGER),
-            GuideLineKind::Detail => RichText::new(&line.text).size(11.0).weak(),
-            GuideLineKind::Order => RichText::new(&line.text)
-                .monospace()
-                .size(11.5)
-                .color(theme::TEXT_DIM),
-            GuideLineKind::Step => RichText::new(&line.text)
-                .monospace()
-                .size(11.5)
-                .color(theme::TEXT),
-        };
-        ui.label(rt);
-    }
-    ui.separator();
-    ui.label(RichText::new("OpenAI Codex CLI").size(12.0).strong());
-    ui.label(
-        RichText::new(format!(
-            "Set {}=codex before launching Kool.ad/e to use Codex. Optional model: {}.",
-            crate::harness::CODEX_HARNESS_ENV,
-            crate::harness::codex_harness::CODEX_MODEL_ENV
-        ))
-        .size(11.0)
-        .weak(),
-    );
 }

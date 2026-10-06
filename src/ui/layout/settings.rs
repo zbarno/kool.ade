@@ -31,7 +31,20 @@ pub(super) fn paint(
                 "Stops interface transitions and animated busy indicators. Live activity updates continue.",
             );
             ui.separator();
+            ui.heading("Project / Git");
+            if ui.button("Repository names…").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(egui::Id::new("koolade_open_project_settings"), true);
+                });
+            }
+            ui.separator();
             ui.heading("Automation policy");
+            if ui.button("Coding tools and models…").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(egui::Id::new("koolade_open_coding_settings"), true);
+                });
+            }
+            ui.label("Configure installed coding tools separately from the models and work types that use them.");
             ui.label("Saved for this project on this device, across Kool.ad/e windows.");
             let mut parallel = s.max_parallel_tasks();
             if ui

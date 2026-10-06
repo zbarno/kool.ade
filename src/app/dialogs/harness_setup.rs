@@ -3,6 +3,9 @@
 use std::sync::mpsc::{self, Receiver};
 
 mod paint;
+mod pi_guide;
+#[cfg(test)]
+mod pi_guide_tests;
 mod probes;
 #[cfg(test)]
 mod tests;
@@ -31,7 +34,15 @@ pub struct DlgHarnessSetup {
     pub settings: crate::persistence::harness_settings::HarnessSettings,
     pub probe_view: ProbeView,
     pub feedback: Option<(bool, String)>,
+    pub section: HarnessSettingsSection,
     probe_rx: Option<Receiver<Vec<HarnessProbe>>>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum HarnessSettingsSection {
+    #[default]
+    Tools,
+    Routing,
 }
 
 impl DlgHarnessSetup {
@@ -41,6 +52,7 @@ impl DlgHarnessSetup {
             settings,
             probe_view: ProbeView::Pending,
             feedback: diagnostic.map(|message| (false, message)),
+            section: HarnessSettingsSection::Tools,
             probe_rx: None,
         };
         dialog.refresh();

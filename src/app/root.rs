@@ -175,6 +175,7 @@ type CloneWorkerCalc = std::sync::Arc<
 enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
+    ProjectSettings(app_dialogs::DlgProjectSettings),
     HarnessSetup(app_dialogs::DlgHarnessSetup),
     Mcp(DlgMcp),
     #[cfg(test)]
