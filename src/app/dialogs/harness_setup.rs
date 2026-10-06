@@ -4,9 +4,9 @@ use std::sync::mpsc::{self, Receiver};
 
 mod paint;
 mod probes;
-use probes::discover_harnesses;
 #[cfg(test)]
 mod tests;
+use probes::discover_harnesses;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeView {
@@ -154,7 +154,7 @@ fn apply_probe_results(
             })
             .map(str::to_owned)
             .or_else(|| {
-                ["pi", "codex", "claude", "opencode"]
+                ["pi", "codex", "claude", "opencode", "copilot"]
                     .into_iter()
                     .find_map(|id| {
                         settings

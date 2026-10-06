@@ -9,6 +9,7 @@
 
 pub mod claude_harness;
 pub mod codex_harness;
+pub mod copilot_harness;
 pub mod live_preview;
 pub mod opencode_harness;
 pub mod pi_events;
@@ -28,6 +29,7 @@ pub use api::{
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;
+pub use copilot_harness::CopilotHarness;
 pub use opencode_harness::OpenCodeHarness;
 pub use pi_harness::PiHarness;
 

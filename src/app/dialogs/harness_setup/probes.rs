@@ -73,6 +73,28 @@ fn configured_model_catalog(harness: &str) -> (Vec<String>, Option<String>) {
             models.dedup();
             (models, default_model)
         }
+        ("copilot", home) => {
+            let configured = std::env::var(crate::harness::copilot_harness::COPILOT_MODEL_ENV)
+                .ok()
+                .filter(|model| !model.trim().is_empty())
+                .or_else(|| {
+                    home.and_then(|home| std::fs::read(home.join(".copilot/settings.json")).ok())
+                        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                        .and_then(|settings| {
+                            settings
+                                .get("model")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                        })
+                });
+            let mut models = vec!["auto".to_owned()];
+            if let Some(model) = &configured {
+                models.push(model.clone());
+            }
+            models.sort();
+            models.dedup();
+            (models, configured)
+        }
         _ => (Vec::new(), None),
     }
 }
@@ -82,6 +104,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
     let codex = crate::harness::CodexHarness::probe_report();
     let claude = crate::harness::ClaudeHarness::probe_report();
     let opencode = crate::harness::OpenCodeHarness::probe_report();
+    let copilot = crate::harness::CopilotHarness::probe_report();
     vec![
         HarnessProbe {
             id: "pi".into(),
@@ -145,6 +168,30 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
                     | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired
             ),
             status: opencode.status,
+        },
+        HarnessProbe {
+            id: "copilot".into(),
+            version: copilot.version.clone(),
+            executable: copilot
+                .binary
+                .as_ref()
+                .map(|path| path.to_string_lossy().into()),
+            diagnostic: (!copilot.diagnostic.is_empty()).then_some(copilot.diagnostic),
+            ready: copilot.readiness == crate::harness::copilot_harness::CopilotReadiness::Ready,
+            models: configured_model_catalog("copilot").0,
+            default_model: configured_model_catalog("copilot").1,
+            configuration_required: false,
+            status: match copilot.readiness {
+                crate::harness::copilot_harness::CopilotReadiness::Missing => {
+                    "copilot (not installed)".into()
+                }
+                crate::harness::copilot_harness::CopilotReadiness::Unusable => {
+                    "copilot (unavailable)".into()
+                }
+                crate::harness::copilot_harness::CopilotReadiness::Ready => {
+                    format!("copilot {}", copilot.version.unwrap_or_default())
+                }
+            },
         },
     ]
 }
