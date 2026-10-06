@@ -1,4 +1,4 @@
-use crate::harness::{AiHarness, PiHarness};
+use crate::harness::{AiHarness, ClaudeHarness, CodexHarness, PiHarness};
 
 pub(crate) fn configured_harness(
     override_harness: &mut Option<Box<dyn AiHarness>>,
@@ -6,12 +6,19 @@ pub(crate) fn configured_harness(
     if let Some(harness) = override_harness.take() {
         return harness;
     }
-    match crate::persistence::harness_settings::load()
-        .0
-        .default_harness
-        .as_deref()
-    {
+    let settings = crate::persistence::harness_settings::load().0;
+    let selected = settings.default_harness.as_deref().or_else(|| {
+        (std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() == Ok("codex"))
+            .then_some("codex")
+    });
+    resolve(selected)
+}
+
+fn resolve(selected: Option<&str>) -> Box<dyn AiHarness> {
+    match selected {
         None | Some("pi") => Box::new(PiHarness),
+        Some("codex") => Box::new(CodexHarness),
+        Some("claude") => Box::new(ClaudeHarness),
         Some(id) => Box::new(UnavailableHarness(id.to_owned())),
     }
 }

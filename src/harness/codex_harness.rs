@@ -21,6 +21,7 @@ pub struct CodexHarness;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexProbeReport {
     pub status: String,
+    pub version: Option<String>,
     pub diagnostic: String,
     pub binary: Option<PathBuf>,
     pub ready: bool,
@@ -77,6 +78,7 @@ impl CodexHarness {
             Err(error) => {
                 return CodexProbeReport {
                     status: "codex (not installed)".into(),
+                    version: None,
                     diagnostic: error.detail(),
                     binary: None,
                     ready: false,
@@ -84,9 +86,18 @@ impl CodexHarness {
                 };
             }
         };
+        let version = run_probe(&path, &["--version"]).ok().and_then(|output| {
+            output
+                .lines()
+                .next()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+        });
         match Self::check_binary(&path) {
             Ok(version) => CodexProbeReport {
                 status: format!("codex {version}"),
+                version: Some(version),
                 diagnostic: String::new(),
                 binary: Some(path),
                 ready: true,
@@ -105,6 +116,7 @@ impl CodexHarness {
                         }
                         _ => "codex (installed but unusable)".into(),
                     },
+                    version,
                     diagnostic: error.detail(),
                     binary: Some(path),
                     ready: false,
@@ -116,9 +128,10 @@ impl CodexHarness {
 
     pub(super) fn check_binary(path: &Path) -> Result<String, AppError> {
         let version = run_probe(path, &["--version"])?;
-        let login = run_probe(path, &["login", "status"]);
+        check_supported_capabilities(path)?;
+        let login = run_probe_status(path, &["login", "status"]);
         match login {
-            Ok(output)
+            Ok((output, true))
                 if output.to_ascii_lowercase().contains("logged in")
                     && !output.to_ascii_lowercase().contains("not logged in") =>
             {
@@ -128,15 +141,64 @@ impl CodexHarness {
                 }
                 Ok(version.to_owned())
             }
-            Ok(_) | Err(_) => Err(AppError::Other(
-                "Codex CLI is installed but is not authenticated. Run `codex login` and retry."
-                    .into(),
+            Ok((output, _))
+                if output.to_ascii_lowercase().contains("not logged in")
+                    || output.to_ascii_lowercase().contains("logged out")
+                    || output.to_ascii_lowercase().contains("not authenticated") =>
+            {
+                Err(AppError::Other(
+                    "Codex CLI is installed but is not authenticated. Run `codex login` and retry."
+                        .into(),
+                ))
+            }
+            Ok((_, false)) => Err(AppError::Other(
+                "Codex CLI login status could not be checked because the command failed.".into(),
             )),
+            Ok((_, true)) => Err(AppError::Other(
+                "Codex CLI login status returned an unrecognized response.".into(),
+            )),
+            Err(error) => Err(AppError::Other(format!(
+                "Codex CLI login status could not be checked: {}",
+                error.detail()
+            ))),
         }
     }
 }
 
+fn check_supported_capabilities(path: &Path) -> Result<(), AppError> {
+    let help = run_probe(path, &["exec", "--help"])?;
+    let required = [
+        "--json",
+        "--cd",
+        "--sandbox",
+        "--ephemeral",
+        "--model",
+        "--config",
+    ];
+    let missing = required
+        .into_iter()
+        .filter(|option| !help.contains(option))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::Other(format!(
+            "Codex CLI is too old or lacks required exec options: {}",
+            missing.join(", ")
+        )))
+    }
+}
+
 fn run_probe(binary: &Path, args: &[&str]) -> Result<String, AppError> {
+    let (output, success) = run_probe_status(binary, args)?;
+    if success {
+        Ok(output)
+    } else {
+        Err(AppError::Other("Codex CLI readiness check failed".into()))
+    }
+}
+
+fn run_probe_status(binary: &Path, args: &[&str]) -> Result<(String, bool), AppError> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
     let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))?;
@@ -158,12 +220,15 @@ fn run_probe(binary: &Path, args: &[&str]) -> Result<String, AppError> {
             Err(PollState::Pending) => {}
         }
     }
-    if success != Some(true) {
-        task.kill();
-        let _ = task.settle(Duration::from_secs(1));
-        Err(AppError::Other("Codex CLI readiness check failed".into()))
-    } else {
-        Ok(output)
+    match success {
+        Some(success) => Ok((output, success)),
+        None => {
+            task.kill();
+            let _ = task.settle(Duration::from_secs(1));
+            Err(AppError::Other(
+                "Codex CLI readiness check timed out".into(),
+            ))
+        }
     }
 }
 

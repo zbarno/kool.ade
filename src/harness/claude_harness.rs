@@ -23,6 +23,7 @@ pub struct ClaudeHarness;
 pub enum ClaudeReadiness {
     Missing,
     Unsupported,
+    Unusable,
     AuthenticationRequired,
     Ready,
 }
@@ -30,6 +31,7 @@ pub enum ClaudeReadiness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeProbeReport {
     pub status: String,
+    pub version: Option<String>,
     pub diagnostic: String,
     pub binary: Option<PathBuf>,
     pub readiness: ClaudeReadiness,
@@ -77,6 +79,7 @@ impl ClaudeHarness {
             Err(error) => {
                 return ClaudeProbeReport {
                     status: "claude (not installed)".into(),
+                    version: None,
                     diagnostic: error.detail(),
                     binary: None,
                     readiness: ClaudeReadiness::Missing,
@@ -86,11 +89,12 @@ impl ClaudeHarness {
         match probe(&binary) {
             Ok(version) => ClaudeProbeReport {
                 status: format!("claude {version}"),
+                version: Some(version),
                 diagnostic: String::new(),
                 binary: Some(binary),
                 readiness: ClaudeReadiness::Ready,
             },
-            Err((readiness, diagnostic)) => ClaudeProbeReport {
+            Err((readiness, diagnostic, version)) => ClaudeProbeReport {
                 status: match readiness {
                     ClaudeReadiness::Unsupported => "claude (update required)".into(),
                     ClaudeReadiness::AuthenticationRequired => {
@@ -98,6 +102,7 @@ impl ClaudeHarness {
                     }
                     _ => "claude (unavailable)".into(),
                 },
+                version,
                 diagnostic,
                 binary: Some(binary),
                 readiness,
@@ -106,18 +111,26 @@ impl ClaudeHarness {
     }
 
     pub(super) fn checked_binary(path: &Path) -> Result<String, AppError> {
-        probe(path).map_err(|(_, detail)| AppError::Other(detail))
+        probe(path).map_err(|(_, detail, _)| AppError::Other(detail))
     }
 }
 
-fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String)> {
-    let version_output =
-        run(path, &["--version"]).map_err(|error| (ClaudeReadiness::Unsupported, error))?;
+fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>)> {
+    let (version_output, version_success) =
+        run(path, &["--version"]).map_err(|error| (ClaudeReadiness::Unusable, error, None))?;
+    if !version_success {
+        return Err((
+            ClaudeReadiness::Unusable,
+            "Claude Code version command failed".into(),
+            None,
+        ));
+    }
     let version = version_output.lines().next().unwrap_or_default().trim();
     let parsed = parse_version(version).ok_or_else(|| {
         (
             ClaudeReadiness::Unsupported,
             "Claude Code did not report a parseable version".to_owned(),
+            None,
         )
     })?;
     if parsed < MINIMUM_VERSION {
@@ -126,27 +139,42 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String)> {
             format!(
                 "Claude Code {version} is too old for restricted unattended mode; update to 2.1.268 or later"
             ),
+            Some(version.to_owned()),
         ));
     }
     let auth = run(path, &["auth", "status"]);
     match auth {
-        Ok(output)
+        Ok((output, true))
             if serde_json::from_str::<serde_json::Value>(&output)
                 .ok()
                 .and_then(|value| value["authMethod"].as_str().map(str::to_owned))
-                .is_some_and(|method| method != "none") =>
+                .is_some_and(is_supported_auth_method) =>
         {
             Ok(version.to_owned())
         }
-        Ok(_) | Err(_) => Err((
+        Ok((output, _)) if serde_json::from_str::<serde_json::Value>(&output)
+            .ok()
+            .and_then(|value| value["authMethod"].as_str().map(str::to_owned))
+            .is_some_and(|method| method == "none") => Err((
             ClaudeReadiness::AuthenticationRequired,
             "Claude Code is installed but is not authenticated. Run `claude auth login` and retry."
                 .into(),
+            Some(version.to_owned()),
+        )),
+        Ok((_, _)) => Err((
+            ClaudeReadiness::Unusable,
+            "Claude Code auth status returned an unrecognized response.".into(),
+            Some(version.to_owned()),
+        )),
+        Err(error) => Err((
+            ClaudeReadiness::Unusable,
+            format!("Claude Code auth status could not be checked: {error}"),
+            Some(version.to_owned()),
         )),
     }
 }
 
-fn run(binary: &Path, args: &[&str]) -> Result<String, String> {
+fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
     let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))
@@ -168,13 +196,21 @@ fn run(binary: &Path, args: &[&str]) -> Result<String, String> {
             Err(PollState::Pending) => {}
         }
     }
-    if exit == Some(true) {
-        Ok(stdout)
-    } else {
-        task.kill();
-        let _ = task.settle(Duration::from_secs(1));
-        Err("Claude Code readiness command failed or timed out".into())
+    match exit {
+        Some(success) => Ok((stdout, success)),
+        None => {
+            task.kill();
+            let _ = task.settle(Duration::from_secs(1));
+            Err("Claude Code readiness command timed out".into())
+        }
     }
+}
+
+fn is_supported_auth_method(method: String) -> bool {
+    matches!(
+        method.trim().to_ascii_lowercase().as_str(),
+        "claude.ai" | "console" | "oauth" | "apikey" | "api_key" | "bedrock" | "vertex"
+    )
 }
 
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {

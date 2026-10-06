@@ -91,6 +91,27 @@ fn probe_distinguishes_ready_unsupported_and_missing_auth() {
         probe(&unauth).unwrap_err().0,
         ClaudeReadiness::AuthenticationRequired
     );
+    let broken_auth = fake_cli(
+        &root,
+        "if [ \"$1\" = \"--version\" ]; then echo '2.1.300'; else exit 2; fi\n",
+    );
+    let failure = probe(&broken_auth).unwrap_err();
+    assert_eq!(failure.0, ClaudeReadiness::Unusable);
+    assert_eq!(failure.2.as_deref(), Some("2.1.300"));
+    let unauth_nonzero = fake_cli(
+        &root,
+        "if [ \"$1\" = \"--version\" ]; then echo '2.1.300'; else echo '{\"authMethod\":\"none\"}'; exit 1; fi\n",
+    );
+    let failure = probe(&unauth_nonzero).unwrap_err();
+    assert_eq!(failure.0, ClaudeReadiness::AuthenticationRequired);
+    assert_eq!(failure.2.as_deref(), Some("2.1.300"));
+    let unknown_auth = fake_cli(
+        &root,
+        "if [ \"$1\" = \"--version\" ]; then echo '2.1.300'; else echo '{\"authMethod\":\"mystery\"}'; fi\nexit 0",
+    );
+    let failure = probe(&unknown_auth).unwrap_err();
+    assert_eq!(failure.0, ClaudeReadiness::Unusable);
+    assert_eq!(failure.2.as_deref(), Some("2.1.300"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
