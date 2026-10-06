@@ -77,6 +77,9 @@ pub struct ProbeReport {
     pub binary: Option<PathBuf>,
     /// `true` only when discovery, version and required-capability probes succeed.
     pub ok: bool,
+    /// The executable/version work, but provider credentials or model config
+    /// still need operator attention.
+    pub configuration_required: bool,
 }
 
 impl PiHarness {
@@ -135,19 +138,31 @@ impl PiHarness {
                 diagnostic: e.detail(),
                 binary: None,
                 ok: false,
+                configuration_required: false,
             },
             Ok(exe) => match Self::check_binary(&exe) {
-                Ok(version) => ProbeReport {
-                    status: format!("pi {version}"),
-                    diagnostic: String::new(),
-                    binary: Some(exe),
-                    ok: true,
+                Ok(version) => match crate::harness::pi_sandbox::provider_configuration_error() {
+                    Some(diagnostic) => ProbeReport {
+                        status: format!("pi {version}"),
+                        diagnostic,
+                        binary: Some(exe),
+                        ok: false,
+                        configuration_required: true,
+                    },
+                    None => ProbeReport {
+                        status: format!("pi {version}"),
+                        diagnostic: String::new(),
+                        binary: Some(exe),
+                        ok: true,
+                        configuration_required: false,
+                    },
                 },
                 Err(e) => ProbeReport {
                     status: format!("pi (unavailable: {})", e.headline()),
                     diagnostic: e.detail(),
                     binary: Some(exe),
                     ok: false,
+                    configuration_required: false,
                 },
             },
         }

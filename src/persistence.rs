@@ -12,6 +12,7 @@
 pub mod archived_tasks;
 pub mod cancelled_work;
 pub mod chat_store;
+pub mod harness_settings;
 pub mod persona;
 pub mod task_chats;
 pub mod telemetry;

@@ -16,6 +16,7 @@ fn fixture() -> DlgSettings {
         ],
         repositories: Vec::new(),
         feedback: None,
+        open_harness_setup: false,
         probe_rx: None,
         probe_view: ProbeView::Pending,
     }

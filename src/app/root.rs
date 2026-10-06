@@ -13,7 +13,6 @@ use crate::core::turn::{TurnController, TurnEvt, TurnOutcome};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 use crate::domain::item::OpenItem;
 use crate::domain::user::CurrentUser;
-use crate::harness::PiHarness;
 use crate::ui::{Surface, ToastQueue};
 
 #[cfg(test)]
@@ -22,6 +21,7 @@ mod conversation_tests;
 
 #[path = "feature_approval.rs"]
 mod feature_approval;
+mod harness_selection;
 
 mod adoption;
 mod agent_updates;
@@ -94,9 +94,7 @@ pub struct KooladeApp {
 pub(super) fn configured_harness(
     override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
 ) -> Box<dyn crate::harness::AiHarness> {
-    override_harness
-        .take()
-        .unwrap_or_else(|| Box::new(PiHarness))
+    harness_selection::configured_harness(override_harness)
 }
 
 enum Screen {
@@ -159,6 +157,7 @@ type CloneWorkerCalc = std::sync::Arc<
 enum Dialog {
     Import(DlgImport),
     Settings(DlgSettings),
+    HarnessSetup(app_dialogs::DlgHarnessSetup),
     Mcp(DlgMcp),
     #[cfg(test)]
     Browse(DlgBrowse),

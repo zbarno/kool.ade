@@ -13,6 +13,7 @@ use crate::persistence::persona;
 use crate::ui::theme;
 
 mod browse;
+mod harness_setup;
 mod import;
 mod mcp;
 mod persona_card;
@@ -22,6 +23,7 @@ use browse::expand_tilde;
 #[cfg(test)]
 use browse::{DirRow, resolve_seed};
 pub use browse::{DlgBrowse, paint_browse_card};
+pub use harness_setup::{DlgHarnessSetup, paint_harness_setup_card};
 pub use import::DlgImport;
 pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{

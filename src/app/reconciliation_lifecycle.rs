@@ -149,9 +149,7 @@ impl Lifecycle {
             Ok(Some(candidate)) => {
                 let feature_id = candidate.feature_id.clone();
                 self.attempted.insert(feature_id.clone());
-                let harness = harness_override
-                    .take()
-                    .unwrap_or_else(|| Box::new(crate::harness::PiHarness));
+                let harness = crate::app::root::configured_harness(harness_override);
                 self.controller = Some(crate::core::reconciliation::Controller::start(
                     state.clone(),
                     candidate,
