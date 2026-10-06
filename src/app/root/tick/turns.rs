@@ -21,7 +21,7 @@ impl KooladeApp {
                                 .task_live
                                 .entry(key.clone())
                                 .or_default()
-                                .update(progress);
+                                .update(*progress);
                             project
                                 .activity
                                 .conversations
@@ -61,7 +61,7 @@ impl KooladeApp {
                                 .entry(key)
                                 .or_default()
                                 .update(Default::default());
-                            project.live_progress.update(progress);
+                            project.live_progress.update(*progress);
                         }
                         TurnEvt::Done(o) => {
                             outcome = Some(*o);

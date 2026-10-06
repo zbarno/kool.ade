@@ -86,12 +86,22 @@ impl Controller {
             publication_mode == PublicationMode::AutoPublish,
         ));
         let worker_publish_gate = auto_publish_gate.clone();
+        let previous_revision = super::load_activity(&planning_root, &ticket)
+            .map(|progress| progress.checklist_revision)
+            .unwrap_or_default();
+        let checklist_epoch =
+            checklist_revision_epoch(chrono::Utc::now().timestamp_millis(), previous_revision);
         std::thread::spawn(move || {
-            let (progress, updates) = mpsc::channel();
+            let (progress, updates) = mpsc::channel::<LiveProgress>();
             let fwd = tx.clone();
             let forward = std::thread::spawn(move || {
-                for p in updates {
-                    let _ = fwd.send(Event::Progress(p));
+                for mut p in updates {
+                    p.checklist_revision = if p.checklist_revision == 0 {
+                        0
+                    } else {
+                        checklist_epoch.saturating_add(p.checklist_revision)
+                    };
+                    let _ = fwd.send(Event::Progress(Box::new(p)));
                 }
             });
             let result = run_with_project_options(
@@ -143,8 +153,28 @@ impl Controller {
         self.auto_publish_gate.store(false, Ordering::SeqCst);
     }
 }
+
+fn checklist_revision_epoch(now_ms: i64, previous_revision: u64) -> u64 {
+    let time_revision = (now_ms.max(0) as u64) << 20;
+    time_revision.max(previous_revision)
+}
+
 impl Drop for Controller {
     fn drop(&mut self) {
         self.request_cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::checklist_revision_epoch;
+
+    #[test]
+    fn checklist_resume_revision_exceeds_durable_revision_even_if_clock_does_not_advance() {
+        for now_ms in [1_000, -1] {
+            let previous = 2_000_000;
+            let epoch = checklist_revision_epoch(now_ms, previous);
+            assert!(epoch.saturating_add(1) > previous);
+        }
     }
 }

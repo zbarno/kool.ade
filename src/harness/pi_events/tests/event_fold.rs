@@ -208,3 +208,36 @@ fn pending_assistant_does_not_reuse_an_earlier_completed_message() {
     );
     assert!(fold.final_assistant_text.is_empty());
 }
+
+#[test]
+fn checklist_markers_update_live_snapshots_and_old_snapshots_cannot_revert_them() {
+    let mut fold = EventFold::default();
+    delta(
+        &mut fold,
+        "text",
+        0,
+        "Progress update.\n<!-- koolade-checklist: 0,2 -->",
+    );
+    let first = fold.preview();
+    assert_eq!(first.checklist, [0, 2]);
+    assert_eq!(first.checklist_revision, 1);
+    assert!(!first.response.contains("koolade-checklist"));
+
+    delta(&mut fold, "text", 0, "\n<!-- koolade-checklist: 2 -->");
+    let newer = fold.preview();
+    assert_eq!(newer.checklist, [2]);
+    assert_eq!(newer.checklist_revision, 2);
+    assert!(!newer.response.contains("koolade-checklist"));
+
+    let mut display = newer;
+    display.update(first);
+    assert_eq!(display.checklist, [2]);
+    assert_eq!(display.checklist_revision, 2);
+
+    delta(&mut fold, "text", 0, "\n<!-- koolade-checklist: -->");
+    let cleared = fold.preview();
+    assert!(cleared.checklist.is_empty());
+    assert_eq!(cleared.checklist_revision, 3);
+    display.update(cleared);
+    assert!(display.checklist.is_empty());
+}

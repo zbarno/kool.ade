@@ -4,6 +4,7 @@ impl KooladeApp {
     pub(super) fn poll_implementations(&mut self) {
         if let Screen::Connected(project) = &mut self.screen {
             let mut finished = Vec::new();
+            let mut checklist_dirty = Vec::new();
             for (ticket, ctrl) in &project.active_implementations {
                 for _ in 0..64 {
                     match ctrl.poll() {
@@ -14,15 +15,17 @@ impl KooladeApp {
                                 .as_mut()
                                 .unwrap()
                                 .update(Default::default());
-                            {
-                                project
-                                    .activity
-                                    .tasks
-                                    .entry(ticket.clone())
-                                    .or_default()
-                                    .update(p);
-                            }
+                            let checklist_changed = {
+                                let activity =
+                                    project.activity.tasks.entry(ticket.clone()).or_default();
+                                let revision = activity.checklist_revision;
+                                activity.update(*p);
+                                activity.checklist_revision != revision
+                            };
                             project.activity.mark_ticket_dirty(ticket);
+                            if checklist_changed {
+                                checklist_dirty.push(ticket.clone());
+                            }
                         }
                         Some(crate::core::implementation::Event::Done(result)) => {
                             finished.push((ticket.clone(), *result));
@@ -31,6 +34,9 @@ impl KooladeApp {
                         None => break,
                     }
                 }
+            }
+            for ticket in checklist_dirty {
+                project.save_task_activity(&ticket);
             }
             for (ticket, result) in finished {
                 project.active_implementations.remove(&ticket);

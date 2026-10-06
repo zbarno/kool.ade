@@ -71,8 +71,15 @@ pub(in crate::ui::layout::board::columns) fn task(
                 *selected_path = Some(doc.path.clone());
             }
             super::super::super::presentation::description(ui, &doc.text);
-            let checklist =
+            let mut checklist =
                 crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(&doc.path));
+            if let Some(progress) = s.task_progress(&doc.path) {
+                for index in &progress.checklist {
+                    if let Some(item) = checklist.get_mut(*index) {
+                        item.complete = true;
+                    }
+                }
+            }
             let elapsed = s.implementation_elapsed(&doc.path);
             if active {
                 ui.horizontal(|ui| {

@@ -53,7 +53,7 @@ pub struct TurnInputs {
 
 pub enum TurnEvt {
     /// Live display snapshot from the harness; never authoritative state.
-    Progress(LiveProgress),
+    Progress(Box<LiveProgress>),
     Done(Box<TurnOutcome>),
 }
 
