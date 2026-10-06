@@ -36,7 +36,7 @@ fn task_details_read_from_one_model_and_emit_typed_commands() {
         },
     ));
     app.dispatch_ui_command(crate::ui::ApplicationCommand::TaskDetail(
-        crate::ui::task_detail::Command::StopAndPause {
+        crate::ui::task_detail::Command::CancelTask {
             ticket: ticket.into(),
         },
     ));
@@ -49,5 +49,5 @@ fn task_details_read_from_one_model_and_emit_typed_commands() {
         Some("Use the existing approach and document why.")
     );
     assert!(!project.queue.running);
-    assert!(project.queue.recovery_paused);
+    assert!(!project.queue.recovery_paused);
 }

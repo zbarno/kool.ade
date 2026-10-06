@@ -26,7 +26,7 @@ impl KooladeApp {
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
         stale_session: Option<String>,
     ) {
-        if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
+        if matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
             return;
         }

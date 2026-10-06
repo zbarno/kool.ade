@@ -276,8 +276,7 @@ impl KooladeApp {
     #[cfg(test)]
     fn implementation_capacity(&self) -> bool {
         matches!(&self.screen, Screen::Connected(project)
-            if project.active_turn.is_none()
-                && project.active_implementations.len() < project.queue.max_parallel.clamp(1, 8))
+            if project.active_implementations.len() < project.queue.max_parallel.clamp(1, 8))
     }
 
     #[cfg(test)]
@@ -286,18 +285,7 @@ impl KooladeApp {
     }
 
     fn cancel_task_for(&mut self, ticket: &str) {
-        if let Screen::Connected(project) = &mut self.screen {
-            project.queue.running = false;
-            project.queue.recovery_paused = true;
-            if let Some(controller) = project.active_implementations.get(ticket) {
-                controller.request_cancel();
-            }
-            if project.queue_lock.is_some()
-                && let Err(error) = project.queue.save(&project.state.repo_root)
-            {
-                project.queue.last_error = error.to_string();
-            }
-        }
+        self.cancel_board_work(ticket);
     }
 }
 

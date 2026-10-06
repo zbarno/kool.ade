@@ -105,9 +105,6 @@ impl KooladeApp {
                                 )],
                             );
                         }
-                        if !record.auto_merge || record.status != ImplementationStatus::Completed {
-                            project.queue.running = false;
-                        }
                         if crate::core::implementation::permits_evidence_only_completion(
                             &record.ticket_text,
                         ) {

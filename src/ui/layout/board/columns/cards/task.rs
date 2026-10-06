@@ -62,6 +62,9 @@ pub(in crate::ui::layout::board::columns) fn task(
                     super::super::attention::task_kind(s, &doc.path),
                 );
             }
+            if s.implementation_waiting_for_capacity(&doc.path) {
+                ui.colored_label(theme::TEXT_DIM, "Queued · implementation slots are full");
+            }
             super::super::super::presentation::metadata(ui, None, &task_key(&doc.path));
             if column == 3
                 && ui

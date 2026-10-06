@@ -260,6 +260,9 @@ impl Surface for KooladeApp {
     fn implementation_active(&self, ticket: &str) -> bool {
         matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(ticket))
     }
+    fn implementation_waiting_for_capacity(&self, ticket: &str) -> bool {
+        matches!(&self.screen, Screen::Connected(p) if p.queue.waiting_for_capacity.contains(ticket))
+    }
     fn implementation_elapsed(&self, ticket: &str) -> Option<String> {
         let Screen::Connected(project) = &self.screen else {
             return None;
@@ -286,6 +289,9 @@ impl Surface for KooladeApp {
     fn queue_status(&self) -> &str {
         match &self.screen {
             Screen::Connected(p) if !p.queue.last_error.is_empty() => &p.queue.last_error,
+            Screen::Connected(p) if !p.queue.waiting_for_capacity.is_empty() => {
+                "Ready tasks are queued while all implementation slots are occupied"
+            }
             Screen::Connected(p) if p.queue.running => "Automatic build queue is running",
             _ => "",
         }

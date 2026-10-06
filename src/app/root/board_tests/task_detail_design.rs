@@ -37,7 +37,7 @@ fn task_popup_prioritizes_human_title_and_keeps_live_action_visible() {
             text_position(&output, full_title).is_none(),
             "slug must not repeat in the heading"
         );
-        let stop = text_position(&output, "Stop task and pause queue").expect("live task action");
+        let stop = text_position(&output, "Cancel task").expect("live task action");
         assert!(
             stop.x < size.x && stop.y < size.y - 25.0,
             "action must remain visible: {stop:?}"
