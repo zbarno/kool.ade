@@ -12,9 +12,15 @@ pub(super) fn paint(
     board: &crate::ui::planning_board::ViewModel,
 ) {
     let viewport = ui.ctx().content_rect();
+    // Board work items carry conversation, state, approvals, and history. Give
+    // their shared modal shell workspace proportions on desktop, while keeping
+    // a small gutter on laptop and narrow viewports.
     let panel_bounds = egui::Rect::from_center_size(
         viewport.center(),
-        egui::vec2(viewport.width().min(900.0), viewport.height()),
+        egui::vec2(
+            (viewport.width() - 24.0).clamp(320.0, 1440.0),
+            viewport.height(),
+        ),
     );
     let activity_id = egui::Id::new("koolade_task_activity");
     let mut activity_path = ui.ctx().data_mut(|d| d.get_temp::<String>(activity_id));
