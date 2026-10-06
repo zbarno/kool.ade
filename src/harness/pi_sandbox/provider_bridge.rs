@@ -22,6 +22,14 @@ pub(crate) fn configuration_error() -> Option<String> {
     config::provider_error()
 }
 
+pub(crate) fn configured_models() -> anyhow::Result<Vec<String>> {
+    config::configured_models()
+}
+
+pub(crate) fn configured_default_model() -> anyhow::Result<String> {
+    config::configured_default_model()
+}
+
 pub(super) struct ProviderBridge {
     pub socket_dir: PathBuf,
     pub agent_dir: PathBuf,
@@ -33,8 +41,8 @@ pub(super) struct ProviderBridge {
 }
 
 impl ProviderBridge {
-    pub fn start() -> anyhow::Result<Self> {
-        let config = config::load()?;
+    pub fn start(model: Option<&str>) -> anyhow::Result<Self> {
+        let config = config::load(model)?;
         let temp = std::env::temp_dir().join(format!(
             "koolade-planning-provider-{}-{}",
             std::process::id(),

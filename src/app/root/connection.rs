@@ -55,7 +55,9 @@ impl KooladeApp {
             .filter(|m| m.id != sent_id)
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
-        let purpose = crate::core::planning_work::find(&project.state, key)
+        let work = crate::core::planning_work::find(&project.state, key);
+        let purpose = work
+            .as_ref()
             .filter(|work| work.kind == crate::core::planning_work::WorkKind::Question)
             .map(|_| crate::core::workflow::TurnPurpose::Question)
             .unwrap_or(crate::core::workflow::TurnPurpose::Interview);
@@ -67,7 +69,12 @@ impl KooladeApp {
             comparison_feature: None,
         };
         project.task_chats.drafts.remove(key);
-        let harness = configured_harness(&mut self.task_harness);
+        let work_type = work
+            .as_ref()
+            .filter(|work| work.kind == crate::core::planning_work::WorkKind::DocumentationRefresh)
+            .map(|_| crate::persistence::harness_settings::DOCUMENTATION);
+        let harness = configured_harness_for(&mut self.task_harness, work_type);
+        let route_label = harness.label();
         project.task_turns.insert(
             key.into(),
             std::rc::Rc::new(TurnController::start_scoped(
@@ -76,7 +83,13 @@ impl KooladeApp {
                 Some(key.into()),
             )),
         );
-        project.task_live.insert(key.into(), Default::default());
+        project.task_live.insert(
+            key.into(),
+            crate::harness::LiveProgress {
+                selected_route: Some(route_label),
+                ..Default::default()
+            },
+        );
     }
 
     fn submit_review_changes(&mut self, key: &str) {

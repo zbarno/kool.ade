@@ -13,7 +13,16 @@ pub(crate) struct PlanningSandbox {
 }
 
 impl PlanningSandbox {
+    #[cfg(test)]
     pub fn new(root: &Path, pi_executable: &Path) -> anyhow::Result<Self> {
+        Self::new_with_model(root, pi_executable, None)
+    }
+
+    pub fn new_with_model(
+        root: &Path,
+        pi_executable: &Path,
+        model: Option<&str>,
+    ) -> anyhow::Result<Self> {
         anyhow::ensure!(
             cfg!(target_os = "linux"),
             "Planning reads are paused because this platform has no configured filesystem sandbox"
@@ -24,7 +33,7 @@ impl PlanningSandbox {
         let repositories = registered_roots(&root)?;
         let mut sandbox = Self::build(&root, &pi_executable, repositories)?;
         if is_pi_cli(&pi_executable) {
-            let provider = super::provider_bridge::ProviderBridge::start()?;
+            let provider = super::provider_bridge::ProviderBridge::start(model)?;
             sandbox.args.extend(provider.sandbox_mounts());
             sandbox.provider = Some(provider);
         }

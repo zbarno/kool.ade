@@ -234,6 +234,16 @@ pub trait AiHarness: Send + Sync {
     /// Run one planning turn to completion (spawns/manages the process).
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, AppError>;
 
+    /// Run with an optional request-scoped model choice. Adapters that do not
+    /// expose model selection keep their established CLI default.
+    fn execute_with_model(
+        &self,
+        request: &PlanningRequest,
+        _model: Option<&str>,
+    ) -> Result<HarnessOutcome, AppError> {
+        self.execute(request)
+    }
+
     /// Select from Koolade's bounded source catalog before a main planning turn.
     /// Backends without a dedicated retrieval pass use Koolade's safe core context.
     fn plan_retrieval(

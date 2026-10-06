@@ -25,6 +25,14 @@ impl AiHarness for PiHarness {
     }
 
     fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+        self.execute_with_model(req, None)
+    }
+
+    fn execute_with_model(
+        &self,
+        req: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<HarnessOutcome, AppError> {
         let exe = Self::locate_binary()?;
         super::capabilities::validate(&exe, req.mode)?;
         let exe = exe
@@ -41,6 +49,18 @@ impl AiHarness for PiHarness {
         let tool_access = runtime.tool_access(req.mode);
         let planning_reads = tool_access == ToolAccess::ReadOnly;
         let mut argv = vec![exe.to_string_lossy().into_owned()];
+        if let Some(model) = model {
+            let available =
+                crate::harness::pi_sandbox::configured_provider_models().map_err(|error| {
+                    AppError::Other(format!("Cannot validate selected Pi model: {error:#}"))
+                })?;
+            if !available.iter().any(|available| available == model) {
+                return Err(AppError::Other(format!(
+                    "Selected Pi model '{model}' is not in the configured provider's model catalog. Refresh Coding tools and choose an available model."
+                )));
+            }
+            argv.extend(["--model".into(), model.into()]);
+        }
         let system_instructions = match req.mode {
             ExecutionMode::Implementation => format!(
                 "{}\n\n{}",
@@ -132,13 +152,16 @@ impl AiHarness for PiHarness {
                 ToolAccess::ReadOnly => {
                     if planning_reads {
                         argv.extend(["--tools".into(), "read,grep,find,ls".into()]);
-                        let sandbox =
-                            crate::harness::pi_sandbox::PlanningSandbox::new(&req.repo_root, &exe)
-                                .map_err(|error| {
-                                    AppError::Other(format!(
-                                        "Cannot start bounded planning reads: {error:#}"
-                                    ))
-                                })?;
+                        let sandbox = crate::harness::pi_sandbox::PlanningSandbox::new_with_model(
+                            &req.repo_root,
+                            &exe,
+                            model,
+                        )
+                        .map_err(|error| {
+                            AppError::Other(format!(
+                                "Cannot start bounded planning reads: {error:#}"
+                            ))
+                        })?;
                         let mut wrapped = vec![sandbox.bwrap.to_string_lossy().into_owned()];
                         wrapped.extend(sandbox.command_args(&argv));
                         argv = wrapped;

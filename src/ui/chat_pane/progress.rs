@@ -2,6 +2,9 @@ use crate::ui::theme;
 use egui::RichText;
 pub fn paint_progress(ui: &mut egui::Ui, progress: &crate::harness::LiveProgress) {
     ui.push_id("live_turn", |ui| {
+        if let Some(route) = &progress.selected_route {
+            ui.label(RichText::new(format!("Route: {route}")).size(10.5).weak());
+        }
         if !progress.posts.is_empty() {
             for post in &progress.posts {
                 ui.push_id(post.id, |ui| {

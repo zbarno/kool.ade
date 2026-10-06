@@ -13,6 +13,8 @@ fn report(ok: bool) -> HarnessProbe {
         executable: Some("/example/bin/pi".into()),
         version: ok.then(|| "0.30.1".into()),
         ready: ok,
+        models: vec!["configured-model".into()],
+        default_model: None,
         configuration_required: false,
     }
 }
@@ -68,6 +70,8 @@ fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
         executable: Some("/example/bin/codex".into()),
         diagnostic: Some("login required".into()),
         ready: false,
+        models: vec![],
+        default_model: None,
         configuration_required: true,
     };
     let mut settings = HarnessSettings::default();
@@ -88,6 +92,8 @@ fn configured_codex_default_is_preserved_when_ready() {
         executable: Some("/example/bin/codex".into()),
         diagnostic: None,
         ready: true,
+        models: vec!["gpt-configured".into()],
+        default_model: Some("gpt-configured".into()),
         configuration_required: false,
     };
     let mut settings = HarnessSettings::default();

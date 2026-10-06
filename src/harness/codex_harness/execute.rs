@@ -25,13 +25,23 @@ impl AiHarness for CodexHarness {
     }
 
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+        self.execute_with_model(request, None)
+    }
+
+    fn execute_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<HarnessOutcome, AppError> {
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Codex CLI executable: {error}"))
         })?;
-        let requested_model = std::env::var(CODEX_MODEL_ENV)
-            .ok()
-            .filter(|model| !model.trim().is_empty())
-            .map(Into::into);
+        let requested_model = model.map(Into::into).or_else(|| {
+            std::env::var(CODEX_MODEL_ENV)
+                .ok()
+                .filter(|model| !model.trim().is_empty())
+                .map(Into::into)
+        });
         let requested_model_name = requested_model
             .as_ref()
             .map(|model: &std::ffi::OsString| model.to_string_lossy().into_owned());

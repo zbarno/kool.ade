@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct LiveProgress {
     pub telemetry: ActivityTelemetry,
+    /// Selected local harness/model at the start of this unit of work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_route: Option<String>,
     /// Completed provider/model responses observed during this harness run.
     /// Entries are keyed by call id so repeated snapshots replace prior data.
     #[serde(default)]
@@ -111,6 +114,7 @@ impl LiveProgress {
         }
         telemetry.samples.retain(|(time, _)| *time >= bucket - 59);
         next.telemetry = telemetry;
+        next.selected_route = next.selected_route.or_else(|| self.selected_route.clone());
         *self = next;
     }
 }
@@ -136,4 +140,26 @@ fn merge_model_call(mut next: ModelCallUsage, prior: &ModelCallUsage) -> ModelCa
     next.duration_millis = next.duration_millis.or(prior.duration_millis);
     next.stop_reason = next.stop_reason.or_else(|| prior.stop_reason.clone());
     next
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_route_survives_provider_progress_snapshots() {
+        let mut progress = LiveProgress {
+            selected_route: Some("codex / gpt-configured".into()),
+            ..Default::default()
+        };
+        progress.update(LiveProgress {
+            activity: Some("Reading the task".into()),
+            ..Default::default()
+        });
+        assert_eq!(
+            progress.selected_route.as_deref(),
+            Some("codex / gpt-configured")
+        );
+        assert_eq!(progress.activity.as_deref(), Some("Reading the task"));
+    }
 }

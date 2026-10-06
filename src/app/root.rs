@@ -97,6 +97,13 @@ pub(super) fn configured_harness(
     harness_selection::configured_harness(override_harness)
 }
 
+pub(super) fn configured_harness_for(
+    override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+    work_type: Option<&str>,
+) -> Box<dyn crate::harness::AiHarness> {
+    harness_selection::configured_harness_for(override_harness, work_type)
+}
+
 enum Screen {
     Welcome,
     Connected(Box<Project>),
