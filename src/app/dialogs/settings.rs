@@ -266,4 +266,15 @@ fn paint_harness_guide(ui: &mut egui::Ui, dlg: &mut DlgSettings) {
         };
         ui.label(rt);
     }
+    ui.separator();
+    ui.label(RichText::new("OpenAI Codex CLI").size(12.0).strong());
+    ui.label(
+        RichText::new(format!(
+            "Set {}=codex before launching Kool.ad/e to use Codex. Optional model: {}.",
+            crate::harness::CODEX_HARNESS_ENV,
+            crate::harness::codex_harness::CODEX_MODEL_ENV
+        ))
+        .size(11.0)
+        .weak(),
+    );
 }
