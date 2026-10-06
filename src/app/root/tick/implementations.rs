@@ -39,6 +39,7 @@ impl KooladeApp {
                 project.save_task_activity(&ticket);
             }
             for (ticket, result) in finished {
+                let cancellation_requested = project.task_cancelled(&ticket);
                 project.active_implementations.remove(&ticket);
                 project.queue.in_flight.remove(&ticket);
                 if project.queue.current_ticket.as_ref() == Some(&ticket) {
@@ -130,45 +131,53 @@ impl KooladeApp {
                         }
                     }
                     Err(error) => {
-                        project.bind_task_conversation_identities();
-                        project.task_chats.ensure_loaded(&project.chat_slug);
-                        project.task_chats.remember_response(
-                            &project.chat_slug,
-                            &ticket,
-                            vec![ChatMessage::new(
-                                ChatRole::System,
-                                format!("Implementation or pull request creation failed and needs attention: {}", error.message),
-                                Some(ticket.clone()),
-                            )],
-                        );
-                        project.queue.blocked.insert(ticket.clone(), error.clone());
-                        project.queue.last_error =
-                            match crate::core::implementation::record_failed_attempt(
-                                &project.state.repo_root,
-                                &ticket,
-                                &error.message,
-                            ) {
-                                Ok(Some(record)) => {
-                                    project.implementation_states.insert(ticket.clone(), record);
-                                    error.message.clone()
-                                }
-                                Ok(None) => error.message.clone(),
-                                Err(persist_error) => format!(
-                                    "{}\nCould not persist the blocked retry state: {persist_error:#}",
-                                    error.message
-                                ),
-                            };
-                        if project
-                            .queue
-                            .recoverable_tickets(&project.task_documents)
-                            .contains(&ticket)
-                        {
-                            "Recoverable orchestration failure; automatically resuming preserved task work.".into()
+                        if cancellation_requested {
+                            project.queue.blocked.remove(&ticket);
+                            project.queue.recovery_attempts.remove(&ticket);
+                            "Cancellation requested. Preserved implementation files and history; this task will not restart automatically.".into()
                         } else {
-                            format!(
-                                "The task needs attention after automatic recovery. Its work is preserved. Failure: {}",
-                                error.message
-                            )
+                            project.bind_task_conversation_identities();
+                            project.task_chats.ensure_loaded(&project.chat_slug);
+                            project.task_chats.remember_response(
+                                &project.chat_slug,
+                                &ticket,
+                                vec![ChatMessage::new(
+                                    ChatRole::System,
+                                    format!("Implementation or pull request creation failed and needs attention: {}", error.message),
+                                    Some(ticket.clone()),
+                                )],
+                            );
+                            project.queue.blocked.insert(ticket.clone(), error.clone());
+                            project.queue.last_error =
+                                match crate::core::implementation::record_failed_attempt(
+                                    &project.state.repo_root,
+                                    &ticket,
+                                    &error.message,
+                                ) {
+                                    Ok(Some(record)) => {
+                                        project
+                                            .implementation_states
+                                            .insert(ticket.clone(), record);
+                                        error.message.clone()
+                                    }
+                                    Ok(None) => error.message.clone(),
+                                    Err(persist_error) => format!(
+                                        "{}\nCould not persist the blocked retry state: {persist_error:#}",
+                                        error.message
+                                    ),
+                                };
+                            if project
+                                .queue
+                                .recoverable_tickets(&project.task_documents)
+                                .contains(&ticket)
+                            {
+                                "Recoverable orchestration failure; automatically resuming preserved task work.".into()
+                            } else {
+                                format!(
+                                    "The task needs attention after automatic recovery. Its work is preserved. Failure: {}",
+                                    error.message
+                                )
+                            }
                         }
                     }
                 };

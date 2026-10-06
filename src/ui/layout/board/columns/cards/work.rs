@@ -167,6 +167,14 @@ pub(in crate::ui::layout::board::columns) fn work(
                     ticket: work.key.clone(),
                 });
             }
+            let cancellable = column != 4
+                || (work.kind == crate::core::planning_work::WorkKind::Feature
+                    && work.feature_id.is_some());
+            if cancellable && ui.small_button("Cancel").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(egui::Id::new("koolade_cancel_pending"), work.key.clone())
+                });
+            }
             ui.label(
                 RichText::new(&work.key)
                     .size(11.0)

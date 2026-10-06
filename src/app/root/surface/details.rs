@@ -173,6 +173,7 @@ impl KooladeApp {
                     setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,
                     archived: p.archived_tasks.clone(),
+                    cancelled: p.cancelled_work.clone(),
                 }
             }
             _ => crate::ui::planning_board::ViewModel::default(),

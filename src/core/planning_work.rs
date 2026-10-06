@@ -12,7 +12,7 @@ mod reconcile;
 mod tests;
 
 pub use projection::{cards, context, link_feature_identities};
-pub use reconcile::{completed_turn_status, reconcile_inactive};
+pub use reconcile::{completed_turn_status, reconcile_inactive, reconcile_inactive_excluding};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

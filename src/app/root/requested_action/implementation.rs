@@ -9,7 +9,12 @@ pub(super) fn publish(app: &mut KooladeApp, target: Option<String>) {
 pub(super) fn start_from_button(app: &mut KooladeApp) {
     let feature_id = match &app.screen {
         Screen::Connected(project) => {
-            let active = project.active_implementations.keys().cloned().collect();
+            let mut active = project
+                .active_implementations
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            active.extend(project.cancelled_task_paths());
             let ticket = crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
                 &project.task_documents,
                 &project.implementation_states,
@@ -67,11 +72,17 @@ pub(super) fn start(app: &mut KooladeApp, target: Option<String>, resume: bool) 
         );
         return;
     }
-    let active = project.active_implementations.keys().cloned().collect();
+    let mut active = project
+        .active_implementations
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    active.extend(project.cancelled_task_paths());
     let selected = if let Some(target) = target.as_deref() {
         project
             .task_documents
             .iter()
+            .filter(|document| !project.task_cancelled(&document.path))
             .find(|document| target::task_matches(document, target))
             .map(|document| document.path.clone())
             .ok_or_else(|| format!("No current task matches ID {target}."))
@@ -80,6 +91,7 @@ pub(super) fn start(app: &mut KooladeApp, target: Option<String>, resume: bool) 
             .task_documents
             .iter()
             .filter(|document| !document.path.ends_with("/README.md"))
+            .filter(|document| !project.task_cancelled(&document.path))
             .filter(|document| {
                 project.queue.blocked.contains_key(&document.path)
                     || project

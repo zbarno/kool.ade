@@ -65,10 +65,27 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     }
     let task_documents = crate::artifacts::task_docs::load_board(&canonical, &state.workflow);
     let archived_tasks = crate::persistence::archived_tasks::load(&slug);
+    let cancelled_work = crate::persistence::cancelled_work::load(&canonical).map_err(|error| {
+        AppError::Artifact {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: format!("cancelled work could not be loaded: {error}"),
+        }
+    })?;
     let mut planning_work = crate::core::planning_work::load(&canonical)
         .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
-    let reconciled =
-        crate::core::planning_work::reconcile_inactive(&state, &mut planning_work, None);
+    let cancelled_planning = planning_work
+        .iter()
+        .filter(|work| {
+            cancelled_work.contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+        })
+        .map(|work| work.uid.clone())
+        .collect();
+    let reconciled = crate::core::planning_work::reconcile_inactive_excluding(
+        &state,
+        &mut planning_work,
+        None,
+        &cancelled_planning,
+    );
     let linked = crate::core::planning_work::link_feature_identities(&state, &mut planning_work);
     let planning_save_error = if linked || !reconciled.is_empty() {
         crate::core::planning_work::save(&canonical, &planning_work).err()
@@ -80,6 +97,7 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         activity: Default::default(),
         task_documents,
         archived_tasks,
+        cancelled_work,
         state,
         chat_slug: slug,
         chat,
@@ -137,13 +155,16 @@ fn has_current_board_work(project: &Project) -> bool {
         .items
         .iter()
         .any(|item| item.status == crate::domain::ItemStatus::Open)
-        || project
-            .planning_work
-            .iter()
-            .any(|work| work.status != crate::core::planning_work::WorkStatus::Done)
+        || project.planning_work.iter().any(|work| {
+            work.status != crate::core::planning_work::WorkStatus::Done
+                && !project
+                    .cancelled_work
+                    .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+        })
         || project.task_documents.iter().any(|doc| {
             !doc.path.ends_with("/README.md")
                 && !project.archived_tasks.contains(&doc.path)
+                && !project.task_cancelled(&doc.path)
                 && project
                     .implementation_states
                     .get(&doc.path)

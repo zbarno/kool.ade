@@ -35,9 +35,20 @@ pub fn reconcile_inactive(
     work: &mut [Work],
     active_key: Option<&str>,
 ) -> Vec<String> {
+    reconcile_inactive_excluding(state, work, active_key, &Default::default())
+}
+
+pub fn reconcile_inactive_excluding(
+    state: &PlannerState,
+    work: &mut [Work],
+    active_key: Option<&str>,
+    excluded_uids: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
     let mut changes = Vec::new();
     for item in work.iter_mut().filter(|item| {
-        item.status == WorkStatus::InProgress && Some(item.key.as_str()) != active_key
+        item.status == WorkStatus::InProgress
+            && Some(item.key.as_str()) != active_key
+            && !excluded_uids.contains(&item.uid)
     }) {
         let next = inactive_status(state, item);
         item.status = next;
