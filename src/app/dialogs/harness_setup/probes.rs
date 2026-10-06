@@ -103,6 +103,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
     let pi = crate::harness::PiHarness::probe_report();
     let codex = crate::harness::CodexHarness::probe_report();
     let claude = crate::harness::ClaudeHarness::probe_report();
+    let opencode = crate::harness::OpenCodeHarness::probe_report();
     let copilot = crate::harness::CopilotHarness::probe_report();
     vec![
         HarnessProbe {
@@ -149,6 +150,24 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             configuration_required: claude.readiness
                 == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
             status: claude.status,
+        },
+        HarnessProbe {
+            id: "opencode".into(),
+            version: opencode.version,
+            executable: opencode
+                .binary
+                .as_ref()
+                .map(|path| path.to_string_lossy().into()),
+            diagnostic: (!opencode.diagnostic.is_empty()).then_some(opencode.diagnostic),
+            ready: opencode.readiness == crate::harness::opencode_harness::OpenCodeReadiness::Ready,
+            models: opencode.models,
+            default_model: None,
+            configuration_required: matches!(
+                opencode.readiness,
+                crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
+                    | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired
+            ),
+            status: opencode.status,
         },
         HarnessProbe {
             id: "copilot".into(),
