@@ -4,6 +4,7 @@ impl KooladeApp {
     pub(super) fn poll_implementations(&mut self) {
         if let Screen::Connected(project) = &mut self.screen {
             let mut finished = Vec::new();
+            let mut claim_errors = std::collections::BTreeMap::new();
             let mut checklist_dirty = Vec::new();
             for (ticket, ctrl) in &project.active_implementations {
                 for _ in 0..64 {
@@ -30,6 +31,20 @@ impl KooladeApp {
                         Some(crate::core::implementation::Event::Done(result)) => {
                             finished.push((ticket.clone(), *result));
                             break;
+                        }
+                        Some(crate::core::implementation::Event::ClaimBlocked(error)) => {
+                            let failure = crate::core::implementation::Failure::new(
+                                crate::core::implementation::FailureKind::Other,
+                                crate::core::implementation::RecoveryDisposition::UserAction,
+                                error.to_string(),
+                            );
+                            claim_errors.insert(ticket.clone(), error);
+                            finished.push((ticket.clone(), Err(failure)));
+                            break;
+                        }
+                        Some(crate::core::implementation::Event::ClaimWarning(warning)) => {
+                            project.queue.last_error = warning.clone();
+                            project.activity.pending.push(warning);
                         }
                         None => break,
                     }
@@ -135,6 +150,17 @@ impl KooladeApp {
                             project.queue.blocked.remove(&ticket);
                             project.queue.recovery_attempts.remove(&ticket);
                             "Cancellation requested. Preserved implementation files and history; this task will not restart automatically.".into()
+                        } else if let Some(claim_error) = claim_errors.remove(&ticket) {
+                            if let crate::core::task_claim::ClaimError::AlreadyClaimed {
+                                record,
+                                stale: true,
+                            } = claim_error.as_ref()
+                            {
+                                project.queue.stale_claim = Some((ticket.clone(), record.clone()));
+                            }
+                            project.queue.blocked.insert(ticket.clone(), error.clone());
+                            project.queue.last_error = claim_error.to_string();
+                            format!("Implementation did not start: {}", claim_error)
                         } else {
                             project.bind_task_conversation_identities();
                             project.task_chats.ensure_loaded(&project.chat_slug);

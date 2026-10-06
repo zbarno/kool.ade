@@ -123,6 +123,8 @@ pub struct Implementation {
 pub enum Event {
     Progress(Box<LiveProgress>),
     Done(Box<Result<Implementation, Failure>>),
+    ClaimBlocked(Box<crate::core::task_claim::ClaimError>),
+    ClaimWarning(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +132,11 @@ pub(crate) enum PublicationMode {
     HoldForReview,
     CreatePullRequest,
     AutoPublish,
+}
+
+pub(crate) struct StartPolicy {
+    pub publication_mode: PublicationMode,
+    pub require_independent_checks: bool,
 }
 
 struct RunOptions<'a> {

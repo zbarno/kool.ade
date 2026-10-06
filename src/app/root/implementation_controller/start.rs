@@ -1,53 +1,30 @@
 use super::*;
+mod actions;
+mod claim;
+mod review;
 
 impl KooladeApp {
-    pub(in crate::app::root) fn approve_publication(&mut self, ticket: &str) {
-        let eligible = matches!(&self.screen, Screen::Connected(project)
-            if !project.active_implementations.contains_key(ticket)
-                && project.implementation_states.get(ticket).is_some_and(|state|
-                    state.pr_url.is_none()
-                        && matches!(state.status,
-                            ImplementationStatus::AwaitingApproval
-                                | ImplementationStatus::ReadyToPublish)));
-        if eligible {
-            if let Screen::Connected(project) = &mut self.screen {
-                project.bind_task_conversation_identities();
-                project.task_chats.ensure_loaded(&project.chat_slug);
-                const DECISION: &str =
-                    "I approve creating a pull request for the verified implementation.";
-                if !project
-                    .task_chats
-                    .messages
-                    .get(ticket)
-                    .is_some_and(|messages| messages.iter().any(|message| message.text == DECISION))
-                    && let Err(error) = project.task_chats.append(
-                        &project.chat_slug,
-                        ticket,
-                        vec![ChatMessage::new(
-                            ChatRole::User,
-                            DECISION,
-                            Some(ticket.to_owned()),
-                        )],
-                    )
-                {
-                    self.toasts.warning(error);
-                    return;
-                }
-            }
-            self.start_implementation(ticket.to_owned(), true);
-        }
-    }
-
-    pub(in crate::app::root) fn start_implementation(&mut self, ticket: String, manual: bool) {
+    pub(in crate::app::root) fn take_over_stale_task_claim(&mut self, ticket: String) {
+        let session = match &self.screen {
+            Screen::Connected(project) => project
+                .queue
+                .stale_claim
+                .as_ref()
+                .filter(|(claimed_ticket, _)| claimed_ticket == &ticket)
+                .map(|(_, record)| record.session_id.clone()),
+            Screen::Welcome => None,
+        };
+        let Some(session) = session else { return };
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_capabilities(ticket, manual, capabilities);
+        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session));
     }
 
-    pub(in crate::app::root) fn start_implementation_with_capabilities(
+    fn start_implementation_with_claim_mode(
         &mut self,
         ticket: String,
         manual: bool,
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
+        stale_session: Option<String>,
     ) {
         if matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some() || p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
@@ -113,6 +90,21 @@ impl KooladeApp {
                 p.queue.last_error = error;
                 return;
             }
+            let claim_request = match claim::prepare(
+                &p.state.repo_root,
+                &p.task_documents,
+                &ticket,
+                stale_session.as_deref(),
+                manual && stale_session.is_none(),
+            ) {
+                Ok(request) => request,
+                Err(error) => {
+                    p.queue.last_error = error.to_string();
+                    self.toasts.warning(error.to_string());
+                    return;
+                }
+            };
+            p.queue.stale_claim = None;
             let running = p
                 .active_implementations
                 .keys()
@@ -247,62 +239,19 @@ impl KooladeApp {
                 });
             p.active_implementations.insert(
                 ticket.clone(),
-                crate::core::implementation::Controller::start_project_with_policy(
+                crate::core::implementation::Controller::start_project_with_policy_and_claim_request(
                     p.state.repo_root.clone(),
                     target_repo,
                     ticket,
-                    publication_mode,
-                    require_independent_checks,
+                    crate::core::implementation::StartPolicy {
+                        publication_mode,
+                        require_independent_checks,
+                    },
                     user_context,
                     super::super::configured_harness(&mut self.task_harness),
+                    Some(claim_request),
                 ),
             );
         }
-    }
-
-    pub(in crate::app::root) fn request_publication_changes(&mut self, ticket: &str) {
-        let Screen::Connected(project) = &mut self.screen else {
-            return;
-        };
-        if project.active_implementations.contains_key(ticket) {
-            return;
-        }
-        let Some(mut state) = project.implementation_states.get(ticket).cloned() else {
-            return;
-        };
-        if !matches!(
-            state.status,
-            ImplementationStatus::AwaitingApproval | ImplementationStatus::ReadyToPublish
-        ) || state.pr_url.is_some()
-        {
-            return;
-        }
-        state.status = ImplementationStatus::ChangesRequested;
-        state.detail = "Changes requested before PR approval. Describe the requested changes in this task's conversation to resume implementation.".into();
-        let Ok(dir) = crate::core::implementation::state_dir_for_task(
-            &project.state.repo_root,
-            ticket,
-            state.task_uid.as_deref(),
-        ) else {
-            return;
-        };
-        if let Err(error) = crate::core::implementation::save(&dir, &state) {
-            project.queue.last_error = format!("Cannot save the review decision: {error:#}");
-            return;
-        }
-        project
-            .implementation_states
-            .insert(ticket.to_owned(), state);
-        project.bind_task_conversation_identities();
-        project.task_chats.ensure_loaded(&project.chat_slug);
-        project.task_chats.remember_response(
-            &project.chat_slug,
-            ticket,
-            vec![crate::domain::ChatMessage::new(
-                crate::domain::ChatRole::User,
-                "I am requesting changes before approving a pull request.",
-                Some(ticket.to_owned()),
-            )],
-        );
     }
 }

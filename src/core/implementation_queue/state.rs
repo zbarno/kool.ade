@@ -28,6 +28,8 @@ pub struct Queue {
     pub max_parallel: usize,
     pub blocked: BTreeMap<String, Failure>,
     pub last_error: String,
+    /// In-memory stale remote claim offered for an explicit recovery action.
+    pub stale_claim: Option<(String, crate::core::task_claim::ClaimRecord)>,
     pub recovery_paused: bool,
     pub recovery_attempts: BTreeMap<String, usize>,
     task_uids: BTreeMap<String, String>,
@@ -49,6 +51,7 @@ impl Default for Queue {
             max_parallel: 3,
             blocked: BTreeMap::new(),
             last_error: String::new(),
+            stale_claim: None,
             recovery_paused: false,
             recovery_attempts: BTreeMap::new(),
             task_uids: BTreeMap::new(),
