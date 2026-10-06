@@ -41,6 +41,7 @@ pub(super) fn run_with_project_options(
         user_context,
         auto_publish_gate,
     } = options;
+    let active_progress = progress.clone();
     let migration_gate = crate::artifacts::migration::acquire_project_state_gate(planning_root)?;
     anyhow::ensure!(
         target_repository(planning_root, ticket)?.canonicalize()? == repo.canonicalize()?,
@@ -53,6 +54,14 @@ pub(super) fn run_with_project_options(
         progress,
     };
     let (text, task_uid, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let telemetry_harness = super::telemetry::CaptureHarness::new(
+        harness,
+        planning_root,
+        &text,
+        metadata.as_ref(),
+        task_uid.as_deref(),
+    );
+    let harness: &dyn AiHarness = &telemetry_harness;
     let accrual = crate::core::time_accrual::span_for_ticket(
         planning_root,
         &text,
@@ -70,6 +79,14 @@ pub(super) fn run_with_project_options(
     lock.try_lock().map_err(|_| {
         anyhow::anyhow!("This ticket is already being implemented in another Kool.ad/e instance")
     })?;
+    let _active_telemetry = super::telemetry::ActiveSpan::new(
+        planning_root,
+        &text,
+        metadata.as_ref(),
+        task_uid.as_deref(),
+        &telemetry_harness.session,
+        active_progress,
+    );
     let mut state = if dir.join("state.json").exists() {
         let mut state = read_state_file(&dir.join("state.json"))?;
         anyhow::ensure!(
