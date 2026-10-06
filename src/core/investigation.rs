@@ -142,6 +142,7 @@ fn run_with_settle_window(
         let request = PlanningRequest {
             mode: ExecutionMode::Investigation,
             reasoning_level: "off".into(),
+            telemetry_phase: None,
             repo_root: state.repo_root.clone(),
             prompt_body: format!("{base}\n{correction}"),
             system_instructions: prompt::PLANNER_POLICY.into(),

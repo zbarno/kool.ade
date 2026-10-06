@@ -11,9 +11,11 @@
 //! * `store.rs` — concurrency-safe append store, corrupt-line quarantine
 
 pub mod record;
+pub mod report;
 pub mod store;
 
 pub use record::{InvocationRecord, SCHEMA_VERSION};
+pub use report::{ImplementationMetrics, MetricBreakdown};
 pub use store::{
     append, invocations_path, load, parse_record, quarantine_path, sweep_corrupt_lines,
     telemetry_dir,
