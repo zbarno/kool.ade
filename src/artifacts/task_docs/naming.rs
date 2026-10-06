@@ -240,6 +240,7 @@ mod tests {
             specification: String::new(),
             feature_id: None,
             contract: None,
+            branch_targets: None,
             stories: Vec::new(),
         };
         let story = TaskStory {
