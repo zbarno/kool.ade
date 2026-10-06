@@ -30,6 +30,7 @@ pub struct DlgSettings {
     pub rows: Vec<Row>,
     pub repositories: Vec<RepositoryNameRow>,
     pub feedback: Option<(bool, String)>,
+    pub open_harness_setup: bool,
     /// Per-open background probe (F-16 guide, D-15): `Some` while the
     /// detached thread may still deliver its report; drained by
     /// `paint_harness_guide`, then dropped.
@@ -90,6 +91,7 @@ impl DlgSettings {
             rows,
             repositories: repository_names::rows(&proj.state.repositories),
             feedback: None,
+            open_harness_setup: false,
             // Per-open, DETACHED probe (D-15): bounded near ~12 s off the UI
             // thread (10 s poll + 2 s settle, NFR-4). The closure is 'static
             // and panic-free, and the send result is ignored, so an

@@ -34,6 +34,7 @@ impl App for KooladeApp {
                 let slot = std::cell::RefCell::new(false);
                 let browse_slot = std::cell::RefCell::new(false);
                 let clone_slot = std::cell::RefCell::new(false);
+                let harness_setup_slot = std::cell::RefCell::new(false);
                 // In-flight badge for the card: ("github.com/{o}/{r}", repo).
                 let cloning = self
                     .clone_job
@@ -61,6 +62,12 @@ impl App for KooladeApp {
                                         None,
                                     );
                                 });
+                        });
+                        ui.add_space(10.0);
+                        ui.vertical_centered(|ui| {
+                            if ui.link("Configure coding tools…").clicked() {
+                                *harness_setup_slot.borrow_mut() = true;
+                            }
                         });
                     });
                 });
@@ -92,6 +99,9 @@ impl App for KooladeApp {
                         let path = path.canonicalize().unwrap_or(path);
                         self.conn_path = path.to_string_lossy().into_owned();
                     }
+                }
+                if *harness_setup_slot.borrow() {
+                    self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
                 }
             }
             Screen::Connected(_) => {
