@@ -56,7 +56,7 @@ fn auto_mode_repairs_conflicts_and_keeps_verified_integration_for_review() {
         true,
     )
     .unwrap();
-    assert_eq!(result.status, ImplementationStatus::ReadyToPublish);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert!(
         result
             .independent_check

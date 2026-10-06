@@ -65,6 +65,8 @@ pub(super) fn task_kind(s: &dyn Surface, key: &str) -> Kind {
         ) => Kind::Blocked,
         Some(
             crate::core::implementation::ImplementationStatus::ReadyToPublish
+            | crate::core::implementation::ImplementationStatus::AwaitingApproval
+            | crate::core::implementation::ImplementationStatus::ChangesRequested
             | crate::core::implementation::ImplementationStatus::PullRequestClosed
             | crate::core::implementation::ImplementationStatus::Interrupted,
         ) => Kind::WaitingOnUser,

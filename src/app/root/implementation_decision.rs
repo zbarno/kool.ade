@@ -5,7 +5,11 @@ pub(super) fn latest_context(messages: &[ChatMessage], user_name: &str) -> Optio
     messages
         .iter()
         .rev()
-        .find(|m| m.role == ChatRole::User)
+        .find(|m| {
+            m.role == ChatRole::User
+                && m.text != "I approve creating a pull request for the verified implementation."
+                && m.text != "I am requesting changes before approving a pull request."
+        })
         .map(|message| {
             format!(
                 "Submitted at {} by {}:\n{}",

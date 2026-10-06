@@ -3,6 +3,7 @@ use super::*;
 mod activity;
 mod hero;
 mod reply;
+mod review;
 mod state;
 
 pub(super) fn paint(
@@ -62,7 +63,6 @@ pub(super) fn paint(
                     | crate::core::implementation::ImplementationStatus::Verifying
                     | crate::core::implementation::ImplementationStatus::Publishing
                     | crate::core::implementation::ImplementationStatus::WaitingToMerge
-                    | crate::core::implementation::ImplementationStatus::ReadyToPublish
                     | crate::core::implementation::ImplementationStatus::Interrupted
             )
         });
@@ -174,10 +174,11 @@ pub(super) fn paint(
                             ui.add(egui::Label::new(format!("• {action}")).wrap());
                         }
                     }
-                } else if record.as_ref().is_some_and(|record| {
-                    record.status == crate::core::implementation::ImplementationStatus::ReadyToPublish
-                }) {
-                    ui.label("Verification is complete. The work is saved locally; Auto Publish is off. Choose Share verified work for review when ready.");
+                } else if review::changes_requested(record.as_ref()) {
+                    review::paint_changes_requested(ui);
+                    paint_reply(ui, s, ticket, &mut view, &[]);
+                } else if review::approval_required(record.as_ref()) {
+                    review::paint_approval(ui, s, ticket);
                 } else if open_ask.is_some() {
                     ui.label("Answer Kool.ad/e's question below.");
                 } else if interrupted {
@@ -185,10 +186,11 @@ pub(super) fn paint(
                 } else {
                     ui.label("Start implementation when this task is ready.");
                 }
+                let review_waiting = review::waiting(record.as_ref());
                 let label = if record.as_ref().is_some_and(|record| {
-                    record.status == crate::core::implementation::ImplementationStatus::ReadyToPublish
+                    review::approval_required(Some(record))
                 }) {
-                    "Share verified work for review"
+                    "Approve and create pull request"
                 } else if checks_unavailable
                     || view.failure_disposition
                         == Some(crate::core::implementation::RecoveryDisposition::UserAction)
@@ -201,7 +203,7 @@ pub(super) fn paint(
                 } else {
                     "Implement"
                 };
-                if ui
+                if !review_waiting && ui
                     .add_enabled(
                         view.can_start,
                         egui::Button::new(RichText::new(label).strong().color(theme::TEXT)).fill(theme::BLUE).min_size(egui::vec2(0.0, 36.0)),

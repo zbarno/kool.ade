@@ -202,7 +202,6 @@ pub(crate) fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &st
                 | ImplementationStatus::Interrupted
                 | ImplementationStatus::WaitingToMerge
                 | ImplementationStatus::Publishing
-                | ImplementationStatus::ReadyToPublish
         )
     });
     if let Some(error) = failure {

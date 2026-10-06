@@ -97,7 +97,7 @@ fn decode(bytes: &[u8]) -> anyhow::Result<(Implementation, bool)> {
     Ok((serde_json::from_value(value)?, migrated))
 }
 
-pub(super) fn save(dir: &Path, state: &Implementation) -> anyhow::Result<()> {
+pub(crate) fn save(dir: &Path, state: &Implementation) -> anyhow::Result<()> {
     crate::artifacts::atomic_write_bytes(&dir.join("state.json"), &serialize_state(state)?)
 }
 

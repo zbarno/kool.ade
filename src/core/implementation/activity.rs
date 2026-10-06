@@ -39,6 +39,8 @@ pub fn finalize_terminal_activity_if_stale(
         super::ImplementationStatus::Blocked
             | super::ImplementationStatus::Interrupted
             | super::ImplementationStatus::ReadyToPublish
+            | super::ImplementationStatus::AwaitingApproval
+            | super::ImplementationStatus::ChangesRequested
             | super::ImplementationStatus::AwaitingReview
             | super::ImplementationStatus::Completed
             | super::ImplementationStatus::PullRequestClosed
