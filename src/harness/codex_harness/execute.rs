@@ -7,7 +7,8 @@ use super::{CODEX_MODEL_ENV, CodexHarness, STDERR_LIMIT};
 use crate::error::AppError;
 use crate::harness::pi_proc::{PollState, StreamEvt};
 use crate::harness::{
-    AiHarness, ExecutionMode, HarnessOutcome, LivePost, LiveProgress, PlanningRequest,
+    AiHarness, ExecutionMode, HarnessOutcome, LivePost, LiveProgress, ModelCallUsage,
+    PlanningRequest,
 };
 
 impl AiHarness for CodexHarness {
@@ -27,13 +28,14 @@ impl AiHarness for CodexHarness {
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Codex CLI executable: {error}"))
         })?;
-        let model = request
-            .model
-            .clone()
+        let requested_model = std::env::var(CODEX_MODEL_ENV)
+            .ok()
             .filter(|model| !model.trim().is_empty())
-            .or_else(|| std::env::var(CODEX_MODEL_ENV).ok())
             .map(Into::into);
-        let (argv, prompt) = command(&binary, request, model);
+        let requested_model_name = requested_model
+            .as_ref()
+            .map(|model: &std::ffi::OsString| model.to_string_lossy().into_owned());
+        let (argv, prompt) = command(&binary, request, requested_model);
         let task =
             crate::harness::pi_proc::spawn_with_input(&argv, &request.repo_root, Some(prompt))?;
         let deadline = Instant::now() + request.timeout;
@@ -41,14 +43,11 @@ impl AiHarness for CodexHarness {
         let mut exit_status = None;
         let mut final_text = String::new();
         let mut activity = Vec::new();
+        let mut model_calls = Vec::new();
+        let started_at = chrono::Utc::now();
+        let started = Instant::now();
         let mut telemetry = crate::harness::ActivityTelemetry {
-            started_ms: Some(chrono::Utc::now().timestamp_millis()),
-            model: request
-                .model
-                .clone()
-                .filter(|model| !model.trim().is_empty())
-                .or_else(|| std::env::var(CODEX_MODEL_ENV).ok())
-                .filter(|model| !model.trim().is_empty()),
+            started_ms: Some(started_at.timestamp_millis()),
             ..Default::default()
         };
 
@@ -76,9 +75,33 @@ impl AiHarness for CodexHarness {
                         match event {
                             CodexEvent::Message(text) => final_text = text,
                             CodexEvent::Activity(text) => activity.push(text),
-                            CodexEvent::Usage { input, output } => {
-                                telemetry.input_tokens = input.or(telemetry.input_tokens);
-                                telemetry.output_tokens = output.or(telemetry.output_tokens);
+                            CodexEvent::Usage {
+                                call_id,
+                                input,
+                                output,
+                                cached_input,
+                                cache_write_input,
+                            } => {
+                                let end = chrono::Utc::now();
+                                model_calls.push(ModelCallUsage {
+                                    call_id: call_id.unwrap_or_else(|| {
+                                        format!("codex:turn-{}", model_calls.len())
+                                    }),
+                                    provider: Some("openai".into()),
+                                    api: Some("codex-cli-turn-aggregate".into()),
+                                    model: None,
+                                    requested_model: requested_model_name.clone(),
+                                    input_tokens: input,
+                                    output_tokens: output,
+                                    cache_read_tokens: cached_input,
+                                    cache_write_tokens: cache_write_input,
+                                    total_tokens: input.zip(output).map(|(i, o)| i + o),
+                                    started_at: Some(started_at),
+                                    ended_at: Some(end),
+                                    duration_millis: Some(started.elapsed().as_millis() as u64),
+                                    stop_reason: Some("completed".into()),
+                                    ..Default::default()
+                                });
                             }
                             CodexEvent::Failure(reason) => {
                                 return Err(AppError::HarnessFailed {
@@ -90,6 +113,7 @@ impl AiHarness for CodexHarness {
                         }
                         let progress = LiveProgress {
                             telemetry: telemetry.clone(),
+                            model_calls: model_calls.clone(),
                             posts: activity
                                 .iter()
                                 .enumerate()
@@ -141,6 +165,7 @@ impl AiHarness for CodexHarness {
         telemetry.finished_ms = Some(chrono::Utc::now().timestamp_millis());
         let _ = request.progress_tx.send(LiveProgress {
             telemetry,
+            model_calls,
             posts: activity
                 .iter()
                 .enumerate()
@@ -178,8 +203,11 @@ pub enum CodexEvent {
     Message(String),
     Activity(String),
     Usage {
+        call_id: Option<String>,
         input: Option<u64>,
         output: Option<u64>,
+        cached_input: Option<u64>,
+        cache_write_input: Option<u64>,
     },
     Failure(String),
     Other,
@@ -207,8 +235,13 @@ pub fn parse_event(line: &str) -> Option<CodexEvent> {
                 .to_owned(),
         )),
         "turn.completed" => Some(CodexEvent::Usage {
+            call_id: value["turn_id"]
+                .as_str()
+                .map(|turn| format!("codex:{turn}")),
             input: value["usage"]["input_tokens"].as_u64(),
             output: value["usage"]["output_tokens"].as_u64(),
+            cached_input: value["usage"]["cached_input_tokens"].as_u64(),
+            cache_write_input: value["usage"]["cache_write_input_tokens"].as_u64(),
         }),
         "turn.failed" | "error" => Some(CodexEvent::Failure(
             value["error"]["message"]

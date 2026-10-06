@@ -18,8 +18,11 @@ fn parses_completed_message_activity_and_usage_events() {
     assert_eq!(
         parse_event(r#"{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":7}}"#),
         Some(CodexEvent::Usage {
+            call_id: None,
             input: Some(12),
-            output: Some(7)
+            output: Some(7),
+            cached_input: None,
+            cache_write_input: None,
         })
     );
 }
@@ -28,17 +31,22 @@ fn parses_completed_message_activity_and_usage_events() {
 fn live_progress_retains_harness_usage_metadata() {
     let mut progress = LiveProgress::default();
     progress.update(LiveProgress {
-        telemetry: crate::harness::ActivityTelemetry {
+        model_calls: vec![crate::harness::ModelCallUsage {
+            call_id: "codex:test".into(),
+            provider: Some("openai".into()),
+            model: Some("codex-model".into()),
             input_tokens: Some(11),
             output_tokens: Some(5),
-            model: Some("codex-model".into()),
             ..Default::default()
-        },
+        }],
         ..LiveProgress::default()
     });
-    assert_eq!(progress.telemetry.input_tokens, Some(11));
-    assert_eq!(progress.telemetry.output_tokens, Some(5));
-    assert_eq!(progress.telemetry.model.as_deref(), Some("codex-model"));
+    assert_eq!(progress.model_calls[0].input_tokens, Some(11));
+    assert_eq!(progress.model_calls[0].output_tokens, Some(5));
+    assert_eq!(
+        progress.model_calls[0].model.as_deref(),
+        Some("codex-model")
+    );
 }
 
 #[test]
@@ -47,7 +55,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
     let request = PlanningRequest {
         mode: ExecutionMode::Implementation,
         reasoning_level: "high".into(),
-        model: None,
+        telemetry_phase: None,
         repo_root: std::env::temp_dir(),
         prompt_body: "do task".into(),
         system_instructions: "system".into(),
@@ -136,15 +144,25 @@ fn executes_structured_events_and_normalizes_usage() {
     std::fs::create_dir_all(&root).unwrap();
     let binary = fake_cli(
         &root,
-        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"ok\\\":true}\"}}' '{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4}}'\nexit 0",
+        "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"ok\\\":true}\"}}' '{\"type\":\"turn.completed\",\"turn_id\":\"turn-1\",\"usage\":{\"input_tokens\":3,\"output_tokens\":4,\"cached_input_tokens\":2,\"cache_write_input_tokens\":1}}'\nexit 0",
     );
     let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
     let (tx, rx) = mpsc::channel();
     let outcome = CodexHarness.execute(&request(root.clone(), tx)).unwrap();
     assert_eq!(outcome.final_text, r#"{"ok":true}"#);
     let progress = rx.try_iter().last().unwrap();
-    assert_eq!(progress.telemetry.input_tokens, Some(3));
-    assert_eq!(progress.telemetry.output_tokens, Some(4));
+    assert_eq!(progress.model_calls.len(), 1);
+    assert_eq!(progress.model_calls[0].call_id, "codex:turn-1");
+    assert_eq!(progress.model_calls[0].provider.as_deref(), Some("openai"));
+    assert_eq!(progress.model_calls[0].model, None);
+    assert_eq!(
+        progress.model_calls[0].api.as_deref(),
+        Some("codex-cli-turn-aggregate")
+    );
+    assert_eq!(progress.model_calls[0].input_tokens, Some(3));
+    assert_eq!(progress.model_calls[0].output_tokens, Some(4));
+    assert_eq!(progress.model_calls[0].cache_read_tokens, Some(2));
+    assert_eq!(progress.model_calls[0].cache_write_tokens, Some(1));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -208,7 +226,7 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
     PlanningRequest {
         mode: ExecutionMode::Implementation,
         reasoning_level: "medium".into(),
-        model: Some("fixture-model".into()),
+        telemetry_phase: None,
         repo_root: root,
         prompt_body: "fixture task".into(),
         system_instructions: "fixture instructions".into(),
