@@ -63,7 +63,7 @@ pub fn select(
     let request = PlanningRequest {
         mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
         reasoning_level: "medium".into(),
-        model: None,
+        telemetry_phase: None,
         repo_root: state.repo_root.clone(),
         prompt_body: catalog.prompt(user_message, recent),
         system_instructions: RETRIEVAL_INSTRUCTIONS.into(),

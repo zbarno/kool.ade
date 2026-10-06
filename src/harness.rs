@@ -21,8 +21,8 @@ pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
 
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,
-    LivePost, LiveProgress, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, RequestedAction,
-    RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
+    LivePost, LiveProgress, ModelCallUsage, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
+    RequestedAction, RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use codex_harness::CodexHarness;
 pub use pi_harness::PiHarness;

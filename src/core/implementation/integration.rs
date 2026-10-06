@@ -1,4 +1,6 @@
 use super::*;
+mod prepare;
+use prepare::prepare_integration;
 
 pub(super) fn auto_publish(
     repo: &Path,
@@ -7,6 +9,29 @@ pub(super) fn auto_publish(
     harness: &dyn AiHarness,
     runner: &Runner,
     policy: &ExecutionPolicy<'_>,
+) -> anyhow::Result<()> {
+    integrate(repo, dir, state, harness, runner, policy, true)
+}
+
+pub(super) fn prepare_for_pull_request(
+    repo: &Path,
+    dir: &Path,
+    state: &mut Implementation,
+    harness: &dyn AiHarness,
+    runner: &Runner,
+    policy: &ExecutionPolicy<'_>,
+) -> anyhow::Result<()> {
+    integrate(repo, dir, state, harness, runner, policy, false)
+}
+
+fn integrate(
+    repo: &Path,
+    dir: &Path,
+    state: &mut Implementation,
+    harness: &dyn AiHarness,
+    runner: &Runner,
+    policy: &ExecutionPolicy<'_>,
+    publish_after_integration: bool,
 ) -> anyhow::Result<()> {
     // Independent checks are mandated for AutoPublish regardless of the
     // explicit operator toggle (combine mirrors the execution policy).
@@ -28,7 +53,6 @@ pub(super) fn auto_publish(
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    state.base = publication::default_branch(repo, runner)?;
     let mut last_error = String::new();
     for _ in 0..3 {
         runner.remaining()?;
@@ -36,7 +60,7 @@ pub(super) fn auto_publish(
             return publication::hold_for_review(dir, state);
         }
         runner.update(format!(
-            "Integrating and verifying against latest origin/{}…",
+            "Integrating and verifying against destination origin/{}…",
             state.base
         ));
         let remote_ref = format!("refs/koolade-auto-bases/{}", key(&state.ticket));
@@ -50,6 +74,16 @@ pub(super) fn auto_publish(
                 &format!("+refs/heads/{}:{remote_ref}", state.base),
             ],
         ) {
+            if state.destination_branch.is_some() {
+                return Err(
+                    crate::core::implementation::initial_reconciliation::support::user_action(
+                        format!(
+                            "Selected destination branch '{}' is unavailable on origin. Refresh the repository and select an existing destination branch. {error}",
+                            state.base
+                        ),
+                    ),
+                );
+            }
             last_error = error.to_string();
             continue;
         }
@@ -75,7 +109,11 @@ pub(super) fn auto_publish(
             }
             return publication::finish_auto_publish(repo, dir, state, runner);
         }
-        let local = runner.git(repo, &["rev-parse", "HEAD"])?;
+        let local = if state.destination_branch.is_some() {
+            remote.clone()
+        } else {
+            runner.git(repo, &["rev-parse", "HEAD"])?
+        };
         // Integrate on fetched remote truth when histories diverge. The task's
         // verified branch is squash-merged below, with conflicts repaired and
         // verification rerun in isolation. Never rewrite the user's checkout.
@@ -87,186 +125,18 @@ pub(super) fn auto_publish(
         } else {
             remote.clone()
         };
-        let integration_dir = dir.join(format!("integration-{integration_base}"));
-        fs::create_dir_all(&integration_dir)?;
-        let mut integration: Implementation = if integration_dir.join("state.json").exists() {
-            read_state_file(&integration_dir.join("state.json"))?
-        } else {
-            let mut record = state.clone();
-            record.branch = format!(
-                "koolade/integration/{}/{}",
-                key(&state.ticket),
-                &integration_base[..12]
-            );
-            record.worktree = state.worktree.with_file_name(format!(
-                "{}-integration-{}",
-                key(&state.ticket),
-                &integration_base[..12]
-            ));
-            record.base_commit = integration_base.clone();
-            record.verified_head = None;
-            record.merged_commit = None;
-            record.auto_merge = false;
-            record.pr_url = None;
-            record.pr_state = None;
-            record.status = ImplementationStatus::Preparing;
-            record.detail = "Integrate the verified task with the latest default branch. Resolve any merge conflicts preserving both intended behaviors. Repair failures and verify the integrated result.".into();
-            save(&integration_dir, &record)?;
-            record
-        };
-        if !integration.worktree.exists() {
-            let path = integration
-                .worktree
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid integration path"))?;
-            if runner
-                .git(
-                    repo,
-                    &[
-                        "show-ref",
-                        "--verify",
-                        &format!("refs/heads/{}", integration.branch),
-                    ],
-                )
-                .is_ok()
-            {
-                runner.git(repo, &["worktree", "add", path, &integration.branch])?;
-            } else {
-                runner.git(
-                    repo,
-                    &[
-                        "worktree",
-                        "add",
-                        "-b",
-                        &integration.branch,
-                        path,
-                        &integration_base,
-                    ],
-                )?;
-            }
+        let integration =
+            prepare_integration(repo, dir, state, &integration_base, harness, runner, policy)?;
+        if !publish_after_integration {
+            state.branch = integration.branch.clone();
+            state.worktree = integration.worktree.clone();
+            state.base_commit = integration.base_commit.clone();
+            state.verified_head = integration.verified_head.clone();
+            state.merged_commit = None;
+            state.status = ImplementationStatus::Verifying;
+            save(dir, state)?;
+            return Ok(());
         }
-        anyhow::ensure!(
-            common(&integration.worktree)?.canonicalize()? == common(repo)?.canonicalize()?
-                && runner.git(&integration.worktree, &["symbolic-ref", "--short", "HEAD"])?
-                    == integration.branch,
-            "Integration worktree identity changed; refusing to modify it"
-        );
-        if integration.verified_head.is_none() {
-            let task_head = state
-                .verified_head
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Task is not verified"))?;
-            let unmerged = runner.git(
-                &integration.worktree,
-                &["diff", "--name-only", "--diff-filter=U"],
-            )?;
-            if unmerged.is_empty()
-                && runner
-                    .git(&integration.worktree, &["status", "--porcelain"])?
-                    .is_empty()
-                && let Err(error) =
-                    runner.git(&integration.worktree, &["merge", "--squash", task_head])
-            {
-                anyhow::ensure!(
-                    !runner
-                        .git(
-                            &integration.worktree,
-                            &["diff", "--name-only", "--diff-filter=U"]
-                        )?
-                        .is_empty(),
-                    "Cannot integrate task: {error}"
-                );
-                integration
-                    .detail
-                    .push_str(&format!("\nMerge failed: {error}"));
-            }
-            let report: Report =
-                serde_json::from_slice(&fs::read(dir.join("verified-report.json"))?)?;
-            let mut check_error = None;
-            let mut evidence = Vec::new();
-            if runner
-                .git(
-                    &integration.worktree,
-                    &["diff", "--name-only", "--diff-filter=U"],
-                )?
-                .is_empty()
-            {
-                for command in &report.verification {
-                    runner.update(format!("Verifying integrated task: {command}"));
-                    let result = runner.verify(&integration.worktree, command);
-                    evidence.push(serde_json::json!({
-                        "command": command,
-                        "output": result.as_ref().ok().map(|text| crate::error::redact_secrets(text)),
-                        "error": result.as_ref().err().map(ToString::to_string).map(|text| crate::error::redact_secrets(&text)),
-                    }));
-                    if let Err(error) = result {
-                        check_error = Some(error.to_string());
-                        break;
-                    }
-                }
-                if check_error.is_none() {
-                    check_error = runner
-                        .git(&integration.worktree, &["diff", "--check"])
-                        .err()
-                        .map(|e| e.to_string());
-                }
-            } else {
-                check_error =
-                    Some("Resolve the pending squash-merge conflicts before verification".into());
-            }
-            crate::artifacts::atomic_write_bytes(
-                &integration_dir.join(format!(
-                    "{}-verification.json",
-                    chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-                )),
-                &serde_json::to_vec_pretty(&evidence)?,
-            )?;
-            if let Some(error) = check_error {
-                integration
-                    .detail
-                    .push_str(&format!("\nIntegration verification failure: {error}"));
-                save(&integration_dir, &integration)?;
-                verification::prepare_verified(
-                    repo,
-                    &integration_dir,
-                    &mut integration,
-                    harness,
-                    runner,
-                    None,
-                    policy.accrual.as_ref(),
-                )?;
-            } else {
-                runner.git(&integration.worktree, &["add", "--all"])?;
-                if !runner
-                    .git(&integration.worktree, &["diff", "--cached", "--name-only"])?
-                    .is_empty()
-                {
-                    runner.git(
-                        &integration.worktree,
-                        &[
-                            "commit",
-                            "-m",
-                            &format!("Implement {}", title(&state.ticket_text)),
-                        ],
-                    )?;
-                }
-                integration.verified_head =
-                    Some(runner.git(&integration.worktree, &["rev-parse", "HEAD"])?);
-                save(&integration_dir, &integration)?;
-            }
-        }
-        anyhow::ensure!(
-            runner
-                .git(&integration.worktree, &["status", "--porcelain"])?
-                .is_empty()
-                && integration.verified_head.as_deref()
-                    == Some(
-                        runner
-                            .git(&integration.worktree, &["rev-parse", "HEAD"])?
-                            .as_str()
-                    ),
-            "Integrated result changed after verification"
-        );
         state.merged_commit = integration.verified_head.clone();
         state.status = ImplementationStatus::Publishing;
         save(dir, state)?;

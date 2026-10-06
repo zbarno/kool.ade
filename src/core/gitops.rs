@@ -13,7 +13,9 @@ use std::process::{Command, Stdio};
 use crate::error::AppError;
 
 mod commit;
+mod snapshot;
 pub use commit::{commit, commit_cancellable, commit_planning_changes};
+pub use snapshot::snapshot;
 
 pub const AUTHOR_NAME: &str = "Kool.ad/e Planner";
 pub const AUTHOR_EMAIL: &str = "planner@koolade.local";
@@ -22,6 +24,10 @@ pub const AUTHOR_EMAIL: &str = "planner@koolade.local";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitSnapshot {
     pub branch: String,
+    pub branches: Vec<String>,
+    pub remote_branches: Vec<String>,
+    pub has_origin: bool,
+    pub default_branch: String,
     pub head_short: String,
     /// Number of dirty entries (modified/untracked) in the work tree.
     pub dirty: usize,
@@ -159,37 +165,6 @@ pub fn clone_repo(source: &str, dest: &Path) -> Result<(), AppError> {
 
 /// Gather branch/head/dirty/last-subject. Individual probe failures degrade
 /// gracefully to blanks rather than breaking the UI.
-pub fn snapshot(cwd: &Path) -> GitSnapshot {
-    let mut snap = GitSnapshot::default();
-    if let Ok((_, out, _)) = run(cwd, &["symbolic-ref", "--short", "HEAD"]) {
-        snap.branch = out.trim().to_string();
-    }
-    if snap.branch.is_empty() {
-        // Detached HEAD: label by short sha.
-        if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"])
-            && code == 0
-        {
-            snap.branch = format!("detached @{head}", head = out.trim());
-        }
-    }
-    if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"])
-        && code == 0
-    {
-        snap.head_short = out.trim().to_string();
-    }
-    if let Ok((code, out, _)) = run(cwd, &["status", "--porcelain=v1"])
-        && code == 0
-    {
-        snap.dirty = out.lines().count();
-    }
-    if let Ok((code, out, _)) = run(cwd, &["log", "-1", "--pretty=%s"])
-        && code == 0
-    {
-        snap.last_subject = out.trim().to_string();
-    }
-    snap
-}
-
 /// Read a single git config value using standard nearest-scope-wins
 /// resolution (repository-local, then global, then system — no explicit
 /// `--local/--global/--system` flag). Read-only, argument-array dispatched

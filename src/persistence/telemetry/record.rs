@@ -98,8 +98,15 @@ pub struct InvocationRecord {
     // Cost: the stored estimate plus the price-table version that produced it.
     #[serde(default)]
     pub estimated_cost_usd_cents: Option<u64>,
+    /// Higher precision for providers that report fractional cents.
+    #[serde(default)]
+    pub estimated_cost_usd_micros: Option<u64>,
     #[serde(default)]
     pub price_table_version: Option<String>,
+    /// Provider-reported response stop reason, independent of the outer
+    /// harness invocation outcome.
+    #[serde(default)]
+    pub provider_stop_reason: Option<String>,
 
     /// How the invocation ended. Conventionally "completed", "failed",
     /// "timed-out" or "cancelled", plus provider stop reasons; free-form so

@@ -136,6 +136,8 @@ fn implementation(
         approved_product_context: None,
         completed_dependency_context: None,
         branch: String::new(),
+        source_branch: None,
+        destination_branch: None,
         base: String::new(),
         base_commit: String::new(),
         worktree: std::path::PathBuf::new(),

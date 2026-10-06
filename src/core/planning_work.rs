@@ -113,6 +113,10 @@ pub struct Work {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_uid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_up_task: Option<FollowUpTaskOffer>,
     pub detail: String,
 }
@@ -136,6 +140,8 @@ impl Work {
             feature_id: None,
             feature_uid: None,
             parent_uid: None,
+            source_branch: None,
+            destination_branch: None,
             follow_up_task: None,
             detail,
         }
@@ -205,6 +211,8 @@ fn migrate_legacy(work: LegacyWork) -> anyhow::Result<Work> {
         feature_id: work.feature,
         feature_uid: None,
         parent_uid: None,
+        source_branch: None,
+        destination_branch: None,
         follow_up_task: None,
         detail: work.detail,
     })

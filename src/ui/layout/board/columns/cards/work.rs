@@ -151,6 +151,8 @@ pub(in crate::ui::layout::board::columns) fn work(
                         kind: crate::core::planning_work::WorkKind::Feature,
                         description: offer.description.clone(),
                         parent_uid: Some(work.uid.clone()),
+                        source_branch: None,
+                        destination_branch: None,
                     });
                 }
             }

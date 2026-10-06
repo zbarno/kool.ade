@@ -55,7 +55,7 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
         PiHarness.execute(&PlanningRequest {
             mode,
             reasoning_level: "low".into(),
-            model: None,
+            telemetry_phase: None,
             repo_root: root.clone(),
             prompt_body: "test".into(),
             system_instructions: "Custom persona remains intact".into(),
@@ -184,7 +184,7 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     let outcome = PiHarness.execute(&PlanningRequest {
         mode: crate::harness::ExecutionMode::Implementation,
         reasoning_level: "low".into(),
-        model: None,
+        telemetry_phase: None,
         repo_root: repo.clone(),
         prompt_body: "test".into(),
         system_instructions: "implementation persona".into(),

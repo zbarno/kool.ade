@@ -47,6 +47,11 @@ pub(super) fn execute(
         PublicationMode::AutoPublish => {
             integration::auto_publish(repo, dir, state, harness, runner, &policy)
         }
-        PublicationMode::CreatePullRequest => publication::create_pull_request(dir, state, runner),
+        PublicationMode::CreatePullRequest => {
+            if state.source_branch.is_some() || state.destination_branch.is_some() {
+                integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
+            }
+            publication::create_pull_request(dir, state, runner)
+        }
     }
 }
