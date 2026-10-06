@@ -195,6 +195,10 @@ pub(crate) fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &st
             .filter(|r| r.status == ImplementationStatus::Blocked)
             .map(|r| r.detail.as_str())
     });
+    let user_action_needed = matches!(
+        s.implementation_recovery(ticket),
+        Some(crate::core::implementation::RecoveryDisposition::UserAction)
+    );
     let interrupted = record.is_some_and(|r| {
         matches!(
             r.status,
@@ -207,12 +211,17 @@ pub(crate) fn paint_task_failure(ui: &mut egui::Ui, s: &dyn Surface, ticket: &st
         )
     });
     if let Some(error) = failure {
-        ui.colored_label(theme::WARNING, "Needs attention");
+        let (color, label) = if user_action_needed {
+            (theme::WARNING, "Action required")
+        } else {
+            (theme::DANGER, "Implementation failed")
+        };
+        ui.colored_label(color, label);
         let summary = failure_summary(error);
         ui.label(
             egui::RichText::new(crate::core::context_build::clip(&summary, 140))
                 .size(13.0)
-                .color(theme::TEXT_DIM),
+                .color(color),
         )
         .on_hover_text(error);
     } else if interrupted {

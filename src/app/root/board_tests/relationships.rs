@@ -84,6 +84,52 @@ fn attention_cards_distinguish_user_actions_from_external_retries() {
 }
 
 #[test]
+fn actionable_feature_decision_is_shown_on_the_paused_task_and_clears_when_resolved() {
+    let mut app = fixture();
+    let Screen::Connected(project) = &mut app.screen else {
+        unreachable!()
+    };
+    let path = ".koolade-packet/planning/tasks/CHG-012-feature/CHG-012-TASK-001-example.md";
+    project.task_documents[0].path = path.into();
+    project.queue.blocked.insert(
+        path.into(),
+        crate::core::implementation::Failure::new(
+            crate::core::implementation::FailureKind::Other,
+            crate::core::implementation::RecoveryDisposition::UserAction,
+            "Answer the security decision before continuing.",
+        ),
+    );
+    let mut item = crate::domain::item::OpenItem::new(
+        "CLR-912".into(),
+        crate::domain::Priority::Blocking,
+        crate::domain::ItemKind::Question,
+        "General".into(),
+        Some("All".into()),
+        "Choose how long the session should remain active.".into(),
+        "This decision gates the feature implementation.".into(),
+    );
+    item.feature_id = Some("CHG-012".into());
+    project.state.items = vec![item];
+
+    let ctx = super::mockup_layout::styled_context();
+    for _ in 0..4 {
+        frame(&mut app, &ctx, vec![]);
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "NEEDS YOUR INPUT").is_some());
+    assert!(text_position(&output, "Answer CLR-912").is_some());
+    assert!(text_position(&output, "This feature is waiting on your decision.").is_some());
+    assert!(text_position(&output, "Implementation failed").is_none());
+
+    if let Screen::Connected(project) = &mut app.screen {
+        project.state.items.clear();
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Answer CLR-912").is_none());
+    assert!(text_position(&output, "This feature is waiting on your decision.").is_none());
+}
+
+#[test]
 fn todo_task_names_the_prerequisite_that_keeps_it_blocked() {
     let mut app = fixture();
     let Screen::Connected(project) = &mut app.screen else {
