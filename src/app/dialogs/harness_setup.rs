@@ -154,7 +154,7 @@ fn apply_probe_results(
             })
             .map(str::to_owned)
             .or_else(|| {
-                ["pi", "codex", "claude", "opencode"]
+                ["pi", "codex", "claude", "opencode", "antigravity"]
                     .into_iter()
                     .find_map(|id| {
                         settings

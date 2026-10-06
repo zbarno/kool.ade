@@ -1,4 +1,6 @@
-use crate::harness::{AiHarness, ClaudeHarness, CodexHarness, OpenCodeHarness, PiHarness};
+use crate::harness::{
+    AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, OpenCodeHarness, PiHarness,
+};
 
 pub(crate) fn validate_task_routes(
     settings: &crate::persistence::harness_settings::HarnessSettings,
@@ -235,6 +237,7 @@ fn resolve(selected: Option<&str>) -> Box<dyn AiHarness> {
         Some("codex") => Box::new(CodexHarness),
         Some("claude") => Box::new(ClaudeHarness),
         Some("opencode") => Box::new(OpenCodeHarness),
+        Some("antigravity") => Box::new(AntigravityHarness),
         Some(id) => Box::new(UnavailableHarness(id.to_owned())),
     }
 }
