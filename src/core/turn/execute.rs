@@ -246,6 +246,7 @@ pub(super) fn run_turn(
             _ => "xhigh",
         }
         .into(),
+        model: None,
         repo_root: inputs.state.repo_root.clone(),
         prompt_body,
         system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),

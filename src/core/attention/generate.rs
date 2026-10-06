@@ -180,6 +180,7 @@ pub(super) fn run(
             // multiple independent human actions. Use review-level reasoning
             // so the user-facing explanation preserves those distinctions.
             reasoning_level: "xhigh".into(),
+            model: None,
             repo_root: worktree.to_owned(),
             prompt_body: prompt(report, task, documents, &correction),
             system_instructions: SYSTEM_INSTRUCTIONS.into(),

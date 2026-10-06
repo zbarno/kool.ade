@@ -43,6 +43,7 @@ pub(super) fn run(
         let request = PlanningRequest {
             mode: crate::harness::ExecutionMode::Implementation,
             reasoning_level: "medium".into(),
+            model: None,
             repo_root: state.worktree.clone(),
             prompt_body: prompt::build(
                 plan,

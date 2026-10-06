@@ -68,6 +68,8 @@ pub struct PlanningRequest {
     pub mode: ExecutionMode,
     /// Pi thinking level selected by the Koolade role that owns this turn.
     pub reasoning_level: String,
+    /// Optional backend model selected by application routing or task policy.
+    pub model: Option<String>,
     /// Repository working directory the harness process must run in (§18).
     pub repo_root: std::path::PathBuf,
     /// Fully rendered prompt body (system instructions travel separately).
@@ -120,6 +122,13 @@ pub struct ActivityTelemetry {
     pub updates: u64,
     /// Ten-second buckets: UTC bucket number and received update count.
     pub samples: Vec<(i64, u64)>,
+    /// Usage fields reported by a harness, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A stable, chronologically placed block of external agent output.
@@ -152,6 +161,9 @@ impl LiveProgress {
         telemetry.started_ms.get_or_insert(now);
         telemetry.updated_ms = Some(now);
         telemetry.updates += 1;
+        telemetry.input_tokens = next.telemetry.input_tokens.or(telemetry.input_tokens);
+        telemetry.output_tokens = next.telemetry.output_tokens.or(telemetry.output_tokens);
+        telemetry.model = next.telemetry.model.take().or(telemetry.model);
         let bucket = now / 10_000;
         if let Some((_, count)) = telemetry
             .samples

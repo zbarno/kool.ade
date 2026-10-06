@@ -13,7 +13,7 @@ use crate::core::turn::{TurnController, TurnEvt, TurnOutcome};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 use crate::domain::item::OpenItem;
 use crate::domain::user::CurrentUser;
-use crate::harness::PiHarness;
+use crate::harness::{AiHarness, CodexHarness, PiHarness};
 use crate::ui::{Surface, ToastQueue};
 
 #[cfg(test)]
@@ -94,9 +94,12 @@ pub struct KooladeApp {
 pub(super) fn configured_harness(
     override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
 ) -> Box<dyn crate::harness::AiHarness> {
-    override_harness
-        .take()
-        .unwrap_or_else(|| Box::new(PiHarness))
+    override_harness.take().unwrap_or_else(|| {
+        match std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() {
+            Ok("codex") => Box::new(CodexHarness) as Box<dyn AiHarness>,
+            _ => Box::new(PiHarness),
+        }
+    })
 }
 
 enum Screen {
