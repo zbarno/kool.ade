@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "task_details/proactive_attention.rs"]
+mod proactive_attention;
+
 #[test]
 fn task_details_show_full_state_and_inline_reply() {
     let mut app = fixture();
