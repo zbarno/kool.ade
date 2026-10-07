@@ -143,6 +143,36 @@ fn installed_codex_without_authentication_is_reported_as_setup_required() {
 
 #[cfg(unix)]
 #[test]
+fn installed_codex_is_ready_when_login_confirmation_is_on_stderr() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-codex-auth-stderr-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("codex");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.160.1'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config'; else echo 'Logged in' >&2; fi\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(
+        CodexHarness::check_binary(&binary).unwrap(),
+        "codex-cli 0.160.1"
+    );
+    let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
+    let report = CodexHarness::probe_report();
+    assert!(report.ready);
+    assert_eq!(report.readiness, CodexReadiness::Ready);
+    assert_eq!(report.version.as_deref(), Some("codex-cli 0.160.1"));
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn installed_codex_missing_required_exec_options_is_unusable() {
     use std::os::unix::fs::PermissionsExt;
     let root = std::env::temp_dir().join(format!("koolade-codex-old-{}", uuid::Uuid::new_v4()));

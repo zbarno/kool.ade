@@ -214,7 +214,10 @@ fn run_probe_status(binary: &Path, args: &[&str]) -> Result<(String, bool), AppE
                 output.push_str(&line);
                 output.push('\n');
             }
-            Ok(StreamEvt::Stderr(_)) => {}
+            Ok(StreamEvt::Stderr(line)) => {
+                output.push_str(&line);
+                output.push('\n');
+            }
             Ok(StreamEvt::Exited(ok)) => {
                 success = Some(ok);
                 break;
