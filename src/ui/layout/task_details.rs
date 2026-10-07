@@ -92,7 +92,7 @@ pub(super) fn paint(
             .map(|record| record.status.label())
             .unwrap_or(crate::core::implementation::BOARD_COLUMNS[column])
     };
-    if ui.available_width() >= 700.0 {
+    if ui.available_width() >= 1000.0 {
         ui.columns(2, |columns| {
             conversation::paint(
                 &mut columns[0],
