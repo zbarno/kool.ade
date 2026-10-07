@@ -61,19 +61,24 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
     );
     let owners = owner_choices(dlg);
     let mut removed: Vec<usize> = Vec::new();
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("Category").size(11.5).weak());
-        ui.add_space((ui.available_width() * 0.24).max(24.0));
-        ui.label(RichText::new("Owners").size(11.5).weak());
-    });
     for (i, row) in dlg.rows.iter_mut().enumerate() {
         ui.push_id(("ownership_row", i), |ui| {
-            ui.horizontal(|ui| {
-                let category_width = (ui.available_width() * 0.34).max(120.0);
-                ui.add_sized(
-                    [category_width, 28.0],
-                    TextEdit::singleline(&mut row.category).id_salt("category"),
-                );
+            theme::card_frame().inner_margin(12).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.label(theme::metadata_text("CATEGORY"));
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [(ui.available_width() - 40.0).max(60.0), 30.0],
+                        TextEdit::singleline(&mut row.category).id_salt("category"),
+                    );
+                    if crate::ui::overlays::close_button(ui)
+                        .on_hover_text("Remove category")
+                        .clicked()
+                    {
+                        removed.push(i);
+                    }
+                });
+                ui.label(theme::metadata_text("OWNERS"));
                 ui.add(
                     TextEdit::singleline(&mut row.members)
                         .id_salt("owners")
@@ -82,7 +87,8 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
                 );
                 egui::ComboBox::from_id_salt("existing_owners")
                     .selected_text("Select existing owners…")
-                    .width(180.0_f32.min(ui.available_width()))
+                    .width(ui.available_width().min(260.0))
+                    .wrap_mode(egui::TextWrapMode::Truncate)
                     .show_ui(ui, |ui| {
                         for owner in &owners {
                             let mut selected = csv_parts(&row.members)
@@ -93,14 +99,7 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
                             }
                         }
                     });
-                if crate::ui::overlays::close_button(ui)
-                    .on_hover_text("Remove category")
-                    .clicked()
-                {
-                    removed.push(i);
-                }
             });
-            ui.separator();
         });
     }
     for idx in removed.iter().rev() {

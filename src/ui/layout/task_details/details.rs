@@ -89,7 +89,7 @@ pub(super) fn paint(
                     .add_enabled(
                         view.can_start,
                         egui::Button::new(RichText::new(label).strong().color(theme::TEXT))
-                            .fill(theme::BLUE)
+                            .fill(theme::ACTION)
                             .min_size(egui::vec2(0.0, 36.0)),
                     )
                     .clicked()
@@ -181,7 +181,7 @@ fn paint_attention(
             ui.label("Decision saved in this task's conversation.");
         }
         if !brief.options.is_empty() {
-            ui.label("Kool.ad/e is waiting for your decision. Choose an option in the conversation on the left.");
+            ui.label("Kool.ad/e is waiting for your decision. Choose an option in the task conversation.");
         } else if !brief.steps.is_empty() {
             ui.label("Kool.ad/e is waiting for the action listed below. Your work is safe.");
         } else {

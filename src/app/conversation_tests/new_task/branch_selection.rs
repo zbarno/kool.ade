@@ -58,9 +58,9 @@ fn new_task_can_override_and_persist_source_and_destination_branches() {
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "+ New Task");
-    click_text(&mut app, &ctx, "Source Branch: main");
+    click_branch_picker(&mut app, &ctx, "Source Branch");
     click_text(&mut app, &ctx, "release/2.1");
-    click_text(&mut app, &ctx, "Destination Branch: main");
+    click_branch_picker(&mut app, &ctx, "Destination Branch");
     click_text(&mut app, &ctx, "integration");
     click_text(&mut app, &ctx, "Describe what you want to do…");
     frame(
@@ -115,4 +115,37 @@ fn origin_backed_destination_selection_rejects_local_only_branches() {
         panic!("project remains connected");
     };
     assert!(project.planning_work.is_empty());
+}
+
+// Branch labels and values are separate so long names can truncate without
+// hiding the field's purpose. Target the value directly below its label.
+fn click_branch_picker(app: &mut KooladeApp, ctx: &egui::Context, label: &str) {
+    let output = frame(app, ctx, vec![]);
+    let label = text_position(&output, label).expect("branch field label");
+    let pos = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "main" => {
+                let pos = text.pos + text.galley.mesh_bounds.center().to_vec2();
+                (pos.y > label.y && pos.y < label.y + 50.0).then_some(pos)
+            }
+            _ => None,
+        })
+        .expect("branch selector below its label");
+    for pressed in [true, false] {
+        frame(
+            app,
+            ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
 }

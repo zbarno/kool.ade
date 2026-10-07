@@ -49,12 +49,14 @@ pub const BORDER: Color32 = Color32::from_rgb(45, 57, 66);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(60, 74, 84);
 pub const TEXT: Color32 = Color32::from_rgb(244, 245, 242);
 pub const TEXT_DIM: Color32 = Color32::from_rgb(167, 173, 180);
-pub const TEXT_MUTED: Color32 = Color32::from_rgb(120, 131, 141);
+pub const TEXT_MUTED: Color32 = Color32::from_rgb(150, 162, 174);
 pub const PUNCH: Color32 = Color32::from_rgb(226, 29, 53);
 pub const PUNCH_BRIGHT: Color32 = Color32::from_rgb(243, 55, 77);
 pub const PUNCH_DEEP: Color32 = Color32::from_rgb(104, 10, 21);
 pub const BRAND: Color32 = PUNCH;
 pub const BLUE: Color32 = Color32::from_rgb(0, 159, 232);
+/// Accessible blue button fill; activity lines retain the brighter Kool Blue.
+pub const ACTION: Color32 = Color32::from_rgb(0, 112, 174);
 pub const BLUE_BRIGHT: Color32 = Color32::from_rgb(34, 184, 255);
 pub const ACCENT: Color32 = Color32::from_rgb(0, 159, 232);
 pub const ACCENT_SOFT: Color32 = Color32::from_rgb(28, 78, 101);
@@ -147,6 +149,28 @@ pub fn board_state_frame(
         .stroke(Stroke::new(width, edge))
 }
 
+/// One style contract for the desktop app and rendered interaction checks.
+pub fn apply(ctx: &egui::Context) {
+    ctx.set_visuals(koolade_visuals());
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
+        for (kind, size) in [
+            (egui::TextStyle::Body, 15.0),
+            (egui::TextStyle::Button, 13.0),
+            (egui::TextStyle::Small, 12.0),
+        ] {
+            style
+                .text_styles
+                .insert(kind, egui::FontId::proportional(size));
+        }
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 7.0);
+        style.spacing.scroll = egui::style::ScrollStyle::solid();
+        style.spacing.scroll.bar_width = 8.0;
+        style.spacing.scroll.bar_inner_margin = 4.0;
+        style.spacing.scroll.bar_outer_margin = 0.0;
+    });
+}
+
 /// Base style applied once during creation.
 pub fn koolade_visuals() -> egui::Visuals {
     let mut v = egui::Visuals::dark();
@@ -164,8 +188,8 @@ pub fn koolade_visuals() -> egui::Visuals {
     v.widgets.hovered.bg_stroke = Stroke::new(1.0, BORDER_STRONG);
     v.widgets.active.bg_fill = ACCENT_SOFT;
     v.widgets.active.fg_stroke.color = TEXT;
-    v.selection.bg_fill = PUNCH_DEEP;
-    v.selection.stroke = Stroke::new(1.0, PUNCH_BRIGHT);
+    v.selection.bg_fill = ACCENT_SOFT;
+    v.selection.stroke = Stroke::new(1.0, BLUE_BRIGHT);
     v.hyperlink_color = BLUE_BRIGHT;
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
     v.widgets.active.bg_stroke = Stroke::new(2.0, BLUE_BRIGHT);

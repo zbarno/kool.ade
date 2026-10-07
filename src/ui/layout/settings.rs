@@ -37,16 +37,16 @@ pub(super) fn paint(
             });
         let mut open_batch = None;
         let closed =
-            crate::ui::overlays::show_workspace_modal(ui, true, "Workspace settings", |ui| {
-                let height = ui.available_height();
-                let compact = ui.available_width() < 720.0;
+            crate::ui::overlays::show_settings_modal(ui, true, "Workspace settings", |ui| {
+                let height = ui.available_height().max(80.0);
+                let compact = ui.available_width() < 720.0 || height < 450.0;
                 ui.set_min_height(height);
                 if compact {
                     pages::paint_compact_navigation(ui, &mut page);
                     ui.separator();
                     egui::ScrollArea::vertical()
-                        .id_salt("settings_selected_page")
-                        .max_height(height)
+                        .id_salt(("settings_selected_page", page))
+                        .max_height(ui.available_height())
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
@@ -61,18 +61,25 @@ pub(super) fn paint(
                         );
                         ui.separator();
                         egui::ScrollArea::vertical()
-                            .id_salt("settings_selected_page")
+                            .id_salt(("settings_selected_page", page))
                             .max_height(height)
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                ui.set_min_width(ui.available_width());
-                                open_batch = pages::paint_page(ui, s, board, page);
+                                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    open_batch = pages::paint_page(ui, s, board, page);
+                                });
                             });
                     });
                 }
             });
         ui.ctx().data_mut(|data| data.insert_temp(page_id, page));
-        if closed {
+        if closed
+            || ui.ctx().data_mut(|data| {
+                data.remove_temp::<bool>(egui::Id::new("koolade_settings_close"))
+                    .unwrap_or(false)
+            })
+        {
             settings_open = false;
         }
         if let Some(path) = open_batch {

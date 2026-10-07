@@ -38,8 +38,8 @@ pub fn paint_project_settings_card(
     ui: &mut egui::Ui,
     dialog: &mut DlgProjectSettings,
 ) -> (bool, bool) {
-    ui.heading("Project / Git");
-    ui.label("Names shown for this project's registered repositories. Branch and worktree defaults can be configured here as those controls are added.");
+    ui.label(crate::ui::theme::section_heading("Repository names"));
+    ui.label("Choose shared display names for this project's registered repositories.");
     ui.add_space(8.0);
     repository_names::paint(ui, &mut dialog.repositories);
     ui.add_space(6.0);

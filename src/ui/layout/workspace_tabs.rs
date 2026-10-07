@@ -24,7 +24,7 @@ pub(super) fn paint(
             if !tasks_tab
                 && ui
                     .ctx()
-                    .data_mut(|data| data.get_temp::<bool>(chat_collapsed).unwrap_or(false))
+                    .data_mut(|data| data.get_temp::<bool>(chat_collapsed).unwrap_or(compact))
                 && ui.button("Show specification conversation").clicked()
             {
                 ui.ctx()
@@ -132,6 +132,8 @@ pub(super) fn paint(
             if view == 1 && !features.is_empty() {
                 egui::ComboBox::from_id_salt("feature_specification_selector")
                     .selected_text(selected.as_deref().unwrap_or("Select feature"))
+                    .width(ui.available_width().min(400.0))
+                    .wrap_mode(egui::TextWrapMode::Truncate)
                     .show_ui(ui, |ui| {
                         for (id, body) in &features {
                             let title = body
@@ -219,16 +221,12 @@ fn tab_button(label: impl Into<String>, selected: bool) -> egui::Button<'static>
     )
     .min_size(egui::vec2(90.0, 38.0))
     .fill(if selected {
-        egui::Color32::from_rgb(163, 12, 35)
+        theme::ACCENT_SOFT
     } else {
         theme::PANEL
     })
     .stroke(egui::Stroke::new(
         if selected { 2.0 } else { 1.0 },
-        if selected {
-            theme::PUNCH
-        } else {
-            theme::BORDER
-        },
+        if selected { theme::BLUE } else { theme::BORDER },
     ))
 }

@@ -14,7 +14,7 @@ pub(super) fn paint(
     let collapsed_id = egui::Id::new("koolade_spec_chat_collapsed");
     let collapsed = ui
         .ctx()
-        .data_mut(|data| data.get_temp::<bool>(collapsed_id).unwrap_or(false));
+        .data_mut(|data| data.get_temp::<bool>(collapsed_id).unwrap_or(compact));
     if specification_open && !collapsed {
         let chat_panel = if compact {
             Panel::top("koolade_chat_panel")

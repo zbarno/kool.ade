@@ -14,20 +14,13 @@ impl App for KooladeApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
-        ui.ctx().set_visuals(crate::ui::theme::koolade_visuals());
-        ui.ctx().style_mut_of(egui::Theme::Dark, |style| {
-            style
-                .text_styles
-                .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
-            style
-                .text_styles
-                .insert(egui::TextStyle::Button, egui::FontId::proportional(13.0));
-            style
-                .text_styles
-                .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
-            style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-            style.spacing.button_padding = egui::vec2(12.0, 7.0);
-        });
+        self.paint_screen(ui);
+    }
+}
+
+impl KooladeApp {
+    pub(super) fn paint_screen(&mut self, ui: &mut egui::Ui) {
+        crate::ui::theme::apply(ui.ctx());
 
         match &mut self.screen {
             Screen::Welcome => {

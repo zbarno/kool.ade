@@ -84,7 +84,7 @@ pub fn paint_browse_card(ui: &mut egui::Ui, dlg: &mut DlgBrowse) -> (bool, bool)
     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
         let choose_btn = ui.add_enabled(
             can_choose,
-            egui::Button::new(RichText::new("Choose folder").strong().color(theme::BG))
+            egui::Button::new(RichText::new("Choose folder").strong().color(theme::TEXT))
                 .fill(theme::ACCENT_SOFT)
                 .corner_radius(6.0),
         );

@@ -34,15 +34,10 @@ pub(super) fn paint_panes(
                 .show(&mut panes[1], |ui| paint_details(ui, surface, details));
         });
     } else {
-        egui::ScrollArea::vertical()
-            .id_salt(("planning_details", key))
-            .max_height(height * 0.58)
-            .show(ui, |ui| paint_details(ui, surface, details));
+        paint_details(ui, surface, details);
+        ui.add_space(crate::ui::theme::spacing::L);
         ui.separator();
-        egui::ScrollArea::vertical()
-            .id_salt(("planning_conversation", key))
-            .max_height(height * 0.35)
-            .show(ui, |ui| super::conversation::paint(ui, surface, key));
+        super::conversation::paint(ui, surface, key);
     }
 }
 
@@ -100,7 +95,7 @@ fn paint_item_details(
         if ui
             .add_enabled(
                 !surface.task_chat_active(item.conversation_key()),
-                egui::Button::new("Approve provisional decision").fill(crate::ui::theme::BLUE),
+                egui::Button::new("Approve provisional decision").fill(crate::ui::theme::ACTION),
             )
             .clicked()
         {
