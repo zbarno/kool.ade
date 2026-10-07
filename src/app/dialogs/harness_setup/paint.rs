@@ -66,6 +66,8 @@ fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
     );
     ui.label(RichText::new("Kool.ad/e checks supported command line tools and keeps your default on this device. Configured means local provider settings were found; no live request was sent.").size(11.5).weak());
     ui.add_space(8.0);
+    super::pi_guide::paint(ui, dialog);
+    ui.add_space(6.0);
     if matches!(dialog.probe_view, ProbeView::Pending) {
         ui.horizontal(|ui| {
             ui.spinner();
@@ -167,8 +169,6 @@ fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
                 .color(theme::DANGER),
         );
     }
-    super::pi_guide::paint(ui, dialog);
-    ui.add_space(6.0);
     if ui.button("Rediscover tools").clicked() {
         dialog.refresh();
     }
