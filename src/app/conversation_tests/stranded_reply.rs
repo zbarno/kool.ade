@@ -53,23 +53,11 @@ fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
     }));
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Your answer…");
+    click_text(&mut app, &ctx, question);
+    click_text(&mut app, &ctx, "Reply about this task…");
     frame(&mut app, &ctx, vec![egui::Event::Text("Postgres".into())]);
     assert_eq!(app.task_draft("CLR-001").unwrap(), "Postgres");
-    click_text(&mut app, &ctx, question);
-    frame(
-        &mut app,
-        &ctx,
-        vec![egui::Event::Key {
-            key: egui::Key::Escape,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: Default::default(),
-        }],
-    );
-    frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Send answer");
+    click_text(&mut app, &ctx, "Send reply");
     complete(&mut app);
     assert!(
         app.task_messages("CLR-001")

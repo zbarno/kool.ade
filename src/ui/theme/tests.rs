@@ -81,11 +81,7 @@ fn board_hues_remain_pairwise_distinct() {
 }
 
 /// Stipulation i + REQ-F20-2: every running card separates from its idle
-/// twin in fill (0.22 vs 0.12 hue blend) AND in stroke (width or colour).
-/// Specialisation: the running Task card earns the 2.5 px ACCENT stroke
-/// over its 1.0 px idle (its base hue already equals ACCENT, so width is
-/// the distinguishing channel), and every item class keeps 1.0 px while
-/// promoting stroke colour to ACCENT against its idle class-hue stroke.
+/// twin in fill and stroke while card type remains a badge-level distinction.
 #[test]
 fn board_frames_separate_active_from_idle_per_class() {
     let kinds = [
@@ -109,8 +105,8 @@ fn board_frames_separate_active_from_idle_per_class() {
     let running_task = board_frame(None, true);
     assert_eq!(running_task.stroke.width, 1.5);
     assert_eq!(idle_task.stroke.width, 1.0);
-    assert_eq!(running_task.stroke.color, board_hue(None));
-    assert_eq!(idle_task.stroke.color, board_hue(None));
+    assert_eq!(running_task.stroke.color, BLUE_BRIGHT);
+    assert_eq!(idle_task.stroke.color, BORDER_STRONG);
     for kind in [
         Some(Question),
         Some(Ambiguity),
@@ -119,9 +115,9 @@ fn board_frames_separate_active_from_idle_per_class() {
     ] {
         let idle = board_frame(kind, false);
         let running = board_frame(kind, true);
-        assert_eq!(running.stroke.color, board_hue(kind));
+        assert_eq!(running.stroke.color, BLUE_BRIGHT);
         assert_eq!(running.stroke.width, 1.5);
-        assert_eq!(idle.stroke.color, board_hue(kind));
+        assert_eq!(idle.stroke.color, BORDER_STRONG);
     }
 }
 

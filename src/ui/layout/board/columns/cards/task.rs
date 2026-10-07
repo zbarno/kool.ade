@@ -10,195 +10,96 @@ pub(in crate::ui::layout::board::columns) fn task(
     selected_path: &mut Option<String>,
 ) {
     let active = s.implementation_active(&doc.path);
-    let activity_active = s.activity_active(&doc.path);
+    let waiting = s.implementation_waiting_for_capacity(&doc.path);
     let complete = task_board_column(s, &doc.path) == 4;
-    task_cards::board_card(
-        ui,
-        &doc.path,
-        None,
-        activity_active,
-        column == 3,
-        complete,
-        |ui| {
-            let needs_user_action = matches!(
-                s.implementation_recovery(&doc.path),
-                Some(crate::core::implementation::RecoveryDisposition::UserAction)
-            );
-            let failed_or_interrupted = s.implementation_state(&doc.path).is_some_and(|state| {
-                (state.status == crate::core::implementation::ImplementationStatus::Blocked
-                    && !needs_user_action)
-                    || state.status
-                        == crate::core::implementation::ImplementationStatus::Interrupted
-            }) || (s.implementation_failure(&doc.path).is_some()
-                && !needs_user_action);
-            if (activity_active || needs_user_action)
-                && !failed_or_interrupted
-                && let Some(item) = super::super::attention::linked_user_action(board, &doc.path)
+    let prerequisite =
+        dependency_blocker(s, board, doc).map(|title| format!("Waiting for {title}"));
+    let title = task_cards::card_summary(super::super::super::presentation::human_title(
+        &doc.title, &doc.path,
+    ));
+    let needs_input = super::super::attention::linked_user_action(board, &doc.path);
+    let status = if active {
+        "Kool.ad/e is working on this task"
+    } else if let Some(prerequisite) = prerequisite.as_deref() {
+        prerequisite
+    } else if waiting {
+        "Queued · implementation slots are full"
+    } else if needs_input.is_some() {
+        "Waiting for your decision"
+    } else {
+        match column {
+            0 => "Ready for implementation",
+            1 => "In progress",
+            2 => "Ready for review",
+            3 => "Needs attention",
+            _ => "Completed",
+        }
+    };
+    let open_details =
+        task_cards::board_card(ui, &doc.path, None, active, column == 3, complete, |ui| {
+            ui.horizontal(|ui| {
+                if needs_input.is_some() {
+                    super::super::attention::badge(
+                        ui,
+                        super::super::attention::Kind::WaitingOnUser,
+                    );
+                    ui.label(
+                        RichText::new("Needs your input")
+                            .strong()
+                            .color(theme::WARNING),
+                    );
+                } else if column == 3 {
+                    super::super::attention::badge(
+                        ui,
+                        super::super::attention::task_kind(s, &doc.path),
+                    );
+                } else {
+                    theme::badge(ui, "Task", theme::PANEL, theme::TEXT_DIM);
+                }
+            });
+            if let Some(item) = needs_input {
+                ui.label(RichText::new(&item.question).strong().color(theme::TEXT));
+            }
+            if ui
+                .add(
+                    egui::Button::new(RichText::new(title).strong().size(15.0).color(theme::TEXT))
+                        .frame(false)
+                        .wrap(),
+                )
+                .clicked()
             {
-                super::super::attention::user_action(
-                    ui,
-                    &format!("{} · {}", item.id, task_cards::card_summary(&item.question)),
-                );
-                ui.label(
-                    RichText::new("This feature is waiting on your decision.")
-                        .size(12.0)
-                        .strong()
-                        .color(theme::WARNING),
-                );
+                *selected_path = Some(doc.path.clone());
             }
-            let blocked_by = matches!(column, 0 | 3)
-                .then(|| dependency_blocker(s, board, doc))
-                .flatten();
-            if let Some(blocked_by) = blocked_by {
-                super::super::attention::badge(ui, super::super::attention::Kind::Blocked);
-                ui.label(
-                    RichText::new(format!("Waiting for {blocked_by}"))
-                        .size(12.0)
-                        .color(theme::TEXT_DIM),
-                );
-            } else if column == 3 {
-                super::super::attention::badge(
-                    ui,
-                    super::super::attention::task_kind(s, &doc.path),
-                );
-            }
-            if s.implementation_waiting_for_capacity(&doc.path) {
-                ui.colored_label(theme::TEXT_DIM, "Queued · implementation slots are full");
-            }
-            super::super::super::presentation::metadata(ui, None, &task_key(&doc.path));
-            if column == 3
+            ui.label(theme::helper_text(status));
+            if (column == 2 || column == 3)
                 && ui
                     .add_sized(
-                        [ui.available_width(), 32.0],
-                        egui::Button::new(
-                            RichText::new("Review next action")
-                                .size(12.0)
-                                .strong()
-                                .color(theme::WARNING),
-                        )
-                        .fill(egui::Color32::from_rgb(52, 42, 20))
-                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(102, 77, 22))),
+                        [ui.available_width(), 28.0],
+                        egui::Button::new(if needs_input.is_some() {
+                            "Respond"
+                        } else if column == 2 {
+                            "Review"
+                        } else {
+                            "Open details"
+                        })
+                        .fill(if needs_input.is_some() {
+                            theme::WARNING.gamma_multiply(0.18)
+                        } else {
+                            theme::ACCENT_SOFT
+                        }),
                     )
                     .clicked()
             {
                 *selected_path = Some(doc.path.clone());
             }
-            if ui
-                .add(
-                    egui::Button::new(super::super::super::presentation::title_text(
-                        ui,
-                        super::super::super::presentation::human_title(&doc.title, &doc.path),
-                    ))
-                    .frame(false)
-                    .wrap(),
-                )
-                .on_hover_text(super::super::super::presentation::human_title(
-                    &doc.title, &doc.path,
-                ))
-                .clicked()
-            {
-                *selected_path = Some(doc.path.clone());
-            }
-            if ui.small_button("Open task details").clicked() {
-                *selected_path = Some(doc.path.clone());
-            }
-            super::super::super::presentation::description(ui, &doc.text);
-            let implementation = s.implementation_state(&doc.path);
-            if implementation.is_some_and(|record| {
-                matches!(
-                    record.status,
-                    crate::core::implementation::ImplementationStatus::AwaitingApproval
-                        | crate::core::implementation::ImplementationStatus::ReadyToPublish
-                ) && record.pr_url.is_none()
-            }) {
-                ui.colored_label(
-                    theme::BLUE_BRIGHT,
-                    "Implementation complete · approval required",
-                );
-                ui.horizontal(|ui| {
-                    if ui.button("Approve").clicked() {
-                        s.dispatch(ApplicationCommand::ApprovePublication {
-                            ticket: doc.path.clone(),
-                        });
-                    }
-                    if ui.button("Request changes").clicked() {
-                        s.dispatch(ApplicationCommand::RequestPublicationChanges {
-                            ticket: doc.path.clone(),
-                        });
-                        *selected_path = Some(doc.path.clone());
-                    }
-                });
-            } else if implementation.is_some_and(|record| {
-                record.status == crate::core::implementation::ImplementationStatus::ChangesRequested
-            }) {
-                ui.colored_label(theme::WARNING, "Changes requested · implementation paused");
-            }
-            let mut checklist =
-                crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(&doc.path));
-            if let Some(progress) = s.task_progress(&doc.path) {
-                for index in &progress.checklist {
-                    if let Some(item) = checklist.get_mut(*index) {
-                        item.complete = true;
-                    }
-                }
-            }
-            let elapsed = s.implementation_elapsed(&doc.path);
-            if active {
-                ui.horizontal(|ui| {
-                    theme::operation_indicator(ui);
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new("Kool.ad/e is working")
-                                .size(12.0)
-                                .strong()
-                                .color(theme::BLUE_BRIGHT),
-                        )
-                        .wrap(),
-                    );
-                });
-                if let Some(elapsed) = &elapsed {
-                    ui.label(
-                        RichText::new(format!("{elapsed} elapsed"))
-                            .size(11.0)
-                            .color(theme::TEXT_DIM),
-                    );
-                }
-            }
-            task_cards::paint_task_failure(ui, s, &doc.path);
-            crate::ui::task_checklist::paint(
-                ui,
-                &checklist,
-                complete,
-                true,
-                active,
-                elapsed.as_deref(),
-            );
-            if column == 4 && ui.small_button("Archive").clicked() {
-                s.dispatch(ApplicationCommand::ArchiveTask {
-                    ticket: doc.path.clone(),
-                });
-            }
-            if column != 4 && ui.small_button("Cancel").clicked() {
-                ui.ctx().data_mut(|data| {
-                    data.insert_temp(egui::Id::new("koolade_cancel_pending"), doc.path.clone())
-                });
-            }
-            if active {
-                let samples = s.activity_samples(Some(&doc.path));
-                task_card_activity_band(
-                    ui,
-                    &samples,
-                    true,
-                    s.task_progress(&doc.path),
-                    chrono::Utc::now().timestamp_millis(),
-                );
-            }
-        },
-    );
+        });
+    if open_details {
+        *selected_path = Some(doc.path.clone());
+    }
 }
 
 fn dependency_blocker(
-    s: &dyn Surface,
+    surface: &dyn Surface,
     board: &crate::ui::planning_board::ViewModel,
     doc: &crate::artifacts::task_docs::TaskDocument,
 ) -> Option<String> {
@@ -236,7 +137,7 @@ fn dependency_blocker(
         let Some(dependency) = dependency else {
             return Some("a missing task dependency".into());
         };
-        let complete = s
+        let complete = surface
             .implementation_state(&dependency.path)
             .is_some_and(|state| {
                 state.status == crate::core::implementation::ImplementationStatus::Completed

@@ -8,6 +8,13 @@ pub(super) fn confirm(ui: &mut egui::Ui, s: &mut dyn Surface, board: &ViewModel)
     let Some(key) = ui.ctx().data_mut(|data| data.get_temp::<String>(id)) else {
         return;
     };
+    let selected = ui.ctx().data_mut(|data| {
+        data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
+            .or_else(|| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
+    });
+    if selected.as_deref() == Some(key.as_str()) {
+        return;
+    }
     let work = board.planning_work.iter().find(|work| work.key == key);
     let task = board.task_documents.iter().find(|doc| doc.path == key);
     let unfinished_children =

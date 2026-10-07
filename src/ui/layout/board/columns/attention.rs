@@ -8,6 +8,18 @@ pub(super) enum Kind {
     Blocked,
 }
 
+#[cfg(test)]
+fn user_action_colors(dark_mode: bool) -> (egui::Color32, egui::Color32) {
+    if dark_mode {
+        (theme::WARNING, theme::WARNING.gamma_multiply(0.12))
+    } else {
+        (
+            egui::Color32::from_rgb(142, 93, 0),
+            egui::Color32::from_rgb(255, 245, 205),
+        )
+    }
+}
+
 enum Entry<'a> {
     Work(&'a crate::core::planning_work::Work),
     Setup(&'a crate::app::setup_attention::SetupIssue),
@@ -28,37 +40,6 @@ pub(super) fn badge(ui: &mut egui::Ui, kind: Kind) {
         Kind::Blocked => ("Blocked", theme::TEXT_DIM),
     };
     theme::badge(ui, label, color.gamma_multiply(0.14), color);
-}
-
-pub(super) fn user_action(ui: &mut egui::Ui, action: &str) {
-    let (color, fill) = user_action_colors(ui.visuals().dark_mode);
-    egui::Frame::new()
-        .fill(fill)
-        .stroke(egui::Stroke::new(1.5, color))
-        .corner_radius(6)
-        .inner_margin(egui::Margin::same(4))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    egui::RichText::new("NEEDS YOUR INPUT")
-                        .strong()
-                        .color(color),
-                );
-                ui.label(egui::RichText::new(action).strong());
-            });
-        });
-}
-
-fn user_action_colors(dark_mode: bool) -> (egui::Color32, egui::Color32) {
-    if dark_mode {
-        (theme::WARNING, theme::WARNING.gamma_multiply(0.12))
-    } else {
-        (
-            egui::Color32::from_rgb(142, 93, 0),
-            egui::Color32::from_rgb(255, 245, 205),
-        )
-    }
 }
 
 pub(super) fn linked_user_action<'a>(
@@ -163,8 +144,10 @@ pub(super) fn paint(
     sort_recency(&mut entries);
     for (entry, _, _) in entries {
         match entry {
-            Entry::Work(work) => super::cards::work(ui, s, work, lane.planning, 3),
-            Entry::Setup(issue) => super::cards::setup(ui, s, board, issue),
+            Entry::Work(work) => {
+                super::cards::work(ui, s, work, lane.planning, 3, planning_selection)
+            }
+            Entry::Setup(issue) => super::cards::setup(ui, s, board, issue, planning_selection),
             Entry::Item(item) => super::cards::item(ui, s, board, item, 3, planning_selection),
             Entry::Task(task) => super::cards::task(ui, s, board, task, 3, selected_path),
         }

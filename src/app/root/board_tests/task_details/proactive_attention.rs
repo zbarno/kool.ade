@@ -37,7 +37,7 @@ fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() 
         "What Happened",
         "WHAT IS NEEDED OF THE USER",
         "NEXT STEPS",
-        "Account owner: choose whether to wait or request more capacity.",
+        "Account owner: Choose whether to wait or request more capacity.",
     ] {
         assert!(
             text_contains(&output, section),
@@ -239,10 +239,11 @@ fn planning_work_attention_opens_its_conversation_tab() {
     app.tick(0.016, &ctx);
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    let tabs = ctx.data_mut(|data| {
-        data.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-    });
-    assert_eq!(tabs.and_then(|tabs| tabs.active).as_deref(), Some(key));
+    assert_eq!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
+            .as_deref(),
+        Some(key)
+    );
     let conversation = canvas_text(&output);
     for text in [
         "WHAT IS NEEDED OF THE USER",

@@ -165,9 +165,9 @@ fn task_and_planning_cards_share_modal_header_status_and_close_behavior() {
         frame_at(&mut planning_app, &planning_ctx, vec![], size);
     }
     let planning = click_text_at(&mut planning_app, &planning_ctx, &item.question, size);
-    assert!(text_position(&planning, "Planning · CLR-010").is_some());
+    assert!(text_position(&planning, &item.question).is_some());
     assert!(text_contains(&planning, "Question · General"));
-    assert!(text_position(&planning, "Send answer").is_some());
+    assert!(text_position(&planning, "Send reply").is_some());
     let planning_modal = modal_frame(&planning).expect("planning uses the shared modal frame");
     assert_eq!(task_modal.size(), planning_modal.size());
     assert_eq!(task_modal.left(), planning_modal.left());
@@ -176,7 +176,7 @@ fn task_and_planning_cards_share_modal_header_status_and_close_behavior() {
     assert!(
         text_position(
             &frame_at(&mut planning_app, &planning_ctx, vec![], size),
-            "Planning · CLR-010"
+            "Send reply"
         )
         .is_none(),
         "Escape closes the selected planning modal"

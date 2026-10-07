@@ -59,67 +59,40 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     }).to_string() }));
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Your answer…");
+    click_text(&mut app, &ctx, question);
+    click_text(&mut app, &ctx, "Reply about this task…");
     frame(
         &mut app,
         &ctx,
         vec![egui::Event::Text("Use corporate SSO".into())],
     );
     assert_eq!(app.task_draft("CLR-001").unwrap(), "Use corporate SSO");
-    click_text(&mut app, &ctx, question);
-    assert!(text_position(&frame(&mut app, &ctx, vec![]), "Use corporate SSO").is_some());
-    frame(
-        &mut app,
-        &ctx,
-        vec![egui::Event::Key {
-            key: egui::Key::Escape,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: Default::default(),
-        }],
-    );
-    frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Send answer");
-    assert_eq!(app.task_messages("CLR-001").len(), 1);
+    click_text(&mut app, &ctx, "Send reply");
+    assert_eq!(app.task_messages("CLR-001").len(), 2);
     complete(&mut app);
-    assert_eq!(app.task_messages("CLR-001").len(), 3);
+    assert_eq!(app.task_messages("CLR-001").len(), 4);
     assert_eq!(app.chat_messages().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Needs attention · 1").is_some());
-    click_text(&mut app, &ctx, question);
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Your answer needed").is_some());
+    assert!(text_position(&output, "Waiting for your response").is_some());
     assert!(text_position(&output, "Use corporate SSO").is_some());
-    click_last(&mut app, &ctx, "Your answer…");
+    click_text(&mut app, &ctx, "Reply about this task…");
     frame(
         &mut app,
         &ctx,
         vec![egui::Event::Text("Require MFA as well".into())],
     );
     assert_eq!(app.task_draft("CLR-001").unwrap(), "Require MFA as well");
-    frame(
-        &mut app,
-        &ctx,
-        vec![egui::Event::Key {
-            key: egui::Key::Escape,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: Default::default(),
-        }],
-    );
-    assert!(text_position(&frame(&mut app, &ctx, vec![]), "Require MFA as well").is_some());
-    click_text(&mut app, &ctx, question);
     app.task_harness = Some(Box::new(ReplyHarness { prompts: prompts.clone(), reply: serde_json::json!({
         "schema_version":1, "assistant_message":"Corporate SSO with MFA is confirmed.",
         "document_updates":[{"document_id":"product:current-capabilities","content":"## 5. Functional Requirements\n\nUse corporate SSO with MFA.\n"}],
         "open_items_resolved":["CLR-001"]
     }).to_string() }));
-    click_last(&mut app, &ctx, "Send answer");
-    assert_eq!(app.task_messages("CLR-001").len(), 4);
+    click_text(&mut app, &ctx, "Send reply");
+    assert_eq!(app.task_messages("CLR-001").len(), 5);
     complete(&mut app);
-    assert_eq!(app.task_messages("CLR-001").len(), 6);
+    assert_eq!(app.task_messages("CLR-001").len(), 7);
     assert_eq!(app.chat_messages().len(), 1);
     let captured = prompts.lock().unwrap();
     assert_eq!(captured.len(), 2);
@@ -137,7 +110,7 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert_eq!(persisted.resolved_items[0].conversation_key(), "CLR-001");
     p.task_chats = Default::default();
     p.task_chats.ensure_loaded(&p.chat_slug);
-    assert_eq!(p.task_chats.messages["CLR-001"].len(), 6);
+    assert_eq!(p.task_chats.messages["CLR-001"].len(), 7);
     assert_eq!(p.task_chats.messages["CLR-002"].len(), 1);
     let manager_prompt = crate::app::manager::Manager::prompt_body(p.as_ref(), &p.activity.pending);
     for fact in [

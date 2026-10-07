@@ -6,27 +6,39 @@ pub(super) fn paint(
     board: &crate::ui::planning_board::ViewModel,
     compact: bool,
 ) {
-    let has_task_conversation = chat_tabs::retain_planning_conversations(ui.ctx(), board);
+    let _ = board;
     let specification_open = !ui.ctx().data_mut(|data| {
         data.get_temp::<bool>(egui::Id::new("koolade_document_tab"))
             .unwrap_or(true)
     });
-    if has_task_conversation || specification_open {
+    let collapsed_id = egui::Id::new("koolade_spec_chat_collapsed");
+    let collapsed = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<bool>(collapsed_id).unwrap_or(false));
+    if specification_open && !collapsed {
         let chat_panel = if compact {
-            Panel::top("koolade_chat_panel").exact_size(if specification_open {
-                300.0
-            } else {
-                230.0
-            })
+            Panel::top("koolade_chat_panel")
+                .exact_size(300.0)
+                .resizable(true)
+                .min_size(200.0)
+                .max_size(440.0)
         } else {
             Panel::left("koolade_chat_panel")
-                .exact_size((ui.available_width() * 0.32).clamp(340.0, 560.0))
+                .default_size((ui.available_width() * 0.30).clamp(320.0, 460.0))
+                .resizable(true)
+                .min_size(280.0)
+                .max_size(560.0)
         };
         chat_panel
             .frame(Frame::NONE.fill(theme::BG).inner_margin(12))
             .show(ui, |ui| {
                 if specification_open {
-                    ui.heading("Revise specification");
+                    ui.horizontal(|ui| {
+                        ui.heading("Specification conversation");
+                        if ui.small_button("Collapse").clicked() {
+                            ui.ctx().data_mut(|data| data.insert_temp(collapsed_id, true));
+                        }
+                    });
                     ui.label("Describe a change below. Kool.ad/e updates the specification through conversation.");
                     let messages = s.chat_messages().to_vec();
                     let busy = s.conversation_busy();
@@ -48,8 +60,6 @@ pub(super) fn paint(
                         *draft = format!("Revise the {target} specification: {}", draft.trim());
                     }
                     s.dispatch(ApplicationCommand::UserIntent(std::mem::take(&mut intent)));
-                } else {
-                    chat_tabs::paint(ui, s, board);
                 }
             });
     }

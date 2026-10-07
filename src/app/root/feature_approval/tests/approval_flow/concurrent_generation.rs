@@ -14,6 +14,7 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     app.task_harness = Some(review_harness);
     let context = egui::Context::default();
     frame(&mut app, &context, vec![]);
+    click_text(&mut app, &context, "Review specification");
     click_text(&mut app, &context, "Approve CHG-004 and prepare tasks");
     assert!(app.feature_approved("CHG-004"));
     let key = match &app.screen {

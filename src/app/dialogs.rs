@@ -23,7 +23,9 @@ use browse::expand_tilde;
 #[cfg(test)]
 use browse::{DirRow, resolve_seed};
 pub use browse::{DlgBrowse, paint_browse_card};
-pub use harness_setup::{DlgHarnessSetup, paint_harness_setup_card};
+pub use harness_setup::{
+    DlgHarnessSetup, HarnessSettingsSection, paint_harness_setup_card, paint_harness_setup_page,
+};
 pub use import::DlgImport;
 pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{

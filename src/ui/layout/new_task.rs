@@ -26,6 +26,7 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
     let mut open = draft.open;
     let mut created = None;
     let mut dismissed = false;
+    let mut submit = false;
     let branches = surface.repository_branches();
     let destination_branches = surface.repository_destination_branches();
     let harness_settings = surface.harness_settings();
@@ -36,84 +37,84 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
         draft.destination_branch = surface.default_repository_branch().to_owned();
     }
     if open {
-        let closed = crate::ui::overlays::show_modal(ui, true, "New Task", 480.0, |ui| {
-            ui.label(RichText::new("What do you want Kool.ad/e to work on?").strong());
-            ui.add_space(8.0);
-            for (kind, explanation) in [
-                (
+        let valid = !draft.description.trim().is_empty()
+            && !draft.source_branch.is_empty()
+            && !draft.destination_branch.is_empty()
+            && branches.contains(&draft.source_branch)
+            && destination_branches.contains(&draft.destination_branch)
+            && !surface.conversation_busy();
+        let closed = crate::ui::overlays::show_medium_modal(
+            ui,
+            true,
+            "New Task",
+            |ui| {
+                ui.label(RichText::new("Task type").strong());
+                for kind in [
                     WorkKind::Feature,
-                    "Plan a new capability or improve how your project works.",
-                ),
-                (
                     WorkKind::Bug,
-                    "Investigate something that is broken and plan a fix.",
-                ),
-                (
                     WorkKind::NewProject,
-                    "Define a project's purpose, scope, and architecture. Use this to start documenting an existing codebase too.",
-                ),
-                (
                     WorkKind::DocumentationRefresh,
-                    "Survey the code and update project documentation; queue questions and possible issues for review.",
-                ),
-                (
                     WorkKind::Question,
-                    "Get an answer grounded in your project. This task answers questions without creating or updating specifications.",
-                ),
-            ] {
-                ui.horizontal_wrapped(|ui| {
+                ] {
                     ui.radio_value(&mut draft.kind, kind, new_task_kind_label(kind));
-                    ui.label(RichText::new(explanation).color(theme::TEXT_MUTED));
-                });
-                ui.add_space(2.0);
-            }
-            ui.separator();
-            ui.label("Describe your goal and any details that will help.");
-            ui.add(
-                egui::TextEdit::multiline(&mut draft.description)
-                    .desired_rows(4)
-                    .desired_width(ui.available_width())
-                    .hint_text("Describe what you want to do…"),
-            );
-            ui.horizontal(|ui| {
+                }
+                let selected_help = match draft.kind {
+                    WorkKind::Feature => "Plan a capability or improve how the project works.",
+                    WorkKind::Bug => "Investigate a problem and plan a fix.",
+                    WorkKind::NewProject => {
+                        "Define the purpose, scope, and architecture of a project."
+                    }
+                    WorkKind::DocumentationRefresh => {
+                        "Survey the code and refresh project documentation."
+                    }
+                    WorkKind::Question => "Get an answer grounded in this project.",
+                    WorkKind::TaskGeneration => {
+                        "Generate implementation tasks from an approved specification."
+                    }
+                };
+                ui.label(theme::helper_text(selected_help));
+                ui.add_space(theme::spacing::S);
+                ui.label(RichText::new("Goal and details").strong());
+                ui.add(
+                    egui::TextEdit::multiline(&mut draft.description)
+                        .desired_rows(6)
+                        .desired_width(ui.available_width())
+                        .hint_text("Describe what you want to do…"),
+                );
+                ui.add_space(theme::spacing::S);
                 branch_picker(ui, "Source Branch", &mut draft.source_branch, &branches);
-            });
-            ui.horizontal(|ui| {
                 branch_picker(
                     ui,
                     "Destination Branch",
                     &mut draft.destination_branch,
                     &destination_branches,
                 );
-            });
-            routing_editor(ui, &harness_settings, &mut draft.routing_overrides);
-            ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
-                    dismissed = true;
-                }
-                if ui
-                    .add_enabled(
-                        !draft.description.trim().is_empty()
-                            && !draft.source_branch.is_empty()
-                            && !draft.destination_branch.is_empty()
-                            && branches.contains(&draft.source_branch)
-                            && destination_branches.contains(&draft.destination_branch)
-                            && !surface.conversation_busy(),
-                        egui::Button::new("Create Task").fill(theme::ACCENT_SOFT),
-                    )
-                    .clicked()
-                {
-                    created = Some((
-                        draft.kind,
-                        draft.description.trim().to_owned(),
-                        draft.source_branch.clone(),
-                        draft.destination_branch.clone(),
-                        draft.routing_overrides.clone(),
-                    ));
-                }
-            });
-        });
+                routing_editor(ui, &harness_settings, &mut draft.routing_overrides);
+            },
+            |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(valid, egui::Button::new("Create Task").fill(theme::BLUE))
+                        .clicked()
+                    {
+                        submit = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        dismissed = true;
+                    }
+                });
+            },
+        );
         dismissed |= closed;
+    }
+    if submit {
+        created = Some((
+            draft.kind,
+            draft.description.trim().to_owned(),
+            draft.source_branch.clone(),
+            draft.destination_branch.clone(),
+            draft.routing_overrides.clone(),
+        ));
     }
     if let Some((kind, description, source_branch, destination_branch, routing_overrides)) = created
     {
@@ -137,12 +138,13 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
 }
 
 fn branch_picker(ui: &mut Ui, label: &str, selected: &mut String, branches: &[String]) {
+    let selected_text = if selected.is_empty() {
+        format!("{label}: no branch available")
+    } else {
+        format!("{label}: {selected}")
+    };
     egui::ComboBox::from_id_salt(label)
-        .selected_text(if selected.is_empty() {
-            format!("{label}: no branch available")
-        } else {
-            format!("{label}: {selected}")
-        })
+        .selected_text(selected_text)
         .show_ui(ui, |ui| {
             for branch in branches {
                 ui.selectable_value(selected, branch.clone(), branch);

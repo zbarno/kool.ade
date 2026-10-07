@@ -4,6 +4,23 @@ use egui::{Color32, CornerRadius, Stroke};
 
 pub const REDUCE_MOTION_ID: &str = "kool_ade_reduce_motion";
 
+pub mod spacing {
+    pub const XS: f32 = 4.0;
+    pub const S: f32 = 8.0;
+    pub const M: f32 = 12.0;
+    pub const L: f32 = 20.0;
+    pub const XL: f32 = 28.0;
+}
+
+pub mod type_scale {
+    pub const TITLE: f32 = 22.0;
+    pub const SECTION: f32 = 16.0;
+    pub const BODY: f32 = 14.0;
+    pub const HELPER: f32 = 12.5;
+    pub const METADATA: f32 = 11.0;
+    pub const DIAGNOSTIC: f32 = 10.5;
+}
+
 pub fn reduced_motion(ctx: &egui::Context) -> bool {
     ctx.data_mut(|data| {
         data.get_temp::<bool>(egui::Id::new(REDUCE_MOTION_ID))
@@ -25,6 +42,8 @@ pub const BG: Color32 = Color32::from_rgb(8, 11, 14);
 pub const COLUMN: Color32 = Color32::from_rgb(13, 18, 23);
 pub const PANEL: Color32 = Color32::from_rgb(19, 26, 32);
 pub const PANEL_ALT: Color32 = Color32::from_rgb(24, 33, 41);
+pub const SURFACE_ELEVATED: Color32 = Color32::from_rgb(31, 41, 48);
+pub const INPUT_SURFACE: Color32 = Color32::from_rgb(12, 18, 23);
 pub const CARD_HOVER: Color32 = Color32::from_rgb(29, 40, 49);
 pub const BORDER: Color32 = Color32::from_rgb(45, 57, 66);
 pub const BORDER_STRONG: Color32 = Color32::from_rgb(60, 74, 84);
@@ -34,10 +53,37 @@ pub const TEXT_MUTED: Color32 = Color32::from_rgb(120, 131, 141);
 pub const PUNCH: Color32 = Color32::from_rgb(226, 29, 53);
 pub const PUNCH_BRIGHT: Color32 = Color32::from_rgb(243, 55, 77);
 pub const PUNCH_DEEP: Color32 = Color32::from_rgb(104, 10, 21);
+pub const BRAND: Color32 = PUNCH;
 pub const BLUE: Color32 = Color32::from_rgb(0, 159, 232);
 pub const BLUE_BRIGHT: Color32 = Color32::from_rgb(34, 184, 255);
 pub const ACCENT: Color32 = Color32::from_rgb(0, 159, 232);
 pub const ACCENT_SOFT: Color32 = Color32::from_rgb(28, 78, 101);
+
+pub fn page_title(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text)
+        .size(type_scale::TITLE)
+        .strong()
+        .color(TEXT)
+}
+
+pub fn section_heading(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text)
+        .size(type_scale::SECTION)
+        .strong()
+        .color(TEXT)
+}
+
+pub fn helper_text(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text)
+        .size(type_scale::HELPER)
+        .color(TEXT_DIM)
+}
+
+pub fn metadata_text(text: impl Into<String>) -> egui::RichText {
+    egui::RichText::new(text)
+        .size(type_scale::METADATA)
+        .color(TEXT_MUTED)
+}
 /// At-a-glance digest backdrop on dark neutral surfaces.
 pub const DIGEST_BG: Color32 = Color32::from_rgb(20, 50, 72);
 /// Fill of the option-chip row, slightly brighter than the chat background.
@@ -68,7 +114,7 @@ pub fn board_hue(kind: Option<crate::domain::ItemKind>) -> Color32 {
     }
 }
 
-/// Card outlines identify item type; activity changes emphasis, not hue.
+/// Card outlines communicate workflow state; item type stays in its badge.
 pub fn board_frame(kind: Option<crate::domain::ItemKind>, active: bool) -> egui::Frame {
     board_state_frame(kind, active, false, false)
 }
@@ -84,7 +130,16 @@ pub fn board_state_frame(
     } else {
         1.0
     };
-    let edge = board_hue(kind);
+    let edge = if attention {
+        WARNING
+    } else if active {
+        BLUE_BRIGHT
+    } else if done {
+        SUCCESS
+    } else {
+        let _ = kind;
+        BORDER_STRONG
+    };
     egui::Frame::NONE
         .corner_radius(8)
         .inner_margin(14)

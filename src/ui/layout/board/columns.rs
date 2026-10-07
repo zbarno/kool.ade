@@ -13,6 +13,11 @@ pub(super) fn paint(
     let docs = &board.task_documents;
     let work = &board.planning_work;
     let items = &board.planning_items;
+    let feature_approvals = s
+        .feature_actions(None)
+        .into_iter()
+        .filter(|action| !action.approved)
+        .collect::<Vec<_>>();
     let height = (ui.available_height() - 24.0).max(120.0);
     let gaps = 16.0 * 4.0;
     let column_width = ((ui.available_width() - 150.0 - gaps) / 5.0).max(180.0);
@@ -76,6 +81,7 @@ pub(super) fn paint(
                                     let count = cards.len()
                                         + questions.len()
                                         + planning.len()
+                                        + usize::from(column == 3) * feature_approvals.len()
                                         + usize::from(
                                             column == 3 && board.setup_attention.is_some(),
                                         );
@@ -136,6 +142,7 @@ pub(super) fn paint(
                                 let visible_count = cards.len()
                                     + questions.len()
                                     + planning.len()
+                                    + usize::from(column == 3) * feature_approvals.len()
                                     + usize::from(column == 3 && board.setup_attention.is_some());
                                 if visible_count == 0 {
                                     let (headline, detail) = match column {
@@ -180,9 +187,12 @@ pub(super) fn paint(
                                                 selected_path,
                                                 planning_selection,
                                             );
+                                            for action in &feature_approvals {
+                                                cards::approval(ui, action, planning_selection);
+                                            }
                                         } else {
                                             for item in &planning {
-                                                cards::work(ui, s, item, &planning, column);
+                                                cards::work(ui, s, item, &planning, column, planning_selection);
                                             }
                                             for item in &questions {
                                                 cards::item(

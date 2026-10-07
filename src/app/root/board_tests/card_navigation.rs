@@ -195,5 +195,5 @@ fn live_card_opens_full_activity_and_returns_to_item_details() {
         ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_task_activity")))
             .is_none()
     );
-    assert!(text_position(&output, "Task details").is_some());
+    assert!(text_position(&output, "Task details").is_none());
 }

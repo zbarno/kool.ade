@@ -9,8 +9,9 @@ pub(in crate::ui::layout::board::columns) fn item(
     column: usize,
     planning_selection: &mut Option<String>,
 ) {
-    let active = s.activity_active(item.conversation_key());
-    task_cards::board_card(
+    let key = item.conversation_key();
+    let active = s.activity_active(key);
+    let open_details = task_cards::board_card(
         ui,
         &item.id,
         Some(item.kind),
@@ -18,21 +19,26 @@ pub(in crate::ui::layout::board::columns) fn item(
         column == 3,
         column == 4,
         |ui| {
-            if column == 3 {
-                if board.eligible_item_ids.contains(&item.id) {
-                    super::super::attention::user_action(ui, &format!("Answer {}", item.id));
-                } else {
-                    super::super::attention::badge(ui, super::super::attention::Kind::Blocked);
+            ui.horizontal(|ui| {
+                theme::badge(
+                    ui,
+                    item.kind.to_string().as_str(),
+                    item.kind.badge_colors().0,
+                    item.kind.badge_colors().1,
+                );
+                if column == 3 {
+                    super::super::attention::badge(
+                        ui,
+                        super::super::attention::Kind::WaitingOnUser,
+                    );
+                } else if column == 4 {
+                    theme::badge(ui, "Resolved", theme::PANEL, theme::TEXT_DIM);
                 }
-            }
-            super::super::super::presentation::metadata(ui, Some(item.kind), &item.id);
+            });
             if ui
                 .add(
                     egui::Button::new(
-                        RichText::new(task_cards::card_summary(&item.question))
-                            .size(15.5)
-                            .strong()
-                            .color(theme::TEXT),
+                        RichText::new(task_cards::card_summary(&item.question)).strong(),
                     )
                     .frame(false)
                     .wrap(),
@@ -42,49 +48,37 @@ pub(in crate::ui::layout::board::columns) fn item(
             {
                 *planning_selection = Some(item.id.clone());
             }
-            if task_cards::task_conversation(ui, s, board, item.conversation_key(), false) {
-                *planning_selection = Some(item.id.clone());
-            }
-            ui.add_space(4.0);
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new(item.priority.to_string())
-                        .size(12.5)
-                        .color(theme::WARNING),
-                );
-                let color = match item.authority {
-                    crate::domain::Authority::Agent => theme::TEXT_DIM,
-                    crate::domain::Authority::Review => theme::PURPLE,
-                    crate::domain::Authority::Human => theme::WARNING,
+            let summary = if item.status == crate::domain::ItemStatus::Resolved {
+                "Decision recorded"
+            } else if crate::core::routing::has_open_prerequisite(&board.planning_items, item) {
+                "Waiting for a prerequisite"
+            } else if item.authority == crate::domain::Authority::Review {
+                "Ready for review"
+            } else if item.authority == crate::domain::Authority::Human {
+                "Waiting for your response"
+            } else {
+                "Ready for the next step"
+            };
+            ui.label(theme::helper_text(summary));
+            if column == 3 {
+                let action = if item.authority == crate::domain::Authority::Review {
+                    "Review"
+                } else {
+                    "Respond"
                 };
-                ui.label(
-                    RichText::new(item.authority.to_string())
-                        .size(12.5)
-                        .color(color),
-                );
-                ui.label(
-                    RichText::new(item.assigned_to.as_deref().unwrap_or("Unassigned"))
-                        .size(12.5)
-                        .weak(),
-                );
-            });
-            ui.label(RichText::new(&item.category).size(12.5).weak());
-            if active {
-                ui.label(RichText::new("● Active").color(theme::BLUE));
-            }
-            if column == 4 && ui.small_button("Archive").clicked() {
-                s.dispatch(ApplicationCommand::ArchiveTask {
-                    ticket: item.conversation_key().to_owned(),
-                });
-            }
-            if active {
-                crate::ui::task_activity::graph(
-                    ui,
-                    &s.activity_samples(Some(item.conversation_key())),
-                    true,
-                    34.0,
-                );
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 28.0],
+                        egui::Button::new(action).fill(theme::WARNING.gamma_multiply(0.18)),
+                    )
+                    .clicked()
+                {
+                    *planning_selection = Some(item.id.clone());
+                }
             }
         },
     );
+    if open_details {
+        *planning_selection = Some(item.id.clone());
+    }
 }

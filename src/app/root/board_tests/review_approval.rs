@@ -32,17 +32,15 @@ fn verified_work_waiting_approval_is_in_review_with_direct_card_actions() {
     let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
     awaiting_approval(&mut app, ticket);
     let ctx = egui::Context::default();
-    let output = frame(&mut app, &ctx, vec![]);
+    frame(&mut app, &ctx, vec![]);
+    let output = click_text(&mut app, &ctx, "First task");
     for expected in [
-        "In review",
-        "Implementation complete · approval required",
-        "Approve",
+        "CURRENT STATE",
+        "Implementation is complete and verified",
+        "Approve and create pull request",
         "Request changes",
     ] {
-        assert!(
-            text_position(&output, expected).is_some(),
-            "missing {expected}"
-        );
+        assert!(text_contains(&output, expected), "missing {expected}");
     }
     assert!(text_position(&output, "Interrupted — no worker is running").is_none());
     if let Screen::Connected(project) = &app.screen {

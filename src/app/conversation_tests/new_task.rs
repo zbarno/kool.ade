@@ -165,7 +165,7 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
     click_text(&mut app, &ctx, "Create Task");
     complete(&mut app);
 
-    let parent_uid = {
+    let (parent_uid, parent_title) = {
         let Screen::Connected(project) = &mut app.screen else {
             panic!()
         };
@@ -200,9 +200,14 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
             .unwrap();
         let offer = parent.follow_up_task.as_ref().unwrap();
         assert_eq!(offer.title, "Add hosted Anthropic support through Pi");
-        parent_uid
+        (
+            parent_uid,
+            parent.title.chars().take(32).collect::<String>(),
+        )
     };
-    let output = frame(&mut app, &ctx, vec![]);
+    let output = click_text(&mut app, &ctx, &parent_title);
+    assert!(text_position(&output, "Next step").is_some());
+    let output = click_text(&mut app, &ctx, "Related task");
     assert!(text_position(&output, "Create related Feature task").is_some());
     click_text(&mut app, &ctx, "Create related Feature task");
     let Screen::Connected(project) = &app.screen else {

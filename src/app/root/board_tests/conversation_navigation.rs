@@ -35,9 +35,6 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
             )],
         );
     }
-    let mut stale_tabs = crate::ui::layout::ChatTabs::default();
-    stale_tabs.open(key);
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new("koolade_chat_tabs"), stale_tabs));
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
     assert!(text_position(&output, "Task draft stays with this item").is_some());
@@ -75,14 +72,7 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
     assert!(text_position(&output, "Second task only").is_some());
     assert!(text_position(&output, "Second task draft").is_some());
     assert!(text_position(&output, "Task-only previous reply").is_none());
-    let active_tabs = ctx.data_mut(|data| {
-        data.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-            .and_then(|tabs| tabs.active)
-    });
-    assert!(
-        active_tabs.is_none(),
-        "story chats must leave the global panel"
-    );
+    assert!(text_position(&output, "Task conversation").is_some());
 }
 
 #[test]
@@ -117,22 +107,11 @@ fn narrow_task_workspace_leads_with_action_and_discloses_description() {
     frame_at(&mut app, &ctx, vec![], size);
     click_text_at(&mut app, &ctx, "First task", size);
     let output = frame_at(&mut app, &ctx, vec![], size);
-    let action = text_position(&output, "Implement & continue queue").unwrap();
+    let action = text_position(&output, "Implement & continue queue")
+        .expect("task implementation action is visible");
     assert!(action.x > 0.0 && action.x < size.x && action.y > 0.0 && action.y < size.y);
     assert!(text_position(&output, "CURRENT STATE").is_some());
     assert!(text_position(&output, "YOUR NEXT STEP").is_some());
-    assert!(
-        text_position(&output, "Activity").is_some(),
-        "{:?}",
-        output
-            .shapes
-            .iter()
-            .filter_map(|s| match &s.shape {
-                egui::Shape::Text(t) => Some((t.galley.text(), t.pos)),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    );
     assert!(text_position(&output, "Unique story detail 0").is_none());
 }
 

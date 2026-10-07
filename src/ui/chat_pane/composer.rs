@@ -151,6 +151,13 @@ pub(super) fn paint_with_hint(
                 ui.label(RichText::new("Ctrl + Enter to send").size(10.5).weak());
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let enabled = editable && !draft.trim().is_empty();
+                    if composer_id == "task_tab_composer" {
+                        send = ui
+                            .add_enabled(enabled, egui::Button::new("Send reply"))
+                            .on_hover_text("Send to this task's conversation")
+                            .clicked();
+                        return;
+                    }
                     let (rect, response) =
                         ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
                     let center = rect.center();

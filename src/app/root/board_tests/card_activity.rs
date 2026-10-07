@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn board_shows_graph_only_for_running_cards_and_sums_all_sources() {
+fn board_keeps_activity_details_out_of_cards_and_sums_all_sources() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {
         for (key, count) in [
@@ -41,14 +41,12 @@ fn board_shows_graph_only_for_running_cards_and_sums_all_sources() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Live activity").is_some());
-    for color in [crate::ui::theme::PUNCH, crate::ui::theme::BLUE] {
+    for (color, expected) in [(crate::ui::theme::PUNCH, 1), (crate::ui::theme::BLUE, 0)] {
         let lines = output.shapes.iter().filter(|shape| matches!(&shape.shape, egui::Shape::Path(path)
             if path.points.len() == 60 && path.stroke.color == egui::epaint::ColorMode::Solid(color))).count();
-        assert_eq!(
-            lines, 1,
-            "one measured header graph and one running card graph"
-        );
+        assert_eq!(lines, expected, "card activity stays in Task Details");
     }
+    assert!(text_position(&output, "No activity yet").is_none());
     // Starting another run must not erase the project's observed history.
     if let Screen::Connected(p) = &mut app.screen {
         p.activity.ensure_overall();
@@ -67,7 +65,11 @@ fn compact_task_cards_only_show_inputs_for_pending_answers() {
     assert!(text_position(&output, "Add context").is_none());
     assert!(text_position(&output, "Your answer…").is_none());
     assert!(text_position(&output, "Send answer").is_none());
-    assert!(text_position(&output, "Open task details").is_some());
+    assert!(text_position(&output, "First task").is_some());
+    click_text(&mut app, &ctx, "First task");
+    let details = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&details, "Your response…").is_some());
+    assert!(text_position(&details, "Send response").is_some());
 }
 
 #[test]
@@ -77,8 +79,10 @@ fn done_task_can_be_archived_off_the_board() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Merged task").is_some());
-    assert!(text_position(&output, "Archive").is_some());
-    let output = click_text(&mut app, &ctx, "Archive");
+    assert!(text_position(&output, "Archive").is_none());
+    click_text(&mut app, &ctx, "Merged task");
+    click_text(&mut app, &ctx, "Archive");
+    let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Merged task").is_none());
     let Screen::Connected(project) = &app.screen else {
         panic!("disconnected")
