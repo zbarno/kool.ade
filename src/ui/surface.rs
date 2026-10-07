@@ -25,7 +25,18 @@ impl SurfaceBounds {
         let (preferred, max_ratio, max_width, height_ratio, header, footer) = match kind {
             SurfaceKind::Small => (requested_width.min(560.0), 1.0, 560.0, 0.78, 48.0, 0.0),
             SurfaceKind::Medium => (requested_width.max(720.0), 0.94, 900.0, 0.90, 52.0, 62.0),
-            SurfaceKind::Workspace => (available_width * 0.93, 0.95, 1680.0, 0.92, 58.0, 0.0),
+            SurfaceKind::Workspace => (
+                if requested_width > 0.0 {
+                    requested_width
+                } else {
+                    available_width * 0.93
+                },
+                0.95,
+                1680.0,
+                0.92,
+                58.0,
+                0.0,
+            ),
         };
         let width = preferred
             .min(available_width * max_ratio)

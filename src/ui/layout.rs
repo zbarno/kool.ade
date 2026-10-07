@@ -2,7 +2,6 @@
 use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
-#[cfg(test)]
 mod activity;
 mod board;
 mod board_state;

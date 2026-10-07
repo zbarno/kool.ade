@@ -72,7 +72,7 @@ pub(super) fn paint_setup_issue(
     if ui
         .add_enabled(
             !board.setup_checking,
-            egui::Button::new(label).fill(crate::ui::theme::BLUE),
+            egui::Button::new(label).fill(crate::ui::theme::ACTION),
         )
         .clicked()
     {
@@ -114,7 +114,7 @@ pub(super) fn paint_feature_approval(
     } else if ui
         .add_enabled(
             !surface.conversation_busy(),
-            egui::Button::new(action.label()).fill(crate::ui::theme::BLUE),
+            egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
         )
         .clicked()
     {

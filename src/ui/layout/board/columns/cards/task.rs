@@ -66,11 +66,15 @@ pub(in crate::ui::layout::board::columns) fn task(
                         .frame(false)
                         .wrap(),
                 )
+                .on_hover_text(super::super::super::presentation::human_title(
+                    &doc.title, &doc.path,
+                ))
                 .clicked()
             {
                 *selected_path = Some(doc.path.clone());
             }
             ui.label(theme::helper_text(status));
+            super::super::super::super::activity::paint_card(ui, s, &doc.path, true);
             if (column == 2 || column == 3)
                 && ui
                     .add_sized(

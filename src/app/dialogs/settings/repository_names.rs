@@ -75,7 +75,7 @@ pub(super) fn paint(ui: &mut egui::Ui, rows: &mut [RepositoryNameRow]) {
                 .weak(),
         );
         for row in rows {
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
                 ui.label(format!("{} · {}", row.id, row.role));
                 ui.add_sized(
                     [ui.available_width(), 26.0],

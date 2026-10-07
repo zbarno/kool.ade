@@ -74,6 +74,8 @@ fn route_row(
         );
         egui::ComboBox::from_id_salt(("task-route-harness", category))
             .selected_text(route_text)
+            .width(ui.available_width())
+            .wrap_mode(egui::TextWrapMode::Truncate)
             .show_ui(ui, |ui| {
                 for (id, harness) in ready {
                     let candidate = WorkRoute {

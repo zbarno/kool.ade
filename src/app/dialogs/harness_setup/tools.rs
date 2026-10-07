@@ -29,36 +29,64 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
         .ctx()
         .data_mut(|data| data.get_temp::<String>(selected_id))
         .filter(|id| entries.iter().any(|(entry, _)| entry == id))
+        .or_else(|| {
+            dialog
+                .settings
+                .default_harness
+                .clone()
+                .filter(|id| entries.iter().any(|(key, _)| key == id))
+        })
         .or_else(|| entries.first().map(|(id, _)| id.clone()));
-    ui.columns(2, |columns| {
-        columns[0].set_min_width(150.0);
-        egui::ScrollArea::vertical()
-            .id_salt("settings_tool_list")
-            .show(&mut columns[0], |ui| {
-                for (id, harness) in &entries {
-                    let is_default = dialog.settings.default_harness.as_deref() == Some(id);
-                    let label = if is_default {
-                        format!("{id} · Default")
-                    } else {
-                        id.clone()
-                    };
-                    if ui
-                        .selectable_label(selected.as_deref() == Some(id.as_str()), label)
-                        .clicked()
-                    {
-                        selected = Some(id.clone());
-                    }
-                    if !harness.ready {
-                        ui.label(RichText::new("Unavailable").size(10.5).weak());
-                    }
+    if ui.available_width() < 580.0 {
+        egui::ComboBox::from_id_salt("coding_tool_picker")
+            .selected_text(selected.as_deref().unwrap_or("Select a tool"))
+            .width(ui.available_width())
+            .wrap_mode(egui::TextWrapMode::Truncate)
+            .show_ui(ui, |ui| {
+                for (id, _) in &entries {
+                    ui.selectable_value(&mut selected, Some(id.clone()), id);
                 }
             });
+        ui.add_space(theme::spacing::M);
         if let Some(id) = selected.as_deref()
             && let Some((_, harness)) = entries.iter().find(|(tool, _)| tool == id)
         {
-            paint_tool_details(&mut columns[1], dialog, id, harness);
+            paint_tool_details(ui, dialog, id, harness);
         }
-    });
+    } else {
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(155.0, 0.0),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    for (id, harness) in &entries {
+                        let label = if dialog.settings.default_harness.as_deref() == Some(id) {
+                            format!("{id} · Default")
+                        } else {
+                            id.clone()
+                        };
+                        if ui
+                            .selectable_label(selected.as_deref() == Some(id.as_str()), label)
+                            .clicked()
+                        {
+                            selected = Some(id.clone());
+                        }
+                        if !harness.ready {
+                            ui.label(theme::metadata_text("Unavailable"));
+                        }
+                    }
+                },
+            );
+            ui.separator();
+            ui.vertical(|ui| {
+                if let Some(id) = selected.as_deref()
+                    && let Some((_, harness)) = entries.iter().find(|(tool, _)| tool == id)
+                {
+                    paint_tool_details(ui, dialog, id, harness);
+                }
+            });
+        });
+    }
     ui.ctx().data_mut(|data| {
         if let Some(selected) = selected {
             data.insert_temp(selected_id, selected);
@@ -86,7 +114,9 @@ fn paint_tool_details(
     id: &str,
     harness: &crate::persistence::harness_settings::DetectedHarness,
 ) {
-    super::pi_guide::paint(ui, dialog);
+    if id == "pi" {
+        super::pi_guide::paint(ui, dialog);
+    }
     ui.label(theme::page_title(id));
     let availability = if harness.configuration_required {
         "Configuration required"
@@ -150,7 +180,7 @@ fn paint_tool_details(
     dialog
         .manual_path_drafts
         .insert(id.to_owned(), draft.clone());
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.button("Use Path").clicked() {
             dialog.set_manual_path(id, draft.clone());
         }

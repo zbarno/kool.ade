@@ -116,7 +116,7 @@ pub fn paint(
         .fill(if busy {
             theme::ACCENT_SOFT
         } else {
-            theme::BLUE
+            theme::ACTION
         })
         .corner_radius(6.0);
         let submit = card_ui.add_sized(egui::vec2(card_ui.available_width(), 50.0), submit_btn);

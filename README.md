@@ -27,7 +27,7 @@
 Turn vague ideas into living specifications, actionable tasks, verified code, and significantly fewer
 *"wait... why did the agent do that?"* moments.
 
-![Kool.ad/e board](site/assets/board-preview.png)
+![Kool.ad/e workspace with its redesigned header and blue task activity graphs](site/assets/board-preview.png)
 
 **Rust · Linux · Git-native · Agent-powered · Zero grams of sugar**
 
@@ -109,6 +109,18 @@ When Kool.ad/e needs something from you, the question appears directly on the it
 Answer it there.
 
 Continue drinking responsibly.
+
+### Take a closer look
+
+**Task details** bring the conversation, next action, and recorded activity together.
+
+![Task details with a focused conversation, implementation actions, and activity graph](site/assets/task-details-preview.png)
+
+**Workspace settings** group application preferences, coding tools, automation, and project controls.
+
+![Workspace settings with grouped navigation and coding-tool configuration](site/assets/settings-preview.png)
+
+Screenshots use an example workspace. Select an image to see it at full size.
 
 ---
 

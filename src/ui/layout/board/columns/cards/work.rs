@@ -59,6 +59,7 @@ pub(in crate::ui::layout::board::columns) fn work(
                 }
             };
             ui.label(theme::helper_text(summary));
+            super::super::super::super::activity::paint_card(ui, s, &work.key, false);
             if column == 3
                 && ui
                     .add_sized(

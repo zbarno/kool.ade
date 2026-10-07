@@ -278,7 +278,7 @@ fn workspace_settings_buttons_open_their_project_and_coding_destinations() {
     assert!(text_position(&output, "Workspace settings").is_some());
 
     let output = click_text(&mut app, &ctx, "Project & Git");
-    assert!(text_position(&output, "Project / Git").is_some());
+    assert!(text_position(&output, "Repository names").is_some());
     assert!(text_position(&output, "Registered repository names").is_some());
 
     let output = click_text(&mut app, &ctx, "Coding Tools");
@@ -288,16 +288,21 @@ fn workspace_settings_buttons_open_their_project_and_coding_destinations() {
 }
 
 #[test]
-fn narrow_workspace_settings_wraps_navigation_above_the_selected_page() {
-    let mut app = fixture();
-    let ctx = super::mockup_layout::styled_context();
-    let size = egui::vec2(360.0, 480.0);
-    ctx.data_mut(|data| data.insert_temp(egui::Id::new("koolade_workspace_settings_open"), true));
-    frame_at(&mut app, &ctx, vec![], size);
-    let general = frame_at(&mut app, &ctx, vec![], size);
-    assert!(text_position(&general, "General").is_some());
-    let appearance = click_text_at(&mut app, &ctx, "Appearance", size);
-    assert!(text_position(&appearance, "Reduce motion").is_some());
+fn narrow_or_short_workspace_settings_selects_a_page_from_compact_navigation() {
+    for size in [egui::vec2(360.0, 480.0), egui::vec2(1280.0, 480.0)] {
+        let mut app = fixture();
+        let ctx = super::mockup_layout::styled_context();
+        ctx.data_mut(|data| {
+            data.insert_temp(egui::Id::new("koolade_workspace_settings_open"), true)
+        });
+        frame_at(&mut app, &ctx, vec![], size);
+        let general = frame_at(&mut app, &ctx, vec![], size);
+        assert!(text_position(&general, "General").is_some());
+        assert!(text_position(&general, "APPLICATION").is_none());
+        click_text_at(&mut app, &ctx, "General", size);
+        let appearance = click_text_at(&mut app, &ctx, "Appearance", size);
+        assert!(text_position(&appearance, "Reduce motion").is_some());
+    }
 }
 
 #[test]

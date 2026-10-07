@@ -226,7 +226,7 @@ pub fn paint_persona_card(ui: &mut egui::Ui, card: &mut DlgPersona) -> (bool, bo
     ui.horizontal(|ui| {
         let restore = ui
             .add(
-                egui::Button::new(RichText::new("Restore default").strong().color(theme::BG))
+                egui::Button::new(RichText::new("Restore default").strong().color(theme::TEXT))
                     .fill(theme::PANEL_ALT)
                     .corner_radius(6.0),
             )
@@ -234,7 +234,7 @@ pub fn paint_persona_card(ui: &mut egui::Ui, card: &mut DlgPersona) -> (bool, bo
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
             let save = ui
                 .add(
-                    egui::Button::new(RichText::new("Save").strong().color(theme::BG))
+                    egui::Button::new(RichText::new("Save").strong().color(theme::TEXT))
                         .fill(theme::ACCENT_SOFT)
                         .corner_radius(6.0),
                 )

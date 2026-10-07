@@ -20,38 +20,47 @@ pub fn paint_comparison(ui: &mut egui::Ui, action: &Action) -> Option<Comparison
     ui.heading(format!("Compare plans for {}", action.id));
     ui.label("Kool.ad/e drafted both approaches from the feature and project evidence. The recommendation is guidance; you choose.");
     let mut intent = None;
-    ui.columns(2, |columns| {
-        for (index, plan) in comparison.alternatives.iter().enumerate() {
-            let ui = &mut columns[index];
-            ui.push_id(&plan.id, |ui| {
-                super::theme::card_frame().show(ui, |ui| {
-                    ui.heading(format!("Plan {}", plan.id));
-                    ui.label(&plan.objective);
-                    ui.collapsing("Phases", |ui| {
-                        for (index, phase) in plan.phases.iter().enumerate() {
-                            ui.label(format!("{}. {}", index + 1, phase.name));
-                            for subtask in &phase.subtasks {
-                                ui.label(format!("  • {subtask}"));
-                            }
+    let mut paint_plan = |ui: &mut egui::Ui, plan: &crate::domain::PlanAlternative| {
+        ui.push_id(&plan.id, |ui| {
+            super::theme::card_frame().show(ui, |ui| {
+                ui.heading(format!("Plan {}", plan.id));
+                ui.label(&plan.objective);
+                ui.collapsing("Phases", |ui| {
+                    for (index, phase) in plan.phases.iter().enumerate() {
+                        ui.label(format!("{}. {}", index + 1, phase.name));
+                        for subtask in &phase.subtasks {
+                            ui.label(format!("  • {subtask}"));
                         }
-                    });
-                    detail_list(ui, "Files touched", &plan.files_touched);
-                    detail_list(ui, "State changes", &plan.state_changes);
-                    detail_list(ui, "Failure modes", &plan.failure_modes);
-                    ui.label(format!("Effort: {}", plan.effort_band));
-                    detail_list(ui, "Known risks", &plan.known_risks);
-                    ui.label(format!("Reversibility: {}", plan.reversibility));
-                    if comparison.selected_plan.as_deref() == Some(&plan.id) {
-                        ui.label(egui::RichText::new("Selected").color(super::theme::SUCCESS));
-                    } else if comparison.selected_plan.is_none()
-                        && ui.button(format!("Adopt Plan {}", plan.id)).clicked()
-                    {
-                        intent = Some(ComparisonIntent::Adopt(plan.id.clone()));
                     }
                 });
+                detail_list(ui, "Files touched", &plan.files_touched);
+                detail_list(ui, "State changes", &plan.state_changes);
+                detail_list(ui, "Failure modes", &plan.failure_modes);
+                ui.label(format!("Effort: {}", plan.effort_band));
+                detail_list(ui, "Known risks", &plan.known_risks);
+                ui.label(format!("Reversibility: {}", plan.reversibility));
+                if comparison.selected_plan.as_deref() == Some(&plan.id) {
+                    ui.label(egui::RichText::new("Selected").color(super::theme::SUCCESS));
+                } else if comparison.selected_plan.is_none()
+                    && ui.button(format!("Adopt Plan {}", plan.id)).clicked()
+                {
+                    intent = Some(ComparisonIntent::Adopt(plan.id.clone()));
+                }
             });
+        });
+    };
+    if ui.available_width() >= 700.0 {
+        ui.columns(comparison.alternatives.len().max(1), |columns| {
+            for (ui, plan) in columns.iter_mut().zip(&comparison.alternatives) {
+                paint_plan(ui, plan);
+            }
+        });
+    } else {
+        for plan in &comparison.alternatives {
+            paint_plan(ui, plan);
+            ui.add_space(super::theme::spacing::M);
         }
-    });
+    }
     super::theme::card_frame().show(ui, |ui| {
         ui.label(
             egui::RichText::new(format!(
