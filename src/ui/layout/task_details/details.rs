@@ -37,10 +37,10 @@ pub(super) fn paint(
                     .color(theme::BLUE_BRIGHT),
             );
             if active {
-                ui.label("Kool.ad/e is working. You can stop this task and pause the queue.");
+                ui.label("Kool.ad/e is working. You can cancel this task while unrelated work continues.");
                 if ui
                     .add(
-                        egui::Button::new("Stop task and pause queue")
+                        egui::Button::new("Cancel task")
                             .min_size(egui::vec2(0.0, 34.0))
                             .stroke(egui::Stroke::new(1.0, theme::DANGER)),
                     )
@@ -48,7 +48,7 @@ pub(super) fn paint(
                 {
                     dispatch(
                         s,
-                        crate::ui::task_detail::Command::StopAndPause {
+                        crate::ui::task_detail::Command::CancelTask {
                             ticket: ticket.to_owned(),
                         },
                     );

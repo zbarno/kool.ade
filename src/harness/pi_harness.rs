@@ -85,6 +85,9 @@ pub struct ProbeReport {
 impl PiHarness {
     /// Locate the pi executable: `KOOLADE_PI_BIN` → `PATH` → common homes.
     pub fn locate_binary() -> Result<std::path::PathBuf, AppError> {
+        if let Some(path) = crate::harness::manual_executable_path("pi")? {
+            return Ok(path);
+        }
         if let Ok(explicit) = std::env::var(PI_BINARY_ENV)
             && !explicit.is_empty()
         {

@@ -39,6 +39,9 @@ pub struct ClaudeProbeReport {
 
 impl ClaudeHarness {
     pub fn locate_binary() -> Result<PathBuf, AppError> {
+        if let Some(path) = crate::harness::manual_executable_path("claude")? {
+            return Ok(path);
+        }
         if let Ok(value) = std::env::var(CLAUDE_BINARY_ENV)
             && !value.trim().is_empty()
         {

@@ -65,6 +65,7 @@ impl KooladeApp {
     pub(super) fn cancel_task(&mut self) {
         if let Screen::Connected(project) = &mut self.screen {
             project.queue.running = false;
+            project.queue.waiting_for_capacity.clear();
             project.queue.recovery_paused = true;
             if project.queue_lock.is_some()
                 && let Err(error) = project.queue.save(&project.state.repo_root)

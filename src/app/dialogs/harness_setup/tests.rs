@@ -100,3 +100,195 @@ fn configured_codex_default_is_preserved_when_ready() {
     apply_probe_results(&mut settings, &[report(true), codex], Some("codex"));
     assert_eq!(settings.default_harness.as_deref(), Some("codex"));
 }
+
+#[test]
+fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
+    assert_eq!(
+        HarnessSettingsSection::default(),
+        HarnessSettingsSection::Tools
+    );
+    let mut dialog = DlgHarnessSetup {
+        settings: HarnessSettings::default(),
+        probe_view: ProbeView::Complete,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: std::collections::BTreeMap::new(),
+        probe_rx: None,
+    };
+    let ctx = egui::Context::default();
+    let frame = |ctx: &egui::Context, dialog: &mut DlgHarnessSetup, events| {
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 700.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                paint::paint_harness_setup_card(ui, dialog);
+            },
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let position = |output: &egui::FullOutput, label: &str| {
+        output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+                }
+                _ => None,
+            })
+            .expect(label)
+    };
+    let click = |ctx: &egui::Context, dialog: &mut DlgHarnessSetup, pos: egui::Pos2| {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                dialog,
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ],
+            );
+        }
+    };
+    let output = frame(&ctx, &mut dialog, vec![]);
+    assert!(output.shapes.iter().any(|shape| matches!(
+        &shape.shape,
+        egui::Shape::Text(text) if text.galley.text() == "Available coding tools"
+    )));
+    click(&ctx, &mut dialog, position(&output, "Models & routing"));
+    assert_eq!(dialog.section, HarnessSettingsSection::Routing);
+    let output = frame(&ctx, &mut dialog, vec![]);
+    for label in [
+        "Models & routing",
+        "Implementation",
+        "QA / Verification",
+        "Documentation",
+    ] {
+        assert!(
+            output.shapes.iter().any(|shape| matches!(
+                &shape.shape,
+                egui::Shape::Text(text) if text.galley.text() == label
+            )),
+            "missing section content: {label}"
+        );
+    }
+    click(&ctx, &mut dialog, position(&output, "Coding tools"));
+    assert_eq!(dialog.section, HarnessSettingsSection::Tools);
+    let output = frame(&ctx, &mut dialog, vec![]);
+    assert!(output.shapes.iter().any(|shape| matches!(
+        &shape.shape,
+        egui::Shape::Text(text) if text.galley.text() == "Available coding tools"
+    )));
+}
+
+#[cfg(unix)]
+#[test]
+fn manual_path_save_and_reset_roll_back_memory_when_settings_cannot_be_written() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "koolade-harness-settings-failure-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let blocked_home = root.join("home-is-a-file");
+    std::fs::write(&blocked_home, "not a directory").unwrap();
+    let binary = root.join("pi");
+    std::fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let previous_home = std::env::var_os("KOOLADE_HOME");
+    unsafe { std::env::set_var("KOOLADE_HOME", &blocked_home) };
+    let mut dialog = DlgHarnessSetup {
+        settings: HarnessSettings::default(),
+        probe_view: ProbeView::Complete,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: std::collections::BTreeMap::new(),
+        probe_rx: None,
+    };
+    dialog.set_manual_path("pi", binary.display().to_string());
+    assert!(!dialog.settings.manual_executable_paths.contains_key("pi"));
+    assert!(dialog.feedback.as_ref().is_some_and(|(ok, _)| !ok));
+
+    dialog
+        .settings
+        .manual_executable_paths
+        .insert("pi".into(), binary.display().to_string());
+    dialog
+        .manual_path_drafts
+        .insert("pi".into(), binary.display().to_string());
+    let saved = dialog.settings.clone();
+    dialog.reset_manual_path("pi");
+    assert_eq!(dialog.settings, saved);
+    assert_eq!(
+        dialog.manual_path_drafts["pi"],
+        binary.display().to_string()
+    );
+    assert!(dialog.feedback.as_ref().is_some_and(|(ok, _)| !ok));
+
+    match previous_home {
+        Some(home) => unsafe { std::env::set_var("KOOLADE_HOME", home) },
+        None => unsafe { std::env::remove_var("KOOLADE_HOME") },
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn reset_clears_manual_discovery_until_automatic_probe_finishes() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-harness-reset-discovery-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let previous_home = std::env::var_os("KOOLADE_HOME");
+    unsafe { std::env::set_var("KOOLADE_HOME", &root) };
+    let mut settings = HarnessSettings {
+        schema_version: 2,
+        manual_executable_paths: std::collections::BTreeMap::from([(
+            "pi".into(),
+            "/example/manual/pi".into(),
+        )]),
+        ..HarnessSettings::default()
+    };
+    apply_probe_results(&mut settings, &[report(true)], None);
+    crate::persistence::harness_settings::save(&settings).unwrap();
+    let mut dialog = DlgHarnessSetup {
+        settings,
+        probe_view: ProbeView::Complete,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: std::collections::BTreeMap::from([(
+            "pi".into(),
+            "/example/manual/pi".into(),
+        )]),
+        probe_rx: None,
+    };
+
+    dialog.reset_manual_path("pi");
+
+    assert!(dialog.settings.manual_executable_paths.is_empty());
+    assert!(!dialog.settings.discovered.contains_key("pi"));
+    assert!(matches!(dialog.probe_view, ProbeView::Pending));
+    let (saved, diagnostic) = crate::persistence::harness_settings::load();
+    assert!(diagnostic.is_none());
+    assert!(!saved.manual_executable_paths.contains_key("pi"));
+    assert!(!saved.discovered.contains_key("pi"));
+    match previous_home {
+        Some(home) => unsafe { std::env::set_var("KOOLADE_HOME", home) },
+        None => unsafe { std::env::remove_var("KOOLADE_HOME") },
+    }
+    let _ = std::fs::remove_dir_all(root);
+}

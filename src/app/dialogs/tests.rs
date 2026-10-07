@@ -1,5 +1,4 @@
 mod browse;
-mod guide;
 mod mcp;
 mod ownership;
 mod persona;

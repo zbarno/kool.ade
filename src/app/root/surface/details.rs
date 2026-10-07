@@ -84,9 +84,7 @@ impl KooladeApp {
                     .cloned()
                     .unwrap_or_default(),
                 project.queue.auto_build,
-                project.active_turn.is_none()
-                    && project.active_implementations.len()
-                        < project.queue.max_parallel.clamp(1, 8),
+                project.active_implementations.len() < project.queue.max_parallel.clamp(1, 8),
             ),
             Screen::Welcome => return None,
         };

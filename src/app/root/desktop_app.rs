@@ -110,10 +110,36 @@ impl App for KooladeApp {
             }
         }
 
+        self.render_queued_settings_dialog(ui);
+
+        self.toasts.show(ui.ctx());
+    }
+}
+
+impl KooladeApp {
+    /// Route Workspace settings button clicks through the same dialog path in
+    /// the live app and the egui click-path regression harness.
+    pub(super) fn render_queued_settings_dialog(&mut self, ui: &mut egui::Ui) {
+        let (open_project_settings, open_coding_settings) = ui.ctx().data_mut(|data| {
+            let project_id = egui::Id::new("koolade_open_project_settings");
+            let coding_id = egui::Id::new("koolade_open_coding_settings");
+            let project = data.get_temp::<bool>(project_id).unwrap_or(false);
+            let coding = data.get_temp::<bool>(coding_id).unwrap_or(false);
+            data.remove_temp::<bool>(project_id);
+            data.remove_temp::<bool>(coding_id);
+            (project, coding)
+        });
+        if open_project_settings && let Screen::Connected(project) = &self.screen {
+            self.dialog = Some(Dialog::ProjectSettings(
+                app_dialogs::DlgProjectSettings::from_project(project),
+            ));
+        }
+        if open_coding_settings {
+            self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
+        }
+
         if let Some(dialog) = self.dialog.take() {
             self.render_dialog(ui, dialog);
         }
-
-        self.toasts.show(ui.ctx());
     }
 }

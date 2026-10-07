@@ -29,12 +29,12 @@ pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{
     DlgPersona, PERSONA_SUBORDINATION_NOTICE, PersonaSaveOutcome, paint_persona_card,
 };
-pub use settings::{DlgSettings, RepositoryNameRow, Row, paint_import_card, paint_settings_card};
-#[cfg(test)]
-use settings::{
-    GuideLine, GuideLineKind, ProbeReport, ProbeView, drain_probe, harness_guide_lines,
-    owner_choices, set_owner_selected,
+pub use settings::{
+    DlgProjectSettings, DlgSettings, RepositoryNameRow, Row, paint_import_card,
+    paint_project_settings_card, paint_settings_card,
 };
+#[cfg(test)]
+use settings::{owner_choices, set_owner_selected};
 
 // ---------------------------------------------------------------------------
 fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool) {

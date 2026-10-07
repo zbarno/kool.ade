@@ -1,7 +1,7 @@
 use super::{KooladeApp, Screen};
 
 impl KooladeApp {
-    pub(super) fn cancel_board_work(&mut self, key: &str) {
+    pub(in crate::app::root) fn cancel_board_work(&mut self, key: &str) {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -89,6 +89,7 @@ impl KooladeApp {
         project.cancelled_work = ids;
         for ticket in &tickets {
             project.queue.in_flight.remove(ticket);
+            project.queue.waiting_for_capacity.remove(ticket);
             project.queue.blocked.remove(ticket);
             project.queue.recovery_attempts.remove(ticket);
             if project.queue.current_ticket.as_deref() == Some(ticket) {

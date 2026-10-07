@@ -33,7 +33,7 @@ impl KooladeApp {
                 let closed = crate::ui::overlays::show_modal(
                     ui,
                     true,
-                    "Stakeholders & ownership",
+                    "People & stakeholders",
                     660.0,
                     |ui| {
                         let (save, close) = app_dialogs::paint_settings_card(ui, &mut d);
@@ -45,10 +45,44 @@ impl KooladeApp {
                     self.perform_settings(&mut d);
                 }
                 let positive = d.feedback.as_ref().is_some_and(|(ok, _)| *ok);
-                if d.open_harness_setup {
-                    self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
-                } else if !closed && !*close_slot.borrow() && !positive {
+                if !closed && !*close_slot.borrow() && !positive {
                     self.dialog = Some(Dialog::Settings(d));
+                }
+            }
+            Dialog::ProjectSettings(mut d) => {
+                let save_slot = std::cell::RefCell::new(false);
+                let close_slot = std::cell::RefCell::new(false);
+                let mut completed = false;
+                let closed = crate::ui::overlays::show_modal(
+                    ui,
+                    true,
+                    "Project / Git settings",
+                    620.0,
+                    |ui| {
+                        let (save, close) = app_dialogs::paint_project_settings_card(ui, &mut d);
+                        *save_slot.borrow_mut() = save;
+                        *close_slot.borrow_mut() = close;
+                    },
+                );
+                if *save_slot.borrow() {
+                    let result = match &mut self.screen {
+                        Screen::Connected(project) => d.apply(project),
+                        Screen::Welcome => return,
+                    };
+                    match result {
+                        Ok(Some(sha)) => {
+                            completed = true;
+                            self.toasts.success(format!("Saved · checkpoint {sha}"));
+                        }
+                        Ok(None) => {
+                            completed = true;
+                            self.toasts.info("Project settings already in sync");
+                        }
+                        Err(error) => d.feedback = Some((false, error.detail())),
+                    }
+                }
+                if !closed && !*close_slot.borrow() && !completed {
+                    self.dialog = Some(Dialog::ProjectSettings(d));
                 }
             }
             Dialog::HarnessSetup(mut d) => {

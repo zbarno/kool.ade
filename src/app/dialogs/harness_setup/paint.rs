@@ -1,24 +1,70 @@
-use super::{DlgHarnessSetup, ProbeView};
+use super::{DlgHarnessSetup, HarnessSettingsSection, ProbeView};
 use crate::ui::theme;
 use egui::RichText;
 
 pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) -> (bool, bool) {
     dialog.drain_probe();
+    ui.horizontal(|ui| {
+        section_tab(
+            ui,
+            &mut dialog.section,
+            HarnessSettingsSection::Tools,
+            "Coding tools",
+        );
+        section_tab(
+            ui,
+            &mut dialog.section,
+            HarnessSettingsSection::Routing,
+            "Models & routing",
+        );
+    });
+    ui.separator();
+    match dialog.section {
+        HarnessSettingsSection::Tools => paint_tools(ui, dialog),
+        HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
+    }
+    ui.add_space(6.0);
+    if let Some((ok, message)) = &dialog.feedback {
+        ui.label(RichText::new(message).size(11.0).color(if *ok {
+            theme::SUCCESS
+        } else {
+            theme::DANGER
+        }));
+    }
+    let mut close = false;
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if ui.button(RichText::new("Close").weak()).clicked() {
+            close = true;
+        }
+    });
+    (false, close)
+}
+
+fn section_tab(
+    ui: &mut egui::Ui,
+    selected: &mut HarnessSettingsSection,
+    section: HarnessSettingsSection,
+    label: &str,
+) {
+    let active = *selected == section;
+    let text =
+        RichText::new(label)
+            .strong()
+            .color(if active { theme::TEXT } else { theme::TEXT_DIM });
+    let response = ui.add(egui::Button::new(text).selected(active));
+    if response.clicked() {
+        *selected = section;
+    }
+}
+
+fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
     ui.label(
-        RichText::new("Coding tools")
+        RichText::new("Available coding tools")
             .size(15.0)
             .strong()
             .color(theme::TEXT),
     );
-    ui.label(
-        RichText::new(
-            "Kool.ad/e checks supported command line tools and keeps your choice on this device. Configured means local provider settings were found; no live request was sent.",
-        )
-        .size(11.5)
-        .weak(),
-    );
-    ui.add_space(8.0);
-    paint_work_routes(ui, dialog);
+    ui.label(RichText::new("Kool.ad/e checks supported command line tools and keeps your default on this device. Configured means local provider settings were found; no live request was sent.").size(11.5).weak());
     ui.add_space(8.0);
     if matches!(dialog.probe_view, ProbeView::Pending) {
         ui.horizontal(|ui| {
@@ -33,6 +79,7 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .map(|(id, harness)| (id.clone(), harness.clone()))
             .collect::<Vec<_>>();
         for (id, harness) in entries {
+            let configured = dialog.settings.manual_executable_paths.get(&id).cloned();
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&id).strong());
@@ -56,8 +103,51 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                         dialog.select_default(&id);
                     }
                 });
-                if let Some(path) = &harness.executable {
-                    ui.label(RichText::new(path).monospace().size(10.5).weak());
+                ui.label(format!("Status: {}", harness.status));
+                if let Some(version) = &harness.version {
+                    ui.label(format!("Version: {version}"));
+                }
+                let path = configured.as_deref().or(harness.executable.as_deref());
+                ui.label(
+                    RichText::new(format!("Executable: {}", path.unwrap_or("not found")))
+                        .monospace()
+                        .size(10.5)
+                        .weak(),
+                );
+                ui.label(if configured.is_some() {
+                    "Source: Manually configured"
+                } else {
+                    "Source: Auto-detected"
+                });
+                let mut draft = dialog
+                    .manual_path_drafts
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        configured
+                            .clone()
+                            .or_else(|| harness.executable.clone())
+                            .unwrap_or_default()
+                    });
+                let mut save_path = false;
+                let mut reset_path = false;
+                ui.horizontal(|ui| {
+                    ui.label("Executable path");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft)
+                            .desired_width(300.0)
+                            .hint_text("/path/to/cli"),
+                    );
+                    save_path = ui.button("Use Path").clicked();
+                    reset_path =
+                        configured.is_some() && ui.button("Use Auto-Detected Path").clicked();
+                });
+                dialog.manual_path_drafts.insert(id.clone(), draft.clone());
+                if save_path {
+                    dialog.set_manual_path(&id, draft);
+                }
+                if reset_path {
+                    dialog.reset_manual_path(&id);
                 }
                 if let Some(diagnostic) = &harness.diagnostic {
                     ui.label(RichText::new(diagnostic).size(11.0).color(theme::DANGER));
@@ -77,28 +167,20 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .color(theme::DANGER),
         );
     }
+    super::pi_guide::paint(ui, dialog);
     ui.add_space(6.0);
-    if ui.button("Check again").clicked() {
+    if ui.button("Rediscover tools").clicked() {
         dialog.refresh();
     }
-    if let Some((ok, message)) = &dialog.feedback {
-        ui.label(RichText::new(message).size(11.0).color(if *ok {
-            theme::SUCCESS
-        } else {
-            theme::DANGER
-        }));
-    }
-    let mut close = false;
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if ui.button(RichText::new("Close").weak()).clicked() {
-            close = true;
-        }
-    });
-    (false, close)
 }
 
 fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
-    ui.label(RichText::new("Work routing").strong().color(theme::TEXT));
+    ui.label(
+        RichText::new("Models & routing")
+            .size(15.0)
+            .strong()
+            .color(theme::TEXT),
+    );
     ui.label(RichText::new("Routes are saved on this device. Categories without an override use the application default: saved global CLI, legacy Codex setting, then Pi. An empty model uses the selected CLI's configured default.").size(11.0).weak());
     let categories = [
         (

@@ -198,10 +198,25 @@ fn typed_start_action_without_tasks_explains_the_live_blocker() {
 
 #[test]
 fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
+    let _shield = crate::core::gitops::test_support::shield("parallel-cancel-one-task");
     let mut app = fixture();
+    let root = std::env::temp_dir().join(format!(
+        "koolade-parallel-cancel-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
     let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
     if let Screen::Connected(p) = &mut app.screen {
+        p.state.repo_root = root.clone();
         p.implementation_states.remove(second);
         p.queue.max_parallel = 2;
         p.queue.running = true;
@@ -220,8 +235,19 @@ fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
     assert!(text_position(&output, "In progress · 2").is_some());
     app.cancel_task_for(first);
     if let Screen::Connected(p) = &app.screen {
-        assert!(!p.queue.running);
+        assert!(
+            p.queue.running,
+            "cancelling one task must leave the queue running"
+        );
         assert!(p.active_implementations[first].cancellation_requested());
         assert!(!p.active_implementations[second].cancellation_requested());
+        assert!(
+            p.cancelled_work
+                .contains(&crate::persistence::cancelled_work::task_id(
+                    &p.task_documents[0]
+                ))
+        );
     }
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
 }

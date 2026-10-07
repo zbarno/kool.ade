@@ -26,6 +26,9 @@ pub struct Queue {
     pub current_ticket: Option<String>,
     pub in_flight: BTreeSet<String>,
     pub max_parallel: usize,
+    /// Ready task paths parked only because every execution slot is occupied.
+    /// Derived at runtime and deliberately excluded from the durable queue.
+    pub waiting_for_capacity: BTreeSet<String>,
     pub blocked: BTreeMap<String, Failure>,
     pub last_error: String,
     /// In-memory stale remote claim offered for an explicit recovery action.
@@ -49,6 +52,7 @@ impl Default for Queue {
             current_ticket: None,
             in_flight: BTreeSet::new(),
             max_parallel: 3,
+            waiting_for_capacity: BTreeSet::new(),
             blocked: BTreeMap::new(),
             last_error: String::new(),
             stale_claim: None,

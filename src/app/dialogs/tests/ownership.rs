@@ -14,11 +14,7 @@ fn fixture() -> DlgSettings {
                 members: "Morgan, platform, (owner TBD)".into(),
             },
         ],
-        repositories: Vec::new(),
         feedback: None,
-        open_harness_setup: false,
-        probe_rx: None,
-        probe_view: ProbeView::Pending,
     }
 }
 #[test]
@@ -54,15 +50,9 @@ fn existing_owner_can_be_selected_in_the_modal() {
                 ..Default::default()
             },
             |ui| {
-                crate::ui::overlays::show_modal(
-                    ui,
-                    true,
-                    "Stakeholders & ownership",
-                    660.0,
-                    |ui| {
-                        paint_settings_card(ui, dlg);
-                    },
-                );
+                crate::ui::overlays::show_modal(ui, true, "People & stakeholders", 660.0, |ui| {
+                    paint_settings_card(ui, dlg);
+                });
             },
         );
         // Egui paints duplicate-ID diagnostics into the frame when IDs collide.
