@@ -41,10 +41,7 @@ impl KooladeApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        if project.active_turn.is_some()
-            || (!project.active_implementations.is_empty()
-                && purpose == crate::core::workflow::TurnPurpose::GenerateTasks)
-        {
+        if project.active_turn.is_some() {
             return;
         }
         project.activity.manager = None;

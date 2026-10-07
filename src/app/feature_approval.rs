@@ -171,11 +171,6 @@ impl KooladeApp {
         if !prepare_tasks || !action.prepare_tasks {
             return;
         }
-        if !p.active_implementations.is_empty() {
-            p.remember_chat(vec![ChatMessage::new(ChatRole::System,
-                format!("{id} is approved. Use Prepare tasks for {id} after the current implementation workers finish."), None)]);
-            return;
-        }
         if p.state.workflow.ready(p.state.planning_contract()) {
             self.start_turn_with_purpose(
                 &format!("Generate task stories for approved feature {id}."),
@@ -220,7 +215,6 @@ impl KooladeApp {
             && current
             && p.state.workflow.ready(p.state.planning_contract())
             && !has_current_task_batch(p)
-            && p.active_implementations.is_empty()
             && workflow::feature_approved(&repo, &p.state.workflow, &id)
         {
             self.start_turn_for_work(

@@ -64,10 +64,9 @@ impl KooladeApp {
             return;
         }
         project.state.workflow = workflow;
-        if project.active_turn.is_some() || !project.active_implementations.is_empty() {
-            self.toasts.warning(
-                "Wait for current planning or implementation work before generating tasks.",
-            );
+        if project.active_turn.is_some() {
+            self.toasts
+                .warning("Wait for the current planning turn before generating tasks.");
             return;
         }
         let Some((_, specification)) = project

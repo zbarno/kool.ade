@@ -200,7 +200,7 @@ Approved tasks are executed in **isolated Git worktrees**, allowing multiple ind
 
 The worker pool is configurable from **1 to 8 concurrent tasks**, with **3** as the current default.
 
-Dependencies are respected. Independent work can run concurrently.
+Dependencies are respected. Independent work can run concurrently, including planning or task generation while implementation workers continue. A task waiting for review or attention does not stop unrelated ready tasks from using the remaining worker capacity. Ready tasks that cannot start yet remain queued and the board reports when all worker slots are occupied.
 
 Each task gets:
 

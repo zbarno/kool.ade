@@ -87,26 +87,11 @@ impl KooladeApp {
                 TaskDetailCommand::RetryExplanation { ticket, detail } => {
                     self.retry_attention(&ticket, &detail)
                 }
-                TaskDetailCommand::StopAndPause { ticket } => self.stop_and_pause_task(&ticket),
+                TaskDetailCommand::CancelTask { ticket } => self.cancel_board_work(&ticket),
                 TaskDetailCommand::StartOrResume { ticket } => {
                     self.start_implementation(ticket, true)
                 }
             },
-        }
-    }
-
-    fn stop_and_pause_task(&mut self, ticket: &str) {
-        if let Screen::Connected(project) = &mut self.screen {
-            project.queue.running = false;
-            project.queue.recovery_paused = true;
-            if let Some(controller) = project.active_implementations.get(ticket) {
-                controller.request_cancel();
-            }
-            if project.queue_lock.is_some()
-                && let Err(error) = project.queue.save(&project.state.repo_root)
-            {
-                project.queue.last_error = error.to_string();
-            }
         }
     }
 }

@@ -38,7 +38,7 @@ pub fn next_ready_ticket_with_running_scopes(
     };
     let mut waiting = Vec::new();
     'tasks: for doc in &docs {
-        if done(&doc.path) || excluded.contains(&doc.path) {
+        if done(&doc.path) || excluded.contains(&doc.path) || running.contains(&doc.path) {
             continue;
         }
         if states

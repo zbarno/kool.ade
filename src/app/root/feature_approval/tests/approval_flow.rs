@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "approval_flow/concurrent_generation.rs"]
+mod concurrent_generation;
+
 fn compact_story(source: &str, picker: bool) -> String {
     let mut response: serde_json::Value = serde_json::from_str(source).unwrap();
     let story = &mut response["task_stories"][0];
