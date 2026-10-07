@@ -1,12 +1,12 @@
 use crate::{
-    app::{dialogs::DlgSettings, session::test_support},
+    app::{dialogs::DlgProjectSettings, session::test_support},
     core::project_repos::ProjectManifest,
 };
 use std::path::PathBuf;
 
 fn editor_frame(
     ctx: &egui::Context,
-    dialog: &mut DlgSettings,
+    dialog: &mut DlgProjectSettings,
     events: Vec<egui::Event>,
 ) -> egui::FullOutput {
     let mut output = ctx.run_ui(
@@ -19,7 +19,9 @@ fn editor_frame(
             ..Default::default()
         },
         |ctx| {
-            egui::CentralPanel::default().show(ctx, |ui| super::paint(ui, dialog));
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::app::dialogs::paint_project_settings_card(ui, dialog);
+            });
         },
     );
     output.textures_delta.clear();
@@ -31,7 +33,7 @@ fn repository_name_editor_renders_its_shared_storage_and_duplicate_guidance() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-editor-ui");
     let root = fixture();
     let project = test_support::project_from(&root);
-    let mut dialog = DlgSettings::from_project(&project);
+    let mut dialog = DlgProjectSettings::from_project(&project);
     let ctx = egui::Context::default();
     editor_frame(&ctx, &mut dialog, Vec::new());
     let output = editor_frame(&ctx, &mut dialog, Vec::new());
@@ -79,6 +81,26 @@ fn repository_name_editor_renders_its_shared_storage_and_duplicate_guidance() {
         .join("\n");
     assert!(rendered.contains("Registered repository names"));
     assert!(rendered.contains("Optional shared names; blank uses the stable ID"));
+    let mut people = crate::app::dialogs::DlgSettings::from_project(&project);
+    let mut people_output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1000.0, 700.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::app::dialogs::paint_settings_card(ui, &mut people);
+            });
+        },
+    );
+    people_output.textures_delta.clear();
+    assert!(!people_output.shapes.iter().any(|shape| matches!(
+        &shape.shape,
+        egui::Shape::Text(text) if text.galley.text().contains("Registered repository names")
+    )));
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -125,11 +147,17 @@ fn settings_save_commits_trimmed_repository_name_and_reload_restores_it() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-save");
     let root = fixture();
     let mut project = test_support::project_from(&root);
-    let mut dialog = DlgSettings::from_project(&project);
+    let mut dialog = DlgProjectSettings::from_project(&project);
     assert_eq!(dialog.repositories[0].name, "");
     dialog.repositories[0].name = "  Product API  ".into();
-    let commit = dialog.apply(&mut project).unwrap();
+    let commit = dialog.apply(&mut project).unwrap().unwrap();
     assert_eq!(commit.len(), 7);
+    assert_eq!(
+        project.state.repositories.repositories[0]
+            .display_name
+            .as_deref(),
+        Some("Product API")
+    );
     let manifest = ProjectManifest::load(&root).unwrap();
     assert_eq!(
         manifest.repositories[0].display_name.as_deref(),
@@ -150,12 +178,12 @@ fn clearing_a_saved_repository_name_persists_none_and_preserves_identity() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-clear");
     let root = fixture();
     let mut project = test_support::project_from(&root);
-    let mut dialog = DlgSettings::from_project(&project);
+    let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.repositories[0].name = "Product API".into();
     dialog.apply(&mut project).unwrap();
 
     let mut project = test_support::project_from(&root);
-    let mut dialog = DlgSettings::from_project(&project);
+    let mut dialog = DlgProjectSettings::from_project(&project);
     assert_eq!(dialog.repositories[0].name, "Product API");
     dialog.repositories[0].name.clear();
     dialog.apply(&mut project).unwrap();
@@ -172,13 +200,13 @@ fn invalid_edit_is_discarded_without_changing_the_manifest_or_identity() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-invalid");
     let root = fixture();
     let mut project = test_support::project_from(&root);
-    let mut dialog = DlgSettings::from_project(&project);
+    let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.repositories[0].name = "Valid name".into();
     dialog.apply(&mut project).unwrap();
     let before = std::fs::read(root.join(crate::core::project_repos::PROJECT_FILE)).unwrap();
 
     let mut project = test_support::project_from(&root);
-    let mut dialog = DlgSettings::from_project(&project);
+    let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.repositories[0].name = "x".repeat(41);
     let error = dialog.apply(&mut project).unwrap_err();
     assert!(error.detail().contains("40 characters"));

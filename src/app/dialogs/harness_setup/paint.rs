@@ -1,24 +1,70 @@
-use super::{DlgHarnessSetup, ProbeView};
+use super::{DlgHarnessSetup, HarnessSettingsSection, ProbeView};
 use crate::ui::theme;
 use egui::RichText;
 
 pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) -> (bool, bool) {
     dialog.drain_probe();
+    ui.horizontal(|ui| {
+        section_tab(
+            ui,
+            &mut dialog.section,
+            HarnessSettingsSection::Tools,
+            "Coding tools",
+        );
+        section_tab(
+            ui,
+            &mut dialog.section,
+            HarnessSettingsSection::Routing,
+            "Models & routing",
+        );
+    });
+    ui.separator();
+    match dialog.section {
+        HarnessSettingsSection::Tools => paint_tools(ui, dialog),
+        HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
+    }
+    ui.add_space(6.0);
+    if let Some((ok, message)) = &dialog.feedback {
+        ui.label(RichText::new(message).size(11.0).color(if *ok {
+            theme::SUCCESS
+        } else {
+            theme::DANGER
+        }));
+    }
+    let mut close = false;
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if ui.button(RichText::new("Close").weak()).clicked() {
+            close = true;
+        }
+    });
+    (false, close)
+}
+
+fn section_tab(
+    ui: &mut egui::Ui,
+    selected: &mut HarnessSettingsSection,
+    section: HarnessSettingsSection,
+    label: &str,
+) {
+    let active = *selected == section;
+    let text =
+        RichText::new(label)
+            .strong()
+            .color(if active { theme::TEXT } else { theme::TEXT_DIM });
+    let response = ui.add(egui::Button::new(text).selected(active));
+    if response.clicked() {
+        *selected = section;
+    }
+}
+
+fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
     ui.label(
-        RichText::new("Coding tools")
+        RichText::new("Available coding tools")
             .size(15.0)
             .strong()
             .color(theme::TEXT),
     );
-    ui.label(
-        RichText::new(
-            "Kool.ad/e checks supported command line tools and keeps your choice on this device. Configured means local provider settings were found; no live request was sent.",
-        )
-        .size(11.5)
-        .weak(),
-    );
-    ui.add_space(8.0);
-    paint_work_routes(ui, dialog);
+    ui.label(RichText::new("Kool.ad/e checks supported command line tools and keeps your default on this device. Configured means local provider settings were found; no live request was sent.").size(11.5).weak());
     ui.add_space(8.0);
     if matches!(dialog.probe_view, ProbeView::Pending) {
         ui.horizontal(|ui| {
@@ -121,28 +167,20 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .color(theme::DANGER),
         );
     }
+    super::pi_guide::paint(ui, dialog);
     ui.add_space(6.0);
-    if ui.button("Check again").clicked() {
+    if ui.button("Rediscover tools").clicked() {
         dialog.refresh();
     }
-    if let Some((ok, message)) = &dialog.feedback {
-        ui.label(RichText::new(message).size(11.0).color(if *ok {
-            theme::SUCCESS
-        } else {
-            theme::DANGER
-        }));
-    }
-    let mut close = false;
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        if ui.button(RichText::new("Close").weak()).clicked() {
-            close = true;
-        }
-    });
-    (false, close)
 }
 
 fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
-    ui.label(RichText::new("Work routing").strong().color(theme::TEXT));
+    ui.label(
+        RichText::new("Models & routing")
+            .size(15.0)
+            .strong()
+            .color(theme::TEXT),
+    );
     ui.label(RichText::new("Routes are saved on this device. Categories without an override use the application default: saved global CLI, legacy Codex setting, then Pi. An empty model uses the selected CLI's configured default.").size(11.0).weak());
     let categories = [
         (

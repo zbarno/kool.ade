@@ -272,6 +272,46 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
 }
 
 #[test]
+fn workspace_settings_buttons_open_their_project_and_coding_destinations() {
+    let mut app = fixture();
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx, vec![]);
+
+    click_text(&mut app, &ctx, "Workspace");
+    let output = click_text(&mut app, &ctx, "Settings…");
+    assert!(text_position(&output, "Workspace settings").is_some());
+
+    let output = click_text(&mut app, &ctx, "Repository names…");
+    assert!(
+        matches!(&app.dialog, Some(Dialog::ProjectSettings(_))),
+        "expected ProjectSettings dialog, got: {}",
+        canvas_text(&output)
+    );
+    assert!(text_position(&output, "Project / Git settings").is_some());
+    assert!(text_position(&output, "Registered repository names").is_some());
+
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        }],
+    );
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Workspace settings").is_some());
+
+    let output = click_text(&mut app, &ctx, "Coding tools and models…");
+    assert!(matches!(&app.dialog, Some(Dialog::HarnessSetup(_))));
+    assert!(text_position(&output, "Coding tool configuration").is_some());
+    assert!(text_position(&output, "Available coding tools").is_some());
+    assert!(text_position(&output, "Set up the Pi CLI").is_some());
+}
+
+#[test]
 fn workspace_repository_menu_uses_the_shared_display_label() {
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {

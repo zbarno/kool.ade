@@ -1,4 +1,4 @@
-use super::{DlgSettings, Project};
+use super::Project;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepositoryNameRow {
@@ -67,14 +67,14 @@ pub(super) fn persist(
     Ok(true)
 }
 
-pub(super) fn paint(ui: &mut egui::Ui, dlg: &mut DlgSettings) {
+pub(super) fn paint(ui: &mut egui::Ui, rows: &mut [RepositoryNameRow]) {
     ui.collapsing("Registered repository names", |ui| {
         ui.label(
             egui::RichText::new("Optional shared names; blank uses the stable ID. Duplicate names are allowed and disambiguated.")
                 .size(11.0)
                 .weak(),
         );
-        for row in &mut dlg.repositories {
+        for row in rows {
             ui.horizontal(|ui| {
                 ui.label(format!("{} · {}", row.id, row.role));
                 ui.add_sized(

@@ -117,7 +117,10 @@ pub(in crate::app::root) fn frame_at(
             events,
             ..Default::default()
         },
-        |ui| crate::ui::layout::paint(ui, app),
+        |ui| {
+            crate::ui::layout::paint(ui, app);
+            app.render_queued_settings_dialog(ui);
+        },
     );
     output.textures_delta.clear();
     output
