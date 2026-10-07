@@ -1,6 +1,24 @@
 # Kool.ad/e
 
+---
+
+## Experimental software — use on a test repository 
+
+> **⚠️ Kool.ad/e isn’t fully mixed yet.**
+>
+> Kool.ad/e is under active development and has not been fully security- or reliability-vetted. **Do not use it on repositories, infrastructure, credentials, or projects you can’t afford to lose, corrupt, or expose.**
+>
+> For now, use disposable clones or test repositories, keep independent backups, review generated changes, and leave automatic publication disabled unless you knowingly accept the risk.
+>
+> The sandbox, Git worktrees, human approval gates, and verification checks reduce risk. They are not a guarantee against surprising behavior.
+>
+> **Drink responsibly. Code experimentally.**
+
+---
+
 <div align="center">
+  
+# 🚨EXPECT BREAKING CHANGES AND INSTABILITY🚨
 
 ### Drink it and get S*** done!
 
@@ -15,21 +33,7 @@ Turn vague ideas into living specifications, actionable tasks, verified code, an
 
 </div>
 
----
 
-## Experimental software — use on a test repository
-
-> **⚠️ Kool.ad/e isn’t fully mixed yet.**
->
-> Kool.ad/e is under active development and has not been fully security- or reliability-vetted. **Do not use it on repositories, infrastructure, credentials, or projects you can’t afford to lose, corrupt, or expose.**
->
-> For now, use disposable clones or test repositories, keep independent backups, review generated changes, and leave automatic publication disabled unless you knowingly accept the risk.
->
-> The sandbox, Git worktrees, human approval gates, and verification checks reduce risk. They are not a guarantee against surprising behavior.
->
-> **Drink responsibly. Code experimentally.**
-
----
 
 ## What is Kool.ad/e?
 
