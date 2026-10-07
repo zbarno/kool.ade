@@ -33,6 +33,7 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
                 configuration_required: false,
             },
         )]),
+        manual_executable_paths: BTreeMap::from([("pi".into(), "/example/bin/pi custom".into())]),
     };
     save_to(&path, &settings).unwrap();
     let loaded: HarnessSettings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -44,6 +45,10 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
         Some("gpt-6-sol")
     );
     assert!(loaded.discovered["pi"].ready);
+    assert_eq!(
+        loaded.manual_executable_paths["pi"],
+        "/example/bin/pi custom"
+    );
     std::fs::remove_file(path).unwrap();
 }
 
@@ -67,6 +72,7 @@ fn unavailable_tools_remain_recorded_without_rewriting_the_default() {
                 configuration_required: false,
             },
         )]),
+        manual_executable_paths: BTreeMap::new(),
     };
     save_to(&path, &settings).unwrap();
     let loaded: HarnessSettings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();

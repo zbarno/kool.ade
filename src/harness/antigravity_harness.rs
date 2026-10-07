@@ -29,6 +29,9 @@ pub struct AntigravityProbeReport {
 
 impl AntigravityHarness {
     pub fn locate_binary() -> Result<PathBuf, AppError> {
+        if let Some(path) = crate::harness::manual_executable_path("antigravity")? {
+            return Ok(path);
+        }
         if let Ok(value) = std::env::var(ANTIGRAVITY_BINARY_ENV)
             && !value.trim().is_empty()
         {
