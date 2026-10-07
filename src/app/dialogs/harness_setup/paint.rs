@@ -1,4 +1,4 @@
-use super::{DlgHarnessSetup, HarnessSettingsSection, ProbeView};
+use super::{DlgHarnessSetup, HarnessSettingsSection};
 use crate::ui::theme;
 use egui::RichText;
 
@@ -20,7 +20,7 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
     });
     ui.separator();
     match dialog.section {
-        HarnessSettingsSection::Tools => paint_tools(ui, dialog),
+        HarnessSettingsSection::Tools => super::tools::paint_tools(ui, dialog),
         HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
     }
     ui.add_space(6.0);
@@ -57,124 +57,9 @@ fn section_tab(
     }
 }
 
-fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
-    ui.label(
-        RichText::new("Available coding tools")
-            .size(15.0)
-            .strong()
-            .color(theme::TEXT),
-    );
-    ui.label(RichText::new("Kool.ad/e checks supported command line tools and keeps your default on this device. Configured means local provider settings were found; no live request was sent.").size(11.5).weak());
-    ui.add_space(8.0);
-    super::pi_guide::paint(ui, dialog);
-    ui.add_space(6.0);
-    if matches!(dialog.probe_view, ProbeView::Pending) {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label("Checking installed tools…");
-        });
-    } else {
-        let entries = dialog
-            .settings
-            .discovered
-            .iter()
-            .map(|(id, harness)| (id.clone(), harness.clone()))
-            .collect::<Vec<_>>();
-        for (id, harness) in entries {
-            let configured = dialog.settings.manual_executable_paths.get(&id).cloned();
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&id).strong());
-                    let readiness = if harness.configuration_required {
-                        "Configuration required"
-                    } else if harness.ready {
-                        "Configured"
-                    } else {
-                        "Unavailable"
-                    };
-                    ui.label(RichText::new(readiness).color(if harness.ready {
-                        theme::SUCCESS
-                    } else {
-                        theme::DANGER
-                    }));
-                    let selected = dialog.settings.default_harness.as_deref() == Some(&id);
-                    if ui
-                        .add_enabled(harness.ready, egui::RadioButton::new(selected, "Default"))
-                        .clicked()
-                    {
-                        dialog.select_default(&id);
-                    }
-                });
-                ui.label(format!("Status: {}", harness.status));
-                if let Some(version) = &harness.version {
-                    ui.label(format!("Version: {version}"));
-                }
-                let path = configured.as_deref().or(harness.executable.as_deref());
-                ui.label(
-                    RichText::new(format!("Executable: {}", path.unwrap_or("not found")))
-                        .monospace()
-                        .size(10.5)
-                        .weak(),
-                );
-                ui.label(if configured.is_some() {
-                    "Source: Manually configured"
-                } else {
-                    "Source: Auto-detected"
-                });
-                let mut draft = dialog
-                    .manual_path_drafts
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        configured
-                            .clone()
-                            .or_else(|| harness.executable.clone())
-                            .unwrap_or_default()
-                    });
-                let mut save_path = false;
-                let mut reset_path = false;
-                ui.horizontal(|ui| {
-                    ui.label("Executable path");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut draft)
-                            .desired_width(300.0)
-                            .hint_text("/path/to/cli"),
-                    );
-                    save_path = ui.button("Use Path").clicked();
-                    reset_path =
-                        configured.is_some() && ui.button("Use Auto-Detected Path").clicked();
-                });
-                dialog.manual_path_drafts.insert(id.clone(), draft.clone());
-                if save_path {
-                    dialog.set_manual_path(&id, draft);
-                }
-                if reset_path {
-                    dialog.reset_manual_path(&id);
-                }
-                if let Some(diagnostic) = &harness.diagnostic {
-                    ui.label(RichText::new(diagnostic).size(11.0).color(theme::DANGER));
-                }
-            });
-        }
-    }
-    if dialog
-        .settings
-        .default_harness
-        .as_ref()
-        .is_some_and(|id| !dialog.settings.discovered.get(id).is_some_and(|h| h.ready))
-    {
-        ui.label(
-            RichText::new("Your saved default is currently unavailable. Kool.ad/e will not silently select another tool.")
-                .size(11.0)
-                .color(theme::DANGER),
-        );
-    }
-    if ui.button("Rediscover tools").clicked() {
-        dialog.refresh();
-    }
-}
+pub(super) use super::tools::paint_tools;
 
-fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
+pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
     ui.label(
         RichText::new("Models & routing")
             .size(15.0)

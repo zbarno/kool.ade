@@ -2,12 +2,12 @@
 use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::{CentralPanel, Frame, Layout, Panel, RichText};
 
+#[cfg(test)]
 mod activity;
 mod board;
 mod board_state;
 pub(crate) mod brand;
 mod chat_panel;
-mod chat_tabs;
 mod header;
 mod new_task;
 mod settings;
@@ -16,8 +16,6 @@ mod task_details;
 mod task_properties;
 mod workspace_repositories;
 mod workspace_tabs;
-
-pub(crate) use chat_tabs::ChatTabs;
 
 pub enum HeaderAction {
     Refresh,
@@ -47,9 +45,10 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
         .data_mut(|d| d.insert_temp(settings_id, settings_open));
 }
 
+#[cfg(test)]
 pub(crate) use activity::task_card_activity_band;
 pub(crate) use board_state::{planning_column, planning_parent_label, task_board_column};
-pub(crate) use task_cards::{task_conversation, task_key};
+pub(crate) use task_cards::task_key;
 pub(crate) use task_properties::paint_task_properties;
 
 #[cfg(test)]

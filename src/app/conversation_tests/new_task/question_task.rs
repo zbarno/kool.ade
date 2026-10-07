@@ -59,13 +59,13 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         "Source Branch: main",
         "Destination Branch: main",
         "Create Task",
-        "Plan a new capability or improve how your project works.",
-        "Investigate something that is broken and plan a fix.",
-        "Define a project's purpose, scope, and architecture. Use this to start documenting an existing codebase too.",
-        "Get an answer grounded in your project. This task answers questions without creating or updating specifications.",
+        "Plan a capability or improve how the project works.",
     ] {
         assert!(text_position(&output, label).is_some(), "missing {label}");
     }
+    click_text(&mut app, &ctx, "Question task");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Get an answer grounded in this project.").is_some());
     let initial_window_id = egui::Id::new("koolade_modal").with("New Task");
     let dialog = ctx
         .memory(|memory| memory.area_rect(initial_window_id))
@@ -77,7 +77,10 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         }
         let window_id = egui::Id::new("koolade_modal").with("New Task");
         let dialog = ctx.memory(|memory| memory.area_rect(window_id)).unwrap();
-        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(dialog));
+        assert!(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(dialog),
+            "dialog {dialog:?} exceeded viewport {size:?}"
+        );
     }
     let dialog = ctx
         .memory(|memory| memory.area_rect(initial_window_id))

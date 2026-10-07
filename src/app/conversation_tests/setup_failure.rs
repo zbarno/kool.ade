@@ -40,6 +40,7 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
         panic!("project should remain connected");
     };
     let work = project.planning_work.last().unwrap();
+    let work_title = work.title.clone();
     assert_eq!(
         work.status,
         crate::core::planning_work::WorkStatus::NeedsAttention
@@ -50,7 +51,8 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
     assert_eq!(persisted.last().unwrap().detail, work.detail);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, &work_title);
+    let output = click_text(&mut app, &ctx, "Description");
     assert!(text_contains(&output, "provider unavailable"));
     assert!(text_contains(&output, "Needs attention"));
     std::fs::remove_dir_all(root).unwrap();
@@ -65,7 +67,7 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
     app.setup_attention = Some(issue.clone());
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
+    let output = click_text(&mut app, &ctx, issue.title);
     for text in [
         issue.title,
         "Why this matters",
@@ -96,12 +98,15 @@ fn setup_attention_card_opens_workspace_settings() {
     ));
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_contains(&output, "Open settings"));
-    click_text(&mut app, &ctx, "Open settings");
+    frame(&mut app, &ctx, vec![]);
+    let title = app.setup_attention.as_ref().unwrap().title;
+    click_text(&mut app, &ctx, title);
+    click_text(&mut app, &ctx, "Open workspace settings");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_contains(&output, "Workspace settings"));
-    assert!(text_contains(&output, "Automation policy"));
+    click_text(&mut app, &ctx, "Automation");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_contains(&output, "Automation"));
 }
 
 #[test]

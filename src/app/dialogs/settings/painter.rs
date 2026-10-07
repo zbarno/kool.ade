@@ -52,12 +52,7 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
         );
     });
     ui.add_space(10.0);
-    ui.label(
-        RichText::new("Categories & owners — drives question routing")
-            .size(13.0)
-            .strong()
-            .color(theme::TEXT),
-    );
+    ui.label(theme::section_heading("People & stakeholders"));
     ui.add_space(4.0);
     ui.label(
         RichText::new("Choose existing people or teams, or enter new owners separated by commas.")
@@ -66,36 +61,29 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
     );
     let owners = owner_choices(dlg);
     let mut removed: Vec<usize> = Vec::new();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Category").size(11.5).weak());
+        ui.add_space((ui.available_width() * 0.24).max(24.0));
+        ui.label(RichText::new("Owners").size(11.5).weak());
+    });
     for (i, row) in dlg.rows.iter_mut().enumerate() {
         ui.push_id(("ownership_row", i), |ui| {
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Category");
-                    ui.add_sized(
-                        [(ui.available_width() - 40.0).max(60.0), 28.0],
-                        TextEdit::singleline(&mut row.category).id_salt("category"),
-                    );
-                    if crate::ui::overlays::close_button(ui)
-                        .on_hover_text("Remove category")
-                        .clicked()
-                    {
-                        removed.push(i);
-                    }
-                });
-                ui.label(RichText::new("Owners").size(12.0).weak());
+            ui.horizontal(|ui| {
+                let category_width = (ui.available_width() * 0.34).max(120.0);
+                ui.add_sized(
+                    [category_width, 28.0],
+                    TextEdit::singleline(&mut row.category).id_salt("category"),
+                );
                 ui.add(
                     TextEdit::singleline(&mut row.members)
                         .id_salt("owners")
                         .desired_width(f32::INFINITY)
-                        .hint_text("Names or teams, separated by commas"),
+                        .hint_text("Names or teams"),
                 );
                 egui::ComboBox::from_id_salt("existing_owners")
                     .selected_text("Select existing owners…")
-                    .width(240.0_f32.min(ui.available_width()))
+                    .width(180.0_f32.min(ui.available_width()))
                     .show_ui(ui, |ui| {
-                        if owners.is_empty() {
-                            ui.label("Enter a name or team to make it available here.");
-                        }
                         for owner in &owners {
                             let mut selected = csv_parts(&row.members)
                                 .iter()
@@ -105,8 +93,14 @@ pub fn paint_settings_card(ui: &mut egui::Ui, dlg: &mut DlgSettings) -> (bool, b
                             }
                         }
                     });
+                if crate::ui::overlays::close_button(ui)
+                    .on_hover_text("Remove category")
+                    .clicked()
+                {
+                    removed.push(i);
+                }
             });
-            ui.add_space(6.0);
+            ui.separator();
         });
     }
     for idx in removed.iter().rev() {

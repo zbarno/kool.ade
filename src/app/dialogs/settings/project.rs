@@ -1,6 +1,7 @@
 use super::{Project, RepositoryNameRow, repository_names};
 use crate::{AppError, core::gitops};
 
+#[derive(Clone, Default)]
 pub struct DlgProjectSettings {
     pub repositories: Vec<RepositoryNameRow>,
     pub feedback: Option<(bool, String)>,

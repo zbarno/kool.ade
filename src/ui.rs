@@ -13,6 +13,7 @@ pub mod overlays;
 pub mod planning_board;
 pub mod reply_tail;
 pub mod spec_viewer;
+pub mod surface;
 pub mod task_activity;
 pub mod task_chat;
 pub mod task_checklist;
@@ -139,6 +140,24 @@ pub trait Surface {
     }
     fn harness_settings(&self) -> crate::persistence::harness_settings::HarnessSettings {
         crate::persistence::harness_settings::load().0
+    }
+    fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
+        None
+    }
+    fn save_people_settings(
+        &mut self,
+        _draft: &mut crate::app::dialogs::DlgSettings,
+    ) -> Result<String, String> {
+        Err("People settings are unavailable in this workspace.".into())
+    }
+    fn project_settings_draft(&self) -> Option<crate::app::dialogs::DlgProjectSettings> {
+        None
+    }
+    fn save_project_settings(
+        &mut self,
+        _draft: &mut crate::app::dialogs::DlgProjectSettings,
+    ) -> Result<Option<String>, String> {
+        Err("Project settings are unavailable in this workspace.".into())
     }
     fn git_head(&self) -> &str;
     fn git_dirty(&self) -> bool;

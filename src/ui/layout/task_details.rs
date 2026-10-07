@@ -4,6 +4,7 @@ mod activity;
 mod conversation;
 mod details;
 mod hero;
+mod planning;
 mod reply;
 mod review;
 mod state;
@@ -94,14 +95,13 @@ pub(super) fn paint(
     };
     if ui.available_width() >= 1000.0 {
         ui.columns(2, |columns| {
-            conversation::paint(
-                &mut columns[0],
-                s,
-                ticket,
-                &mut view,
-                brief.as_ref(),
-                height,
-            );
+            egui::ScrollArea::vertical()
+                .id_salt(("task_conversation_pane", ticket))
+                .max_height(height)
+                .auto_shrink([false, false])
+                .show(&mut columns[0], |ui| {
+                    conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height);
+                });
             let presentation = state::Presentation {
                 ticket,
                 view: &view,
@@ -116,15 +116,21 @@ pub(super) fn paint(
                 pull_request_closed,
                 interrupted,
             };
-            details::paint(
-                &mut columns[1],
-                s,
-                doc,
-                presentation,
-                checks_unavailable,
-                failure.as_deref(),
-                activity_path,
-            );
+            egui::ScrollArea::vertical()
+                .id_salt(("task_details_pane", ticket))
+                .max_height(height)
+                .auto_shrink([false, false])
+                .show(&mut columns[1], |ui| {
+                    details::paint(
+                        ui,
+                        s,
+                        doc,
+                        presentation,
+                        checks_unavailable,
+                        failure.as_deref(),
+                        activity_path,
+                    );
+                });
         });
     } else {
         let presentation = state::Presentation {
@@ -141,16 +147,65 @@ pub(super) fn paint(
             pull_request_closed,
             interrupted,
         };
-        details::paint(
-            ui,
-            s,
-            doc,
-            presentation,
-            checks_unavailable,
-            failure.as_deref(),
-            activity_path,
-        );
+        egui::ScrollArea::vertical()
+            .id_salt(("task_details_pane", ticket))
+            .max_height(height * 0.68)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                details::paint(
+                    ui,
+                    s,
+                    doc,
+                    presentation,
+                    checks_unavailable,
+                    failure.as_deref(),
+                    activity_path,
+                );
+            });
         ui.separator();
-        conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height * 0.35);
+        egui::ScrollArea::vertical()
+            .id_salt(("task_conversation_pane", ticket))
+            .max_height(height * 0.25)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height * 0.35);
+            });
     }
+}
+
+pub(super) fn paint_planning_item(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    item: &crate::domain::item::OpenItem,
+    height: f32,
+) {
+    planning::paint_item(ui, surface, board, item, height);
+}
+
+pub(super) fn paint_planning_work(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    work: &crate::core::planning_work::Work,
+    height: f32,
+) {
+    planning::paint_work(ui, surface, board, work, height);
+}
+
+pub(super) fn paint_setup_issue(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    issue: &crate::app::setup_attention::SetupIssue,
+) {
+    planning::paint_setup_issue(ui, surface, board, issue);
+}
+
+pub(super) fn paint_feature_approval(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    action: &crate::ui::feature_approval::Action,
+) {
+    planning::paint_feature_approval(ui, surface, action);
 }

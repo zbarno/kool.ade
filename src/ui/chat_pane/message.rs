@@ -82,6 +82,18 @@ pub(super) fn paint_message(
                         );
                     }
                 });
+            if m.role == ChatRole::Agent {
+                let readable = crate::ui::message_text::readable(m);
+                if readable.as_ref() != m.text {
+                    ui.push_id(&m.id, |ui| {
+                        ui.collapsing("Response details", |ui| {
+                            ui.add(
+                                egui::Label::new(RichText::new(&m.text).monospace().small()).wrap(),
+                            );
+                        });
+                    });
+                }
+            }
         });
     });
 }

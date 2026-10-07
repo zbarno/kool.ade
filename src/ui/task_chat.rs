@@ -14,7 +14,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn crate::ui::Surface, key: &str, expan
     conversation::paint_with_board(ui, s, key, expanded, &board)
 }
 
-pub(crate) use conversation::paint_with_board;
 pub(crate) use status::board_column;
 #[cfg(test)]
 pub(crate) use status::{Reply, split_reply};

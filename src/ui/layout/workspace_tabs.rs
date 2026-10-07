@@ -20,6 +20,16 @@ pub(super) fn paint(
             let mut tasks_tab = ui
                 .ctx()
                 .data_mut(|d| d.get_temp::<bool>(tab_id).unwrap_or(true));
+            let chat_collapsed = egui::Id::new("koolade_spec_chat_collapsed");
+            if !tasks_tab
+                && ui
+                    .ctx()
+                    .data_mut(|data| data.get_temp::<bool>(chat_collapsed).unwrap_or(false))
+                && ui.button("Show specification conversation").clicked()
+            {
+                ui.ctx()
+                    .data_mut(|data| data.insert_temp(chat_collapsed, false));
+            }
             {
                 ui.horizontal(|ui| {
                     if ui.add(tab_button("Specification", !tasks_tab)).clicked() {

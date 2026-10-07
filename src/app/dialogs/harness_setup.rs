@@ -9,6 +9,7 @@ mod pi_guide_tests;
 mod probes;
 #[cfg(test)]
 mod tests;
+mod tools;
 use probes::discover_harnesses;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,13 +31,14 @@ pub struct HarnessProbe {
     pub configuration_required: bool,
 }
 
+#[derive(Clone)]
 pub struct DlgHarnessSetup {
     pub settings: crate::persistence::harness_settings::HarnessSettings,
     pub probe_view: ProbeView,
     pub feedback: Option<(bool, String)>,
     pub section: HarnessSettingsSection,
     pub manual_path_drafts: std::collections::BTreeMap<String, String>,
-    probe_rx: Option<Receiver<Vec<HarnessProbe>>>,
+    probe_rx: Option<std::sync::Arc<std::sync::Mutex<Receiver<Vec<HarnessProbe>>>>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -66,14 +68,20 @@ impl DlgHarnessSetup {
         std::thread::spawn(move || {
             let _ = tx.send(discover_harnesses());
         });
-        self.probe_rx = Some(rx);
+        self.probe_rx = Some(std::sync::Arc::new(std::sync::Mutex::new(rx)));
         self.probe_view = ProbeView::Pending;
         self.feedback = None;
     }
 
     pub fn drain_probe(&mut self) {
-        let Some(rx) = &self.probe_rx else { return };
-        match rx.try_recv() {
+        let Some(rx) = self.probe_rx.as_ref().cloned() else {
+            return;
+        };
+        let result = match rx.lock() {
+            Ok(rx) => rx.try_recv(),
+            Err(_) => Err(mpsc::TryRecvError::Disconnected),
+        };
+        match result {
             Ok(reports) => {
                 self.probe_rx = None;
                 self.record_probes(reports);
@@ -149,6 +157,13 @@ impl DlgHarnessSetup {
             ));
             return;
         }
+        if !std::path::Path::new(&value).is_file() {
+            self.feedback = Some((
+                false,
+                "That path is not an existing executable file. Choose a valid tool path or return to automatic detection.".into(),
+            ));
+            return;
+        }
         let previous = self.settings.clone();
         self.settings
             .manual_executable_paths
@@ -194,6 +209,28 @@ impl DlgHarnessSetup {
                 false
             }
         }
+    }
+}
+
+pub fn paint_harness_setup_page(
+    ui: &mut egui::Ui,
+    dialog: &mut DlgHarnessSetup,
+    section: HarnessSettingsSection,
+) {
+    dialog.drain_probe();
+    match section {
+        HarnessSettingsSection::Tools => paint::paint_tools(ui, dialog),
+        HarnessSettingsSection::Routing => paint::paint_work_routes(ui, dialog),
+    }
+    if let Some((ok, message)) = &dialog.feedback {
+        ui.colored_label(
+            if *ok {
+                crate::ui::theme::SUCCESS
+            } else {
+                crate::ui::theme::DANGER
+            },
+            message,
+        );
     }
 }
 

@@ -8,9 +8,10 @@ fn board_cancel_requires_a_visible_confirmation() {
     let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let dialog = click_text(&mut app, &ctx, "Cancel");
-    assert!(text_position(&dialog, "Confirm cancel").is_some());
-    assert!(text_contains(&dialog, "execution queue"));
+    click_text(&mut app, &ctx, "First task");
+    let details = click_text(&mut app, &ctx, "Cancel task");
+    assert!(text_position(&details, "Confirm cancel").is_some());
+    assert!(text_contains(&details, "leave the queue"));
     click_text(&mut app, &ctx, "Confirm cancel");
     let Screen::Connected(project) = &app.screen else {
         panic!("disconnected");

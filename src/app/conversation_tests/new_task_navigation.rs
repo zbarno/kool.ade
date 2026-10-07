@@ -167,11 +167,5 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
     assert_history(&output, second);
     assert!(text_position(&output, "FIRST TASK HISTORY").is_none());
     assert!(text_position(&output, "SECOND TASK HISTORY").is_some());
-    assert!(
-        ctx.data_mut(
-            |data| data.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-        )
-        .is_none_or(|tabs| tabs.active.is_none())
-    );
     std::fs::remove_dir_all(dir).unwrap();
 }

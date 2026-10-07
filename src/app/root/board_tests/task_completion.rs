@@ -12,10 +12,10 @@ fn completed_task_shows_cleanup_failure_without_reopening_implementation() {
     }
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Done · 1").is_some());
-    assert!(text_position(&output, "Cleanup needs attention").is_some());
-    assert!(text_position(&output, "Worktree contains local changes").is_some());
+    let output = click_text(&mut app, &ctx, "Merged task");
+    assert!(text_position(&output, "Task details & state").is_some());
+    assert!(text_contains(&output, "cleanup needs attention"));
+    assert!(text_contains(&output, "Worktree contains local changes"));
 }
 
 #[test]
@@ -29,12 +29,10 @@ fn failed_task_without_saved_state_shows_cause_on_board() {
     }
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
+    let output = click_text(&mut app, &ctx, "First task");
     assert!(text_position(&output, "Needs attention · 1").is_some());
     assert!(text_position(&output, "No space left on device").is_some());
-    assert!(text_position(&output, "Review next action").is_some());
-    let details = click_text(&mut app, &ctx, "Review next action");
-    assert!(text_position(&details, "Full blocker report").is_some());
+    assert!(text_position(&output, "Full blocker report").is_some());
     let report = click_text(&mut app, &ctx, "Full blocker report");
     assert!(text_contains(&report, "No space left on device"));
 }

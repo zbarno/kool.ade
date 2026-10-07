@@ -30,7 +30,7 @@ fn task_details_show_full_state_and_inline_reply() {
     );
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = click_text(&mut app, &ctx, "Review next action");
+    let output = click_text(&mut app, &ctx, "First task");
     for label in [
         "Task conversation",
         "Task details & state",

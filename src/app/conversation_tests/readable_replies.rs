@@ -33,22 +33,10 @@ fn saved_json_replies_render_as_readable_text_with_optional_diagnostics() {
         ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
     }
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
+    let output = click_text(&mut app, &ctx, "Which provider?");
     assert!(text_position(&output, "Use corporate SSO.").is_some());
-    assert!(text_position(&output, "Update not saved").is_some());
-    click_text(&mut app, &ctx, "Which provider?");
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Use corporate SSO.").is_some());
-    assert!(
-        text_position(
-            &output,
-            "Nothing changed. Retry your last reply or send a revised answer."
-        )
-        .is_some()
-    );
     assert!(text_position(&output, raw).is_none());
     assert_eq!(app.task_messages("CLR-001")[1].text, raw);
-    click_last(&mut app, &ctx, "Conversation history (2)");
     click_last(&mut app, &ctx, "Response details");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, raw).is_some());

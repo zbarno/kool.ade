@@ -46,12 +46,12 @@ pub(super) fn paint(
                     )
                     .clicked()
                 {
-                    dispatch(
-                        s,
-                        crate::ui::task_detail::Command::CancelTask {
-                            ticket: ticket.to_owned(),
-                        },
-                    );
+                    ui.ctx().data_mut(|data| {
+                        data.insert_temp(
+                            egui::Id::new("koolade_cancel_pending"),
+                            ticket.to_owned(),
+                        );
+                    });
                 }
             } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()) {
                 ui.label(if presentation.pull_request_closed {
@@ -102,8 +102,52 @@ pub(super) fn paint(
                     );
                 }
             }
+            if !active && column != 4 && ui.button("Cancel task").clicked() {
+                ui.ctx().data_mut(|data| {
+                    data.insert_temp(
+                        egui::Id::new("koolade_cancel_pending"),
+                        ticket.to_owned(),
+                    );
+                });
+            }
         });
+    let cancel_id = egui::Id::new("koolade_cancel_pending");
+    let confirming_cancel = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<String>(cancel_id))
+        .as_deref()
+        == Some(ticket);
+    if confirming_cancel {
+        ui.group(|ui| {
+            ui.label(theme::section_heading("Cancel this task?"));
+            ui.label(theme::helper_text(
+                "The task will leave the queue. Its files, conversation, and implementation history will be kept.",
+            ));
+            ui.horizontal(|ui| {
+                if ui.button("Keep working").clicked() {
+                    ui.ctx().data_mut(|data| data.remove::<String>(cancel_id));
+                }
+                if ui
+                    .button(egui::RichText::new("Confirm cancel").color(theme::DANGER))
+                    .clicked()
+                {
+                    s.dispatch(crate::ui::ApplicationCommand::CancelWork {
+                        key: ticket.to_owned(),
+                    });
+                    ui.ctx().data_mut(|data| data.remove::<String>(cancel_id));
+                }
+            });
+        });
+    }
     activity::paint(ui, view, ticket, active, activity_path);
+    if column == 4 && ui.button("Archive").clicked() {
+        s.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
+            ticket: ticket.to_owned(),
+        });
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
+        });
+    }
     metrics::paint(ui, view);
     let checklist = crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(ticket));
     if !checklist.is_empty() {

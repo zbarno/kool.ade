@@ -184,21 +184,14 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
     click_text(&mut app, &ctx, "Workspace");
     let output = click_text(&mut app, &ctx, "Settings…");
     assert!(text_position(&output, "Workspace settings").is_some());
+    assert!(text_position(&output, "Build approved changes automatically").is_none());
+    click_text(&mut app, &ctx, "Automation");
+    let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Build approved changes automatically").is_some());
     assert!(text_position(&output, "Plan automatically").is_some());
     assert!(text_position(&output, "Publish verified changes automatically").is_some());
     assert!(text_position(&output, "Wait for project checks before publishing").is_some());
-    assert!(
-        text_position(
-            &output,
-            "Saved for this project on this device, across Kool.ad/e windows."
-        )
-        .is_some()
-    );
-    assert!(text_position(
-        &output,
-        "Kool.ad/e checks its work locally first. When Auto Publish is on, it also waits for the project's separate checks before sharing. If those checks fail or are unavailable, verified work stays on this device. Enabling Auto Publish turns on this check."
-    ).is_some());
+    assert!(text_position(&output, "Concurrent tasks").is_some());
     let policy_repo = match &app.screen {
         Screen::Connected(project) => project.state.repo_root.clone(),
         Screen::Welcome => unreachable!(),
@@ -256,6 +249,9 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
             .unwrap()
             .require_independent_checks
     );
+    click_text(&mut app, &ctx, "People & Stakeholders");
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Who am I?").is_some());
     frame(
         &mut app,
         &ctx,
@@ -281,34 +277,27 @@ fn workspace_settings_buttons_open_their_project_and_coding_destinations() {
     let output = click_text(&mut app, &ctx, "Settings…");
     assert!(text_position(&output, "Workspace settings").is_some());
 
-    let output = click_text(&mut app, &ctx, "Repository names…");
-    assert!(
-        matches!(&app.dialog, Some(Dialog::ProjectSettings(_))),
-        "expected ProjectSettings dialog, got: {}",
-        canvas_text(&output)
-    );
-    assert!(text_position(&output, "Project / Git settings").is_some());
+    let output = click_text(&mut app, &ctx, "Project & Git");
+    assert!(text_position(&output, "Project / Git").is_some());
     assert!(text_position(&output, "Registered repository names").is_some());
 
-    frame(
-        &mut app,
-        &ctx,
-        vec![egui::Event::Key {
-            key: egui::Key::Escape,
-            physical_key: None,
-            pressed: true,
-            repeat: false,
-            modifiers: Default::default(),
-        }],
-    );
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Workspace settings").is_some());
-
-    let output = click_text(&mut app, &ctx, "Coding tools and models…");
-    assert!(matches!(&app.dialog, Some(Dialog::HarnessSetup(_))));
-    assert!(text_position(&output, "Coding tool configuration").is_some());
+    let output = click_text(&mut app, &ctx, "Coding Tools");
     assert!(text_position(&output, "Available coding tools").is_some());
-    assert!(text_position(&output, "Set up the Pi CLI").is_some());
+    let output = click_text(&mut app, &ctx, "Models & Routing");
+    assert!(text_position(&output, "Implementation").is_some());
+}
+
+#[test]
+fn narrow_workspace_settings_wraps_navigation_above_the_selected_page() {
+    let mut app = fixture();
+    let ctx = super::mockup_layout::styled_context();
+    let size = egui::vec2(360.0, 480.0);
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("koolade_workspace_settings_open"), true));
+    frame_at(&mut app, &ctx, vec![], size);
+    let general = frame_at(&mut app, &ctx, vec![], size);
+    assert!(text_position(&general, "General").is_some());
+    let appearance = click_text_at(&mut app, &ctx, "Appearance", size);
+    assert!(text_position(&appearance, "Reduce motion").is_some());
 }
 
 #[test]

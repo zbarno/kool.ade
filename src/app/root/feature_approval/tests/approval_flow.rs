@@ -423,7 +423,8 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Approve CHG-004 and prepare tasks").is_some());
+    assert!(text_position(&output, "CHG-004: Saved searches").is_some());
+    click_text(&mut app, &ctx, "Review specification");
     click_text(&mut app, &ctx, "Approve CHG-004 and prepare tasks");
     assert!(app.feature_approved("CHG-004"));
     let generation_key = match &app.screen {
@@ -487,7 +488,7 @@ fn resolved_conversation_has_action_and_failed_review_retains_approval_for_retry
     app.task_harness = Some(h);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Open conversation");
+    click_text(&mut app, &ctx, "Review specification");
     click_text(&mut app, &ctx, "Approve CHG-004 and prepare tasks");
     let generation_key = match &app.screen {
         Screen::Connected(project) => project
@@ -507,8 +508,21 @@ fn resolved_conversation_has_action_and_failed_review_retains_approval_for_retry
     assert!(
         matches!(&app.screen, Screen::Connected(project) if project.planning_work.iter().any(|work| work.key == generation_key && work.status == crate::core::planning_work::WorkStatus::NeedsAttention))
     );
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "Generate tasks: CHG-004: Saved searches");
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Generate tasks").is_some());
+    assert!(
+        text_position(&output, "Generate tasks").is_some(),
+        "{:?}",
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

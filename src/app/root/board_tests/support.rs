@@ -166,8 +166,26 @@ pub(in crate::app::root) fn click_text_at(
     size: egui::Vec2,
 ) -> egui::FullOutput {
     let output = frame_at(app, ctx, vec![], size);
-    let click =
-        text_position(&output, label).unwrap_or_else(|| panic!("missing clickable {label}"));
+    let click = text_position(&output, label)
+        .or_else(|| {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text().contains(label) => {
+                    Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+                }
+                _ => None,
+            })
+        })
+        .unwrap_or_else(|| {
+            let visible = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            panic!("missing clickable {label}; visible: {visible:?}")
+        });
     frame_at(
         app,
         ctx,

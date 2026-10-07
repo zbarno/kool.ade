@@ -1,6 +1,8 @@
 use super::*;
 use crate::app::dialogs;
 
+mod pages;
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
@@ -9,158 +11,95 @@ pub(super) fn paint(
     settings_was_open: bool,
 ) -> bool {
     let settings_id = egui::Id::new("koolade_workspace_settings_open");
+    let defer = ui.ctx().data_mut(|data| {
+        data.remove_temp::<bool>(egui::Id::new("koolade_defer_settings_one_frame"))
+            .unwrap_or(false)
+    });
+    if defer {
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(settings_id, true));
+        return true;
+    }
     settings_open |= ui
         .ctx()
         .data_mut(|data| data.get_temp::<bool>(settings_id).unwrap_or(false));
     if settings_open {
-        let mut open_batch = None;
-        let closed = crate::ui::overlays::show_modal(ui, true, "Workspace settings", 640.0, |ui| {
-            ui.heading("Appearance");
-            let reduced_id = egui::Id::new(theme::REDUCE_MOTION_ID);
-            let mut reduced_motion = ui
-                .ctx()
-                .data_mut(|data| data.get_temp::<bool>(reduced_id).unwrap_or(false));
-            if ui.checkbox(&mut reduced_motion, "Reduce motion").changed() {
-                ui.ctx()
-                    .data_mut(|data| data.insert_temp(reduced_id, reduced_motion));
-            }
-            ui.ctx().style_mut_of(egui::Theme::Dark, |style| {
-                style.animation_time = if reduced_motion { 0.0 } else { 0.2 };
-            });
-            ui.label(
-                "Stops interface transitions and animated busy indicators. Live activity updates continue.",
-            );
-            ui.separator();
-            ui.heading("Project / Git");
-            if ui.button("Repository names…").clicked() {
-                ui.ctx().data_mut(|data| {
-                    data.insert_temp(egui::Id::new("koolade_open_project_settings"), true);
-                });
-            }
-            ui.separator();
-            ui.heading("Automation policy");
-            if ui.button("Coding tools and models…").clicked() {
-                ui.ctx().data_mut(|data| {
-                    data.insert_temp(egui::Id::new("koolade_open_coding_settings"), true);
-                });
-            }
-            ui.label("Configure installed coding tools separately from the models and work types that use them.");
-            ui.label("Saved for this project on this device, across Kool.ad/e windows.");
-            let mut parallel = s.max_parallel_tasks();
-            if ui
-                .add(egui::Slider::new(&mut parallel, 1..=8).text("Concurrent tasks"))
-                .changed()
-            {
-                s.dispatch(ApplicationCommand::SetMaxParallelTasks { count: parallel });
-            }
-            ui.label(format!("{} workers active. Dependencies must merge before dependent tasks start. Merges are serialized and reverified.", s.active_task_count()));
-            ui.label("Lowering the limit affects new starts; running tasks keep their work.");
-            let mut auto_plan = s.auto_plan();
-            if ui.checkbox(&mut auto_plan, "Plan automatically").changed() {
-                s.dispatch(ApplicationCommand::SetAutoPlan { enabled: auto_plan });
-            }
-            ui.label("Kool.ad/e can investigate Agent-owned planning questions, record evidence-backed findings, and suggest next steps in the background. It does not create implementation tasks or start builds. Turning this off stops new investigations; a change already being saved may finish.");
-            let mut auto_build = s.auto_build();
-            if ui
-                .checkbox(&mut auto_build, "Build approved changes automatically")
-                .changed()
-            {
-                s.dispatch(ApplicationCommand::SetAutoBuild {
-                    enabled: auto_build,
-                });
-            }
-            ui.label("Auto-Implement keeps the TODO queue ready and starts eligible tasks as they become available. Feature tasks still need explicit approval. Kool.ad/e manages dependencies and verification; verified work stays local unless Auto Publish is on.");
-            let mut auto_publish = s.auto_publish();
-            if ui
-                .checkbox(&mut auto_publish, "Publish verified changes automatically")
-                .changed()
-            {
-                s.dispatch(ApplicationCommand::SetAutoPublish {
-                    enabled: auto_publish,
-                });
-            }
-            ui.label("Kool.ad/e checks its work locally first. When Auto Publish is on, it also waits for the project's separate checks before sharing. If those checks fail or are unavailable, verified work stays on this device. Enabling Auto Publish turns on this check.");
-            let mut require_checks = s.require_independent_checks();
-            let check = ui.add_enabled(
-                !auto_publish,
-                egui::Checkbox::new(
-                    &mut require_checks,
-                    "Wait for project checks before publishing",
-                ),
-            );
-            if check.changed() {
-                s.dispatch(ApplicationCommand::SetRequireIndependentChecks {
-                    enabled: require_checks,
-                });
-            }
-            ui.label("On supported GitHub projects, Kool.ad/e waits for the project's checks after its own verification. If checks fail or are unavailable, the verified work stays unshared.");
-            ui.label("Create a Feature task from the board to start planning. You can also approve a feature in Specifications, then use a task’s Implement action.");
-            ui.separator();
-            paint_persona_section(ui, s);
-            if !s.queue_status().is_empty() {
-                ui.separator();
-                ui.label(s.queue_status());
-            }
-            if let Some((ticket, claim)) = s.stale_task_claim() {
-                ui.separator();
-                ui.label(format!(
-                    "{} is held by {} (session {}) since {} on base {}.",
-                    ticket,
-                    claim.owner,
-                    claim.session_id,
-                    chrono::DateTime::from_timestamp(claim.claimed_at, 0)
-                        .map(|time| time.to_rfc3339())
-                        .unwrap_or_else(|| claim.claimed_at.to_string()),
-                    claim.base_commit
-                ));
-                if ui
-                    .button("I confirmed the old worker stopped — take over stale claim")
-                    .clicked()
-                {
-                    s.dispatch(ApplicationCommand::TakeOverStaleTaskClaim { ticket });
-                }
-            }
-            for doc in board
-                .task_documents
-                .iter()
-                .filter(|d| d.path.ends_with("/README.md"))
-            {
-                ui.separator();
-                ui.label(&doc.title);
-                if ui.button("Batch overview").clicked() {
-                    open_batch = Some(doc.path.clone());
-                }
-            }
+        let page_id = egui::Id::new("koolade_settings_page");
+        let requested_page = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new("koolade_settings_open_page"))
         });
+        let mut page = requested_page
+            .as_deref()
+            .and_then(pages::Page::from_key)
+            .unwrap_or_else(|| {
+                ui.ctx()
+                    .data_mut(|data| data.get_temp::<pages::Page>(page_id).unwrap_or_default())
+            });
+        let mut open_batch = None;
+        let closed =
+            crate::ui::overlays::show_workspace_modal(ui, true, "Workspace settings", |ui| {
+                let height = ui.available_height();
+                let compact = ui.available_width() < 720.0;
+                ui.set_min_height(height);
+                if compact {
+                    pages::paint_compact_navigation(ui, &mut page);
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .id_salt("settings_selected_page")
+                        .max_height(height)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            open_batch = pages::paint_page(ui, s, board, page);
+                        });
+                } else {
+                    ui.horizontal_top(|ui| {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(190.0, height),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| pages::paint_navigation(ui, &mut page),
+                        );
+                        ui.separator();
+                        egui::ScrollArea::vertical()
+                            .id_salt("settings_selected_page")
+                            .max_height(height)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                open_batch = pages::paint_page(ui, s, board, page);
+                            });
+                    });
+                }
+            });
+        ui.ctx().data_mut(|data| data.insert_temp(page_id, page));
         if closed {
             settings_open = false;
         }
         if let Some(path) = open_batch {
             settings_open = false;
-            ui.ctx().data_mut(|d| {
-                d.insert_temp(egui::Id::new("koolade_document_tab"), true);
-                d.insert_temp(egui::Id::new("koolade_selected_task"), path);
+            ui.ctx().data_mut(|data| {
+                data.insert_temp(egui::Id::new("koolade_document_tab"), true);
+                data.insert_temp(egui::Id::new("koolade_selected_task"), path);
             });
         }
     }
-    // Close edge: the modal went open → closed this frame. Drop the VOLATILE
-    // persona draft (its two session-lived temp slots) so the NEXT open
-    // re-binds to the live persona.md bytes — bind-on-open doctrine, no ghost
-    // draft (unsaved edits and diagnostics die with the modal on purpose).
-    //
-    // Deliberately SURGICAL removals, not an egui `IdTypeMap::clear()`:
-    // on egui 0.36 a clear() would wipe EVERY temporary and persisted value
-    // (the operator's open chat tabs, document views, widget state) — far
-    // beyond this ticket's purely-additive bounds. Only the two persona
-    // slots owe expiry here.
     if settings_was_open && !settings_open {
-        ui.ctx().data_mut(|d| {
-            d.remove_temp::<bool>(egui::Id::new("koolade_persona_was_closed"));
-            d.remove_temp::<dialogs::DlgPersona>(egui::Id::new("koolade_persona_card"));
+        ui.ctx().data_mut(|data| {
+            data.remove_temp::<bool>(egui::Id::new("koolade_persona_was_closed"));
+            data.remove_temp::<dialogs::DlgPersona>(egui::Id::new("koolade_persona_card"));
+            data.remove_temp::<crate::app::dialogs::DlgHarnessSetup>(egui::Id::new(
+                "koolade_settings_harness_draft",
+            ));
+            data.remove_temp::<crate::app::dialogs::DlgProjectSettings>(egui::Id::new(
+                "koolade_settings_project_git_draft",
+            ));
+            data.remove_temp::<crate::app::dialogs::DlgSettings>(egui::Id::new(
+                "koolade_settings_people_draft",
+            ));
         });
     }
     ui.ctx()
-        .data_mut(|d| d.insert_temp(settings_id, settings_open));
+        .data_mut(|data| data.insert_temp(settings_id, settings_open));
     settings_open
 }
 

@@ -33,21 +33,10 @@ fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
         ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
     }
     frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Your answer needed").is_some());
+    let output = click_text(&mut app, &ctx, "Which provider?");
+    assert!(text_position(&output, "Task conversation").is_some());
     assert!(text_position(&output, "Should guests use SSO too?").is_some());
-    assert!(text_position(&output, "Send answer").is_some());
-    assert!(
-        text_position(&output, "Send answer").unwrap().y
-            < text_position(&output, "General").unwrap().y,
-        "The reply action belongs above metadata and activity"
-    );
-    assert!(text_position(&output, "Earlier context for the provider").is_none());
-    click_text(&mut app, &ctx, "Which provider?");
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Earlier context for the provider").is_none());
-    assert!(text_position(&output, "Use corporate SSO").is_some());
-    click_last(&mut app, &ctx, "Conversation history (4)");
-    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Reply about this task…").is_some());
+    assert!(text_position(&output, "Ctrl + Enter to send").is_some());
     assert!(text_position(&output, "Earlier context for the provider").is_some());
 }

@@ -13,11 +13,13 @@ pub use repository_names::RepositoryNameRow;
 // Settings dialog (current user + stakeholder categories)
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Default)]
 pub struct Row {
     pub category: String,
     pub members: String,
 }
 
+#[derive(Clone, Default)]
 pub struct DlgSettings {
     pub user_name: String,
     pub user_groups: String, // csv

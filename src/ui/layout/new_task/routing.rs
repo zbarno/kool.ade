@@ -16,10 +16,15 @@ pub(super) fn routing_editor(
     settings: &HarnessSettings,
     overrides: &mut BTreeMap<String, WorkRoute>,
 ) {
-    egui::CollapsingHeader::new("Task routing overrides")
+    let label = if overrides.is_empty() {
+        "Advanced routing · using application defaults"
+    } else {
+        "Advanced routing · task overrides selected"
+    };
+    egui::CollapsingHeader::new(label)
         .default_open(false)
         .show(ui, |ui| {
-            ui.label(RichText::new("Optional for this task; application defaults remain in effect unless you choose an override.").color(theme::TEXT_MUTED));
+            ui.label(RichText::new("Optional overrides for this task. Each category inherits until you select a replacement.").color(theme::TEXT_MUTED));
             for (category, label) in ROUTABLE_CATEGORIES {
                 route_row(ui, settings, overrides, category, label);
             }

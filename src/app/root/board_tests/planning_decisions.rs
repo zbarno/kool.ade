@@ -20,7 +20,7 @@ fn planning_items_use_board_and_modal_even_before_tasks_exist() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Needs attention · 1").is_some());
-    assert!(text_position(&output, "Your answer needed").is_some());
+    assert!(text_position(&output, "Waiting for your response").is_some());
     assert!(text_position(&output, "Determines the access model").is_none());
     let pos = text_position(&output, &item.question).unwrap();
     for pressed in [true, false] {
@@ -41,7 +41,7 @@ fn planning_items_use_board_and_modal_even_before_tasks_exist() {
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Determines the access model").is_some());
     assert!(text_position(&output, "Owner: All").is_none());
-    assert!(text_position(&output, "Your answer needed").is_some());
+    assert!(text_position(&output, "Task conversation").is_some());
     *app.task_draft("CLR-010").unwrap() = "Use corporate SSO".into();
     assert!(app.chat_draft().is_empty());
     assert!(
@@ -124,34 +124,27 @@ fn human_decision_brief_shows_issue_specific_buttons_and_advisory_details() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     for label in [
-        "How long should people stay signed in before signing in again?",
-        "Before launch, we need a clear rule for when people must sign in again.",
+        "How long should people stay signed in before",
+        "Waiting for your response",
     ] {
         assert!(
             text_contains(&output, label),
             "missing {label} from the Needs Attention card"
         );
     }
-    for label in [
-        "Ask people to sign in again after one hour",
-        "Stay signed in until signing out",
-        "Your answer needed",
-        "People must sign in again after an hour.",
-        "If chosen: The app must ask people to sign in again after an hour.",
-    ] {
+    assert!(text_position(&output, "Your answer needed").is_none());
+    let output = click_text(
+        &mut app,
+        &ctx,
+        "How long should people stay signed in before",
+    );
+    for label in ["Recommendation", "Evidence", "Task conversation"] {
         assert!(
             text_position(&output, label).is_some(),
-            "missing {label}; visible text: {:?}",
-            output
-                .shapes
-                .iter()
-                .filter_map(|clipped| match &clipped.shape {
-                    egui::Shape::Text(shape) => Some(shape.galley.text().to_owned()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
+            "missing {label} in task details"
         );
     }
+    assert!(text_position(&output, "Your answer needed").is_none());
     click_text(&mut app, &ctx, "Ask people to sign in again after one hour");
     assert_eq!(
         app.task_draft(&item.id).map(|draft| draft.as_str()),

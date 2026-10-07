@@ -116,9 +116,13 @@ fn actionable_feature_decision_is_shown_on_the_paused_task_and_clears_when_resol
         frame(&mut app, &ctx, vec![]);
     }
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "NEEDS YOUR INPUT").is_some());
-    assert!(text_position(&output, "Answer CLR-912").is_some());
-    assert!(text_position(&output, "This feature is waiting on your decision.").is_some());
+    assert!(text_position(&output, "Needs your input").is_some());
+    let output = click_text(
+        &mut app,
+        &ctx,
+        "Choose how long the session should remain active.",
+    );
+    assert!(text_position(&output, "Waiting for your decision").is_some());
     assert!(text_position(&output, "Implementation failed").is_none());
 
     if let Screen::Connected(project) = &mut app.screen {
@@ -142,26 +146,24 @@ fn todo_task_names_the_prerequisite_that_keeps_it_blocked() {
     dependent.parent_uid = Some(batch_uid.clone());
     let prerequisite_metadata =
         crate::artifacts::task_docs::TaskMetadata::new(&prerequisite, "root", vec![]).unwrap();
-    let dependent_metadata = crate::artifacts::task_docs::TaskMetadata::new(
-        &dependent,
-        "root",
-        vec![prerequisite.uid.clone()],
-    )
-    .unwrap();
     project.task_documents[0].identity = Some(prerequisite);
     project.task_documents[0].metadata = Some(prerequisite_metadata);
     project
         .implementation_states
         .remove(&project.task_documents[1].path);
+    project
+        .implementation_states
+        .remove(&project.task_documents[0].path);
     project.task_documents[1].identity = Some(dependent);
-    project.task_documents[1].metadata = Some(dependent_metadata);
+    project.task_documents[1].metadata = None;
+    project.task_documents[1].text =
+        "# Review task\n\n## Dependencies\n\n- [First task](001-task.md)\n".into();
 
     let ctx = super::mockup_layout::styled_context();
     for _ in 0..4 {
         frame(&mut app, &ctx, vec![]);
     }
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Blocked").is_some());
     assert!(text_position(&output, "Waiting for First task").is_some());
 }
 

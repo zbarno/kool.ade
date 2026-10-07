@@ -1,8 +1,10 @@
+mod feature;
 mod item;
 mod setup;
 mod task;
 mod work;
 
+pub(super) use feature::approval;
 pub(super) use item::item;
 pub(super) use setup::setup;
 pub(super) use task::task;

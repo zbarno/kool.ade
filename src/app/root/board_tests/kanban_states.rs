@@ -96,12 +96,31 @@ fn kanban_distinguishes_authority_blockers_tasks_and_completed_work() {
         "Agent resolving card",
         "Review decision card",
         "Blocking human card",
-        "Human",
-        "Agent",
-        "Review",
-        "Blocking",
     ] {
         assert!(text_position(&output, label).is_some(), "missing {label}");
+    }
+    for (card, status) in [
+        ("Human decision card", "Waiting for your decision"),
+        ("Agent resolving card", "Kool.ad/e is investigating"),
+        ("Review decision card", "Ready for your review"),
+    ] {
+        let details = click_text(&mut app, &ctx, card);
+        assert!(
+            text_position(&details, status).is_some(),
+            "missing {status}"
+        );
+        frame_at(
+            &mut app,
+            &ctx,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+            egui::vec2(1800.0, 1500.0),
+        );
     }
     assert!(text_position(&output, "Non-actionable repository observation").is_none());
 }

@@ -28,7 +28,7 @@ fn board_mockup_hierarchy_and_centered_legend_at_desktop_sizes() {
             )
             .is_none()
         );
-        assert!(text_position(&output, "+ 2 more in task details").is_some());
+        assert!(text_position(&output, "+ 2 more in task details").is_none());
         assert!(text_position(&output, "Keep workspaces separate").is_none());
         let first = text_position(&output, "Task").expect("legend starts");
         let last = text_position(&output, "Ownership").expect("legend ends");
@@ -57,24 +57,7 @@ fn board_mockup_hierarchy_and_centered_legend_at_desktop_sizes() {
                 .iter()
                 .all(|rect| rect.right() <= width && rect.left() >= 0.0)
         );
-        let criteria = output
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.text() == "Handle empty months" => {
-                    Some(text)
-                }
-                _ => None,
-            })
-            .unwrap();
-        assert!(
-            criteria
-                .galley
-                .job
-                .sections
-                .iter()
-                .all(|section| section.format.font_id.size >= 12.0)
-        );
+        assert!(text_position(&output, "Handle empty months").is_none());
     }
 }
 
@@ -149,8 +132,11 @@ fn short_desktop_keeps_blocker_action_visible_and_branch_badge_compact() {
     for _ in 0..3 {
         frame_at(&mut app, &ctx, vec![], size);
     }
-    let output = frame_at(&mut app, &ctx, vec![], size);
-    let action = text_position(&output, "Review next action").expect("visible blocker action");
+    frame_at(&mut app, &ctx, vec![], size);
+    let output = click_text_at(&mut app, &ctx, "Prove the dual-instance", size);
+    let action = text_position(&output, "Resume implementation")
+        .or_else(|| text_position(&output, "Resume after action"))
+        .expect("visible blocker action in task details");
     assert!(
         action.y < 620.0,
         "the main action must fit above the fold: {action:?}"

@@ -40,11 +40,7 @@ impl KooladeApp {
             ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")));
         let open_planning = ctx
             .data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
-        let open_chat = ctx.data_mut(|data| {
-            data.get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new("koolade_chat_tabs"))
-                .and_then(|tabs| tabs.active)
-        });
-        if open_task.is_some() || open_planning.is_some() || open_chat.is_some() {
+        if open_task.is_some() || open_planning.is_some() {
             return;
         }
         let events = match &self.screen {
@@ -200,13 +196,11 @@ impl KooladeApp {
                         );
                     }
                     Target::Work => {
-                        let mut tabs = data
-                            .get_temp::<crate::ui::layout::ChatTabs>(egui::Id::new(
-                                "koolade_chat_tabs",
-                            ))
-                            .unwrap_or_default();
-                        tabs.open(&event.selection);
-                        data.insert_temp(egui::Id::new("koolade_chat_tabs"), tabs);
+                        data.remove::<String>(egui::Id::new("koolade_selected_task"));
+                        data.insert_temp(
+                            egui::Id::new("koolade_selected_planning"),
+                            event.selection.clone(),
+                        );
                     }
                 }
                 data.remove::<String>(egui::Id::new("koolade_task_activity"));

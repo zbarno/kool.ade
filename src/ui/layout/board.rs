@@ -32,7 +32,6 @@ pub(super) fn paint(
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
     let items = &board.planning_items;
-    let eligible = &board.eligible_item_ids;
     let relationship_map = relationships::build(board);
     ui.ctx().data_mut(|data| {
         data.insert_temp(
@@ -103,119 +102,74 @@ pub(super) fn paint(
             .as_ref()
             .and_then(|id| items.iter().find(|i| &i.id == id))
         {
-            let closed = crate::ui::overlays::show_panel_modal(
+            let closed = crate::ui::overlays::show_task_modal(
                 ui,
-                &format!(
-                    "Planning · {}",
-                    if item.id.starts_with("ownership:") {
-                        "Ownership assignment"
-                    } else {
-                        &item.id
-                    }
-                ),
+                item.conversation_key(),
                 panel_bounds,
                 |ui| {
-                    ui.heading(&item.question);
-                    ui.label(
-                        RichText::new(format!(
-                            "{} · {} · {}",
-                            item.kind,
-                            item.category,
-                            crate::core::implementation::BOARD_COLUMNS
-                                [crate::ui::task_chat::board_column(
-                                    planning_column(item, &board.planning_items),
-                                    s.task_messages(item.conversation_key()),
-                                    s.task_chat_active(item.conversation_key())
-                                )]
-                        ))
-                        .small()
-                        .weak(),
+                    task_details::paint_planning_item(
+                        ui,
+                        s,
+                        board,
+                        item,
+                        (panel_bounds.height() - 160.0).max(160.0),
                     );
-                    if !item.reason.is_empty() {
-                        ui.label(crate::core::context_build::clip(&item.reason, 200));
-                    }
-                    task_conversation(ui, s, board, item.conversation_key(), true);
-                    ui.add_space(12.0);
-                    ui.collapsing("Background & evidence", |ui| {
-                        ui.label(format!(
-                            "{} · {} · {:?}",
-                            item.kind, item.priority, item.status
-                        ));
-                        ui.label(format!("Authority: {}", item.authority));
-                        ui.label(format!("Category: {}", item.category));
-                        ui.label(format!(
-                            "Owner: {}",
-                            item.assigned_to.as_deref().unwrap_or("Unassigned")
-                        ));
-                        ui.add(egui::Label::new(&item.reason).wrap());
-                        if let Some(feature) = &item.feature_id {
-                            ui.label(format!("Feature: {feature}"));
-                        }
-                        if !item.evidence.is_empty() {
-                            ui.separator();
-                            ui.label(RichText::new("Evidence").strong());
-                            ui.add(egui::Label::new(&item.evidence).wrap());
-                        }
-                        if !item.recommendation.is_empty() {
-                            ui.separator();
-                            ui.label(RichText::new("Recommended next step").strong());
-                            ui.add(egui::Label::new(&item.recommendation).wrap());
-                        }
-                    });
-                    ui.collapsing("Activity", |ui| {
-                        crate::ui::task_activity::graph(
-                            ui,
-                            &s.activity_samples(Some(item.conversation_key())),
-                            s.activity_active(item.conversation_key()),
-                            48.0,
-                        );
-                        if let Some(progress) = s.task_progress(&item.id) {
-                            ui.separator();
-                            ui.heading("Agent investigation");
-                            if let Some(activity) = &progress.activity {
-                                ui.add(egui::Label::new(activity).wrap());
-                            }
-                            ui.label(format!("Activity updates: {}", progress.telemetry.updates));
-                            if !progress.response.trim().is_empty() {
-                                ui.label(RichText::new("Latest result").strong());
-                                egui::ScrollArea::vertical()
-                                    .max_height(240.0)
-                                    .show(ui, |ui| {
-                                        crate::ui::markdown::paint(
-                                            ui,
-                                            &crate::core::context_build::clip(
-                                                &progress.response,
-                                                4000,
-                                            ),
-                                            crate::ui::markdown::CHAT,
-                                        )
-                                    });
-                            }
-                            if !progress.thoughts.trim().is_empty() {
-                                ui.collapsing("Worker notes", |ui| {
-                                    crate::ui::markdown::paint(
-                                        ui,
-                                        &crate::core::context_build::clip(&progress.thoughts, 4000),
-                                        crate::ui::markdown::CHAT,
-                                    );
-                                });
-                            }
-                        }
-                        if eligible.contains(&item.id) {
-                            ui.label("This item is in your planning queue.");
-                        }
-                        if s.next_question_id() == Some(item.id.as_str()) {
-                            ui.label("The project manager is asking about this item now.");
-                        }
-                    });
                 },
             );
+            if closed {
+                planning_selection = None;
+            }
+        } else if let Some(work) = planning_selection
+            .as_ref()
+            .and_then(|key| board.planning_work.iter().find(|work| &work.key == key))
+        {
+            let closed = crate::ui::overlays::show_task_modal(ui, &work.key, panel_bounds, |ui| {
+                task_details::paint_planning_work(
+                    ui,
+                    s,
+                    board,
+                    work,
+                    (panel_bounds.height() - 160.0).max(160.0),
+                );
+            });
+            if closed {
+                planning_selection = None;
+            }
+        } else if let Some(action) = planning_selection
+            .as_deref()
+            .and_then(|key| key.strip_prefix("feature-approval:"))
+            .and_then(|id| {
+                s.feature_actions(None)
+                    .into_iter()
+                    .find(|action| action.id == id)
+            })
+        {
+            let id = action.id.clone();
+            let closed = crate::ui::overlays::show_task_modal(ui, &id, panel_bounds, |ui| {
+                task_details::paint_feature_approval(ui, s, &action);
+            });
+            if closed {
+                planning_selection = None;
+            }
+        } else if let Some(issue) = board
+            .setup_attention
+            .as_ref()
+            .filter(|issue| planning_selection.as_deref() == Some(issue.id))
+        {
+            let closed = crate::ui::overlays::show_task_modal(ui, issue.id, panel_bounds, |ui| {
+                task_details::paint_setup_issue(ui, s, board, issue)
+            });
             if closed {
                 planning_selection = None;
             }
         } else {
             planning_selection = None;
         }
+    }
+    if ui.ctx().input(|input| input.key_pressed(egui::Key::Escape)) {
+        selected_path = None;
+        planning_selection = None;
+        activity_path = None;
     }
     if let Some(ticket) = activity_path.clone().filter(|_| show_activity) {
         let bounds = ui.ctx().content_rect();
@@ -237,6 +191,26 @@ pub(super) fn paint(
         if closed {
             activity_path = None;
         }
+    }
+    if ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<bool>(egui::Id::new("koolade_workspace_settings_open")))
+        == Some(true)
+        && (selected_path.is_some() || planning_selection.is_some())
+    {
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(egui::Id::new("koolade_defer_settings_one_frame"), true);
+        });
+        selected_path = None;
+        planning_selection = None;
+        activity_path = None;
+    }
+    if ui.ctx().data_mut(|data| {
+        data.remove_temp::<bool>(egui::Id::new("koolade_task_details_close"))
+            .unwrap_or(false)
+    }) {
+        selected_path = None;
+        planning_selection = None;
     }
     ui.ctx().data_mut(|d| {
         if let Some(path) = activity_path {

@@ -3,6 +3,53 @@ use super::*;
 mod details;
 
 impl Surface for KooladeApp {
+    fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
+        match &self.screen {
+            Screen::Connected(project) => {
+                Some(crate::app::dialogs::DlgSettings::from_project(project))
+            }
+            Screen::Welcome => None,
+        }
+    }
+
+    fn save_people_settings(
+        &mut self,
+        draft: &mut crate::app::dialogs::DlgSettings,
+    ) -> Result<String, String> {
+        let Screen::Connected(project) = &mut self.screen else {
+            return Err("Connect a workspace before editing its people settings.".into());
+        };
+        let sha = draft.apply(project).map_err(|error| error.detail())?;
+        (self.cached_user, self.synth) = Self::derive_caches(project);
+        self.toasts.success(format!("Saved · checkpoint {sha}"));
+        Ok(sha)
+    }
+
+    fn project_settings_draft(&self) -> Option<crate::app::dialogs::DlgProjectSettings> {
+        match &self.screen {
+            Screen::Connected(project) => Some(
+                crate::app::dialogs::DlgProjectSettings::from_project(project),
+            ),
+            Screen::Welcome => None,
+        }
+    }
+
+    fn save_project_settings(
+        &mut self,
+        draft: &mut crate::app::dialogs::DlgProjectSettings,
+    ) -> Result<Option<String>, String> {
+        let Screen::Connected(project) = &mut self.screen else {
+            return Err("Connect a workspace before editing Project & Git settings.".into());
+        };
+        let sha = draft.apply(project).map_err(|error| error.detail())?;
+        if let Some(sha) = &sha {
+            self.toasts.success(format!("Saved · checkpoint {sha}"));
+        } else {
+            self.toasts.info("Project settings already in sync");
+        }
+        Ok(sha)
+    }
+
     fn session_title(&self) -> &str {
         match &self.screen {
             Screen::Connected(p) => p.state.title.as_str(),

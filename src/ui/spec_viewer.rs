@@ -5,7 +5,7 @@
 //!   * Markdown conversion is delegated to the shared pulldown-cmark→egui
 //!     fold in [`crate::ui::markdown`], themed via
 //!     [`crate::ui::markdown::PAPER`] (white paper, dark ink)
-//!   * the white-paper frame, centering and bounds are owned here
+//!   * the reading surface, line length and bounds are owned here
 
 const NO_CONTENT_HINT: &str = "Nothing has been planned yet — describe the product in the chat and the living specification grows here.";
 
@@ -13,7 +13,7 @@ const NO_CONTENT_HINT: &str = "Nothing has been planned yet — describe the pro
 pub fn render(ui: &mut egui::Ui, spec: Option<&str>) {
     // Constrain the child rectangle, not just its preferred width. Centered
     // parent layouts otherwise allow long documents to grow beyond the panel.
-    let width = ui.available_width().min(1000.0);
+    let width = ui.available_width().min(800.0);
     let inset = ((ui.available_width() - width) / 2.0).max(0.0);
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -24,15 +24,14 @@ pub fn render(ui: &mut egui::Ui, spec: Option<&str>) {
             |ui| {
                 ui.set_width(width);
                 egui::Frame::NONE
-                    .fill(egui::Color32::WHITE)
-                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_gray(220)))
+                    .fill(crate::ui::theme::PANEL_ALT)
                     .inner_margin(28)
                     .show(ui, |ui| {
                         ui.set_width((width - 58.0).max(40.0));
                         ui.set_min_height(200.0);
-                        ui.visuals_mut().override_text_color = Some(crate::ui::markdown::PAPER.ink);
+                        ui.visuals_mut().override_text_color = Some(crate::ui::theme::TEXT);
                         ui.visuals_mut().widgets.noninteractive.fg_stroke.color =
-                            crate::ui::markdown::PAPER.muted;
+                            crate::ui::theme::TEXT_DIM;
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                         render_markdown(ui, spec);
                     });
@@ -55,7 +54,7 @@ fn render_markdown(ui: &mut egui::Ui, spec: Option<&str>) {
         });
         return;
     };
-    crate::ui::markdown::paint(ui, md, crate::ui::markdown::PAPER);
+    crate::ui::markdown::paint(ui, md, crate::ui::markdown::CHAT);
 }
 
 #[cfg(test)]
@@ -92,7 +91,10 @@ mod paper_tests {
                     .shapes
                     .iter()
                     .find_map(|shape| match &shape.shape {
-                        egui::Shape::Rect(rect) if rect.fill == egui::Color32::WHITE => {
+                        egui::Shape::Rect(rect)
+                            if rect.fill == crate::ui::theme::PANEL_ALT
+                                && rect.rect.width() >= 600.0 =>
+                        {
                             Some(rect.rect)
                         }
                         _ => None,
@@ -110,17 +112,15 @@ mod paper_tests {
     }
 
     #[test]
-    fn specification_uses_white_paper_and_dark_text_in_dark_workspace() {
+    fn specification_uses_native_dark_surface_and_readable_text() {
         let ctx = egui::Context::default();
         ctx.set_visuals(crate::ui::theme::koolade_visuals());
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             render(ui, Some("# Specification\n\nReadable body with **emphasis**.\n\n```rust\nlet ok = true;\n```"));
         });
-        assert!(
-            output.shapes.iter().any(
-                |s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == egui::Color32::WHITE)
-            )
-        );
+        assert!(output.shapes.iter().any(
+            |s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == crate::ui::theme::PANEL_ALT)
+        ));
         let body = output
             .shapes
             .iter()
@@ -134,7 +134,7 @@ mod paper_tests {
                 .job
                 .sections
                 .iter()
-                .all(|s| s.format.color == crate::ui::markdown::PAPER.ink)
+                .all(|s| s.format.color == crate::ui::theme::TEXT)
         );
         output.textures_delta.clear();
     }

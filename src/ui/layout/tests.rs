@@ -3,4 +3,3 @@ mod activity_helpers;
 mod activity_render;
 mod activity_window;
 mod board_projection;
-mod chat_tabs;

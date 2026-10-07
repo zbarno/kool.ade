@@ -26,8 +26,9 @@ fn all_resolved_planning_kinds_have_persistent_archive_controls() {
         p.state.resolved_items = vec![item];
         let ctx = egui::Context::default();
         frame(&mut app, &ctx, vec![]);
-        let output = frame(&mut app, &ctx, vec![]);
+        let output = click_text(&mut app, &ctx, "Resolved planning work");
         assert!(text_position(&output, "Archive").is_some(), "{kind}");
+        assert!(text_position(&output, "Cancel").is_none(), "{kind}");
         click_text(&mut app, &ctx, "Archive");
         let output = frame(&mut app, &ctx, vec![]);
         assert!(
