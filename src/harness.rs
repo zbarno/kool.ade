@@ -23,6 +23,59 @@ pub mod runtime_capabilities;
 
 pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
 
+/// Return a saved operator path, validating the filesystem part before a
+/// provider probe or task launch uses it. Provider-specific probes still
+/// validate the CLI identity and capabilities.
+pub(crate) fn manual_executable_path(
+    id: &str,
+) -> Result<Option<std::path::PathBuf>, crate::error::AppError> {
+    let (settings, _) = crate::persistence::harness_settings::load();
+    manual_executable_path_from(&settings, id)
+}
+
+pub(crate) fn manual_executable_path_from(
+    settings: &crate::persistence::harness_settings::HarnessSettings,
+    id: &str,
+) -> Result<Option<std::path::PathBuf>, crate::error::AppError> {
+    let Some(value) = settings.manual_executable_paths.get(id) else {
+        return Ok(None);
+    };
+    let path = std::path::PathBuf::from(value);
+    let metadata =
+        std::fs::metadata(&path).map_err(|_| crate::error::AppError::HarnessNotFound {
+            detail: format!(
+                "Configured {id} executable path does not exist: {}",
+                path.display()
+            ),
+        })?;
+    if !metadata.is_file() || !is_executable_file(&metadata) {
+        return Err(crate::error::AppError::HarnessNotFound {
+            detail: format!(
+                "Configured {id} path is not an executable file: {}",
+                path.display()
+            ),
+        });
+    }
+    Ok(Some(path))
+}
+
+fn is_executable_file(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        true
+    }
+}
+
+#[cfg(test)]
+#[path = "harness/tests.rs"]
+mod tests;
+
 pub use antigravity_harness::AntigravityHarness;
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,

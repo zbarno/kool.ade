@@ -38,6 +38,9 @@ pub enum CodexReadiness {
 
 impl CodexHarness {
     pub fn locate_binary() -> Result<PathBuf, AppError> {
+        if let Some(path) = crate::harness::manual_executable_path("codex")? {
+            return Ok(path);
+        }
         if let Ok(value) = std::env::var(CODEX_BINARY_ENV)
             && !value.trim().is_empty()
         {
