@@ -44,6 +44,7 @@ fn commit_all(repo: &Path, message: &str) {
 mod canonical_state;
 mod files;
 mod identities;
+mod ignored_progress;
 mod implementation_merge;
 mod status;
 mod task_state;
