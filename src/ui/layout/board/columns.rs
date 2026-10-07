@@ -18,11 +18,16 @@ pub(super) fn paint(
         .into_iter()
         .filter(|action| !action.approved)
         .collect::<Vec<_>>();
-    let height = (ui.available_height() - 24.0).max(120.0);
+    let height = (ui.available_height() - 46.0).max(100.0);
     let gaps = 16.0 * 4.0;
     let column_width = ((ui.available_width() - 150.0 - gaps) / 5.0).max(180.0);
     egui::ScrollArea::horizontal()
         .id_salt("task_board_horizontal")
+        .scroll_bar_visibility(if ui.available_width() < 1114.0 {
+            egui::scroll_area::ScrollBarVisibility::AlwaysVisible
+        } else {
+            egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
+        })
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.horizontal_top(|ui| {

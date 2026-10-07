@@ -53,7 +53,7 @@ fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool)
     ui.add_space(10.0);
     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
         let save_btn = ui.add(
-            egui::Button::new(RichText::new("Save").strong().color(theme::BG))
+            egui::Button::new(RichText::new("Save").strong().color(theme::TEXT))
                 .fill(theme::ACCENT_SOFT)
                 .corner_radius(6.0),
         );

@@ -1,7 +1,8 @@
+mod automation;
 use super::*;
 use crate::app::dialogs::HarnessSettingsSection;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) enum Page {
     #[default]
     General,
@@ -32,34 +33,48 @@ impl Page {
 }
 
 pub(super) fn paint_navigation(ui: &mut egui::Ui, selected: &mut Page) {
-    ui.label(theme::metadata_text("SETTINGS"));
-    ui.add_space(theme::spacing::S);
-    for (page, label) in Page::ALL {
-        let active = *selected == page;
-        let response = ui.add_sized(
-            [ui.available_width(), 36.0],
-            egui::Button::new(if active {
-                theme::section_heading(label)
-            } else {
-                theme::helper_text(label)
-            })
-            .selected(active),
-        );
-        if response.clicked() {
-            *selected = page;
+    for (group, pages) in [
+        ("APPLICATION", &Page::ALL[..2]),
+        ("WORK & TOOLS", &Page::ALL[3..6]),
+        ("PROJECT", &[Page::ALL[2], Page::ALL[6]][..]),
+    ] {
+        ui.label(theme::metadata_text(group));
+        ui.add_space(4.0);
+        for &(page, label) in pages {
+            let active = *selected == page;
+            if ui
+                .add_sized(
+                    [ui.available_width(), 36.0],
+                    egui::Button::new(egui::RichText::new(label).size(13.0).color(if active {
+                        theme::TEXT
+                    } else {
+                        theme::TEXT_DIM
+                    }))
+                    .selected(active),
+                )
+                .clicked()
+            {
+                *selected = page;
+            }
         }
+        ui.add_space(theme::spacing::L);
     }
 }
 
 pub(super) fn paint_compact_navigation(ui: &mut egui::Ui, selected: &mut Page) {
-    ui.label(theme::metadata_text("SETTINGS"));
-    ui.horizontal_wrapped(|ui| {
-        for (page, label) in Page::ALL {
-            if ui.selectable_label(*selected == page, label).clicked() {
-                *selected = page;
+    let label = Page::ALL
+        .iter()
+        .find(|(page, _)| page == selected)
+        .unwrap()
+        .1;
+    egui::ComboBox::from_id_salt("settings_page_selector")
+        .selected_text(label)
+        .width(ui.available_width())
+        .show_ui(ui, |ui| {
+            for (page, label) in Page::ALL {
+                ui.selectable_value(selected, page, label);
             }
-        }
-    });
+        });
 }
 
 pub(super) fn paint_page(
@@ -69,12 +84,12 @@ pub(super) fn paint_page(
     page: Page,
 ) -> Option<String> {
     match page {
-        Page::General => paint_general(ui, surface, board),
+        Page::General => paint_general(ui, surface),
         Page::Appearance => paint_appearance(ui),
         Page::ProjectGit => paint_project_git(ui, surface),
         Page::CodingTools => paint_harness(ui, HarnessSettingsSection::Tools),
         Page::ModelsRouting => paint_harness(ui, HarnessSettingsSection::Routing),
-        Page::Automation => paint_automation(ui, surface),
+        Page::Automation => automation::paint(ui, surface, board),
         Page::People => paint_people(ui, surface),
     }
 }
@@ -115,6 +130,9 @@ fn paint_project_git(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<Str
         draft.feedback = Some((false, error));
     }
     ui.ctx().data_mut(|data| {
+        if discard {
+            data.insert_temp(egui::Id::new("koolade_settings_close"), true);
+        }
         if !discard {
             data.insert_temp(id, draft);
         }
@@ -141,6 +159,9 @@ fn paint_people(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<String> 
         }
     }
     ui.ctx().data_mut(|data| {
+        if discard {
+            data.insert_temp(egui::Id::new("koolade_settings_close"), true);
+        }
         if !discard {
             data.insert_temp(id, draft);
         }
@@ -159,114 +180,12 @@ fn paint_harness(ui: &mut egui::Ui, section: HarnessSettingsSection) -> Option<S
     None
 }
 
-fn paint_automation(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<String> {
-    ui.label(theme::page_title("Automation"));
-    ui.add_space(theme::spacing::M);
-    ui.label("Concurrency");
-    let mut parallel = surface.max_parallel_tasks();
-    if ui
-        .add(egui::Slider::new(&mut parallel, 1..=8).text("Concurrent tasks"))
-        .changed()
-    {
-        surface.dispatch(ApplicationCommand::SetMaxParallelTasks { count: parallel });
-    }
-    ui.label(theme::helper_text(format!(
-        "{} workers active. Dependencies must merge before dependent tasks start.",
-        surface.active_task_count()
-    )));
-    setting_toggle(
-        ui,
-        "Plan automatically",
-        surface.auto_plan(),
-        |enabled| ApplicationCommand::SetAutoPlan { enabled },
-        surface,
-    );
-    setting_toggle(
-        ui,
-        "Build approved changes automatically",
-        surface.auto_build(),
-        |enabled| ApplicationCommand::SetAutoBuild { enabled },
-        surface,
-    );
-    setting_toggle(
-        ui,
-        "Publish verified changes automatically",
-        surface.auto_publish(),
-        |enabled| ApplicationCommand::SetAutoPublish { enabled },
-        surface,
-    );
-    let mut checks = surface.require_independent_checks();
-    if ui
-        .add_enabled(
-            !surface.auto_publish(),
-            egui::Checkbox::new(&mut checks, "Wait for project checks before publishing"),
-        )
-        .changed()
-    {
-        surface.dispatch(ApplicationCommand::SetRequireIndependentChecks { enabled: checks });
-    }
-    ui.label(theme::helper_text("Kool.ad/e runs its checks first. Publishing waits for separate project checks when enabled."));
-    None
-}
-
-fn setting_toggle(
-    ui: &mut egui::Ui,
-    label: &str,
-    current: bool,
-    command: impl FnOnce(bool) -> ApplicationCommand,
-    surface: &mut dyn Surface,
-) {
-    let mut enabled = current;
-    if ui.checkbox(&mut enabled, label).changed() {
-        surface.dispatch(command(enabled));
-    }
-}
-
-fn paint_general(
-    ui: &mut egui::Ui,
-    surface: &mut dyn Surface,
-    board: &crate::ui::planning_board::ViewModel,
-) -> Option<String> {
+fn paint_general(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<String> {
     ui.label(theme::page_title("General"));
-    ui.add_space(theme::spacing::M);
-    ui.label(theme::section_heading("Planner persona"));
+    ui.label(theme::helper_text(
+        "Choose how your planning assistant communicates.",
+    ));
+    ui.add_space(theme::spacing::L);
     super::paint_persona_section(ui, surface);
-    if !surface.queue_status().is_empty() {
-        ui.separator();
-        ui.label(theme::section_heading("Queue status"));
-        ui.label(surface.queue_status());
-    }
-    if let Some((ticket, claim)) = surface.stale_task_claim() {
-        ui.separator();
-        ui.label(theme::section_heading("Stale task claim"));
-        ui.label(format!(
-            "{} is held by {} since {} on base {}.",
-            ticket,
-            claim.owner,
-            chrono::DateTime::from_timestamp(claim.claimed_at, 0)
-                .map(|time| time.to_rfc3339())
-                .unwrap_or_else(|| claim.claimed_at.to_string()),
-            claim.base_commit
-        ));
-        if ui
-            .button("I confirmed the old worker stopped — take over stale claim")
-            .clicked()
-        {
-            surface.dispatch(ApplicationCommand::TakeOverStaleTaskClaim { ticket });
-        }
-    }
-    for doc in board
-        .task_documents
-        .iter()
-        .filter(|doc| doc.path.ends_with("/README.md"))
-    {
-        ui.separator();
-        if ui
-            .button(format!("Batch overview · {}", doc.title))
-            .clicked()
-        {
-            return Some(doc.path.clone());
-        }
-    }
     None
 }

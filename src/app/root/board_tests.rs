@@ -38,3 +38,6 @@ mod mockup_layout;
 
 #[path = "board_tests/task_detail_design.rs"]
 mod task_detail_design;
+
+#[path = "board_tests/visual_gallery.rs"]
+mod visual_gallery;

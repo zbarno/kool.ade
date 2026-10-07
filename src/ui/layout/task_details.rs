@@ -147,29 +147,20 @@ pub(super) fn paint(
             pull_request_closed,
             interrupted,
         };
-        egui::ScrollArea::vertical()
-            .id_salt(("task_details_pane", ticket))
-            .max_height(height * 0.68)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                details::paint(
-                    ui,
-                    s,
-                    doc,
-                    presentation,
-                    checks_unavailable,
-                    failure.as_deref(),
-                    activity_path,
-                );
-            });
+        // The modal owns scrolling on narrow windows. One continuous document
+        // keeps the reply composer reachable without tiny nested scroll panes.
+        details::paint(
+            ui,
+            s,
+            doc,
+            presentation,
+            checks_unavailable,
+            failure.as_deref(),
+            activity_path,
+        );
+        ui.add_space(theme::spacing::L);
         ui.separator();
-        egui::ScrollArea::vertical()
-            .id_salt(("task_conversation_pane", ticket))
-            .max_height(height * 0.25)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height * 0.35);
-            });
+        conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height);
     }
 }
 

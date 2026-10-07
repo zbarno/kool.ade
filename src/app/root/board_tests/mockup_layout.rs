@@ -94,20 +94,7 @@ pub(super) fn lane_position(output: &egui::FullOutput, needle: &str) -> Option<e
 
 pub(super) fn styled_context() -> egui::Context {
     let ctx = egui::Context::default();
-    ctx.set_visuals(crate::ui::theme::koolade_visuals());
-    ctx.style_mut_of(egui::Theme::Dark, |style| {
-        style
-            .text_styles
-            .insert(egui::TextStyle::Body, egui::FontId::proportional(15.0));
-        style
-            .text_styles
-            .insert(egui::TextStyle::Button, egui::FontId::proportional(13.0));
-        style
-            .text_styles
-            .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
-        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-        style.spacing.button_padding = egui::vec2(12.0, 7.0);
-    });
+    crate::ui::theme::apply(&ctx);
     ctx
 }
 
@@ -147,66 +134,55 @@ fn short_desktop_keeps_blocker_action_visible_and_branch_badge_compact() {
             "the blocker takes priority over checklist detail"
         );
     }
-    let branch = text_position(&output, "master").unwrap();
-    let badge = output
+    let branch = output
         .shapes
         .iter()
-        .filter_map(|shape| match &shape.shape {
-            egui::Shape::Rect(rect)
-                if rect.rect.contains(branch) && rect.fill == crate::ui::theme::PANEL_ALT =>
-            {
-                Some(rect.rect)
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "master" => {
+                Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
             }
             _ => None,
         })
-        .min_by(|a, b| a.area().total_cmp(&b.area()))
-        .unwrap();
-    assert!(
-        badge.height() <= 30.0,
-        "branch badge must not stretch: {badge:?}"
-    );
+        .expect("branch remains visible in the header");
+    assert!(branch.height() <= 30.0 && branch.bottom() < 140.0);
 }
 
 #[test]
-fn red_banner_covers_full_width_and_clips_splash_behind_controls() {
-    for width in [360.0, 1280.0] {
+fn header_keeps_title_controls_and_live_graph_inside_its_own_rows() {
+    for width in [360.0, 900.0, 1280.0, 1600.0] {
         let mut app = fixture();
+        if let Screen::Connected(project) = &mut app.screen {
+            project.state.title =
+                "A very long project name with several words to fit safely".into();
+        }
         let ctx = styled_context();
         let size = egui::vec2(width, 720.0);
         for _ in 0..3 {
             frame_at(&mut app, &ctx, vec![], size);
         }
         let output = frame_at(&mut app, &ctx, vec![], size);
-        let banner = output
-            .shapes
-            .iter()
-            .find_map(|shape| match &shape.shape {
-                egui::Shape::Rect(rect)
-                    if rect.fill == crate::ui::theme::PUNCH_DEEP
-                        && rect.rect.width() >= width - 1.0 =>
-                {
-                    Some(rect.rect)
-                }
-                _ => None,
-            })
-            .expect("red panel background covers the banner including its margins");
-        assert!(banner.left().abs() < 1.0 && (banner.right() - width).abs() < 1.0);
-        let texture = ctx
-            .data_mut(|data| {
-                data.get_temp::<egui::TextureHandle>(egui::Id::new("kool_ade_punch_splash_texture"))
-            })
-            .unwrap();
-        let (splash_index, splash) = output.shapes.iter().enumerate().find(|(_, shape)| {
-            matches!(&shape.shape, egui::Shape::Mesh(mesh) if mesh.texture_id == texture.id())
-        }).expect("supplied splash is painted");
-        assert!(splash.clip_rect.bottom() <= banner.bottom() + 1.0);
-        let workspace_index = output.shapes.iter().position(|shape| {
-            matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "Workspace")
-        }).unwrap();
+        let text_rect = |needle: &str| {
+            output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text().starts_with(needle) => {
+                        Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let title = text_rect("A very long project");
+        let menu = text_rect("Workspace");
+        let activity = text_rect("Live activity");
         assert!(
-            splash_index < workspace_index,
-            "splash stays behind the controls"
+            !title.intersects(menu),
+            "title must not cover workspace controls"
         );
+        assert!(title.left() >= 0.0 && title.right() <= width);
+        assert!(activity.bottom() < if width < 960.0 { 126.0 } else { 140.0 });
+        assert!(activity.top() > title.bottom());
     }
 }
 

@@ -144,7 +144,7 @@ fn live_card_opens_full_activity_and_returns_to_item_details() {
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "LIVE ACTIVITY").is_none());
+    assert!(text_position(&output, "LIVE ACTIVITY").is_some());
     assert!(text_position(&output, "Checking the permissions test results").is_none());
     let click = |app: &mut KooladeApp, pos: egui::Pos2| {
         for pressed in [true, false] {

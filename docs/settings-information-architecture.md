@@ -1,23 +1,23 @@
 # Settings information architecture
 
-Settings are grouped by the question an operator is trying to answer. Device
-configuration lives in Application settings; repository metadata lives in
-Project / Git settings, while seated identity and stakeholder information live
-in People & stakeholders. Coding tool availability and work
-routing have separate sections because availability answers “what can run?”
-while routing answers “what should run this kind of work?”.
+Settings have one home, accessible directly from the desktop header or from
+Workspace → Settings. The desktop sidebar groups pages by purpose. Narrow or short
+windows use a page selector above the content, and each page has one scrollbar.
 
-| User concept | Current and planned options | Home |
+| Group | Page | Controls |
 | --- | --- | --- |
-| General | Appearance, reduced motion, automation policy, persona | Application settings |
-| Coding tools | Detected CLI tools, readiness, versions, default tool, rediscovery; #68 manual executable paths | Coding tools |
-| Models & routing | Harness/model by Implementation, Manager, QA / Verification, Documentation; task overrides stay on New Task | Models & routing |
-| Project / Git | Project repository names; future branch and worktree defaults | Project / Git settings |
-| People / stakeholders | Seated user, teams, stakeholder categories and owners | People & stakeholders |
-| Notifications | No independent notification preferences exist yet | Future category when notification controls are introduced |
+| Application | General | Planner persona, save and restore |
+| Application | Appearance | Reduced motion |
+| Work & Tools | Coding Tools | Available tools, default tool, executable paths, setup guidance and rediscovery |
+| Work & Tools | Models & Routing | Tool and model by Implementation, Manager, QA / Verification and Documentation |
+| Work & Tools | Automation | Worker capacity, automatic planning/building/publication, checks and queue recovery |
+| Project | Project & Git | Shared repository display names |
+| Project | People & Stakeholders | Seated identity, teams, categories and owners |
 
-The #35 discovery work belongs under Coding tools. The #36 application routes
-belong under Models & routing, while #37 task overrides remain with task
-creation so they are visible at the point of use. Future providers add entries
-to the shared tool list rather than adding a settings category for each CLI.
-No settings data format or save behavior changes as part of this reorganization.
+The Workspace menu groups workspace switching and refresh separately from
+project resources (reference imports and MCP servers). Disconnect is at the
+bottom. Configuration stays in Settings, rather than duplicate menu toggles.
+
+Task-specific routing overrides remain under Advanced routing in New Task.
+Existing settings storage and save behavior are preserved. Closing an embedded
+Project or People page closes Settings and discards its unsaved draft.

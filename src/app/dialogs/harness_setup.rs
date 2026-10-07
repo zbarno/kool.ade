@@ -8,6 +8,8 @@ mod pi_guide;
 mod pi_guide_tests;
 mod probes;
 #[cfg(test)]
+mod review_fixture;
+#[cfg(test)]
 mod tests;
 mod tools;
 use probes::discover_harnesses;

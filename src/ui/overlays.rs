@@ -14,6 +14,7 @@ struct ModalConfig<'a> {
     kind: SurfaceKind,
     bounds: Option<egui::Rect>,
     footer: ModalFooter<'a>,
+    body_owns_scroll: bool,
 }
 
 pub fn show_modal<F>(ui: &mut egui::Ui, open: bool, title: &str, width: f32, body: F) -> bool
@@ -37,6 +38,7 @@ where
             kind,
             bounds: None,
             footer: None,
+            body_owns_scroll: false,
         },
         body,
     )
@@ -65,6 +67,7 @@ where
             kind: SurfaceKind::Medium,
             bounds: None,
             footer: Some(Box::new(footer)),
+            body_owns_scroll: false,
         },
         body,
     )
@@ -88,6 +91,32 @@ pub fn show_workspace_modal(
             kind: SurfaceKind::Workspace,
             bounds: None,
             footer: None,
+            body_owns_scroll: false,
+        },
+        body,
+    )
+}
+
+/// Settings use a readable content width even on very large desktops.
+pub fn show_settings_modal(
+    ui: &mut egui::Ui,
+    open: bool,
+    title: &str,
+    body: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    if !open {
+        return false;
+    }
+    modal(
+        ui,
+        ModalConfig {
+            title,
+            identity: title,
+            width: 1120.0,
+            kind: SurfaceKind::Workspace,
+            bounds: None,
+            footer: None,
+            body_owns_scroll: true,
         },
         body,
     )
@@ -126,6 +155,7 @@ pub fn show_panel_modal(
             kind: SurfaceKind::Workspace,
             bounds: Some(bounds),
             footer: None,
+            body_owns_scroll: false,
         },
         body,
     )
@@ -146,6 +176,7 @@ pub fn show_task_modal(
             kind: SurfaceKind::Workspace,
             bounds: None,
             footer: None,
+            body_owns_scroll: false,
         },
         body,
     )
@@ -159,6 +190,7 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
         kind,
         bounds,
         footer,
+        body_owns_scroll,
     } = config;
     let viewport = ui.ctx().content_rect();
     let metrics = SurfaceBounds::for_viewport(viewport, kind, width);
@@ -223,16 +255,24 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
         let (edge, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
         ui.painter().rect_filled(edge, 0, theme::BORDER);
         ui.add_space(6.0);
-        egui::ScrollArea::vertical()
-            .id_salt(("modal_body", identity))
-            .max_height(height)
-            .auto_shrink([false, kind != SurfaceKind::Workspace])
-            .show(ui, |ui| {
-                if kind == SurfaceKind::Workspace {
-                    ui.set_min_height(height);
-                }
-                body(ui);
-            });
+        if body_owns_scroll {
+            ui.allocate_ui_with_layout(
+                egui::vec2(width, height),
+                egui::Layout::top_down(egui::Align::Min),
+                body,
+            );
+        } else {
+            egui::ScrollArea::vertical()
+                .id_salt(("modal_body", identity))
+                .max_height(height)
+                .auto_shrink([false, kind != SurfaceKind::Workspace])
+                .show(ui, |ui| {
+                    if kind == SurfaceKind::Workspace {
+                        ui.set_min_height(height);
+                    }
+                    body(ui);
+                });
+        }
         if let Some(footer) = footer {
             ui.add_space(theme::spacing::S);
             ui.separator();

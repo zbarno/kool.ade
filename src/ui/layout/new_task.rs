@@ -94,7 +94,7 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
             |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add_enabled(valid, egui::Button::new("Create Task").fill(theme::BLUE))
+                        .add_enabled(valid, egui::Button::new("Create Task").fill(theme::ACTION))
                         .clicked()
                     {
                         submit = true;
@@ -138,13 +138,16 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
 }
 
 fn branch_picker(ui: &mut Ui, label: &str, selected: &mut String, branches: &[String]) {
+    ui.label(theme::helper_text(label));
     let selected_text = if selected.is_empty() {
-        format!("{label}: no branch available")
+        "No branch available"
     } else {
-        format!("{label}: {selected}")
+        selected.as_str()
     };
     egui::ComboBox::from_id_salt(label)
         .selected_text(selected_text)
+        .width(ui.available_width())
+        .wrap_mode(egui::TextWrapMode::Truncate)
         .show_ui(ui, |ui| {
             for branch in branches {
                 ui.selectable_value(selected, branch.clone(), branch);
@@ -174,7 +177,7 @@ pub(super) fn trigger(ui: &mut Ui) {
         )
         .min_size(egui::vec2(112.0, 38.0))
         .stroke(egui::Stroke::new(1.5, theme::BLUE_BRIGHT))
-        .fill(theme::BLUE)
+        .fill(theme::ACTION)
         .corner_radius(7),
     );
     ui.painter().set(

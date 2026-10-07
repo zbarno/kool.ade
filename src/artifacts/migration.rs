@@ -1,4 +1,5 @@
 //! One-time, restartable migration of shared repository artifacts.
+mod checkpoint;
 mod identities;
 mod plan;
 mod product;
@@ -146,7 +147,7 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
     crate::artifacts::atomic_write(&manifest_path, &serde_json::to_string_pretty(&manifest)?)?;
 
     let paths = pending.paths.into_iter().collect::<Vec<_>>();
-    checkpoint(&repo, &paths)?;
+    checkpoint::run(&repo, &paths)?;
     fs::remove_file(&pending_path)?;
     crate::artifacts::sync_parent_directory(&pending_path)?;
     Ok(paths)
@@ -237,23 +238,4 @@ fn lock(common: &Path) -> anyhow::Result<fs::File> {
         .open(common.join(LOCK_NAME))?;
     file.lock()?;
     Ok(file)
-}
-
-fn checkpoint(repo: &Path, paths: &[String]) -> anyhow::Result<()> {
-    let paths = paths
-        .iter()
-        .filter(|path| repo.join(path).exists() || crate::core::gitops::tracked_in_head(repo, path))
-        .cloned()
-        .collect::<Vec<_>>();
-    if paths.is_empty() {
-        return Ok(());
-    }
-    crate::core::gitops::commit(repo, "koolade: migrate project artifacts", &paths).map_err(
-        |error| {
-            anyhow::anyhow!(
-                "Migrated artifacts are preserved, but the migration checkpoint failed: {error}"
-            )
-        },
-    )?;
-    Ok(())
 }

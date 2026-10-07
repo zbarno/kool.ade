@@ -66,7 +66,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .strong()
             .color(theme::TEXT),
     );
-    ui.label(RichText::new("Routes are saved on this device. Categories without an override use the application default: saved global CLI, legacy Codex setting, then Pi. An empty model uses the selected CLI's configured default.").size(11.0).weak());
+    ui.label(RichText::new("Choose the coding tool and model for each kind of work. Settings are saved on this device. Unchanged categories use your default tool.").size(11.0).weak());
     let categories = [
         (
             crate::persistence::harness_settings::IMPLEMENTATION,
@@ -99,10 +99,13 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .get(key)
             .map(|route| route.harness.clone());
         let mut selected = current.clone();
-        ui.horizontal(|ui| {
-            ui.label(label);
+        ui.vertical(|ui| {
+            ui.add_space(theme::spacing::M);
+            ui.label(theme::section_heading(label));
             egui::ComboBox::from_id_salt(("work-route", key))
                 .selected_text(selected.as_deref().unwrap_or("Application default"))
+                .width(ui.available_width().min(360.0))
+                .wrap_mode(egui::TextWrapMode::Truncate)
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut selected, None, "Application default");
                     for id in &available {
@@ -149,10 +152,12 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .map(|model| format!("CLI default (last discovered: {model})"))
                 .unwrap_or_else(|| "CLI default (model not reported)".into());
             let mut model = current_model.clone();
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
                 ui.label("Model");
                 egui::ComboBox::from_id_salt(("work-model", key))
                     .selected_text(model.as_deref().unwrap_or(&default_label))
+                    .width(ui.available_width().min(360.0))
+                    .wrap_mode(egui::TextWrapMode::Truncate)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut model, None, default_label.as_str());
                         for candidate in &models {

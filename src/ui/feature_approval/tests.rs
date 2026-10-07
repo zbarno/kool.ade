@@ -87,10 +87,30 @@ fn plan_adoption_remains_clickable_at_narrow_viewport_width() {
     let (output, intent) = frame(&context, &action, vec![]);
     assert!(intent.is_none());
     assert!(text_center(&output, "Adopt Plan A").is_some());
-    let position = text_center(&output, "Adopt Plan B")
-        .expect("Plan B action should remain visible in a 360x480 comparison view");
-    assert!((0.0..360.0).contains(&position.x));
-    assert!((0.0..480.0).contains(&position.y));
+    let mut latest = output;
+    let mut position = None;
+    for _ in 0..15 {
+        position = text_center(&latest, "Adopt Plan B")
+            .filter(|point| (0.0..360.0).contains(&point.x) && (30.0..450.0).contains(&point.y));
+        if position.is_some() {
+            break;
+        }
+        latest = frame(
+            &context,
+            &action,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(180.0, 350.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -90.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Default::default(),
+                },
+            ],
+        )
+        .0;
+    }
+    let position = position.expect("Plan B remains reachable by scrolling at 360x480");
 
     let (_, intent) = frame(
         &context,

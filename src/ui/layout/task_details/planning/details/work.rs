@@ -20,7 +20,7 @@ pub(super) fn paint(
         if ui
             .add_enabled(
                 !surface.conversation_busy(),
-                egui::Button::new("Generate tasks").fill(crate::ui::theme::BLUE),
+                egui::Button::new("Generate tasks").fill(crate::ui::theme::ACTION),
             )
             .clicked()
             && let Some(feature_id) = work.feature_id.as_ref()
@@ -98,7 +98,7 @@ fn paint_approval(
         } else if ui
             .add_enabled(
                 !surface.conversation_busy(),
-                egui::Button::new(action.label()).fill(crate::ui::theme::BLUE),
+                egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
             )
             .clicked()
         {

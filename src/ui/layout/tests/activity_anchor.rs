@@ -1,11 +1,10 @@
 use super::activity_helpers::*;
 use crate::ui::layout::activity::task_card_activity_anchor;
 #[test]
-fn anchor_matrix_pins_both_regimes_on_the_six_tick_minute_grid() {
-    // Active: right edge is the current minute's START; stable inside the
-    // minute, exactly +6 at the boundary.
-    assert_eq!(task_card_activity_anchor(true, None, 1_015_000), 96);
-    assert_eq!(task_card_activity_anchor(true, None, 1_019_999), 96);
+fn anchor_includes_current_live_bucket_and_freezes_settled_window() {
+    // Active: right edge is the current minute's ten-second bucket; it advances at the bucket boundary.
+    assert_eq!(task_card_activity_anchor(true, None, 1_015_000), 101);
+    assert_eq!(task_card_activity_anchor(true, None, 1_019_999), 101);
     assert_eq!(task_card_activity_anchor(true, None, 1_020_000), 102);
     // Settled: minute-CLOSE of telemetry.updated_ms, wall-clock-blind.
     let stamped = settled_fixture(Some(1_009_999), &[(100, 4), (97, 1)]);

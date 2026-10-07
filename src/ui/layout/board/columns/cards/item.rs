@@ -60,6 +60,7 @@ pub(in crate::ui::layout::board::columns) fn item(
                 "Ready for the next step"
             };
             ui.label(theme::helper_text(summary));
+            super::super::super::super::activity::paint_card(ui, s, key, false);
             if column == 3 {
                 let action = if item.authority == crate::domain::Authority::Review {
                     "Review"
