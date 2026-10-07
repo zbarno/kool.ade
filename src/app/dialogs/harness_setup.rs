@@ -35,6 +35,7 @@ pub struct DlgHarnessSetup {
     pub probe_view: ProbeView,
     pub feedback: Option<(bool, String)>,
     pub section: HarnessSettingsSection,
+    pub manual_path_drafts: std::collections::BTreeMap<String, String>,
     probe_rx: Option<Receiver<Vec<HarnessProbe>>>,
 }
 
@@ -53,6 +54,7 @@ impl DlgHarnessSetup {
             probe_view: ProbeView::Pending,
             feedback: diagnostic.map(|message| (false, message)),
             section: HarnessSettingsSection::Tools,
+            manual_path_drafts: std::collections::BTreeMap::new(),
             probe_rx: None,
         };
         dialog.refresh();
@@ -138,11 +140,58 @@ impl DlgHarnessSetup {
         }
     }
 
+    pub fn set_manual_path(&mut self, id: &str, value: String) {
+        let value = value.trim().to_owned();
+        if value.is_empty() {
+            self.feedback = Some((
+                false,
+                "Enter an executable path, or choose automatic discovery.".into(),
+            ));
+            return;
+        }
+        let previous = self.settings.clone();
+        self.settings
+            .manual_executable_paths
+            .insert(id.into(), value);
+        if self.persist_saved() {
+            self.refresh();
+        } else {
+            self.settings = previous;
+        }
+    }
+
+    pub fn reset_manual_path(&mut self, id: &str) {
+        let previous = self.settings.clone();
+        let previous_draft = self.manual_path_drafts.get(id).cloned();
+        self.settings.manual_executable_paths.remove(id);
+        // The saved discovery record may point at the removed manual binary.
+        // Drop it with the reset so an interrupted refresh cannot label that
+        // stale path as auto-detected.
+        self.settings.discovered.remove(id);
+        self.manual_path_drafts.remove(id);
+        if self.persist_saved() {
+            self.refresh();
+        } else {
+            self.settings = previous;
+            if let Some(draft) = previous_draft {
+                self.manual_path_drafts.insert(id.into(), draft);
+            }
+        }
+    }
+
     fn persist(&mut self) {
+        self.persist_saved();
+    }
+
+    fn persist_saved(&mut self) -> bool {
         match crate::persistence::harness_settings::save(&self.settings) {
-            Ok(()) => self.feedback = Some((true, "Harness settings saved on this device.".into())),
+            Ok(()) => {
+                self.feedback = Some((true, "Harness settings saved on this device.".into()));
+                true
+            }
             Err(error) => {
-                self.feedback = Some((false, format!("Could not save harness settings: {error}")))
+                self.feedback = Some((false, format!("Could not save harness settings: {error}")));
+                false
             }
         }
     }

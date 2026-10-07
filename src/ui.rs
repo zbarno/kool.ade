@@ -212,6 +212,9 @@ pub trait Surface {
     }
     fn task_detail_view(&mut self, ticket: &str) -> Option<task_detail::ViewModel>;
     fn implementation_active(&self, ticket: &str) -> bool;
+    fn implementation_waiting_for_capacity(&self, _ticket: &str) -> bool {
+        false
+    }
     fn implementation_elapsed(&self, ticket: &str) -> Option<String>;
     fn auto_plan(&self) -> bool;
     fn auto_build(&self) -> bool;

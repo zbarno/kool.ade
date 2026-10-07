@@ -38,7 +38,7 @@ pub enum Command {
         ticket: String,
         detail: String,
     },
-    StopAndPause {
+    CancelTask {
         ticket: String,
     },
     StartOrResume {

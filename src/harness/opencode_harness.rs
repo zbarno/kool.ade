@@ -38,6 +38,9 @@ pub struct OpenCodeProbeReport {
 
 impl OpenCodeHarness {
     pub fn locate_binary() -> Result<PathBuf, AppError> {
+        if let Some(path) = crate::harness::manual_executable_path("opencode")? {
+            return Ok(path);
+        }
         if let Ok(value) = std::env::var(OPENCODE_BINARY_ENV)
             && !value.trim().is_empty()
         {

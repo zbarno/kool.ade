@@ -4,6 +4,7 @@ use super::*;
 impl KooladeApp {
     pub(super) fn advance_auto_queue(&mut self) {
         let next = if let Screen::Connected(project) = &mut self.screen {
+            project.queue.waiting_for_capacity.clear();
             let cancelled = project.cancelled_task_paths();
             let recovery = project
                 .queue
@@ -30,10 +31,7 @@ impl KooladeApp {
                 }
                 project.activity.pending.push(format!("Automatically resuming {} task(s) after recoverable orchestration failures; preserved work and verification will be reused.", recovery.len()));
             }
-            if !project.queue.auto_build
-                || project.active_turn.is_some()
-                || project.active_implementations.len() >= project.queue.max_parallel.clamp(1, 8)
-            {
+            if !project.queue.auto_build {
                 return;
             }
             if !project.queue.running {
@@ -177,6 +175,15 @@ impl KooladeApp {
                 &excluded,
                 &running,
             );
+            if project.active_implementations.len() >= project.queue.max_parallel.clamp(1, 8) {
+                project.queue.waiting_for_capacity = choice
+                    .as_ref()
+                    .ok()
+                    .and_then(|choice| choice.clone())
+                    .into_iter()
+                    .collect();
+                return;
+            }
             match choice {
                 Ok(Some(ticket)) => Some(ticket),
                 Ok(None) => {
@@ -242,7 +249,6 @@ impl KooladeApp {
         let ready = match &self.screen {
             Screen::Connected(project)
                 if project.queue.auto_publish
-                    && project.active_turn.is_none()
                     && project.active_implementations.len()
                         < project.queue.max_parallel.clamp(1, 8) =>
             {
@@ -273,7 +279,6 @@ impl KooladeApp {
                 "Verified work is saved locally. Review it, then choose Share verified work for review before Kool.ad/e pushes a branch or creates a pull request.",
             );
             project.queue.blocked.insert(ticket.clone(), failure);
-            project.queue.running = false;
             project.activity.pending.push(format!(
                 "{ticket} needs attention: verified work is ready for review before it can be shared."
             ));

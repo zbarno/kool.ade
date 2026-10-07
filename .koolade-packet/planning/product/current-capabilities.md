@@ -24,7 +24,7 @@ Evidence base: `README.md`, `docs/`, the `src/` module map, and the acceptance a
 
 **Implementation and publication**
 
-- Concurrent worker pool (default 3, configurable 1–8) in isolated per-worker worktrees; per-task verification; dependencies gated on merged predecessor records (chg-001 AC9).
+- Concurrent worker pool (default 3, configurable 1–8) in isolated per-worker worktrees; Auto Build continues ready tasks while planning and task-generation turns run; one task's review or attention state does not stop unrelated ready work; ready tasks waiting for slots remain queued and are reported as capacity waits; dependencies require completed predecessors (chg-001 AC9).
 - Recovery ladder: three normal corrections, then two root-cause repair attempts; harness-loss recovery recovers final messages or per-attempt report files before committing; explicit cancellation semantics; a one-shot automatic resume budget for recognized parked failure classes (`README.md`, Implement a ticket; `src/core/implementation.rs`, `src/core/implementation_queue.rs`).
 - Publication serializes per repository: an integration worktree from the latest remote default branch, squash merge, re-ran checks, one atomic commit, fast-forward push; lost pushes recover by checking the saved commit against remote history; post-publication cleanup preserves changed, unverified, locked, or mismatched work (`README.md`).
 - Connected pull requests are checked every minute: merged becomes Done, closed raises attention, reopened returns to review (`README.md`).

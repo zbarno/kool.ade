@@ -79,6 +79,7 @@ fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
             .map(|(id, harness)| (id.clone(), harness.clone()))
             .collect::<Vec<_>>();
         for (id, harness) in entries {
+            let configured = dialog.settings.manual_executable_paths.get(&id).cloned();
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&id).strong());
@@ -102,8 +103,51 @@ fn paint_tools(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
                         dialog.select_default(&id);
                     }
                 });
-                if let Some(path) = &harness.executable {
-                    ui.label(RichText::new(path).monospace().size(10.5).weak());
+                ui.label(format!("Status: {}", harness.status));
+                if let Some(version) = &harness.version {
+                    ui.label(format!("Version: {version}"));
+                }
+                let path = configured.as_deref().or(harness.executable.as_deref());
+                ui.label(
+                    RichText::new(format!("Executable: {}", path.unwrap_or("not found")))
+                        .monospace()
+                        .size(10.5)
+                        .weak(),
+                );
+                ui.label(if configured.is_some() {
+                    "Source: Manually configured"
+                } else {
+                    "Source: Auto-detected"
+                });
+                let mut draft = dialog
+                    .manual_path_drafts
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        configured
+                            .clone()
+                            .or_else(|| harness.executable.clone())
+                            .unwrap_or_default()
+                    });
+                let mut save_path = false;
+                let mut reset_path = false;
+                ui.horizontal(|ui| {
+                    ui.label("Executable path");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut draft)
+                            .desired_width(300.0)
+                            .hint_text("/path/to/cli"),
+                    );
+                    save_path = ui.button("Use Path").clicked();
+                    reset_path =
+                        configured.is_some() && ui.button("Use Auto-Detected Path").clicked();
+                });
+                dialog.manual_path_drafts.insert(id.clone(), draft.clone());
+                if save_path {
+                    dialog.set_manual_path(&id, draft);
+                }
+                if reset_path {
+                    dialog.reset_manual_path(&id);
                 }
                 if let Some(diagnostic) = &harness.diagnostic {
                     ui.label(RichText::new(diagnostic).size(11.0).color(theme::DANGER));

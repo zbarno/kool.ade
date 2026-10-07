@@ -13,6 +13,9 @@ pub struct HarnessSettings {
     /// Extensible category identifiers mapped to locally available harnesses.
     pub work_routes: BTreeMap<String, WorkRoute>,
     pub discovered: BTreeMap<String, DetectedHarness>,
+    /// Operator-selected executable paths keyed by supported harness id.
+    /// These are consulted by both discovery and task execution.
+    pub manual_executable_paths: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

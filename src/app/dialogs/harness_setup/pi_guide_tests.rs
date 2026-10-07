@@ -115,6 +115,7 @@ fn pi_guide_tracks_tool_discovery_from_pending_to_live_report() {
         probe_view: ProbeView::Pending,
         feedback: None,
         section: HarnessSettingsSection::Tools,
+        manual_path_drafts: std::collections::BTreeMap::new(),
         probe_rx: None,
     };
     assert!(matches!(
