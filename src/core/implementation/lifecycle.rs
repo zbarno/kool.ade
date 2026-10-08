@@ -10,15 +10,19 @@ pub(super) fn execute(
 ) -> anyhow::Result<()> {
     let publication_mode = policy.publication_mode;
     let auto_publish_gate = policy.auto_publish_gate;
-    super::initial_reconciliation::prepare(
-        repo,
-        dir,
-        state,
-        harness,
-        runner,
-        policy.user_context,
-        policy.accrual.as_ref(),
-    )?;
+    if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree
+        || dir.join("base-reconciliation.json").exists()
+    {
+        super::initial_reconciliation::prepare(
+            repo,
+            dir,
+            state,
+            harness,
+            runner,
+            policy.user_context,
+            policy.accrual.as_ref(),
+        )?;
+    }
     verification::prepare_verified(
         repo,
         dir,

@@ -25,6 +25,7 @@ impl Drop for RestoreHome {
 struct UsageHarness {
     calls: AtomicUsize,
     barrier: Option<Arc<std::sync::Barrier>>,
+    runtime_config_sources: Mutex<Vec<Option<std::path::PathBuf>>>,
 }
 
 impl AiHarness for UsageHarness {
@@ -35,6 +36,10 @@ impl AiHarness for UsageHarness {
         Ok("1.2".into())
     }
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {
+        self.runtime_config_sources
+            .lock()
+            .unwrap()
+            .push(request.runtime_config_source.clone());
         let call = ModelCallUsage {
             call_id: "provider-response".into(),
             provider: Some("example".into()),
@@ -78,6 +83,7 @@ fn request(progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: env::temp_dir(),
+        runtime_config_source: None,
         prompt_body: "synthetic task".into(),
         system_instructions: String::new(),
         timeout: Duration::from_secs(3),
@@ -99,10 +105,14 @@ fn failed_attempt_usage_is_retained_and_retry_appends_a_distinct_record() {
     let harness = UsageHarness {
         calls: AtomicUsize::new(0),
         barrier: None,
+        runtime_config_sources: Mutex::new(Vec::new()),
     };
+    let runtime_source = home.join("mapped-repository");
+    std::fs::create_dir_all(&runtime_source).unwrap();
     let capture = CaptureHarness::new(
         &harness,
         &root,
+        &runtime_source,
         "# Synthetic task\n\nFeature: Example F23\n",
         None,
         Some("task-23"),
@@ -112,6 +122,10 @@ fn failed_attempt_usage_is_retained_and_retry_appends_a_distinct_record() {
     assert!(capture.execute(&request(tx)).is_err());
     let (tx, _rx) = mpsc::channel();
     assert!(capture.execute(&request(tx)).is_ok());
+    assert_eq!(
+        harness.runtime_config_sources.lock().unwrap().as_slice(),
+        &[Some(runtime_source.clone()), Some(runtime_source)]
+    );
 
     let slug = crate::persistence::project_slug(&root.canonicalize().unwrap());
     let (records, skipped) = crate::persistence::telemetry::load(&slug);
@@ -149,8 +163,16 @@ fn telemetry_write_failure_is_visible_but_does_not_abort_the_harness_result() {
     let harness = UsageHarness {
         calls: AtomicUsize::new(1),
         barrier: None,
+        runtime_config_sources: Mutex::new(Vec::new()),
     };
-    let capture = CaptureHarness::new(&harness, &root, "# Synthetic task", None, Some("task-24"));
+    let capture = CaptureHarness::new(
+        &harness,
+        &root,
+        &root,
+        "# Synthetic task",
+        None,
+        Some("task-24"),
+    );
     let (tx, rx) = mpsc::channel();
     assert!(capture.execute(&request(tx)).is_ok());
     let updates = rx.try_iter().collect::<Vec<_>>();
@@ -177,9 +199,11 @@ fn concurrent_tasks_in_one_repository_keep_separate_attributed_histories() {
     let harness = UsageHarness {
         calls: AtomicUsize::new(1),
         barrier: Some(Arc::new(std::sync::Barrier::new(2))),
+        runtime_config_sources: Mutex::new(Vec::new()),
     };
     let first = CaptureHarness::new(
         &harness,
+        &root,
         &root,
         "# Synthetic task\n\nFeature: Example F23\n",
         None,
@@ -187,6 +211,7 @@ fn concurrent_tasks_in_one_repository_keep_separate_attributed_histories() {
     );
     let second = CaptureHarness::new(
         &harness,
+        &root,
         &root,
         "# Synthetic task\n\nFeature: Example F23\n",
         None,

@@ -65,7 +65,7 @@ pub(super) fn confirm(ui: &mut egui::Ui, s: &mut dyn Surface, board: &ViewModel)
         if unfinished_children > 0 {
             ui.label(format!("This feature also has {unfinished_children} unfinished task(s); they will be cancelled with it."));
         }
-        ui.label("Its conversations, planning files, implementation history, pull requests, branches, and worktrees will be kept.");
+        ui.label("Its conversations, planning files, implementation history, pull requests, branches, and task clones will be kept.");
         ui.horizontal(|ui| {
             if ui.button("Keep working").clicked() {
                 choice = 1;

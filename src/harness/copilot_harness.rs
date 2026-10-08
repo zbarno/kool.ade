@@ -1,4 +1,4 @@
-//! GitHub Copilot CLI adapter for task worktrees.
+//! GitHub Copilot CLI adapter for task repositories.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

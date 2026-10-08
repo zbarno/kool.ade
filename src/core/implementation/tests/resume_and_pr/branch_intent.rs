@@ -88,9 +88,27 @@ fn selected_source_starts_the_task_and_distinct_destination_is_reconciled_and_us
     assert_eq!(state.destination_branch.as_deref(), Some("integration"));
     assert_eq!(state.base, "integration");
     assert_eq!(state.base_commit, destination_head);
-    assert!(state.worktree.join("destination.txt").exists());
-    assert!(state.worktree.join("source.txt").exists());
-    assert!(state.worktree.join("implemented.txt").exists());
+    assert!(state.task_repository.join("destination.txt").exists());
+    assert!(state.task_repository.join("source.txt").exists());
+    assert!(state.task_repository.join("implemented.txt").exists());
+    let cache = state.repository_cache.as_deref().unwrap();
+    let base_ref = format!("refs/koolade-auto-bases/{}", key(&state.ticket));
+    assert_eq!(
+        sandbox.git(cache, &["rev-parse", &base_ref]),
+        destination_head
+    );
+    assert!(
+        sandbox
+            .git(&sandbox.repo, &["for-each-ref", "refs/koolade-auto-bases"])
+            .is_empty()
+    );
+    assert!(
+        !common(&sandbox.repo)
+            .unwrap()
+            .join("koolade-auto-publish.lock")
+            .exists()
+    );
+    assert!(cache.join("koolade-auto-publish.lock").exists());
     let args = fs::read_to_string(sandbox.root.join("pr-args")).unwrap();
     assert!(
         args.lines()
@@ -111,6 +129,7 @@ fn local_only_source_branch_is_supported_when_destination_is_origin_backed() {
         &sandbox.repo,
         &["commit", "-qm", "local-only source update"],
     );
+    let source_commit = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
     sandbox.git(&sandbox.repo, &["checkout", "main"]);
     save_branch_intent(&sandbox, "local/source", "main");
     let state = sandbox
@@ -122,8 +141,10 @@ fn local_only_source_branch_is_supported_when_destination_is_origin_backed() {
             false,
         )
         .unwrap();
-    assert!(state.worktree.join("local-source.txt").exists());
-    assert!(state.worktree.join("implemented.txt").exists());
+    assert_eq!(state.source_ref.as_deref(), Some("local/source"));
+    assert_eq!(state.source_commit.as_deref(), Some(source_commit.as_str()));
+    assert!(state.task_repository.join("local-source.txt").exists());
+    assert!(state.task_repository.join("implemented.txt").exists());
     assert!(sandbox.root.join("pr-created").exists());
 }
 
@@ -155,8 +176,8 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
     .unwrap();
     assert_eq!(state.source_branch.as_deref(), Some("main"));
     assert_eq!(state.destination_branch.as_deref(), Some("main"));
-    assert!(state.worktree.join("upstream.txt").exists());
-    assert!(state.worktree.join("implemented.txt").exists());
+    assert!(state.task_repository.join("upstream.txt").exists());
+    assert!(state.task_repository.join("implemented.txt").exists());
     assert!(sandbox.root.join("pr-created").exists());
     let args = fs::read_to_string(sandbox.root.join("pr-args")).unwrap();
     assert!(
@@ -206,19 +227,22 @@ fn missing_selected_destination_needs_attention_during_final_reconciliation() {
 }
 
 #[test]
-fn deleted_source_branch_blocks_resume_with_an_actionable_attention_message() {
+fn pinned_source_commit_allows_resume_after_source_branch_is_deleted() {
     let sandbox = Sandbox::new();
     sandbox.git(&sandbox.repo, &["branch", "release/2.1"]);
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "release/2.1"]);
     save_branch_intent(&sandbox, "release/2.1", "main");
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(sandbox.run("cancel", calls.clone()).is_err());
+    let saved = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    let pinned_source = saved.source_commit.clone().unwrap();
     sandbox.git(&sandbox.repo, &["push", "origin", ":release/2.1"]);
     sandbox.git(&sandbox.repo, &["branch", "-D", "release/2.1"]);
-    let error = sandbox.run("complete", calls.clone()).unwrap_err();
-    let failure = Failure::from_error(&error);
-    assert_eq!(failure.recovery, RecoveryDisposition::UserAction);
-    let error = error.to_string();
-    assert!(error.contains("Selected source branch 'release/2.1' no longer exists"));
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let resumed = sandbox.run("complete", calls.clone()).unwrap();
+    assert_eq!(resumed.source_ref.as_deref(), Some("release/2.1"));
+    assert_eq!(
+        resumed.source_commit.as_deref(),
+        Some(pinned_source.as_str())
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
 }

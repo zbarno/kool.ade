@@ -96,6 +96,7 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     let (progress, updates) = std::sync::mpsc::channel();
     let bridge = super::super::super::broker::start_with_state_root_and_npm_operations(
         &task_repository,
+        None,
         Some("synthetic-npm-addition-e2e"),
         progress,
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

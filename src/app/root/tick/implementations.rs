@@ -226,7 +226,7 @@ impl KooladeApp {
                     }
                 };
                 if let Some(error) = cleanup_note {
-                    text.push_str(&format!("\nTask completed, but worktree cleanup needs attention: {error}. Cleanup will retry automatically."));
+                    text.push_str(&format!("\nTask completed, but task repository cleanup needs attention: {error}. Cleanup will retry automatically."));
                 }
                 if project.queue_lock.is_some()
                     && let Err(error) = project.queue.save(&project.state.repo_root)

@@ -1,14 +1,28 @@
 use super::*;
 
 pub fn load_all(repo: &Path) -> Vec<Implementation> {
-    let Ok(entries) =
-        fs::read_dir(crate::artifacts::layout::ArtifactLayout::new(repo).implementation_root())
-    else {
+    let Ok(roots) = state_paths::implementation_roots(repo) else {
         return Vec::new();
     };
-    entries
-        .filter_map(Result::ok)
+    let mut seen = std::collections::BTreeSet::new();
+    roots
+        .into_iter()
+        .flat_map(|root| {
+            fs::read_dir(root)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+        })
         .filter_map(|entry| read_state_file(&entry.path().join("state.json")).ok())
+        .filter(|state| {
+            seen.insert(
+                state
+                    .task_uid
+                    .as_deref()
+                    .map(|uid| format!("uid:{uid}"))
+                    .unwrap_or_else(|| format!("ticket:{}", state.ticket)),
+            )
+        })
         .collect()
 }
 pub fn load(repo: &Path, ticket: &str) -> Option<Implementation> {

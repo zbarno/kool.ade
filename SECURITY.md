@@ -6,7 +6,7 @@ execution carries risk; use disposable test repositories, keep independent
 backups, review generated changes, and leave automatic publication disabled
 unless you knowingly accept the risk.
 
-The Bubblewrap sandbox, isolated Git worktrees, approval steps, and verification
+The Bubblewrap sandbox, isolated task repositories, approval steps, and verification
 checks reduce risk. They are not a formal security boundary or a guarantee that
 the host, repository, or credentials cannot be exposed or changed unexpectedly.
 

@@ -249,6 +249,7 @@ pub(super) fn run_turn(
         .into(),
         telemetry_phase: None,
         repo_root: inputs.state.repo_root.clone(),
+        runtime_config_source: None,
         prompt_body,
         system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),
         timeout,

@@ -172,6 +172,7 @@ fn prepare_with_resolver_and_operations(
                 purpose: "Prepare artifacts for an authorized npm dependency",
                 downloaded_bytes,
                 authorized_registry: Some(&registry),
+                allow_downloads: true,
             },
             operations,
         ),

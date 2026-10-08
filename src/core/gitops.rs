@@ -147,7 +147,18 @@ pub fn clone_repo(source: &str, dest: &Path) -> Result<(), AppError> {
         detail: "the clone destination has no parent directory".into(),
     })?;
     let dest_arg = dest.to_string_lossy().into_owned();
-    let (code, out, err) = run(parent, &["clone", source, &dest_arg])?;
+    let (code, out, err) = run(
+        parent,
+        &[
+            "-c",
+            "user.name=Kool.ad/e repository initialization",
+            "-c",
+            "user.email=repository-initialization@koolade.invalid",
+            "clone",
+            source,
+            &dest_arg,
+        ],
+    )?;
     if code != 0 {
         let detail = err.trim();
         let detail = if detail.is_empty() {

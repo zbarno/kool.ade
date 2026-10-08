@@ -1,6 +1,6 @@
 # Local configuration for verification
 
-A task runs in an isolated Git worktree. Git does not transfer ignored `.env`
+A task runs in an isolated full Git clone. Git does not transfer ignored `.env`
 files from the normal checkout. You can explicitly grant a project `.env` so
 Kool.ad/e mounts the existing file read-only at the same relative task path.
 Changes to that file take effect when the next sandbox starts.
@@ -36,5 +36,5 @@ available. Application-managed refresh of public NuGet audit data remains
 available. Do not print configuration values in logs or agent reports.
 
 After updating the grant, resume the task. A malformed grant fails closed and
-preserves the worktree for review. To revoke access, remove the entry; review any
+preserves the task clone for review. To revoke access, remove the entry; review any
 previous recovery record before resuming a task that retained that file.

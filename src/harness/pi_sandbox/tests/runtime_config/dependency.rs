@@ -11,7 +11,7 @@ use std::{
 };
 
 #[test]
-fn private_runtime_config_allows_a_managed_public_npm_fetch_without_exposing_secrets() {
+fn private_runtime_config_blocks_managed_npm_fetch_without_a_verified_cache() {
     if !Command::new("npm")
         .arg("--version")
         .output()
@@ -19,7 +19,7 @@ fn private_runtime_config_allows_a_managed_public_npm_fetch_without_exposing_sec
     {
         return;
     }
-    let (tree, _repo, root) = fixture("runtime-dependency");
+    let (tree, repo, root) = fixture("runtime-dependency");
     assert!(!runtime_config::paths(&root).unwrap().is_empty());
     let package_dir = tree.0.join("synthetic-runtime-helper");
     fs::create_dir_all(&package_dir).unwrap();
@@ -94,13 +94,16 @@ fn private_runtime_config_allows_a_managed_public_npm_fetch_without_exposing_sec
     fs::create_dir_all(&state_root).unwrap();
     let (progress, updates) = mpsc::channel();
     let bridge = crate::harness::resource_bridge::start_with_test_npm_preparation(
-        &root,
-        Some("synthetic-task-uid"),
-        progress,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        &state_root,
-        archive,
-        registry.into(),
+        crate::harness::resource_bridge::TestNpmPreparation {
+            worktree: &root,
+            runtime_source: Some(&repo),
+            task_id: Some("synthetic-task-uid"),
+            progress,
+            cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            state_root: &state_root,
+            archive,
+            registry_url: registry.into(),
+        },
     )
     .unwrap();
     let mut stream = UnixStream::connect(bridge.socket_path()).unwrap();
@@ -145,17 +148,17 @@ fn private_runtime_config_allows_a_managed_public_npm_fetch_without_exposing_sec
 
     let response = response_rx
         .recv_timeout(Duration::from_secs(10))
-        .expect("managed public package retrieval should finish with private runtime config")
+        .expect("managed package request should finish with private runtime config")
         .unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&response).unwrap();
-    assert_eq!(parsed["status"], "prepared");
-    assert_eq!(parsed["dependency_result"]["status"], "prepared");
-    assert_eq!(parsed["dependency_result"]["packagesDownloaded"], 1);
+    assert_eq!(parsed["status"], "needs_attention");
+    assert_eq!(parsed["dependency_request"]["status"], "failed");
+    assert_eq!(parsed["dependency_result"]["bytesDownloaded"], 0);
     assert!(
-        parsed["dependency_result"]["bytesDownloaded"]
-            .as_u64()
+        parsed["summary"]
+            .as_str()
             .unwrap()
-            > 0
+            .contains("Fresh npm package downloads are disabled")
     );
     assert!(!response.contains("SYNTHETIC_CONFIG=approved-sentinel"));
 }

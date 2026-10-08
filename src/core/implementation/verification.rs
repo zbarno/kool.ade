@@ -1,17 +1,12 @@
 use super::*;
+use crate::core::implementation::repository_cache::RepositoryCache;
 
 mod commit;
 mod prompt;
+mod request;
 mod requirements;
 mod workspace;
-
-pub(super) fn prepare_worktree(
-    repo: &Path,
-    state: &Implementation,
-    runner: &Runner,
-) -> anyhow::Result<(bool, String)> {
-    workspace::prepare_worktree(repo, state, runner)
-}
+pub(super) use workspace::prepare_task_workspace;
 
 pub(super) fn prepare_verified(
     repo: &Path,
@@ -22,7 +17,7 @@ pub(super) fn prepare_verified(
     user_context: Option<&str>,
     accrual: Option<&crate::core::time_accrual::AgentSpan>,
 ) -> anyhow::Result<()> {
-    let (clean, head) = workspace::prepare_worktree(repo, state, runner)?;
+    let (clean, head) = workspace::prepare_workspace(repo, dir, state, runner)?;
     let already_verified = requirements::already_verified(dir, state, clean, &head)?;
     if already_verified && state.pr_url.is_some() {
         return Ok(());
@@ -68,12 +63,19 @@ pub(super) fn prepare_verified(
         let report = loop {
             runner.remaining()?;
             attempt += 1;
+            if state.task_repository_kind == TaskRepositoryKind::Clone {
+                task_repository::validate_clone_path(state)?;
+                RepositoryCache::verify_task_repository(&state.task_repository, runner)?;
+            } else {
+                anyhow::ensure!(
+                    common(&state.task_repository)?.canonicalize()?
+                        == common(repo)?.canonicalize()?,
+                    "Legacy task workspace belongs to a different repository"
+                );
+            }
             anyhow::ensure!(
-                common(&state.worktree)?.canonicalize()? == common(repo)?.canonicalize()?,
-                "Implementation worktree belongs to a different repository"
-            );
-            anyhow::ensure!(
-                runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
+                runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
+                    == state.branch,
                 "Implementation changed branches; refusing to continue"
             );
             state.status = ImplementationStatus::Implementing;
@@ -82,12 +84,12 @@ pub(super) fn prepare_verified(
                 "Implementing {} (attempt {attempt})…",
                 state.ticket
             ));
-            let status = runner.git(&state.worktree, &["status", "--short"])?;
-            let log = runner.git(&state.worktree, &["log", "-5", "--oneline"])?;
+            let status = runner.git(&state.task_repository, &["status", "--short"])?;
+            let log = runner.git(&state.task_repository, &["log", "-5", "--oneline"])?;
             let stamp = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
             let history_evidence = history_preflight_context(
                 runner,
-                &state.worktree,
+                &state.task_repository,
                 &state.base_commit,
                 &state.ticket_text,
             )?;
@@ -113,8 +115,7 @@ pub(super) fn prepare_verified(
                 dir,
                 stamp,
             });
-            let request = PlanningRequest { mode: crate::harness::ExecutionMode::Implementation,
-            task_id: state.task_uid.clone().or_else(|| Some(state.ticket.clone())), reasoning_level: "medium".into(), telemetry_phase: Some(if verification_corrections > 0 { "qa_verification" } else if attempt == 1 { "implementation" } else { "repair" }.into()), repo_root: state.worktree.clone(), prompt_body: prompt, system_instructions: "You are an implementation agent. Read and follow repository AGENTS.md instructions. Implement, integrate, and verify the whole ticket. Preserve existing work when resuming or correcting a failed report. Return the required JSON report. Report blockers honestly. Git metadata is read-only inside your sandbox: do not run git add or commit. For new files, inspect their contents directly; Kool.ad/e stages them and runs final verification. The application alone manages Git commits, integration, and publication.".into(), timeout: runner.remaining()?, progress_tx: runner.progress.clone(), cancel: runner.cancel.clone() };
+            let request = request::build(state, runner, prompt, attempt, verification_corrections)?;
             // F7 accrual (AD-4): charge exactly the agent process lifetime.
             // The guard settles the workspace interval on every escape route
             // (Ok, Err-return, budget expiry, cancellation); the normal
@@ -141,7 +142,7 @@ pub(super) fn prepare_verified(
                         state.detail = feedback.clone();
                         save(dir, state)?;
                         if harness_failures >= 3 {
-                            feedback.push_str("\nSELF-REPAIR REQUIRED: repeated harness failures. Diagnose their cause using the saved diagnostics, repair preventable causes in this worktree, and add a regression check. Do not repeat the same failed approach. Return the complete JSON report in your final response so Kool.ad/e can save it.\n");
+                            feedback.push_str("\nSELF-REPAIR REQUIRED: repeated harness failures. Diagnose their cause using the saved diagnostics, repair preventable causes in the task repository, and add a regression check. Do not repeat the same failed approach. Return the complete JSON report in your final response so Kool.ad/e can save it.\n");
                         }
                         anyhow::ensure!(
                             harness_failures <= 5,
@@ -213,7 +214,7 @@ pub(super) fn prepare_verified(
                         let mut evidence = Vec::new();
                         for command in &commands {
                             runner.update(format!("Verifying: {command}"));
-                            let result = runner.verify(&state.worktree, command);
+                            let result = runner.verify(&state.task_repository, command);
                             evidence.push(serde_json::json!({
                                 "command": command,
                                 "output": result.as_ref().ok().map(|text| crate::error::redact_secrets(text)),
@@ -232,12 +233,15 @@ pub(super) fn prepare_verified(
                             }
                         }
                         anyhow::ensure!(
-                            runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])?
-                                == state.branch,
+                            runner.git(
+                                &state.task_repository,
+                                &["symbolic-ref", "--short", "HEAD"]
+                            )? == state.branch,
                             "Implementation changed branches; refusing to publish"
                         );
                         if failure.is_none()
-                            && let Err(error) = runner.git(&state.worktree, &["diff", "--check"])
+                            && let Err(error) =
+                                runner.git(&state.task_repository, &["diff", "--check"])
                         {
                             verification_failure = true;
                             failure = Some(format!("git diff --check failed: {error}"));
@@ -257,9 +261,9 @@ pub(super) fn prepare_verified(
             };
             feedback.push_str(&format!("\nAttempt {attempt} ({phase}): {failure}\n"));
             if blocked_report {
-                feedback.push_str("AUTOMATIC BLOCKER RECOVERY REQUIRED: treat the blocked report as a checkpoint, preserve its evidence and completed work, and execute every remaining remediation available from this worktree. Diagnose and repair local tooling, scripts, tests, or implementation defects before reporting blocked again. Do not weaken acceptance criteria or fabricate evidence.\n");
+                feedback.push_str("AUTOMATIC BLOCKER RECOVERY REQUIRED: treat the blocked report as a checkpoint, preserve its evidence and completed work, and execute every remaining remediation available from this task repository. Diagnose and repair local tooling, scripts, tests, or implementation defects before reporting blocked again. Do not weaken acceptance criteria or fabricate evidence.\n");
                 runner.update(format!(
-                    "Recovering reported blocker in the preserved worktree (attempt {attempt})…"
+                    "Recovering reported blocker in the preserved task repository (attempt {attempt})…"
                 ));
             }
             state.detail = feedback.clone();
@@ -279,7 +283,7 @@ pub(super) fn prepare_verified(
                     dir.display()
                 );
                 healing_attempts += 1;
-                feedback.push_str("\nSELF-REPAIR REQUIRED: ordinary retries are exhausted. Diagnose and fix the root cause in this worktree, add a regression check that reproduces the failure, and rerun the complete verification. Preserve existing task work and checks. Kool.ad/e will commit the verified repair atomically with this task.\n");
+                feedback.push_str("\nSELF-REPAIR REQUIRED: ordinary retries are exhausted. Diagnose and fix the root cause in this task repository, add a regression check that reproduces the failure, and rerun the complete verification. Preserve existing task work and checks. Kool.ad/e will commit the verified repair atomically with this task.\n");
                 runner.update(format!(
                     "Diagnosing root cause and self-repairing ({healing_attempts}/2)…"
                 ));

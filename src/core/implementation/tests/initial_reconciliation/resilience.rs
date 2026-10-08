@@ -106,11 +106,11 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
     );
     assert_eq!(fs::read(path).unwrap(), old);
     assert_eq!(
-        fs::read_to_string(result.worktree.join("build/cache.txt")).unwrap(),
+        fs::read_to_string(result.task_repository.join("build/cache.txt")).unwrap(),
         "cache"
     );
     assert!(
-        s.git(&result.worktree, &["ls-files", "build/cache.txt"])
+        s.git(&result.task_repository, &["ls-files", "build/cache.txt"])
             .is_empty()
     );
     assert!(
@@ -131,8 +131,16 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
 #[test]
 fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
     let s = interrupted();
-    let (path, snapshot) = super::merge_recovery::recovery_snapshot(&s);
-    let old = fs::read(&path).unwrap();
+    let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
+    snapshot["schema_version"] = serde_json::json!(1);
+    let repository_path = snapshot
+        .as_object_mut()
+        .unwrap()
+        .remove("task_repository")
+        .unwrap();
+    snapshot["worktree"] = repository_path;
+    let old = serde_json::to_vec_pretty(&snapshot).unwrap();
+    fs::write(&path, &old).unwrap();
     let worktree = super::merge_recovery::task_worktree(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
@@ -247,13 +255,13 @@ fn inherited_eof_whitespace_in_either_history_is_preserved() {
             "upstream.txt"
         };
         assert!(
-            fs::read_to_string(result.worktree.join(path))
+            fs::read_to_string(result.task_repository.join(path))
                 .unwrap()
                 .ends_with("\n\n")
         );
         assert!(
             s.git(
-                &result.worktree,
+                &result.task_repository,
                 &["merge-base", "--is-ancestor", &remote, &result.base_commit]
             )
             .is_empty()

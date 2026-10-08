@@ -6,6 +6,7 @@ use sha2::{Digest, Sha512};
 use std::fs;
 
 mod custom_registry;
+mod private_config;
 
 #[test]
 fn reads_registry_entries_and_skips_local_workspace_entries() {

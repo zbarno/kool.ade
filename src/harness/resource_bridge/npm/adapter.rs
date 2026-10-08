@@ -51,22 +51,32 @@ impl DependencyAdapter for Adapter {
                             purpose: &need.reason,
                             downloaded_bytes: context.downloaded_bytes,
                             authorized_registry: Some(&registry),
+                            allow_downloads: context.allow_downloads,
                         },
                         PreparationOperations {
                             retrieve: operations.retrieve.as_ref(),
                             index_cache: operations.index_cache.as_ref(),
                         },
                     ),
-                    None => prepare_with_registry(
-                        context.worktree,
-                        context.resource_dir,
-                        context.npm_cache,
-                        context.npm_snapshot,
-                        &need.reason,
-                        context.downloaded_bytes,
-                        Some(&registry),
-                    ),
+                    None => prepare_with_registry(PreparationRequest {
+                        worktree: context.worktree,
+                        response_dir: context.resource_dir,
+                        npm_cache: context.npm_cache,
+                        npm_snapshot: context.npm_snapshot,
+                        purpose: &need.reason,
+                        downloaded_bytes: context.downloaded_bytes,
+                        authorized_registry: Some(&registry),
+                        allow_downloads: context.allow_downloads,
+                    }),
                 }
+            }
+            crate::harness::DependencyKind::NewProjectDependency
+            | crate::harness::DependencyKind::DevelopmentDependency
+                if !context.allow_downloads =>
+            {
+                Ok(ResourceResponse::needs_attention(
+                    "Fresh npm package downloads are disabled while private project configuration is mounted. New package resolution requires public-network access; use a verified lockfile cache that is already available.".into(),
+                ))
             }
             crate::harness::DependencyKind::NewProjectDependency
             | crate::harness::DependencyKind::DevelopmentDependency => match context.npm_operations

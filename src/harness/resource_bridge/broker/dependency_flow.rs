@@ -102,7 +102,7 @@ pub(super) fn prepare_request(
 
 fn private_configuration_attention() -> ResourceResponse {
     ResourceResponse::needs_attention(
-        "Direct resource downloads are disabled while private project configuration is mounted. Request dependencies through Man.ager's mediated broker instead.".into(),
+        "Direct resource retrieval is unavailable while private project configuration is mounted. Existing verified package caches may be used through the mediated broker; fresh downloads are disabled.".into(),
     )
 }
 

@@ -17,6 +17,7 @@ fn request(mode: ExecutionMode) -> PlanningRequest {
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: std::env::temp_dir(),
+        runtime_config_source: None,
         prompt_body: "task prompt".into(),
         system_instructions: "system context".into(),
         timeout: Duration::from_secs(2),

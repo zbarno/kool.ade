@@ -44,12 +44,20 @@ fn failed_required_baseline_check_prevents_reconciliation_commit_and_task_agent(
     );
     let state = load(&s.repo, &s.ticket).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
-    assert!(!state.worktree.join("implemented.txt").exists());
-    assert!(!state.worktree.join("AGENTS.md").exists());
-    assert!(!state.worktree.join("required-baseline-marker").exists());
+    assert!(!state.task_repository.join("implemented.txt").exists());
+    assert!(!state.task_repository.join("AGENTS.md").exists());
     assert!(
-        !s.git(&state.worktree, &["rev-parse", "--verify", "MERGE_HEAD"])
-            .is_empty()
+        !state
+            .task_repository
+            .join("required-baseline-marker")
+            .exists()
+    );
+    assert!(
+        !s.git(
+            &state.task_repository,
+            &["rev-parse", "--verify", "MERGE_HEAD"]
+        )
+        .is_empty()
     );
     let evidence =
         fs::read_dir(super::super::super::state_paths::state_dir(&s.repo, &s.ticket).unwrap())
@@ -178,7 +186,7 @@ fn missing_task_state_resumes_the_saved_commit_snapshots() {
     assert_eq!(agent.calls.load(Ordering::SeqCst), 1);
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &[
                 "merge-base",
                 "--is-ancestor",
@@ -190,7 +198,7 @@ fn missing_task_state_resumes_the_saved_commit_snapshots() {
     );
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &[
                 "merge-base",
                 "--is-ancestor",

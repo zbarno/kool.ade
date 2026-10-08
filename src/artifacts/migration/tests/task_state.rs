@@ -26,6 +26,15 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         .unwrap()
         .join("koolade-implementations")
         .join(crate::core::implementation::key_for_ticket(old_ticket));
+    let old_allocation_key = crate::core::implementation::key_for_ticket(old_ticket);
+    let legacy_task_repository = root
+        .parent()
+        .unwrap()
+        .join(".koolade-worktrees")
+        .join(crate::persistence::project_slug(
+            &root.canonicalize().unwrap(),
+        ))
+        .join(&old_allocation_key);
     let old_report = old_record_dir.join("123-report.json");
     let blocker = format!(
         "## Waiting for user action\n\nThe saved report needs review.\n\n### Next action(s)\n\n- Adjudicator: choose (a) accept or (b) revise.\n\nFull report: {}",
@@ -60,12 +69,23 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         approved_specification: Some("frozen approved specification".into()),
         approved_product_context: Some("frozen product context".into()),
         completed_dependency_context: None,
-        branch: "koolade/old-task-branch".into(),
+        branch: format!("koolade/{old_allocation_key}"),
         source_branch: None,
         destination_branch: None,
+        source_ref: None,
+        source_commit: None,
+        repository_id: None,
+        project_id: None,
+        repository_identity: None,
+        repository_cache: None,
+        task_repository_allocation_key: None,
         base: "main".into(),
         base_commit: "base-commit".into(),
-        worktree: root.join("../.koolade-worktrees/demo/old-ticket"),
+        task_repository: legacy_task_repository.clone(),
+        task_repository_kind: crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
+        task_repository_ready: false,
+        task_repositories: vec![legacy_task_repository.clone()],
+        task_repository_commits: std::collections::BTreeMap::new(),
         status: crate::core::implementation::ImplementationStatus::Blocked,
         detail: blocker.clone(),
         pr_url: None,
@@ -108,7 +128,15 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         Some(task_identity.uid.as_str())
     );
     assert_eq!(migrated.ticket_text, task_text);
-    assert_eq!(migrated.worktree, record.worktree);
+    assert_eq!(migrated.task_repository, legacy_task_repository);
+    assert_ne!(
+        old_allocation_key,
+        crate::core::implementation::key_for_ticket(&new_ticket)
+    );
+    assert_eq!(
+        migrated.task_repository_allocation_key.as_deref(),
+        Some(old_allocation_key.as_str())
+    );
     assert_eq!(
         migrated.status,
         crate::core::implementation::ImplementationStatus::Blocked

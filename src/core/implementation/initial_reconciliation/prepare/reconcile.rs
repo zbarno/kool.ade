@@ -36,16 +36,17 @@ pub(super) fn run(
     let mut last_failure = String::new();
     for attempt in 1..=MAX_ATTEMPTS {
         runner.remaining()?;
-        validate_worktree(repo, state, runner)?;
-        let status = runner.git(&state.worktree, &["status", "--short"])?;
-        let unmerged = unmerged_paths(runner, &state.worktree)?;
-        let diff = runner.git(&state.worktree, &["diff", "--cc"])?;
+        validate_task_repository(repo, state, runner)?;
+        let status = runner.git(&state.task_repository, &["status", "--short"])?;
+        let unmerged = unmerged_paths(runner, &state.task_repository)?;
+        let diff = runner.git(&state.task_repository, &["diff", "--cc"])?;
         let request = PlanningRequest {
             mode: crate::harness::ExecutionMode::Implementation,
             task_id: state.task_uid.clone().or_else(|| Some(state.ticket.clone())),
             reasoning_level: "medium".into(),
             telemetry_phase: Some("reconciliation".into()),
-            repo_root: state.worktree.clone(),
+            repo_root: state.task_repository.clone(),
+            runtime_config_source: None,
             prompt_body: prompt::build(
                 plan,
                 &status,
@@ -55,7 +56,7 @@ pub(super) fn run(
                 &feedback,
                 &previous_response,
             ),
-            system_instructions: "You are reconciling two existing project histories before a separate implementation task begins. Read repository instructions. Preserve intended changes from both sides, resolve only integration conflicts, and do not implement the later task. Modify only paths present in the two pinned histories; do not add build configuration, helper files, or other changes to work around verification failures. Report unavailable tools, feeds, caches, or resources as environment_prerequisite. Do not stage, commit, merge, abort, reset, checkout, push, or create worktrees; the supervising application controls Git metadata and will verify and commit the result.".into(),
+            system_instructions: "You are reconciling two existing project histories before a separate implementation task begins. Read repository instructions. Preserve intended changes from both sides, resolve only integration conflicts, and do not implement the later task. Modify only paths present in the two pinned histories; do not add build configuration, helper files, or other changes to work around verification failures. Report unavailable tools, feeds, caches, or resources as environment_prerequisite. Do not stage, commit, merge, abort, reset, checkout, push, or create linked worktrees; the supervising application controls Git metadata and will verify and commit the result.".into(),
             timeout: runner.remaining()?,
             progress_tx: runner.progress.clone(),
             cancel: runner.cancel.clone(),
@@ -76,7 +77,15 @@ pub(super) fn run(
             harness.execute(&request)
         };
         drop(span);
-        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, plan, dir, state, false)?;
+        scope::ensure_pinned_path_scope(
+            repo,
+            &state.task_repository,
+            runner,
+            plan,
+            dir,
+            state,
+            false,
+        )?;
         let response = match outcome {
             Ok(outcome) => outcome.final_text,
             Err(error) => {
@@ -120,14 +129,14 @@ pub(super) fn run(
         }
 
         scope::stage_pinned_changes(repo, runner, state, plan)?;
-        let unresolved = unmerged_paths(runner, &state.worktree)?;
+        let unresolved = unmerged_paths(runner, &state.task_repository)?;
         if !unresolved.is_empty() {
             last_failure = format!("Unresolved merge paths remain: {}", unresolved.join(", "));
             feedback = last_failure.clone();
             continue;
         }
         let changed = runner.git(
-            &state.worktree,
+            &state.task_repository,
             &[
                 "diff",
                 "--cached",
@@ -137,7 +146,7 @@ pub(super) fn run(
             ],
         )?;
         let mut commands = plan.required_verification.clone();
-        for command in required_baseline_checks(&state.worktree, &changed)? {
+        for command in required_baseline_checks(&state.task_repository, &changed)? {
             if !commands.contains(&command) {
                 commands.push(command);
             }
@@ -147,7 +156,7 @@ pub(super) fn run(
                 commands.push(command.clone());
             }
         }
-        if let Err(error) = whitespace::check(runner, &state.worktree, plan) {
+        if let Err(error) = whitespace::check(runner, &state.task_repository, plan) {
             last_failure = format!("Reconciliation introduced whitespace errors: {error:#}");
             feedback = last_failure.clone();
             automatically_verified = false;
@@ -169,15 +178,23 @@ pub(super) fn run(
             automatically_verified = false;
             continue;
         }
-        scope::ensure_pinned_path_scope(repo, &state.worktree, runner, plan, dir, state, false)?;
-        validate_worktree(repo, state, runner)?;
-        let merge_head = auto_verify::current_merge_head(runner, &state.worktree)?;
+        scope::ensure_pinned_path_scope(
+            repo,
+            &state.task_repository,
+            runner,
+            plan,
+            dir,
+            state,
+            false,
+        )?;
+        validate_task_repository(repo, state, runner)?;
+        let merge_head = auto_verify::current_merge_head(runner, &state.task_repository)?;
         let merge_in_progress = merge_head.is_some();
-        whitespace::check(runner, &state.worktree, plan)?;
-        let staged = runner.git(&state.worktree, &["diff", "--cached", "--name-only"])?;
+        whitespace::check(runner, &state.task_repository, plan)?;
+        let staged = runner.git(&state.task_repository, &["diff", "--cached", "--name-only"])?;
         if merge_in_progress || !staged.is_empty() {
             runner.git(
-                &state.worktree,
+                &state.task_repository,
                 &[
                     "-c",
                     "user.name=Kool.ad/e",
@@ -192,11 +209,11 @@ pub(super) fn run(
                 ],
             )?;
         }
-        let combined = runner.git(&state.worktree, &["rev-parse", "HEAD"])?;
-        ensure_combines(repo, runner, plan, &combined)?;
+        let combined = runner.git(&state.task_repository, &["rev-parse", "HEAD"])?;
+        ensure_combines(&state.task_repository, runner, plan, &combined)?;
         anyhow::ensure!(
             generated::clean(runner, state, dir)?,
-            "Reconciled worktree is not clean after its verified commit"
+            "Reconciled task repository is not clean after its verified commit"
         );
         plan.verified_commit = Some(combined);
         plan.verification = commands;
@@ -207,6 +224,7 @@ pub(super) fn run(
             .expect("verified commit was just recorded")
             .into();
         save(dir, state)?;
+        cache::import_verified_result(repo, state, &state.base_commit, runner)?;
         if let Some(verified) = plan.verified_commit.as_deref()
             && let Err(error) = cache::store(repo, plan, verified, &plan.verification, runner)
         {
@@ -223,7 +241,7 @@ pub(super) fn run(
             FailureKind::RemoteDiverged,
             RecoveryDisposition::ExplicitResume,
             format!(
-                "Automatic reconciliation stopped after {MAX_ATTEMPTS} attempts. Both histories and the isolated worktree are preserved. Latest issue: {last_failure}"
+                "Automatic reconciliation stopped after {MAX_ATTEMPTS} attempts. Both histories and the isolated task repository are preserved. Latest issue: {last_failure}"
             ),
         ),
     )))

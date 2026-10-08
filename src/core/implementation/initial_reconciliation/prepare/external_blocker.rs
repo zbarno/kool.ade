@@ -39,7 +39,7 @@ pub(super) fn verification_error(error: &str, evidence_path: &Path) -> anyhow::E
             FailureKind::ExternalPrerequisite,
             RecoveryDisposition::UserAction,
             format!(
-                "## Waiting for environment\n\nRequired baseline verification failed because the sandbox lacks a dependency/feed or sufficient resources. The merge worktree and both histories are preserved; no repository workaround was applied.\n\n### Evidence\n\n{error}\n\n### Next action(s)\n\n- Operator: {next_action}\n\nVerification log: {}",
+                "## Waiting for environment\n\nRequired baseline verification failed because the sandbox lacks a dependency/feed or sufficient resources. The integration repository and both histories are preserved; no repository workaround was applied.\n\n### Evidence\n\n{error}\n\n### Next action(s)\n\n- Operator: {next_action}\n\nVerification log: {}",
                 evidence_path.display()
             ),
         ),

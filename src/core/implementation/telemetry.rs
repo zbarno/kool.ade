@@ -11,6 +11,7 @@ use crate::{
 pub(super) struct CaptureHarness<'a> {
     inner: &'a dyn AiHarness,
     project_root: PathBuf,
+    runtime_config_source: PathBuf,
     repository: Option<String>,
     feature: Option<String>,
     batch: Option<String>,
@@ -22,6 +23,7 @@ impl<'a> CaptureHarness<'a> {
     pub(super) fn new(
         inner: &'a dyn AiHarness,
         project_root: &std::path::Path,
+        runtime_config_source: &std::path::Path,
         ticket_text: &str,
         metadata: Option<&TaskMetadata>,
         task_uid: Option<&str>,
@@ -37,6 +39,7 @@ impl<'a> CaptureHarness<'a> {
         Self {
             inner,
             project_root: project_root.to_path_buf(),
+            runtime_config_source: runtime_config_source.to_path_buf(),
             repository: metadata.map(|metadata| metadata.repository_id.clone()),
             feature,
             batch: metadata.map(|metadata| metadata.batch_uid.clone()),
@@ -214,6 +217,9 @@ impl AiHarness for CaptureHarness<'_> {
         let (tx, rx) = mpsc::channel();
         let mut captured = request.clone();
         captured.progress_tx = tx;
+        if captured.mode == crate::harness::ExecutionMode::Implementation {
+            captured.runtime_config_source = Some(self.runtime_config_source.clone());
+        }
         let (execution, latest) = std::thread::scope(|scope| {
             let target = request.progress_tx.clone();
             let reader = scope.spawn(move || {

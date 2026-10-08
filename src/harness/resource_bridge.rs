@@ -28,6 +28,10 @@ pub(crate) fn prepared_npm_cache_path(worktree: &Path) -> anyhow::Result<PathBuf
     npm::persistent_cache_at(&crate::persistence::state_root(), worktree)
 }
 
+pub(crate) fn prepared_cargo_cache_path() -> anyhow::Result<PathBuf> {
+    cargo::persistent_cache_at(&crate::persistence::state_root())
+}
+
 pub(crate) fn publish_npm_cache_index_snapshot(
     cache_root: &Path,
     snapshot_root: &Path,
@@ -86,22 +90,29 @@ struct ResourceResponse {
 pub(crate) use broker::ResourceBridge;
 
 #[cfg(test)]
+pub(crate) struct TestNpmPreparation<'a> {
+    pub(crate) worktree: &'a Path,
+    pub(crate) runtime_source: Option<&'a Path>,
+    pub(crate) task_id: Option<&'a str>,
+    pub(crate) progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) state_root: &'a Path,
+    pub(crate) archive: PathBuf,
+    pub(crate) registry_url: String,
+}
+
+#[cfg(test)]
 pub(crate) fn start_with_test_npm_preparation(
-    worktree: &Path,
-    task_id: Option<&str>,
-    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
-    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    state_root: &Path,
-    archive: PathBuf,
-    registry_url: String,
+    request: TestNpmPreparation<'_>,
 ) -> anyhow::Result<ResourceBridge> {
     broker::start_with_state_root_and_npm_operations(
-        worktree,
-        task_id,
-        progress,
-        cancel,
-        state_root,
-        npm::test_preparation_operations(archive, registry_url),
+        request.worktree,
+        request.runtime_source,
+        request.task_id,
+        request.progress,
+        request.cancel,
+        request.state_root,
+        npm::test_preparation_operations(request.archive, request.registry_url),
     )
 }
 

@@ -66,6 +66,7 @@ pub fn select(
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: state.repo_root.clone(),
+        runtime_config_source: None,
         prompt_body: catalog.prompt(user_message, recent),
         system_instructions: RETRIEVAL_INSTRUCTIONS.into(),
         timeout: remaining,

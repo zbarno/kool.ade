@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn preexisting_dirty_work_is_preserved_and_never_auto_stashed() {
     let s = Sandbox::new();
-    let (remote, _, _) = make_divergent(&s);
+    let (remote, local, common) = make_divergent(&s);
     let worktree = task_worktree(&s);
     fs::create_dir_all(worktree.parent().unwrap()).unwrap();
     let key = crate::core::implementation::key_for_ticket(&s.ticket);
@@ -20,6 +20,9 @@ fn preexisting_dirty_work_is_preserved_and_never_auto_stashed() {
         ],
     );
     fs::write(worktree.join("operator-note.txt"), "keep this draft\n").unwrap();
+    super::super::save_legacy_reconciliation_state(
+        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
+    );
     let (calls, agent) = agent();
 
     let error = run_with_agent(&s, &agent, None).unwrap_err().to_string();
@@ -82,7 +85,7 @@ fn histories_already_in_task_base_skip_duplicate_reconciliation() {
         "only the implementation agent should run"
     );
     assert_eq!(result.base_commit, remote);
-    assert!(result.worktree.join("prerequisite.txt").exists());
+    assert!(result.task_repository.join("prerequisite.txt").exists());
     let plan = crate::core::implementation::initial_reconciliation::load_plan(&dir)
         .unwrap()
         .unwrap();

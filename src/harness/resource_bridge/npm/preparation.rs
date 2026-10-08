@@ -40,27 +40,14 @@ pub(super) struct PreparationRequest<'a> {
     pub(super) purpose: &'a str,
     pub(super) downloaded_bytes: &'a AtomicUsize,
     pub(super) authorized_registry: Option<&'a url::Url>,
+    pub(super) allow_downloads: bool,
 }
 
 pub(super) fn prepare_with_registry(
-    worktree: &Path,
-    response_dir: &Path,
-    npm_cache: &Path,
-    npm_snapshot: &Path,
-    purpose: &str,
-    downloaded_bytes: &AtomicUsize,
-    authorized_registry: Option<&url::Url>,
+    request: PreparationRequest<'_>,
 ) -> anyhow::Result<ResourceResponse> {
     prepare_with_registry_and_ops(
-        PreparationRequest {
-            worktree,
-            response_dir,
-            npm_cache,
-            npm_snapshot,
-            purpose,
-            downloaded_bytes,
-            authorized_registry,
-        },
+        request,
         PreparationOperations {
             retrieve: &|response_dir, url, purpose, remaining, registry| match registry {
                 Some(registry) => {
@@ -88,6 +75,7 @@ pub(super) fn prepare_with_registry_and_ops(
         purpose,
         downloaded_bytes,
         authorized_registry,
+        allow_downloads,
     } = request;
     let deadline = Instant::now() + PREPARE_TIMEOUT;
     anyhow::ensure!(
@@ -118,6 +106,28 @@ pub(super) fn prepare_with_registry_and_ops(
         "npm lockfiles contain more than {} remote package archives",
         super::MAX_LOCKED_PACKAGES
     );
+
+    if !allow_downloads {
+        for package in &packages {
+            let decision = match authorized_registry {
+                Some(registry) => policy::classify_npm_registry_package(&package.url, registry),
+                None => policy::classify(&package.url),
+            };
+            if !matches!(decision, Ok(policy::Decision::Allow(_))) {
+                return Ok(ResourceResponse::needs_attention(
+                    "The npm lockfile needs operator review before a verified cache can be used."
+                        .into(),
+                ));
+            }
+            let cached = lockfile::npm_cache_digest_path(npm_cache, &package.integrity)
+                .is_some_and(|path| lockfile::verify_sha512_file(&path, &package.integrity));
+            if !cached {
+                return Ok(ResourceResponse::needs_attention(
+                    "Fresh npm package downloads are disabled while private project configuration is mounted; a verified lockfile package is missing from the local cache.".into(),
+                ));
+            }
+        }
+    }
 
     let mut missing = Vec::new();
     let mut cached = 0_usize;

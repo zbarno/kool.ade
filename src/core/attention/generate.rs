@@ -153,17 +153,17 @@ pub(super) fn context(
     ticket: &str,
     report: &Report,
 ) -> (std::path::PathBuf, String, String) {
-    let worktree = crate::core::implementation::load(repo, ticket)
-        .map(|state| state.worktree)
+    let task_repository = crate::core::implementation::load(repo, ticket)
+        .map(|state| state.task_repository)
         .filter(|path| path.is_dir())
         .unwrap_or_else(|| repo.to_owned());
-    let task = task::content(&worktree, repo, ticket);
-    let documents = referenced_documents(&worktree, report);
-    (worktree, task, documents)
+    let task = task::content(&task_repository, repo, ticket);
+    let documents = referenced_documents(&task_repository, report);
+    (task_repository, task, documents)
 }
 
 pub(super) fn run(
-    worktree: &Path,
+    task_repository: &Path,
     task: &str,
     documents: &str,
     report: &Report,
@@ -182,7 +182,8 @@ pub(super) fn run(
             // so the user-facing explanation preserves those distinctions.
             reasoning_level: "xhigh".into(),
             telemetry_phase: None,
-            repo_root: worktree.to_owned(),
+            repo_root: task_repository.to_owned(),
+            runtime_config_source: None,
             prompt_body: prompt(report, task, documents, &correction),
             system_instructions: SYSTEM_INSTRUCTIONS.into(),
             timeout: crate::core::turn::configured_turn_timeout()

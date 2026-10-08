@@ -129,15 +129,16 @@ pub(super) fn prepare(
     purpose: &str,
     downloaded_bytes: &AtomicUsize,
 ) -> anyhow::Result<ResourceResponse> {
-    prepare_with_registry(
+    prepare_with_registry(PreparationRequest {
         worktree,
         response_dir,
         npm_cache,
         npm_snapshot,
         purpose,
         downloaded_bytes,
-        None,
-    )
+        authorized_registry: None,
+        allow_downloads: true,
+    })
 }
 
 pub(super) fn prepare_for_addition(
@@ -149,15 +150,16 @@ pub(super) fn prepare_for_addition(
     purpose: &str,
     downloaded_bytes: &AtomicUsize,
 ) -> anyhow::Result<ResourceResponse> {
-    prepare_with_registry(
+    prepare_with_registry(PreparationRequest {
         worktree,
         response_dir,
         npm_cache,
         npm_snapshot,
         purpose,
         downloaded_bytes,
-        Some(registry),
-    )
+        authorized_registry: Some(registry),
+        allow_downloads: true,
+    })
 }
 
 fn prepare_for_addition_with_ops(

@@ -51,10 +51,11 @@ impl super::adapter::DependencyAdapter for Adapter {
             context.worktree,
             need,
         )?;
-        self::prepare(
+        self::prepare_with_download_policy(
             context.worktree,
             context.cargo_cache,
             context.downloaded_bytes,
+            context.allow_downloads,
         )
     }
 }
@@ -63,10 +64,20 @@ pub(super) fn persistent_cache_at(state_root: &Path) -> anyhow::Result<PathBuf> 
     cache::persistent_cache_at(state_root)
 }
 
+#[cfg(test)]
 pub(super) fn prepare(
     worktree: &Path,
     cargo_cache: &Path,
     downloaded_bytes: &AtomicUsize,
+) -> anyhow::Result<ResourceResponse> {
+    prepare_with_download_policy(worktree, cargo_cache, downloaded_bytes, true)
+}
+
+fn prepare_with_download_policy(
+    worktree: &Path,
+    cargo_cache: &Path,
+    downloaded_bytes: &AtomicUsize,
+    allow_downloads: bool,
 ) -> anyhow::Result<ResourceResponse> {
     let packages = lockfile::collect(worktree)?;
     if packages.is_empty() {
@@ -82,6 +93,25 @@ pub(super) fn prepare(
         !worktree.join(".cargo/config").exists() && !worktree.join(".cargo/config.toml").exists(),
         "Cargo project configuration can replace the approved registry source"
     );
+    let cache_hits = cache::verified_package_count(cargo_cache, &packages)?;
+    if !allow_downloads && cache_hits != packages.len() {
+        return Ok(ResourceResponse::needs_attention(
+            "Fresh Cargo package downloads are disabled while private project configuration is mounted; one or more verified lockfile packages are missing from the local cache.".into(),
+        ));
+    }
+    if !allow_downloads {
+        cache::verify_locked_packages(cargo_cache, &packages)?;
+        return Ok(ResourceResponse::prepared(format!(
+            "Cargo verified all {} crates.io packages in the existing cache; fresh downloads are disabled while private project configuration is mounted.",
+            packages.len()
+        ))
+        .with_preparation(crate::harness::DependencyPreparationTelemetry {
+            status: Some(crate::harness::DependencyPreparationStatus::AlreadyAvailable),
+            package_count: packages.len() as u64,
+            cache_hits: cache_hits as u64,
+            ..Default::default()
+        }));
+    }
     let cargo = locate_cargo(worktree)?;
     let used = downloaded_bytes.load(Ordering::Relaxed);
     anyhow::ensure!(
@@ -89,7 +119,6 @@ pub(super) fn prepare(
         "Cargo dependency download budget is exhausted"
     );
     let remaining = crate::harness::resource_bridge::MAX_SESSION_BYTES - used;
-    let cache_hits = cache::verified_package_count(cargo_cache, &packages)?;
     let proxy = HttpsRegistryProxy::start(
         CARGO_REGISTRY_HOSTS.iter().map(|host| (*host).to_owned()),
         remaining,

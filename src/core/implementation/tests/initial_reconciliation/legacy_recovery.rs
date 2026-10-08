@@ -66,7 +66,7 @@ fn bare_nested_check_report_uses_the_scoped_command_after_baseline_verification(
 
     let state = run_with_agent(&s, &BareNestedCheckAgent, None).unwrap();
 
-    assert!(state.worktree.join("implemented.txt").exists());
+    assert!(state.task_repository.join("implemented.txt").exists());
     assert_scoped_check_succeeded(&dir);
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(dir.join("verified-report.json")).unwrap()).unwrap();
@@ -120,7 +120,7 @@ fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
     };
     let mut state = run_with_agent(&s, &first_agent, None).unwrap();
     assert!(
-        s.git(&state.worktree, &["status", "--porcelain"])
+        s.git(&state.task_repository, &["status", "--porcelain"])
             .is_empty(),
         "first implementation left a clean verified worktree"
     );
@@ -137,7 +137,11 @@ fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
     assert_eq!(clean_resume_agent.calls.load(Ordering::SeqCst), 1);
     assert_scoped_check_succeeded(&dir);
 
-    fs::write(state.worktree.join("in-progress.txt"), "preserve me\n").unwrap();
+    fs::write(
+        state.task_repository.join("in-progress.txt"),
+        "preserve me\n",
+    )
+    .unwrap();
     set_saved_plan_legacy_verification(&dir, &remote);
 
     let resume_agent = ReconcilingAgent {
@@ -150,7 +154,7 @@ fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
     state = run_with_agent(&s, &resume_agent, None).unwrap();
 
     assert_eq!(
-        fs::read_to_string(state.worktree.join("in-progress.txt")).unwrap(),
+        fs::read_to_string(state.task_repository.join("in-progress.txt")).unwrap(),
         "preserve me\n"
     );
     assert_scoped_check_succeeded(&dir);

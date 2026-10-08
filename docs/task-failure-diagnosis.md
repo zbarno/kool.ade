@@ -1,16 +1,16 @@
 # Diagnosing interrupted task implementation
 
-Task cards show the failure cause and offer expandable, copyable failure details. A task that has a saved running status but no current worker is labeled interrupted. Resolve the reported cause and use Resume implementation; the existing worktree is reused.
+Task cards show the failure cause and offer expandable, copyable failure details. A task that has a saved running status but no current worker is labeled interrupted. Resolve the reported cause and use Resume implementation; the existing task clone is reused.
 
 An explicit Resume starts a fresh attempt budget and resets that task's queue
 recovery count. Automatic queue dispatch does not reset its recovery count.
 Previous failure details are preserved in timestamped `*-resume-context.txt`
 files beside the implementation evidence; only the newest diagnostic is passed
 as prior-run context. New failures show this run's attempt count and latest cause,
-without recursively embedding older correction histories. Worktrees, partial
+without recursively embedding older correction histories. Task clones, partial
 changes, verification requirements, and genuine blockers remain intact.
 
-Before implementation and verification, Kool.ad/e checks for at least 1 GiB of available space on the relevant filesystem. This is a minimum start guard, not a reservation: a large build can require considerably more. Check both the repository/worktree volume and any separate build-output volume. Remove only rebuildable caches when reclaiming space; preserve worktrees and implementation evidence.
+Before implementation and verification, Kool.ad/e checks for at least 1 GiB of available space on the relevant filesystem. This is a minimum start guard, not a reservation: a large build can require considerably more. Check both the task-clone volume and any separate build-output volume. Remove only rebuildable caches when reclaiming space; preserve task clones and implementation evidence.
 
 If a worker exits without returning a result, Kool.ad/e reports a failure and releases its queue slot. If saving error evidence or task state also fails, the in-memory failure includes both the original cause and the persistence failure. Copy that failure before closing Kool.ad/e when storage is unavailable.
 
@@ -23,7 +23,7 @@ Previously, Resume rejected feature-named stories after relocation into
 starting a worker. Target-validation errors now also appear as a notification
 and on the affected card, rather than only in the queue status.
 
-Resuming preserves the existing worktree, partial implementation, and acceptance
+Resuming preserves the existing task clone, partial implementation, and acceptance
 criteria. It does not resolve a previously reported human decision or external
 verification requirement. The workspace-verification task's saved gate mismatch
 and pending operator-run demonstration remain separate from the filename defect.

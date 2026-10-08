@@ -145,6 +145,7 @@ fn run_with_settle_window(
             reasoning_level: "off".into(),
             telemetry_phase: None,
             repo_root: state.repo_root.clone(),
+            runtime_config_source: None,
             prompt_body: format!("{base}\n{correction}"),
             system_instructions: prompt::PLANNER_POLICY.into(),
             timeout: crate::core::turn::configured_turn_timeout(),

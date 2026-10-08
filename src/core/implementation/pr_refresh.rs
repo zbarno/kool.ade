@@ -15,6 +15,7 @@ impl PrRefresh {
             let (progress, _updates) = mpsc::channel();
             let runner = Runner {
                 gh: "gh".into(),
+                runtime_config_source: None,
                 deadline: Instant::now() + Duration::from_secs(45),
                 cancel: worker_cancel,
                 progress,
@@ -51,7 +52,8 @@ impl Drop for PrRefresh {
 
 pub(super) fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> {
     let migration_gate = crate::artifacts::migration::acquire_project_state_gate(repo)?;
-    let dir = state_dir(repo, ticket)?;
+    let task_uid = ticket_identity(repo, ticket)?;
+    let dir = state_dir_for_task(repo, ticket, task_uid.as_deref())?;
     let lock = fs::OpenOptions::new()
         .read(true)
         .write(true)

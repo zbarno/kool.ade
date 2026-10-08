@@ -12,11 +12,11 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
     sandbox.git(&sandbox.repo, &["add", second_ticket]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
-    let remote = sandbox.advance_remote();
+    sandbox.advance_remote();
     fs::write(sandbox.repo.join("local.txt"), "local change\n").unwrap();
     sandbox.git(&sandbox.repo, &["add", "local.txt"]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "local change"]);
-    let local = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
+    sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
 
     let agent = ReconcilingAgent {
         calls: Arc::new(AtomicUsize::new(0)),
@@ -27,43 +27,6 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
     };
     let first = run_with_agent(&sandbox, &agent, None).unwrap();
 
-    let worktree_root = sandbox
-        .repo
-        .parent()
-        .unwrap()
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(
-            &sandbox.repo.canonicalize().unwrap(),
-        ));
-    let task_key = crate::core::implementation::key_for_ticket(second_ticket);
-    let second_worktree = worktree_root.join(&task_key);
-    fs::create_dir_all(&worktree_root).unwrap();
-    let branch = format!("koolade/{task_key}");
-    sandbox.git(
-        &sandbox.repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            second_worktree.to_str().unwrap(),
-            &remote,
-        ],
-    );
-    sandbox.git(
-        &second_worktree,
-        &["merge", "--no-ff", "--no-commit", "--no-edit", &local],
-    );
-    assert!(
-        std::process::Command::new("git")
-            .args(["rev-parse", "--verify", "MERGE_HEAD"])
-            .current_dir(&second_worktree)
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
-
     let (progress, updates) = mpsc::channel();
     let second =
         run_with_agent_for_ticket(&sandbox, second_ticket, &agent, None, progress).unwrap();
@@ -73,10 +36,12 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
         .collect::<Vec<_>>();
 
     assert_eq!(first.base_commit, second.base_commit);
-    assert_eq!(second.worktree, second_worktree);
+    assert_eq!(second.task_repository_kind, TaskRepositoryKind::Clone);
+    assert_ne!(second.task_repository, first.task_repository);
+    assert!(second.task_repository.join(".git").is_dir());
     assert!(
         sandbox
-            .git(&second.worktree, &["status", "--porcelain"])
+            .git(&second.task_repository, &["status", "--porcelain"])
             .is_empty()
     );
     assert!(
@@ -85,19 +50,27 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
             .any(|activity| activity.contains("Reused the verified shared baseline"))
     );
     assert_eq!(agent.calls.load(Ordering::SeqCst), 2);
+    let task_refs = format!(
+        "refs/koolade-reconciliations/{}",
+        crate::core::implementation::key_for_ticket(&sandbox.ticket)
+    );
     assert_eq!(
         sandbox
             .git(
-                &sandbox.repo,
-                &[
-                    "for-each-ref",
-                    "--format=%(refname)",
-                    "refs/koolade-reconciliations/shared"
-                ]
+                second.repository_cache.as_deref().unwrap(),
+                &["for-each-ref", "--format=%(refname)", &task_refs]
             )
             .lines()
             .count(),
-        1
+        2
+    );
+    assert!(
+        sandbox
+            .git(
+                &sandbox.repo,
+                &["for-each-ref", "--format=%(refname)", &task_refs]
+            )
+            .is_empty()
     );
 }
 
@@ -125,11 +98,54 @@ fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
         expect_snapshot: false,
         wrap_report: false,
     };
-    run_with_agent(&sandbox, &agent, None).unwrap();
+    let first = run_with_agent(&sandbox, &agent, None).unwrap();
+    let runner = cleanup_runner();
+    let cache = crate::core::implementation::repository_cache::RepositoryCache::from_saved_state(
+        &first, &runner,
+    )
+    .unwrap();
+    let first_dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let plan = crate::core::implementation::initial_reconciliation::load_plan(&first_dir)
+        .unwrap()
+        .unwrap();
+    let source_ref = cache.pin_source(&plan.remote_commit, &runner).unwrap();
+    let branch = format!(
+        "koolade/{}",
+        crate::core::implementation::key_for_ticket(second_ticket)
+    );
+    let task_repository = crate::core::implementation::task_repository::task_path(
+        &sandbox.repo,
+        first.repository_id.as_deref().unwrap(),
+        second_ticket,
+    )
+    .unwrap();
+    cache
+        .create_clone(
+            &source_ref,
+            &plan.remote_commit,
+            &branch,
+            &task_repository,
+            &crate::core::implementation::repository_cache::read_task_git_identity(&first_dir)
+                .unwrap(),
+            &runner,
+        )
+        .unwrap();
+    let mut second = first.clone();
+    second.ticket = second_ticket.into();
+    second.task_repository_allocation_key =
+        Some(crate::core::implementation::key_for_ticket(second_ticket));
+    second.ticket_text = fs::read_to_string(sandbox.repo.join(second_ticket)).unwrap();
+    second.branch = branch;
+    second.source_ref = Some(source_ref);
+    second.source_commit = Some(plan.remote_commit.clone());
+    second.task_repository = task_repository.clone();
+    second.task_repository_ready = true;
+    second.task_repositories = vec![task_repository.clone()];
+    second.task_repository_commits.clear();
+    second.base_commit = plan.remote_commit.clone();
+    second.status = ImplementationStatus::Preparing;
 
-    let hook_dir = sandbox
-        .repo
-        .join(sandbox.git(&sandbox.repo, &["rev-parse", "--git-path", "hooks"]));
+    let hook_dir = task_repository.join(".git/hooks");
     fs::create_dir_all(&hook_dir).unwrap();
     let hook = hook_dir.join("post-merge");
     fs::write(&hook, "#!/bin/sh\nprintf 'hook changed\n' > upstream.txt\n").unwrap();
@@ -138,18 +154,27 @@ fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&hook, fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let (progress, _updates) = mpsc::channel();
+    let cached = crate::core::implementation::initial_reconciliation::cache::load(
+        &cache.path,
+        &plan,
+        &runner,
+    )
+    .unwrap()
+    .unwrap();
+    let error = crate::core::implementation::initial_reconciliation::cache::adopt(
+        &cache.path,
+        &second,
+        &plan,
+        &cached,
+        &runner,
+    )
+    .unwrap_err()
+    .to_string();
 
-    let error = run_with_agent_for_ticket(&sandbox, second_ticket, &agent, None, progress)
-        .unwrap_err()
-        .to_string();
-
-    assert!(error.contains("left worktree changes"), "{error}");
+    assert!(error.contains("left task repository changes"), "{error}");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let state = load(&sandbox.repo, second_ticket).unwrap();
-    assert_eq!(state.status, ImplementationStatus::Blocked);
     assert_eq!(
-        fs::read_to_string(state.worktree.join("upstream.txt")).unwrap(),
+        fs::read_to_string(task_repository.join("upstream.txt")).unwrap(),
         "hook changed\n"
     );
 }

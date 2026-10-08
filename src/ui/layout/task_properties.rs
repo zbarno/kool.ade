@@ -41,8 +41,9 @@ pub(crate) fn paint_task_properties(
             }
         });
         if let Some(record) = &state {
+            ui.label(RichText::new("Task repository").size(12.0).weak());
             ui.label(
-                RichText::new(record.worktree.display().to_string())
+                RichText::new(record.task_repository.display().to_string())
                     .size(12.5)
                     .weak(),
             );
@@ -71,10 +72,10 @@ pub(crate) fn paint_task_properties(
             if record.status == ImplementationStatus::Completed {
                 if let Some(at) = &record.cleanup.completed_at {
                     ui.label(format!(
-                        "Worktree cleanup completed: {at}. Verification evidence retained."
+                        "Task clone cleanup completed: {at}. Verification evidence retained."
                     ));
                 } else {
-                    ui.label("Worktree cleanup pending; retried automatically while this project is open.");
+                    ui.label("Task clone cleanup pending; retried automatically while this project is open.");
                 }
                 if let Some(commit) = &record.merged_commit {
                     ui.label(format!(

@@ -12,7 +12,37 @@ use std::{
     net::Shutdown,
     os::unix::{fs::PermissionsExt, net::UnixStream},
     path::Path,
+    sync::{Mutex, MutexGuard},
 };
+
+static STATE_HOME_LOCK: Mutex<()> = Mutex::new(());
+
+struct StateHomeGuard {
+    _lock: MutexGuard<'static, ()>,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl StateHomeGuard {
+    fn set(path: &Path) -> Self {
+        let lock = STATE_HOME_LOCK.lock().unwrap();
+        let previous = std::env::var_os("KOOLADE_HOME");
+        // This test owns the process-global state root until the guard drops.
+        unsafe { std::env::set_var("KOOLADE_HOME", path) };
+        Self {
+            _lock: lock,
+            previous,
+        }
+    }
+}
+
+impl Drop for StateHomeGuard {
+    fn drop(&mut self) {
+        match self.previous.take() {
+            Some(previous) => unsafe { std::env::set_var("KOOLADE_HOME", previous) },
+            None => unsafe { std::env::remove_var("KOOLADE_HOME") },
+        }
+    }
+}
 
 fn grant(repo: &Path, files: Vec<String>) {
     let dir = repo.join(".git/koolade");
@@ -221,4 +251,97 @@ assert.equal(rejectedRetryCount, 0);
         "Node retry-flow test failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn independent_clone_uses_source_checkout_grants_and_blocks_resource_egress() {
+    let (tree, repo, _) = fixture("runtime-clone-source");
+    let home = tree.0.join("koolade-home");
+    fs::create_dir_all(&home).unwrap();
+    let _state_home = StateHomeGuard::set(&home);
+
+    fs::write(repo.join("App/.keep"), "fixture\n").unwrap();
+    git(&repo, &["add", ".gitignore", "App/.keep"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=Koolade test",
+            "-c",
+            "user.email=koolade-test@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "add runtime config fixture",
+        ],
+    );
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/fixture.git",
+        ],
+    );
+    let project_id = crate::persistence::project_slug(&repo.canonicalize().unwrap());
+    let task_repository = home
+        .join("projects")
+        .join(project_id)
+        .join("task-repositories")
+        .join("repository-1")
+        .join("task-0123456789abcdef");
+    fs::create_dir_all(task_repository.parent().unwrap()).unwrap();
+    git(
+        &repo,
+        &[
+            "clone",
+            "--quiet",
+            repo.to_str().unwrap(),
+            task_repository.to_str().unwrap(),
+        ],
+    );
+    git(
+        &task_repository,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://example.invalid/fixture.git",
+        ],
+    );
+
+    assert!(task_repository.join(".git").is_dir());
+    assert_eq!(
+        runtime_config::paths_with_source(&task_repository, Some(&repo)).unwrap(),
+        ["App/.env".to_owned()].into()
+    );
+
+    let bridge = ResourceBridge::start_with_runtime_source(&task_repository, Some(&repo)).unwrap();
+    let mut stream = UnixStream::connect(bridge.socket_path()).unwrap();
+    let request = serde_json::json!({
+        "action":"fetch",
+        "url":"https://registry.npmjs.org/synthetic-private-sentinel",
+        "purpose":"synthetic fixture"
+    });
+    stream.write_all(request.to_string().as_bytes()).unwrap();
+    stream.shutdown(Shutdown::Write).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.contains("downloads are disabled"));
+    assert!(!response.contains("synthetic-private-sentinel"));
+
+    if bwrap_available() {
+        let sandbox = Sandbox::new_for_task_repository(&task_repository, &repo).unwrap();
+        let output = run(
+            &sandbox,
+            "/bin/bash",
+            "test \"$(cat App/.env)\" = SYNTHETIC_CONFIG=approved-sentinel",
+        );
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

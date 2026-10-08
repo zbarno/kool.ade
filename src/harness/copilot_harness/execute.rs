@@ -105,7 +105,7 @@ impl AiHarness for CopilotHarness {
             usage_file.as_ref().map(|file| file.path.as_path()),
         );
         let mut developer = String::from(
-            "Kool.ad/e owns task lifecycle, branches, approvals, Git operations, and pull request publication. Never switch branches, commit, push, open a pull request, or publish. Work only inside the current task worktree and return the requested structured result.\n\n",
+            "Kool.ad/e owns task lifecycle, branches, approvals, Git operations, and pull request publication. Never switch branches, commit, push, open a pull request, or publish. Work only inside the current task repository and return the requested structured result.\n\n",
         );
         developer.push_str(&request.system_instructions);
         let input = format!("{developer}\n\n{}", request.prompt_body);

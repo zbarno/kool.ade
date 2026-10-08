@@ -158,6 +158,10 @@ impl Sandbox {
 impl Drop for Sandbox {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+        if let Ok(repo) = self.repo.canonicalize() {
+            let project_id = crate::persistence::project_slug(&repo);
+            let _ = fs::remove_dir_all(crate::persistence::project_dir(&project_id));
+        }
     }
 }
 
@@ -165,8 +169,12 @@ pub(super) fn completed_cleanup_fixture(s: &Sandbox) -> Implementation {
     let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
     let head = state.verified_head.as_deref().unwrap();
     s.git(
-        &s.repo,
-        &["push", "origin", &format!("{head}:refs/heads/main")],
+        &state.task_repository,
+        &[
+            "push",
+            s.root.join("remote.git").to_str().unwrap(),
+            &format!("{head}:refs/heads/main"),
+        ],
     );
     state.status = ImplementationStatus::Completed;
     state.pr_state = Some(PullRequestState::Merged);

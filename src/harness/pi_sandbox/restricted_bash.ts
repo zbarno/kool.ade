@@ -191,9 +191,9 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "koolade_bash",
 		label: "bounded bash",
-		description: "Run a shell command inside the assigned task worktree. The task folder is the only persistent writable location; host home and credentials are hidden, network is disabled, and Git publication is unavailable. Use this for implementation and verification commands.",
+		description: "Run a shell command inside the assigned task repository. Its full clone is the only persistent writable location; host home and credentials are hidden, network is disabled, and Git publication is unavailable. Use this for implementation and verification commands.",
 		parameters: Type.Object({
-			command: Type.String({ description: "Bash command to run in the assigned worktree" }),
+			command: Type.String({ description: "Bash command to run in the assigned task repository" }),
 			timeout: Type.Optional(Type.Number({ minimum: 1, maximum: MAX_TIMEOUT_SECONDS, description: "Maximum seconds for this command" })),
 		}),
 		async execute(_toolCallId, params, signal) {

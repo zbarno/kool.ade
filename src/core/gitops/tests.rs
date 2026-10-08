@@ -110,6 +110,27 @@ fn clone_repo_clones_local_source_into_dest() {
 }
 
 #[test]
+fn clone_repo_uses_temporary_reflog_identity_without_persisting_it() {
+    let _shield = test_support::shield("clone-empty-identity");
+    let source = mkrepo("cloneemptyidentity");
+    let dest = source.with_file_name(format!(
+        "{}_cloned",
+        source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("repo")
+    ));
+
+    clone_repo(source.to_str().unwrap(), &dest).unwrap();
+
+    assert!(is_work_tree(&dest));
+    assert!(git_in(&dest, &["config", "--local", "--get", "user.name"]).is_empty());
+    assert!(git_in(&dest, &["config", "--local", "--get", "user.email"]).is_empty());
+    let _ = fs::remove_dir_all(dest);
+    let _ = fs::remove_dir_all(source);
+}
+
+#[test]
 fn clone_repo_missing_source_errors_git() {
     let dir = fresh_dir("clonesrcmiss");
     let missing = dir.join("never-init-as-repo");

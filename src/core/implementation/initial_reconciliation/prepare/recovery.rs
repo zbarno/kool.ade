@@ -9,7 +9,7 @@ pub(super) const SNAPSHOT_FILE: &str = "base-reconciliation-recovery.json";
 struct Snapshot {
     schema_version: u8,
     phase: String,
-    worktree: String,
+    task_repository: String,
     branch: String,
     base: String,
     target: String,
@@ -48,29 +48,33 @@ pub(super) fn recover_unexpected_merge(
         history::archive(repo, &snapshot_path, state, runner, plan)?;
     }
 
-    let config = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
+    let config = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
     let status = Snapshot {
-        schema_version: 1,
+        schema_version: 2,
         phase: "snapshot_pending".into(),
-        worktree: state.worktree.display().to_string(),
+        task_repository: state.task_repository.display().to_string(),
         branch: state.branch.clone(),
         base: plan.remote_commit.clone(),
         target: plan.local_commit.clone(),
         merge_head: merge_head.into(),
         staged_paths: paths(
             runner,
-            &state.worktree,
+            &state.task_repository,
             &["diff", "--cached", "--name-only", "-z"],
         )?,
-        unstaged_paths: paths(runner, &state.worktree, &["diff", "--name-only", "-z"])?,
+        unstaged_paths: paths(
+            runner,
+            &state.task_repository,
+            &["diff", "--name-only", "-z"],
+        )?,
         untracked_paths: paths(
             runner,
-            &state.worktree,
+            &state.task_repository,
             &["ls-files", "--others", "--exclude-standard", "-z"],
         )?,
         ignored_paths: paths(
             runner,
-            &state.worktree,
+            &state.task_repository,
             &[
                 "ls-files",
                 "--others",
@@ -89,7 +93,7 @@ pub(super) fn recover_unexpected_merge(
     let nonce = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
     let marker = format!(
         "koolade-reconciliation:{}:{nonce}",
-        key_for_ticket(&state.ticket)
+        task_repository::allocation_key(state)
     );
     let mut stash_args = vec![
         "stash".to_owned(),
@@ -107,7 +111,7 @@ pub(super) fn recover_unexpected_merge(
         );
     }
     if let Err(error) = runner.git(
-        &state.worktree,
+        &state.task_repository,
         &stash_args.iter().map(String::as_str).collect::<Vec<_>>(),
     ) {
         let mut failed = status;
@@ -120,11 +124,14 @@ pub(super) fn recover_unexpected_merge(
             state,
             plan,
             &snapshot_path,
-            "Automatic recovery could not create a complete Git snapshot; the worktree is preserved.",
+            "Automatic recovery could not create a complete Git snapshot; the task repository is preserved.",
         ));
     }
 
-    let stash_list = runner.git(&state.worktree, &["stash", "list", "--format=%H%x09%gs"])?;
+    let stash_list = runner.git(
+        &state.task_repository,
+        &["stash", "list", "--format=%H%x09%gs"],
+    )?;
     let stash_commit = stash_list
         .lines()
         .find(|line| line.contains(&marker))
@@ -144,7 +151,7 @@ pub(super) fn recover_unexpected_merge(
     };
     let private_ref = format!(
         "refs/koolade/reconciliation-recovery/{}/{nonce}",
-        key_for_ticket(&state.ticket)
+        task_repository::allocation_key(state)
     );
     runner.git(repo, &["update-ref", &private_ref, &stash_commit])?;
 
@@ -154,14 +161,17 @@ pub(super) fn recover_unexpected_merge(
     saved.private_ref = Some(private_ref);
     write_snapshot(&snapshot_path, &saved)?;
 
-    if super::auto_verify::current_merge_head(runner, &state.worktree)?.is_some() {
-        runner.git(&state.worktree, &["merge", "--abort"])?;
+    if super::auto_verify::current_merge_head(runner, &state.task_repository)?.is_some() {
+        runner.git(&state.task_repository, &["merge", "--abort"])?;
     }
     let mut clean = runner
-        .git(&state.worktree, &["diff", "--name-only", "-z"])?
+        .git(&state.task_repository, &["diff", "--name-only", "-z"])?
         .is_empty()
         && runner
-            .git(&state.worktree, &["diff", "--cached", "--name-only", "-z"])?
+            .git(
+                &state.task_repository,
+                &["diff", "--cached", "--name-only", "-z"],
+            )?
             .is_empty();
     for args in [
         vec!["ls-files", "--others", "--exclude-standard", "-z"],
@@ -174,16 +184,16 @@ pub(super) fn recover_unexpected_merge(
         ],
     ] {
         clean &= runner
-            .git(&state.worktree, &args)?
+            .git(&state.task_repository, &args)?
             .split('\0')
             .filter(|path| !path.is_empty())
             .all(|path| config.contains(path));
     }
     anyhow::ensure!(
-        runner.git(&state.worktree, &["rev-parse", "HEAD"])? == plan.remote_commit
-            && super::auto_verify::current_merge_head(runner, &state.worktree)?.is_none()
+        runner.git(&state.task_repository, &["rev-parse", "HEAD"])? == plan.remote_commit
+            && super::auto_verify::current_merge_head(runner, &state.task_repository)?.is_none()
             && clean,
-        "The saved reconciliation worktree could not be restored to its recorded clean base; its recovery snapshot is at {}",
+        "The saved reconciliation repository could not be restored to its recorded clean base; its recovery snapshot is at {}",
         snapshot_path.display()
     );
 
@@ -192,7 +202,7 @@ pub(super) fn recover_unexpected_merge(
         snapshot_path.display()
     ));
     if let Err(error) = runner.git(
-        &state.worktree,
+        &state.task_repository,
         &[
             "merge",
             "--no-ff",
@@ -248,7 +258,7 @@ fn review_required(
             .map_or(0, Vec::len)
     };
     super::super::support::user_action(format!(
-        "Reconciliation recovery stopped for {} on branch {} at base {} targeting {}. {reason} Changes: {} staged, {} unstaged, {} untracked, {} ignored. Recovery snapshot: {}. The task worktree and both pinned commits are retained; inspect the snapshot before choosing whether to restore it or keep the work area for review.",
+        "Reconciliation recovery stopped for {} on branch {} at base {} targeting {}. {reason} Changes: {} staged, {} unstaged, {} untracked, {} ignored. Recovery snapshot: {}. The task repository and both pinned commits are retained; inspect the snapshot before choosing whether to restore it or keep the work area for review.",
         state.ticket,
         state.branch,
         plan.remote_commit,

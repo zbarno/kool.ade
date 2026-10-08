@@ -111,6 +111,10 @@ pub(crate) fn prepared_npm_cache_path(
     resource_bridge::prepared_npm_cache_path(worktree)
 }
 
+pub(crate) fn prepared_cargo_cache_path() -> anyhow::Result<std::path::PathBuf> {
+    resource_bridge::prepared_cargo_cache_path()
+}
+
 pub(crate) fn publish_npm_cache_index_snapshot(
     cache_root: &std::path::Path,
     snapshot_root: &std::path::Path,

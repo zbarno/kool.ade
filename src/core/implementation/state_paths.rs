@@ -25,36 +25,44 @@ pub(super) fn common(repo: &Path) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 pub(crate) fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
-    // State belongs to the repository's Koolade workspace, not to .git. This
-    // keeps resumable implementation evidence visible in the local workspace.
-    // Git ignores this directory; moving a live workspace requires a separate
-    // backup of these files.
-    Ok(crate::artifacts::layout::ArtifactLayout::new(repo)
-        .implementation_root()
-        .join(key(ticket)))
+    let name = key(ticket);
+    let private = private_implementation_root(repo)?.join(&name);
+    let legacy = legacy_implementation_root(repo).join(&name);
+    let private_state = private.join("state.json").exists();
+    let legacy_state = legacy.join("state.json").exists();
+    anyhow::ensure!(
+        !(private_state && legacy_state),
+        "Task has both private and legacy implementation records; review them before resuming"
+    );
+    if legacy_state {
+        Ok(legacy)
+    } else {
+        Ok(private)
+    }
 }
 
 fn state_dir_by_task_uid(repo: &Path, uid: &str) -> anyhow::Result<Option<PathBuf>> {
-    let root = crate::artifacts::layout::ArtifactLayout::new(repo).implementation_root();
-    let entries = match fs::read_dir(&root) {
-        Ok(entries) => entries.collect::<Result<Vec<_>, _>>()?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
     let mut matches = Vec::new();
-    for entry in entries {
-        if !entry
-            .file_type()
-            .is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
-        {
-            continue;
-        }
-        let state_path = entry.path().join("state.json");
-        if read_state_file(&state_path)
-            .ok()
-            .is_some_and(|state| state.task_uid.as_deref() == Some(uid))
-        {
-            matches.push(entry.path());
+    for root in implementation_roots(repo)? {
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => entries.collect::<Result<Vec<_>, _>>()?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        for entry in entries {
+            if !entry
+                .file_type()
+                .is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+            {
+                continue;
+            }
+            let state_path = entry.path().join("state.json");
+            if read_state_file(&state_path)
+                .ok()
+                .is_some_and(|state| state.task_uid.as_deref() == Some(uid))
+            {
+                matches.push(entry.path());
+            }
         }
     }
     anyhow::ensure!(
@@ -62,6 +70,22 @@ fn state_dir_by_task_uid(repo: &Path, uid: &str) -> anyhow::Result<Option<PathBu
         "Multiple implementation records share task identity {uid}"
     );
     Ok(matches.pop())
+}
+
+pub(super) fn implementation_roots(repo: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    Ok(vec![
+        private_implementation_root(repo)?,
+        legacy_implementation_root(repo),
+    ])
+}
+
+fn private_implementation_root(repo: &Path) -> anyhow::Result<PathBuf> {
+    let project_id = crate::persistence::project_slug(&repo.canonicalize()?);
+    Ok(crate::persistence::project_dir(&project_id).join("implementations"))
+}
+
+fn legacy_implementation_root(repo: &Path) -> PathBuf {
+    crate::artifacts::layout::ArtifactLayout::new(repo).implementation_root()
 }
 
 pub(crate) fn state_dir_for_task(

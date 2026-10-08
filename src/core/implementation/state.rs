@@ -1,7 +1,7 @@
 use super::{Implementation, ImplementationStatus, PullRequestState};
 use std::{fs, path::Path};
 
-/// Load and one-time migrate v0 state strings to versioned enum values.
+/// Load and one-time migrate saved implementation records to current fields.
 pub(crate) fn read_state_file(path: &Path) -> anyhow::Result<Implementation> {
     let bytes = fs::read(path)?;
     let (state, migrated) = decode(&bytes)?;
@@ -30,10 +30,26 @@ fn decode(bytes: &[u8]) -> anyhow::Result<(Implementation, bool)> {
             .ok_or_else(|| anyhow::anyhow!("Implementation state version must be an integer"))?,
     };
     anyhow::ensure!(
-        version <= 1,
+        version <= 2,
         "Unsupported implementation state version {version}"
     );
     let legacy = version == 0;
+    if version < 2 {
+        let old_path = object.remove("worktree");
+        if !object.contains_key("task_repository")
+            && let Some(path) = old_path
+        {
+            object.insert("task_repository".into(), path);
+        }
+        if let Some(path) = object.get("task_repository").cloned() {
+            object
+                .entry("task_repository_kind")
+                .or_insert_with(|| serde_json::json!("legacy_worktree"));
+            object
+                .entry("task_repositories")
+                .or_insert_with(|| serde_json::json!([path]));
+        }
+    }
     let raw_status = object
         .get("status")
         .and_then(serde_json::Value::as_str)
@@ -93,7 +109,7 @@ fn decode(bytes: &[u8]) -> anyhow::Result<(Implementation, bool)> {
             }),
         );
     }
-    let migrated = legacy || had_invalid;
+    let migrated = version < 2 || had_invalid;
     Ok((serde_json::from_value(value)?, migrated))
 }
 
@@ -106,7 +122,7 @@ pub(crate) fn serialize_state(state: &Implementation) -> anyhow::Result<Vec<u8>>
     value
         .as_object_mut()
         .expect("Implementation serializes as an object")
-        .insert("schemaVersion".into(), serde_json::json!(1));
+        .insert("schemaVersion".into(), serde_json::json!(2));
     Ok(serde_json::to_vec_pretty(&value)?)
 }
 
@@ -138,8 +154,20 @@ mod tests {
         let loaded = read_state_file(&path).unwrap();
         assert_eq!(loaded.status, ImplementationStatus::AwaitingReview);
         assert_eq!(loaded.pr_state, Some(PullRequestState::Open));
+        assert_eq!(
+            loaded.task_repository,
+            std::path::PathBuf::from("/tmp/task")
+        );
+        assert_eq!(
+            loaded.task_repository_kind,
+            super::super::TaskRepositoryKind::LegacyWorktree
+        );
+        assert_eq!(
+            loaded.task_repositories,
+            vec![std::path::PathBuf::from("/tmp/task")]
+        );
         let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        assert_eq!(saved["schemaVersion"], 1);
+        assert_eq!(saved["schemaVersion"], 2);
         assert_eq!(saved["status"], "awaiting_review");
         assert_eq!(saved["pr_state"], "open");
 

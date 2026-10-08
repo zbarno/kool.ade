@@ -210,6 +210,7 @@ fn authorized_custom_registry_prepares_a_cold_cache_archive_through_the_registry
             purpose: "Prepare an authorized custom npm dependency",
             downloaded_bytes: &downloaded,
             authorized_registry: Some(&registry),
+            allow_downloads: true,
         },
         super::super::PreparationOperations {
             retrieve: &|resource_dir, url, _, remaining, authorized_registry| {

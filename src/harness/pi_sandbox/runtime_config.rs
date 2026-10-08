@@ -14,14 +14,25 @@ pub(crate) struct Grant {
 }
 
 pub(crate) fn paths(root: &Path) -> anyhow::Result<BTreeSet<String>> {
-    Ok(bindings(root)?
+    paths_with_source(root, None)
+}
+
+pub(crate) fn paths_with_source(
+    root: &Path,
+    runtime_source: Option<&Path>,
+) -> anyhow::Result<BTreeSet<String>> {
+    Ok(bindings(root, runtime_source)?
         .into_iter()
         .map(|(relative, _)| relative)
         .collect())
 }
 
-pub(super) fn mount(args: &mut Vec<String>, root: &Path) -> anyhow::Result<()> {
-    for (relative, source) in bindings(root)? {
+pub(super) fn mount(
+    args: &mut Vec<String>,
+    root: &Path,
+    runtime_source: Option<&Path>,
+) -> anyhow::Result<()> {
+    for (relative, source) in bindings(root, runtime_source)? {
         let destination = root.join(relative);
         args.extend([
             "--ro-bind".into(),
@@ -32,19 +43,24 @@ pub(super) fn mount(args: &mut Vec<String>, root: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn bindings(root: &Path) -> anyhow::Result<Vec<(String, PathBuf)>> {
+fn bindings(root: &Path, runtime_source: Option<&Path>) -> anyhow::Result<Vec<(String, PathBuf)>> {
     let root = root.canonicalize()?;
     let common = super::config::git_path(&root, "--git-common-dir")?.canonicalize()?;
-    let path = common.join(GRANT_FILE);
+    let source = runtime_source
+        .map(Path::canonicalize)
+        .transpose()?
+        .unwrap_or(common.parent().unwrap_or(&common).to_path_buf());
+    let source_common = super::config::git_path(&source, "--git-common-dir")?.canonicalize()?;
+    let path = source_common.join(GRANT_FILE);
     match fs::symlink_metadata(&path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
         Ok(_) => {}
     }
-    regular_inside(&common, Path::new(GRANT_FILE), true)?;
+    regular_inside(&source_common, Path::new(GRANT_FILE), true)?;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let owner = fs::metadata(&common)?.uid();
-    for private in [common.join("koolade"), path.clone()] {
+    let owner = fs::metadata(&source_common)?.uid();
+    for private in [source_common.join("koolade"), path.clone()] {
         let metadata = fs::metadata(private)?;
         anyhow::ensure!(
             metadata.uid() == owner && metadata.permissions().mode() & 0o077 == 0,
@@ -56,20 +72,30 @@ fn bindings(root: &Path) -> anyhow::Result<Vec<(String, PathBuf)>> {
         "Runtime configuration grant is too large"
     );
     let grant: Grant = serde_json::from_slice(&fs::read(path)?)?;
-    let source = grant.source_root.canonicalize()?;
+    let grant_source = grant.source_root.canonicalize()?;
     anyhow::ensure!(
         grant.schema_version == 1
-            && source == grant.source_root
-            && common.parent() == Some(source.as_path())
+            && grant_source == grant.source_root
+            && source_common.parent() == Some(source.as_path())
+            && grant_source == source
             && grant.files.len() <= 32
-            && super::config::git_path(&source, "--git-common-dir")?.canonicalize()? == common,
+            && super::config::git_path(&source, "--git-common-dir")?.canonicalize()?
+                == source_common,
         "Runtime configuration grant does not match this repository"
     );
     if root == source {
         return Ok(Vec::new());
     }
     let admin = super::config::git_path(&root, "--git-dir")?;
-    super::config::validate_koolade_worktree(&root, &admin, &common)?;
+    if common != source_common {
+        super::config::validate_koolade_clone(&root, &common)?;
+        anyhow::ensure!(
+            repository_identity(&root)? == repository_identity(&source)?,
+            "Runtime configuration source belongs to another repository"
+        );
+    } else {
+        super::config::validate_koolade_worktree(&root, &admin, &common)?;
+    }
     let mut result = Vec::new();
     let mut unique = BTreeSet::new();
     for relative in grant.files {
@@ -105,6 +131,37 @@ fn bindings(root: &Path) -> anyhow::Result<Vec<(String, PathBuf)>> {
         result.push((relative, source_path));
     }
     Ok(result)
+}
+
+fn repository_identity(root: &Path) -> anyhow::Result<Option<String>> {
+    let output = Command::new(super::config::locate_git(root)?)
+        .args(["config", "--local", "--get", "remote.origin.url"])
+        .current_dir(root)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()?;
+    if !output.status.success() {
+        anyhow::ensure!(
+            output.status.code() == Some(1),
+            "Could not read repository identity"
+        );
+        return Ok(None);
+    }
+    let remote = String::from_utf8(output.stdout)?.trim().to_owned();
+    let Some((scheme, rest)) = remote.split_once("://") else {
+        return Ok(Some(remote));
+    };
+    if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
+        return Ok(Some(remote));
+    }
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    let host = rest[..authority_end]
+        .rsplit_once('@')
+        .map_or(&rest[..authority_end], |(_, host)| host);
+    Ok(Some(format!("{scheme}://{host}{}", &rest[authority_end..])))
 }
 
 fn ignored_untracked(root: &Path, relative: &str) -> anyhow::Result<bool> {

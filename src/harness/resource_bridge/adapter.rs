@@ -6,6 +6,7 @@ use super::ResourceResponse;
 
 pub(super) struct PreparationContext<'a> {
     pub(super) decision: DependencyDecision,
+    pub(super) allow_downloads: bool,
     pub(super) worktree: &'a Path,
     pub(super) resource_dir: &'a Path,
     pub(super) npm_cache: &'a Path,

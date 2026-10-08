@@ -1,5 +1,6 @@
 //! Local socket lifecycle and request coordination for mediated resources.
 mod dependency_flow;
+mod lifecycle;
 mod server;
 #[cfg(test)]
 mod test_support;
@@ -74,6 +75,7 @@ struct BrokerContext<'a> {
 }
 
 impl ResourceBridge {
+    #[cfg(test)]
     pub(crate) fn start(
         worktree: &Path,
         task_id: Option<&str>,
@@ -82,6 +84,7 @@ impl ResourceBridge {
     ) -> anyhow::Result<Self> {
         Self::start_inner(
             worktree,
+            None,
             task_id,
             progress,
             cancel,
@@ -90,8 +93,42 @@ impl ResourceBridge {
         )
     }
 
+    pub(crate) fn start_for_task_repository(
+        task_repository: &Path,
+        runtime_source: Option<&Path>,
+        task_id: Option<&str>,
+        progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+        cancel: Arc<AtomicBool>,
+    ) -> anyhow::Result<Self> {
+        Self::start_inner(
+            task_repository,
+            runtime_source,
+            task_id,
+            progress,
+            cancel,
+            &crate::persistence::state_root(),
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_with_runtime_source(
+        task_repository: &Path,
+        runtime_source: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        let (progress, _updates) = std::sync::mpsc::channel();
+        Self::start_for_task_repository(
+            task_repository,
+            runtime_source,
+            None,
+            progress,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+
     fn start_inner(
         worktree: &Path,
+        runtime_source: Option<&Path>,
         task_id: Option<&str>,
         progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
         cancel: Arc<AtomicBool>,
@@ -104,7 +141,11 @@ impl ResourceBridge {
             "Resource broker worktree is not a directory"
         );
         let private_configuration = worktree.join(".git").try_exists()?
-            && !crate::harness::pi_sandbox::runtime_config::paths(&worktree)?.is_empty();
+            && !crate::harness::pi_sandbox::runtime_config::paths_with_source(
+                &worktree,
+                runtime_source,
+            )?
+            .is_empty();
         let baseline_commit = super::dependency::baseline_commit(&worktree);
         let temp = std::env::temp_dir().join(format!(
             "koolade-resources-{}-{}",
@@ -227,49 +268,6 @@ impl ResourceBridge {
         };
         temp_guard.0.take();
         Ok(bridge)
-    }
-
-    pub(crate) fn socket_path(&self) -> &Path {
-        &self.socket
-    }
-
-    pub(crate) fn cache_path(&self) -> &Path {
-        &self.cache_dir
-    }
-
-    pub(crate) fn npm_cache_path(&self) -> &Path {
-        &self.npm_cache
-    }
-
-    pub(crate) fn npm_index_snapshot_path(&self) -> &Path {
-        &self.npm_snapshot
-    }
-
-    pub(crate) fn cargo_cache_path(&self) -> &Path {
-        &self.cargo_cache
-    }
-
-    pub(crate) fn attention_detail(&self) -> Option<String> {
-        self.pending_attention.lock().ok()?.clone()
-    }
-
-    pub(crate) fn dependency_request(&self) -> Option<DependencyRequest> {
-        self.pending_dependency.lock().ok()?.clone()
-    }
-}
-
-impl Drop for ResourceBridge {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-        if let Ok(mut requests) = self.requests.lock() {
-            for request in requests.drain(..) {
-                let _ = request.join();
-            }
-        }
-        let _ = fs::remove_dir_all(&self.temp);
     }
 }
 
