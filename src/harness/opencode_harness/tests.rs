@@ -146,6 +146,37 @@ fn executes_structured_result_with_model_and_telemetry() {
 
 #[cfg(unix)]
 #[test]
+fn sequential_steps_use_non_overlapping_model_call_intervals() {
+    let root = temp_dir("step-timing");
+    let binary = fake_cli(
+        &root,
+        r#"if [ "$1" = "--pure" ]; then
+cat >/dev/null
+sleep 0.08
+printf '%s\n' '{"type":"text","part":{"text":"done"}}' '{"type":"step_finish","sessionID":"s","part":{"messageID":"m1","providerID":"openai","modelID":"gpt-test","tokens":{"input":3,"output":2}}}'
+sleep 0.08
+printf '%s\n' '{"type":"step_finish","sessionID":"s","part":{"messageID":"m2","providerID":"openai","modelID":"gpt-test","tokens":{"input":4,"output":2}}}'
+exit 0
+fi
+exit 1"#,
+    );
+    let _env = EnvOverride::set(&binary);
+    let (tx, rx) = mpsc::channel();
+    OpenCodeHarness.execute(&request(root.clone(), tx)).unwrap();
+    let updates = rx.try_iter().last().unwrap();
+    let calls = updates.model_calls;
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].call_id, "opencode:s:m1");
+    assert_eq!(calls[1].call_id, "opencode:s:m2");
+    assert_eq!(calls[0].ended_at, calls[1].started_at);
+    assert_eq!(calls[0].total_tokens, Some(5));
+    assert_eq!(calls[1].total_tokens, Some(6));
+    assert!(calls.iter().all(|call| call.duration_millis.is_some()));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn malformed_output_fails_and_cancellation_stops_the_child() {
     let root = temp_dir("cancel");
     let binary = fake_cli(&root, "cat >/dev/null; echo malformed; exit 0");
