@@ -6,8 +6,8 @@ use std::{
 };
 
 use super::mounts::{
-    bind_readonly, bind_readonly_file, bind_readwrite, make_dir, mount_tmpfs, mount_toolchains,
-    push_env,
+    bind_readonly, bind_readonly_file, bind_readwrite, make_dir, mount_system_runtime,
+    mount_tmpfs, mount_toolchains, push_env,
 };
 mod clone;
 mod path_safety;
@@ -66,12 +66,12 @@ pub(super) fn arguments(
         "--unshare-net".into(),
         "--unshare-ipc".into(),
         "--unshare-uts".into(),
-        "--ro-bind".into(),
-        "/".into(),
-        "/".into(),
     ];
     let mut created = BTreeSet::from(["/".to_owned()]);
-    for path in [
+    // Start with an empty Bubblewrap filesystem. The previous host-root bind
+    // exposed paths that were not individually masked, even if read-only.
+    mount_system_runtime(&mut args, &mut created)?;
+    for location in [
         "/home",
         "/root",
         "/mnt",
@@ -85,12 +85,13 @@ pub(super) fn arguments(
         "/boot",
         "/sys",
     ] {
-        if Path::new(path).is_dir() {
+        let path = Path::new(location);
+        if path.is_dir() {
             mount_tmpfs(
                 &mut args,
                 &mut created,
-                Path::new(path),
-                if path == "/tmp" {
+                path,
+                if location == "/tmp" {
                     1_073_741_824
                 } else {
                     67_108_864
@@ -98,32 +99,13 @@ pub(super) fn arguments(
             );
         }
     }
-    for path in [
-        "/etc/ssh",
-        "/etc/ssl/private",
-        "/etc/letsencrypt",
-        "/etc/docker",
-        "/etc/containers",
-        "/etc/NetworkManager/system-connections",
-        "/etc/sudoers.d",
-    ] {
-        if Path::new(path).is_dir() {
-            mount_tmpfs(&mut args, &mut created, Path::new(path), 16_777_216);
-        }
-    }
-    for path in [
-        "/etc/krb5.keytab",
-        "/etc/shadow",
-        "/etc/gshadow",
-        "/etc/sudoers",
-    ] {
-        if Path::new(path).is_file() {
-            bind_readonly_file(&mut args, &mut created, empty_file, Path::new(path));
-        }
-    }
-    for path in ["/etc/npmrc", "/usr/etc/npmrc", "/usr/local/etc/npmrc"] {
-        if Path::new(path).is_file() {
-            bind_readonly_file(&mut args, &mut created, empty_file, Path::new(path));
+    // System-wide npm config can live underneath the allowed /usr mount.
+    // The executable toolchain is trusted, but these configuration files are
+    // never inherited from the operator.
+    for location in ["/usr/etc/npmrc", "/usr/local/etc/npmrc"] {
+        let path = Path::new(location);
+        if path.is_file() {
+            bind_readonly_file(&mut args, &mut created, empty_file, path);
         }
     }
     make_dir(&mut args, &mut created, Path::new("/proc"));
