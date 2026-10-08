@@ -9,8 +9,12 @@ use super::mounts::{
     bind_readonly, bind_readonly_file, bind_readwrite, make_dir, mount_tmpfs, mount_toolchains,
     push_env,
 };
+mod clone;
 mod path_safety;
+mod worktree;
+pub(super) use clone::validate_koolade_clone;
 use path_safety::inside_workspace;
+pub(super) use worktree::validate_koolade_worktree;
 
 pub(super) fn locate_bwrap(root: &Path) -> anyhow::Result<PathBuf> {
     if let Some(path) = std::env::var_os("KOOLADE_BWRAP_BIN") {
@@ -21,7 +25,7 @@ pub(super) fn locate_bwrap(root: &Path) -> anyhow::Result<PathBuf> {
         );
         anyhow::ensure!(
             !inside_workspace(&path, root),
-            "KOOLADE_BWRAP_BIN must not point inside a repository or task worktree"
+            "KOOLADE_BWRAP_BIN must not point inside a repository or task repository"
         );
         return Ok(path);
     }
@@ -53,6 +57,7 @@ pub(super) fn arguments(
     root: &Path,
     empty_file: &Path,
     pi_executable: Option<&Path>,
+    source_repository: Option<&Path>,
 ) -> anyhow::Result<(Vec<String>, PathBuf)> {
     let mut args = vec![
         "--die-with-parent".into(),
@@ -136,6 +141,12 @@ pub(super) fn arguments(
         &mut args,
         "/tmp/koolade-tools/cargo-bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin",
     );
+    push_env(
+        &mut args,
+        "KOOLADE_TASK_REPOSITORY",
+        &root.to_string_lossy(),
+    );
+    // Keep the original environment alias for already saved verification commands.
     push_env(&mut args, "KOOLADE_WORKTREE", &root.to_string_lossy());
     push_env(&mut args, "GIT_CONFIG_NOSYSTEM", "1");
     push_env(&mut args, "GIT_CONFIG_GLOBAL", "/dev/null");
@@ -151,7 +162,7 @@ pub(super) fn arguments(
     if has_rustup {
         push_env(&mut args, "RUSTUP_HOME", "/tmp/koolade-tools/rustup-home");
     }
-    super::runtime_config::mount(&mut args, root)?;
+    super::runtime_config::mount(&mut args, root, source_repository)?;
     Ok((args, common_dir))
 }
 
@@ -163,22 +174,32 @@ fn mount_git_metadata(
 ) -> anyhow::Result<PathBuf> {
     let git_entry = root.join(".git");
     let metadata = fs::symlink_metadata(&git_entry).map_err(|_| {
-        anyhow::anyhow!("Implementation must run from Koolade's registered Git worktree")
+        anyhow::anyhow!("Implementation must run from Kool.ad/e's assigned task repository")
     })?;
     anyhow::ensure!(
-        metadata.is_file(),
-        "Implementation must run from Koolade's registered Git worktree"
+        (metadata.is_file() || metadata.is_dir()) && !metadata.file_type().is_symlink(),
+        "Implementation must run from Kool.ad/e's assigned task repository"
     );
     let admin = git_path(root, "--git-dir")?;
     let common = git_path(root, "--git-common-dir")?;
-    validate_koolade_worktree(root, &admin, &common)?;
-    bind_readonly_file(args, created, &git_entry, &git_entry);
-    bind_readonly(args, created, &common, &common)?;
+    let linked_worktree = metadata.is_file();
+    if linked_worktree {
+        validate_koolade_worktree(root, &admin, &common)?;
+        bind_readonly_file(args, created, &git_entry, &git_entry);
+        bind_readonly(args, created, &common, &common)?;
+    } else {
+        anyhow::ensure!(
+            admin == common && git_entry.canonicalize()? == common,
+            "Task repository does not have independent Git metadata"
+        );
+        validate_koolade_clone(root, &common)?;
+        bind_readonly(args, created, &common, &common)?;
+    }
     if admin != common && !admin.starts_with(&common) {
         bind_readonly(args, created, &admin, &admin)?;
     }
     let worktrees = common.join("worktrees");
-    if fs::symlink_metadata(&worktrees).is_ok_and(|metadata| metadata.is_dir()) {
+    if linked_worktree && fs::symlink_metadata(&worktrees).is_ok_and(|metadata| metadata.is_dir()) {
         mount_tmpfs(args, created, &worktrees, 67_108_864);
         bind_readonly(args, created, &admin, &admin)?;
     }
@@ -199,45 +220,6 @@ fn mount_git_metadata(
         mask_git_config(args, created, empty_file, &admin.join("config.worktree"))?;
     }
     Ok(common)
-}
-
-pub(super) fn validate_koolade_worktree(
-    root: &Path,
-    admin: &Path,
-    common: &Path,
-) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        admin != common && admin.starts_with(common.join("worktrees")),
-        "Implementation worktree is not registered under its repository Git metadata"
-    );
-    anyhow::ensure!(
-        common.file_name().is_some_and(|name| name == ".git"),
-        "Implementation worktree has an unexpected Git metadata location"
-    );
-    let repository = common
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Git metadata has no repository parent"))?;
-    let workspace_root = repository
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no workspace parent"))?;
-    let project_directory = root
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Worktree has no project directory"))?;
-    let worktree_registry = project_directory
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Worktree has no Koolade registry"))?;
-    let expected_slug = crate::persistence::project_slug(repository);
-    anyhow::ensure!(
-        worktree_registry
-            .file_name()
-            .is_some_and(|name| name == ".koolade-worktrees")
-            && worktree_registry.parent() == Some(workspace_root)
-            && project_directory
-                .file_name()
-                .is_some_and(|name| name == std::ffi::OsStr::new(&expected_slug)),
-        "Implementation worktree is outside Koolade's isolated worktree directory"
-    );
-    Ok(())
 }
 
 pub(super) fn git_path(root: &Path, option: &str) -> anyhow::Result<PathBuf> {

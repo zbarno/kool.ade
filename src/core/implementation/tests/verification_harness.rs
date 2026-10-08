@@ -23,7 +23,7 @@ fn verification_receives_corrections_even_after_report_retries_are_used() {
     let state = s.run("repair_mixed", calls.clone()).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 5);
     assert_eq!(state.status, ImplementationStatus::AwaitingReview);
-    assert!(state.worktree.join("missing-file").exists());
+    assert!(state.task_repository.join("missing-file").exists());
 }
 
 #[test]
@@ -50,6 +50,7 @@ fn verification_worktree_path_survives_cd_and_spaces() {
     let (progress, _rx) = mpsc::channel();
     let runner = Runner {
         gh: "unused".into(),
+        runtime_config_source: None,
         deadline: Instant::now() + Duration::from_secs(5),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
@@ -78,6 +79,7 @@ fn failed_command_retains_both_streams_for_correction() {
     let (progress, _rx) = mpsc::channel();
     let runner = Runner {
         gh: "unused".into(),
+        runtime_config_source: None,
         deadline: Instant::now() + Duration::from_secs(5),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
@@ -104,7 +106,7 @@ fn harness_failures_retry_and_saved_diagnostics_survive_lost_final_message() {
         assert_eq!(calls.load(Ordering::SeqCst), expected);
         assert_eq!(
             s.git(
-                &result.worktree,
+                &result.task_repository,
                 &[
                     "rev-list",
                     "--count",

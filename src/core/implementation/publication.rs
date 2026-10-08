@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::implementation::repository_cache::RepositoryCache;
 
 const HOLD_FOR_REVIEW_NOTE: &str =
     "Verified locally. No remote changes were made; share for review when ready.";
@@ -32,10 +33,19 @@ pub(super) fn create_pull_request(
     runner: &Runner,
 ) -> anyhow::Result<()> {
     runner.remaining()?;
+    let repository_cache = if state.task_repository_kind == TaskRepositoryKind::Clone {
+        Some(RepositoryCache::from_saved_state(state, runner)?)
+    } else {
+        None
+    };
     if state.destination_branch.is_some() {
-        runner
-            .git(
-                &state.worktree,
+        let available = if let Some(cache) = repository_cache.as_ref() {
+            cache
+                .refresh_branch(&state.base, runner)
+                .map(|_| String::new())
+        } else {
+            runner.git(
+                &state.task_repository,
                 &[
                     "ls-remote",
                     "--exit-code",
@@ -44,11 +54,12 @@ pub(super) fn create_pull_request(
                     &format!("refs/heads/{}", state.base),
                 ],
             )
-            .map_err(|error| {
-                crate::core::implementation::initial_reconciliation::support::user_action(
-                    format!("Selected destination branch '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base),
-                )
-            })?;
+        };
+        available.map_err(|error| {
+            crate::core::implementation::initial_reconciliation::support::user_action(
+                format!("Selected destination branch '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base),
+            )
+        })?;
     }
     anyhow::ensure!(
         !matches!(state.branch.as_str(), "main" | "master"),
@@ -60,10 +71,19 @@ pub(super) fn create_pull_request(
     );
     runner.update("Publishing the verified implementation and creating its pull request…");
     // Explicit base/head and body file avoid prompts, accidental forks and shell expansion.
-    let remote = runner.git(&state.worktree, &["remote", "get-url", "origin"])?;
+    let remote = if let Some(cache) = repository_cache.as_ref() {
+        cache.validate_task_remote(&state.task_repository, runner)?;
+        cache
+            .origin_url
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Saved task has no trusted Git origin"))?
+            .to_owned()
+    } else {
+        runner.git(&state.task_repository, &["remote", "get-url", "origin"])?
+    };
     let repository = remote_repository(&remote);
     let prs = runner.command(
-        &state.worktree,
+        &state.task_repository,
         &runner.gh,
         &[
             "pr",
@@ -87,15 +107,27 @@ pub(super) fn create_pull_request(
             "The existing PR is closed or merged. Review it before publishing more changes; no duplicate PR created."
         );
     }
-    let current_branch = runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])?;
+    let current_branch =
+        runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?;
     anyhow::ensure!(
         current_branch == state.branch,
-        "Implementation worktree branch changed; refusing to push"
+        "Implementation repository branch changed; refusing to push"
     );
-    runner.git(
-        &state.worktree,
-        &["push", "--set-upstream", "origin", &state.branch],
-    )?;
+    if let Some(cache) = repository_cache.as_ref() {
+        cache.push_commit(
+            &state.task_repository,
+            state.verified_head.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("Verified task commit is missing; refusing to publish")
+            })?,
+            &format!("refs/heads/{}", state.branch),
+            runner,
+        )?;
+    } else {
+        runner.git(
+            &state.task_repository,
+            &["push", "--set-upstream", "origin", &state.branch],
+        )?;
+    }
     if let Some(pr) = existing.first() {
         anyhow::ensure!(
             pr["state"] != "CLOSED",
@@ -105,7 +137,7 @@ pub(super) fn create_pull_request(
     } else {
         let body = dir.join("pr-body.md");
         let url = runner.command(
-            &state.worktree,
+            &state.task_repository,
             &runner.gh,
             &[
                 "pr",
@@ -192,6 +224,9 @@ pub(super) fn finish_auto_publish(
 ) -> anyhow::Result<()> {
     state.status = ImplementationStatus::Completed;
     save(dir, state)?;
+    if state.task_repository_kind == TaskRepositoryKind::Clone {
+        return Ok(());
+    }
     // Remote publication is already durable. Update an idle clean checkout only;
     // a dirty or divergent checkout remains untouched and does not undo success.
     // The writer gate keeps this fast-forward from trampling an in-flight
@@ -238,7 +273,7 @@ pub(super) fn pr_body(state: &Implementation, report: &Report) -> String {
     for c in &report.acceptance_criteria {
         text.push_str(&format!("- {}: {}\n", c.criterion, c.evidence));
     }
-    text.push_str("\n## Validation\n\nKool.ad/e reran these commands successfully in the implementation worktree:\n\n");
+    text.push_str("\n## Validation\n\nKool.ad/e reran these commands successfully in the implementation repository:\n\n");
     for c in &report.verification {
         text.push_str(&format!("```sh\n{c}\n```\n\n"));
     }

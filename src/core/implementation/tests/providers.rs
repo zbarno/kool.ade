@@ -19,7 +19,8 @@ impl checks::Provider for ImmediateCheck {
     ) -> anyhow::Result<checks::ResultState> {
         assert_eq!(repository, "github.com/fixture/repo");
         let reference = checks::candidate_ref("fixture", commit);
-        let remote = runner.git(cwd, &["ls-remote", "origin", &reference])?;
+        let fetch_url = runner.git(cwd, &["config", "--get", "koolade.fetchUrl"])?;
+        let remote = runner.git(cwd, &["ls-remote", &fetch_url, &reference])?;
         assert!(
             remote.contains(commit),
             "candidate was not pushed before checking"

@@ -31,7 +31,11 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
 if 'TICKET PATH: ' not in prompt:
-    time.sleep(3)
+    root = pathlib.Path(__file__).parent
+    deadline = time.time() + 45
+    while not (root / '004-task.started').exists() and time.time() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.25)
     report = {'schemaVersion':1,'assistantMessage':'Planning fixture: I can discuss this while the worker runs.','openItemsAdded':[],'openItemsUpdated':[],'openItemsResolved':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)

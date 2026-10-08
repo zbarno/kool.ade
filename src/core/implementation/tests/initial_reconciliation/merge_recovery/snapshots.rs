@@ -56,6 +56,12 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let (snapshot_path, snapshot) = recovery_snapshot(&s);
     assert_eq!(snapshot["phase"], "recovered_once");
+    assert_eq!(snapshot["schema_version"], 2);
+    assert_eq!(
+        snapshot["task_repository"],
+        worktree.to_string_lossy().as_ref()
+    );
+    assert!(snapshot.get("worktree").is_none());
     assert!(snapshot_path.exists());
     assert!(
         snapshot["staged_paths"]
@@ -112,14 +118,14 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
     assert_eq!(s.git(&s.repo, &["rev-parse", private_ref]), stash);
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &["merge-base", "--is-ancestor", &local, &result.base_commit]
         )
         .is_empty()
     );
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &["merge-base", "--is-ancestor", &remote, &result.base_commit]
         )
         .is_empty()

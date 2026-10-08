@@ -27,16 +27,16 @@ fn main() -> anyhow::Result<()> {
             );
             if loaded.status != koolade::core::implementation::ImplementationStatus::Completed {
                 anyhow::ensure!(
-                    loaded.worktree.join(".git").is_file(),
-                    "Preserved worktree is missing: {}",
-                    loaded.worktree.display()
+                    loaded.task_repository.join(".git").exists(),
+                    "Preserved task repository is missing: {}",
+                    loaded.task_repository.display()
                 );
                 koolade::core::implementation::completed_dependency_context(
                     &repo, &doc.path, &doc.text,
                 )?;
                 println!(
-                    "Resume lookup and merged dependencies verified; preserved worktree: {}",
-                    loaded.worktree.display()
+                    "Resume lookup and merged dependencies verified; preserved task repository: {}",
+                    loaded.task_repository.display()
                 );
             }
         }

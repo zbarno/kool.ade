@@ -194,6 +194,7 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
         reasoning_level: "high".into(),
         telemetry_phase: None,
         repo_root: root,
+        runtime_config_source: None,
         prompt_body: "fixture task".into(),
         system_instructions: "fixture policy".into(),
         timeout: Duration::from_secs(5),

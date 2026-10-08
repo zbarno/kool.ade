@@ -132,12 +132,15 @@ fn runtime_config_is_excluded_from_staging_even_without_generated_ledger() {
             .exists()
     );
     assert!(
-        s.git(&result.worktree, &["ls-files", "App/.env"])
+        s.git(&result.task_repository, &["ls-files", "App/.env"])
             .is_empty()
     );
     assert!(
-        !s.git(&result.worktree, &["ls-tree", "-r", "--name-only", "HEAD"])
-            .contains(".env")
+        !s.git(
+            &result.task_repository,
+            &["ls-tree", "-r", "--name-only", "HEAD"]
+        )
+        .contains(".env")
     );
 }
 

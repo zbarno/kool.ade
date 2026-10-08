@@ -130,7 +130,7 @@ fn progress_label(activity: Option<&str>) -> &'static str {
     } else if activity.contains("reconcil") || activity.contains("merge") {
         "reconciling repository history"
     } else if activity.starts_with("Preparing implementation") {
-        "preparing the task worktree"
+        "preparing the task repository"
     } else {
         "active; latest progress is available in task activity"
     }

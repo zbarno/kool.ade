@@ -155,7 +155,7 @@ fn normalize_directory(directory: &Path) -> anyhow::Result<PathBuf> {
             Component::Normal(part) => safe.push(part),
             Component::CurDir => {}
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                anyhow::bail!("Repository validation directory escapes its worktree")
+                anyhow::bail!("Repository validation directory escapes its task repository")
             }
         }
     }

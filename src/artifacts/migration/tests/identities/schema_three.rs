@@ -75,7 +75,9 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
     )
     .unwrap();
     fs::write(root.join(&task_path), &task).unwrap();
-    let state_dir = crate::core::implementation::state_dir(&root, &task_path).unwrap();
+    let state_dir = root
+        .join(crate::artifacts::layout::canonical::IMPLEMENTATION)
+        .join(crate::core::implementation::key_for_ticket(&task_path));
     fs::create_dir_all(&state_dir).unwrap();
     let state = crate::core::implementation::Implementation {
         ticket: task_path.clone(),
@@ -87,9 +89,20 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
         branch: "koolade/saved-search".into(),
         source_branch: None,
         destination_branch: None,
+        source_ref: None,
+        source_commit: None,
+        repository_id: None,
+        project_id: None,
+        repository_identity: None,
+        repository_cache: None,
+        task_repository_allocation_key: None,
         base: "main".into(),
         base_commit: "base".into(),
-        worktree: root.join("worktree"),
+        task_repository: root.join("worktree"),
+        task_repository_kind: crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
+        task_repository_ready: false,
+        task_repositories: vec![root.join("worktree")],
+        task_repository_commits: std::collections::BTreeMap::new(),
         status: crate::core::implementation::ImplementationStatus::Blocked,
         detail: "Preserve this existing task work.".into(),
         pr_url: None,

@@ -60,7 +60,7 @@ pub(super) fn ensure_pinned_path_scope(
         String::new()
     };
     Err(super::super::support::user_action(format!(
-        "Reconciliation stopped before further agent work: the isolated worktree contains changes outside the two pinned histories: {}{suffix}. These paths are preserved. Review or remove the unrelated changes, then resume.",
+        "Reconciliation stopped before further agent work: the isolated task repository contains changes outside the two pinned histories: {}{suffix}. These paths are preserved. Review or remove the unrelated changes, then resume.",
         listed.join(", ")
     )))
 }
@@ -75,7 +75,7 @@ pub(super) fn stage_pinned_changes(
     state: &Implementation,
     plan: &Plan,
 ) -> anyhow::Result<()> {
-    runner.git(&state.worktree, &["add", "--update"])?;
+    runner.git(&state.task_repository, &["add", "--update"])?;
     let mut allowed = BTreeSet::new();
     for commit in [&plan.local_commit, &plan.remote_commit] {
         allowed.extend(changed_paths(repo, runner, &plan.common_base, commit)?);
@@ -89,11 +89,11 @@ pub(super) fn stage_pinned_changes(
     args.extend(
         allowed
             .into_iter()
-            .filter(|path| state.worktree.join(path).symlink_metadata().is_ok()),
+            .filter(|path| state.task_repository.join(path).symlink_metadata().is_ok()),
     );
     if args.len() > 4 {
         runner.git(
-            &state.worktree,
+            &state.task_repository,
             &args.iter().map(String::as_str).collect::<Vec<_>>(),
         )?;
     }

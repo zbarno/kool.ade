@@ -10,7 +10,7 @@ The harness derives tools from the typed operation mode. Planning, task
 generation, and investigation can use read-only repository tools inside the
 Linux Bubblewrap planning profile. Read-only analysis, reconciliation, and
 decision explanation receive no tools. Implementation receives Kool.ad/e's
-bounded shell tool only inside the assigned worktree and uses its separate
+bounded shell tool only inside the assigned task workspace and uses its separate
 implementation sandbox. On hosts without the supported planning sandbox,
 planning receives only Kool.ad/e-selected context and no repository tools;
 implementation is unavailable.

@@ -1,5 +1,5 @@
-//! Resumable ticket implementation. Git worktrees and runtime records are kept
-//! independently from planning state; only verified results proceed to a PR.
+//! Resumable ticket implementation. Task repositories and runtime records are
+//! kept independently from planning state; only verified results proceed to a PR.
 mod activity;
 mod board_states;
 mod checks;
@@ -15,11 +15,13 @@ mod publication;
 mod queries;
 mod recovery;
 pub(crate) mod report;
+mod repository_cache;
 mod runner;
 mod state;
 mod state_paths;
 pub mod status;
 mod task;
+mod task_repository;
 mod telemetry;
 mod verification;
 pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
@@ -67,7 +69,7 @@ pub use status::{
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -77,6 +79,14 @@ use std::{
     },
     time::{Duration, Instant},
 };
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRepositoryKind {
+    Clone,
+    #[default]
+    LegacyWorktree,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Implementation {
@@ -96,9 +106,36 @@ pub struct Implementation {
     pub source_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_branch: Option<String>,
+    /// The source ref and immutable commit selected when this task was dispatched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_commit: Option<String>,
+    /// Stable project-manifest identity and its non-secret repository identity hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_cache: Option<PathBuf>,
+    /// Original task key used for private clone/worktree allocations and refs.
+    /// It stays fixed if the ticket path changes while work is in progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_repository_allocation_key: Option<String>,
     pub base: String,
     pub base_commit: String,
-    pub worktree: PathBuf,
+    #[serde(rename = "task_repository", alias = "worktree")]
+    pub task_repository: PathBuf,
+    #[serde(default)]
+    pub task_repository_kind: TaskRepositoryKind,
+    #[serde(default)]
+    pub task_repository_ready: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_repositories: Vec<PathBuf>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub task_repository_commits: BTreeMap<String, String>,
     pub status: ImplementationStatus,
     pub detail: String,
     pub pr_url: Option<String>,
@@ -235,6 +272,8 @@ mod tests {
     mod recovery_corrections;
     #[path = "resume_and_pr.rs"]
     mod resume_and_pr;
+    #[path = "task_repositories.rs"]
+    mod task_repositories;
     #[path = "verification_harness.rs"]
     mod verification_harness;
     #[path = "worker_context.rs"]

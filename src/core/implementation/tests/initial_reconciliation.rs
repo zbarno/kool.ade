@@ -16,8 +16,11 @@ mod report_envelope;
 mod resilience;
 #[path = "initial_reconciliation/runtime_config.rs"]
 mod runtime_config;
+#[path = "initial_reconciliation/support.rs"]
+mod support;
 #[path = "initial_reconciliation/whitespace.rs"]
 mod whitespace;
+pub(super) use support::{complete_report, outcome, save_legacy_reconciliation_state};
 
 struct ReconcilingAgent {
     calls: Arc<AtomicUsize>,
@@ -127,24 +130,24 @@ fn divergent_histories_are_combined_before_the_task_agent_runs() {
     assert_eq!(agent.calls.load(Ordering::SeqCst), 1);
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &["merge-base", "--is-ancestor", &local, &result.base_commit]
         )
         .is_empty()
     );
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &["merge-base", "--is-ancestor", &remote, &result.base_commit]
         )
         .is_empty()
     );
     assert_eq!(
-        fs::read_to_string(result.worktree.join("local.txt")).unwrap(),
+        fs::read_to_string(result.task_repository.join("local.txt")).unwrap(),
         "local change\n"
     );
     assert_eq!(
-        fs::read_to_string(result.worktree.join("upstream.txt")).unwrap(),
+        fs::read_to_string(result.task_repository.join("upstream.txt")).unwrap(),
         "latest upstream\n"
     );
     assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), local);
@@ -171,19 +174,19 @@ fn merge_conflicts_are_agent_resolved_and_verified_in_isolation() {
 
     assert_eq!(agent.calls.load(Ordering::SeqCst), 2);
     assert_eq!(
-        fs::read_to_string(result.worktree.join("shared.txt")).unwrap(),
+        fs::read_to_string(result.task_repository.join("shared.txt")).unwrap(),
         "both edits preserved\n"
     );
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &["merge-base", "--is-ancestor", &local, &result.base_commit]
         )
         .is_empty()
     );
     assert!(
         s.git(
-            &result.worktree,
+            &result.task_repository,
             &["merge-base", "--is-ancestor", &remote, &result.base_commit]
         )
         .is_empty()
@@ -215,10 +218,13 @@ fn ambiguous_conflicts_remain_blocked_without_touching_either_branch() {
     let state = load(&s.repo, &s.ticket).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     assert!(state.detail.contains("Keep local behavior"));
-    assert!(!state.worktree.join("implemented.txt").exists());
+    assert!(!state.task_repository.join("implemented.txt").exists());
     assert!(
-        !s.git(&state.worktree, &["diff", "--name-only", "--diff-filter=U"])
-            .is_empty()
+        !s.git(
+            &state.task_repository,
+            &["diff", "--name-only", "--diff-filter=U"]
+        )
+        .is_empty()
     );
 }
 
@@ -271,30 +277,4 @@ fn run_with_agent_for_ticket(
             auto_publish_gate: None,
         },
     )
-}
-
-fn complete_report(command: &str) -> serde_json::Value {
-    let criteria = crate::core::implementation::initial_reconciliation::CONTRACT
-        .lines()
-        .filter_map(|line| line.strip_prefix("- "))
-        .map(|criterion| serde_json::json!({"criterion":criterion,"evidence":"Both histories were checked and the combined baseline verification passed."}))
-        .collect::<Vec<_>>();
-    serde_json::json!({
-        "schemaVersion":2,
-        "status":"complete",
-        "blocker_disposition":"none",
-        "summary":"Both starting histories are integrated and the combined baseline passed its checks.",
-        "acceptance_criteria":criteria,
-        "verification":[command],
-        "remaining":[],
-        "human_choices":[]
-    })
-}
-
-fn outcome(value: serde_json::Value) -> crate::harness::HarnessOutcome {
-    crate::harness::HarnessOutcome {
-        final_text: value.to_string(),
-        envelope: None,
-        stderr_tail: String::new(),
-    }
 }

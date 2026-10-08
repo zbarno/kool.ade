@@ -8,14 +8,17 @@ fn completed_task_shows_cleanup_failure_without_reopening_implementation() {
             .implementation_states
             .get_mut(".koolade-packet/planning/tasks/fixture/003-task.md")
             .unwrap();
-        record.cleanup.error = Some("Worktree contains local changes".into());
+        record.cleanup.error = Some("Task repository contains local changes".into());
     }
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "Merged task");
     assert!(text_position(&output, "Task details & state").is_some());
     assert!(text_contains(&output, "cleanup needs attention"));
-    assert!(text_contains(&output, "Worktree contains local changes"));
+    assert!(text_contains(
+        &output,
+        "Task repository contains local changes"
+    ));
 }
 
 #[test]

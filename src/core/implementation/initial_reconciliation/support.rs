@@ -154,7 +154,7 @@ pub(super) fn run_verification(
     let mut failure = None;
     for command in commands {
         let before = generated::before(runner, state, dir)?;
-        let result = runner.verify(&state.worktree, command);
+        let result = runner.verify(&state.task_repository, command);
         let artifacts = generated::after(runner, state, dir, before);
         let (output, error) = match result {
             Ok(output) => (Some(crate::error::redact_secrets(&output)), None),
@@ -191,16 +191,31 @@ pub(super) fn unmerged_paths(runner: &Runner, worktree: &Path) -> anyhow::Result
     Ok(output.lines().map(str::to_owned).collect())
 }
 
-pub(super) fn validate_worktree(
+pub(super) fn validate_task_repository(
     repo: &Path,
     state: &Implementation,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        common(&state.worktree)?.canonicalize()? == common(repo)?.canonicalize()?
-            && runner.git(&state.worktree, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
-        "Reconciliation worktree identity changed; refusing to modify it"
-    );
+    match state.task_repository_kind {
+        TaskRepositoryKind::LegacyWorktree => anyhow::ensure!(
+            common(&state.task_repository)?.canonicalize()? == common(repo)?.canonicalize()?
+                && runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
+                    == state.branch,
+            "Legacy reconciliation repository identity changed; refusing to modify it"
+        ),
+        TaskRepositoryKind::Clone => {
+            crate::core::implementation::task_repository::validate_clone_path(state)?;
+            crate::core::implementation::repository_cache::RepositoryCache::verify_task_repository(
+                &state.task_repository,
+                runner,
+            )?;
+            anyhow::ensure!(
+                runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
+                    == state.branch,
+                "Reconciliation task repository identity changed; refusing to modify it"
+            );
+        }
+    }
     Ok(())
 }
 

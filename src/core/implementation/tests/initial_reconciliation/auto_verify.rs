@@ -43,6 +43,16 @@ fn clean_disjoint_merge_with_an_unexpected_head_is_not_auto_accepted() {
         &worktree,
         &["merge", "--no-ff", "--no-commit", "--no-edit", &local],
     );
+    let common = sandbox.git(&sandbox.repo, &["merge-base", &local, &remote]);
+    super::save_legacy_reconciliation_state(
+        &sandbox,
+        &sandbox.ticket,
+        &worktree,
+        "main",
+        &local,
+        &remote,
+        &common,
+    );
 
     let agent = ReconcilingAgent {
         calls: Arc::new(AtomicUsize::new(0)),

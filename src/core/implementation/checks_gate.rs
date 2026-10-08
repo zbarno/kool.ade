@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::implementation::repository_cache::RepositoryCache;
 
 pub(super) fn independent_check_passed(check: Option<&IndependentCheck>, commit: &str) -> bool {
     check.is_some_and(|check| {
@@ -10,7 +11,7 @@ pub(super) struct CheckRequest<'a> {
     pub provider: &'a dyn checks::Provider,
     pub repository: &'a str,
     pub candidate_ref: &'a str,
-    pub worktree: &'a Path,
+    pub repository_path: &'a Path,
     pub commit: &'a str,
 }
 
@@ -18,14 +19,23 @@ pub(super) fn wait_for_independent_checks(
     repo: &Path,
     dir: &Path,
     state: &mut Implementation,
-    worktree: &Path,
+    repository_path: &Path,
     commit: &str,
     runner: &Runner,
     auto_publish_gate: Option<&AtomicBool>,
 ) -> anyhow::Result<()> {
-    // Keep the configured hosting identity. `remote get-url` applies
-    // insteadOf rewrites that can point at a local mirror or transport alias.
-    let remote = runner.git(repo, &["config", "--get", "remote.origin.url"])?;
+    let remote = if state.task_repository_kind == TaskRepositoryKind::Clone {
+        let cache = RepositoryCache::from_saved_state(state, runner)?;
+        cache.validate_task_remote(&state.task_repository, runner)?;
+        cache
+            .origin_url
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Saved task has no trusted Git origin"))?
+    } else {
+        // Keep the configured hosting identity. `remote get-url` applies
+        // insteadOf rewrites that can point at a local mirror or transport alias.
+        runner.git(repo, &["config", "--get", "remote.origin.url"])?
+    };
     let Some(provider) = checks::for_remote(&remote) else {
         state.independent_check = Some(IndependentCheck {
             provider: "Unsupported provider".into(),
@@ -49,13 +59,13 @@ pub(super) fn wait_for_independent_checks(
     let repository = provider.repository(&remote).ok_or_else(|| {
         anyhow::anyhow!("Supported CI provider could not identify its repository")
     })?;
-    let candidate_ref = checks::candidate_ref(&key(&state.ticket), commit);
+    let candidate_ref = checks::candidate_ref(&task_repository::allocation_key(state), commit);
     wait_with_provider(
         CheckRequest {
             provider,
             repository: &repository,
             candidate_ref: &candidate_ref,
-            worktree,
+            repository_path,
             commit,
         },
         dir,
@@ -76,9 +86,16 @@ pub(super) fn wait_with_provider(
         provider,
         repository,
         candidate_ref,
-        worktree,
+        repository_path,
         commit,
     } = request;
+    let repository_cache = if state.task_repository_kind == TaskRepositoryKind::Clone {
+        let cache = RepositoryCache::from_saved_state(state, runner)?;
+        cache.validate_task_remote(repository_path, runner)?;
+        Some(cache)
+    } else {
+        None
+    };
     let already_passed = state.independent_check.as_ref().is_some_and(|check| {
         check.commit == commit
             && check.candidate_ref == candidate_ref
@@ -105,10 +122,14 @@ pub(super) fn wait_with_provider(
         "Starting {} for the verified integrated change…",
         provider.name()
     ));
-    runner.git(
-        worktree,
-        &["push", "origin", &format!("{commit}:{candidate_ref}")],
-    )?;
+    if let Some(cache) = repository_cache.as_ref() {
+        cache.push_commit(repository_path, commit, candidate_ref, runner)?;
+    } else {
+        runner.git(
+            repository_path,
+            &["push", "origin", &format!("{commit}:{candidate_ref}")],
+        )?;
+    }
 
     let deadline = Instant::now() + Duration::from_secs(15 * 60);
     loop {
@@ -119,7 +140,10 @@ pub(super) fn wait_with_provider(
             );
             return publication::hold_for_review(dir, state);
         }
-        let result = match provider.check(runner, worktree, repository, commit) {
+        let check_path = repository_cache
+            .as_ref()
+            .map_or(repository_path, |cache| cache.path.as_path());
+        let result = match provider.check(runner, check_path, repository, commit) {
             Ok(result) => result,
             Err(error) => {
                 let detail = format!("Could not read {} results: {error:#}", provider.name());

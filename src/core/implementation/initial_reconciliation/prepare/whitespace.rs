@@ -77,7 +77,7 @@ fn defects(
     let mut counts = BTreeMap::new();
     while let Some(header) = lines.next() {
         let Some((location, kind)) = header.rsplit_once(": ") else {
-            anyhow::bail!("Unrecognized whitespace diagnostic; preserving worktree");
+            anyhow::bail!("Unrecognized whitespace diagnostic; preserving task repository");
         };
         let Some((reported_path, line)) = location.rsplit_once(':') else {
             anyhow::bail!("Invalid whitespace diagnostic");
