@@ -223,5 +223,8 @@ fn implementation_boundary_cannot_read_unregistered_host_files_or_follow_escapin
         "unauthorized host file became readable: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(fs::read_to_string(&private).unwrap(), "operator-only-sentinel");
+    assert_eq!(
+        fs::read_to_string(&private).unwrap(),
+        "operator-only-sentinel"
+    );
 }
