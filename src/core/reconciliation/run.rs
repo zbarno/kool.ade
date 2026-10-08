@@ -54,7 +54,8 @@ pub(super) fn run_with_settle_window(
             !cancel.load(std::sync::atomic::Ordering::SeqCst),
             "Reconciliation cancelled"
         );
-        let request = PlanningRequest { mode: ExecutionMode::Reconciliation, reasoning_level: "xhigh".into(),
+        let request = PlanningRequest { mode: ExecutionMode::Reconciliation,
+            task_id: None, reasoning_level: "xhigh".into(),
         telemetry_phase: None,
             repo_root: state.repo_root.clone(),
             runtime_config_source: None,

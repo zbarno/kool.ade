@@ -79,6 +79,7 @@ impl AiHarness for UsageHarness {
 fn request(progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: env::temp_dir(),

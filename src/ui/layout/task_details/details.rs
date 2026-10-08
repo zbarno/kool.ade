@@ -36,6 +36,16 @@ pub(super) fn paint(
                     .strong()
                     .color(theme::BLUE_BRIGHT),
             );
+            if let Some(request) = view.progress.as_ref().and_then(|progress| {
+                progress
+                    .dependency_requests
+                    .iter()
+                    .rev()
+                    .find(|request| request.status.is_active())
+            }) {
+                super::dependency::paint(ui, s, ticket, request);
+                ui.add_space(8.0);
+            }
             if active {
                 ui.label("Kool.ad/e is working. You can cancel this task while unrelated work continues.");
                 if ui
@@ -140,6 +150,9 @@ pub(super) fn paint(
         });
     }
     activity::paint(ui, view, ticket, active, activity_path);
+    if let Some(progress) = view.progress.as_ref() {
+        super::dependency::paint_history(ui, &progress.dependency_requests);
+    }
     if column == 4 && ui.button("Archive").clicked() {
         s.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
             ticket: ticket.to_owned(),
@@ -210,6 +223,6 @@ fn paint_attention(
     }
 }
 
-fn dispatch(s: &mut dyn Surface, command: crate::ui::task_detail::Command) {
+pub(super) fn dispatch(s: &mut dyn Surface, command: crate::ui::task_detail::Command) {
     s.dispatch(crate::ui::ApplicationCommand::TaskDetail(command));
 }

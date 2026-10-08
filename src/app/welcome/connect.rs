@@ -140,6 +140,9 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
             project.activity.tasks.insert(item.id.clone(), activity);
         }
     }
+    for ticket in project.activity.recover_dependency_reviews() {
+        project.save_task_activity(&ticket);
+    }
     if has_current_board_work(&project) {
         project.activity.pending.push(
             "Workspace connected; review existing board work for progress, user actions, and external blockers."

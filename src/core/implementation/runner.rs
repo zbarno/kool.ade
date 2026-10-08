@@ -154,8 +154,10 @@ impl Runner {
         } else {
             crate::harness::pi_sandbox::Sandbox::new(cwd)?
         };
-        let npm_cache = crate::harness::prepared_npm_cache_path()?;
-        sandbox.mount_npm_cache(&npm_cache, false)?;
+        let npm_cache = crate::harness::prepared_npm_cache_path(cwd)?;
+        sandbox.mount_npm_cache(&npm_cache)?;
+        let cargo_cache = crate::harness::prepared_cargo_cache_path()?;
+        sandbox.mount_cargo_cache(&cargo_cache)?;
         let args = sandbox.command_args("/bin/sh", command);
         let args = args.iter().map(String::as_str).collect::<Vec<_>>();
         self.command_clean_env(

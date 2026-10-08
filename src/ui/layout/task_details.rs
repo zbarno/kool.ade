@@ -2,6 +2,7 @@
 use super::*;
 mod activity;
 mod conversation;
+mod dependency;
 mod details;
 mod hero;
 mod planning;

@@ -1,4 +1,4 @@
-use std::{fs, net::TcpListener, path::Path};
+use std::{fs, net::TcpListener, path::Path, process::Command};
 
 use crate::harness::pi_sandbox::Sandbox;
 
@@ -90,6 +90,63 @@ fn implementation_boundary_has_no_host_network_route() {
     assert_eq!(
         fs::read_to_string(root.join("network-check")).unwrap(),
         "isolated\n"
+    );
+}
+
+#[test]
+fn npm_install_lifecycle_stays_offline_with_prepared_cache_mounted() {
+    if !cfg!(target_os = "linux") || !bwrap_available() {
+        return;
+    }
+    if !Command::new("npm")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let tree = TestTree::new();
+    let (_repository, root) = create_worktree(&tree, "npm-lifecycle-boundary");
+    fs::write(
+        root.join("package.json"),
+        r#"{"name":"koolade-offline-fixture","version":"1.0.0","private":true}"#,
+    )
+    .unwrap();
+    let dependency = root.join("fixtures/lifecycle-dependency");
+    fs::create_dir_all(&dependency).unwrap();
+    let lifecycle = format!(
+        "node -e \"const fs=require('fs'),net=require('net');const out=process.env.INIT_CWD+'/lifecycle-network';const socket=net.connect({port},'127.0.0.1');const timer=setTimeout(()=>{{fs.writeFileSync(out,'blocked');process.exit(0)}},1500);socket.on('connect',()=>{{clearTimeout(timer);fs.writeFileSync(out,'connected');process.exit(95)}});socket.on('error',()=>{{clearTimeout(timer);fs.writeFileSync(out,'blocked')}});\""
+    );
+    fs::write(
+        dependency.join("package.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "name": "koolade-lifecycle-fixture",
+            "version": "1.0.0",
+            "scripts": { "preinstall": lifecycle },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let prepared_cache = tree.0.join("prepared-npm-cache");
+    fs::create_dir_all(prepared_cache.join("_cacache")).unwrap();
+    let mut sandbox = Sandbox::new(&root).unwrap();
+    sandbox.mount_npm_cache(&prepared_cache).unwrap();
+    let output = run(
+        &sandbox,
+        "/bin/bash",
+        "test -d /tmp/koolade-home/.npm-prepared/_cacache && npm install --offline --no-audit --no-fund ./fixtures/lifecycle-dependency",
+    );
+    drop(listener);
+    assert!(
+        output.status.success(),
+        "offline npm retry failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("lifecycle-network")).unwrap(),
+        "blocked"
     );
 }
 

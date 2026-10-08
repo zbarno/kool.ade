@@ -95,6 +95,7 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
     let (tx, rx) = mpsc::channel();
     let request = PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "high".into(),
         telemetry_phase: None,
         repo_root: root.clone(),
@@ -192,6 +193,7 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
     use std::time::Duration;
     let request = PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: ".".into(),
@@ -264,6 +266,7 @@ fn request(
     use std::time::Duration;
     crate::harness::PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "high".into(),
         telemetry_phase: None,
         repo_root: root.to_path_buf(),

@@ -115,8 +115,9 @@ pub fn redact_secrets(input: &str) -> String {
         let next = SCHEMES
             .iter()
             .filter_map(|scheme| {
-                input[cursor..]
-                    .find(scheme)
+                input.as_bytes()[cursor..]
+                    .windows(scheme.len())
+                    .position(|window| window.eq_ignore_ascii_case(scheme.as_bytes()))
                     .map(|relative| (cursor + relative, scheme.len()))
             })
             .min_by_key(|(start, _)| *start);
@@ -193,13 +194,14 @@ mod tests {
 
     #[test]
     fn userinfo_is_removed_from_urls_in_diagnostics() {
-        let input = "fatal: unable to access 'https://alice:ghp_secret@github.com/acme/repo.git': denied; ssh://build:password@git.example/a/b";
+        let input = "fatal: unable to access 'https://alice:ghp_secret@github.com/acme/repo.git': denied; ssh://build:password@git.example/a/b; HTTPS://synthetic-user:synthetic-pass@packages.example.net/pkg";
         let redacted = redact_secrets(input);
         assert_eq!(
             redacted,
-            "fatal: unable to access 'https://[REDACTED]@github.com/acme/repo.git': denied; ssh://[REDACTED]@git.example/a/b"
+            "fatal: unable to access 'https://[REDACTED]@github.com/acme/repo.git': denied; ssh://[REDACTED]@git.example/a/b; HTTPS://[REDACTED]@packages.example.net/pkg"
         );
         assert!(!redacted.contains("ghp_secret"));
         assert!(!redacted.contains("password"));
+        assert!(!redacted.contains("synthetic-pass"));
     }
 }

@@ -241,6 +241,7 @@ pub(super) fn run_turn(
         } else {
             crate::harness::ExecutionMode::Planning
         },
+        task_id: None,
         reasoning_level: match inputs.purpose {
             crate::core::workflow::TurnPurpose::GenerateTasks => "off",
             _ => "xhigh",

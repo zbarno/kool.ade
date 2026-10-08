@@ -27,6 +27,7 @@ mod adoption;
 mod agent_updates;
 mod attention;
 mod connection;
+mod dependency_authorization;
 mod desktop_app;
 mod dialogs;
 mod implementation_controller;

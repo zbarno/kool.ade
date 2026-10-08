@@ -58,6 +58,7 @@ impl EventFold {
             checklist: self.checklist.clone(),
             checklist_revision: self.checklist_revision,
             model_calls: self.model_calls.clone(),
+            dependency_requests: Vec::new(),
         }
     }
 

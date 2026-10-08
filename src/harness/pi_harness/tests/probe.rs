@@ -144,7 +144,19 @@ fn probe_report_without_any_discoverable_pi_names_the_override() {
 fn probe_report_invariants_hold_on_any_host() {
     let rep = PiHarness::probe_report();
     assert!(rep.status.starts_with("pi "), "status: {}", rep.status);
-    if rep.ok {
+    if rep.configuration_required {
+        assert!(!rep.ok, "missing provider configuration is not ready");
+        assert!(rep.binary.is_some(), "Pi must be discoverable");
+        assert!(
+            !rep.status.contains("(unavailable"),
+            "status: {}",
+            rep.status
+        );
+        assert!(
+            !rep.diagnostic.is_empty(),
+            "missing configuration needs guidance"
+        );
+    } else if rep.ok {
         assert!(rep.binary.is_some(), "ok requires a winning binary");
         assert!(
             !rep.status.contains("(unavailable"),

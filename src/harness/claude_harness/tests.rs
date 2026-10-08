@@ -56,6 +56,7 @@ fn structured_prompt_uses_stream_json_input_without_arguments() {
     assert!(!args.iter().any(|arg| arg == "private task prompt"));
     let read_only = PlanningRequest {
         mode: ExecutionMode::Planning,
+        task_id: None,
         ..request
     };
     let args = command(std::path::Path::new("claude"), &read_only);
@@ -187,6 +188,7 @@ fn malformed_output_is_rejected_and_cancellation_kills_the_child() {
 fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "high".into(),
         telemetry_phase: None,
         repo_root: root,

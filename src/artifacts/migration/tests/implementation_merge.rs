@@ -115,6 +115,7 @@ fn progress(updated_ms: i64, activity: &str) -> crate::harness::LiveProgress {
         model_calls: Vec::new(),
         checklist: Vec::new(),
         checklist_revision: 0,
+        dependency_requests: Vec::new(),
         posts: vec![],
         thoughts: String::new(),
         response: String::new(),
