@@ -185,6 +185,8 @@ struct RunOptions<'a> {
     require_independent_checks: bool,
     user_context: Option<&'a str>,
     auto_publish_gate: Option<Arc<AtomicBool>>,
+    /// Live remote ownership fence for the current implementation attempt.
+    publication_claim: Option<Arc<std::sync::Mutex<crate::core::task_claim::ClaimLease>>>,
 }
 
 struct ExecutionPolicy<'a> {
@@ -192,6 +194,7 @@ struct ExecutionPolicy<'a> {
     publication_mode: PublicationMode,
     require_independent_checks: bool,
     auto_publish_gate: Option<&'a AtomicBool>,
+    publication_claim: Option<&'a Arc<std::sync::Mutex<crate::core::task_claim::ClaimLease>>>,
     /// Per-workspace accrual scope (F7): `Some` when identifiers resolved.
     accrual: Option<crate::core::time_accrual::AgentSpan>,
 }
@@ -239,6 +242,7 @@ mod tests {
                 require_independent_checks: false,
                 user_context: None,
                 auto_publish_gate: None,
+                publication_claim: None,
             },
         )
     }
