@@ -24,12 +24,10 @@ impl KooladeApp {
     /// not from egui's repeated paint pass. The controller remains responsible
     /// for creating the durable introduction (idempotently by task identity).
     fn prepare_selected_task_chat(&mut self, ctx: &egui::Context) {
-        let task = ctx.data_mut(|data| {
-            data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
-        });
-        let planning = ctx.data_mut(|data| {
-            data.get_temp::<String>(egui::Id::new("koolade_selected_planning"))
-        });
+        let task =
+            ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")));
+        let planning = ctx
+            .data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
         let selected = task.or_else(|| {
             let key = planning?;
             // Board planning items are selected by item ID, but task
