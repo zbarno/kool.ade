@@ -149,23 +149,27 @@ impl Controller {
                 return;
             }
             let heartbeat = claim.map(|claim| {
+                let claim = Arc::new(std::sync::Mutex::new(claim));
+                let heartbeat_claim = claim.clone();
                 let heartbeat_cancel = worker_cancel.clone();
                 let (stop, stopped) = mpsc::channel();
                 let thread = std::thread::spawn(move || {
-                    let mut claim = claim;
                     while let Err(mpsc::RecvTimeoutError::Timeout) =
                         stopped.recv_timeout(std::time::Duration::from_secs(
                             crate::core::task_claim::HEARTBEAT_INTERVAL_SECONDS,
                         ))
                     {
-                        if claim.refresh().is_err() {
+                        let refreshed = heartbeat_claim
+                            .lock()
+                            .map_err(|_| ())
+                            .and_then(|mut lease| lease.refresh().map_err(|_| ()));
+                        if refreshed.is_err() {
                             heartbeat_cancel.store(true, Ordering::SeqCst);
                             break;
                         }
                     }
-                    drop(claim);
                 });
-                (stop, thread)
+                (stop, thread, claim)
             });
             let (progress, updates) = mpsc::channel::<LiveProgress>();
             let fwd = tx.clone();
@@ -192,9 +196,10 @@ impl Controller {
                     require_independent_checks: policy.require_independent_checks,
                     user_context: user_context.as_deref(),
                     auto_publish_gate: Some(worker_publish_gate),
+                    publication_claim: heartbeat.as_ref().map(|(_, _, lease)| lease.clone()),
                 },
             );
-            if let Some((stop, thread)) = heartbeat {
+            if let Some((stop, thread, _lease)) = heartbeat {
                 let _ = stop.send(());
                 let _ = thread.join();
             }
