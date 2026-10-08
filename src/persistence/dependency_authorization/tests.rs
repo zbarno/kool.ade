@@ -165,6 +165,8 @@ fn concurrent_processes_do_not_lose_project_grants() {
                 .env("KOOLADE_HOME", &state_root)
                 .env("KOOLADE_TEST_AUTH_CHILD_PROJECT", &project)
                 .env("KOOLADE_TEST_AUTH_CHILD_WORKER", worker.to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
                 .spawn()
                 .unwrap()
         })
