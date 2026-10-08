@@ -24,11 +24,44 @@ fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
         }
     }
     assert!(
-        sandbox
+        !sandbox
             .args
             .windows(3)
-            .any(|args| args == ["--ro-bind", "/", "/"])
+            .any(|args| args == ["--ro-bind", "/", "/"]),
+        "implementation must never bind the host root"
     );
+    // A compiler alternative may be required to resolve /usr/bin/cc, but
+    // the surrounding /etc/alternatives directory must remain invisible.
+    if let Ok(compiler) = Path::new("/etc/alternatives/cc").canonicalize()
+        && compiler.is_file()
+        && compiler.starts_with("/usr")
+    {
+        assert!(
+            sandbox.args.windows(3).any(|args| {
+                args[0] == "--symlink"
+                    && args[1] == compiler.to_string_lossy()
+                    && args[2] == "/etc/alternatives/cc"
+            }),
+            "missing canonical compiler symlink"
+        );
+        assert!(
+            !sandbox
+                .args
+                .windows(3)
+                .any(|args| { args[0] == "--ro-bind" && args[1] == "/etc/alternatives" }),
+            "do not expose the entire alternatives directory"
+        );
+    }
+    for allowed in ["/usr", "/etc/ssl/certs"] {
+        if Path::new(allowed).exists() {
+            assert!(
+                sandbox.args.windows(3).any(|args| {
+                    args[0] == "--ro-bind" && args[1] == allowed && args[2] == allowed
+                }),
+                "missing explicit read-only runtime mount: {allowed}"
+            );
+        }
+    }
     assert!(
         sandbox
             .args
@@ -181,4 +214,39 @@ fn sandboxed_verification_keeps_worktree_and_toolchain_inside_posix_shell() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(root.join("target/debug/deps").is_dir());
+}
+
+#[test]
+fn implementation_boundary_cannot_read_unregistered_host_files_or_follow_escaping_symlinks() {
+    if !cfg!(target_os = "linux") || !bwrap_available() {
+        return;
+    }
+    let tree = TestTree::new();
+    let (_repository, root) = create_worktree(&tree, "read-boundary");
+    let private = tree.0.join("operator-secret.txt");
+    fs::write(&private, "operator-only-sentinel").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&private, root.join("escape-link")).unwrap();
+
+    let sandbox = Sandbox::new(&root).unwrap();
+    let command = format!(
+        "test ! -e '{}' && \
+         test ! -e '{}' && \
+         test ! -e /etc/shadow && \
+         test ! -e /opt/koolade-operator-secret && \
+         test -r /etc/passwd && \
+         test -x /bin/sh",
+        private.display(),
+        root.join("escape-link").display()
+    );
+    let output = run(&sandbox, "/bin/bash", &command);
+    assert!(
+        output.status.success(),
+        "unauthorized host file became readable: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&private).unwrap(),
+        "operator-only-sentinel"
+    );
 }

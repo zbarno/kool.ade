@@ -226,9 +226,16 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     let sandbox_args = config["args"].as_array().unwrap();
     assert!(sandbox_args.iter().any(|arg| arg == "--unshare-net"));
     assert!(
+        !sandbox_args
+            .windows(3)
+            .any(|args| { args[0] == "--ro-bind" && args[1] == "/" && args[2] == "/" }),
+        "implementation must not expose the host filesystem root"
+    );
+    assert!(
         sandbox_args
             .windows(3)
-            .any(|args| { args[0] == "--ro-bind" && args[1] == "/" && args[2] == "/" })
+            .any(|args| { args[0] == "--ro-bind" && args[1] == "/usr" && args[2] == "/usr" }),
+        "implementation must expose only the approved system runtime"
     );
     fs::remove_dir_all(root).unwrap();
 }
