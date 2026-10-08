@@ -44,6 +44,44 @@ pub(super) fn paint(
         );
     });
     columns::paint(ui, s, board, &mut selected_path, &mut planning_selection);
+
+    // Opening or switching a task is an interaction, not a rendering side
+    // effect. Emit one typed initialization command on the selection change,
+    // before the modal reads its conversation in the same frame.
+    let selected_chat = selected_path
+        .as_deref()
+        .filter(|path| docs.iter().any(|doc| doc.path == *path))
+        .map(str::to_owned)
+        .or_else(|| {
+            let selected = planning_selection.as_deref()?;
+            items
+                .iter()
+                .find(|item| item.id == selected)
+                .map(|item| item.conversation_key().to_owned())
+                .or_else(|| {
+                    board
+                        .planning_work
+                        .iter()
+                        .find(|work| work.key == selected)
+                        .map(|work| work.key.clone())
+                })
+        });
+    let prepared_id = egui::Id::new("koolade_last_prepared_task_chat");
+    let previously_prepared = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<String>(prepared_id));
+    if selected_chat != previously_prepared {
+        ui.ctx().data_mut(|data| {
+            if let Some(key) = selected_chat.as_ref() {
+                data.insert_temp(prepared_id, key.clone());
+            } else {
+                data.remove::<String>(prepared_id);
+            }
+        });
+        if let Some(key) = selected_chat {
+            s.dispatch(crate::ui::ApplicationCommand::PrepareTaskChat { key });
+        }
+    }
     cancellation::confirm(ui, s, board);
     let active_hover = egui::Id::new("koolade_board_hover_active");
     let next_hover = egui::Id::new("koolade_board_hover_next");
