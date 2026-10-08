@@ -54,6 +54,7 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
         let (progress_tx, _rx) = mpsc::channel();
         PiHarness.execute(&PlanningRequest {
             mode,
+            task_id: None,
             reasoning_level: "low".into(),
             telemetry_phase: None,
             repo_root: root.clone(),
@@ -183,6 +184,7 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     unsafe { std::env::set_var(PI_BINARY_ENV, &script) };
     let outcome = PiHarness.execute(&PlanningRequest {
         mode: crate::harness::ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "low".into(),
         telemetry_phase: None,
         repo_root: repo.clone(),
@@ -201,13 +203,14 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     assert_eq!(outcome.unwrap().final_text, "bounded fixture completed");
     let received_args = fs::read_to_string(root.join("received-args.txt")).unwrap();
     assert!(received_args.contains("--no-builtin-tools"));
-    assert!(received_args.contains("--tools\nkoolade_bash,koolade_resource\n"));
+    assert!(received_args.contains("--tools\nkoolade_bash,koolade_resource,koolade_dependency\n"));
     assert!(received_args.contains("--extension\n"));
     assert!(!received_args.contains("--tools\nread,grep,find,ls\n"));
     assert!(!received_args.contains("--no-tools"));
     let extension = fs::read_to_string(root.join("extension.ts")).unwrap();
     assert!(extension.contains("name: \"koolade_bash\""));
     assert!(extension.contains("name: \"koolade_resource\""));
+    assert!(extension.contains("name: \"koolade_dependency\""));
     assert!(extension.contains("KOOLADE_RESOURCE_SOCKET"));
     assert!(extension.contains("prepare_nuget_audit"));
     assert!(extension.contains("could not refresh the public NuGet audit feed"));

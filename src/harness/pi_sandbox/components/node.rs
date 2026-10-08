@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::path_safety::ensure_narrow_host_directory;
-use crate::harness::pi_sandbox::mounts::{bind_readonly, make_dir};
+use crate::harness::pi_sandbox::mounts::{bind_readonly, bind_readonly_file, make_dir};
 
 const VISIBLE_RUNTIME_ROOTS: [&str; 6] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/usr/local"];
 const SANDBOX_NODE_ROOT: &str = "/tmp/koolade-tools/node";
@@ -45,6 +45,7 @@ pub(in crate::harness::pi_sandbox) fn host_node_root() -> anyhow::Result<Option<
 pub(super) fn mount_node_runtime(
     args: &mut Vec<String>,
     created: &mut BTreeSet<String>,
+    empty_file: &Path,
 ) -> anyhow::Result<Option<PathBuf>> {
     let Some(root) = host_node_root()? else {
         return Ok(None);
@@ -65,6 +66,10 @@ pub(super) fn mount_node_runtime(
     let destination = PathBuf::from(SANDBOX_NODE_ROOT);
     make_dir(args, created, &destination);
     bind_readonly(args, created, &root, &destination)?;
+    let global_config = root.join("etc/npmrc");
+    if global_config.is_file() {
+        bind_readonly_file(args, created, empty_file, &destination.join("etc/npmrc"));
+    }
     Ok(Some(destination))
 }
 

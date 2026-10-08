@@ -42,6 +42,7 @@ pub(super) fn run(
         let diff = runner.git(&state.worktree, &["diff", "--cc"])?;
         let request = PlanningRequest {
             mode: crate::harness::ExecutionMode::Implementation,
+            task_id: state.task_uid.clone().or_else(|| Some(state.ticket.clone())),
             reasoning_level: "medium".into(),
             telemetry_phase: Some("reconciliation".into()),
             repo_root: state.worktree.clone(),

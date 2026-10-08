@@ -191,6 +191,7 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
 fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "high".into(),
         telemetry_phase: None,
         repo_root: root,

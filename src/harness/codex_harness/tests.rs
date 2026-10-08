@@ -54,6 +54,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
     let (tx, _rx) = mpsc::channel();
     let request = PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "high".into(),
         telemetry_phase: None,
         repo_root: std::env::temp_dir(),
@@ -85,6 +86,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
 
     let read_only = PlanningRequest {
         mode: ExecutionMode::Planning,
+        task_id: None,
         ..request
     };
     let (argv, _) = command(Path::new("codex"), &read_only, None);
@@ -299,6 +301,7 @@ fn cancellation_terminates_the_active_codex_process() {
 fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
         mode: ExecutionMode::Implementation,
+        task_id: None,
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: root,

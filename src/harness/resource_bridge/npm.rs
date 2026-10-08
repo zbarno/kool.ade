@@ -1,30 +1,81 @@
 //! Lockfile-driven npm cache preparation through the mediated registry fetcher.
-use super::{ResourceResponse, fetch, policy};
+use super::ResourceResponse;
 use std::{
-    fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{Duration, Instant},
+    sync::atomic::AtomicUsize,
 };
 
+mod adapter;
+mod addition;
 mod cache;
 mod lockfile;
+mod manifest;
+mod preparation;
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
+pub(super) use adapter::Adapter;
+pub(super) use preparation::SharedPreparationOperations;
+use preparation::prepare_with_registry;
+use preparation::{PreparationOperations, PreparationRequest, prepare_with_registry_and_ops};
+#[cfg(test)]
+pub(super) use test_support::{test_addition_preparation_operations, test_preparation_operations};
+
 const MAX_LOCKED_PACKAGES: usize = lockfile::MAX_LOCKED_PACKAGES;
-const CACHE_ADD_BATCH: usize = 100;
-const CACHE_ADD_TIMEOUT: Duration = Duration::from_secs(300);
-const PREPARE_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 
-pub(super) fn persistent_cache() -> anyhow::Result<PathBuf> {
-    cache::persistent_cache()
+pub(super) fn package_identities(
+    root: &Path,
+) -> anyhow::Result<Vec<crate::harness::DependencyPackageIdentity>> {
+    lockfile::package_identities(root)
 }
 
-pub(super) fn cache_covers_lockfile(worktree: &Path, cache: &Path) -> bool {
-    lockfile::cache_covers_lockfile(worktree, cache)
+pub(super) fn packages_from_bytes(
+    bytes: &[u8],
+) -> anyhow::Result<Vec<crate::harness::DependencyPackageIdentity>> {
+    lockfile::packages_from_bytes(bytes)
 }
 
+pub(super) fn publish_index_snapshot(
+    cache_root: &Path,
+    snapshot_root: &Path,
+) -> anyhow::Result<()> {
+    cache::publish_index_snapshot(cache_root, snapshot_root)
+}
+
+#[cfg(test)]
+fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::new();
+    for chunk in bytes.chunks(3) {
+        let a = chunk[0];
+        let b = *chunk.get(1).unwrap_or(&0);
+        let c = *chunk.get(2).unwrap_or(&0);
+        output.push(TABLE[(a >> 2) as usize] as char);
+        output.push(TABLE[(((a & 3) << 4) | (b >> 4)) as usize] as char);
+        output.push(if chunk.len() > 1 {
+            TABLE[(((b & 15) << 2) | (c >> 6)) as usize] as char
+        } else {
+            '='
+        });
+        output.push(if chunk.len() > 2 {
+            TABLE[(c & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    output
+}
+
+pub(super) fn persistent_cache_at(
+    state_root: &Path,
+    task_repository: &Path,
+) -> anyhow::Result<PathBuf> {
+    cache::persistent_cache_at(state_root, task_repository)
+}
+
+#[cfg(test)]
 pub(super) fn verified_offline_cache(worktree: &Path, cache: &Path) -> bool {
     lockfile::collect_lockfiles(worktree).is_ok_and(|packages| {
         packages.iter().all(|package| {
@@ -34,115 +85,72 @@ pub(super) fn verified_offline_cache(worktree: &Path, cache: &Path) -> bool {
     })
 }
 
+pub(super) fn verified_lock_identity(worktree: &Path, package: &str, version: &str) -> bool {
+    lockfile::contains_verified_identity(worktree, package, version)
+}
+
+pub(super) fn prepare_addition(
+    worktree: &Path,
+    response_dir: &Path,
+    npm_cache: &Path,
+    npm_snapshot: &Path,
+    need: &crate::harness::DependencyNeed,
+    decision: crate::harness::DependencyDecision,
+    downloaded_bytes: &AtomicUsize,
+) -> anyhow::Result<ResourceResponse> {
+    addition::prepare(
+        worktree,
+        response_dir,
+        npm_cache,
+        npm_snapshot,
+        need,
+        decision,
+        downloaded_bytes,
+    )
+}
+
 pub(super) fn prepare(
     worktree: &Path,
     response_dir: &Path,
     npm_cache: &Path,
+    npm_snapshot: &Path,
     purpose: &str,
     downloaded_bytes: &AtomicUsize,
 ) -> anyhow::Result<ResourceResponse> {
-    let deadline = Instant::now() + PREPARE_TIMEOUT;
-    anyhow::ensure!(
-        purpose.trim().len() >= 3 && !purpose.chars().any(char::is_control),
-        "Explain why the npm lockfile dependencies are needed"
-    );
-    let packages = match lockfile::collect_lockfiles(worktree) {
-        Ok(packages) => packages,
-        Err(error) => {
-            return Ok(ResourceResponse::needs_attention(format!(
-                "Kool.ad/e could not prepare npm dependencies automatically: {error:#}"
-            )));
-        }
-    };
-    if packages.is_empty() {
-        return Ok(ResourceResponse::prepared(
-            "npm lockfiles contain no remote package archives to retrieve".into(),
-        ));
-    }
-    anyhow::ensure!(
-        packages.len() <= MAX_LOCKED_PACKAGES,
-        "npm lockfiles contain more than {MAX_LOCKED_PACKAGES} remote package archives"
-    );
+    prepare_with_registry(
+        worktree,
+        response_dir,
+        npm_cache,
+        npm_snapshot,
+        purpose,
+        downloaded_bytes,
+        None,
+    )
+}
 
-    let mut missing = Vec::new();
-    let mut cached = 0_usize;
-    let mut transferred = 0_usize;
-    for package in &packages {
-        anyhow::ensure!(
-            Instant::now() < deadline,
-            "npm dependency preparation exceeded seven minutes"
-        );
-        match policy::classify(&package.url) {
-            Ok(policy::Decision::Allow(_)) => {}
-            Ok(policy::Decision::NeedsAttention(detail)) => {
-                return Ok(ResourceResponse::needs_attention(detail));
-            }
-            Err(error) => {
-                return Ok(ResourceResponse::needs_attention(format!(
-                    "The npm lockfile contains a dependency URL that needs operator review: {error:#}"
-                )));
-            }
-        }
-        let Some(digest_path) = lockfile::npm_cache_digest_path(npm_cache, &package.integrity)
-        else {
-            return Ok(ResourceResponse::needs_attention(
-                "An npm lockfile entry has no supported SHA-512 integrity value. Kool.ad/e will not fetch it without a verifiable lockfile digest.".into(),
-            ));
-        };
-        if lockfile::verify_sha512_file(&digest_path, &package.integrity) {
-            cached += 1;
-            continue;
-        }
-        let already = downloaded_bytes.load(Ordering::Relaxed);
-        anyhow::ensure!(
-            already < super::MAX_SESSION_BYTES,
-            "npm dependency download budget is exhausted"
-        );
-        let reservation =
-            (super::MAX_SESSION_BYTES - already).min(fetch::MAX_RESOURCE_BYTES as usize);
-        downloaded_bytes.fetch_add(reservation, Ordering::Relaxed);
-        let response = fetch::retrieve(response_dir, &package.url, purpose, reservation as u64)?;
-        downloaded_bytes.fetch_sub(
-            reservation.saturating_sub(response.bytes),
-            Ordering::Relaxed,
-        );
-        if response.status != "allowed" {
-            return Ok(response);
-        }
-        let virtual_path = response.path.as_deref().ok_or_else(|| {
-            anyhow::anyhow!("npm registry response did not produce a package archive")
-        })?;
-        let name = Path::new(virtual_path)
-            .file_name()
-            .ok_or_else(|| anyhow::anyhow!("npm resource path has no filename"))?;
-        let source = response_dir.join(name);
-        let source = source.canonicalize()?;
-        anyhow::ensure!(
-            source.starts_with(response_dir.canonicalize()?) && source.is_file(),
-            "npm package archive escaped the private resource cache"
-        );
-        anyhow::ensure!(
-            lockfile::verify_sha512_file(&source, &package.integrity),
-            "Downloaded npm archive did not match its lockfile SHA-512 integrity value"
-        );
-        let target = response_dir.join(format!("{}.tgz", uuid::Uuid::new_v4()));
-        fs::copy(&source, &target)?;
-        transferred = transferred.saturating_add(response.bytes);
-        missing.push(target);
-    }
-    if !missing.is_empty() {
-        let npm = cache::locate_npm(worktree)?;
-        for batch in missing.chunks(CACHE_ADD_BATCH) {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            anyhow::ensure!(
-                !remaining.is_zero(),
-                "npm dependency preparation exceeded seven minutes"
-            );
-            cache::add_to_cache(&npm, npm_cache, batch, remaining.min(CACHE_ADD_TIMEOUT))?;
-        }
-    }
-    Ok(ResourceResponse::prepared(format!(
-        "npm cache ready: {cached} packages reused and {} lockfile-pinned packages retrieved ({transferred} bytes). npm install commands remain offline and run package scripts only inside the sandbox.",
-        missing.len()
-    )))
+pub(super) fn prepare_for_addition(
+    worktree: &Path,
+    response_dir: &Path,
+    npm_cache: &Path,
+    npm_snapshot: &Path,
+    registry: &url::Url,
+    purpose: &str,
+    downloaded_bytes: &AtomicUsize,
+) -> anyhow::Result<ResourceResponse> {
+    prepare_with_registry(
+        worktree,
+        response_dir,
+        npm_cache,
+        npm_snapshot,
+        purpose,
+        downloaded_bytes,
+        Some(registry),
+    )
+}
+
+fn prepare_for_addition_with_ops(
+    request: PreparationRequest<'_>,
+    operations: PreparationOperations<'_>,
+) -> anyhow::Result<ResourceResponse> {
+    prepare_with_registry_and_ops(request, operations)
 }

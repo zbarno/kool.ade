@@ -15,8 +15,14 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 
 mod activity;
+mod dependency;
 mod execution;
 pub use activity::{ActivityTelemetry, LivePost, LiveProgress, ModelCallUsage};
+pub use dependency::{
+    DependencyAuthorizationScope, DependencyDecision, DependencyFailureCategory, DependencyKind,
+    DependencyNeed, DependencyPackageIdentity, DependencyRequest, DependencyRequestStatus,
+    PackageEcosystem,
+};
 pub use execution::{ExecutionMode, PlanningRequest, ToolAccess};
 
 /// Model-selected logical sources for a bounded planning turn. References are

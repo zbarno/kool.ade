@@ -52,6 +52,8 @@ pub enum ToolAccess {
 pub struct PlanningRequest {
     /// The only source of execution capabilities for this request.
     pub mode: ExecutionMode,
+    /// Stable Koolade task identity supplied by the application, never the worker.
+    pub task_id: Option<String>,
     /// Pi thinking level selected by the Koolade role that owns this turn.
     pub reasoning_level: String,
     /// Implementation subphase for telemetry attribution, when applicable.

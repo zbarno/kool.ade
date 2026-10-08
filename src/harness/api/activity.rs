@@ -18,6 +18,9 @@ pub struct LiveProgress {
     pub checklist: Vec<usize>,
     #[serde(default)]
     pub checklist_revision: u64,
+    /// Structured dependency requests surfaced by a bounded implementation run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_requests: Vec<super::dependency::DependencyRequest>,
     pub posts: Vec<LivePost>,
     pub thoughts: String,
     pub response: String,
@@ -89,6 +92,18 @@ impl LiveProgress {
             }
         }
         next.model_calls = std::mem::take(&mut self.model_calls);
+        for request in next.dependency_requests.drain(..) {
+            if let Some(existing) = self
+                .dependency_requests
+                .iter_mut()
+                .find(|item| item.id == request.id)
+            {
+                *existing = request;
+            } else {
+                self.dependency_requests.push(request);
+            }
+        }
+        next.dependency_requests = std::mem::take(&mut self.dependency_requests);
         for post in next.posts.drain(..) {
             if let Some(existing) = self.posts.iter_mut().find(|p| p.id == post.id) {
                 *existing = post;

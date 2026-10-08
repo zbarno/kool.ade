@@ -13,6 +13,7 @@ mod manual_path;
 fn request(mode: ExecutionMode) -> PlanningRequest {
     PlanningRequest {
         mode,
+        task_id: None,
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: std::env::temp_dir(),

@@ -145,8 +145,8 @@ impl Runner {
         cwd.to_str()
             .ok_or_else(|| anyhow::anyhow!("Non-UTF8 worktree path"))?;
         let mut sandbox = crate::harness::pi_sandbox::Sandbox::new(cwd)?;
-        let npm_cache = crate::harness::prepared_npm_cache_path()?;
-        sandbox.mount_npm_cache(&npm_cache, false)?;
+        let npm_cache = crate::harness::prepared_npm_cache_path(cwd)?;
+        sandbox.mount_npm_cache(&npm_cache)?;
         let args = sandbox.command_args("/bin/sh", command);
         let args = args.iter().map(String::as_str).collect::<Vec<_>>();
         self.command_clean_env(

@@ -1,5 +1,39 @@
 use super::*;
 
+#[test]
+fn manager_cannot_grant_custom_npm_registry_without_user_action() {
+    let need = crate::harness::DependencyNeed {
+        ecosystem: crate::harness::PackageEcosystem::Npm,
+        package: Some("zod".into()),
+        version: Some("1.0.0".into()),
+        source: Some("https://packages.example.net/".into()),
+        command: "npm install zod@1.0.0 --registry=https://packages.example.net/".into(),
+        reason: "Validate imported project settings".into(),
+        kind: crate::harness::DependencyKind::NewProjectDependency,
+        lockfile_identity: None,
+        introduced_packages: Vec::new(),
+    };
+    for decision in [
+        crate::harness::DependencyDecision::AuthorizeForTask,
+        crate::harness::DependencyDecision::AuthorizeForProject,
+        crate::harness::DependencyDecision::UserAuthorizeForTask,
+        crate::harness::DependencyDecision::UserAuthorizeForProject,
+    ] {
+        let enforced = super::enforce_policy(
+            &need,
+            super::DependencyTriage {
+                decision,
+                rationale: "The package is needed".into(),
+                risk: "It uses an additional registry".into(),
+            },
+        );
+        assert_eq!(
+            enforced.decision,
+            crate::harness::DependencyDecision::RequiresUserAuthorization
+        );
+    }
+}
+
 /// `base` minus `ago` seconds.
 fn ago(base: Instant, ago: u64) -> Instant {
     base - Duration::from_secs(ago)
@@ -101,4 +135,74 @@ fn dirty_ticket_tracking_collects_once_per_flush() {
     assert_eq!(activity.take_dirty_tickets(), Vec::<String>::new());
     activity.mark_ticket_dirty("003-c");
     assert_eq!(activity.take_dirty_tickets(), vec!["003-c"]);
+}
+
+#[test]
+fn interrupted_dependency_reviews_return_to_user_authorization() {
+    let need = crate::harness::DependencyNeed {
+        ecosystem: crate::harness::PackageEcosystem::Npm,
+        package: Some("zod".into()),
+        version: Some("4.0.0".into()),
+        source: Some("https://registry.npmjs.org".into()),
+        command: "npm install zod@4.0.0".into(),
+        reason: "Validate imported settings data".into(),
+        kind: crate::harness::DependencyKind::NewProjectDependency,
+        lockfile_identity: None,
+        introduced_packages: Vec::new(),
+    };
+    let mut progress = LiveProgress::default();
+    for (id, status) in [
+        ("pending", crate::harness::DependencyRequestStatus::Pending),
+        (
+            "reviewing",
+            crate::harness::DependencyRequestStatus::ManagerReviewing,
+        ),
+        (
+            "authorized",
+            crate::harness::DependencyRequestStatus::Authorized,
+        ),
+        (
+            "prepared",
+            crate::harness::DependencyRequestStatus::Prepared,
+        ),
+        ("denied", crate::harness::DependencyRequestStatus::Denied),
+    ] {
+        progress
+            .dependency_requests
+            .push(crate::harness::DependencyRequest {
+                id: id.into(),
+                task_id: "TASK-1".into(),
+                need: need.clone(),
+                category: crate::harness::DependencyFailureCategory::DependencyNewPackageRequested,
+                decision: crate::harness::DependencyDecision::AuthorizeForTask,
+                rationale: "previous state".into(),
+                risk: "risk".into(),
+                status,
+            });
+    }
+    let mut activity = WorkspaceActivity::default();
+    activity.tasks.insert("TASK-1".into(), progress);
+
+    assert_eq!(activity.recover_dependency_reviews(), vec!["TASK-1"]);
+    let requests = &activity.tasks["TASK-1"].dependency_requests;
+    for request in &requests[..3] {
+        assert_eq!(
+            request.status,
+            crate::harness::DependencyRequestStatus::AwaitingUser
+        );
+        assert_eq!(
+            request.decision,
+            crate::harness::DependencyDecision::RequiresUserAuthorization
+        );
+        assert!(request.rationale.contains("restarted"));
+    }
+    assert_eq!(
+        requests[3].status,
+        crate::harness::DependencyRequestStatus::Prepared
+    );
+    assert_eq!(
+        requests[4].status,
+        crate::harness::DependencyRequestStatus::Denied
+    );
+    assert!(activity.recover_dependency_reviews().is_empty());
 }

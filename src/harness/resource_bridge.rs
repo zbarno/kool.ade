@@ -7,24 +7,32 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod adapter;
 mod broker;
+mod cargo;
+pub(super) mod dependency;
 mod fetch;
 mod npm;
 mod policy;
+mod proxy;
 #[cfg(test)]
 mod tests;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_REQUESTS: usize = 100;
+const MAX_IN_FLIGHT_REQUESTS: usize = 16;
 const MAX_SESSION_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const SANDBOX_RESOURCE_DIR: &str = "/tmp/koolade-resource-files";
 
-pub(crate) fn prepared_npm_cache_path() -> anyhow::Result<PathBuf> {
-    npm::persistent_cache()
+pub(crate) fn prepared_npm_cache_path(worktree: &Path) -> anyhow::Result<PathBuf> {
+    npm::persistent_cache_at(&crate::persistence::state_root(), worktree)
 }
 
-pub(crate) fn prepared_npm_cache_covers(worktree: &Path, cache: &Path) -> bool {
-    npm::cache_covers_lockfile(worktree, cache)
+pub(crate) fn publish_npm_cache_index_snapshot(
+    cache_root: &Path,
+    snapshot_root: &Path,
+) -> anyhow::Result<()> {
+    npm::publish_index_snapshot(cache_root, snapshot_root)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -36,6 +44,8 @@ struct ResourceRequest {
     manager: Option<String>,
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    dependency: Option<crate::harness::DependencyNeed>,
     purpose: String,
 }
 
@@ -47,6 +57,7 @@ enum ResourceAction {
     PrepareNpm,
     PrepareNugetAudit,
     UnsupportedManager,
+    DependencyRequest,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -57,6 +68,8 @@ struct ResourceResponse {
     content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependency_request: Option<crate::harness::DependencyRequest>,
     #[serde(skip)]
     bytes: usize,
 }
@@ -74,6 +87,7 @@ impl ResourceResponse {
             summary,
             content: None,
             path: None,
+            dependency_request: None,
             bytes,
         }
     }
@@ -85,6 +99,7 @@ impl ResourceResponse {
             summary,
             content: Some(content),
             path: None,
+            dependency_request: None,
             bytes,
         }
     }
@@ -95,6 +110,7 @@ impl ResourceResponse {
             summary,
             content: None,
             path: Some(path),
+            dependency_request: None,
             bytes,
         }
     }
@@ -105,6 +121,19 @@ impl ResourceResponse {
             summary,
             content: None,
             path: None,
+            dependency_request: None,
+            bytes: 0,
+        }
+    }
+
+    fn dependency_outcome(status: &str, request: crate::harness::DependencyRequest) -> Self {
+        let summary = request.summary();
+        Self {
+            status: status.into(),
+            summary,
+            content: None,
+            path: None,
+            dependency_request: Some(request),
             bytes: 0,
         }
     }

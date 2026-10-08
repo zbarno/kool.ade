@@ -20,7 +20,28 @@ impl KooladeApp {
                                 let activity =
                                     project.activity.tasks.entry(ticket.clone()).or_default();
                                 let revision = activity.checklist_revision;
+                                let new_dependency_requests = p
+                                    .dependency_requests
+                                    .iter()
+                                    .filter(|request| {
+                                        !activity
+                                            .dependency_requests
+                                            .iter()
+                                            .any(|known| known.id == request.id)
+                                    })
+                                    .cloned()
+                                    .collect::<Vec<_>>();
                                 activity.update(*p);
+                                for request in new_dependency_requests {
+                                    if request.status
+                                        != crate::harness::DependencyRequestStatus::Failed
+                                    {
+                                        project
+                                            .activity
+                                            .pending_dependency_reviews
+                                            .push((ticket.clone(), request));
+                                    }
+                                }
                                 activity.checklist_revision != revision
                             };
                             project.activity.mark_ticket_dirty(ticket);

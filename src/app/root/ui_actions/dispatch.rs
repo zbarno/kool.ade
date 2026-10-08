@@ -91,6 +91,14 @@ impl KooladeApp {
                 TaskDetailCommand::StartOrResume { ticket } => {
                     self.start_implementation(ticket, true)
                 }
+                TaskDetailCommand::AuthorizeDependency {
+                    ticket,
+                    request_id,
+                    scope,
+                } => self.authorize_dependency_request(&ticket, &request_id, scope),
+                TaskDetailCommand::DenyDependency { ticket, request_id } => {
+                    self.deny_dependency_request(&ticket, &request_id)
+                }
             },
         }
     }

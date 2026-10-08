@@ -11,6 +11,7 @@ pub mod antigravity_harness;
 pub mod claude_harness;
 pub mod codex_harness;
 pub mod copilot_harness;
+pub(crate) mod dependency_authorization;
 pub mod live_preview;
 pub mod opencode_harness;
 pub mod pi_events;
@@ -78,9 +79,12 @@ mod tests;
 
 pub use antigravity_harness::AntigravityHarness;
 pub use api::{
-    ActivityTelemetry, AiHarness, ApplicationAction, DocumentUpdate, ExecutionMode, HarnessOutcome,
-    LivePost, LiveProgress, ModelCallUsage, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
-    RequestedAction, RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
+    ActivityTelemetry, AiHarness, ApplicationAction, DependencyAuthorizationScope,
+    DependencyDecision, DependencyFailureCategory, DependencyKind, DependencyNeed,
+    DependencyPackageIdentity, DependencyRequest, DependencyRequestStatus, DocumentUpdate,
+    ExecutionMode, HarnessOutcome, LivePost, LiveProgress, ModelCallUsage, PackageEcosystem,
+    PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, RequestedAction, RetrievalPlan,
+    ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;
@@ -100,13 +104,29 @@ pub(crate) fn refresh_nuget_audit_cache(timeout: std::time::Duration) -> anyhow:
     nuget_audit::refresh(timeout)
 }
 
-pub(crate) fn prepared_npm_cache_path() -> anyhow::Result<std::path::PathBuf> {
-    resource_bridge::prepared_npm_cache_path()
+pub(crate) fn prepared_npm_cache_path(
+    worktree: &std::path::Path,
+) -> anyhow::Result<std::path::PathBuf> {
+    resource_bridge::prepared_npm_cache_path(worktree)
 }
 
-pub(crate) fn prepared_npm_cache_covers(
-    worktree: &std::path::Path,
-    cache: &std::path::Path,
+pub(crate) fn publish_npm_cache_index_snapshot(
+    cache_root: &std::path::Path,
+    snapshot_root: &std::path::Path,
+) -> anyhow::Result<()> {
+    resource_bridge::publish_npm_cache_index_snapshot(cache_root, snapshot_root)
+}
+
+pub(crate) fn dependency_decision_allowed(
+    need: &DependencyNeed,
+    decision: DependencyDecision,
 ) -> bool {
-    resource_bridge::prepared_npm_cache_covers(worktree, cache)
+    resource_bridge::dependency::decision_allowed(need, decision)
+}
+
+pub(crate) fn manager_dependency_decision_allowed(
+    need: &DependencyNeed,
+    decision: DependencyDecision,
+) -> bool {
+    resource_bridge::dependency::manager_decision_allowed(need, decision)
 }

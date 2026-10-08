@@ -51,6 +51,50 @@ pub(super) fn classify(raw: &str) -> anyhow::Result<Decision> {
     )))
 }
 
+pub(super) fn classify_npm_registry_package(
+    raw: &str,
+    authorized_registry: &Url,
+) -> anyhow::Result<Decision> {
+    let default_decision = classify(raw)?;
+    if authorized_registry.host_str() == Some("registry.npmjs.org") {
+        return Ok(default_decision);
+    }
+    if matches!(&default_decision, Decision::Allow(_)) {
+        return Ok(default_decision);
+    }
+    classify_npm_registry_redirect(raw, authorized_registry)
+}
+
+/// Validate a package URL or redirect against one registry origin. For an
+/// additional registry, this deliberately does not allow a redirect to the
+/// default registry or a CDN, even though those are otherwise public hosts.
+pub(super) fn classify_npm_registry_redirect(
+    raw: &str,
+    allowed_registry: &Url,
+) -> anyhow::Result<Decision> {
+    let common = classify(raw)?;
+    let url = Url::parse(raw)?;
+    if allowed_registry.host_str() == Some("registry.npmjs.org") {
+        return Ok(common);
+    }
+    // `classify` returns NeedsAttention for custom hosts after completing its
+    // HTTPS, port, credential, query, and path-ambiguity checks.
+    let host = url.host_str().unwrap_or_default();
+    let prefix = allowed_registry.path();
+    let relative = url.path().strip_prefix(prefix).unwrap_or_default();
+    let package_path = format!("/{relative}");
+    if host == allowed_registry.host_str().unwrap_or_default()
+        && !relative.is_empty()
+        && safe_npm_path(&package_path)
+    {
+        return Ok(Decision::Allow(url));
+    }
+    Ok(Decision::NeedsAttention(format!(
+        "An npm package URL or redirect is outside the authorized registry {}.",
+        allowed_registry.host_str().unwrap_or_default()
+    )))
+}
+
 fn safe_npm_path(path: &str) -> bool {
     let value = path.strip_prefix('/').unwrap_or_default();
     if value.is_empty() || value.len() > 512 {
@@ -80,16 +124,28 @@ fn safe_npm_path(path: &str) -> bool {
 }
 
 fn safe_package_name(value: &str) -> bool {
-    let value = value.replace("%2f", "/").replace("%2F", "/");
-    let value = value.strip_prefix('@').unwrap_or(&value);
-    !value.is_empty()
-        && value.split('/').all(|part| {
-            !part.is_empty()
-                && part.len() <= 128
-                && part
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte))
+    let decoded = value.replace("%2f", "/").replace("%2F", "/");
+    let valid_component = |part: &str| {
+        !part.is_empty()
+            && part.len() <= 128
+            && !part
+                .chars()
+                .next()
+                .is_some_and(|character| matches!(character, '.' | '_' | '-'))
+            && !part.ends_with('.')
+            && part != "."
+            && part != ".."
+            && part
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte))
+    };
+    if let Some(scoped) = decoded.strip_prefix('@') {
+        scoped.split_once('/').is_some_and(|(scope, name)| {
+            !name.contains('/') && valid_component(scope) && valid_component(name)
         })
+    } else {
+        !decoded.contains('/') && valid_component(&decoded)
+    }
 }
 
 fn safe_version(value: &str) -> bool {
