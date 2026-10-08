@@ -7,24 +7,36 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod adapter;
 mod broker;
+mod cargo;
+pub(super) mod dependency;
 mod fetch;
 mod npm;
 mod policy;
+mod proxy;
 #[cfg(test)]
 mod tests;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_REQUESTS: usize = 100;
+const MAX_IN_FLIGHT_REQUESTS: usize = 16;
 const MAX_SESSION_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const SANDBOX_RESOURCE_DIR: &str = "/tmp/koolade-resource-files";
 
-pub(crate) fn prepared_npm_cache_path() -> anyhow::Result<PathBuf> {
-    npm::persistent_cache()
+pub(crate) fn prepared_npm_cache_path(worktree: &Path) -> anyhow::Result<PathBuf> {
+    npm::persistent_cache_at(&crate::persistence::state_root(), worktree)
 }
 
-pub(crate) fn prepared_npm_cache_covers(worktree: &Path, cache: &Path) -> bool {
-    npm::cache_covers_lockfile(worktree, cache)
+pub(crate) fn prepared_cargo_cache_path() -> anyhow::Result<PathBuf> {
+    cargo::persistent_cache_at(&crate::persistence::state_root())
+}
+
+pub(crate) fn publish_npm_cache_index_snapshot(
+    cache_root: &Path,
+    snapshot_root: &Path,
+) -> anyhow::Result<()> {
+    npm::publish_index_snapshot(cache_root, snapshot_root)
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -36,6 +48,12 @@ struct ResourceRequest {
     manager: Option<String>,
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    dependency: Option<crate::harness::DependencyNeed>,
+    #[serde(default)]
+    dependency_request_id: Option<String>,
+    #[serde(default)]
+    retry_succeeded: Option<bool>,
     purpose: String,
 }
 
@@ -47,6 +65,8 @@ enum ResourceAction {
     PrepareNpm,
     PrepareNugetAudit,
     UnsupportedManager,
+    DependencyRequest,
+    DependencyRetryResult,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -57,11 +77,44 @@ struct ResourceResponse {
     content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependency_request: Option<crate::harness::DependencyRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependency_result: Option<crate::harness::DependencyPreparationTelemetry>,
+    #[serde(skip)]
+    preparation: Option<crate::harness::DependencyPreparationTelemetry>,
     #[serde(skip)]
     bytes: usize,
 }
 
 pub(crate) use broker::ResourceBridge;
+
+#[cfg(test)]
+pub(crate) struct TestNpmPreparation<'a> {
+    pub(crate) worktree: &'a Path,
+    pub(crate) runtime_source: Option<&'a Path>,
+    pub(crate) task_id: Option<&'a str>,
+    pub(crate) progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) state_root: &'a Path,
+    pub(crate) archive: PathBuf,
+    pub(crate) registry_url: String,
+}
+
+#[cfg(test)]
+pub(crate) fn start_with_test_npm_preparation(
+    request: TestNpmPreparation<'_>,
+) -> anyhow::Result<ResourceBridge> {
+    broker::start_with_state_root_and_npm_operations(
+        request.worktree,
+        request.runtime_source,
+        request.task_id,
+        request.progress,
+        request.cancel,
+        request.state_root,
+        npm::test_preparation_operations(request.archive, request.registry_url),
+    )
+}
 
 impl ResourceResponse {
     fn needs_attention(summary: String) -> Self {
@@ -74,6 +127,9 @@ impl ResourceResponse {
             summary,
             content: None,
             path: None,
+            dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes,
         }
     }
@@ -85,6 +141,9 @@ impl ResourceResponse {
             summary,
             content: Some(content),
             path: None,
+            dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes,
         }
     }
@@ -95,6 +154,9 @@ impl ResourceResponse {
             summary,
             content: None,
             path: Some(path),
+            dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes,
         }
     }
@@ -105,8 +167,60 @@ impl ResourceResponse {
             summary,
             content: None,
             path: None,
+            dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes: 0,
         }
+    }
+
+    fn dependency_outcome(status: &str, mut request: crate::harness::DependencyRequest) -> Self {
+        let summary = request.summary();
+        if request.preparation.is_none() {
+            request.preparation = Some(crate::harness::DependencyPreparationTelemetry {
+                status: Some(match status {
+                    "prepared" => crate::harness::DependencyPreparationStatus::Prepared,
+                    "already_available" => {
+                        crate::harness::DependencyPreparationStatus::AlreadyAvailable
+                    }
+                    "authorization_required" => {
+                        crate::harness::DependencyPreparationStatus::AuthorizationRequired
+                    }
+                    "denied" => crate::harness::DependencyPreparationStatus::Denied,
+                    "unsupported" => crate::harness::DependencyPreparationStatus::Unsupported,
+                    "integrity_failure" => {
+                        crate::harness::DependencyPreparationStatus::IntegrityFailure
+                    }
+                    "source_rejected" => {
+                        crate::harness::DependencyPreparationStatus::SourceRejected
+                    }
+                    "credentials_required" => {
+                        crate::harness::DependencyPreparationStatus::CredentialsRequired
+                    }
+                    _ => crate::harness::DependencyPreparationStatus::Error,
+                }),
+                ..Default::default()
+            });
+        }
+        let dependency_result = request.preparation.clone();
+        Self {
+            status: status.into(),
+            summary,
+            content: None,
+            path: None,
+            dependency_request: Some(request),
+            dependency_result,
+            preparation: None,
+            bytes: 0,
+        }
+    }
+
+    fn with_preparation(
+        mut self,
+        preparation: crate::harness::DependencyPreparationTelemetry,
+    ) -> Self {
+        self.preparation = Some(preparation);
+        self
     }
 }
 

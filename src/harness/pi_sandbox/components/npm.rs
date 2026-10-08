@@ -7,14 +7,6 @@ use super::path_safety::{
     SENSITIVE_HOST_PATH_COMPONENTS, canonical_path_with_missing_tail, ensure_narrow_host_directory,
 };
 
-/// Locate only npm's content-addressed package cache. Never mount `.npm` itself,
-/// because it can contain user configuration and registry credentials.
-pub(in crate::harness::pi_sandbox) fn host_npm_cache() -> anyhow::Result<Option<PathBuf>> {
-    let home = env::var_os("HOME").map(PathBuf::from);
-    let configured = env::var_os("KOOLADE_NPM_CACHE").map(PathBuf::from);
-    prepare_npm_cache(configured, home)
-}
-
 pub(super) fn prepare_npm_cache(
     configured: Option<PathBuf>,
     home: Option<PathBuf>,

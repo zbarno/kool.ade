@@ -44,4 +44,13 @@ pub enum Command {
     StartOrResume {
         ticket: String,
     },
+    AuthorizeDependency {
+        ticket: String,
+        request_id: String,
+        scope: crate::harness::DependencyAuthorizationScope,
+    },
+    DenyDependency {
+        ticket: String,
+        request_id: String,
+    },
 }

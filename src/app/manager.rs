@@ -1,5 +1,7 @@
 //! Independent project-manager updates; task workers never write into main chat.
+mod dependency;
 mod prompt;
+pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
 use std::{
@@ -30,6 +32,8 @@ pub struct WorkspaceActivity {
     pub conversations: BTreeMap<String, LiveProgress>,
     pub tasks: BTreeMap<String, LiveProgress>,
     pub manager: Option<Manager>,
+    pub(crate) dependency_manager: Option<DependencyReview>,
+    pub(crate) pending_dependency_reviews: Vec<(String, crate::harness::DependencyRequest)>,
     pub pending: Vec<String>,
     pub last_update: Option<Instant>,
     pub last_save: Option<Instant>,
@@ -81,6 +85,34 @@ fn stale_by(then: Instant, now: Instant, by: Duration) -> bool {
 }
 
 impl WorkspaceActivity {
+    /// Requeue dependency requests whose in-memory broker/review disappeared
+    /// while Kool.ad/e was closed. A saved authorization is not proof that
+    /// offline preparation completed.
+    pub fn recover_dependency_reviews(&mut self) -> Vec<String> {
+        let mut recovered = Vec::new();
+        for (ticket, progress) in &mut self.tasks {
+            let mut changed = false;
+            for request in &mut progress.dependency_requests {
+                if matches!(
+                    request.status,
+                    crate::harness::DependencyRequestStatus::Pending
+                        | crate::harness::DependencyRequestStatus::ManagerReviewing
+                        | crate::harness::DependencyRequestStatus::Authorized
+                ) {
+                    request.decision =
+                        crate::harness::DependencyDecision::RequiresUserAuthorization;
+                    request.status = crate::harness::DependencyRequestStatus::AwaitingUser;
+                    request.rationale = "Kool.ad/e restarted before dependency preparation completed. Review the request again; no new permission was granted during recovery.".into();
+                    changed = true;
+                }
+            }
+            if changed {
+                recovered.push(ticket.clone());
+            }
+        }
+        recovered
+    }
+
     pub fn ensure_overall(&mut self) {
         if self.overall.is_some() {
             return;
@@ -132,7 +164,8 @@ impl Manager {
         let (done, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let request = PlanningRequest {
-            mode: crate::harness::ExecutionMode::ReadOnlyAnalysis, reasoning_level: "xhigh".into(),
+            mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
+            task_id: None, reasoning_level: "xhigh".into(),
             telemetry_phase: None,
             repo_root: project.state.repo_root.clone(),
             runtime_config_source: None,

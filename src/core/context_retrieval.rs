@@ -62,6 +62,7 @@ pub fn select(
     }
     let request = PlanningRequest {
         mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
+        task_id: None,
         reasoning_level: "medium".into(),
         telemetry_phase: None,
         repo_root: state.repo_root.clone(),

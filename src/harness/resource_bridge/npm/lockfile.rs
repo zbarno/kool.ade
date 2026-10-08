@@ -1,10 +1,17 @@
 //! Bounded npm lockfile scanning and integrity helpers.
 use serde_json::Value;
-use sha2::{Digest, Sha512};
+mod identity;
+mod integrity;
+pub(super) use identity::{packages as package_identities, packages_from_bytes};
+#[cfg(test)]
+pub(super) use integrity::cache_covers_lockfile;
+#[cfg(test)]
+pub(super) use integrity::decode_base64;
+pub(super) use integrity::{npm_cache_digest_path, verify_sha512_file};
 use std::{
     collections::{BTreeMap, VecDeque},
     fs,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 const MAX_LOCKFILES: usize = 128;
@@ -19,7 +26,43 @@ pub(super) struct LockedPackage {
     pub(super) integrity: String,
 }
 
+pub(super) fn is_remote_http_url(value: &str) -> bool {
+    value.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")
+    })
+}
+
 pub(super) fn collect_lockfiles(root: &Path) -> anyhow::Result<Vec<LockedPackage>> {
+    collect_lockfiles_with_requirement(root, true)
+}
+
+pub(super) fn collect_lockfiles_if_present(root: &Path) -> anyhow::Result<Vec<LockedPackage>> {
+    collect_lockfiles_with_requirement(root, false)
+}
+
+pub(super) fn has_root_lockfile(root: &Path) -> anyhow::Result<bool> {
+    let root = root.canonicalize()?;
+    for name in ["package-lock.json", "npm-shrinkwrap.json"] {
+        let path = root.join(name);
+        match fs::symlink_metadata(path) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    metadata.is_file() && !metadata.file_type().is_symlink(),
+                    "Root npm lockfile must be a regular file"
+                );
+                return Ok(true);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(false)
+}
+
+fn collect_lockfiles_with_requirement(
+    root: &Path,
+    require_lockfile: bool,
+) -> anyhow::Result<Vec<LockedPackage>> {
     let root = root.canonicalize()?;
     let mut pending = VecDeque::from([(root.clone(), 0_usize)]);
     let mut lockfiles = Vec::new();
@@ -80,10 +123,13 @@ pub(super) fn collect_lockfiles(root: &Path) -> anyhow::Result<Vec<LockedPackage
             lockfiles.push(path);
         }
     }
-    anyhow::ensure!(
-        !lockfiles.is_empty(),
-        "No package-lock.json or npm-shrinkwrap.json was found. Create a lockfile before installing npm dependencies."
-    );
+    if lockfiles.is_empty() {
+        anyhow::ensure!(
+            !require_lockfile,
+            "No package-lock.json or npm-shrinkwrap.json was found. Create a lockfile before installing npm dependencies."
+        );
+        return Ok(Vec::new());
+    }
     let mut packages = BTreeMap::<String, LockedPackage>::new();
     for lockfile in lockfiles {
         let value: Value = serde_json::from_slice(&fs::read(lockfile)?)?;
@@ -96,6 +142,76 @@ pub(super) fn collect_lockfiles(root: &Path) -> anyhow::Result<Vec<LockedPackage
     Ok(packages.into_values().collect())
 }
 
+pub(super) fn contains_verified_identity(root: &Path, name: &str, version: &str) -> bool {
+    if !exact_version(version) {
+        return false;
+    }
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
+    ["package-lock.json", "npm-shrinkwrap.json"]
+        .iter()
+        .any(|namefile| {
+            let path = root.join(namefile);
+            let Ok(metadata) = fs::symlink_metadata(&path) else {
+                return false;
+            };
+            if !metadata.is_file()
+                || metadata.file_type().is_symlink()
+                || metadata.len() > MAX_LOCKFILE_BYTES
+            {
+                return false;
+            }
+            let Ok(value) = fs::read(&path).and_then(|bytes| {
+                serde_json::from_slice::<Value>(&bytes).map_err(std::io::Error::other)
+            }) else {
+                return false;
+            };
+            has_locked_identity(&value, name, version)
+        })
+}
+
+fn has_locked_identity(value: &Value, name: &str, version: &str) -> bool {
+    match value {
+        Value::Object(object) => object.iter().any(|(key, child)| {
+            let named = key == name
+                || key == &format!("node_modules/{name}")
+                || key.ends_with(&format!("/node_modules/{name}"));
+            if named
+                && child.get("version").and_then(Value::as_str) == Some(version)
+                && child
+                    .get("integrity")
+                    .and_then(Value::as_str)
+                    .is_some_and(|integrity| integrity.starts_with("sha512-"))
+                && child
+                    .get("resolved")
+                    .and_then(Value::as_str)
+                    .is_some_and(|url| {
+                        matches!(
+                            super::super::policy::classify(url),
+                            Ok(super::super::policy::Decision::Allow(_))
+                        )
+                    })
+            {
+                return true;
+            }
+            has_locked_identity(child, name, version)
+        }),
+        Value::Array(values) => values
+            .iter()
+            .any(|child| has_locked_identity(child, name, version)),
+        _ => false,
+    }
+}
+
+fn exact_version(version: &str) -> bool {
+    version.len() <= 128
+        && version.contains('.')
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ".+-".contains(c))
+}
+
 fn collect_resolved(
     value: &Value,
     packages: &mut BTreeMap<String, LockedPackage>,
@@ -103,20 +219,24 @@ fn collect_resolved(
     match value {
         Value::Object(object) => {
             if let Some(resolved) = object.get("resolved").and_then(Value::as_str) {
-                if resolved.starts_with("file:") || resolved.starts_with("link:") {
+                let is_link = object.get("link").and_then(Value::as_bool) == Some(true);
+                if is_link {
+                    anyhow::ensure!(
+                        !is_remote_http_url(resolved),
+                        "npm lockfile link entries cannot reference remote URLs"
+                    );
+                }
+                if is_link || resolved.starts_with("file:") || resolved.starts_with("link:") {
                     // Workspace and local-file packages need no registry fetch.
                 } else {
-                    let integrity =
-                        object
-                            .get("integrity")
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("Locked package {resolved} has no integrity digest")
-                            })?;
+                    let integrity = object
+                        .get("integrity")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| anyhow::anyhow!("Locked package has no integrity digest"))?;
                     if let Some(previous) = packages.get(resolved) {
                         anyhow::ensure!(
                             previous.integrity == integrity,
-                            "Lockfiles disagree on the integrity digest for {resolved}"
+                            "Lockfiles disagree on the integrity digest for a package"
                         );
                     } else {
                         packages.insert(
@@ -141,88 +261,4 @@ fn collect_resolved(
         _ => {}
     }
     Ok(())
-}
-
-pub(super) fn npm_cache_digest_path(cache: &Path, integrity: &str) -> Option<PathBuf> {
-    let sri = integrity
-        .split_whitespace()
-        .find_map(|token| token.strip_prefix("sha512-"))?;
-    let encoded = sri.split_once('?').map_or(sri, |(digest, _)| digest);
-    let digest = decode_base64(encoded)?;
-    if digest.len() != 64 {
-        return None;
-    }
-    let hex = digest
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    Some(
-        cache
-            .join("_cacache/content-v2/sha512")
-            .join(&hex[..2])
-            .join(&hex[2..4])
-            .join(&hex[4..]),
-    )
-}
-
-pub(super) fn verify_sha512_file(path: &Path, integrity: &str) -> bool {
-    let Some(encoded) = integrity
-        .split_whitespace()
-        .find_map(|token| token.strip_prefix("sha512-"))
-    else {
-        return false;
-    };
-    let encoded = encoded
-        .split_once('?')
-        .map_or(encoded, |(digest, _)| digest);
-    let Some(expected) = decode_base64(encoded) else {
-        return false;
-    };
-    if expected.len() != 64 {
-        return false;
-    }
-    let Ok(bytes) = fs::read(path) else {
-        return false;
-    };
-    Sha512::digest(bytes).as_slice() == expected
-}
-
-pub(super) fn cache_covers_lockfile(worktree: &Path, cache: &Path) -> bool {
-    let Ok(packages) = collect_lockfiles(worktree) else {
-        return false;
-    };
-    packages.iter().all(|package| {
-        npm_cache_digest_path(cache, &package.integrity).is_some_and(|path| {
-            fs::symlink_metadata(path)
-                .is_ok_and(|metadata| metadata.is_file() && !metadata.file_type().is_symlink())
-        })
-    })
-}
-
-pub(super) fn decode_base64(value: &str) -> Option<Vec<u8>> {
-    fn sextet(byte: u8) -> Option<u8> {
-        match byte {
-            b'A'..=b'Z' => Some(byte - b'A'),
-            b'a'..=b'z' => Some(byte - b'a' + 26),
-            b'0'..=b'9' => Some(byte - b'0' + 52),
-            b'+' => Some(62),
-            b'/' => Some(63),
-            _ => None,
-        }
-    }
-    if value.len() != 88 || !value.ends_with("==") || value[..86].contains('=') {
-        return None;
-    }
-    let mut out = Vec::with_capacity(64);
-    let mut accumulator = 0_u32;
-    let mut bits = 0_u8;
-    for byte in value.bytes().take(86) {
-        accumulator = (accumulator << 6) | u32::from(sextet(byte)?);
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push(((accumulator >> bits) & 0xff) as u8);
-        }
-    }
-    (out.len() == 64 && accumulator & 0x0f == 0).then_some(out)
 }

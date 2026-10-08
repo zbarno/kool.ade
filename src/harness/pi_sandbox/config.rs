@@ -121,18 +121,30 @@ pub(super) fn arguments(
             bind_readonly_file(&mut args, &mut created, empty_file, Path::new(path));
         }
     }
+    for path in ["/etc/npmrc", "/usr/etc/npmrc", "/usr/local/etc/npmrc"] {
+        if Path::new(path).is_file() {
+            bind_readonly_file(&mut args, &mut created, empty_file, Path::new(path));
+        }
+    }
     make_dir(&mut args, &mut created, Path::new("/proc"));
     args.extend(["--proc".into(), "/proc".into()]);
     make_dir(&mut args, &mut created, Path::new("/dev"));
     args.extend(["--dev".into(), "/dev".into()]);
     let has_rustup = mount_toolchains(&mut args, &mut created)?;
-    let components = super::components::RuntimeComponents::mount(&mut args, &mut created)?;
+    let components =
+        super::components::RuntimeComponents::mount(&mut args, &mut created, empty_file)?;
     bind_readwrite(&mut args, &mut created, root, root)?;
     let common_dir = mount_git_metadata(&mut args, &mut created, root, empty_file)?;
     if let Some(executable) = pi_executable {
         super::planning::mount_pi_install(&mut args, &mut created, executable)?;
     }
     make_dir(&mut args, &mut created, Path::new("/tmp/koolade-home"));
+    bind_readonly_file(
+        &mut args,
+        &mut created,
+        empty_file,
+        Path::new("/tmp/koolade-home/.npm-globalrc"),
+    );
     args.extend(["--chdir".into(), root.to_string_lossy().into_owned()]);
     args.push("--clearenv".into());
     push_env(&mut args, "HOME", "/tmp/koolade-home");

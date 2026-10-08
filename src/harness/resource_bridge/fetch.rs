@@ -1,12 +1,19 @@
 use super::{ResourceResponse, SANDBOX_RESOURCE_DIR, policy};
 use std::{
     fs,
-    net::{IpAddr, ToSocketAddrs},
+    net::IpAddr,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 use url::Url;
+
+mod failure;
+mod network;
+mod npm;
+pub(super) use failure::bytes_from_failure;
+pub(super) use network::public_address;
+pub(super) use npm::retrieve_npm_registry;
 
 pub(super) const MAX_RESOURCE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_INLINE_BYTES: usize = 64 * 1024;
@@ -21,7 +28,7 @@ pub(super) fn retrieve(
         (3..=240).contains(&purpose.trim().len()) && !purpose.chars().any(char::is_control),
         "Explain briefly what this resource is needed for"
     );
-    let mut current = match policy::classify(raw_url) {
+    let current = match policy::classify(raw_url) {
         Ok(policy::Decision::Allow(url)) => url,
         Err(error) => {
             return Ok(ResourceResponse::needs_attention(format!(
@@ -32,21 +39,59 @@ pub(super) fn retrieve(
             return Ok(ResourceResponse::needs_attention(detail));
         }
     };
+    retrieve_validated(worktree, current, purpose, remaining_bytes, |url| {
+        policy::classify(url)
+    })
+}
+
+fn retrieve_validated(
+    worktree: &Path,
+    current: Url,
+    purpose: &str,
+    remaining_bytes: u64,
+    classify_redirect: impl FnMut(&str) -> anyhow::Result<policy::Decision>,
+) -> anyhow::Result<ResourceResponse> {
     let temp = TempResponse::new()?;
+    let mut transferred = 0_u64;
+    retrieve_validated_with_temp(
+        worktree,
+        current,
+        purpose,
+        remaining_bytes,
+        classify_redirect,
+        &temp,
+        &mut transferred,
+    )
+    .map_err(|source| failure::with_bytes(transferred as usize, source))
+}
+
+fn retrieve_validated_with_temp(
+    worktree: &Path,
+    mut current: Url,
+    purpose: &str,
+    remaining_bytes: u64,
+    mut classify_redirect: impl FnMut(&str) -> anyhow::Result<policy::Decision>,
+    temp: &TempResponse,
+    transferred: &mut u64,
+) -> anyhow::Result<ResourceResponse> {
     let max_bytes = MAX_RESOURCE_BYTES.min(remaining_bytes);
     anyhow::ensure!(max_bytes > 0, "Resource download budget is exhausted");
-    let mut transferred = 0_u64;
     for redirect in 0..=3 {
         anyhow::ensure!(
-            transferred < max_bytes,
+            *transferred < max_bytes,
             "Resource redirect chain exhausted its download limit"
         );
         let address = public_address(&current)?;
-        let status = curl(&current, address, &temp, max_bytes - transferred)?;
+        let status = curl(&current, address, temp, max_bytes - *transferred);
+        *transferred = transferred.saturating_add(
+            fs::metadata(&temp.body)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default(),
+        );
+        let status = status?;
         let headers = fs::read_to_string(&temp.headers)?;
-        transferred += fs::metadata(&temp.body)?.len();
         anyhow::ensure!(
-            transferred <= max_bytes,
+            *transferred <= max_bytes,
             "Resource redirect chain exceeded its download limit"
         );
         if (300..400).contains(&status) {
@@ -55,18 +100,18 @@ pub(super) fn retrieve(
             };
             anyhow::ensure!(redirect < 3, "Resource host redirected too many times");
             let next = current.join(&location)?;
-            current = match policy::classify(next.as_str()) {
+            current = match classify_redirect(next.as_str()) {
                 Ok(policy::Decision::Allow(url)) => url,
                 Err(error) => {
                     return Ok(ResourceResponse::needs_attention_with_bytes(
                         format!("Resource redirect needs operator review: {error:#}"),
-                        transferred as usize,
+                        *transferred as usize,
                     ));
                 }
                 Ok(policy::Decision::NeedsAttention(detail)) => {
                     return Ok(ResourceResponse::needs_attention_with_bytes(
                         detail,
-                        transferred as usize,
+                        *transferred as usize,
                     ));
                 }
             };
@@ -92,14 +137,14 @@ pub(super) fn retrieve(
                 format!("Retrieved {display} for: {}", purpose.trim()),
                 content,
             );
-            response.bytes = transferred as usize;
+            response.bytes = *transferred as usize;
             return Ok(response);
         }
         let path = store_resource(worktree, &bytes)?;
         return Ok(ResourceResponse::allowed_file(
             format!("Retrieved {display} for: {}", purpose.trim()),
             path,
-            transferred as usize,
+            *transferred as usize,
         ));
     }
     anyhow::bail!("Resource redirect flow ended unexpectedly")
@@ -164,59 +209,6 @@ fn curl(url: &Url, address: IpAddr, temp: &TempResponse, max_bytes: u64) -> anyh
     Ok(status)
 }
 
-fn public_address(url: &Url) -> anyhow::Result<IpAddr> {
-    let host = url
-        .host_str()
-        .ok_or_else(|| anyhow::anyhow!("Resource URL has no host"))?;
-    let mut addresses = (host, 443).to_socket_addrs()?.map(|address| address.ip());
-    let address = addresses
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Resource host did not resolve"))?;
-    anyhow::ensure!(
-        public_ip(address) && addresses.all(public_ip),
-        "Resource host resolves to a private or reserved network address"
-    );
-    Ok(address)
-}
-
-fn public_ip(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(ip) => {
-            let [a, b, c, _] = ip.octets();
-            !(a == 0
-                || a == 10
-                || (a == 100 && (64..=127).contains(&b))
-                || a == 127
-                || (a == 169 && b == 254)
-                || (a == 172 && (16..=31).contains(&b))
-                || (a == 192 && b == 168)
-                || (a == 192 && b == 0 && c == 0)
-                || (a == 192 && b == 88 && c == 99)
-                || (a == 192 && b == 0 && c == 2)
-                || (a == 198 && (b == 18 || b == 19))
-                || (a == 198 && b == 51 && c == 100)
-                || (a == 203 && b == 0 && c == 113)
-                || a >= 224)
-        }
-        IpAddr::V6(ip) => {
-            let segments = ip.segments();
-            (segments[0] & 0xe000 == 0x2000)
-                && !(segments[0] == 0x2001 && segments[1] <= 0x01ff)
-                && !(segments[0] == 0x2001 && segments[1] == 0x0db8)
-                && segments[0] != 0x2002
-                && !(segments[0] == 0x3fff && segments[1] & 0xf000 == 0)
-                && !ip.is_loopback()
-                && !ip.is_unspecified()
-                && !ip.is_multicast()
-                && !ip.is_unique_local()
-                && !ip.is_unicast_link_local()
-                && ip
-                    .to_ipv4_mapped()
-                    .is_none_or(|mapped| public_ip(mapped.into()))
-        }
-    }
-}
-
 fn header_value(headers: &str, key: &str) -> Option<String> {
     headers
         .lines()
@@ -241,7 +233,7 @@ fn store_resource(resource_dir: &Path, bytes: &[u8]) -> anyhow::Result<String> {
     use std::io::Write;
     file.write_all(bytes)?;
     Ok(format!(
-        "{SANDBOX_RESOURCE_DIR}/{}.resource",
+        "{SANDBOX_RESOURCE_DIR}/{}",
         path.file_name().unwrap_or_default().to_string_lossy()
     ))
 }

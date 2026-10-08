@@ -176,6 +176,7 @@ pub(super) fn run(
         let (progress_tx, _progress_rx) = mpsc::channel();
         let request = PlanningRequest {
             mode: crate::harness::ExecutionMode::DecisionExplanation,
+            task_id: None,
             // Blocked reports often combine detailed verification with
             // multiple independent human actions. Use review-level reasoning
             // so the user-facing explanation preserves those distinctions.
