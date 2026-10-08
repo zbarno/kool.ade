@@ -116,6 +116,11 @@ impl ClaimLease {
         self.object = git::refresh(&self.repo, &self.reference, &self.object)?;
         Ok(())
     }
+    /// Fail closed if this run's remote task claim disappeared or another
+    /// session took ownership. A heartbeat alone cannot fence publication.
+    pub(crate) fn verify_ownership(&self) -> Result<(), ClaimError> {
+        git::verify_ownership(&self.repo, &self.reference, &self.object)
+    }
 }
 
 impl ClaimRequest {
