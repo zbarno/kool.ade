@@ -38,11 +38,11 @@ fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
     {
         assert!(
             sandbox.args.windows(3).any(|args| {
-                args[0] == "--ro-bind"
+                args[0] == "--symlink"
                     && args[1] == compiler.to_string_lossy()
                     && args[2] == "/etc/alternatives/cc"
             }),
-            "missing narrowly mounted compiler alias"
+            "missing canonical compiler symlink"
         );
         assert!(
             !sandbox

@@ -46,7 +46,15 @@ pub(super) fn mount_system_runtime(
             && target.is_file()
             && target.starts_with("/usr")
         {
-            bind_readonly_file(args, created, &target, &alias);
+            // Preserve the executable's canonical path. GCC discovers its
+            // support programs and linker plugins relative to that path; a
+            // regular-file bind here makes it search under /etc instead.
+            ensure_parents(args, created, &alias);
+            args.extend([
+                "--symlink".into(),
+                target.to_string_lossy().into_owned(),
+                alias.to_string_lossy().into_owned(),
+            ]);
         }
     }
     // Public CA roots are safe to expose; never bind the parent /etc/ssl.

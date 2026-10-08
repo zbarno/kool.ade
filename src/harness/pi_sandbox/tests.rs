@@ -1,3 +1,4 @@
+mod compiler;
 mod components;
 mod filesystem;
 mod git;
