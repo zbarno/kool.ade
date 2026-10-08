@@ -1,5 +1,9 @@
 use super::*;
+#[cfg(test)]
+mod git_trace;
 mod verification_command;
+#[cfg(test)]
+pub(super) use git_trace::capture_git_worktree_commands;
 
 pub(super) struct Runner {
     pub(super) gh: String,
@@ -166,6 +170,8 @@ impl Runner {
         )
     }
     pub(super) fn git(&self, cwd: &Path, args: &[&str]) -> anyhow::Result<String> {
+        #[cfg(test)]
+        git_trace::record(args);
         let retries = if matches!(args.first(), Some(&"fetch" | &"ls-remote")) {
             3
         } else {
