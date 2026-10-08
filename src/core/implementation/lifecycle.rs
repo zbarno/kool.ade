@@ -55,7 +55,7 @@ pub(super) fn execute(
             if state.source_branch.is_some() || state.destination_branch.is_some() {
                 integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
             }
-            publication::create_pull_request(dir, state, runner)
+            publication::create_pull_request(dir, state, runner, policy.publication_claim)
         }
     }
 }
