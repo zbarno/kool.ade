@@ -11,9 +11,14 @@ const FILE: &str = "base-reconciliation-generated.json";
 #[serde(deny_unknown_fields)]
 struct Ledger {
     schema_version: u8,
-    worktree: PathBuf,
+    #[serde(alias = "worktree")]
+    task_repository: PathBuf,
     branch: String,
     ticket: String,
+    #[serde(default)]
+    task_uid: Option<String>,
+    #[serde(default)]
+    allocation_key: Option<String>,
     local: String,
     remote: String,
     files: BTreeMap<String, String>,
@@ -28,7 +33,7 @@ pub(super) struct Before {
 fn load(dir: &Path, state: &Implementation) -> anyhow::Result<Ledger> {
     let plan = read_plan(&dir.join(PLAN_FILE))?;
     let path = dir.join(FILE);
-    let ledger = if path.exists() {
+    let mut ledger = if path.exists() {
         anyhow::ensure!(
             fs::metadata(&path)?.len() <= 16 * 1024 * 1024,
             "Verification artifact ledger is too large; preserved for review"
@@ -37,23 +42,38 @@ fn load(dir: &Path, state: &Implementation) -> anyhow::Result<Ledger> {
     } else {
         Ledger {
             schema_version: 1,
-            worktree: state.worktree.canonicalize()?,
+            task_repository: state.task_repository.canonicalize()?,
             branch: state.branch.clone(),
             ticket: state.ticket.clone(),
+            task_uid: state.task_uid.clone(),
+            allocation_key: state.task_repository_allocation_key.clone(),
             local: plan.local_commit.clone(),
             remote: plan.remote_commit.clone(),
             files: BTreeMap::new(),
         }
     };
+    let same_renamed_task = state.task_uid.is_some()
+        && state.task_repository_allocation_key.is_some()
+        && ledger
+            .task_uid
+            .as_ref()
+            .is_none_or(|uid| state.task_uid.as_ref() == Some(uid))
+        && ledger
+            .allocation_key
+            .as_ref()
+            .is_none_or(|key| state.task_repository_allocation_key.as_ref() == Some(key));
     anyhow::ensure!(
         ledger.schema_version == 1
-            && ledger.worktree == state.worktree.canonicalize()?
+            && ledger.task_repository == state.task_repository.canonicalize()?
             && ledger.branch == state.branch
-            && ledger.ticket == state.ticket
+            && (ledger.ticket == state.ticket || same_renamed_task)
             && ledger.local == plan.local_commit
             && ledger.remote == plan.remote_commit,
-        "Verification artifact identity changed; the worktree is preserved for review"
+        "Verification artifact identity changed; the task repository is preserved for review"
     );
+    ledger.ticket = state.ticket.clone();
+    ledger.task_uid = state.task_uid.clone();
+    ledger.allocation_key = state.task_repository_allocation_key.clone();
     Ok(ledger)
 }
 
@@ -90,13 +110,13 @@ pub(in crate::core::implementation) fn trusted(
     dir: &Path,
 ) -> anyhow::Result<BTreeSet<String>> {
     let ledger = load(dir, state)?;
-    let mut trusted = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
-    for path in inventory(runner, &state.worktree)? {
+    let mut trusted = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
+    for path in inventory(runner, &state.task_repository)? {
         if !eligible(&path) {
             continue;
         }
         if let Some(expected) = ledger.files.get(&path)
-            && fingerprint(&state.worktree, &path)?.as_ref() == Some(expected)
+            && fingerprint(&state.task_repository, &path)?.as_ref() == Some(expected)
         {
             trusted.insert(path);
         }
@@ -110,7 +130,7 @@ pub(super) fn before(
     dir: &Path,
 ) -> anyhow::Result<Before> {
     Ok(Before {
-        paths: inventory(runner, &state.worktree)?,
+        paths: inventory(runner, &state.task_repository)?,
         trusted: trusted(runner, state, dir)?,
         ledger: load(dir, state)?,
     })
@@ -122,14 +142,14 @@ pub(super) fn after(
     dir: &Path,
     mut before: Before,
 ) -> anyhow::Result<()> {
-    let paths = inventory(runner, &state.worktree)?;
+    let paths = inventory(runner, &state.task_repository)?;
     // Refresh only previously unchanged output, or files absent before verification.
     // Preexisting unknown files and operator edits never acquire verification provenance.
     for path in paths.difference(&before.paths).chain(before.trusted.iter()) {
         if !eligible(path) {
             continue;
         }
-        if let Some(hash) = fingerprint(&state.worktree, path)? {
+        if let Some(hash) = fingerprint(&state.task_repository, path)? {
             before.ledger.files.insert(path.clone(), hash);
         } else {
             before.ledger.files.remove(path);
@@ -173,7 +193,7 @@ pub(in crate::core::implementation) fn clean(
     let generated = if dir.join(FILE).exists() {
         trusted(runner, state, dir)?
     } else {
-        crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?
+        crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?
     };
     for args in [
         vec!["diff", "--name-only", "-z"],
@@ -181,7 +201,7 @@ pub(in crate::core::implementation) fn clean(
         vec!["ls-files", "--others", "--exclude-standard", "-z"],
     ] {
         if runner
-            .git(&state.worktree, &args)?
+            .git(&state.task_repository, &args)?
             .split('\0')
             .filter(|path| !path.is_empty())
             .any(|path| !generated.contains(path))
@@ -197,11 +217,11 @@ pub(in crate::core::implementation) fn stage_task(
     state: &Implementation,
     dir: &Path,
 ) -> anyhow::Result<()> {
-    let mut protected = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
+    let mut protected = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
     if dir.join(FILE).exists() {
         let ledger = load(dir, state)?;
         let trusted = trusted(runner, state, dir)?;
-        let current = inventory(runner, &state.worktree)?;
+        let current = inventory(runner, &state.task_repository)?;
         anyhow::ensure!(
             ledger
                 .files
@@ -213,7 +233,7 @@ pub(in crate::core::implementation) fn stage_task(
     }
     let mut args = vec!["add".to_owned(), "--all".into(), "--".into(), ".".into()];
     let visible = runner.git(
-        &state.worktree,
+        &state.task_repository,
         &["ls-files", "--others", "--exclude-standard", "-z"],
     )?;
     let visible = visible.split('\0').collect::<BTreeSet<_>>();
@@ -224,7 +244,7 @@ pub(in crate::core::implementation) fn stage_task(
             .map(|path| format!(":(exclude,literal){path}")),
     );
     runner.git(
-        &state.worktree,
+        &state.task_repository,
         &args.iter().map(String::as_str).collect::<Vec<_>>(),
     )?;
     Ok(())

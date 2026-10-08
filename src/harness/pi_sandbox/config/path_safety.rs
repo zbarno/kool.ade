@@ -2,6 +2,9 @@ use std::path::Path;
 
 pub(super) fn inside_workspace(path: &Path, root: &Path) -> bool {
     path.starts_with(root)
+        || crate::persistence::state_root()
+            .canonicalize()
+            .is_ok_and(|state_root| root.starts_with(&state_root) && path.starts_with(&state_root))
         || root
             .ancestors()
             .find(|ancestor| {

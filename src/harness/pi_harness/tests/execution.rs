@@ -57,6 +57,7 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
             reasoning_level: "low".into(),
             telemetry_phase: None,
             repo_root: root.clone(),
+            runtime_config_source: None,
             prompt_body: "test".into(),
             system_instructions: "Custom persona remains intact".into(),
             timeout: Duration::from_secs(5),
@@ -145,6 +146,10 @@ fn implementation_harness_exposes_only_the_bounded_shell_extension() {
     assert!(
         std::process::Command::new("git")
             .args([
+                "-c",
+                "user.name=Koolade test",
+                "-c",
+                "user.email=koolade-test@example.invalid",
                 "worktree",
                 "add",
                 "--quiet",
@@ -186,6 +191,7 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
         reasoning_level: "low".into(),
         telemetry_phase: None,
         repo_root: repo.clone(),
+        runtime_config_source: None,
         prompt_body: "test".into(),
         system_instructions: "implementation persona".into(),
         timeout: Duration::from_secs(5),

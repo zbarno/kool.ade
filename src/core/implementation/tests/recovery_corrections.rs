@@ -74,7 +74,7 @@ fn automatic_corrections_preserve_work_and_publish_only_after_verification() {
                     .count(),
                 2
             );
-            assert!(result.worktree.join("missing-file").exists());
+            assert!(result.task_repository.join("missing-file").exists());
         }
         assert_eq!(
             fs::read_to_string(s.root.join("pr-created"))
@@ -100,7 +100,7 @@ fn correction_limit_blocker_and_cancellation_never_publish() {
         assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
         assert!(!s.root.join("pr-created").exists());
         let state = load(&s.repo, &s.ticket).unwrap();
-        assert!(state.worktree.join("implemented.txt").exists());
+        assert!(state.task_repository.join("implemented.txt").exists());
         assert!(state.detail.contains(error_text));
     }
 }
@@ -133,7 +133,7 @@ fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
     let resumed = s
         .run("fresh_budget", Arc::new(AtomicUsize::new(0)))
         .unwrap();
-    assert_eq!(resumed.worktree, original.worktree);
+    assert_eq!(resumed.task_repository, original.task_repository);
     assert_eq!(resumed.base_commit, original.base_commit);
     assert_eq!(resumed.status, ImplementationStatus::AwaitingReview);
 }
@@ -192,18 +192,18 @@ fn changed_ticket_and_concurrent_run_are_rejected() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 #[test]
-fn mismatched_existing_worktree_is_not_modified() {
+fn mismatched_saved_task_repository_is_not_modified() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
     let mut state = load(&s.repo, &s.ticket).unwrap();
-    state.worktree = s.repo.clone();
+    state.task_repository = s.repo.clone();
     save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
     assert!(
         s.run("complete", calls.clone())
             .unwrap_err()
             .to_string()
-            .contains("another branch")
+            .contains("allocation")
     );
     assert!(!s.repo.join("implemented.txt").exists());
     assert_eq!(calls.load(Ordering::SeqCst), 1);

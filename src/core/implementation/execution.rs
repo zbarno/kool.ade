@@ -1,6 +1,8 @@
 use super::*;
 mod initial_base;
 mod resume_state;
+mod source;
+mod task_state;
 pub(crate) use resume_state::{mark_resume_started, record_failed_attempt};
 
 pub fn run(
@@ -50,6 +52,7 @@ pub(super) fn run_with_project_options(
     );
     let runner = Runner {
         gh: gh.into(),
+        runtime_config_source: Some(repo.to_path_buf()),
         deadline: Instant::now() + crate::core::turn::configured_turn_timeout(),
         cancel,
         progress,
@@ -58,6 +61,7 @@ pub(super) fn run_with_project_options(
     let telemetry_harness = super::telemetry::CaptureHarness::new(
         harness,
         planning_root,
+        repo,
         &text,
         metadata.as_ref(),
         task_uid.as_deref(),
@@ -88,118 +92,42 @@ pub(super) fn run_with_project_options(
         &telemetry_harness.session,
         active_progress,
     );
-    let mut state = if dir.join("state.json").exists() {
-        let mut state = read_state_file(&dir.join("state.json"))?;
-        anyhow::ensure!(
-            (state.ticket == ticket
-                || task_uid
-                    .as_deref()
-                    .is_some_and(|uid| state.task_uid.as_deref() == Some(uid)))
-                && state.ticket_text == text
-                && state
-                    .task_uid
-                    .as_deref()
-                    .is_none_or(|uid| task_uid.as_deref() == Some(uid)),
-            "Ticket changed since implementation started. Review the existing worktree before starting a revised ticket."
-        );
-        if let Some(source) = state.source_branch.as_deref() {
-            let local_exists = runner
-                .git(
-                    repo,
-                    &["show-ref", "--verify", &format!("refs/heads/{source}")],
-                )
-                .is_ok();
-            let remote_exists = runner
-                .git(
-                    repo,
-                    &[
-                        "ls-remote",
-                        "--exit-code",
-                        "--heads",
-                        "origin",
-                        &format!("refs/heads/{source}"),
-                    ],
-                )
-                .is_ok();
-            if !local_exists && !remote_exists {
-                return Err(
-                    crate::core::implementation::initial_reconciliation::support::user_action(
-                        format!(
-                            "Selected source branch '{source}' no longer exists or cannot be reached. Restore it or select an existing source branch before resuming."
-                        ),
-                    ),
-                );
-            }
-        }
-        if let Some(metadata) = &metadata {
-            anyhow::ensure!(
-                state.source_branch.as_deref() == metadata.source_branch.as_deref()
-                    && state.destination_branch.as_deref()
-                        == metadata.destination_branch.as_deref(),
-                "Task branch intent changed after implementation started. Review the existing worktree before resuming."
-            );
-        }
-        state.ticket = ticket.to_owned();
-        if task_uid.is_some() {
-            state.task_uid = task_uid.clone();
-        }
-        save(&dir, &state)?;
-        state
-    } else {
-        let (destination, head, explicit_source) =
-            initial_base::prepare(repo, &dir, ticket, &metadata, publication_mode, &runner)?;
-        let root = repo
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("Repository has no parent"))?
-            .join(".koolade-worktrees")
-            .join(crate::persistence::project_slug(&repo.canonicalize()?));
-        fs::create_dir_all(&root)?;
-        let dependency_context = completed_dependency_context(planning_root, ticket, &text)?;
-        Implementation {
-            ticket: ticket.into(),
-            task_uid: task_uid.clone(),
-            ticket_text: text,
-            approved_specification: Path::new(ticket).parent().and_then(|parent| {
-                fs::read_to_string(planning_root.join(parent).join("specification.md")).ok()
-            }),
-            approved_product_context: scoped_product_context(planning_root, ticket)?,
-            completed_dependency_context: dependency_context,
-            branch: format!("koolade/{}", key(ticket)),
-            source_branch: explicit_source,
-            destination_branch: metadata
-                .as_ref()
-                .and_then(|metadata| metadata.destination_branch.clone()),
-            base: destination,
-            base_commit: head,
-            worktree: root.join(key(ticket)),
-            status: ImplementationStatus::Preparing,
-            detail: String::new(),
-            pr_url: None,
-            verified_head: None,
-            auto_merge: publication_mode == PublicationMode::AutoPublish,
-            merged_commit: None,
-            pr_state: None,
-            pr_checked_at: None,
-            pr_check_attempted_at: None,
-            pr_check_error: None,
-            independent_check: None,
-            cleanup: Default::default(),
-        }
-    };
+    let mut state = task_state::load_or_create(task_state::Request {
+        planning_root,
+        repo,
+        ticket,
+        text: &text,
+        task_uid: task_uid.as_deref(),
+        metadata: &metadata,
+        publication_mode,
+        dir: &dir,
+        runner: &runner,
+    })?;
+    if state.task_repository_kind == TaskRepositoryKind::Clone {
+        task_repository::validate_task_path(planning_root, &state)?;
+    }
     if state.pr_url.is_none() && state.merged_commit.is_none() {
         state.auto_merge = publication_mode == PublicationMode::AutoPublish;
     }
     if state.status == ImplementationStatus::Completed {
         return Ok(state);
     }
+    let lifecycle_repository = if state.task_repository_kind == TaskRepositoryKind::Clone {
+        state
+            .repository_cache
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Saved repository cache path is missing"))?
+    } else {
+        repo.to_path_buf()
+    };
     save(&dir, &state)?;
     drop(migration_gate);
     let result = runner
         .check_storage(&dir)
-        .and_then(|_| runner.check_storage(&state.worktree))
+        .and_then(|_| runner.check_storage(&state.task_repository))
         .and_then(|_| {
             lifecycle::execute(
-                repo,
+                &lifecycle_repository,
                 &dir,
                 &mut state,
                 harness,
@@ -233,11 +161,12 @@ pub(super) fn run_with_project_options(
     // and records failure without turning a published task back into a failure.
     let cleanup_runner = Runner {
         gh: runner.gh.clone(),
+        runtime_config_source: runner.runtime_config_source.clone(),
         deadline: Instant::now() + Duration::from_secs(120),
         cancel: runner.cancel.clone(),
         progress: runner.progress.clone(),
     };
-    cleanup::run(repo, &dir, &mut state, &cleanup_runner);
+    cleanup::run(&lifecycle_repository, &dir, &mut state, &cleanup_runner);
     if let Err(error) = save(&dir, &state) {
         if state.status != ImplementationStatus::Completed {
             return Err(error);
@@ -251,5 +180,62 @@ pub(super) fn run_with_project_options(
                 .unwrap_or("Cleanup will be checked again on the next refresh.")
         ));
     }
+    Ok(state)
+}
+
+#[cfg(test)]
+pub(super) fn persist_source_plan_before_task_state(
+    planning_root: &Path,
+    repo: &Path,
+    ticket: &str,
+    runner: &Runner,
+) -> anyhow::Result<()> {
+    let (text, task_uid, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
+    fs::create_dir_all(&dir)?;
+    source::resolve(source::Request {
+        planning_root,
+        repo,
+        dir: &dir,
+        ticket,
+        text: &text,
+        metadata: metadata.as_ref(),
+        publication_mode: PublicationMode::HoldForReview,
+        runner,
+    })?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn prepare_task_repository_before_reconciliation(
+    planning_root: &Path,
+    repo: &Path,
+    ticket: &str,
+    runner: &Runner,
+) -> anyhow::Result<Implementation> {
+    let (text, task_uid, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
+    fs::create_dir_all(&dir)?;
+    let mut state = task_state::load_or_create(task_state::Request {
+        planning_root,
+        repo,
+        ticket,
+        text: &text,
+        task_uid: task_uid.as_deref(),
+        metadata: &metadata,
+        publication_mode: PublicationMode::HoldForReview,
+        dir: &dir,
+        runner,
+    })?;
+    let workspace_repository = state
+        .repository_cache
+        .clone()
+        .unwrap_or_else(|| repo.to_path_buf());
+    crate::core::implementation::verification::prepare_task_workspace(
+        &workspace_repository,
+        &dir,
+        &mut state,
+        runner,
+    )?;
     Ok(state)
 }

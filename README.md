@@ -10,7 +10,7 @@
 >
 > For now, use disposable clones or test repositories, keep independent backups, review generated changes, and leave automatic publication disabled unless you knowingly accept the risk.
 >
-> The sandbox, Git worktrees, human approval gates, and verification checks reduce risk. They are not a guarantee against surprising behavior.
+> The sandbox, independent task clones, human approval gates, and verification checks reduce risk. They are not a guarantee against surprising behavior.
 >
 > **Drink responsibly. Code experimentally.**
 
@@ -84,7 +84,7 @@ It can:
 
 It is less "AI pair programmer" and more "slightly obsessive technical project manager who happens to have access to coding agents."
 
-And unlike certain completely unrelated mascots from your childhood, Kool.ad/e Man.ager generally prefers **Git worktrees** to entering rooms through the wall.
+And unlike certain completely unrelated mascots from your childhood, Kool.ad/e Man.ager generally prefers **full Git clones** to entering rooms through the wall.
 
 ---
 
@@ -212,7 +212,7 @@ Because "the AI regenerated my ticket and deleted the part I fixed" is not a fea
 
 Kool.ad/e can move beyond planning and coordinate implementation.
 
-Approved tasks are executed in **isolated Git worktrees**, allowing multiple independent workers to operate concurrently without turning your working copy into a crime scene.
+Approved tasks are executed in **isolated full Git clones**, allowing multiple independent workers to operate concurrently without turning your working copy into a crime scene.
 
 The worker pool is configurable from **1 to 8 concurrent tasks**, with **3** as the current default.
 
@@ -220,7 +220,7 @@ Dependencies are respected. Independent work can run concurrently, including pla
 
 Each task gets:
 
-- its own worktree
+- its own task clone
 - its own agent session
 - implementation progress
 - verification
@@ -276,7 +276,7 @@ Planning and implementation sandboxes:
 - isolate network access
 - prevent the agent from casually rummaging around the rest of your machine
 
-Implementation happens in dedicated worktrees rather than your active checkout.
+Implementation happens in dedicated task clones rather than your active checkout.
 
 Kool.ad/e also uses locks around task execution and publication so multiple processes cannot casually race each other toward increasingly creative Git history.
 
@@ -398,7 +398,7 @@ Current capabilities include:
 | Task-story generation | ✅ |
 | Resumable task generation | ✅ |
 | Concurrent implementation workers | ✅ |
-| Isolated Git worktrees | ✅ |
+| Isolated task clones | ✅ |
 | Verification and recovery | ✅ |
 | Optional automatic publication | ✅ |
 | Pull request state tracking | ✅ |

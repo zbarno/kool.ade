@@ -3,6 +3,7 @@ mod verification_command;
 
 pub(super) struct Runner {
     pub(super) gh: String,
+    pub(super) runtime_config_source: Option<std::path::PathBuf>,
     pub(super) deadline: Instant,
     pub(super) cancel: Arc<AtomicBool>,
     pub(super) progress: Sender<LiveProgress>,
@@ -11,13 +12,13 @@ impl Runner {
     pub(super) fn remaining(&self) -> anyhow::Result<Duration> {
         anyhow::ensure!(
             !self.cancel.load(Ordering::SeqCst),
-            "Implementation cancelled. The worktree is preserved; choose Resume implementation to continue."
+            "Implementation cancelled. The task repository is preserved; choose Resume implementation to continue."
         );
         self.deadline
             .checked_duration_since(Instant::now())
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Implementation budget expired. The worktree is preserved for resume."
+                    "Implementation budget expired. The task repository is preserved for resume."
                 )
             })
     }
@@ -143,8 +144,12 @@ impl Runner {
 
     fn verify_once(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
         cwd.to_str()
-            .ok_or_else(|| anyhow::anyhow!("Non-UTF8 worktree path"))?;
-        let mut sandbox = crate::harness::pi_sandbox::Sandbox::new(cwd)?;
+            .ok_or_else(|| anyhow::anyhow!("Non-UTF8 task repository path"))?;
+        let mut sandbox = if let Some(source) = &self.runtime_config_source {
+            crate::harness::pi_sandbox::Sandbox::new_for_task_repository(cwd, source)?
+        } else {
+            crate::harness::pi_sandbox::Sandbox::new(cwd)?
+        };
         let npm_cache = crate::harness::prepared_npm_cache_path()?;
         sandbox.mount_npm_cache(&npm_cache, false)?;
         let args = sandbox.command_args("/bin/sh", command);
@@ -178,6 +183,23 @@ impl Runner {
             }
         }
         Err(last.unwrap())
+    }
+
+    /// Some Git operations write reflogs even though they do not create a
+    /// commit. Keep them from resolving a fallback email through the hostname.
+    pub(super) fn git_with_reflog_identity(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+    ) -> anyhow::Result<String> {
+        let mut git_args = vec![
+            "-c",
+            "user.name=Kool.ad/e task repository",
+            "-c",
+            "user.email=task-repository@koolade.invalid",
+        ];
+        git_args.extend_from_slice(args);
+        self.git(cwd, &git_args)
     }
 
     pub(super) fn merge_base(

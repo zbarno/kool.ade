@@ -58,6 +58,8 @@ pub struct PlanningRequest {
     pub telemetry_phase: Option<String>,
     /// Repository working directory the harness process must run in (§18).
     pub repo_root: std::path::PathBuf,
+    /// User checkout that owns local runtime configuration grants for this task clone.
+    pub runtime_config_source: Option<std::path::PathBuf>,
     /// Fully rendered prompt body (system instructions travel separately).
     pub prompt_body: String,
     /// Planner system-persona instructions (appended to the harness defaults).

@@ -24,7 +24,7 @@ fn auto_mode_verifies_and_stops_for_review_without_pushing_or_creating_pr() {
     let result = run().unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert!(result.pr_url.is_none());
-    assert!(result.worktree.exists());
+    assert!(result.task_repository.exists());
     assert!(
         result
             .independent_check
@@ -141,7 +141,7 @@ fn auto_mode_starts_on_remote_when_local_history_diverged() {
         fs::read_to_string(s.repo.join("local-only.txt")).unwrap(),
         "local work"
     );
-    assert!(!result.worktree.join("local-only.txt").exists());
+    assert!(!result.task_repository.join("local-only.txt").exists());
 }
 
 #[test]

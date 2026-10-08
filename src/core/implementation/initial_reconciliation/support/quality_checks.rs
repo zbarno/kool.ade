@@ -41,7 +41,7 @@ pub(super) fn required_baseline_checks(
         let canonical = instructions.canonicalize()?;
         anyhow::ensure!(
             canonical.starts_with(&root),
-            "Repository instructions escaped the isolated reconciliation worktree"
+            "Repository instructions escaped the isolated reconciliation task repository"
         );
         let instruction_directory = instructions
             .strip_prefix(worktree)?

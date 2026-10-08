@@ -16,9 +16,18 @@ pub(super) fn archive(
             "The prior recovery snapshot is invalid; review is required.",
         )
     })?;
-    let valid = saved["schema_version"] == 1
+    let repository_matches = match saved["schema_version"].as_u64() {
+        Some(1)
+            if state.task_repository_kind
+                == crate::core::implementation::TaskRepositoryKind::LegacyWorktree =>
+        {
+            saved["worktree"].as_str() == state.task_repository.to_str()
+        }
+        Some(2) => saved["task_repository"].as_str() == state.task_repository.to_str(),
+        _ => false,
+    };
+    let valid = repository_matches
         && saved["phase"] == "recovered_once"
-        && saved["worktree"].as_str() == state.worktree.to_str()
         && saved["branch"].as_str() == Some(state.branch.as_str())
         && saved["base"].as_str() == Some(plan.remote_commit.as_str())
         && saved["target"].as_str() == Some(plan.local_commit.as_str())
@@ -37,7 +46,7 @@ pub(super) fn archive(
         Some(value) => serde_json::from_value(value.clone())?,
         None => Vec::new(),
     };
-    let current = crate::harness::pi_sandbox::runtime_config::paths(&state.worktree)?;
+    let current = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
     anyhow::ensure!(
         retained.iter().all(|path| current.contains(path)),
         "Previously retained runtime configuration is no longer granted; recovery is preserved for review"
@@ -58,7 +67,7 @@ pub(super) fn archive(
         .filter(|name| {
             name.starts_with(&format!(
                 "refs/koolade/reconciliation-recovery/{}/",
-                key_for_ticket(&state.ticket)
+                task_repository::allocation_key(state)
             ))
         })
         .ok_or_else(|| {

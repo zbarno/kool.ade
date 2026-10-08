@@ -84,6 +84,11 @@ impl MovePlan {
                 let old_ticket = state.ticket.clone();
                 let new_ticket = migrated_ticket(repo, plan, &old_ticket, &state.ticket_text)?;
                 let mut state_changed = state.ticket != new_ticket;
+                if state.task_repository_allocation_key.is_none() {
+                    state.task_repository_allocation_key =
+                        Some(crate::core::implementation::key_for_ticket(&old_ticket));
+                    state_changed = true;
+                }
                 state.ticket = new_ticket.clone();
                 if let Some(uid) = task_uids.get(&new_ticket) {
                     anyhow::ensure!(

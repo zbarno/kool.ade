@@ -8,16 +8,16 @@ pub(super) fn finalize_verified(
     head: &str,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
-        runner.git(&state.worktree, &["rev-parse", "HEAD"])? == head,
+        runner.git(&state.task_repository, &["rev-parse", "HEAD"])? == head,
         "Agent changed commit history; refusing a non-atomic task commit"
     );
     initial_reconciliation::support::generated::stage_task(runner, state, dir)?;
     if !runner
-        .git(&state.worktree, &["diff", "--cached", "--name-only"])?
+        .git(&state.task_repository, &["diff", "--cached", "--name-only"])?
         .is_empty()
     {
         runner.git(
-            &state.worktree,
+            &state.task_repository,
             &[
                 "commit",
                 "-m",
@@ -27,10 +27,10 @@ pub(super) fn finalize_verified(
     }
     anyhow::ensure!(
         initial_reconciliation::support::generated::clean(runner, state, dir)?,
-        "Worktree is not clean after verification and commit; resume to review"
+        "Task repository is not clean after verification and commit; resume to review"
     );
     let changed_paths = runner.git(
-        &state.worktree,
+        &state.task_repository,
         &[
             "diff",
             "--name-only",
@@ -44,7 +44,11 @@ pub(super) fn finalize_verified(
             "No implementation changes relative to the starting commit; no PR created",
         ))));
     }
-    state.verified_head = Some(runner.git(&state.worktree, &["rev-parse", "HEAD"])?);
+    state.verified_head = Some(runner.git(&state.task_repository, &["rev-parse", "HEAD"])?);
+    state.task_repository_commits.insert(
+        state.task_repository.to_string_lossy().into_owned(),
+        state.verified_head.clone().unwrap(),
+    );
     state.detail = report.summary.clone();
     crate::artifacts::atomic_write(
         &dir.join("verified-report.json"),

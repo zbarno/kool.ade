@@ -17,31 +17,39 @@ pub(super) fn inspect_disjoint_merge(
     head: &str,
     merge_head: Option<&str>,
 ) -> anyhow::Result<DisjointMergeState> {
-    let worktree = &state.worktree;
+    let task_repository = &state.task_repository;
     if head != plan.remote_commit
         || merge_head != Some(plan.local_commit.as_str())
-        || !unmerged_paths(runner, worktree)?.is_empty()
+        || !unmerged_paths(runner, task_repository)?.is_empty()
         || !change_sets_are_disjoint(repo, runner, plan)?
     {
         return Ok(DisjointMergeState::NotApplicable);
     }
     let staged = runner.git(
-        worktree,
+        task_repository,
         &["diff", "--cached", "--name-only", "--no-renames", "-z"],
     )?;
-    let expected_local = changed_paths(worktree, runner, &plan.common_base, &plan.local_commit)?;
+    let expected_local = changed_paths(
+        task_repository,
+        runner,
+        &plan.common_base,
+        &plan.local_commit,
+    )?;
     let staged_paths = staged
         .split('\0')
         .filter(|path| !path.is_empty())
         .map(str::to_owned)
         .collect::<std::collections::BTreeSet<_>>();
     let unexpected_paths = runner.git(
-        worktree,
+        task_repository,
         &["ls-files", "--others", "--exclude-standard", "-z"],
     )?;
-    let unstaged = runner.git(worktree, &["diff", "--name-only", "--no-renames", "-z"])?;
+    let unstaged = runner.git(
+        task_repository,
+        &["diff", "--name-only", "--no-renames", "-z"],
+    )?;
     let ignored = runner.git(
-        worktree,
+        task_repository,
         &[
             "ls-files",
             "--others",
@@ -64,7 +72,7 @@ pub(super) fn inspect_disjoint_merge(
     {
         return Ok(DisjointMergeState::UnexpectedChanges);
     }
-    verify_disjoint_changes_preserved(worktree, runner, plan)?;
+    verify_disjoint_changes_preserved(task_repository, runner, plan)?;
     Ok(DisjointMergeState::Clean)
 }
 
@@ -127,7 +135,7 @@ pub(super) fn cache_is_safe(
         ],
     ] {
         if runner
-            .git(&state.worktree, &args)?
+            .git(&state.task_repository, &args)?
             .split('\0')
             .filter(|path| !path.is_empty())
             .any(|path| !generated.contains(path))

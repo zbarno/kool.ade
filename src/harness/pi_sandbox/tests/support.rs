@@ -31,11 +31,16 @@ impl Drop for TestTree {
 }
 
 pub(super) fn git(directory: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(directory)
-        .output()
-        .unwrap();
+    let mut command = Command::new("git");
+    if args.starts_with(&["worktree", "add"]) {
+        command.args([
+            "-c",
+            "user.name=Koolade test",
+            "-c",
+            "user.email=koolade-test@example.invalid",
+        ]);
+    }
+    let output = command.args(args).current_dir(directory).output().unwrap();
     assert!(
         output.status.success(),
         "git {:?} failed: {}",

@@ -102,14 +102,25 @@ impl AiHarness for PiHarness {
         let mut git_common_dir = None;
         let mut child_env = Vec::new();
         if req.mode == ExecutionMode::Implementation {
-            let bridge = crate::harness::resource_bridge::ResourceBridge::start(&req.repo_root)
+            let bridge =
+                crate::harness::resource_bridge::ResourceBridge::start_with_runtime_source(
+                    &req.repo_root,
+                    req.runtime_config_source.as_deref(),
+                )
                 .map_err(|error| {
                     AppError::Other(format!("Cannot start resource broker: {error:#}"))
                 })?;
-            let mut sandbox = crate::harness::pi_sandbox::Sandbox::new_for_pi(&req.repo_root, &exe)
-                .map_err(|error| {
-                    AppError::Other(format!("Cannot start bounded implementation: {error:#}"))
-                })?;
+            let sandbox = match req.runtime_config_source.as_deref() {
+                Some(source) => crate::harness::pi_sandbox::Sandbox::new_for_pi_task_repository(
+                    &req.repo_root,
+                    &exe,
+                    source,
+                ),
+                None => crate::harness::pi_sandbox::Sandbox::new_for_pi(&req.repo_root, &exe),
+            };
+            let mut sandbox = sandbox.map_err(|error| {
+                AppError::Other(format!("Cannot start bounded implementation: {error:#}"))
+            })?;
             sandbox
                 .mount_resource_cache(bridge.cache_path())
                 .map_err(|error| {

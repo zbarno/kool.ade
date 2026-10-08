@@ -43,16 +43,16 @@ fn preface_and_json_fence_are_removed_before_report_validation() {
     assert!(
         sandbox
             .git(
-                &result.worktree,
+                &result.task_repository,
                 &["merge-base", "--is-ancestor", &result.base_commit, "HEAD"]
             )
             .is_empty()
     );
     assert_eq!(
-        fs::read_to_string(result.worktree.join("shared.txt")).unwrap(),
+        fs::read_to_string(result.task_repository.join("shared.txt")).unwrap(),
         "both edits preserved\n"
     );
-    assert!(result.worktree.join("upstream.txt").exists());
+    assert!(result.task_repository.join("upstream.txt").exists());
 }
 
 #[test]
@@ -70,10 +70,13 @@ fn environment_blocker_stops_without_consuming_report_retries() {
     assert!(failure.message.contains("Waiting for environment"));
     assert!(failure.message.contains("Seed the npm cache"));
     let saved = load(&sandbox.repo, &sandbox.ticket).unwrap();
-    assert!(saved.worktree.is_dir());
+    assert!(saved.task_repository.is_dir());
     assert!(
         !sandbox
-            .git(&saved.worktree, &["rev-parse", "--verify", "MERGE_HEAD"])
+            .git(
+                &saved.task_repository,
+                &["rev-parse", "--verify", "MERGE_HEAD"]
+            )
             .is_empty()
     );
 }

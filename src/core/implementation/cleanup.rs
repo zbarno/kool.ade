@@ -1,6 +1,7 @@
-//! Conservative, restartable reclamation of completed task worktrees.
+//! Conservative, restartable reclamation of completed task repositories.
 //! Reports stay in the implementation directory; cleanup never resets or forces Git.
 use super::*;
+mod clones;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -28,6 +29,18 @@ pub(super) fn run(repo: &Path, dir: &Path, state: &mut Implementation, runner: &
 }
 
 fn reclaim(repo: &Path, dir: &Path, state: &Implementation, runner: &Runner) -> anyhow::Result<()> {
+    if state.task_repository_kind == TaskRepositoryKind::Clone {
+        return clones::reclaim(dir, state, runner);
+    }
+    reclaim_legacy(repo, dir, state, runner)
+}
+
+fn reclaim_legacy(
+    repo: &Path,
+    dir: &Path,
+    state: &Implementation,
+    runner: &Runner,
+) -> anyhow::Result<()> {
     let publish_lock = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -45,7 +58,8 @@ fn reclaim(repo: &Path, dir: &Path, state: &Implementation, runner: &Runner) -> 
         matches!(merged.len(), 40 | 64) && merged.bytes().all(|b| b.is_ascii_hexdigit()),
         "Invalid completion commit; worktrees preserved"
     );
-    let remote_ref = format!("refs/koolade-cleanup-bases/{}", key(&state.ticket));
+    let task_key = task_repository::allocation_key(state);
+    let remote_ref = format!("refs/koolade-cleanup-bases/{task_key}");
     runner.git(
         repo,
         &[
@@ -67,8 +81,8 @@ fn reclaim(repo: &Path, dir: &Path, state: &Implementation, runner: &Runner) -> 
 
     let mut records = vec![(
         state.clone(),
-        key(&state.ticket),
-        format!("koolade/{}", key(&state.ticket)),
+        task_key.clone(),
+        format!("koolade/{task_key}"),
     )];
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -84,8 +98,9 @@ fn reclaim(repo: &Path, dir: &Path, state: &Implementation, runner: &Runner) -> 
             "Integration evidence directory is a symlink; preserved"
         );
         let record = super::read_state_file(&entry.path().join("state.json"))?;
+        let record_key = task_repository::allocation_key(&record);
         anyhow::ensure!(
-            record.ticket == state.ticket
+            record_key == task_key
                 && record.base_commit.len() >= 12
                 && record.base_commit.is_ascii(),
             "Integration identity changed; preserved {}",
@@ -94,14 +109,14 @@ fn reclaim(repo: &Path, dir: &Path, state: &Implementation, runner: &Runner) -> 
         let suffix = record.base_commit[..12].to_owned();
         records.push((
             record,
-            format!("{}-integration-{suffix}", key(&state.ticket)),
-            format!("koolade/integration/{}/{suffix}", key(&state.ticket)),
+            format!("{task_key}-integration-{suffix}"),
+            format!("koolade/integration/{task_key}/{suffix}"),
         ));
     }
     let mut failures = Vec::new();
     for (record, name, branch) in records {
         if let Err(error) = remove_worktree(repo, &record, &name, &branch, &remote_ref, runner) {
-            failures.push(format!("{}: {error:#}", record.worktree.display()));
+            failures.push(format!("{}: {error:#}", record.task_repository.display()));
         }
     }
     anyhow::ensure!(failures.is_empty(), "{}", failures.join("\n"));
@@ -123,32 +138,35 @@ fn remove_worktree(
         .join(crate::persistence::project_slug(&repo.canonicalize()?))
         .join(name);
     anyhow::ensure!(
-        record.worktree == expected && record.branch == branch,
+        record.task_repository == expected && record.branch == branch,
         "Worktree path or branch differs from Kool.ad/e's recorded allocation; preserved"
     );
     let path = record
-        .worktree
+        .task_repository
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid worktree path"))?;
-    if let Ok(metadata) = fs::symlink_metadata(&record.worktree) {
+    if let Ok(metadata) = fs::symlink_metadata(&record.task_repository) {
         anyhow::ensure!(
             !metadata.file_type().is_symlink(),
             "Worktree is a symlink; preserved"
         );
     }
-    if record.worktree.try_exists()? {
+    if record.task_repository.try_exists()? {
         anyhow::ensure!(
-            record.worktree.canonicalize()?
+            record.task_repository.canonicalize()?
                 == expected.parent().unwrap().canonicalize()?.join(name),
             "Worktree path changed; preserved"
         );
         anyhow::ensure!(
-            common(&record.worktree)?.canonicalize()? == common(repo)?.canonicalize()?
-                && runner.git(&record.worktree, &["rev-parse", "--show-toplevel"])? == path
-                && runner.git(&record.worktree, &["symbolic-ref", "--short", "HEAD"])? == branch,
+            common(&record.task_repository)?.canonicalize()? == common(repo)?.canonicalize()?
+                && runner.git(&record.task_repository, &["rev-parse", "--show-toplevel"])? == path
+                && runner.git(
+                    &record.task_repository,
+                    &["symbolic-ref", "--short", "HEAD"]
+                )? == branch,
             "Worktree repository or branch changed; preserved"
         );
-        let head = runner.git(&record.worktree, &["rev-parse", "HEAD"])?;
+        let head = runner.git(&record.task_repository, &["rev-parse", "HEAD"])?;
         anyhow::ensure!(
             record.verified_head.as_deref() == Some(head.as_str()),
             "Worktree has an unverified or changed HEAD; preserved"
@@ -156,7 +174,7 @@ fn remove_worktree(
         anyhow::ensure!(
             runner
                 .git(
-                    &record.worktree,
+                    &record.task_repository,
                     &["status", "--porcelain", "--untracked-files=all"]
                 )?
                 .is_empty(),
@@ -168,7 +186,10 @@ fn remove_worktree(
             repo,
             &[
                 "update-ref",
-                &format!("refs/koolade-evidence/{}/{head}", key(&record.ticket)),
+                &format!(
+                    "refs/koolade-evidence/{}/{head}",
+                    task_repository::allocation_key(record)
+                ),
                 &head,
             ],
         )?;

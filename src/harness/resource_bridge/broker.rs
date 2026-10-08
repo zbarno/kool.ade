@@ -28,7 +28,7 @@ pub(crate) struct ResourceBridge {
 }
 
 struct BrokerContext<'a> {
-    worktree: &'a Path,
+    task_repository: &'a Path,
     private_configuration: bool,
     resource_dir: &'a Path,
     npm_cache: &'a Path,
@@ -39,14 +39,26 @@ struct BrokerContext<'a> {
 }
 
 impl ResourceBridge {
-    pub(crate) fn start(worktree: &Path) -> anyhow::Result<Self> {
-        let worktree = worktree.canonicalize()?;
+    #[cfg(test)]
+    pub(crate) fn start(task_repository: &Path) -> anyhow::Result<Self> {
+        Self::start_with_runtime_source(task_repository, None)
+    }
+
+    pub(crate) fn start_with_runtime_source(
+        task_repository: &Path,
+        runtime_source: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        let task_repository = task_repository.canonicalize()?;
         anyhow::ensure!(
-            worktree.is_dir(),
-            "Resource broker worktree is not a directory"
+            task_repository.is_dir(),
+            "Resource broker task repository is not a directory"
         );
-        let private_configuration = worktree.join(".git").try_exists()?
-            && !crate::harness::pi_sandbox::runtime_config::paths(&worktree)?.is_empty();
+        let private_configuration = task_repository.join(".git").try_exists()?
+            && !crate::harness::pi_sandbox::runtime_config::paths_with_source(
+                &task_repository,
+                runtime_source,
+            )?
+            .is_empty();
         let temp = std::env::temp_dir().join(format!(
             "koolade-resources-{}-{}",
             std::process::id(),
@@ -73,7 +85,7 @@ impl ResourceBridge {
         let thread_downloaded_bytes = downloaded_bytes.clone();
         let thread_resource_dir = cache_dir.clone();
         let thread_npm_cache = npm_cache.clone();
-        let thread_worktree = worktree.clone();
+        let thread_task_repository = task_repository.clone();
         let thread_request_gate = request_gate.clone();
         let thread_requests = Arc::new(Mutex::new(Vec::new()));
         let accepting_requests = thread_requests.clone();
@@ -82,7 +94,7 @@ impl ResourceBridge {
                 match listener.accept() {
                     Ok((client, _)) => {
                         let resource_dir = thread_resource_dir.clone();
-                        let worktree = thread_worktree.clone();
+                        let task_repository = thread_task_repository.clone();
                         let attention = thread_attention.clone();
                         let request_count = thread_request_count.clone();
                         let downloaded_bytes = thread_downloaded_bytes.clone();
@@ -90,7 +102,7 @@ impl ResourceBridge {
                         let request_gate = thread_request_gate.clone();
                         let request_worker = thread::spawn(move || {
                             let context = BrokerContext {
-                                worktree: &worktree,
+                                task_repository: &task_repository,
                                 private_configuration,
                                 resource_dir: &resource_dir,
                                 npm_cache: &npm_cache,
@@ -226,7 +238,7 @@ fn prepare_request(
     );
     if context.private_configuration && request.action == ResourceAction::PrepareNpm {
         return Ok(
-            if npm::verified_offline_cache(context.worktree, context.npm_cache) {
+            if npm::verified_offline_cache(context.task_repository, context.npm_cache) {
                 ResourceResponse::prepared("Verified existing offline npm caches; downloads are disabled while private project configuration is mounted.".into())
             } else {
                 ResourceResponse::needs_attention("Offline npm caches are incomplete; downloads are disabled while private project configuration is mounted. Prepare dependencies before this run.".into())
@@ -259,7 +271,7 @@ fn prepare_request(
             response
         }
         ResourceAction::PrepareNpm => npm::prepare(
-            context.worktree,
+            context.task_repository,
             context.resource_dir,
             context.npm_cache,
             &request.purpose,

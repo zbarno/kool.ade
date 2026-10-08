@@ -26,16 +26,7 @@ pub(super) fn load(model_override: Option<&str>) -> anyhow::Result<Config> {
 }
 
 pub(super) fn provider_error() -> Option<String> {
-    if let Some(error) = validate::configuration_error() {
-        return Some(error);
-    }
-    let home = match std::env::var_os("HOME") {
-        Some(home) => std::path::PathBuf::from(home),
-        None => return Some("Cannot find Pi home for planning provider".into()),
-    };
-    load_from(&home.join(".pi/agent"))
-        .err()
-        .map(|error| error.to_string())
+    validate::configuration_error()
 }
 
 pub(super) fn configured_models() -> anyhow::Result<Vec<String>> {
@@ -71,6 +62,7 @@ pub(super) fn configured_default_model() -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Pi has no default model"))
 }
 
+#[cfg(test)]
 fn load_from(agent: &Path) -> anyhow::Result<Config> {
     load_from_with_model(agent, None)
 }

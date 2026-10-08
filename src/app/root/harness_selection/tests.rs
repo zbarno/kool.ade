@@ -53,6 +53,7 @@ fn implementation_repairs_after_verification_failure_use_the_independent_qa_harn
         reasoning_level: "medium".into(),
         telemetry_phase: Some("qa_verification".into()),
         repo_root: std::path::PathBuf::from("/synthetic/project"),
+        runtime_config_source: None,
         prompt_body: String::new(),
         system_instructions: String::new(),
         timeout: std::time::Duration::from_secs(1),

@@ -38,9 +38,20 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             branch: "koolade/fixture".into(),
             source_branch: None,
             destination_branch: None,
+            source_ref: None,
+            source_commit: None,
+            repository_id: None,
+            project_id: None,
+            repository_identity: None,
+            repository_cache: None,
+            task_repository_allocation_key: None,
             base: "main".into(),
             base_commit: "fixture".into(),
-            worktree: root.join("worktree"),
+            task_repository: root.join("worktree"),
+            task_repository_kind: crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
+            task_repository_ready: false,
+            task_repositories: vec![root.join("worktree")],
+            task_repository_commits: std::collections::BTreeMap::new(),
             status: if i == 1 {
                 ImplementationStatus::AwaitingReview
             } else {
