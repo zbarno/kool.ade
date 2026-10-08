@@ -78,7 +78,8 @@ impl AiHarness for OpenCodeHarness {
         let mut posts = Vec::new();
         let mut model_calls = Vec::new();
         let started_at = chrono::Utc::now();
-        let started = Instant::now();
+        let mut step_started_at = started_at;
+        let mut step_started = Instant::now();
         let mut telemetry = crate::harness::ActivityTelemetry {
             started_ms: Some(started_at.timestamp_millis()),
             ..Default::default()
@@ -118,6 +119,14 @@ impl AiHarness for OpenCodeHarness {
                                 stop_reason,
                             } => {
                                 let end = chrono::Utc::now();
+                                // OpenCode emits one step_finish per completed step.
+                                // Its duration is incremental, not time since this
+                                // invocation began (which would double-count later
+                                // steps in telemetry reports).
+                                let duration_millis = step_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                                let call_started_at = step_started_at;
+                                step_started_at = end;
+                                step_started = Instant::now();
                                 let requested_model = model.clone();
                                 let provider = provider.or_else(|| {
                                     requested_model
@@ -144,9 +153,9 @@ impl AiHarness for OpenCodeHarness {
                                     output_tokens: output,
                                     total_tokens,
                                     estimated_cost_usd_micros: cost_microusd,
-                                    started_at: Some(started_at),
+                                    started_at: Some(call_started_at),
                                     ended_at: Some(end),
-                                    duration_millis: Some(started.elapsed().as_millis() as u64),
+                                    duration_millis: Some(duration_millis),
                                     stop_reason,
                                     ..Default::default()
                                 });
