@@ -91,7 +91,7 @@ fn planning_arguments(
     pi_executable: &Path,
     repositories: &[PathBuf],
 ) -> anyhow::Result<Vec<String>> {
-    use mounts::{bind_readonly, bind_readonly_file, make_dir, mount_tmpfs, push_env};
+    use mounts::{bind_readonly, make_dir, mount_system_runtime, mount_tmpfs, push_env};
 
     let mut args = vec![
         "--die-with-parent".into(),
@@ -102,22 +102,8 @@ fn planning_arguments(
         "--unshare-uts".into(),
     ];
     let mut created = BTreeSet::from(["/".to_owned()]);
-    // Construct a small runtime root instead of cloning the host filesystem.
-    // System executables/libraries are read-only; project repositories are
-    // mounted below as the only project data roots.
-    for path in ["/usr", "/bin", "/sbin", "/lib", "/lib64"] {
-        if Path::new(path).exists() {
-            bind_readonly(&mut args, &mut created, Path::new(path), Path::new(path))?;
-        }
-    }
-    if Path::new("/usr/local/src").is_dir() {
-        mount_tmpfs(
-            &mut args,
-            &mut created,
-            Path::new("/usr/local/src"),
-            16_777_216,
-        );
-    }
+    // Share the same explicit system-runtime allowlist as implementation.
+    mount_system_runtime(&mut args, &mut created)?;
     for path in [
         "/home", "/root", "/mnt", "/media", "/run", "/tmp", "/var", "/srv",
     ] {
@@ -131,26 +117,6 @@ fn planning_arguments(
                 67_108_864
             },
         );
-    }
-    make_dir(&mut args, &mut created, Path::new("/etc"));
-    for path in [
-        "/etc/ld.so.cache",
-        "/etc/passwd",
-        "/etc/group",
-        "/etc/nsswitch.conf",
-        "/etc/localtime",
-    ] {
-        if Path::new(path).is_file() {
-            bind_readonly_file(&mut args, &mut created, Path::new(path), Path::new(path));
-        }
-    }
-    if Path::new("/etc/ssl/certs").is_dir() {
-        bind_readonly(
-            &mut args,
-            &mut created,
-            Path::new("/etc/ssl/certs"),
-            Path::new("/etc/ssl/certs"),
-        )?;
     }
     make_dir(&mut args, &mut created, Path::new("/proc"));
     args.extend(["--proc".into(), "/proc".into()]);
