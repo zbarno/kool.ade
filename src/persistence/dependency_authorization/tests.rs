@@ -165,11 +165,12 @@ fn concurrent_processes_do_not_lose_project_grants() {
                 .env("KOOLADE_HOME", &state_root)
                 .env("KOOLADE_TEST_AUTH_CHILD_PROJECT", &project)
                 .env("KOOLADE_TEST_AUTH_CHILD_WORKER", worker.to_string())
-                .output()
+                .spawn()
                 .unwrap()
         })
         .collect::<Vec<_>>();
-    for (index, result) in children.iter().enumerate() {
+    for (index, child) in children.into_iter().enumerate() {
+        let result = child.wait_with_output().unwrap();
         assert!(
             result.status.success(),
             "writer {index} failed: {}",
