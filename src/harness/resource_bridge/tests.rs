@@ -11,6 +11,80 @@ mod rejection;
 mod success;
 
 #[test]
+fn pending_dependency_review_does_not_block_unrelated_requests() {
+    let worktree = std::env::temp_dir().join(format!(
+        "koolade-resource-nonblocking-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir(&worktree).unwrap();
+    let (bridge, updates) = start_bridge(&worktree, Some("TASK-NONBLOCKING"));
+
+    let mut waiting = UnixStream::connect(bridge.socket_path()).unwrap();
+    serde_json::to_writer(
+        &mut waiting,
+        &ResourceRequest {
+            action: super::ResourceAction::UnsupportedManager,
+            manager: Some("unsupported-tool".into()),
+            url: None,
+            dependency: None,
+            dependency_request_id: None,
+            retry_succeeded: None,
+            purpose: "Review a manager without a supported adapter".into(),
+        },
+    )
+    .unwrap();
+    waiting.write_all(b"\n").unwrap();
+    waiting.shutdown(std::net::Shutdown::Write).unwrap();
+    let pending = take_dependency_update(&updates);
+    assert_eq!(
+        pending.status,
+        crate::harness::DependencyRequestStatus::ManagerReviewing
+    );
+
+    // This used to time out: the first connection held request_gate for the
+    // entire user/manager approval wait, blocking even rejected resources.
+    let mut independent = UnixStream::connect(bridge.socket_path()).unwrap();
+    independent
+        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+        .unwrap();
+    serde_json::to_writer(
+        &mut independent,
+        &ResourceRequest {
+            action: super::ResourceAction::Fetch,
+            manager: None,
+            url: Some("https://example.com/blocked-resource".into()),
+            dependency: None,
+            dependency_request_id: None,
+            retry_succeeded: None,
+            purpose: "Review this unrelated resource request".into(),
+        },
+    )
+    .unwrap();
+    independent.write_all(b"\n").unwrap();
+    independent.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut response = String::new();
+    BufReader::new(independent)
+        .read_line(&mut response)
+        .expect("unrelated request must not wait for dependency review");
+    let response: ResourceResponse = serde_json::from_str(&response).unwrap();
+    assert_eq!(response.status, "needs_attention");
+    assert!(response.summary.contains("example.com"));
+
+    answer(
+        &pending.id,
+        crate::harness::DependencyDecision::Reject,
+        None,
+        "No approval for an unsupported manager",
+    );
+    let mut finished = String::new();
+    BufReader::new(waiting).read_line(&mut finished).unwrap();
+    let decision: ResourceResponse = serde_json::from_str(&finished).unwrap();
+    assert_eq!(decision.status, "denied");
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}
+
+#[test]
 fn stalled_clients_cannot_exceed_the_broker_worker_limit() {
     let worktree =
         std::env::temp_dir().join(format!("koolade-resource-stalled-{}", uuid::Uuid::new_v4()));
