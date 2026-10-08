@@ -241,7 +241,21 @@ fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
             metadata.is_dir() && !metadata.file_type().is_symlink(),
             "Dependency authorization directory contains a symlink or non-directory"
         ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Another process may create the same directory after the check.
+            // Treat EEXIST as contention, then validate the actual directory
+            // rather than trusting the concurrently created path.
+            if let Err(error) = fs::create_dir(path)
+                && error.kind() != std::io::ErrorKind::AlreadyExists
+            {
+                return Err(error.into());
+            }
+            let metadata = fs::symlink_metadata(path)?;
+            anyhow::ensure!(
+                metadata.is_dir() && !metadata.file_type().is_symlink(),
+                "Dependency authorization directory contains a symlink or non-directory"
+            );
+        },
         Err(error) => return Err(error.into()),
     }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
