@@ -30,6 +30,27 @@ fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
             .any(|args| args == ["--ro-bind", "/", "/"]),
         "implementation must never bind the host root"
     );
+    // A compiler alternative may be required to resolve /usr/bin/cc, but
+    // the surrounding /etc/alternatives directory must remain invisible.
+    if let Ok(compiler) = Path::new("/etc/alternatives/cc").canonicalize()
+        && compiler.is_file()
+        && compiler.starts_with("/usr")
+    {
+        assert!(
+            sandbox.args.windows(3).any(|args| {
+                args[0] == "--ro-bind"
+                    && args[1] == compiler.to_string_lossy()
+                    && args[2] == "/etc/alternatives/cc"
+            }),
+            "missing narrowly mounted compiler alias"
+        );
+        assert!(
+            !sandbox.args.windows(3).any(|args| {
+                args[0] == "--ro-bind" && args[1] == "/etc/alternatives"
+            }),
+            "do not expose the entire alternatives directory"
+        );
+    }
     for allowed in ["/usr", "/etc/ssl/certs"] {
         if Path::new(allowed).exists() {
             assert!(
