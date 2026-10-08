@@ -24,9 +24,29 @@ impl KooladeApp {
     /// not from egui's repeated paint pass. The controller remains responsible
     /// for creating the durable introduction (idempotently by task identity).
     fn prepare_selected_task_chat(&mut self, ctx: &egui::Context) {
-        let selected = ctx.data_mut(|data| {
+        let task = ctx.data_mut(|data| {
             data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
-                .or_else(|| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
+        });
+        let planning = ctx.data_mut(|data| {
+            data.get_temp::<String>(egui::Id::new("koolade_selected_planning"))
+        });
+        let selected = task.or_else(|| {
+            let key = planning?;
+            // Board planning items are selected by item ID, but task
+            // conversation storage uses their canonical conversation keys.
+            // Preserve that mapping outside the rendering pass too.
+            if let Screen::Connected(project) = &self.screen
+                && let Some(item) = project
+                    .state
+                    .items
+                    .iter()
+                    .chain(&project.state.resolved_items)
+                    .chain(&self.synth)
+                    .find(|item| item.id == key)
+            {
+                return Some(item.conversation_key().to_owned());
+            }
+            Some(key)
         });
         let tracked = egui::Id::new("koolade_last_prepared_task_chat");
         let previous = ctx.data_mut(|data| data.get_temp::<String>(tracked));
