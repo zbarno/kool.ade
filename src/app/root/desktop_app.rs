@@ -26,9 +26,7 @@ impl KooladeApp {
     fn prepare_selected_task_chat(&mut self, ctx: &egui::Context) {
         let selected = ctx.data_mut(|data| {
             data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
-                .or_else(|| {
-                    data.get_temp::<String>(egui::Id::new("koolade_selected_planning"))
-                })
+                .or_else(|| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
         });
         let tracked = egui::Id::new("koolade_last_prepared_task_chat");
         let previous = ctx.data_mut(|data| data.get_temp::<String>(tracked));
