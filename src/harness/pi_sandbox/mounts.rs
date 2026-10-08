@@ -1,69 +1,7 @@
 use std::path::{Path, PathBuf};
 
-/**
- * Construct the same explicit, read-only system-runtime view for both planning
- * and implementation. There is deliberately no bind of the host's root (/),
- * /opt, /var, or /etc directory: they may contain private operator data.
- *
- * Keep the allowlist narrow and add tool-specific mounts separately instead of
- * expanding this list to make a single project's verification succeed.
- */
-pub(super) fn mount_system_runtime(
-    args: &mut Vec<String>,
-    created: &mut std::collections::BTreeSet<String>,
-) -> anyhow::Result<()> {
-    // Dynamic loader, common shells and system tools. Bind the named paths
-    // rather than using the host root as a read-only fallback.
-    for location in ["/usr", "/bin", "/sbin", "/lib", "/lib64"] {
-        let path = Path::new(location);
-        if path.exists() {
-            bind_readonly(args, created, path, path)?;
-        }
-    }
-    // This is a build/source staging area, not part of the trusted runtime.
-    if Path::new("/usr/local/src").is_dir() {
-        mount_tmpfs(args, created, Path::new("/usr/local/src"), 16_777_216);
-    }
-    make_dir(args, created, Path::new("/etc"));
-    for location in [
-        "/etc/ld.so.cache",
-        "/etc/passwd",
-        "/etc/group",
-        "/etc/nsswitch.conf",
-        "/etc/localtime",
-    ] {
-        let path = Path::new(location);
-        if path.is_file() {
-            bind_readonly_file(args, created, path, path);
-        }
-    }
-    // On Debian/Ubuntu, /usr/bin/cc and /usr/bin/c++ are symlinks into
-    // /etc/alternatives. Do not expose the alternatives directory wholesale:
-    // expose only compiler aliases resolving to files in the trusted runtime.
-    for tool in ["cc", "c++", "cpp"] {
-        let alias = Path::new("/etc/alternatives").join(tool);
-        if let Ok(target) = alias.canonicalize()
-            && target.is_file()
-            && target.starts_with("/usr")
-        {
-            // Preserve the executable's canonical path. GCC discovers its
-            // support programs and linker plugins relative to that path; a
-            // regular-file bind here makes it search under /etc instead.
-            ensure_parents(args, created, &alias);
-            args.extend([
-                "--symlink".into(),
-                target.to_string_lossy().into_owned(),
-                alias.to_string_lossy().into_owned(),
-            ]);
-        }
-    }
-    // Public CA roots are safe to expose; never bind the parent /etc/ssl.
-    let certs = Path::new("/etc/ssl/certs");
-    if certs.is_dir() {
-        bind_readonly(args, created, certs, certs)?;
-    }
-    Ok(())
-}
+mod system_runtime;
+pub(super) use system_runtime::{mount_system_runtime, runtime_visible, validate_workspace_root};
 
 pub(super) fn mount_toolchains(
     args: &mut Vec<String>,

@@ -59,6 +59,7 @@ pub(super) fn arguments(
     pi_executable: Option<&Path>,
     source_repository: Option<&Path>,
 ) -> anyhow::Result<(Vec<String>, PathBuf)> {
+    super::mounts::validate_workspace_root(root)?;
     let mut args = vec![
         "--die-with-parent".into(),
         "--unshare-user".into(),

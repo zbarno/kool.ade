@@ -7,7 +7,6 @@ use std::{
 use super::super::mounts::{bind_readonly, bind_readonly_file, make_dir};
 use super::{SANDBOX_DOTNET_ROOT, path_safety::ensure_narrow_host_directory};
 
-const VISIBLE_RUNTIME_ROOTS: [&str; 6] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/usr/local"];
 const DOTNET_LAYOUT_DIRS: [&str; 9] = [
     "host",
     "sdk",
@@ -56,10 +55,7 @@ pub(super) fn mount_dotnet_root(
         source.is_dir(),
         "DOTNET_ROOT must be an installation directory"
     );
-    if VISIBLE_RUNTIME_ROOTS
-        .iter()
-        .any(|root| source.starts_with(root))
-    {
+    if super::super::mounts::runtime_visible(&source) {
         return Ok(source);
     }
     ensure_narrow_host_directory(&source, "DOTNET_ROOT")?;
