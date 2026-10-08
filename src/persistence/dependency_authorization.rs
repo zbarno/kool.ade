@@ -113,14 +113,14 @@ fn acquire_store_lock(store: &Path) -> anyhow::Result<File> {
     loop {
         match lock.try_lock() {
             Ok(()) => return Ok(lock),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(std::fs::TryLockError::WouldBlock) => {
                 anyhow::ensure!(
                     Instant::now() < deadline,
                     "Another Kool.ad/e instance is updating dependency permissions; retry shortly"
                 );
                 std::thread::sleep(Duration::from_millis(10));
             }
-            Err(error) => return Err(error.into()),
+            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
         }
     }
 }
