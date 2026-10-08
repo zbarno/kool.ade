@@ -98,11 +98,16 @@ fn acquire_store_lock(store: &Path) -> anyhow::Result<File> {
     }
     // The containing user-owned directory is created and permission-restricted
     // by store_path, so other accounts cannot manipulate the lock entry.
-    let lock = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Create privately from the outset. A concurrent process must never
+        // observe a new lock file with the default world-readable mode.
+        options.mode(0o600);
+    }
+    let lock = options.open(&path)?;
     let metadata = fs::symlink_metadata(&path)?;
     anyhow::ensure!(
         metadata.is_file() && !metadata.file_type().is_symlink(),
