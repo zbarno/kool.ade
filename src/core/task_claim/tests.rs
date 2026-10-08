@@ -227,10 +227,15 @@ fn unavailable_remote_claim_requires_explicit_per_run_override() {
         claim().acquire(),
         Err(ClaimError::RemoteUnavailable(_))
     ));
-    let override_run =
-        ClaimRequest::new(repo.clone(), "task-no-remote".into(), base.clone(), None, true)
-            .acquire()
-            .unwrap();
+    let override_run = ClaimRequest::new(
+        repo.clone(),
+        "task-no-remote".into(),
+        base.clone(),
+        None,
+        true,
+    )
+    .acquire()
+    .unwrap();
     assert!(override_run.lease.is_none());
     assert!(
         override_run
