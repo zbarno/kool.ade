@@ -167,3 +167,37 @@ impl KooladeApp {
         }
     }
 }
+
+#[cfg(test)]
+mod task_chat_selection_tests {
+    use super::*;
+
+    #[test]
+    fn selection_state_tracks_task_modal_open_switch_and_close() {
+        let ctx = egui::Context::default();
+        let mut app = KooladeApp::default();
+        let selected = egui::Id::new("koolade_selected_task");
+        let tracked = egui::Id::new("koolade_last_prepared_task_chat");
+        ctx.data_mut(|data| data.insert_temp(selected, "task/a.md".to_owned()));
+        app.prepare_selected_task_chat(&ctx);
+        assert_eq!(
+            ctx.data_mut(|data| data.get_temp::<String>(tracked)),
+            Some("task/a.md".into())
+        );
+        // Ordinary redraw/tick for the same selection must not re-initialize.
+        app.prepare_selected_task_chat(&ctx);
+        assert_eq!(
+            ctx.data_mut(|data| data.get_temp::<String>(tracked)),
+            Some("task/a.md".into())
+        );
+        ctx.data_mut(|data| data.insert_temp(selected, "task/b.md".to_owned()));
+        app.prepare_selected_task_chat(&ctx);
+        assert_eq!(
+            ctx.data_mut(|data| data.get_temp::<String>(tracked)),
+            Some("task/b.md".into())
+        );
+        ctx.data_mut(|data| data.remove::<String>(selected));
+        app.prepare_selected_task_chat(&ctx);
+        assert_eq!(ctx.data_mut(|data| data.get_temp::<String>(tracked)), None);
+    }
+}
