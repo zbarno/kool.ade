@@ -25,6 +25,7 @@ pub fn run(
             require_independent_checks: false,
             user_context: None,
             auto_publish_gate: None,
+            publication_claim: None,
         },
     )
 }
@@ -43,6 +44,7 @@ pub(super) fn run_with_project_options(
         require_independent_checks,
         user_context,
         auto_publish_gate,
+        publication_claim,
     } = options;
     let active_progress = progress.clone();
     let migration_gate = crate::artifacts::migration::acquire_project_state_gate(planning_root)?;
@@ -137,6 +139,7 @@ pub(super) fn run_with_project_options(
                     publication_mode,
                     require_independent_checks,
                     auto_publish_gate: auto_publish_gate.as_deref(),
+                    publication_claim: publication_claim.as_ref(),
                     accrual,
                 },
             )
