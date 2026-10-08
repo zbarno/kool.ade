@@ -123,7 +123,9 @@ impl AiHarness for OpenCodeHarness {
                                 // Its duration is incremental, not time since this
                                 // invocation began (which would double-count later
                                 // steps in telemetry reports).
-                                let duration_millis = step_started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+                                let duration_millis =
+                                    step_started.elapsed().as_millis().min(u128::from(u64::MAX))
+                                        as u64;
                                 let call_started_at = step_started_at;
                                 step_started_at = end;
                                 step_started = Instant::now();
