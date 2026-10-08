@@ -232,9 +232,9 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
         "implementation must not expose the host filesystem root"
     );
     assert!(
-        sandbox_args.windows(3).any(|args| {
-            args[0] == "--ro-bind" && args[1] == "/usr" && args[2] == "/usr"
-        }),
+        sandbox_args
+            .windows(3)
+            .any(|args| { args[0] == "--ro-bind" && args[1] == "/usr" && args[2] == "/usr" }),
         "implementation must expose only the approved system runtime"
     );
     fs::remove_dir_all(root).unwrap();
