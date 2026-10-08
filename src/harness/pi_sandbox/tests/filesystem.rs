@@ -52,11 +52,13 @@ fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
             "do not expose the entire alternatives directory"
         );
     }
-    for allowed in ["/usr", "/etc/ssl/certs"] {
+    for allowed in ["/usr/bin", "/usr/lib", "/etc/ssl/certs"] {
         if Path::new(allowed).exists() {
             assert!(
                 sandbox.args.windows(3).any(|args| {
-                    args[0] == "--ro-bind" && args[1] == allowed && args[2] == allowed
+                    args[0] == "--ro-bind"
+                        && args[1] == Path::new(allowed).canonicalize().unwrap().to_string_lossy()
+                        && args[2] == allowed
                 }),
                 "missing explicit read-only runtime mount: {allowed}"
             );
@@ -234,6 +236,8 @@ fn implementation_boundary_cannot_read_unregistered_host_files_or_follow_escapin
          test ! -e '{}' && \
          test ! -e /etc/shadow && \
          test ! -e /opt/koolade-operator-secret && \
+         test ! -e /usr/share/doc && \
+         test ! -e /usr/local/src && \
          test -r /etc/passwd && \
          test -x /bin/sh",
         private.display(),

@@ -12,6 +12,7 @@ mod node;
 mod npm;
 mod nuget;
 mod path_safety;
+pub(super) use path_safety::SENSITIVE_HOST_PATH_COMPONENTS;
 
 use dotnet::{host_dotnet_root, mount_dotnet_root};
 pub(super) use node::host_node_root;

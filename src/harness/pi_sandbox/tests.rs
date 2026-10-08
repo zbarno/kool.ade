@@ -1,3 +1,4 @@
+mod build_runtime;
 mod compiler;
 mod components;
 mod filesystem;

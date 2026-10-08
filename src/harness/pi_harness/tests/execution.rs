@@ -234,8 +234,13 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     assert!(
         sandbox_args
             .windows(3)
-            .any(|args| { args[0] == "--ro-bind" && args[1] == "/usr" && args[2] == "/usr" }),
+            .any(|args| { args[0] == "--ro-bind" && args[2] == "/usr/bin" }),
         "implementation must expose only the approved system runtime"
+    );
+    assert!(
+        !sandbox_args
+            .windows(3)
+            .any(|args| { args[0] == "--ro-bind" && (args[1] == "/usr" || args[2] == "/usr") })
     );
     fs::remove_dir_all(root).unwrap();
 }

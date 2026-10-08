@@ -116,6 +116,7 @@ fn planning_boundary_reads_only_authorized_roots_and_hides_host_secrets() {
          test ! -e '{fake_home_text}/secret.txt' && \
          test ! -e '{fake_home_text}/.ssh/id_rsa' && \
          test ! -e '{fake_home_text}/.aws/credentials' && \
+         test ! -e /usr/share/doc && test ! -e /usr/local/src && \
          test -z \"${{AWS_ACCESS_KEY_ID:-}}\" && \
          test -z \"${{OPENAI_API_KEY:-}}\" && \
          test ! -w '{}' && touch '{outside_text}'",

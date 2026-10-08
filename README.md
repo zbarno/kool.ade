@@ -282,6 +282,9 @@ Kool.ad/e also uses locks around task execution and publication so multiple proc
 
 If the required sandbox cannot be established, autonomous execution fails closed.
 
+The [filesystem boundary](docs/sandbox-filesystem.md) documents the runtime
+allowlist, explicit project/toolchain mounts, and remaining security scope.
+
 In technical terms: **no bubble, no trouble.**
 
 ---

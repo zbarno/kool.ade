@@ -124,6 +124,7 @@ fn planning_arguments(
     args.extend(["--dev".into(), "/dev".into()]);
 
     for repository in repositories {
+        mounts::validate_workspace_root(repository)?;
         bind_readonly(&mut args, &mut created, repository, repository)?;
     }
     mount_pi_install(&mut args, &mut created, pi_executable)?;

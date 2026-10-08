@@ -20,7 +20,7 @@ const BROAD_HOST_DIRECTORIES: [&str; 14] = [
     "/sys",
 ];
 const MASKED_HOME_ROOTS: [&str; 2] = ["/home", "/root"];
-pub(super) const SENSITIVE_HOST_PATH_COMPONENTS: [&str; 14] = [
+pub(in crate::harness::pi_sandbox) const SENSITIVE_HOST_PATH_COMPONENTS: [&str; 14] = [
     ".aws",
     ".ssh",
     ".config",

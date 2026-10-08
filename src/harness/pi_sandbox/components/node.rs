@@ -7,7 +7,6 @@ use std::{
 use super::path_safety::ensure_narrow_host_directory;
 use crate::harness::pi_sandbox::mounts::{bind_readonly, bind_readonly_file, make_dir};
 
-const VISIBLE_RUNTIME_ROOTS: [&str; 6] = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/usr/local"];
 const SANDBOX_NODE_ROOT: &str = "/tmp/koolade-tools/node";
 
 pub(in crate::harness::pi_sandbox) fn host_node_root() -> anyhow::Result<Option<PathBuf>> {
@@ -19,10 +18,7 @@ pub(in crate::harness::pi_sandbox) fn host_node_root() -> anyhow::Result<Option<
         let Ok(executable) = executable.canonicalize() else {
             continue;
         };
-        if VISIBLE_RUNTIME_ROOTS
-            .iter()
-            .any(|root| executable.starts_with(root))
-        {
+        if super::super::mounts::runtime_visible(&executable) {
             return Ok(None);
         }
         let Some(root) = executable.parent().and_then(Path::parent) else {
