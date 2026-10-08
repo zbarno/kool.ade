@@ -209,7 +209,10 @@ fn unavailable_remote_claim_requires_explicit_per_run_override() {
     let fixture = Fixture::new();
     let repo = &fixture.clones[0];
     let missing = fixture.root.join("nonexistent-remote.git");
-    git_at(repo, &["remote", "set-url", "origin", missing.to_str().unwrap()]);
+    git_at(
+        repo,
+        &["remote", "set-url", "origin", missing.to_str().unwrap()],
+    );
     let base = git_at(repo, &["rev-parse", "HEAD"]);
     let claim = || {
         ClaimRequest::new(
