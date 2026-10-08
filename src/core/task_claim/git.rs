@@ -210,6 +210,24 @@ pub(super) fn read_claim(
     })
 }
 
+pub(super) fn verify_ownership(
+    repo: &std::path::Path,
+    reference: &str,
+    expected_object: &str,
+) -> Result<(), ClaimError> {
+    let Some((_, object)) = inspect(repo, reference)? else {
+        return Err(ClaimError::RemoteUnavailable(
+            "The task claim disappeared before publication".into(),
+        ));
+    };
+    if object != expected_object {
+        return Err(ClaimError::CoordinationRejected(
+            "Task ownership changed while implementation was running; publication is blocked and local work is preserved".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn refresh(
     repo: &std::path::Path,
     reference: &str,
