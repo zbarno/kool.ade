@@ -137,6 +137,7 @@ mod tests {
             rationale: "User decision required".into(),
             risk: "External package source".into(),
             status: DependencyRequestStatus::AwaitingUser,
+            preparation: None,
         };
         assert!(remember_once_for_request("project-a", &request));
         assert!(!take_once("project-b", "stable-task-uid", &need));

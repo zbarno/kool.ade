@@ -123,6 +123,8 @@ fn prepare_with_resolver_and_operations(
             && crate::harness::dependency_decision_allowed(need, decision),
         "npm addition is outside the authorized registry dependency policy"
     );
+    crate::harness::resource_bridge::dependency::validate_lockfile_identity(worktree, need)
+        .context("validating npm manifests and lockfiles against the authorized request")?;
     let package = need
         .package
         .as_deref()
@@ -136,17 +138,18 @@ fn prepare_with_resolver_and_operations(
             .ok_or_else(|| {
                 anyhow::anyhow!("The requested npm registry URL is not a safe HTTPS registry root")
             })?;
-    if let Some(existing) = prepare_existing_lockfile_with_registry(
+    let existing_preparation = match prepare_existing_lockfile_with_registry(
         worktree,
         response_dir,
         npm_cache,
         npm_snapshot,
         downloaded_bytes,
         Some(&registry),
-    )? && existing.status != "prepared"
-    {
-        return Ok(existing);
-    }
+    )? {
+        Some(existing) if existing.status != "prepared" => return Ok(existing),
+        Some(existing) => existing.preparation,
+        None => None,
+    };
     let project = TemporaryProject::create(response_dir)?;
     fs::write(
         project.path().join("package.json"),
@@ -159,7 +162,7 @@ fn prepare_with_resolver_and_operations(
     let package_spec = format!("{package}@{version}");
     resolve(project.path(), npm_cache, &package_spec, registry.as_str())
         .context("resolving the approved npm package into a lockfile")?;
-    match preparation {
+    let mut result = match preparation {
         Some(operations) => super::prepare_for_addition_with_ops(
             super::PreparationRequest {
                 worktree: project.path(),
@@ -182,7 +185,26 @@ fn prepare_with_resolver_and_operations(
             downloaded_bytes,
         ),
     }
-    .context("preparing the lockfile-pinned npm archive in the offline cache")
+    .context("preparing the lockfile-pinned npm archive in the offline cache")?;
+    if let Some(previous) = existing_preparation {
+        let current = result
+            .preparation
+            .get_or_insert_with(crate::harness::DependencyPreparationTelemetry::default);
+        current.package_count = current.package_count.saturating_add(previous.package_count);
+        current.cache_hits = current.cache_hits.saturating_add(previous.cache_hits);
+        current.packages_downloaded = current
+            .packages_downloaded
+            .saturating_add(previous.packages_downloaded);
+        current.bytes_downloaded = current
+            .bytes_downloaded
+            .saturating_add(previous.bytes_downloaded);
+        current.status = Some(if current.packages_downloaded == 0 {
+            crate::harness::DependencyPreparationStatus::AlreadyAvailable
+        } else {
+            crate::harness::DependencyPreparationStatus::Prepared
+        });
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

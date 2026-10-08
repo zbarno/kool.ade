@@ -17,6 +17,26 @@ fn manager_can_auto_authorize_a_well_formed_public_npm_addition() {
 }
 
 #[test]
+fn new_npm_addition_requires_an_unchanged_app_computed_dependency_snapshot() {
+    let mut need = npm_add(
+        Some("https://registry.npmjs.org"),
+        "npm install zod@^4.0.0",
+        "^4.0.0",
+    );
+    need.lockfile_identity = None;
+    assert!(!decision_allowed(&need, DependencyDecision::AutoAuthorize));
+    need.lockfile_identity = Some(lockfile_identity());
+    need.introduced_packages
+        .push(crate::harness::DependencyPackageIdentity {
+            package: "other-package".into(),
+            version: "1.0.0".into(),
+            source: "https://registry.npmjs.org/other-package/-/other-package-1.0.0.tgz".into(),
+            integrity: format!("sha512-{}", "A".repeat(86)),
+        });
+    assert!(!decision_allowed(&need, DependencyDecision::AutoAuthorize));
+}
+
+#[test]
 fn new_npm_authorization_rejects_untrusted_sources_and_command_expansion() {
     let private_source = npm_add(
         Some("https://packages.example.com"),
@@ -112,11 +132,14 @@ fn additional_npm_registry_requires_an_exact_user_grant_and_matching_cli_source(
 
 #[test]
 fn custom_npm_registry_path_prefix_is_rejected_before_user_authorization() {
-    let need = npm_add(
+    let mut need = npm_add(
         Some("https://packages.example.net/repository/npm/"),
         "npm install zod@^4.0.0 --registry=https://packages.example.net/repository/npm/",
         "^4.0.0",
     );
+    // This unit test exercises worker-input triage. App-computed identity is
+    // added only after triage in the broker flow.
+    need.lockfile_identity = None;
     let request = triage(Some("task-1"), need);
     assert_eq!(request.decision, DependencyDecision::Reject);
     assert_eq!(

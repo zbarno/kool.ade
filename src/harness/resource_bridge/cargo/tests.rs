@@ -3,7 +3,25 @@ use std::{
     fs,
     os::unix::{fs::PermissionsExt, fs::symlink},
     path::PathBuf,
+    sync::atomic::AtomicUsize,
 };
+
+#[test]
+fn empty_cargo_lock_is_reported_as_already_available() {
+    let root =
+        std::env::temp_dir().join(format!("koolade-empty-cargo-lock-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("Cargo.lock"), "version = 3\n").unwrap();
+
+    let response = super::prepare(&root, &root.join("cache"), &AtomicUsize::new(0)).unwrap();
+
+    assert_eq!(response.status, "prepared");
+    assert_eq!(
+        response.preparation.unwrap().status,
+        Some(crate::harness::DependencyPreparationStatus::AlreadyAvailable)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
 
 #[test]
 fn cargo_proxy_symlink_keeps_its_alias_when_invoked_for_fetch() {

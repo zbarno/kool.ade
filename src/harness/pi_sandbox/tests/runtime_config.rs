@@ -142,72 +142,7 @@ fn runtime_config_blocks_direct_worker_resource_egress() {
     );
 }
 
-#[test]
-fn private_runtime_config_does_not_block_managed_locked_dependency_restore() {
-    let (_tree, _repo, root) = fixture("runtime-dependency");
-    assert!(!runtime_config::paths(&root).unwrap().is_empty());
-    fs::write(
-        root.join("Cargo.toml"),
-        "[package]\nname = \"synthetic-fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
-    )
-    .unwrap();
-    fs::write(root.join("Cargo.lock"), "version = 4\n").unwrap();
-    let (progress, updates) = std::sync::mpsc::channel();
-    let bridge = ResourceBridge::start(
-        &root,
-        Some("synthetic-task-uid"),
-        progress,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    )
-    .unwrap();
-    let mut stream = UnixStream::connect(bridge.socket_path()).unwrap();
-    let request = serde_json::json!({
-        "action":"dependency_request",
-        "dependency":{
-            "ecosystem":"cargo",
-            "source":"https://index.crates.io",
-            "command":"cargo fetch --locked",
-            "reason":"Restore the declared dependencies for this task",
-            "kind":"existing_restore"
-        },
-        "purpose":"synthetic fixture"
-    });
-    stream.write_all(request.to_string().as_bytes()).unwrap();
-    stream.shutdown(Shutdown::Write).unwrap();
-    let (response_tx, response_rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut response = String::new();
-        let result = stream.read_to_string(&mut response).map(|_| response);
-        let _ = response_tx.send(result);
-    });
-
-    let reviewed = loop {
-        let update = updates
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("Man.ager should receive the structured dependency request");
-        if let Some(request) = update.dependency_requests.into_iter().next()
-            && request.status == crate::harness::DependencyRequestStatus::ManagerReviewing
-        {
-            break request;
-        }
-    };
-    assert!(crate::harness::dependency_authorization::answer(
-        &reviewed.id,
-        crate::harness::dependency_authorization::DependencyResolution {
-            decision: crate::harness::DependencyDecision::AutoAuthorize,
-            scope: None,
-            rationale: "The empty lockfile fixture requires no external package.".into(),
-        }
-    ));
-
-    let response = response_rx
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .expect("the mediated restore should finish without a network fetch")
-        .unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&response).unwrap();
-    assert_eq!(parsed["status"], "prepared");
-    assert!(!response.contains("SYNTHETIC_CONFIG=approved-sentinel"));
-}
+mod dependency;
 
 #[test]
 fn new_npm_dependency_waits_for_broker_preparation_then_retries_offline_once() {

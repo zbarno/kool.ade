@@ -35,6 +35,11 @@ pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecisi
                 need.kind,
             )
         });
+    let new_add_inputs_unchanged = !matches!(
+        need.kind,
+        DependencyKind::NewProjectDependency | DependencyKind::DevelopmentDependency
+    ) || (valid_lockfile_identity(need)
+        && need.introduced_packages.is_empty());
     let requested_registry = npm_registry_url(need.source.as_deref());
     let manager_grant = matches!(
         decision,
@@ -102,6 +107,7 @@ pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecisi
                 )
                 && source_ok
                 && package_ok
+                && new_add_inputs_unchanged
                 && need.version.as_deref().is_some_and(|version| {
                     if need.kind == DependencyKind::ExistingRestore {
                         command_matches && valid_exact_version(version)
@@ -120,6 +126,7 @@ pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecisi
                 )
                 && source_ok
                 && package_ok
+                && new_add_inputs_unchanged
                 && need.version.as_deref().is_some_and(|version| {
                     if need.kind == DependencyKind::ExistingRestore {
                         command_matches && valid_exact_version(version)
@@ -138,6 +145,7 @@ pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecisi
                 )
                 && user_authorized_npm_source
                 && package_ok
+                && new_add_inputs_unchanged
                 && need.version.as_deref().is_some_and(|version| {
                     if need.kind == DependencyKind::ExistingRestore {
                         command_matches && valid_exact_version(version)

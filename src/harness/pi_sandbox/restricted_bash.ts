@@ -14,12 +14,33 @@ type Sandbox = { bwrap: string; root: string; args: string[] };
 
 type ResourceResponse = { status: string; summary: string; content?: string; path?: string; dependency_request?: unknown };
 type BrokerRequest = {
-	action?: "prepare_npm" | "prepare_nuget_audit" | "unsupported_manager" | "dependency_request";
+	action?: "prepare_npm" | "prepare_nuget_audit" | "unsupported_manager" | "dependency_request" | "dependency_retry_result";
 	manager?: string;
 	url?: string;
 	dependency?: DependencyNeed;
+	dependency_request_id?: string;
+	retry_succeeded?: boolean;
 	purpose: string;
 };
+
+async function recordDependencyRetry(
+	resourceSocket: string,
+	preparation: ResourceResponse,
+	succeeded: boolean,
+) {
+	const request = preparation.dependency_request as { id?: unknown } | undefined;
+	if (typeof request?.id !== "string") return;
+	try {
+		await requestResource(resourceSocket, {
+			action: "dependency_retry_result",
+			dependency_request_id: request.id,
+			retry_succeeded: succeeded,
+			purpose: "Record the result of the bounded offline dependency retry",
+		});
+	} catch {
+		// Telemetry failure must not change the already completed package operation result.
+	}
+}
 
 function requestResource(socketPath: string, request: BrokerRequest, timeoutMs = 35_000): Promise<ResourceResponse> {
 	return new Promise((resolve, reject) => {
@@ -154,7 +175,8 @@ export default function (pi: ExtensionAPI) {
 					action: "dependency_request",
 					dependency,
 					purpose: params.reason,
-				}, 20 * 60_000), () => runSandbox(sandbox, dependency.command, DEFAULT_TIMEOUT_SECONDS, undefined, true));
+				}, 20 * 60_000), () => runSandbox(sandbox, dependency.command, DEFAULT_TIMEOUT_SECONDS, undefined, true),
+				(preparation, succeeded) => recordDependencyRetry(resourceSocket, preparation, succeeded));
 				return {
 					content: [{ type: "text", text: `${execution.preparation.summary}${execution.retry ? `\n\n${execution.retry.text}` : ""}` }],
 					details: execution.retry ? { preparation: execution.preparation, retry: execution.retry.details } : execution.preparation,
@@ -183,7 +205,8 @@ export default function (pi: ExtensionAPI) {
 						action: "dependency_request",
 						purpose: `The worker requested a ${manager} dependency install, which needs package-manager cache support`,
 						dependency,
-					}, 20 * 60_000), () => runSandbox(sandbox, params.command, Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, params.timeout ?? DEFAULT_TIMEOUT_SECONDS)), signal, true));
+					}, 20 * 60_000), () => runSandbox(sandbox, params.command, Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, params.timeout ?? DEFAULT_TIMEOUT_SECONDS)), signal, true),
+					(preparation, succeeded) => recordDependencyRetry(resourceSocket, preparation, succeeded));
 					return {
 						content: [{ type: "text", text: `${execution.preparation.summary}${execution.retry ? `\n\n${execution.retry.text}` : ""}` }],
 						details: execution.retry ? { preparation: execution.preparation, retry: execution.retry.details } : execution.preparation,
@@ -200,7 +223,8 @@ export default function (pi: ExtensionAPI) {
 						action: "dependency_request",
 						dependency,
 						purpose: dependency.reason,
-					}, 20 * 60_000), () => runSandbox(sandbox, params.command, Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, params.timeout ?? DEFAULT_TIMEOUT_SECONDS)), signal, true));
+					}, 20 * 60_000), () => runSandbox(sandbox, params.command, Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, params.timeout ?? DEFAULT_TIMEOUT_SECONDS)), signal, true),
+					(preparation, succeeded) => recordDependencyRetry(resourceSocket, preparation, succeeded));
 					return {
 						content: [{ type: "text", text: `${execution.preparation.summary}${execution.retry ? `\n\n${execution.retry.text}` : ""}` }],
 						details: execution.retry ? { preparation: execution.preparation, retry: execution.retry.details } : execution.preparation,
@@ -217,6 +241,7 @@ export default function (pi: ExtensionAPI) {
 						return { content: [{ type: "text", text: prepared.summary }], details: prepared, isError: true };
 					}
 					const retried = await runSandbox(sandbox, params.command, Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, params.timeout ?? DEFAULT_TIMEOUT_SECONDS)), signal, true);
+					await recordDependencyRetry(resourceSocket, prepared, !retried.isError);
 					return {
 						content: [{ type: "text", text: `${prepared.summary}\n\n${retried.text}` }],
 						details: { preparation: prepared, retry: retried.details },
@@ -238,6 +263,7 @@ export default function (pi: ExtensionAPI) {
 						return { content: [{ type: "text", text: result.summary }], details: result, isError: true };
 					}
 					const retried = await runSandbox(sandbox, params.command, Math.min(MAX_TIMEOUT_SECONDS, Math.max(1, params.timeout ?? DEFAULT_TIMEOUT_SECONDS)), signal, true);
+					await recordDependencyRetry(resourceSocket, result, !retried.isError);
 					return {
 						content: [{ type: "text", text: `${result.summary}\n\n${retried.text}` }],
 						details: { preparation: result, retry: retried.details },

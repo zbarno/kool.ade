@@ -19,9 +19,10 @@ mod dependency;
 mod execution;
 pub use activity::{ActivityTelemetry, LivePost, LiveProgress, ModelCallUsage};
 pub use dependency::{
-    DependencyAuthorizationScope, DependencyDecision, DependencyFailureCategory, DependencyKind,
-    DependencyNeed, DependencyPackageIdentity, DependencyRequest, DependencyRequestStatus,
-    PackageEcosystem,
+    DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,
+    DependencyFailureCategory, DependencyKind, DependencyNeed, DependencyPackageIdentity,
+    DependencyPreparationStatus, DependencyPreparationTelemetry, DependencyRequest,
+    DependencyRequestStatus, DependencyRetryResult, PackageEcosystem,
 };
 pub use execution::{ExecutionMode, PlanningRequest, ToolAccess};
 

@@ -154,6 +154,7 @@ fn request(task_id: &str, package: &str) -> DependencyRequest {
         rationale: "The project approved this exact package request.".into(),
         risk: "A new public dependency is added to the project.".into(),
         status: DependencyRequestStatus::Authorized,
+        preparation: None,
     }
 }
 

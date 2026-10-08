@@ -89,6 +89,51 @@ pub enum DependencyRequestStatus {
     Failed,
 }
 
+/// Typed result returned by a package-manager adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyPreparationStatus {
+    Prepared,
+    AlreadyAvailable,
+    AuthorizationRequired,
+    Denied,
+    Unsupported,
+    IntegrityFailure,
+    SourceRejected,
+    CredentialsRequired,
+    Error,
+}
+
+/// Where the effective dependency grant came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyAuthorizationSource {
+    Automatic,
+    Manager,
+    User,
+}
+
+/// Outcome of the single bounded offline package-operation retry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyRetryResult {
+    Succeeded,
+    Failed,
+}
+
+/// Structured broker result and non-secret activity counters.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DependencyPreparationTelemetry {
+    pub status: Option<DependencyPreparationStatus>,
+    pub package_count: u64,
+    pub cache_hits: u64,
+    pub packages_downloaded: u64,
+    pub bytes_downloaded: u64,
+    pub authorization_source: Option<DependencyAuthorizationSource>,
+    pub retry_result: Option<DependencyRetryResult>,
+}
+
 impl DependencyRequestStatus {
     pub(crate) fn is_active(self) -> bool {
         matches!(
@@ -128,6 +173,8 @@ pub struct DependencyRequest {
     pub rationale: String,
     pub risk: String,
     pub status: DependencyRequestStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preparation: Option<DependencyPreparationTelemetry>,
 }
 
 impl DependencyRequest {

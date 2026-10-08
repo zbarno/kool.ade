@@ -60,6 +60,8 @@ fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
                 lockfile_identity: None,
                 introduced_packages: Vec::new(),
             }),
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Restore locked npm packages".into(),
         },
     )
@@ -145,6 +147,8 @@ fn approved_npm_restore_rejects_a_lockfile_changed_during_manager_review() {
                 lockfile_identity: None,
                 introduced_packages: Vec::new(),
             }),
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Restore the checked npm lockfile".into(),
         },
     )
@@ -180,6 +184,13 @@ fn approved_npm_restore_rejects_a_lockfile_changed_during_manager_review() {
             .as_ref()
             .map(|request| request.category),
         Some(crate::harness::DependencyFailureCategory::DependencyIntegrityFailure)
+    );
+    assert_eq!(
+        response
+            .dependency_result
+            .as_ref()
+            .and_then(|result| result.status),
+        Some(crate::harness::DependencyPreparationStatus::IntegrityFailure)
     );
 
     drop(bridge);

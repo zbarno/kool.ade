@@ -3,6 +3,9 @@ use super::support::{
     with_npm_cache_index_staging,
 };
 use super::*;
+use crate::harness::{
+    DependencyAuthorizationSource, DependencyPreparationStatus, DependencyRetryResult,
+};
 use std::{fs, os::unix::net::UnixStream, process::Command, time::Duration};
 
 #[test]
@@ -122,6 +125,8 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
                 lockfile_identity: None,
                 introduced_packages: Vec::new(),
             }),
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Prepare an explicitly reviewed npm project dependency".into(),
         },
     )
@@ -152,6 +157,21 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
         .expect("prepared request is attached");
     assert_eq!(prepared.status, DependencyRequestStatus::Prepared);
     assert_eq!(prepared.decision, DependencyDecision::AuthorizeForTask);
+    let telemetry = prepared
+        .preparation
+        .as_ref()
+        .expect("preparation telemetry is attached");
+    assert_eq!(
+        telemetry.status,
+        Some(DependencyPreparationStatus::Prepared)
+    );
+    assert_eq!(
+        telemetry.authorization_source,
+        Some(DependencyAuthorizationSource::Manager)
+    );
+    assert_eq!(telemetry.package_count, 1);
+    assert_eq!(telemetry.packages_downloaded, 1);
+    assert!(telemetry.bytes_downloaded > 0);
     assert!(
         prepared
             .rationale
@@ -191,6 +211,56 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     assert_eq!(
         fs::read_to_string(task_repository.join("node_modules/archive-helper/index.js")).unwrap(),
         "module.exports = 'ready';\n"
+    );
+
+    let mut retry_client = UnixStream::connect(bridge.socket_path()).unwrap();
+    serde_json::to_writer(
+        &mut retry_client,
+        &ResourceRequest {
+            action: super::super::super::ResourceAction::DependencyRetryResult,
+            manager: None,
+            url: None,
+            dependency: None,
+            dependency_request_id: Some(prepared.id.clone()),
+            retry_succeeded: Some(true),
+            purpose: "Record the bounded offline npm retry result".into(),
+        },
+    )
+    .unwrap();
+    retry_client.write_all(b"\n").unwrap();
+    retry_client.shutdown(std::net::Shutdown::Write).unwrap();
+    retry_client
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut retry_response = String::new();
+    std::io::Read::read_to_string(&mut retry_client, &mut retry_response).unwrap();
+    let retry_response: ResourceResponse = serde_json::from_str(&retry_response).unwrap();
+    assert_eq!(retry_response.status, "prepared");
+    assert_eq!(
+        retry_response
+            .dependency_result
+            .as_ref()
+            .and_then(|telemetry| telemetry.retry_result),
+        Some(DependencyRetryResult::Succeeded)
+    );
+    let updated = loop {
+        let request = super::super::take_dependency_update(&updates);
+        if request.id == prepared.id
+            && request
+                .preparation
+                .as_ref()
+                .and_then(|telemetry| telemetry.retry_result)
+                .is_some()
+        {
+            break request;
+        }
+    };
+    assert_eq!(
+        updated
+            .preparation
+            .as_ref()
+            .and_then(|telemetry| telemetry.retry_result),
+        Some(DependencyRetryResult::Succeeded)
     );
 
     drop(sandbox);

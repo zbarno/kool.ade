@@ -1,4 +1,6 @@
 use super::*;
+mod history;
+pub(super) use history::paint_history;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -137,3 +139,6 @@ fn category_label(category: crate::harness::DependencyFailureCategory) -> &'stat
         Category::DependencyPolicyDenied => "Dependency request denied by policy",
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,9 +1,10 @@
-export async function prepareThenRetry(prepare, retry) {
+export async function prepareThenRetry(prepare, retry, recordRetry = async () => {}) {
 	const preparation = await prepare();
 	if (preparation.status !== "prepared") {
 		return { preparation, isError: true };
 	}
 	const result = await retry();
+	await recordRetry(preparation, result.isError === false);
 	return { preparation, retry: result, isError: result.isError };
 }
 

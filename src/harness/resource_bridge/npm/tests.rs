@@ -210,6 +210,17 @@ fn new_npm_addition_reuses_existing_lockfile_artifacts_before_resolving_the_new_
     .expect("existing lockfile should be prepared before adding a package");
     assert_eq!(prepared.status, "prepared");
     assert!(prepared.summary.contains("1 packages reused"));
+    let telemetry = prepared
+        .preparation
+        .expect("cache reuse should be reported structurally");
+    assert_eq!(
+        telemetry.status,
+        Some(crate::harness::DependencyPreparationStatus::AlreadyAvailable)
+    );
+    assert_eq!(telemetry.package_count, 1);
+    assert_eq!(telemetry.cache_hits, 1);
+    assert_eq!(telemetry.packages_downloaded, 0);
+    assert_eq!(telemetry.bytes_downloaded, 0);
     std::fs::remove_dir_all(root).unwrap();
 }
 

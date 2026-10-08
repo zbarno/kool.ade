@@ -80,11 +80,12 @@ mod tests;
 pub use antigravity_harness::AntigravityHarness;
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, DependencyAuthorizationScope,
-    DependencyDecision, DependencyFailureCategory, DependencyKind, DependencyNeed,
-    DependencyPackageIdentity, DependencyRequest, DependencyRequestStatus, DocumentUpdate,
-    ExecutionMode, HarnessOutcome, LivePost, LiveProgress, ModelCallUsage, PackageEcosystem,
-    PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, RequestedAction, RetrievalPlan,
-    ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
+    DependencyAuthorizationSource, DependencyDecision, DependencyFailureCategory, DependencyKind,
+    DependencyNeed, DependencyPackageIdentity, DependencyPreparationStatus,
+    DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
+    DependencyRetryResult, DocumentUpdate, ExecutionMode, HarnessOutcome, LivePost, LiveProgress,
+    ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
+    RequestedAction, RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

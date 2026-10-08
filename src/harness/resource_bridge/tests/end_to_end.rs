@@ -156,6 +156,8 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
                 lockfile_identity: None,
                 introduced_packages: Vec::new(),
             }),
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Restore the task's declared npm dependencies".into(),
         },
     )

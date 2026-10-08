@@ -46,6 +46,10 @@ struct ResourceRequest {
     url: Option<String>,
     #[serde(default)]
     dependency: Option<crate::harness::DependencyNeed>,
+    #[serde(default)]
+    dependency_request_id: Option<String>,
+    #[serde(default)]
+    retry_succeeded: Option<bool>,
     purpose: String,
 }
 
@@ -58,6 +62,7 @@ enum ResourceAction {
     PrepareNugetAudit,
     UnsupportedManager,
     DependencyRequest,
+    DependencyRetryResult,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -70,11 +75,35 @@ struct ResourceResponse {
     path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dependency_request: Option<crate::harness::DependencyRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dependency_result: Option<crate::harness::DependencyPreparationTelemetry>,
+    #[serde(skip)]
+    preparation: Option<crate::harness::DependencyPreparationTelemetry>,
     #[serde(skip)]
     bytes: usize,
 }
 
 pub(crate) use broker::ResourceBridge;
+
+#[cfg(test)]
+pub(crate) fn start_with_test_npm_preparation(
+    worktree: &Path,
+    task_id: Option<&str>,
+    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    state_root: &Path,
+    archive: PathBuf,
+    registry_url: String,
+) -> anyhow::Result<ResourceBridge> {
+    broker::start_with_state_root_and_npm_operations(
+        worktree,
+        task_id,
+        progress,
+        cancel,
+        state_root,
+        npm::test_preparation_operations(archive, registry_url),
+    )
+}
 
 impl ResourceResponse {
     fn needs_attention(summary: String) -> Self {
@@ -88,6 +117,8 @@ impl ResourceResponse {
             content: None,
             path: None,
             dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes,
         }
     }
@@ -100,6 +131,8 @@ impl ResourceResponse {
             content: Some(content),
             path: None,
             dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes,
         }
     }
@@ -111,6 +144,8 @@ impl ResourceResponse {
             content: None,
             path: Some(path),
             dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes,
         }
     }
@@ -122,20 +157,59 @@ impl ResourceResponse {
             content: None,
             path: None,
             dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes: 0,
         }
     }
 
-    fn dependency_outcome(status: &str, request: crate::harness::DependencyRequest) -> Self {
+    fn dependency_outcome(status: &str, mut request: crate::harness::DependencyRequest) -> Self {
         let summary = request.summary();
+        if request.preparation.is_none() {
+            request.preparation = Some(crate::harness::DependencyPreparationTelemetry {
+                status: Some(match status {
+                    "prepared" => crate::harness::DependencyPreparationStatus::Prepared,
+                    "already_available" => {
+                        crate::harness::DependencyPreparationStatus::AlreadyAvailable
+                    }
+                    "authorization_required" => {
+                        crate::harness::DependencyPreparationStatus::AuthorizationRequired
+                    }
+                    "denied" => crate::harness::DependencyPreparationStatus::Denied,
+                    "unsupported" => crate::harness::DependencyPreparationStatus::Unsupported,
+                    "integrity_failure" => {
+                        crate::harness::DependencyPreparationStatus::IntegrityFailure
+                    }
+                    "source_rejected" => {
+                        crate::harness::DependencyPreparationStatus::SourceRejected
+                    }
+                    "credentials_required" => {
+                        crate::harness::DependencyPreparationStatus::CredentialsRequired
+                    }
+                    _ => crate::harness::DependencyPreparationStatus::Error,
+                }),
+                ..Default::default()
+            });
+        }
+        let dependency_result = request.preparation.clone();
         Self {
             status: status.into(),
             summary,
             content: None,
             path: None,
             dependency_request: Some(request),
+            dependency_result,
+            preparation: None,
             bytes: 0,
         }
+    }
+
+    fn with_preparation(
+        mut self,
+        preparation: crate::harness::DependencyPreparationTelemetry,
+    ) -> Self {
+        self.preparation = Some(preparation);
+        self
     }
 }
 

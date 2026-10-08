@@ -41,12 +41,24 @@ pub(super) fn verify_locked_packages(
     cargo_home: &Path,
     packages: &[LockedPackage],
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        verified_package_count(cargo_home, packages)? == packages.len(),
+        "Cargo cache is missing one or more lockfile packages"
+    );
+    Ok(())
+}
+
+pub(super) fn verified_package_count(
+    cargo_home: &Path,
+    packages: &[LockedPackage],
+) -> anyhow::Result<usize> {
     let cache_root = cargo_home.join("registry/cache");
     let root = cache_root.canonicalize()?;
     anyhow::ensure!(
         root.starts_with(cargo_home.canonicalize()?),
         "Cargo registry cache escaped its application-owned directory"
     );
+    let mut count = 0;
     for package in packages {
         let filename = format!("{}-{}.crate", package.name, package.version);
         let mut verified = false;
@@ -83,14 +95,9 @@ pub(super) fn verify_locked_packages(
                 package.name
             );
         }
-        anyhow::ensure!(
-            verified,
-            "Cargo cache is missing lockfile package {}@{}",
-            package.name,
-            package.version
-        );
+        count += usize::from(verified);
     }
-    Ok(())
+    Ok(count)
 }
 
 fn verify_sha256(path: &Path, expected: &str) -> anyhow::Result<bool> {

@@ -22,6 +22,8 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
                 content: None,
                 path: None,
                 dependency_request: None,
+                dependency_result: None,
+                preparation: None,
                 bytes: 0,
             },
         );
@@ -37,6 +39,8 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
                 content: None,
                 path: None,
                 dependency_request: None,
+                dependency_result: None,
+                preparation: None,
                 bytes: 0,
             },
         },
@@ -46,6 +50,8 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
             content: None,
             path: None,
             dependency_request: None,
+            dependency_result: None,
+            preparation: None,
             bytes: 0,
         },
     };

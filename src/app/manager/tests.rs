@@ -178,6 +178,7 @@ fn interrupted_dependency_reviews_return_to_user_authorization() {
                 rationale: "previous state".into(),
                 risk: "risk".into(),
                 status,
+                preparation: None,
             });
     }
     let mut activity = WorkspaceActivity::default();

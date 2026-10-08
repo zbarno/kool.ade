@@ -104,6 +104,8 @@ fn prepare_nuget_audit_action_is_a_recognized_mediated_resource_request() {
         manager: None,
         url: None,
         dependency: None,
+        dependency_request_id: None,
+        retry_succeeded: None,
         purpose: "Retry verification with public NuGet vulnerability data".into(),
     };
     let encoded = serde_json::to_string(&request).unwrap();
@@ -126,6 +128,8 @@ fn uncertain_resource_request_is_returned_and_recorded_for_operator_attention() 
             manager: None,
             url: Some("https://example.com/needed-file".into()),
             dependency: None,
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Read a required API reference".into(),
         },
     )
@@ -156,6 +160,8 @@ fn unsupported_package_manager_is_returned_for_operator_attention() {
             manager: Some("pnpm".into()),
             url: None,
             dependency: None,
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Install locked dependencies".into(),
         },
     )
@@ -231,6 +237,8 @@ fn structured_dependency_request_uses_application_task_identity_and_public_sourc
                 lockfile_identity: None,
                 introduced_packages: Vec::new(),
             }),
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Validate the imported settings schema".into(),
         },
     )

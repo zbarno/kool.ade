@@ -37,6 +37,18 @@ pub(super) fn packages_from_bytes(
     lockfile::packages_from_bytes(bytes)
 }
 
+pub(super) fn dependency_manifest_inputs(
+    root: &Path,
+) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
+    manifest::dependency_inputs(root)
+}
+
+pub(super) fn dependency_manifest_inputs_from_bytes(
+    bytes: &[u8],
+) -> anyhow::Result<serde_json::Value> {
+    manifest::dependency_input_from_bytes(bytes)
+}
+
 pub(super) fn publish_index_snapshot(
     cache_root: &Path,
     snapshot_root: &Path,

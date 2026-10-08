@@ -1,4 +1,9 @@
+mod activity;
 mod preparation;
+mod retry;
+
+use activity::set_dependency_request;
+use retry::record_retry_result;
 
 use super::super::{
     MAX_REQUESTS, MAX_SESSION_BYTES, ResourceAction, ResourceRequest, ResourceResponse, dependency,
@@ -22,10 +27,12 @@ pub(super) fn prepare_request(
         "Resource request limit reached for this task run"
     );
     let used = context.downloaded_bytes.load(Ordering::Relaxed);
-    anyhow::ensure!(
-        used < MAX_SESSION_BYTES,
-        "Resource download budget reached for this task run"
-    );
+    if request.action != ResourceAction::DependencyRetryResult {
+        anyhow::ensure!(
+            used < MAX_SESSION_BYTES,
+            "Resource download budget reached for this task run"
+        );
+    }
     let response = match request.action {
         // Direct resource retrieval is intentionally separate from dependency
         // acquisition. Only the latter can use an allowlisted ecosystem adapter
@@ -79,6 +86,11 @@ pub(super) fn prepare_request(
                 .ok_or_else(|| anyhow::anyhow!("Structured dependency details are required"))?;
             dependency_request(context, need)?
         }
+        ResourceAction::DependencyRetryResult => record_retry_result(
+            context,
+            request.dependency_request_id.as_deref(),
+            request.retry_succeeded,
+        )?,
     };
     if response.status == "needs_attention"
         && let Ok(mut pending) = context.attention.lock()
@@ -111,16 +123,27 @@ fn dependency_request(
         context.baseline_commit,
         &mut request.need,
     ) {
-        request.category = crate::harness::DependencyFailureCategory::DependencyIntegrityFailure;
+        let detail = format!("{error:#}");
+        request.category = if detail.contains("changed before authorization")
+            || detail.contains("changed without matching lockfile")
+        {
+            crate::harness::DependencyFailureCategory::DependencyPolicyDenied
+        } else {
+            crate::harness::DependencyFailureCategory::DependencyIntegrityFailure
+        };
         request.decision = crate::harness::DependencyDecision::Reject;
         request.status = crate::harness::DependencyRequestStatus::Failed;
         request.rationale =
-            format!("Kool.ad/e could not validate the dependency lockfile identity: {error:#}");
-        set_dependency_request(context, &request);
-        return Ok(ResourceResponse::dependency_outcome(
-            "integrity_failure",
-            request,
-        ));
+            format!("Kool.ad/e could not safely authorize these dependency inputs: {detail}");
+        set_dependency_request(context, &mut request);
+        let status = if request.category
+            == crate::harness::DependencyFailureCategory::DependencyIntegrityFailure
+        {
+            "integrity_failure"
+        } else {
+            "rejected"
+        };
+        return Ok(ResourceResponse::dependency_outcome(status, request));
     }
     if !request.need.introduced_packages.is_empty() {
         request.category = crate::harness::DependencyFailureCategory::DependencyNewPackageRequested;
@@ -132,7 +155,7 @@ fn dependency_request(
     }
     if request.decision == crate::harness::DependencyDecision::Reject {
         request.status = crate::harness::DependencyRequestStatus::Failed;
-        set_dependency_request(context, &request);
+        set_dependency_request(context, &mut request);
         return Ok(ResourceResponse::dependency_outcome("rejected", request));
     }
     if let Some(task_id) = context.task_id {
@@ -149,7 +172,7 @@ fn dependency_request(
             request.rationale =
                 "The user authorized this exact dependency request once for the current task."
                     .into();
-            set_dependency_request(context, &request);
+            set_dependency_request(context, &mut request);
             return Ok(preparation::authorized_dependency(
                 context,
                 &mut request,
@@ -166,7 +189,7 @@ fn dependency_request(
                 request.status = crate::harness::DependencyRequestStatus::Failed;
                 request.rationale =
                     format!("Saved dependency authorization could not be read safely: {error:#}");
-                set_dependency_request(context, &request);
+                set_dependency_request(context, &mut request);
                 return Ok(ResourceResponse::dependency_outcome("error", request));
             }
         };
@@ -181,7 +204,7 @@ fn dependency_request(
             };
             request.status = crate::harness::DependencyRequestStatus::Authorized;
             request.rationale = "A user-local grant matches this exact package, version, source, and task or project scope.".into();
-            set_dependency_request(context, &request);
+            set_dependency_request(context, &mut request);
             return Ok(preparation::authorized_dependency(
                 context,
                 &mut request,
@@ -193,21 +216,21 @@ fn dependency_request(
     request.status = crate::harness::DependencyRequestStatus::ManagerReviewing;
     request.rationale =
         "Man.ager is checking whether this dependency is required and safe for the task.".into();
-    set_dependency_request(context, &request);
+    set_dependency_request(context, &mut request);
     let deadline = Instant::now() + Duration::from_secs(20 * 60);
     let response = loop {
         if context.cancel.load(Ordering::SeqCst) || context.stop.load(Ordering::Relaxed) {
             request.status = crate::harness::DependencyRequestStatus::Failed;
             request.rationale =
                 "The dependency review ended because the task was cancelled or stopped.".into();
-            set_dependency_request(context, &request);
+            set_dependency_request(context, &mut request);
             break ResourceResponse::dependency_outcome("cancelled", request.clone());
         }
         if Instant::now() >= deadline {
             request.decision = crate::harness::DependencyDecision::RequiresUserAuthorization;
             request.status = crate::harness::DependencyRequestStatus::AwaitingUser;
             request.rationale = "Man.ager did not finish this review in time. No dependency permission was granted; review this request in Task Details.".into();
-            set_dependency_request(context, &request);
+            set_dependency_request(context, &mut request);
             break ResourceResponse::dependency_outcome("authorization_required", request.clone());
         }
         match receiver.recv_timeout(Duration::from_millis(200)) {
@@ -217,12 +240,12 @@ fn dependency_request(
                 if answer.decision == crate::harness::DependencyDecision::RequiresUserAuthorization
                 {
                     request.status = crate::harness::DependencyRequestStatus::AwaitingUser;
-                    set_dependency_request(context, &request);
+                    set_dependency_request(context, &mut request);
                     continue;
                 }
                 if answer.decision == crate::harness::DependencyDecision::Reject {
                     request.status = crate::harness::DependencyRequestStatus::Denied;
-                    set_dependency_request(context, &request);
+                    set_dependency_request(context, &mut request);
                     break ResourceResponse::dependency_outcome("denied", request.clone());
                 }
                 break preparation::authorized_dependency(context, &mut request, answer.scope);
@@ -232,7 +255,7 @@ fn dependency_request(
                 request.decision = crate::harness::DependencyDecision::RequiresUserAuthorization;
                 request.status = crate::harness::DependencyRequestStatus::AwaitingUser;
                 request.rationale = "The dependency review channel ended without authorization. No permission was granted.".into();
-                set_dependency_request(context, &request);
+                set_dependency_request(context, &mut request);
                 break ResourceResponse::dependency_outcome(
                     "authorization_required",
                     request.clone(),
@@ -242,32 +265,4 @@ fn dependency_request(
     };
     crate::harness::dependency_authorization::unregister(&request.id);
     Ok(response)
-}
-
-fn set_dependency_request(context: &BrokerContext<'_>, request: &DependencyRequest) {
-    if let Ok(mut pending) = context.dependency.lock() {
-        *pending = Some(request.clone());
-    }
-    let activity = match request.status {
-        crate::harness::DependencyRequestStatus::ManagerReviewing => {
-            "Man.ager is reviewing a dependency request"
-        }
-        crate::harness::DependencyRequestStatus::AwaitingUser => {
-            "Dependency authorization needs your decision"
-        }
-        crate::harness::DependencyRequestStatus::Authorized => {
-            "Dependency authorization was granted"
-        }
-        crate::harness::DependencyRequestStatus::Prepared => {
-            "Authorized dependency preparation completed"
-        }
-        crate::harness::DependencyRequestStatus::Denied => "Dependency authorization was denied",
-        crate::harness::DependencyRequestStatus::Pending => "Dependency request received",
-        crate::harness::DependencyRequestStatus::Failed => "Dependency preparation needs attention",
-    };
-    let _ = context.progress.send(crate::harness::LiveProgress {
-        activity: Some(activity.into()),
-        dependency_requests: vec![request.clone()],
-        ..Default::default()
-    });
 }

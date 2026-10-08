@@ -113,6 +113,8 @@ pub(crate) fn triage(task_id: Option<&str>, mut need: DependencyNeed) -> Depende
     } else if need.kind == DependencyKind::SystemTool || need.ecosystem == PackageEcosystem::System
     {
         DependencyFailureCategory::DependencySystemPackageRequired
+    } else if custom_npm_registry_path_unsupported(&need) {
+        DependencyFailureCategory::DependencySourceNotAuthorized
     } else if !approved_source(&need) {
         if private_registry_source(&need) {
             DependencyFailureCategory::DependencyPrivateRegistry
@@ -155,6 +157,7 @@ pub(crate) fn triage(task_id: Option<&str>, mut need: DependencyNeed) -> Depende
         } else {
             DependencyRequestStatus::Pending
         },
+        preparation: None,
     }
 }
 

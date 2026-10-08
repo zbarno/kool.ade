@@ -72,7 +72,11 @@ pub(super) fn prepare(
     if packages.is_empty() {
         return Ok(ResourceResponse::prepared(
             "Cargo.lock contains no crates.io packages to retrieve".into(),
-        ));
+        )
+        .with_preparation(crate::harness::DependencyPreparationTelemetry {
+            status: Some(crate::harness::DependencyPreparationStatus::AlreadyAvailable),
+            ..Default::default()
+        }));
     }
     anyhow::ensure!(
         !worktree.join(".cargo/config").exists() && !worktree.join(".cargo/config.toml").exists(),
@@ -85,18 +89,32 @@ pub(super) fn prepare(
         "Cargo dependency download budget is exhausted"
     );
     let remaining = crate::harness::resource_bridge::MAX_SESSION_BYTES - used;
+    let cache_hits = cache::verified_package_count(cargo_cache, &packages)?;
     let proxy = HttpsRegistryProxy::start(
         CARGO_REGISTRY_HOSTS.iter().map(|host| (*host).to_owned()),
         remaining,
     )?;
     let result = run_fetch(&cargo, worktree, cargo_cache, &proxy.url());
-    downloaded_bytes.fetch_add(proxy.bytes_received(), Ordering::Relaxed);
+    let bytes_downloaded = proxy.bytes_received();
+    downloaded_bytes.fetch_add(bytes_downloaded, Ordering::Relaxed);
     result?;
     cache::verify_locked_packages(cargo_cache, &packages)?;
     Ok(ResourceResponse::prepared(format!(
         "Cargo prepared {} crates.io packages from Cargo.lock; registry checksums were verified and the sandbox remains offline.",
         packages.len()
-    )))
+    ))
+    .with_preparation(crate::harness::DependencyPreparationTelemetry {
+        status: Some(if cache_hits == packages.len() && bytes_downloaded == 0 {
+            crate::harness::DependencyPreparationStatus::AlreadyAvailable
+        } else {
+            crate::harness::DependencyPreparationStatus::Prepared
+        }),
+        package_count: packages.len() as u64,
+        cache_hits: cache_hits as u64,
+        packages_downloaded: packages.len().saturating_sub(cache_hits) as u64,
+        bytes_downloaded: bytes_downloaded as u64,
+        ..Default::default()
+    }))
 }
 
 fn run_fetch(cargo: &Path, worktree: &Path, cache: &Path, proxy: &str) -> anyhow::Result<()> {

@@ -8,8 +8,10 @@ use std::{
 };
 use url::Url;
 
+mod failure;
 mod network;
 mod npm;
+pub(super) use failure::bytes_from_failure;
 pub(super) use network::public_address;
 pub(super) use npm::retrieve_npm_registry;
 
@@ -44,26 +46,52 @@ pub(super) fn retrieve(
 
 fn retrieve_validated(
     worktree: &Path,
+    current: Url,
+    purpose: &str,
+    remaining_bytes: u64,
+    classify_redirect: impl FnMut(&str) -> anyhow::Result<policy::Decision>,
+) -> anyhow::Result<ResourceResponse> {
+    let temp = TempResponse::new()?;
+    let mut transferred = 0_u64;
+    retrieve_validated_with_temp(
+        worktree,
+        current,
+        purpose,
+        remaining_bytes,
+        classify_redirect,
+        &temp,
+        &mut transferred,
+    )
+    .map_err(|source| failure::with_bytes(transferred as usize, source))
+}
+
+fn retrieve_validated_with_temp(
+    worktree: &Path,
     mut current: Url,
     purpose: &str,
     remaining_bytes: u64,
     mut classify_redirect: impl FnMut(&str) -> anyhow::Result<policy::Decision>,
+    temp: &TempResponse,
+    transferred: &mut u64,
 ) -> anyhow::Result<ResourceResponse> {
-    let temp = TempResponse::new()?;
     let max_bytes = MAX_RESOURCE_BYTES.min(remaining_bytes);
     anyhow::ensure!(max_bytes > 0, "Resource download budget is exhausted");
-    let mut transferred = 0_u64;
     for redirect in 0..=3 {
         anyhow::ensure!(
-            transferred < max_bytes,
+            *transferred < max_bytes,
             "Resource redirect chain exhausted its download limit"
         );
         let address = public_address(&current)?;
-        let status = curl(&current, address, &temp, max_bytes - transferred)?;
+        let status = curl(&current, address, temp, max_bytes - *transferred);
+        *transferred = transferred.saturating_add(
+            fs::metadata(&temp.body)
+                .map(|metadata| metadata.len())
+                .unwrap_or_default(),
+        );
+        let status = status?;
         let headers = fs::read_to_string(&temp.headers)?;
-        transferred += fs::metadata(&temp.body)?.len();
         anyhow::ensure!(
-            transferred <= max_bytes,
+            *transferred <= max_bytes,
             "Resource redirect chain exceeded its download limit"
         );
         if (300..400).contains(&status) {
@@ -77,13 +105,13 @@ fn retrieve_validated(
                 Err(error) => {
                     return Ok(ResourceResponse::needs_attention_with_bytes(
                         format!("Resource redirect needs operator review: {error:#}"),
-                        transferred as usize,
+                        *transferred as usize,
                     ));
                 }
                 Ok(policy::Decision::NeedsAttention(detail)) => {
                     return Ok(ResourceResponse::needs_attention_with_bytes(
                         detail,
-                        transferred as usize,
+                        *transferred as usize,
                     ));
                 }
             };
@@ -109,14 +137,14 @@ fn retrieve_validated(
                 format!("Retrieved {display} for: {}", purpose.trim()),
                 content,
             );
-            response.bytes = transferred as usize;
+            response.bytes = *transferred as usize;
             return Ok(response);
         }
         let path = store_resource(worktree, &bytes)?;
         return Ok(ResourceResponse::allowed_file(
             format!("Retrieved {display} for: {}", purpose.trim()),
             path,
-            transferred as usize,
+            *transferred as usize,
         ));
     }
     anyhow::bail!("Resource redirect flow ended unexpectedly")

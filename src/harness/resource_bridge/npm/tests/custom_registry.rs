@@ -19,7 +19,7 @@ fn authorized_addition_prepares_a_custom_registry_archive_from_verified_cache() 
     fs::create_dir_all(&response_dir).unwrap();
     fs::create_dir_all(&cache).unwrap();
 
-    let need = crate::harness::DependencyNeed {
+    let mut need = crate::harness::DependencyNeed {
         ecosystem: crate::harness::PackageEcosystem::Npm,
         package: Some("zod".into()),
         version: Some("1.0.0".into()),
@@ -30,6 +30,8 @@ fn authorized_addition_prepares_a_custom_registry_archive_from_verified_cache() 
         lockfile_identity: None,
         introduced_packages: Vec::new(),
     };
+    crate::harness::resource_bridge::dependency::enrich_lock_identity(&worktree, None, &mut need)
+        .unwrap();
     assert!(crate::harness::dependency_decision_allowed(
         &need,
         crate::harness::DependencyDecision::UserAuthorizeForTask
@@ -94,7 +96,7 @@ fn npm_addition_checks_the_exact_manager_or_user_authorization_scope() {
     let cached_archive = super::super::lockfile::npm_cache_digest_path(&cache, &integrity).unwrap();
     fs::create_dir_all(cached_archive.parent().unwrap()).unwrap();
     fs::write(&cached_archive, archive).unwrap();
-    let need = crate::harness::DependencyNeed {
+    let mut need = crate::harness::DependencyNeed {
         ecosystem: crate::harness::PackageEcosystem::Npm,
         package: Some("zod".into()),
         version: Some("^1.0.0".into()),
@@ -105,6 +107,8 @@ fn npm_addition_checks_the_exact_manager_or_user_authorization_scope() {
         lockfile_identity: None,
         introduced_packages: Vec::new(),
     };
+    crate::harness::resource_bridge::dependency::enrich_lock_identity(&worktree, None, &mut need)
+        .unwrap();
 
     for decision in [
         crate::harness::DependencyDecision::AutoAuthorize,

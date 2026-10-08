@@ -29,6 +29,8 @@ fn unsupported_custom_registry_path_reaches_the_response_with_its_reason() {
                 lockfile_identity: None,
                 introduced_packages: Vec::new(),
             }),
+            dependency_request_id: None,
+            retry_succeeded: None,
             purpose: "Validate imported settings data".into(),
         },
     )
@@ -45,6 +47,13 @@ fn unsupported_custom_registry_path_reaches_the_response_with_its_reason() {
     assert_eq!(
         request.status,
         crate::harness::DependencyRequestStatus::Failed
+    );
+    assert_eq!(
+        response
+            .dependency_result
+            .as_ref()
+            .and_then(|result| result.status),
+        Some(crate::harness::DependencyPreparationStatus::SourceRejected)
     );
     assert!(request.rationale.contains("only origin-root registry URLs"));
     drop(bridge);

@@ -16,7 +16,7 @@ fn npm_add(source: Option<&str>, command: &str, version: &str) -> DependencyNeed
         command: command.into(),
         reason: "Validate imported settings data".into(),
         kind: DependencyKind::NewProjectDependency,
-        lockfile_identity: None,
+        lockfile_identity: Some(lockfile_identity()),
         introduced_packages: Vec::new(),
     }
 }

@@ -107,7 +107,11 @@ pub(super) fn prepare_with_registry_and_ops(
     if packages.is_empty() {
         return Ok(ResourceResponse::prepared(
             "npm lockfiles contain no remote package archives to retrieve".into(),
-        ));
+        )
+        .with_preparation(crate::harness::DependencyPreparationTelemetry {
+            status: Some(crate::harness::DependencyPreparationStatus::AlreadyAvailable),
+            ..Default::default()
+        }));
     }
     anyhow::ensure!(
         packages.len() <= super::MAX_LOCKED_PACKAGES,
@@ -162,8 +166,16 @@ pub(super) fn prepare_with_registry_and_ops(
             purpose,
             reservation as u64,
             authorized_registry,
-        )
-        .context("retrieving a lockfile-pinned npm package")?;
+        );
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                let received = crate::harness::resource_bridge::fetch::bytes_from_failure(&error)
+                    .unwrap_or_default();
+                downloaded_bytes.fetch_sub(reservation.saturating_sub(received), Ordering::Relaxed);
+                return Err(error).context("retrieving a lockfile-pinned npm package");
+            }
+        };
         downloaded_bytes.fetch_sub(
             reservation.saturating_sub(response.bytes),
             Ordering::Relaxed,
@@ -211,8 +223,20 @@ pub(super) fn prepare_with_registry_and_ops(
         cache::publish_index_snapshot(npm_cache, npm_snapshot)
             .context("publishing an immutable npm cache index snapshot")?;
     }
+    let packages_downloaded = missing.len() as u64;
     Ok(ResourceResponse::prepared(format!(
-        "npm cache ready: {cached} packages reused and {} lockfile-pinned packages retrieved ({transferred} bytes). npm install commands remain offline and run package scripts only inside the sandbox.",
-        missing.len()
-    )))
+        "npm cache ready: {cached} packages reused and {packages_downloaded} lockfile-pinned packages retrieved ({transferred} bytes). npm install commands remain offline and run package scripts only inside the sandbox.",
+    ))
+    .with_preparation(crate::harness::DependencyPreparationTelemetry {
+        status: Some(if packages_downloaded == 0 {
+            crate::harness::DependencyPreparationStatus::AlreadyAvailable
+        } else {
+            crate::harness::DependencyPreparationStatus::Prepared
+        }),
+        package_count: packages.len() as u64,
+        cache_hits: cached as u64,
+        packages_downloaded,
+        bytes_downloaded: transferred as u64,
+        ..Default::default()
+    }))
 }
