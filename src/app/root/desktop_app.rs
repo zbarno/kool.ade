@@ -11,57 +11,10 @@ impl App for KooladeApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         let dt = ctx.input(|i| i.stable_dt).clamp(0.0, 0.5);
         self.tick(dt, ctx);
-        self.prepare_selected_task_chat(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
         self.paint_screen(ui);
-    }
-}
-
-impl KooladeApp {
-    /// Drive conversation lifecycle from the modal selection transition,
-    /// not from egui's repeated paint pass. The controller remains responsible
-    /// for creating the durable introduction (idempotently by task identity).
-    fn prepare_selected_task_chat(&mut self, ctx: &egui::Context) {
-        let task =
-            ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")));
-        let planning = ctx
-            .data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
-        let selected = task.or_else(|| {
-            let key = planning?;
-            // Board planning items are selected by item ID, but task
-            // conversation storage uses their canonical conversation keys.
-            // Preserve that mapping outside the rendering pass too.
-            if let Screen::Connected(project) = &self.screen
-                && let Some(item) = project
-                    .state
-                    .items
-                    .iter()
-                    .chain(&project.state.resolved_items)
-                    .chain(&self.synth)
-                    .find(|item| item.id == key)
-            {
-                return Some(item.conversation_key().to_owned());
-            }
-            Some(key)
-        });
-        let tracked = egui::Id::new("koolade_last_prepared_task_chat");
-        let previous = ctx.data_mut(|data| data.get_temp::<String>(tracked));
-        if selected == previous {
-            return;
-        }
-        ctx.data_mut(|data| {
-            if let Some(key) = selected.as_ref() {
-                data.insert_temp(tracked, key.clone());
-            } else {
-                data.remove::<String>(tracked);
-            }
-        });
-        if let Some(key) = selected {
-            self.prepare_task_chat(&key);
-            ctx.request_repaint();
-        }
     }
 }
 
@@ -184,36 +137,3 @@ impl KooladeApp {
     }
 }
 
-#[cfg(test)]
-mod task_chat_selection_tests {
-    use super::*;
-
-    #[test]
-    fn selection_state_tracks_task_modal_open_switch_and_close() {
-        let ctx = egui::Context::default();
-        let mut app = KooladeApp::default();
-        let selected = egui::Id::new("koolade_selected_task");
-        let tracked = egui::Id::new("koolade_last_prepared_task_chat");
-        ctx.data_mut(|data| data.insert_temp(selected, "task/a.md".to_owned()));
-        app.prepare_selected_task_chat(&ctx);
-        assert_eq!(
-            ctx.data_mut(|data| data.get_temp::<String>(tracked)),
-            Some("task/a.md".into())
-        );
-        // Ordinary redraw/tick for the same selection must not re-initialize.
-        app.prepare_selected_task_chat(&ctx);
-        assert_eq!(
-            ctx.data_mut(|data| data.get_temp::<String>(tracked)),
-            Some("task/a.md".into())
-        );
-        ctx.data_mut(|data| data.insert_temp(selected, "task/b.md".to_owned()));
-        app.prepare_selected_task_chat(&ctx);
-        assert_eq!(
-            ctx.data_mut(|data| data.get_temp::<String>(tracked)),
-            Some("task/b.md".into())
-        );
-        ctx.data_mut(|data| data.remove::<String>(selected));
-        app.prepare_selected_task_chat(&ctx);
-        assert_eq!(ctx.data_mut(|data| data.get_temp::<String>(tracked)), None);
-    }
-}
