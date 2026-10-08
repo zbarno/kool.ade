@@ -122,6 +122,112 @@ fn project_restore_grant_does_not_match_a_changed_lockfile_package_set() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Child entry point used by the process-concurrency test. Each worker writes
+/// distinct grants through the public API rather than sharing in-process locks.
+#[test]
+fn grant_writer_child_process() {
+    let Ok(project) = std::env::var("KOOLADE_TEST_AUTH_CHILD_PROJECT") else {
+        return;
+    };
+    let worker = std::env::var("KOOLADE_TEST_AUTH_CHILD_WORKER").unwrap();
+    for index in 0..20 {
+        let task = format!("TASK-{worker}-{index}");
+        let package = format!("package-{worker}-{index}");
+        save(
+            Path::new(&project),
+            &request(&task, &package),
+            DependencyAuthorizationScope::Project,
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn concurrent_processes_do_not_lose_project_grants() {
+    let _guard = STATE_ROOT_LOCK.lock().unwrap();
+    let root = std::env::temp_dir().join(format!(
+        "koolade-authorization-multiprocess-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let state_root = root.join("app-state");
+    let project = root.join("project");
+    fs::create_dir_all(&state_root).unwrap();
+    init_git(&project);
+    let _override = StateRootOverride::set(&state_root);
+    let project_id = project_id(&project).unwrap();
+
+    let children = (0..4)
+        .map(|worker| {
+            Command::new(std::env::current_exe().unwrap())
+                .arg("--exact")
+                .arg("persistence::dependency_authorization::tests::grant_writer_child_process")
+                .arg("--nocapture")
+                .env("KOOLADE_HOME", &state_root)
+                .env("KOOLADE_TEST_AUTH_CHILD_PROJECT", &project)
+                .env("KOOLADE_TEST_AUTH_CHILD_WORKER", worker.to_string())
+                .output()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    for (index, result) in children.iter().enumerate() {
+        assert!(
+            result.status.success(),
+            "writer {index} failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&result.stdout).contains("1 passed"),
+            "child test was not executed"
+        );
+    }
+    let path = store_path(&project_id).unwrap();
+    let file: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert_eq!(file["grants"].as_array().unwrap().len(), 80);
+    for worker in 0..4 {
+        for index in 0..20 {
+            let package = format!("package-{worker}-{index}");
+            let need = request(&format!("TASK-{worker}-{index}"), &package);
+            assert_eq!(
+                matching_scope(&project, &need.task_id, &need.need).unwrap(),
+                Some(DependencyAuthorizationScope::Project)
+            );
+        }
+    }
+
+    drop(_override);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn existing_symlinked_authorization_lock_is_rejected() {
+    use std::os::unix::fs::symlink;
+    let _guard = STATE_ROOT_LOCK.lock().unwrap();
+    let root = std::env::temp_dir().join(format!(
+        "koolade-authorization-lock-symlink-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let state_root = root.join("app-state");
+    let project = root.join("project");
+    fs::create_dir_all(&state_root).unwrap();
+    init_git(&project);
+    let _override = StateRootOverride::set(&state_root);
+    let id = project_id(&project).unwrap();
+    let store = store_path(&id).unwrap();
+    let unrelated = root.join("do-not-overwrite");
+    fs::write(&unrelated, "keep").unwrap();
+    symlink(&unrelated, store.with_extension("lock")).unwrap();
+    let result = save(
+        &project,
+        &request("TASK-BLOCKED", "zod"),
+        DependencyAuthorizationScope::Project,
+    );
+    assert!(result.is_err());
+    assert_eq!(fs::read_to_string(&unrelated).unwrap(), "keep");
+    drop(_override);
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn init_git(path: &Path) {
     fs::create_dir_all(path).unwrap();
     assert!(
