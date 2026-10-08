@@ -61,6 +61,36 @@ fn runtime_view_omits_host_data_parents_and_preserves_build_runtime() {
     }
 }
 
+#[test]
+fn tool_alternatives_preserve_canonical_targets_without_exposing_other_aliases() {
+    let mut args = Vec::new();
+    let mut created = BTreeSet::from(["/".to_owned()]);
+    mount_system_runtime(&mut args, &mut created).unwrap();
+    for tool in ["cc", "c++", "cpp", "automake", "aclocal"] {
+        let alias = Path::new("/etc/alternatives").join(tool);
+        if let Ok(target) = alias.canonicalize() {
+            assert!(
+                args.windows(3).any(|mount| {
+                    mount[0] == "--symlink"
+                        && mount[1] == target.to_string_lossy()
+                        && mount[2] == alias.to_string_lossy()
+                }),
+                "missing canonical tool alternative {tool}"
+            );
+        }
+    }
+    assert!(
+        !args
+            .windows(3)
+            .any(|mount| { mount[0] == "--ro-bind" && mount[2] == "/etc/alternatives" })
+    );
+    assert!(
+        !args
+            .windows(3)
+            .any(|mount| { mount[0] == "--symlink" && mount[2] == "/etc/alternatives/editor" })
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn runtime_symlinks_cannot_redirect_into_private_or_parent_directories() {

@@ -169,16 +169,16 @@ pub(in crate::harness::pi_sandbox) fn mount_system_runtime(
         );
         bind_readonly_file(args, created, &source, path);
     }
-    // GCC discovers support programs relative to the canonical executable.
-    // Preserve that path without exposing the alternatives directory.
-    for tool in ["cc", "c++", "cpp"] {
+    // Preserve canonical compiler and build-tool executable paths without
+    // exposing the alternatives directory or unrelated alternatives.
+    for tool in ["cc", "c++", "cpp", "automake", "aclocal"] {
         let alias = Path::new("/etc/alternatives").join(tool);
         let Some(target) = resolve_source(&alias, runtime_visible)? else {
             continue;
         };
         anyhow::ensure!(
             target.is_file(),
-            "Sandbox environment prerequisite: compiler alias must resolve to a runtime file"
+            "Sandbox environment prerequisite: tool alias must resolve to a runtime file"
         );
         ensure_parents(args, created, &alias);
         args.extend([

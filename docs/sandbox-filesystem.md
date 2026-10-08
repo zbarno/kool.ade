@@ -23,8 +23,9 @@ Both profiles use `src/harness/pi_sandbox/mounts/system_runtime.rs`:
   same approved runtime directories on merged-layout Linux distributions.
 - Individual OS files: `/etc/ld.so.cache`, `/etc/passwd`, `/etc/group`,
   `/etc/nsswitch.conf`, `/etc/localtime`; public roots under `/etc/ssl/certs`.
-- Compiler alternatives: only `cc`, `c++`, and `cpp`. Canonical symlinks preserve
-  GCC's support-file lookup; the alternatives directory remains hidden.
+- Compiler and build-tool alternatives: only `cc`, `c++`, `cpp`, `automake`,
+  and `aclocal`. Canonical symlinks preserve executable lookup and GCC's
+  support-file lookup; the alternatives directory remains hidden.
 
 Each runtime source is canonicalized before binding. A redirect outside the
 allowlist, wrong file type, or dangling symlink blocks sandbox construction

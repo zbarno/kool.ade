@@ -26,6 +26,7 @@ fn installed_build_tools_keep_their_narrow_shared_runtime_data() {
         ("cmake", &["--version"], "cmake -P fixture.cmake"),
         ("autoconf", &["--version"], "autoconf --version"),
         ("automake", &["--version"], "automake --version"),
+        ("aclocal", &["--version"], "aclocal --version"),
     ];
     for (program, probe, command) in fixtures {
         let Some(executable) = system_executable(program) else {
