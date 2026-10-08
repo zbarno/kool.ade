@@ -111,7 +111,7 @@ pub(super) fn prepare_request(
     Ok(response)
 }
 
-fn lock_cache(context: &BrokerContext<'_>) -> anyhow::Result<std::sync::MutexGuard<'_, ()>> {
+fn lock_cache<'a>(context: &'a BrokerContext<'_>) -> anyhow::Result<std::sync::MutexGuard<'a, ()>> {
     context
         .request_gate
         .lock()
