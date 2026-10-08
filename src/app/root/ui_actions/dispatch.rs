@@ -91,6 +91,9 @@ impl KooladeApp {
                 TaskDetailCommand::StartOrResume { ticket } => {
                     self.start_implementation(ticket, true)
                 }
+                TaskDetailCommand::RunWithoutSharedCoordination { ticket } => {
+                    self.start_without_shared_coordination(ticket)
+                }
                 TaskDetailCommand::AuthorizeDependency {
                     ticket,
                     request_id,
