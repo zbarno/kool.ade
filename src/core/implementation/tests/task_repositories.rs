@@ -96,6 +96,22 @@ fn dirty_user_checkout_on_another_branch_starts_from_the_exact_local_commit() {
 }
 
 #[test]
+fn new_task_clone_path_never_invokes_git_worktree_commands() {
+    let sandbox = Sandbox::new();
+    let (commands, _trace_guard) =
+        crate::core::implementation::runner::capture_git_worktree_commands();
+
+    let state = run_on_worker(&sandbox, &sandbox.ticket).unwrap();
+    let observed = commands.lock().unwrap().clone();
+
+    assert_eq!(state.task_repository_kind, TaskRepositoryKind::Clone);
+    assert!(
+        observed.is_empty(),
+        "new task invoked Git worktree commands: {observed:?}"
+    );
+}
+
+#[test]
 fn clone_reconciliation_plan_resumes_before_task_state_was_saved() {
     let sandbox = Sandbox::new();
     let source = "topic/recovery";
