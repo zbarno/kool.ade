@@ -31,8 +31,10 @@ pub(super) fn create_pull_request(
     dir: &Path,
     state: &mut Implementation,
     runner: &Runner,
+    publication_claim: Option<&Arc<std::sync::Mutex<crate::core::task_claim::ClaimLease>>>,
 ) -> anyhow::Result<()> {
     runner.remaining()?;
+    verify_publication_claim(publication_claim)?;
     let repository_cache = if state.task_repository_kind == TaskRepositoryKind::Clone {
         Some(RepositoryCache::from_saved_state(state, runner)?)
     } else {
@@ -113,6 +115,9 @@ pub(super) fn create_pull_request(
         current_branch == state.branch,
         "Implementation repository branch changed; refusing to push"
     );
+    // Recheck ownership immediately before any remotely visible mutation.
+    // The task branch push is non-force and bounded to its own ref.
+    verify_publication_claim(publication_claim)?;
     if let Some(cache) = repository_cache.as_ref() {
         cache.push_commit(
             &state.task_repository,
@@ -135,6 +140,7 @@ pub(super) fn create_pull_request(
         );
         state.pr_url = pr["url"].as_str().map(String::from);
     } else {
+        verify_publication_claim(publication_claim)?;
         let body = dir.join("pr-body.md");
         let url = runner.command(
             &state.task_repository,
@@ -167,6 +173,25 @@ pub(super) fn create_pull_request(
     state.status = ImplementationStatus::AwaitingReview;
     state.pr_state = Some(PullRequestState::Open);
     update_pull_request_detail(state);
+    Ok(())
+}
+
+/// Never publish based solely on a five-minute heartbeat. A replaced,
+/// absent or unreachable task claim blocks the action and preserves work.
+/// Note: GitHub does not provide an atomic transaction spanning an arbitrary
+/// claim ref and PR creation. Branch pushes remain non-forced and scoped to
+/// Kool.ad/e task branches; recheck before each remotely visible mutation.
+fn verify_publication_claim(
+    claim: Option<&Arc<std::sync::Mutex<crate::core::task_claim::ClaimLease>>>,
+) -> anyhow::Result<()> {
+    if let Some(claim) = claim {
+        let lease = claim
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Task claim coordinator is unavailable"))?;
+        lease.verify_ownership().map_err(|error| {
+            anyhow::anyhow!("Task lease lost before publication: {error}")
+        })?;
+    }
     Ok(())
 }
 
