@@ -44,6 +44,9 @@ pub enum Command {
     StartOrResume {
         ticket: String,
     },
+    RunWithoutSharedCoordination {
+        ticket: String,
+    },
     AuthorizeDependency {
         ticket: String,
         request_id: String,
