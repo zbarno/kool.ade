@@ -11,10 +11,41 @@ impl App for KooladeApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         let dt = ctx.input(|i| i.stable_dt).clamp(0.0, 0.5);
         self.tick(dt, ctx);
+        self.prepare_selected_task_chat(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame) {
         self.paint_screen(ui);
+    }
+}
+
+impl KooladeApp {
+    /// Drive conversation lifecycle from the modal selection transition,
+    /// not from egui's repeated paint pass. The controller remains responsible
+    /// for creating the durable introduction (idempotently by task identity).
+    fn prepare_selected_task_chat(&mut self, ctx: &egui::Context) {
+        let selected = ctx.data_mut(|data| {
+            data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
+                .or_else(|| {
+                    data.get_temp::<String>(egui::Id::new("koolade_selected_planning"))
+                })
+        });
+        let tracked = egui::Id::new("koolade_last_prepared_task_chat");
+        let previous = ctx.data_mut(|data| data.get_temp::<String>(tracked));
+        if selected == previous {
+            return;
+        }
+        ctx.data_mut(|data| {
+            if let Some(key) = selected.as_ref() {
+                data.insert_temp(tracked, key.clone());
+            } else {
+                data.remove::<String>(tracked);
+            }
+        });
+        if let Some(key) = selected {
+            self.prepare_task_chat(&key);
+            ctx.request_repaint();
+        }
     }
 }
 
