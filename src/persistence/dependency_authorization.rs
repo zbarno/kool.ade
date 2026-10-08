@@ -260,7 +260,7 @@ fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
                 metadata.is_dir() && !metadata.file_type().is_symlink(),
                 "Dependency authorization directory contains a symlink or non-directory"
             );
-        },
+        }
         Err(error) => return Err(error.into()),
     }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
