@@ -81,7 +81,7 @@ pub(super) fn prepare_request(
         ResourceAction::PrepareNugetAudit => {
             let _gate = lock_cache(context)?;
             prepare_nuget_audit()?
-        },
+        }
         ResourceAction::UnsupportedManager => {
             let need =
                 dependency::from_unsupported_manager(request.manager.as_deref(), &request.purpose);
@@ -101,7 +101,7 @@ pub(super) fn prepare_request(
                 request.dependency_request_id.as_deref(),
                 request.retry_succeeded,
             )?
-        },
+        }
     };
     if response.status == "needs_attention"
         && let Ok(mut pending) = context.attention.lock()
@@ -129,9 +129,13 @@ fn prepare_authorized(
     let _gate = lock_cache(context)?;
     if context.cancel.load(Ordering::SeqCst) || context.stop.load(Ordering::Relaxed) {
         request.status = crate::harness::DependencyRequestStatus::Failed;
-        request.rationale = "The dependency review ended because the task was cancelled or stopped.".into();
+        request.rationale =
+            "The dependency review ended because the task was cancelled or stopped.".into();
         set_dependency_request(context, request);
-        return Ok(ResourceResponse::dependency_outcome("cancelled", request.clone()));
+        return Ok(ResourceResponse::dependency_outcome(
+            "cancelled",
+            request.clone(),
+        ));
     }
     Ok(preparation::authorized_dependency(context, request, scope))
 }
