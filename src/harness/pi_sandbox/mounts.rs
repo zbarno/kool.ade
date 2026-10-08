@@ -37,6 +37,18 @@ pub(super) fn mount_system_runtime(
             bind_readonly_file(args, created, path, path);
         }
     }
+    // On Debian/Ubuntu, /usr/bin/cc and /usr/bin/c++ are symlinks into
+    // /etc/alternatives. Do not expose the alternatives directory wholesale:
+    // expose only compiler aliases resolving to files in the trusted runtime.
+    for tool in ["cc", "c++", "cpp"] {
+        let alias = Path::new("/etc/alternatives").join(tool);
+        if let Ok(target) = alias.canonicalize()
+            && target.is_file()
+            && target.starts_with("/usr")
+        {
+            bind_readonly_file(args, created, &target, &alias);
+        }
+    }
     // Public CA roots are safe to expose; never bind the parent /etc/ssl.
     let certs = Path::new("/etc/ssl/certs");
     if certs.is_dir() {
