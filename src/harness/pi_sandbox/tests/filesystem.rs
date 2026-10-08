@@ -45,9 +45,10 @@ fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
             "missing narrowly mounted compiler alias"
         );
         assert!(
-            !sandbox.args.windows(3).any(|args| {
-                args[0] == "--ro-bind" && args[1] == "/etc/alternatives"
-            }),
+            !sandbox
+                .args
+                .windows(3)
+                .any(|args| { args[0] == "--ro-bind" && args[1] == "/etc/alternatives" }),
             "do not expose the entire alternatives directory"
         );
     }
