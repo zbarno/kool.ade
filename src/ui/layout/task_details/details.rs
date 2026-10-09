@@ -111,6 +111,31 @@ pub(super) fn paint(
                         },
                     );
                 }
+                // Manual start is never implicit consent to losing a shared
+                // remote claim. This separate, opt-in action is available
+                // only after an actual coordination availability failure.
+                if failure.is_some_and(|detail| {
+                    detail.contains("Cross-clone claim check failed:")
+                }) {
+                    ui.add_space(8.0);
+                    ui.label(
+                        "The shared task claim could not be reached. A local-only run may duplicate work on another computer. No branch will be pushed or published automatically.",
+                    );
+                    if ui
+                        .add_enabled(
+                            view.can_start,
+                            egui::Button::new("Run locally without shared coordination"),
+                        )
+                        .clicked()
+                    {
+                        dispatch(
+                            s,
+                            crate::ui::task_detail::Command::RunWithoutSharedCoordination {
+                                ticket: ticket.to_owned(),
+                            },
+                        );
+                    }
+                }
             }
             if !active && column != 4 && ui.button("Cancel task").clicked() {
                 ui.ctx().data_mut(|data| {

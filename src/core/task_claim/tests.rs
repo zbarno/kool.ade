@@ -205,6 +205,53 @@ fn repositories_without_an_origin_keep_the_local_only_path_available() {
 }
 
 #[test]
+fn unavailable_remote_claim_requires_explicit_per_run_override() {
+    let fixture = Fixture::new();
+    let repo = &fixture.clones[0];
+    let missing = fixture.root.join("nonexistent-remote.git");
+    git_at(
+        repo,
+        &["remote", "set-url", "origin", missing.to_str().unwrap()],
+    );
+    let base = git_at(repo, &["rev-parse", "HEAD"]);
+    let claim = || {
+        ClaimRequest::new(
+            repo.clone(),
+            "task-no-remote".into(),
+            base.clone(),
+            None,
+            false,
+        )
+    };
+    assert!(matches!(
+        claim().acquire(),
+        Err(ClaimError::RemoteUnavailable(_))
+    ));
+    let override_run = ClaimRequest::new(
+        repo.clone(),
+        "task-no-remote".into(),
+        base.clone(),
+        None,
+        true,
+    )
+    .acquire()
+    .unwrap();
+    assert!(override_run.lease.is_none());
+    assert!(
+        override_run
+            .warning
+            .as_deref()
+            .is_some_and(|text| text.contains("local clone lock only"))
+    );
+    // The override belonged to only that ClaimRequest. Normal new attempts
+    // still require the shared remote claim.
+    assert!(matches!(
+        claim().acquire(),
+        Err(ClaimError::RemoteUnavailable(_))
+    ));
+}
+
+#[test]
 fn implementation_controller_reports_remote_conflicts_before_running_the_harness() {
     let fixture = Fixture::new();
     let owner = &fixture.clones[0];

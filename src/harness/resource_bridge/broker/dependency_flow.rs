@@ -17,10 +17,8 @@ pub(super) fn prepare_request(
     context: &BrokerContext<'_>,
     request: &ResourceRequest,
 ) -> anyhow::Result<ResourceResponse> {
-    let _gate = context
-        .request_gate
-        .lock()
-        .map_err(|_| anyhow::anyhow!("Resource request coordinator is unavailable"))?;
+    // Admission accounting is atomic. Never hold the cache-operation mutex
+    // while Man.ager or a user is deciding whether to authorize a dependency.
     let count = context.request_count.fetch_add(1, Ordering::Relaxed);
     anyhow::ensure!(
         count < MAX_REQUESTS,
@@ -39,6 +37,13 @@ pub(super) fn prepare_request(
         // with cleared host environment and isolated package-manager config.
         ResourceAction::Fetch if context.private_configuration => private_configuration_attention(),
         ResourceAction::Fetch => {
+            // The lock serializes cache/budget mutations only, not pending reviews.
+            let _gate = lock_cache(context)?;
+            let used = context.downloaded_bytes.load(Ordering::Relaxed);
+            anyhow::ensure!(
+                used < MAX_SESSION_BYTES,
+                "Resource download budget reached for this task run"
+            );
             let url = request
                 .url
                 .as_deref()
@@ -73,7 +78,10 @@ pub(super) fn prepare_request(
                 introduced_packages: Vec::new(),
             },
         )?,
-        ResourceAction::PrepareNugetAudit => prepare_nuget_audit()?,
+        ResourceAction::PrepareNugetAudit => {
+            let _gate = lock_cache(context)?;
+            prepare_nuget_audit()?
+        }
         ResourceAction::UnsupportedManager => {
             let need =
                 dependency::from_unsupported_manager(request.manager.as_deref(), &request.purpose);
@@ -86,11 +94,14 @@ pub(super) fn prepare_request(
                 .ok_or_else(|| anyhow::anyhow!("Structured dependency details are required"))?;
             dependency_request(context, need)?
         }
-        ResourceAction::DependencyRetryResult => record_retry_result(
-            context,
-            request.dependency_request_id.as_deref(),
-            request.retry_succeeded,
-        )?,
+        ResourceAction::DependencyRetryResult => {
+            let _gate = lock_cache(context)?;
+            record_retry_result(
+                context,
+                request.dependency_request_id.as_deref(),
+                request.retry_succeeded,
+            )?
+        }
     };
     if response.status == "needs_attention"
         && let Ok(mut pending) = context.attention.lock()
@@ -98,6 +109,35 @@ pub(super) fn prepare_request(
         *pending = Some(response.summary.clone());
     }
     Ok(response)
+}
+
+fn lock_cache<'a>(context: &'a BrokerContext<'_>) -> anyhow::Result<std::sync::MutexGuard<'a, ()>> {
+    context
+        .request_gate
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Resource request coordinator is unavailable"))
+}
+
+/// Begin package acquisition only after approval. This deliberately reacquires
+/// the cache lock *after* waiting for a decision, so another resource request
+/// can proceed while this one is under review.
+fn prepare_authorized(
+    context: &BrokerContext<'_>,
+    request: &mut DependencyRequest,
+    scope: Option<crate::harness::DependencyAuthorizationScope>,
+) -> anyhow::Result<ResourceResponse> {
+    let _gate = lock_cache(context)?;
+    if context.cancel.load(Ordering::SeqCst) || context.stop.load(Ordering::Relaxed) {
+        request.status = crate::harness::DependencyRequestStatus::Failed;
+        request.rationale =
+            "The dependency review ended because the task was cancelled or stopped.".into();
+        set_dependency_request(context, request);
+        return Ok(ResourceResponse::dependency_outcome(
+            "cancelled",
+            request.clone(),
+        ));
+    }
+    Ok(preparation::authorized_dependency(context, request, scope))
 }
 
 fn private_configuration_attention() -> ResourceResponse {
@@ -173,11 +213,11 @@ fn dependency_request(
                 "The user authorized this exact dependency request once for the current task."
                     .into();
             set_dependency_request(context, &mut request);
-            return Ok(preparation::authorized_dependency(
+            return prepare_authorized(
                 context,
                 &mut request,
                 Some(crate::harness::DependencyAuthorizationScope::Once),
-            ));
+            );
         }
         let saved_scope = match crate::persistence::dependency_authorization::matching_scope(
             context.worktree,
@@ -205,11 +245,7 @@ fn dependency_request(
             request.status = crate::harness::DependencyRequestStatus::Authorized;
             request.rationale = "A user-local grant matches this exact package, version, source, and task or project scope.".into();
             set_dependency_request(context, &mut request);
-            return Ok(preparation::authorized_dependency(
-                context,
-                &mut request,
-                Some(scope),
-            ));
+            return prepare_authorized(context, &mut request, Some(scope));
         }
     }
     let receiver = crate::harness::dependency_authorization::register(&request.id)?;
@@ -248,7 +284,7 @@ fn dependency_request(
                     set_dependency_request(context, &mut request);
                     break ResourceResponse::dependency_outcome("denied", request.clone());
                 }
-                break preparation::authorized_dependency(context, &mut request, answer.scope);
+                break prepare_authorized(context, &mut request, answer.scope)?;
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

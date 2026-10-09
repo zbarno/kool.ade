@@ -16,7 +16,7 @@ impl KooladeApp {
         };
         let Some(session) = session else { return };
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session));
+        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session), false);
     }
 
     fn start_implementation_with_claim_mode(
@@ -25,6 +25,7 @@ impl KooladeApp {
         manual: bool,
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
         stale_session: Option<String>,
+        allow_offline: bool,
     ) {
         if matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
@@ -95,7 +96,7 @@ impl KooladeApp {
                 &p.task_documents,
                 &ticket,
                 stale_session.as_deref(),
-                manual && stale_session.is_none(),
+                allow_offline && manual && stale_session.is_none(),
             ) {
                 Ok(request) => request,
                 Err(error) => {
@@ -130,7 +131,11 @@ impl KooladeApp {
                 .implementation_states
                 .get(&ticket)
                 .is_some_and(|state| state.status == ImplementationStatus::ChangesRequested);
-            let publication_mode = if explicit_publish {
+            // Explicit offline execution must never publish remotely. A fresh
+            // coordinated run is required before creating a PR or pushing.
+            let publication_mode = if allow_offline {
+                crate::core::implementation::PublicationMode::HoldForReview
+            } else if explicit_publish {
                 crate::core::implementation::PublicationMode::CreatePullRequest
             } else if requested_changes {
                 crate::core::implementation::PublicationMode::HoldForReview
@@ -203,11 +208,18 @@ impl KooladeApp {
                 }
             }
             p.activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
+            if allow_offline {
+                p.activity.pending.push(format!(
+                    "{ticket}: operator explicitly chose local-only execution; automatic publication is disabled until a new remote claim is acquired."
+                ));
+            }
             p.remember_chat(vec![ChatMessage::new(
                 ChatRole::System,
                 format!(
                     "Assigned {ticket}; the worker will verify and {}.",
-                    if explicit_publish {
+                    if allow_offline {
+                        "keep all work local without a shared claim; publishing requires a fresh coordinated attempt"
+                    } else if explicit_publish {
                         "share the already verified changes for review"
                     } else if p.queue.auto_publish {
                         "publish verified changes automatically"

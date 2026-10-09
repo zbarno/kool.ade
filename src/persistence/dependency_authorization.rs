@@ -2,8 +2,9 @@
 use crate::harness::{DependencyAuthorizationScope, DependencyNeed, DependencyRequest};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs,
+    fs::{self, File, OpenOptions},
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 mod identity;
@@ -48,6 +49,9 @@ pub fn save(
     );
     let project_id = project_id(root)?;
     let path = store_path(&project_id)?;
+    // Guard the entire read/modify/atomic-replace transaction. Atomic rename
+    // alone cannot prevent concurrent windows from losing each other's grants.
+    let _lock = acquire_store_lock(&path)?;
     let mut store = load(&project_id, &path)?;
     let grant = Grant {
         task_id: request.task_id.clone(),
@@ -75,6 +79,55 @@ pub fn save(
     crate::artifacts::atomic_write_bytes(&path, &bytes)?;
     set_private_file(&path)?;
     Ok(())
+}
+
+/// A lock file is distinct from the atomically replaced JSON store. Locking
+/// the JSON inode itself would not protect writers after an atomic rename.
+fn acquire_store_lock(store: &Path) -> anyhow::Result<File> {
+    let path = store.with_extension("lock");
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "Dependency authorization lock must be a regular file"
+            );
+            check_private_file(&path)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    // The containing user-owned directory is created and permission-restricted
+    // by store_path, so other accounts cannot manipulate the lock entry.
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Create privately from the outset. A concurrent process must never
+        // observe a new lock file with the default world-readable mode.
+        options.mode(0o600);
+    }
+    let lock = options.open(&path)?;
+    let metadata = fs::symlink_metadata(&path)?;
+    anyhow::ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "Dependency authorization lock must not be a symlink"
+    );
+    set_private_file(&path)?;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        match lock.try_lock() {
+            Ok(()) => return Ok(lock),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                anyhow::ensure!(
+                    Instant::now() < deadline,
+                    "Another Kool.ad/e instance is updating dependency permissions; retry shortly"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+        }
+    }
 }
 
 pub fn matching_scope(
@@ -193,7 +246,21 @@ fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
             metadata.is_dir() && !metadata.file_type().is_symlink(),
             "Dependency authorization directory contains a symlink or non-directory"
         ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Another process may create the same directory after the check.
+            // Treat EEXIST as contention, then validate the actual directory
+            // rather than trusting the concurrently created path.
+            if let Err(error) = fs::create_dir(path)
+                && error.kind() != std::io::ErrorKind::AlreadyExists
+            {
+                return Err(error.into());
+            }
+            let metadata = fs::symlink_metadata(path)?;
+            anyhow::ensure!(
+                metadata.is_dir() && !metadata.file_type().is_symlink(),
+                "Dependency authorization directory contains a symlink or non-directory"
+            );
+        }
         Err(error) => return Err(error.into()),
     }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
