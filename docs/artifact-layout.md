@@ -1,9 +1,16 @@
 # Repository artifact layout
 
-Reviewed against the checked-out implementation on 2026-09-27. A connected
+Reviewed against the checked-out implementation on 2026-10-09. A connected
 repository uses `.koolade-packet/` as the only live shared Kool.ad/e
 project-artifact root.
 Connection runs the restartable migration before loading planning state.
+
+> **Transition:** the runtime described below still uses the embedded
+> `.koolade-packet/` layout. [Planning repository v1](planning-repository-v1.md)
+> defines the target contract for a separate managed planning Git repository;
+> this documentation change does not implement that storage or migrate
+> existing workspaces. Existing projects remain on the current layout until
+> the explicit cutover is implemented and completed.
 
 | Location | Purpose and ownership |
 | --- | --- |
