@@ -1,12 +1,14 @@
 pub(in crate::core::implementation) mod generated;
 mod pinned_commits;
 pub(super) mod quality_checks;
+mod task_checks;
 mod verification;
 
 use super::*;
 pub(in crate::core::implementation) use pinned_commits::{
     pin_plan_commits, validate_pinned_commits,
 };
+pub(in crate::core::implementation) use task_checks::required_task_checks_at_commit;
 pub(super) use verification::verification_needs_environment;
 
 pub(super) fn required_baseline_checks(
@@ -25,7 +27,7 @@ pub(in crate::core::implementation) fn required_baseline_checks_for_commits(
 ) -> anyhow::Result<Vec<String>> {
     let mut changed_paths = std::collections::BTreeSet::new();
     for commit in [local, remote] {
-        let changed = runner.git(
+        let changed = runner.git_nul_records(
             repo,
             &[
                 "diff",
@@ -36,12 +38,7 @@ pub(in crate::core::implementation) fn required_baseline_checks_for_commits(
                 commit,
             ],
         )?;
-        changed_paths.extend(
-            changed
-                .split('\0')
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned),
-        );
+        changed_paths.extend(changed);
     }
 
     let mut instruction_paths = std::collections::BTreeSet::from([PathBuf::from("AGENTS.md")]);
@@ -56,25 +53,58 @@ pub(in crate::core::implementation) fn required_baseline_checks_for_commits(
         }
     }
 
+    anyhow::ensure!(
+        instruction_paths.len() <= 256,
+        "Task instruction inventory is too large; verification is preserved for review"
+    );
+    let changed = changed_paths
+        .iter()
+        .cloned()
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
     let mut checks = Vec::new();
     for commit in [local, remote] {
         for path in &instruction_paths {
             let path = path.to_string_lossy();
-            if runner
-                .git(repo, &["ls-tree", "-z", commit, "--", path.as_ref()])?
-                .is_empty()
+            let records = runner.git_nul_records(
+                repo,
+                &[
+                    "--literal-pathspecs",
+                    "ls-tree",
+                    "-z",
+                    commit,
+                    "--",
+                    path.as_ref(),
+                ],
+            )?;
+            let Some(record) = records.first() else {
+                continue;
+            };
+            let Some((metadata, listed_path)) = record.split_once('\t') else {
+                anyhow::bail!("Git returned a malformed task instruction inventory record");
+            };
+            let mut fields = metadata.split_whitespace();
+            if !matches!(fields.next(), Some("100644" | "100755"))
+                || fields.next() != Some("blob")
+                || listed_path != path.as_ref()
             {
                 continue;
             }
             let object = format!("{commit}:{path}");
-            let contents = runner.git(repo, &["show", &object])?;
+            let size = runner.git(repo, &["cat-file", "-s", &object])?;
+            let size = size.parse::<u64>()?;
+            anyhow::ensure!(
+                size <= 1024 * 1024,
+                "Task instructions exceed the verification snapshot size limit"
+            );
+            let contents = runner.git_output_bounded(repo, &["show", &object], size)?;
             let instruction_directory = Path::new(path.as_ref())
                 .parent()
                 .unwrap_or_else(|| Path::new(""));
             checks.extend(quality_checks::required_commands_in_markdown_for_changes(
                 &contents,
                 instruction_directory,
-                &changed_paths.iter().map(PathBuf::from).collect::<Vec<_>>(),
+                &changed,
             )?);
         }
     }
@@ -125,7 +155,7 @@ pub(super) fn changed_paths(
     common_base: &str,
     commit: &str,
 ) -> anyhow::Result<std::collections::BTreeSet<String>> {
-    let output = runner.git(
+    let output = runner.git_nul_records(
         repo,
         &[
             "diff",
@@ -136,11 +166,7 @@ pub(super) fn changed_paths(
             commit,
         ],
     )?;
-    Ok(output
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(str::to_owned)
-        .collect())
+    Ok(output.into_iter().collect())
 }
 
 pub(super) fn run_verification(
@@ -152,6 +178,7 @@ pub(super) fn run_verification(
 ) -> anyhow::Result<VerificationEvidence> {
     let mut results = Vec::new();
     let mut failure = None;
+    generated::quarantine_untrusted_ignored(runner, state, dir)?;
     for command in commands {
         let before = generated::before(runner, state, dir)?;
         let result = runner.verify(&state.task_repository, command);

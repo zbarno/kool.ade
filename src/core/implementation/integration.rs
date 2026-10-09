@@ -166,6 +166,10 @@ fn integrate(
                 .verified_head
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("Verified task commit is missing"))?;
+            anyhow::ensure!(
+                initial_reconciliation::support::generated::clean(runner, state, dir)?,
+                "Verified task clone contains unverified changes before integration; preserved for review"
+            );
             RepositoryCache::from_saved_state(state, runner)?.pin_task_commit(
                 &state.task_repository,
                 &state.branch,
@@ -181,7 +185,7 @@ fn integrate(
                 &state.base_commit,
                 task_head,
                 &remote,
-                &dir.join("integration-change-audit"),
+                &dir.join("change-set-audit"),
                 runner,
             )?;
             if !conflicts.is_empty() {
@@ -197,6 +201,7 @@ fn integrate(
         let integration =
             prepare_integration(repo, dir, state, &integration_base, harness, runner, policy)?;
         if !publish_after_integration {
+            initial_reconciliation::mark_integrated_candidate(dir, &integration)?;
             state.branch = integration.branch.clone();
             state.task_repository = integration.task_repository.clone();
             state.task_repository_ready = integration.task_repository_ready;

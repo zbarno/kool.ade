@@ -6,7 +6,15 @@ mod cases;
 mod snapshots;
 
 pub(super) fn make_divergent(s: &Sandbox) -> (String, String, String) {
-    fs::write(s.repo.join(".gitignore"), ".cache/\n").unwrap();
+    let ignore_path = s.repo.join(".gitignore");
+    let mut ignored = fs::read_to_string(&ignore_path).unwrap_or_default();
+    if !ignored.lines().any(|line| line == ".cache/") {
+        if !ignored.is_empty() && !ignored.ends_with('\n') {
+            ignored.push('\n');
+        }
+        ignored.push_str(".cache/\n");
+    }
+    fs::write(ignore_path, ignored).unwrap();
     s.git(&s.repo, &["add", ".gitignore"]);
     s.git(&s.repo, &["commit", "-qm", "ignore generated cache"]);
     s.git(&s.repo, &["push", "-q", "origin", "main"]);

@@ -181,6 +181,50 @@ fn atomic_publication_push_rejects_takeover_after_preflight() {
 }
 
 #[test]
+fn remote_unavailability_during_publication_does_not_update_claim_or_candidate_refs() {
+    let fixture = Fixture::new();
+    let repo = &fixture.clones[0];
+    let task_uid = "task-remote-unavailable-publication";
+    let base = git_at(repo, &["rev-parse", "HEAD"]);
+    let mut lease = ClaimLease::acquire(repo, task_uid, &base).unwrap().unwrap();
+    let reference = reference(task_uid).unwrap();
+    let claim_object = git_at(&fixture.remote, &["rev-parse", &reference]);
+
+    fs::write(
+        repo.join("unverified.txt"),
+        "must stay local while offline\n",
+    )
+    .unwrap();
+    git_at(repo, &["add", "unverified.txt"]);
+    git_at(repo, &["commit", "-qm", "prepare offline candidate"]);
+    let candidate = git_at(repo, &["rev-parse", "HEAD"]);
+    let destination = "refs/heads/koolade/offline-candidate";
+    let moved_remote = fixture.root.join("remote-offline.git");
+    fs::rename(&fixture.remote, &moved_remote).unwrap();
+    let result = lease.fenced_push(repo, &candidate, destination);
+    fs::rename(&moved_remote, &fixture.remote).unwrap();
+
+    assert!(result.is_err());
+    assert_eq!(
+        git_at(&fixture.remote, &["rev-parse", &reference]),
+        claim_object
+    );
+    assert!(
+        !Command::new("git")
+            .args(["show-ref", "--verify", "--quiet", destination])
+            .current_dir(&fixture.remote)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join("unverified.txt")).unwrap(),
+        "must stay local while offline\n"
+    );
+    drop(lease);
+}
+
+#[test]
 fn implementation_controller_reports_remote_conflicts_before_running_the_harness() {
     let fixture = Fixture::new();
     let owner = &fixture.clones[0];

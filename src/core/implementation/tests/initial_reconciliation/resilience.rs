@@ -22,8 +22,20 @@ fn interrupted() -> Sandbox {
 }
 
 pub(super) fn interrupted_with_configuration(granted: bool) -> Sandbox {
+    interrupted_with_configuration_and_build_ignore(granted, false)
+}
+
+pub(super) fn interrupted_with_build_ignore() -> Sandbox {
+    interrupted_with_configuration_and_build_ignore(false, true)
+}
+
+fn interrupted_with_configuration_and_build_ignore(granted: bool, build_ignore: bool) -> Sandbox {
     let s = Sandbox::new();
     fs::write(s.repo.join("AGENTS.md"), "# Instructions\n\n- Required quality gates: `mkdir -p .cache; if test -f .cache/ready; then test -f build/cache.txt; else mkdir -p build; printf cache > build/cache.txt; printf ready > .cache/ready; exit 1; fi`.\n").unwrap();
+    if build_ignore {
+        fs::write(s.repo.join(".gitignore"), "build/\n").unwrap();
+        s.git(&s.repo, &["add", ".gitignore"]);
+    }
     s.git(&s.repo, &["add", "AGENTS.md"]);
     s.git(
         &s.repo,
@@ -94,16 +106,21 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
     assert_eq!(result.status, ImplementationStatus::AwaitingReview);
     assert_eq!(
         calls.load(Ordering::SeqCst),
-        1,
-        "only implementation needs an agent"
+        2,
+        "integration needs one correction after its first gate run creates generated outputs"
     );
     assert_eq!(fs::read(path).unwrap(), old);
+    let generated_repository = result
+        .task_repositories
+        .iter()
+        .find(|repository| repository.join("build/cache.txt").exists())
+        .expect("verified generated output should remain in its preserved task clone");
     assert_eq!(
-        fs::read_to_string(result.task_repository.join("build/cache.txt")).unwrap(),
+        fs::read_to_string(generated_repository.join("build/cache.txt")).unwrap(),
         "cache"
     );
     assert!(
-        s.git(&result.task_repository, &["ls-files", "build/cache.txt"])
+        s.git(generated_repository, &["ls-files", "build/cache.txt"])
             .is_empty()
     );
     assert!(

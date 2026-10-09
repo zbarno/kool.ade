@@ -89,7 +89,9 @@ fn feature_named_workspace_ticket_resumes_preserved_work() {
     state.status = ImplementationStatus::Blocked;
     save(&state_dir(&s.repo, ticket).unwrap(), &state).unwrap();
     let resumed = s.run("resume", calls.clone()).unwrap();
-    assert_eq!(resumed.task_repository, state.task_repository);
+    assert_ne!(resumed.task_repository, state.task_repository);
+    assert!(resumed.task_repositories.contains(&state.task_repository));
+    assert!(resumed.branch.starts_with("koolade/integration/"));
     assert_eq!(resumed.base_commit, state.base_commit);
     assert_eq!(resumed.status, ImplementationStatus::AwaitingReview);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -166,12 +168,17 @@ fn fetch_failure_stops_before_agent_runs() {
 #[test]
 fn local_commits_ahead_of_remote_are_preserved() {
     let s = Sandbox::new();
+    let remote_base = s.git(
+        &s.root.join("remote.git"),
+        &["rev-parse", "refs/heads/main"],
+    );
     fs::write(s.repo.join("local.txt"), "local change").unwrap();
     s.git(&s.repo, &["add", "."]);
     s.git(&s.repo, &["commit", "-qm", "local change"]);
-    let original = s.git(&s.repo, &["rev-parse", "HEAD"]);
+    let local_source = s.git(&s.repo, &["rev-parse", "HEAD"]);
     let state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
-    assert_eq!(state.base_commit, original);
+    assert_eq!(state.base_commit, remote_base);
+    assert_eq!(state.source_commit.as_deref(), Some(local_source.as_str()));
     assert!(state.task_repository.join("local.txt").exists());
 }
 

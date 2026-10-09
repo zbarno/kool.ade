@@ -14,14 +14,19 @@ fn cancelled_task_clone_is_reviewed_and_resumed() {
     );
     assert_eq!(state.status, ImplementationStatus::Interrupted);
     assert!(!s.root.join("pr-created").exists());
-    s.advance_remote();
+    let latest_remote = s.advance_remote();
     let resumed = s
         .run("resume", calls.clone())
         .unwrap_or_else(|error| panic!("{error:#}"));
-    assert_eq!(resumed.task_repository, state.task_repository);
+    assert_ne!(resumed.task_repository, state.task_repository);
+    assert!(resumed.task_repositories.contains(&state.task_repository));
+    assert!(resumed.branch.starts_with("koolade/integration/"));
     assert_eq!(resumed.source_commit, state.source_commit);
-    assert_eq!(resumed.base_commit, state.base_commit);
-    assert!(!resumed.task_repository.join("upstream.txt").exists());
+    assert_eq!(resumed.base_commit, latest_remote);
+    assert_eq!(
+        fs::read_to_string(resumed.task_repository.join("upstream.txt")).unwrap(),
+        "latest upstream\n"
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
@@ -99,12 +104,23 @@ fn active_task_clone_resumes_after_ticket_rename() {
         .run("resume", calls.clone())
         .unwrap_or_else(|error| panic!("{error:#}"));
 
-    assert_eq!(resumed.task_repository, original_repository);
+    assert_ne!(resumed.task_repository, original_repository);
+    assert!(resumed.task_repositories.contains(&original_repository));
     assert_eq!(
         resumed.task_repository_allocation_key.as_deref(),
         Some(allocation_key.as_str())
     );
-    assert_eq!(resumed.branch, original_branch);
+    assert_ne!(resumed.branch, original_branch);
+    assert!(
+        resumed
+            .branch
+            .starts_with(&format!("koolade/integration/{allocation_key}/"))
+    );
+    assert!(
+        resumed
+            .task_repository_commits
+            .contains_key(original_repository.to_string_lossy().as_ref())
+    );
     assert_eq!(resumed.source_commit, state.source_commit);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }

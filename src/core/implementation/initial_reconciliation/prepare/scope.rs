@@ -38,13 +38,7 @@ pub(super) fn ensure_pinned_path_scope(
             "-z",
         ],
     ] {
-        let output = runner.git(worktree, &args)?;
-        observed.extend(
-            output
-                .split('\0')
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned),
-        );
+        observed.extend(runner.git_nul_records(worktree, &args)?);
     }
 
     let generated = generated::trusted(runner, state, dir)?;

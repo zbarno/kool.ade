@@ -55,6 +55,21 @@ pub(super) fn prepare_integration(
         save(&integration_dir, &record)?;
         record
     };
+    if integration.task_repository == state.task_repository
+        && integration.branch == state.branch
+        && integration.base_commit == integration_base
+        && integration.verified_head.is_some()
+        && integration.verified_head != state.verified_head
+    {
+        let current_head = runner.git(&state.task_repository, &["rev-parse", "HEAD"])?;
+        anyhow::ensure!(
+            state.verified_head.as_deref() == Some(current_head.as_str())
+                && initial_reconciliation::support::generated::clean(runner, state, dir)?,
+            "Updated integration clone does not match its newly verified commit"
+        );
+        integration = state.clone();
+        save(&integration_dir, &integration)?;
+    }
     repository::ensure_integration_repository(
         &integration_dir,
         &mut integration,
@@ -124,9 +139,48 @@ pub(super) fn prepare_integration(
         if check_error.is_none()
             && unresolved_paths(runner, &integration.task_repository)?.is_empty()
         {
-            for command in &report.verification {
+            let task_gates = initial_reconciliation::support::required_task_checks_at_commit(
+                &state.task_repository,
+                runner,
+                &state.base_commit,
+            )?;
+            let integration_gates =
+                initial_reconciliation::support::required_task_checks_at_commit(
+                    &integration.task_repository,
+                    runner,
+                    integration_base,
+                )?;
+            let verification_plan = verification::plan_commands(
+                dir,
+                &report.verification,
+                &task_gates,
+                &integration_gates,
+            )?;
+            initial_reconciliation::support::generated::quarantine_untrusted_ignored(
+                runner,
+                &integration,
+                &integration_dir,
+            )?;
+            let mut report_check_clone = None;
+            for command in &verification_plan.commands {
                 runner.update(format!("Verifying integrated task: {command}"));
-                let result = runner.verify(&integration.task_repository, command);
+                let result = if verification_plan.application_owned.contains(command) {
+                    initial_reconciliation::support::generated::verify(
+                        runner,
+                        &integration,
+                        &integration_dir,
+                        command,
+                    )
+                } else {
+                    if report_check_clone.is_none() {
+                        report_check_clone = Some(verification::ReportCheckClone::create(
+                            &integration,
+                            &integration_dir,
+                            runner,
+                        )?);
+                    }
+                    runner.verify(report_check_clone.as_ref().unwrap().path(), command)
+                };
                 evidence.push(serde_json::json!({
                     "command": command,
                     "output": result.as_ref().ok().map(|text| crate::error::redact_secrets(text)),
@@ -187,7 +241,11 @@ pub(super) fn prepare_integration(
             }
             verification_result?;
         } else {
-            runner.git(&integration.task_repository, &["add", "--all"])?;
+            initial_reconciliation::support::generated::stage_task(
+                runner,
+                &integration,
+                &integration_dir,
+            )?;
             if !runner
                 .git(
                     &integration.task_repository,
@@ -213,29 +271,25 @@ pub(super) fn prepare_integration(
             save(&integration_dir, &integration)?;
         }
     }
+    let generated_clean =
+        initial_reconciliation::support::generated::clean(runner, &integration, &integration_dir)?;
+    let status = runner.git(&integration.task_repository, &["status", "--porcelain"])?;
+    let actual_head = runner.git(&integration.task_repository, &["rev-parse", "HEAD"])?;
     anyhow::ensure!(
-        runner
-            .git(&integration.task_repository, &["status", "--porcelain"])?
-            .is_empty()
-            && integration.verified_head.as_deref()
-                == Some(
-                    runner
-                        .git(&integration.task_repository, &["rev-parse", "HEAD"])?
-                        .as_str()
-                ),
-        "Integrated result changed after verification"
+        generated_clean && integration.verified_head.as_deref() == Some(actual_head.as_str()),
+        "Integrated result changed after verification (status: {}; generated outputs clean: {}; verified head: {}; actual head: {})",
+        status.replace('\n', ", "),
+        generated_clean,
+        integration.verified_head.as_deref().unwrap_or("missing"),
+        actual_head,
     );
     Ok(integration)
 }
 
 fn unresolved_paths(runner: &Runner, repository: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    let output = runner.git(
+    let output = runner.git_nul_records(
         repository,
         &["diff", "--name-only", "--diff-filter=U", "-z"],
     )?;
-    Ok(output
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .collect())
+    Ok(output.into_iter().map(PathBuf::from).collect())
 }

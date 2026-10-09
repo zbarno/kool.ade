@@ -190,6 +190,49 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
 }
 
 #[test]
+fn default_destination_pr_reconciles_remote_changes_before_publication() {
+    let sandbox = Sandbox::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let harness = AdvanceDestination {
+        sandbox: &sandbox,
+        calls: calls.clone(),
+    };
+    let (progress, _updates) = mpsc::channel();
+    let state = run_with_project_options(
+        &sandbox.repo,
+        &sandbox.repo,
+        &sandbox.ticket,
+        RunOptions {
+            harness: &harness,
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress,
+            gh: sandbox.gh.to_str().unwrap(),
+            publication_mode: PublicationMode::CreatePullRequest,
+            require_independent_checks: false,
+            user_context: None,
+            auto_publish_gate: None,
+            claim_lease: None,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(state.destination_branch, None);
+    assert_eq!(state.base, "main");
+    assert!(state.task_repository.join("implemented.txt").exists());
+    assert!(state.task_repository.join("upstream.txt").exists());
+    assert!(sandbox.root.join("pr-created").exists());
+    let remote = sandbox.root.join("remote.git");
+    assert_eq!(
+        sandbox.git(
+            &remote,
+            &["show", &format!("refs/heads/{}:upstream.txt", state.branch),],
+        ),
+        "latest upstream"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn missing_selected_source_needs_attention_without_falling_back_to_checkout_head() {
     let sandbox = Sandbox::new();
     save_branch_intent(&sandbox, "release/deleted", "main");

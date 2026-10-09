@@ -96,12 +96,12 @@ pub(super) fn archive(
         "Prior recovery has an invalid stash shape; preserved for review"
     );
     for tree in std::iter::once(stash).chain(parents.iter().skip(2).copied()) {
-        let files = runner.git(
+        let files = runner.git_nul_records(
             history_repository,
             &["ls-tree", "-r", "--name-only", "-z", tree],
         )?;
         anyhow::ensure!(
-            !files.split('\0').any(|file| current
+            !files.iter().any(|file| current
                 .iter()
                 .any(|path| file == path || file.starts_with(&format!("{path}/")))),
             "Prior recovery already contains newly granted configuration; its snapshot is preserved for review"

@@ -124,7 +124,8 @@ fn legacy_nested_project_check_is_rescoped_when_reconciliation_resumes() {
         plan.required_verification,
         ["cd -- 'Source' && test -f marker"]
     );
-    assert_eq!(result.base_commit, plan.verified_commit.unwrap());
+    assert_eq!(result.base_commit, remote);
+    assert!(result.task_repository.join("Source/marker").is_file());
     assert_eq!(agent.calls.load(Ordering::SeqCst), 1);
 }
 
@@ -190,24 +191,20 @@ fn missing_task_state_resumes_the_saved_commit_snapshots() {
             &[
                 "merge-base",
                 "--is-ancestor",
-                &original_local,
-                &result.base_commit
-            ]
-        )
-        .is_empty()
-    );
-    assert!(
-        s.git(
-            &result.task_repository,
-            &[
-                "merge-base",
-                "--is-ancestor",
                 &original_remote,
                 &result.base_commit
             ]
         )
         .is_empty()
     );
+    for path in ["local.txt", "upstream.txt", "remote-later.txt"] {
+        assert!(result.task_repository.join(path).is_file(), "{path}");
+    }
+    assert_eq!(
+        fs::read_to_string(result.task_repository.join("local.txt")).unwrap(),
+        "local change\n"
+    );
+    assert_eq!(result.base_commit, later_remote);
     assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), later_local);
     assert_eq!(
         s.git(&s.root.join("remote.git"), &["rev-parse", "main"]),

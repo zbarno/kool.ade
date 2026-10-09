@@ -133,7 +133,13 @@ fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
     let resumed = s
         .run("fresh_budget", Arc::new(AtomicUsize::new(0)))
         .unwrap();
-    assert_eq!(resumed.task_repository, original.task_repository);
+    assert_ne!(resumed.task_repository, original.task_repository);
+    assert!(
+        resumed
+            .task_repositories
+            .contains(&original.task_repository)
+    );
+    assert!(resumed.branch.starts_with("koolade/integration/"));
     assert_eq!(resumed.base_commit, original.base_commit);
     assert_eq!(resumed.status, ImplementationStatus::AwaitingReview);
 }

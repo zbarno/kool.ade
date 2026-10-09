@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 pub(super) fn already_verified(
     dir: &Path,
@@ -16,14 +17,33 @@ pub(super) fn already_verified(
         && (!state.auto_merge || dir.join("verified-report.json").exists()))
 }
 
-pub(super) fn commands_to_run(dir: &Path, reported: &[String]) -> anyhow::Result<Vec<String>> {
-    let required = crate::core::implementation::initial_reconciliation::required_verification(dir)?;
-    let mut commands =
-        crate::core::implementation::initial_reconciliation::pending_required_verification(dir)?;
+pub(super) struct VerificationCommands {
+    pub(super) commands: Vec<String>,
+    pub(super) application_owned: BTreeSet<String>,
+}
+
+pub(super) fn commands_to_run(
+    dir: &Path,
+    reported: &[String],
+    task_gates: &[String],
+    integration_gates: &[String],
+) -> anyhow::Result<VerificationCommands> {
+    let plan_gates =
+        crate::core::implementation::initial_reconciliation::required_verification(dir)?;
+    let mut required = plan_gates.clone();
+    for gate in task_gates.iter().chain(integration_gates) {
+        if !required.contains(gate) {
+            required.push(gate.clone());
+        }
+    }
+    let mut commands = required.clone();
     for command in reported {
         append_reported_check(&required, &mut commands, command);
     }
-    Ok(commands)
+    Ok(VerificationCommands {
+        commands,
+        application_owned: required.into_iter().collect(),
+    })
 }
 
 fn append_reported_check(required: &[String], commands: &mut Vec<String>, reported: &str) {

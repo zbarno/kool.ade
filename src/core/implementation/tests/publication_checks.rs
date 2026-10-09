@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "publication_checks/provider_checks.rs"]
 mod provider_checks;
+#[path = "publication_checks/untracked_files.rs"]
+mod untracked_files;
 
 #[test]
 fn isolated_implementation_verifies_pushes_and_reuses_pr() {

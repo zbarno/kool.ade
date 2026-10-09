@@ -55,7 +55,10 @@ const PROTECTED_HOST_SUBTREES: [&str; 16] = [
     "/var/lib/containers",
 ];
 
-pub(super) fn ensure_narrow_host_directory(path: &Path, label: &str) -> anyhow::Result<()> {
+pub(in crate::harness::pi_sandbox) fn ensure_narrow_host_directory(
+    path: &Path,
+    label: &str,
+) -> anyhow::Result<()> {
     anyhow::ensure!(
         path != Path::new("/"),
         "{label} must identify a specific installation or cache directory"
@@ -71,6 +74,20 @@ pub(super) fn ensure_narrow_host_directory(path: &Path, label: &str) -> anyhow::
             .iter()
             .any(|root| path.starts_with(root)),
         "{label} cannot expose protected system data"
+    );
+    anyhow::ensure!(
+        !path
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(name) => name.to_str(),
+                _ => None,
+            })
+            .any(|name| {
+                SENSITIVE_HOST_PATH_COMPONENTS
+                    .iter()
+                    .any(|blocked| name.eq_ignore_ascii_case(blocked))
+            }),
+        "{label} cannot be inside a sensitive host directory"
     );
     let home = env::var_os("HOME")
         .and_then(|value| canonical_path_with_missing_tail(&PathBuf::from(value)).ok());
@@ -129,4 +146,30 @@ fn normalize_absolute_path(path: &Path) -> anyhow::Result<PathBuf> {
         }
     }
     Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn narrow_host_directories_reject_sensitive_components_anywhere_in_the_path() {
+        let root = env::temp_dir().join(format!(
+            "koolade-path-safety-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        for component in [".ssh", ".AWS", ".config", "credentials", "keyrings"] {
+            let path = root.join(component).join("toolchain");
+            std::fs::create_dir_all(&path).unwrap();
+            assert!(
+                ensure_narrow_host_directory(&path, "toolchain").is_err(),
+                "sensitive component {component} must not be mounted"
+            );
+        }
+        let safe = root.join(".rustup");
+        std::fs::create_dir_all(&safe).unwrap();
+        ensure_narrow_host_directory(&safe, "toolchain").unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

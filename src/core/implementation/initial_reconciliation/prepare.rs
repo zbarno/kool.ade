@@ -25,6 +25,9 @@ pub fn prepare(
     let mut plan = read_plan(&path)?;
     support::validate_pinned_commits(repo, runner, &task_repository::allocation_key(state), &plan)?;
     requirements::refresh(repo, runner, &path, &mut plan)?;
+    if super::integrated_candidate_matches(dir, state)? {
+        return Ok(());
+    }
     if let Some(verified) = plan.verified_commit.as_deref() {
         anyhow::ensure!(
             state.task_repository_kind == TaskRepositoryKind::Clone,

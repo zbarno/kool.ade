@@ -212,3 +212,64 @@ fn disconnect_while_waiting_unregisters_the_authorization() {
     drop(bridge);
     std::fs::remove_dir_all(worktree).unwrap();
 }
+
+#[test]
+fn cancellation_while_waiting_unregisters_the_authorization() {
+    let worktree = temp_worktree("cancel-pending");
+    let (progress, updates) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let bridge = super::super::ResourceBridge::start(
+        &worktree,
+        Some("task-cancel-pending"),
+        progress,
+        cancel.clone(),
+    )
+    .unwrap();
+    let mut client = UnixStream::connect(bridge.socket_path()).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    send_request(
+        &mut client,
+        resource_request(
+            ResourceAction::UnsupportedManager,
+            Some("unsupported-manager"),
+            None,
+            "Review an unsupported manager request",
+        ),
+    );
+    let pending = take_dependency_update(&updates);
+    assert_eq!(pending.status, DependencyRequestStatus::ManagerReviewing);
+
+    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+    let result = response(&mut client);
+    assert_eq!(result.status, "cancelled");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    let mut failed = false;
+    while std::time::Instant::now() < deadline {
+        let Ok(update) = updates.recv_timeout(Duration::from_millis(200)) else {
+            continue;
+        };
+        failed |= update.dependency_requests.iter().any(|request| {
+            request.id == pending.id && request.status == DependencyRequestStatus::Failed
+        });
+        if failed {
+            break;
+        }
+    }
+    assert!(failed, "cancellation should publish a failed request state");
+    assert!(!crate::harness::dependency_authorization::answer(
+        &pending.id,
+        &pending.task_id,
+        &pending.need,
+        crate::harness::dependency_authorization::DependencyResolution {
+            decision: DependencyDecision::AuthorizeForTask,
+            scope: None,
+            rationale: "A delayed answer after cancellation must be rejected".into(),
+        }
+    ));
+    drop(client);
+    drop(bridge);
+    std::fs::remove_dir_all(worktree).unwrap();
+}

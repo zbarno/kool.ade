@@ -73,7 +73,7 @@ pub(super) fn ensure_merge_in_progress(
     }
     anyhow::ensure!(
         runner
-            .git(destination, &["ls-files", "-u", "-z"])?
+            .git_nul_records(destination, &["ls-files", "-u", "-z"])?
             .is_empty()
             && fs::read_to_string(marker)?.trim() == merge_head,
         "Pinned legacy merge could not be reconstructed cleanly; both copies are preserved"

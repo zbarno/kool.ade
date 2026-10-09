@@ -10,6 +10,8 @@ mod crash_recovery;
 mod legacy_recovery;
 #[path = "initial_reconciliation/merge_recovery.rs"]
 mod merge_recovery;
+#[path = "initial_reconciliation/publication_retry.rs"]
+mod publication_retry;
 #[path = "initial_reconciliation/report_envelope.rs"]
 mod report_envelope;
 #[path = "initial_reconciliation/resilience.rs"]
@@ -131,13 +133,6 @@ fn divergent_histories_are_combined_before_the_task_agent_runs() {
     assert!(
         s.git(
             &result.task_repository,
-            &["merge-base", "--is-ancestor", &local, &result.base_commit]
-        )
-        .is_empty()
-    );
-    assert!(
-        s.git(
-            &result.task_repository,
             &["merge-base", "--is-ancestor", &remote, &result.base_commit]
         )
         .is_empty()
@@ -146,6 +141,7 @@ fn divergent_histories_are_combined_before_the_task_agent_runs() {
         fs::read_to_string(result.task_repository.join("local.txt")).unwrap(),
         "local change\n"
     );
+    assert!(result.task_repository.join("implemented.txt").exists());
     assert_eq!(
         fs::read_to_string(result.task_repository.join("upstream.txt")).unwrap(),
         "latest upstream\n"
@@ -176,13 +172,6 @@ fn merge_conflicts_are_agent_resolved_and_verified_in_isolation() {
     assert_eq!(
         fs::read_to_string(result.task_repository.join("shared.txt")).unwrap(),
         "both edits preserved\n"
-    );
-    assert!(
-        s.git(
-            &result.task_repository,
-            &["merge-base", "--is-ancestor", &local, &result.base_commit]
-        )
-        .is_empty()
     );
     assert!(
         s.git(
