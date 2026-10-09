@@ -1,9 +1,10 @@
 ---
+<!-- koolade-artifact-id:v1 {"uid":"5d1fd5d4-0b9b-4474-9771-ecf52184705d","displayId":"F11-TASK-normalize-pi-harness-usage-into-incremental-records","title":"Normalize Pi harness usage into incremental records","parentUid":"ddbb6769-ec92-42c8-9651-7a91475c7109"} -->
+
 koolade-task: {"schemaVersion":1,"uid":"5d1fd5d4-0b9b-4474-9771-ecf52184705d","batchUid":"ddbb6769-ec92-42c8-9651-7a91475c7109","repositoryId":"root","dependencyUids":["00b3df5f-9bfa-40d8-a8d3-2b748fd2e4f4"]}
 ---
 
 # F11-TASK-normalize-pi-harness-usage-into-incremental-records — Normalize Pi harness usage into incremental records
-<!-- koolade-artifact-id:v1 {"uid":"5d1fd5d4-0b9b-4474-9771-ecf52184705d","displayId":"F11-TASK-normalize-pi-harness-usage-into-incremental-records","title":"Normalize Pi harness usage into incremental records","parentUid":"ddbb6769-ec92-42c8-9651-7a91475c7109"} -->
 
 Feature: F11 - Durable operator-local implementation telemetry (zbarno/kool.ade issue #23)
 

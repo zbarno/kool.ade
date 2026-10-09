@@ -1,5 +1,5 @@
 # F11 - User-local implementation telemetry and cost reporting — task stories
-<!-- koolade-artifact-id:v1 {"uid":"ddbb6769-ec92-42c8-9651-7a91475c7109","displayId":"BATCH-DDBB6769","title":"F11 - User-local implementation telemetry and cost reporting","parentUid":"8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae"} -->
+<!-- koolade-artifact-id:v1 {"uid":"ddbb6769-ec92-42c8-9651-7a91475c7109","displayId":"BATCH-DDBB6769","title":"F11 - Durable operator-local implementation telemetry (zbarno/kool.ade issue #23)","parentUid":"8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae"} -->
 
 **Planning snapshot:** [PR #54](https://github.com/zbarno/kool.ade/pull/54) closed Issue #23 and implemented telemetry. Three of nine planned stories are preserved here; this is a partial historical breakdown, not outstanding implementation work.
 

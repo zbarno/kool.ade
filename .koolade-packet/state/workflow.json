@@ -67,6 +67,17 @@
       "feature": "Relabel product index to the canonical name (F9)",
       "directory": ".koolade-packet/planning/tasks/F9-relabel-product-index-to-the-canonical-name",
       "count": 2
+    },
+    {
+      "identity": {
+        "uid": "ddbb6769-ec92-42c8-9651-7a91475c7109",
+        "displayId": "BATCH-DDBB6769",
+        "title": "F11 - Durable operator-local implementation telemetry (zbarno/kool.ade issue #23)",
+        "parentUid": "8b0cc126-4ef4-4a5b-9a2d-7452e96c2cae"
+      },
+      "feature": "F11 - Durable operator-local implementation telemetry (zbarno/kool.ade issue #23)",
+      "directory": ".koolade-packet/planning/tasks/F11-durable-operator-local-implementation-telemetry-zbarno-k",
+      "count": 3
     }
   ],
   "approvedFeatures": {

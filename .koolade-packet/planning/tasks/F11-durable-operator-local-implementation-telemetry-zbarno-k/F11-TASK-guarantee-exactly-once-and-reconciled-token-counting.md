@@ -1,9 +1,10 @@
 ---
+<!-- koolade-artifact-id:v1 {"uid":"7d656182-cf2f-4dde-9df5-66ee2071e145","displayId":"F11-TASK-guarantee-exactly-once-and-reconciled-token-counting","title":"Guarantee exactly-once and reconciled token counting","parentUid":"ddbb6769-ec92-42c8-9651-7a91475c7109"} -->
+
 koolade-task: {"schemaVersion":1,"uid":"7d656182-cf2f-4dde-9df5-66ee2071e145","batchUid":"ddbb6769-ec92-42c8-9651-7a91475c7109","repositoryId":"root","dependencyUids":["00b3df5f-9bfa-40d8-a8d3-2b748fd2e4f4","5d1fd5d4-0b9b-4474-9771-ecf52184705d"]}
 ---
 
 # F11-TASK-guarantee-exactly-once-and-reconciled-token-counting — Guarantee exactly-once and reconciled token counting
-<!-- koolade-artifact-id:v1 {"uid":"7d656182-cf2f-4dde-9df5-66ee2071e145","displayId":"F11-TASK-guarantee-exactly-once-and-reconciled-token-counting","title":"Guarantee exactly-once and reconciled token counting","parentUid":"ddbb6769-ec92-42c8-9651-7a91475c7109"} -->
 
 Feature: F11 - Durable operator-local implementation telemetry (zbarno/kool.ade issue #23)
 
