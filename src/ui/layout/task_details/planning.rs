@@ -11,9 +11,6 @@ pub(super) fn paint_item(
     height: f32,
 ) {
     let key = item.conversation_key();
-    surface.dispatch(crate::ui::ApplicationCommand::PrepareTaskChat {
-        key: key.to_owned(),
-    });
     details::paint_panes(
         ui,
         surface,
@@ -31,9 +28,6 @@ pub(super) fn paint_work(
     height: f32,
 ) {
     let key = work.key.as_str();
-    surface.dispatch(crate::ui::ApplicationCommand::PrepareTaskChat {
-        key: key.to_owned(),
-    });
     details::paint_panes(
         ui,
         surface,

@@ -35,8 +35,15 @@ impl KooladeApp {
         ) else {
             return;
         };
+        let identity = project
+            .task_documents
+            .iter()
+            .find(|doc| doc.path == key)
+            .and_then(|doc| doc.identity.as_ref())
+            .map(|identity| identity.uid.as_str())
+            .unwrap_or(key);
         let mut message = ChatMessage::new(ChatRole::Agent, greeting, Some(key.into()));
-        message.id = format!("task-introduction:{key}");
+        message.id = format!("task-introduction:{identity}");
         project
             .task_chats
             .remember_response(&project.chat_slug, key, vec![message]);
