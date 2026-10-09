@@ -75,6 +75,7 @@ fn git_at(cwd: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(args)
         .current_dir(cwd)
+        .stdin(std::process::Stdio::null())
         .output()
         .unwrap();
     assert!(
@@ -162,6 +163,7 @@ fn stale_claim_takeover_requires_the_observed_session_and_uses_cas() {
         session_id: "stale-session".into(),
         base_commit: git_at(repo, &["rev-parse", "HEAD"]),
         claimed_at: 1,
+        takeover_history: Box::default(),
     };
     let object = git::create_object(repo, &stale).unwrap();
     git_at(
@@ -173,6 +175,12 @@ fn stale_claim_takeover_requires_the_observed_session_and_uses_cas() {
     let current = recovered.record().unwrap();
     assert_ne!(current.session_id, "stale-session");
     assert_eq!(current.base_commit, "new-base");
+    assert_eq!(current.schema_version, 2);
+    assert_eq!(current.takeover_history.len(), 1);
+    assert_eq!(current.takeover_history[0].owner, stale.owner);
+    assert_eq!(current.takeover_history[0].session_id, "stale-session");
+    assert_eq!(current.takeover_history[0].base_commit, stale.base_commit);
+    assert_eq!(current.takeover_history[0].claimed_at, 1);
     assert!(matches!(
         ClaimLease::take_over_stale(repo, "task-456", "stale-session", "other"),
         Err(ClaimError::AlreadyClaimed { .. })
@@ -188,6 +196,7 @@ fn stale_claim_clock_and_ref_identity_are_checked() {
         session_id: String::new(),
         base_commit: String::new(),
         claimed_at: 1_000,
+        takeover_history: Box::default(),
     };
     assert!(!record.appears_stale(1_000 + stale_after_seconds() - 1));
     assert!(record.appears_stale(1_000 + stale_after_seconds()));

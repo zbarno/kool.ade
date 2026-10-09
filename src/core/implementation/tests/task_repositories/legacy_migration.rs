@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "legacy_migration/concurrency.rs"]
 mod concurrency;
+#[path = "legacy_migration/metadata.rs"]
+mod metadata;
 
 struct MigrationAwareFixture {
     calls: Arc<AtomicUsize>,
@@ -62,6 +64,15 @@ fn saved_legacy_workspace_migrates_all_local_changes_and_keeps_original() {
 
     assert_eq!(result.task_repository_kind, TaskRepositoryKind::Clone);
     assert_ne!(result.task_repository, worktree);
+    assert!(
+        fs::symlink_metadata(result.task_repository.join(".git"))
+            .unwrap()
+            .is_dir()
+    );
+    assert_eq!(
+        sandbox.git(&result.task_repository, &["rev-parse", "--git-common-dir"]),
+        sandbox.git(&result.task_repository, &["rev-parse", "--git-dir"])
+    );
     assert_eq!(
         fs::read_to_string(worktree.join("tracked.txt")).unwrap(),
         "unstaged change\n"

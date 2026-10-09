@@ -1,4 +1,4 @@
-use super::support::{TestTree, bwrap_available, create_worktree, git, run};
+use super::support::{TestTree, bwrap_available, create_task_clone, git, run};
 use crate::harness::{
     pi_sandbox::{
         Sandbox,
@@ -64,7 +64,10 @@ fn grant(repo: &Path, files: Vec<String>) {
 
 fn fixture(name: &str) -> (TestTree, std::path::PathBuf, std::path::PathBuf) {
     let tree = TestTree::new();
-    let (repo, root) = create_worktree(&tree, name);
+    let (repo, root) = create_task_clone(&tree, name);
+    let remote = format!("https://example.invalid/{name}.git");
+    git(&repo, &["remote", "add", "origin", &remote]);
+    git(&root, &["remote", "set-url", "origin", &remote]);
     for checkout in [&repo, &root] {
         fs::write(checkout.join(".gitignore"), ".env\n").unwrap();
         fs::create_dir_all(checkout.join("App")).unwrap();
@@ -90,7 +93,7 @@ fn runtime_config_mount_uses_source_readonly_without_copying_or_host_access() {
             fs::write(root.join("App/.env"), "old-task-config\n").unwrap();
         }
         fs::write(repo.join("unapproved.txt"), "unapproved-host-secret").unwrap();
-        let sandbox = Sandbox::new(&root).unwrap();
+        let sandbox = Sandbox::new_for_task_repository(&root, &repo).unwrap();
         let command = format!(
             "test \"$(cat App/.env)\" = SYNTHETIC_CONFIG=approved-sentinel && ! echo changed >> App/.env && test ! -e '{}' && test -z \"${{AWS_ACCESS_KEY_ID:-}}\"",
             repo.join("unapproved.txt").display()
@@ -121,33 +124,37 @@ fn runtime_config_rejects_untrusted_grants_and_paths() {
         "App/.env/../.env",
     ] {
         grant(&repo, vec![path.into()]);
-        assert!(runtime_config::paths(&root).is_err(), "{path}");
+        assert!(
+            runtime_config::paths_with_source(&root, Some(&repo)).is_err(),
+            "{path}"
+        );
     }
     grant(&repo, vec!["App/.env".into(), "App/.env".into()]);
-    assert!(runtime_config::paths(&root).is_err());
+    assert!(runtime_config::paths_with_source(&root, Some(&repo)).is_err());
     grant(&repo, vec!["App/.env".into()]);
     fs::write(root.join("App/.env"), "task-sentinel").unwrap();
     git(&root, &["add", "-f", "App/.env"]);
-    assert!(runtime_config::paths(&root).is_err());
+    assert!(runtime_config::paths_with_source(&root, Some(&repo)).is_err());
     git(&root, &["reset", "--", "App/.env"]);
     fs::remove_file(root.join("App/.env")).unwrap();
     std::os::unix::fs::symlink(repo.join("App/.env"), root.join("App/.env")).unwrap();
-    assert!(runtime_config::paths(&root).is_err());
+    assert!(runtime_config::paths_with_source(&root, Some(&repo)).is_err());
     fs::remove_file(root.join("App/.env")).unwrap();
     fs::remove_file(repo.join("App/.env")).unwrap();
-    assert!(runtime_config::paths(&root).is_err());
+    assert!(runtime_config::paths_with_source(&root, Some(&repo)).is_err());
     let manifest = repo.join(".git").join(runtime_config::GRANT_FILE);
     fs::remove_file(&manifest).unwrap();
     std::os::unix::fs::symlink("missing.json", &manifest).unwrap();
-    assert!(runtime_config::paths(&root).is_err());
+    assert!(runtime_config::paths_with_source(&root, Some(&repo)).is_err());
 }
 
 #[test]
 fn runtime_config_blocks_direct_worker_resource_egress() {
-    let (_tree, _repo, root) = fixture("runtime-resource");
+    let (_tree, repo, root) = fixture("runtime-resource");
     let (progress, updates) = std::sync::mpsc::channel();
-    let bridge = ResourceBridge::start(
+    let bridge = ResourceBridge::start_for_task_repository(
         &root,
+        Some(&repo),
         None,
         progress,
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -279,7 +286,7 @@ fn independent_clone_uses_source_checkout_grants_and_blocks_resource_egress() {
         &repo,
         &[
             "remote",
-            "add",
+            "set-url",
             "origin",
             "https://example.invalid/fixture.git",
         ],

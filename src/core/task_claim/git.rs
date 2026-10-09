@@ -111,7 +111,15 @@ pub(super) fn take_over_stale(
             record,
         });
     }
-    let replacement = new_record(task_uid, base_commit);
+    let mut replacement = new_record(task_uid, base_commit);
+    replacement.takeover_history = record.takeover_history.clone();
+    replacement.takeover_history.push(ClaimHistoryEntry {
+        owner: record.owner,
+        session_id: record.session_id,
+        base_commit: record.base_commit,
+        claimed_at: record.claimed_at,
+        replaced_at: now(),
+    });
     let object = create_object(repo, &replacement)?;
     let lease = format!("--force-with-lease={reference}:{old_object}");
     let refspec = format!("{object}:{reference}");
@@ -142,7 +150,7 @@ pub(super) fn take_over_stale(
 
 fn new_record(task_uid: &str, base_commit: &str) -> ClaimRecord {
     ClaimRecord {
-        schema_version: 1,
+        schema_version: 2,
         task_uid: task_uid.to_owned(),
         owner: "Kool.ad/e session".to_owned(),
         session_id: uuid::Uuid::new_v4().to_string(),
@@ -151,6 +159,7 @@ fn new_record(task_uid: &str, base_commit: &str) -> ClaimRecord {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64,
+        takeover_history: Box::default(),
     }
 }
 

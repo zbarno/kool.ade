@@ -80,7 +80,11 @@ in both profiles. Ubuntu Linux CI runs the complete C, Cargo, npm, credential,
 network, and Git-metadata fixtures. Fedora 44 CI runs the runtime-layout policy
 tests against Fedora's authselect and certificate paths.
 
-This document describes the Pi filesystem profiles. Issue #94 tracks enforcing
-the same application-owned boundary for all coding CLIs. Trusted system runtime
-mutation by another host process during construction is outside this boundary;
-the sandbox does not make an already compromised host trustworthy.
+Pi is currently the only coding CLI with an implementation route. Kool.ad/e
+declares that route through a typed execution policy covering filesystem scope,
+network, tools, dependency authorization, credentials, process isolation, and
+supported modes. Other coding CLIs remain discoverable, but the application
+rejects their repository routes before starting a process. OpenCode command
+filters are not treated as a security boundary. Trusted system runtime mutation
+by another host process during construction is outside this boundary; the
+sandbox does not make an already compromised host trustworthy.

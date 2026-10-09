@@ -1,5 +1,5 @@
 use super::support::{
-    bwrap_available, commit, initialize_project, npm_available, run_git,
+    bwrap_available, commit, create_task_clone, initialize_project, npm_available, task_home,
     with_npm_cache_index_staging,
 };
 use super::*;
@@ -29,22 +29,9 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     )
     .unwrap();
     commit(&repository);
-    let task_repository = workspace
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(&repository))
-        .join("task worktree");
-    fs::create_dir_all(task_repository.parent().unwrap()).unwrap();
-    run_git(
-        &repository,
-        &[
-            "worktree",
-            "add",
-            "--quiet",
-            "-b",
-            "koolade-npm-addition-e2e",
-            task_repository.to_str().unwrap(),
-        ],
-    );
+    let task_home_path = workspace.join("task-home");
+    let _home = task_home(&task_home_path);
+    let task_repository = create_task_clone(&repository, &task_home_path, "npm-addition-e2e");
 
     fs::write(
         fixture.join("package.json"),

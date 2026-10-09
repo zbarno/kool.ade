@@ -45,6 +45,8 @@ fn manual_start_reports_overlapping_active_scope() {
     ];
     let running = BTreeSet::from([docs[0].path.clone()]);
     let reason = active_scope_conflict(&docs, &docs[1].path, &running).unwrap();
+    assert!(reason.contains("Planning-scope heuristic"));
+    assert!(reason.contains("Actual Git changes are checked again before integration"));
     assert!(reason.contains("Task 1") && reason.contains("startupservice"));
 }
 

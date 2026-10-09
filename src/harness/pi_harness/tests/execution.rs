@@ -86,6 +86,18 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
 #[cfg(unix)]
 #[test]
 fn implementation_harness_exposes_only_the_bounded_shell_extension() {
+    struct RestoreHome(Option<std::ffi::OsString>);
+    impl Drop for RestoreHome {
+        fn drop(&mut self) {
+            unsafe {
+                match self.0.take() {
+                    Some(home) => std::env::set_var("KOOLADE_HOME", home),
+                    None => std::env::remove_var("KOOLADE_HOME"),
+                }
+            }
+        }
+    }
+
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, atomic::AtomicBool, mpsc};
@@ -97,13 +109,15 @@ fn implementation_harness_exposes_only_the_bounded_shell_extension() {
     {
         return;
     }
-    let _shield = crate::core::gitops::test_support::shield("sandbox-harness-argv");
     let root = std::env::temp_dir().join(format!(
         "koolade-sandbox-harness-{}-{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     fs::create_dir_all(&root).unwrap();
+    let previous_home = std::env::var_os("KOOLADE_HOME");
+    unsafe { std::env::set_var("KOOLADE_HOME", root.join("koolade-home")) };
+    let _restore_home = RestoreHome(previous_home);
     let (progress_tx, _rx) = mpsc::channel();
     let repository = root.join("repository");
     fs::create_dir(&repository).unwrap();
@@ -139,26 +153,48 @@ fn implementation_harness_exposes_only_the_bounded_shell_extension() {
             .unwrap()
             .success()
     );
-    let repo = root
-        .join(".koolade-worktrees")
+    let repo = crate::persistence::state_root()
+        .join("projects")
+        .join("sandbox-test-project")
+        .join("task-repositories")
         .join(crate::persistence::project_slug(&repository))
-        .join("implementation-task");
+        .join(format!(
+            "implementation-task-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..16]
+        ));
     fs::create_dir_all(repo.parent().unwrap()).unwrap();
     assert!(
         std::process::Command::new("git")
             .args([
-                "-c",
-                "user.name=Koolade test",
-                "-c",
-                "user.email=koolade-test@example.invalid",
-                "worktree",
-                "add",
+                "clone",
                 "--quiet",
-                "-b",
-                "koolade-sandbox-harness",
+                "--no-hardlinks",
+                repository.to_str().unwrap(),
                 repo.to_str().unwrap(),
             ])
-            .current_dir(&repository)
+            .current_dir(&root)
+            .stdin(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    );
+    for (key, value) in [
+        ("user.name", "Koolade test"),
+        ("user.email", "koolade-test@example.invalid"),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(["config", key, value])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        std::process::Command::new("git")
+            .args(["switch", "--quiet", "-c", "koolade-sandbox-harness"])
+            .current_dir(&repo)
             .status()
             .unwrap()
             .success()
@@ -187,6 +223,7 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
     let previous = std::env::var_os(PI_BINARY_ENV);
     unsafe { std::env::set_var(PI_BINARY_ENV, &script) };
+    let _shield = crate::core::gitops::test_support::shield("sandbox-harness-argv");
     let outcome = PiHarness.execute(&PlanningRequest {
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,

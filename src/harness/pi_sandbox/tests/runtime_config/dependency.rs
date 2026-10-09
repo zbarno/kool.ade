@@ -20,7 +20,11 @@ fn private_runtime_config_blocks_managed_npm_fetch_without_a_verified_cache() {
         return;
     }
     let (tree, repo, root) = fixture("runtime-dependency");
-    assert!(!runtime_config::paths(&root).unwrap().is_empty());
+    assert!(
+        !runtime_config::paths_with_source(&root, Some(&repo))
+            .unwrap()
+            .is_empty()
+    );
     let package_dir = tree.0.join("synthetic-runtime-helper");
     fs::create_dir_all(&package_dir).unwrap();
     fs::write(

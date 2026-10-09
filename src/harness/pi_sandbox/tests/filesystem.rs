@@ -2,7 +2,7 @@ use std::{fs, net::TcpListener, path::Path, process::Command};
 
 use crate::harness::pi_sandbox::Sandbox;
 
-use super::support::{TestTree, bwrap_available, create_worktree, run};
+use super::support::{TestTree, bwrap_available, create_task_clone, run};
 
 #[test]
 fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
@@ -10,7 +10,7 @@ fn implementation_boundary_writes_only_to_its_worktree_and_hides_host_state() {
         return;
     }
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "write-boundary");
+    let (_repository, root) = create_task_clone(&tree, "write-boundary");
     let outside = tree.0.join("outside.txt");
     let sandbox = Sandbox::new(&root).unwrap();
     for required in ["/home", "/root", "/mnt", "/run", "/tmp", "/boot", "/sys"] {
@@ -114,7 +114,7 @@ fn implementation_boundary_has_no_host_network_route() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "network-boundary");
+    let (_repository, root) = create_task_clone(&tree, "network-boundary");
     let sandbox = Sandbox::new(&root).unwrap();
     let command = format!(
         "if timeout 2 /bin/bash -c 'echo blocked > /dev/tcp/127.0.0.1/{port}' 2>/dev/null; then exit 44; fi; echo isolated > network-check"
@@ -143,7 +143,7 @@ fn npm_install_lifecycle_stays_offline_with_prepared_cache_mounted() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "npm-lifecycle-boundary");
+    let (_repository, root) = create_task_clone(&tree, "npm-lifecycle-boundary");
     fs::write(
         root.join("package.json"),
         r#"{"name":"koolade-offline-fixture","version":"1.0.0","private":true}"#,
@@ -191,7 +191,7 @@ fn sandboxed_verification_keeps_worktree_and_toolchain_inside_posix_shell() {
         return;
     }
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "worktree with spaces");
+    let (_repository, root) = create_task_clone(&tree, "worktree with spaces");
     fs::write(root.join("marker"), "proof").unwrap();
     fs::write(
         root.join("Cargo.toml"),
@@ -224,7 +224,7 @@ fn implementation_boundary_cannot_read_unregistered_host_files_or_follow_escapin
         return;
     }
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "read-boundary");
+    let (_repository, root) = create_task_clone(&tree, "read-boundary");
     let private = tree.0.join("operator-secret.txt");
     fs::write(&private, "operator-only-sentinel").unwrap();
     #[cfg(unix)]

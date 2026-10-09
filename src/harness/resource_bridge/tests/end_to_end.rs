@@ -103,22 +103,9 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     commit(&repository);
     let state_root = workspace.join("app-state");
     fs::create_dir_all(&state_root).unwrap();
-    let task_repository = workspace
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(&repository))
-        .join("task worktree");
-    fs::create_dir_all(task_repository.parent().unwrap()).unwrap();
-    run_git(
-        &repository,
-        &[
-            "worktree",
-            "add",
-            "--quiet",
-            "-b",
-            "koolade-dependency-e2e",
-            task_repository.to_str().unwrap(),
-        ],
-    );
+    let task_home = workspace.join("task-home");
+    let _home = support::task_home(&task_home);
+    let task_repository = support::create_task_clone(&repository, &task_home, "dependency-e2e");
 
     let operations = crate::harness::resource_bridge::npm::test_preparation_operations(
         archive,
@@ -250,6 +237,6 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
 mod addition;
 mod support;
 use support::{
-    base64, bwrap_available, commit, initialize_project, npm_available, run_git,
+    base64, bwrap_available, commit, initialize_project, npm_available,
     with_npm_cache_index_staging,
 };

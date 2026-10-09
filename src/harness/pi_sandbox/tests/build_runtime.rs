@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf, process::Command};
 
 use crate::harness::pi_sandbox::Sandbox;
 
-use super::support::{TestTree, bwrap_available, create_worktree, run};
+use super::support::{TestTree, bwrap_available, create_task_clone, run};
 
 #[test]
 fn installed_build_tools_keep_their_narrow_shared_runtime_data() {
@@ -10,7 +10,7 @@ fn installed_build_tools_keep_their_narrow_shared_runtime_data() {
         return;
     }
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "build-runtime");
+    let (_repository, root) = create_task_clone(&tree, "build-runtime");
     fs::write(
         root.join("fixture.cmake"),
         "include(CheckCCompilerFlag)\nif(NOT COMMAND check_c_compiler_flag)\nmessage(FATAL_ERROR \"missing compiler-check module\")\nendif()\n",

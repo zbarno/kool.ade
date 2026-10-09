@@ -37,7 +37,7 @@ pub(super) fn conflict_for_active_docs(
         let right = FileScope::from_task(active);
         if let Some(overlap) = left.overlap(&right) {
             return Some(format!(
-                "{} is waiting because its affected file scope overlaps active task {} ({overlap})",
+                "Planning-scope heuristic: {} is waiting because its declared affected file scope overlaps active task {} ({overlap}). Actual Git changes are checked again before integration.",
                 candidate.title, active.title
             ));
         }

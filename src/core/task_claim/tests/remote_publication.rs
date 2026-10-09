@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "remote_publication/process_fence.rs"]
+mod process_fence;
+
 #[test]
 fn task_claim_uses_the_push_url_for_reads_refreshes_and_release() {
     let fixture = Fixture::new();

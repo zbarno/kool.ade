@@ -12,6 +12,7 @@ pub mod claude_harness;
 pub mod codex_harness;
 pub mod copilot_harness;
 pub(crate) mod dependency_authorization;
+pub(crate) mod execution_security;
 pub mod live_preview;
 pub mod opencode_harness;
 pub mod pi_events;
@@ -25,18 +26,25 @@ pub mod runtime_capabilities;
 pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
 
 pub(crate) fn implementation_route_available(harness: &str) -> bool {
-    harness == "pi"
+    execution_security::implementation_route_available(harness)
 }
 
 pub(crate) fn require_application_implementation_boundary(
     harness: &str,
-    _request: &PlanningRequest,
+    request: &PlanningRequest,
 ) -> Result<(), crate::error::AppError> {
     #[cfg(test)]
     if provider_test_override::enabled() {
         return Ok(());
     }
-    if !implementation_route_available(harness) {
+    let policy_id = match harness {
+        "Claude Code" => "claude",
+        "Copilot CLI" => "copilot",
+        other => other,
+    };
+    if !execution_security::for_harness(policy_id)
+        .is_some_and(|capabilities| capabilities.supports(request.mode))
+    {
         return Err(crate::error::AppError::HarnessFailed {
             reason: format!(
                 "{harness} repository access is unavailable because it cannot run inside Kool.ad/e's application-owned Linux sandbox. Select Pi on a host with Bubblewrap. No CLI was started."

@@ -21,6 +21,18 @@ pub struct ClaimRecord {
     pub session_id: String,
     pub base_commit: String,
     pub claimed_at: i64,
+    #[serde(default)]
+    pub takeover_history: Box<Vec<ClaimHistoryEntry>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaimHistoryEntry {
+    pub owner: String,
+    pub session_id: String,
+    pub base_commit: String,
+    pub claimed_at: i64,
+    pub replaced_at: i64,
 }
 
 impl ClaimRecord {

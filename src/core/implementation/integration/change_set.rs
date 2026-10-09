@@ -148,6 +148,9 @@ pub(super) fn display_paths(paths: &[PathBuf]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[path = "cross_clone.rs"]
+    mod cross_clone;
+
     use super::*;
     use std::{
         fs,
@@ -182,6 +185,7 @@ mod tests {
         let output = Command::new("git")
             .args(args)
             .current_dir(repo)
+            .stdin(std::process::Stdio::null())
             .output()
             .unwrap();
         assert!(

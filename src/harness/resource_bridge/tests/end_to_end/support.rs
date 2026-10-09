@@ -1,4 +1,71 @@
-use std::{path::Path, process::Command};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::{Mutex, MutexGuard},
+};
+
+static HOME_LOCK: Mutex<()> = Mutex::new(());
+
+pub(super) struct TaskHome {
+    previous: Option<OsString>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+pub(super) fn task_home(path: &Path) -> TaskHome {
+    let lock = HOME_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let previous = std::env::var_os("KOOLADE_HOME");
+    unsafe { std::env::set_var("KOOLADE_HOME", path) };
+    TaskHome {
+        previous,
+        _lock: lock,
+    }
+}
+
+impl Drop for TaskHome {
+    fn drop(&mut self) {
+        unsafe {
+            match self.previous.take() {
+                Some(home) => std::env::set_var("KOOLADE_HOME", home),
+                None => std::env::remove_var("KOOLADE_HOME"),
+            }
+        }
+    }
+}
+
+pub(super) fn create_task_clone(repository: &Path, home: &Path, name: &str) -> PathBuf {
+    let task_key = format!(
+        "{}-{}",
+        name,
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    );
+    let path = home
+        .join("projects")
+        .join("synthetic-project")
+        .join("task-repositories")
+        .join(crate::persistence::project_slug(repository))
+        .join(task_key);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    run_git(
+        repository,
+        &[
+            "clone",
+            "--quiet",
+            "--no-hardlinks",
+            repository.to_str().unwrap(),
+            path.to_str().unwrap(),
+        ],
+    );
+    run_git(&path, &["config", "user.name", "Synthetic Test"]);
+    run_git(&path, &["config", "user.email", "test@example.invalid"]);
+    run_git(
+        &path,
+        &["switch", "--quiet", "-c", &format!("koolade/{name}")],
+    );
+    path
+}
 
 pub(super) fn base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -68,6 +135,7 @@ pub(super) fn run_git(root: &Path, args: &[&str]) {
         .arg("-C")
         .arg(root)
         .args(args)
+        .stdin(Stdio::null())
         .output()
         .unwrap();
     assert!(
