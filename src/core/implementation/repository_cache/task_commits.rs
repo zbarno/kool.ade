@@ -91,10 +91,10 @@ impl RepositoryCache {
                 && runner
                     .git(
                         task_repository,
-                        &["status", "--porcelain", "--untracked-files=all"]
+                        &["status", "--porcelain", "--untracked-files=no"]
                     )?
                     .is_empty(),
-            "Verified task clone changed before integration; preserved for review"
+            "Verified task clone has uncommitted tracked changes before integration; preserved for review"
         );
         anyhow::ensure!(
             runner

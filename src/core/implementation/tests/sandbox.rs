@@ -8,6 +8,27 @@ impl RestoreSshCommand {
     }
 }
 
+struct RestoreKooladeHome(Option<std::ffi::OsString>);
+
+impl RestoreKooladeHome {
+    fn capture() -> Self {
+        Self(std::env::var_os("KOOLADE_HOME"))
+    }
+}
+
+impl Drop for RestoreKooladeHome {
+    fn drop(&mut self) {
+        // SAFETY: sandbox tests run serially, so restoring this value cannot race a test.
+        unsafe {
+            if let Some(home) = self.0.as_ref() {
+                std::env::set_var("KOOLADE_HOME", home);
+            } else {
+                std::env::remove_var("KOOLADE_HOME");
+            }
+        }
+    }
+}
+
 impl Drop for RestoreSshCommand {
     fn drop(&mut self) {
         // SAFETY: repository tests run serially, so restoring the prior value cannot race a test.
@@ -26,6 +47,7 @@ pub(super) struct Sandbox {
     pub(super) repo: PathBuf,
     pub(super) gh: PathBuf,
     pub(super) ticket: String,
+    _koolade_home_restore: RestoreKooladeHome,
     _ssh_command_restore: RestoreSshCommand,
 }
 impl Sandbox {
@@ -71,6 +93,11 @@ impl Sandbox {
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
         fs::create_dir_all(&root).unwrap();
+        let koolade_home_restore = RestoreKooladeHome::capture();
+        // SAFETY: sandbox tests run serially and this guard restores the prior value on drop.
+        unsafe {
+            std::env::set_var("KOOLADE_HOME", root.join("koolade-home"));
+        }
         let repo = root.join("repo");
         fs::create_dir(&repo).unwrap();
         let git = |args: &[&str]| {
@@ -136,6 +163,7 @@ impl Sandbox {
             repo,
             gh,
             ticket,
+            _koolade_home_restore: koolade_home_restore,
             _ssh_command_restore: ssh_command_restore,
         }
     }
@@ -196,11 +224,11 @@ impl Sandbox {
 }
 impl Drop for Sandbox {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
         if let Ok(repo) = self.repo.canonicalize() {
             let project_id = crate::persistence::project_slug(&repo);
             let _ = fs::remove_dir_all(crate::persistence::project_dir(&project_id));
         }
+        let _ = fs::remove_dir_all(&self.root);
     }
 }
 

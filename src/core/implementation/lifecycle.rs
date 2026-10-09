@@ -50,9 +50,7 @@ pub(super) fn execute(
             integration::auto_publish(repo, dir, state, harness, runner, &policy)
         }
         PublicationMode::CreatePullRequest => {
-            if state.source_branch.is_some() || state.destination_branch.is_some() {
-                integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
-            }
+            integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
             publication::create_pull_request(dir, state, runner, policy.claim_lease)
         }
     }

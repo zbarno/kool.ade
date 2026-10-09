@@ -64,7 +64,9 @@ pub(super) fn validate_legacy_workspace(
         "Saved legacy workspace ownership or branch metadata is unexpected; preserve it for review"
     );
     anyhow::ensure!(
-        runner.git(source, &["ls-files", "-u", "-z"])?.is_empty(),
+        runner
+            .git_nul_records(source, &["ls-files", "-u", "-z"])?
+            .is_empty(),
         "Legacy workspace contains an unresolved index. Resolve it in the original workspace, then retry migration"
     );
     let git_dir = PathBuf::from(runner.git(source, &["rev-parse", "--absolute-git-dir"])?);

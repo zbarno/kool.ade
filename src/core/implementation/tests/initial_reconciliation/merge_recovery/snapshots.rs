@@ -49,9 +49,12 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
     let (snapshot_path, snapshot) = recovery_snapshot(&s);
     assert_eq!(snapshot["phase"], "recovered_once");
     assert_eq!(snapshot["schema_version"], 2);
-    assert_eq!(
-        snapshot["task_repository"],
-        result.task_repository.to_string_lossy().as_ref()
+    let recovered_task_repository = PathBuf::from(snapshot["task_repository"].as_str().unwrap());
+    assert_ne!(recovered_task_repository, result.task_repository);
+    assert!(
+        result
+            .task_repositories
+            .contains(&recovered_task_repository)
     );
     assert!(snapshot.get("worktree").is_none());
     assert!(snapshot_path.exists());
@@ -115,12 +118,9 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
     );
     let private_ref = snapshot["private_ref"].as_str().unwrap();
     assert_eq!(s.git(repository_cache, &["rev-parse", private_ref]), stash);
-    assert!(
-        s.git(
-            &result.task_repository,
-            &["merge-base", "--is-ancestor", &local, &result.base_commit]
-        )
-        .is_empty()
+    assert_eq!(
+        fs::read_to_string(result.task_repository.join("local.txt")).unwrap(),
+        "local change\n"
     );
     assert!(
         s.git(

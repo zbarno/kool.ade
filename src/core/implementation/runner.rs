@@ -2,6 +2,7 @@ use super::*;
 #[cfg(test)]
 mod git_trace;
 mod large_output;
+mod nul_records;
 mod verification;
 mod verification_command;
 #[cfg(test)]
@@ -129,6 +130,29 @@ impl Runner {
         #[cfg(test)]
         git_trace::record(args);
         large_output::git_to_file(self, cwd, args, output)
+    }
+    pub(super) fn git_to_file_bounded(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        output: &Path,
+        max_bytes: u64,
+    ) -> anyhow::Result<()> {
+        #[cfg(test)]
+        git_trace::record(args);
+        large_output::git_to_file_bounded(self, cwd, args, output, max_bytes)
+    }
+    pub(super) fn git_nul_records(&self, cwd: &Path, args: &[&str]) -> anyhow::Result<Vec<String>> {
+        nul_records::capture(self, cwd, args)
+    }
+    pub(super) fn git_output_bounded(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        max_bytes: u64,
+    ) -> anyhow::Result<String> {
+        let output = nul_records::capture_bytes(self, cwd, args, max_bytes)?;
+        String::from_utf8(output).map_err(Into::into)
     }
 
     /// Some Git operations write reflogs even though they do not create a

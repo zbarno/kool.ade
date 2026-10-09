@@ -25,7 +25,7 @@ pub(super) fn inspect_disjoint_merge(
     {
         return Ok(DisjointMergeState::NotApplicable);
     }
-    let staged = runner.git(
+    let staged = runner.git_nul_records(
         task_repository,
         &["diff", "--cached", "--name-only", "--no-renames", "-z"],
     )?;
@@ -36,19 +36,17 @@ pub(super) fn inspect_disjoint_merge(
         &plan.local_commit,
     )?;
     let staged_paths = staged
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(str::to_owned)
+        .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
-    let unexpected_paths = runner.git(
+    let unexpected_paths = runner.git_nul_records(
         task_repository,
         &["ls-files", "--others", "--exclude-standard", "-z"],
     )?;
-    let unstaged = runner.git(
+    let unstaged = runner.git_nul_records(
         task_repository,
         &["diff", "--name-only", "--no-renames", "-z"],
     )?;
-    let ignored = runner.git(
+    let ignored = runner.git_nul_records(
         task_repository,
         &[
             "ls-files",
@@ -63,10 +61,9 @@ pub(super) fn inspect_disjoint_merge(
         task_repository,
         runner.runtime_config_source.as_deref(),
     )?;
-    let unknown = |paths: &str| {
+    let unknown = |paths: &[String]| {
         paths
-            .split('\0')
-            .filter(|path| !path.is_empty())
+            .iter()
             .any(|path| !generated.contains(path) && !runtime_configuration.contains(path))
     };
     if staged_paths != expected_local
@@ -139,9 +136,8 @@ pub(super) fn cache_is_safe(
         ],
     ] {
         if runner
-            .git(&state.task_repository, &args)?
-            .split('\0')
-            .filter(|path| !path.is_empty())
+            .git_nul_records(&state.task_repository, &args)?
+            .iter()
             .any(|path| !generated.contains(path))
         {
             return Ok(false);

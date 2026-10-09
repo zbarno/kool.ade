@@ -1,5 +1,6 @@
 pub(super) mod cache;
 mod clone_plan;
+mod integration_state;
 mod prepare;
 mod prompt;
 pub(super) mod support;
@@ -33,6 +34,7 @@ pub(super) use self::prepare::prepare;
 #[cfg(test)]
 pub(super) use clone_plan::save_plan;
 pub(super) use clone_plan::{CloneRepositoryPlan, attach_clone_repository, save_clone_plan};
+pub(super) use integration_state::{integrated_candidate_matches, mark_integrated_candidate};
 
 pub(super) fn load_plan(dir: &Path) -> anyhow::Result<Option<Plan>> {
     let path = dir.join(PLAN_FILE);

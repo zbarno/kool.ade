@@ -40,15 +40,20 @@ fn valid_task_repository_component(name: &std::ffi::OsStr) -> bool {
     let Some(name) = name.to_str() else {
         return false;
     };
-    let (base, integration) = match name.split_once("-integration-") {
-        Some((base, suffix)) => (base, Some(suffix)),
-        None => (name, None),
-    };
-    let task_key = base.rsplit_once('-').is_some_and(|(slug, hash)| {
-        !slug.is_empty() && hash.len() == 16 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-    });
-    task_key
-        && integration.is_none_or(|suffix| {
-            suffix.len() == 12 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+    let valid_key = |base: &str| {
+        base.rsplit_once('-').is_some_and(|(slug, hash)| {
+            !slug.is_empty()
+                && hash.len() == 16
+                && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
         })
+    };
+    for marker in ["-integration-", "-verification-"] {
+        if let Some((base, suffix)) = name.rsplit_once(marker)
+            && suffix.len() == 12
+            && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return valid_key(base);
+        }
+    }
+    valid_key(name)
 }

@@ -135,7 +135,7 @@ pub(super) fn run(
             feedback = last_failure.clone();
             continue;
         }
-        let changed = runner.git(
+        let changed = runner.git_nul_records(
             &state.task_repository,
             &[
                 "diff",
@@ -146,6 +146,10 @@ pub(super) fn run(
             ],
         )?;
         let mut commands = plan.required_verification.clone();
+        let changed = changed
+            .iter()
+            .map(|path| format!("{path}\0"))
+            .collect::<String>();
         for command in required_baseline_checks(&state.task_repository, &changed)? {
             if !commands.contains(&command) {
                 commands.push(command);

@@ -6,12 +6,12 @@ const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 // Compare defects, not line numbers: conflict resolution can move an inherited
 // line. Counts still prevent a new duplicate from borrowing an old exemption.
 pub(super) fn check(runner: &Runner, worktree: &Path, plan: &Plan) -> anyhow::Result<()> {
-    let paths = runner.git(
+    let paths = runner.git_nul_records(
         worktree,
         &["diff", "--cached", "--name-only", "-z", &plan.remote_commit],
     )?;
-    for path in paths.split('\0').filter(|path| !path.is_empty()) {
-        let local_diff = runner.git(
+    for path in &paths {
+        let local_diff = runner.git_nul_records(
             worktree,
             &[
                 "--literal-pathspecs",

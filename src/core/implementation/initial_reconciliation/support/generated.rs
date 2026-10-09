@@ -1,107 +1,19 @@
 mod fingerprint;
+mod ledger;
+mod quarantine;
 use fingerprint::fingerprint;
+use ledger::{Ledger, eligible, ignored_inventory, inventory, load, visible_inventory};
+pub(in crate::core::implementation) use quarantine::quarantine_untrusted_ignored;
 
 use super::super::*;
-use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 const FILE: &str = "base-reconciliation-generated.json";
-
-#[derive(Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Ledger {
-    schema_version: u8,
-    #[serde(alias = "worktree")]
-    task_repository: PathBuf,
-    branch: String,
-    ticket: String,
-    #[serde(default)]
-    task_uid: Option<String>,
-    #[serde(default)]
-    allocation_key: Option<String>,
-    local: String,
-    remote: String,
-    files: BTreeMap<String, String>,
-}
 
 pub(super) struct Before {
     paths: BTreeSet<String>,
     trusted: BTreeSet<String>,
     ledger: Ledger,
-}
-
-fn load(dir: &Path, state: &Implementation) -> anyhow::Result<Ledger> {
-    let plan = read_plan(&dir.join(PLAN_FILE))?;
-    let path = dir.join(FILE);
-    let mut ledger = if path.exists() {
-        anyhow::ensure!(
-            fs::metadata(&path)?.len() <= 16 * 1024 * 1024,
-            "Verification artifact ledger is too large; preserved for review"
-        );
-        serde_json::from_slice::<Ledger>(&fs::read(path)?)?
-    } else {
-        Ledger {
-            schema_version: 1,
-            task_repository: state.task_repository.canonicalize()?,
-            branch: state.branch.clone(),
-            ticket: state.ticket.clone(),
-            task_uid: state.task_uid.clone(),
-            allocation_key: state.task_repository_allocation_key.clone(),
-            local: plan.local_commit.clone(),
-            remote: plan.remote_commit.clone(),
-            files: BTreeMap::new(),
-        }
-    };
-    let same_renamed_task = state.task_uid.is_some()
-        && state.task_repository_allocation_key.is_some()
-        && ledger
-            .task_uid
-            .as_ref()
-            .is_none_or(|uid| state.task_uid.as_ref() == Some(uid))
-        && ledger
-            .allocation_key
-            .as_ref()
-            .is_none_or(|key| state.task_repository_allocation_key.as_ref() == Some(key));
-    anyhow::ensure!(
-        ledger.schema_version == 1
-            && ledger.task_repository == state.task_repository.canonicalize()?
-            && ledger.branch == state.branch
-            && (ledger.ticket == state.ticket || same_renamed_task)
-            && ledger.local == plan.local_commit
-            && ledger.remote == plan.remote_commit,
-        "Verification artifact identity changed; the task repository is preserved for review"
-    );
-    ledger.ticket = state.ticket.clone();
-    ledger.task_uid = state.task_uid.clone();
-    ledger.allocation_key = state.task_repository_allocation_key.clone();
-    Ok(ledger)
-}
-
-fn inventory(runner: &Runner, worktree: &Path) -> anyhow::Result<BTreeSet<String>> {
-    let mut paths = BTreeSet::new();
-    for args in [
-        vec!["ls-files", "--others", "--exclude-standard", "-z"],
-        vec![
-            "ls-files",
-            "--others",
-            "--ignored",
-            "--exclude-standard",
-            "-z",
-        ],
-    ] {
-        paths.extend(
-            runner
-                .git(worktree, &args)?
-                .split('\0')
-                .filter(|path| !path.is_empty())
-                .map(str::to_owned),
-        );
-    }
-    anyhow::ensure!(
-        paths.len() <= 100_000,
-        "Verification artifact inventory is too large; preserved for review"
-    );
-    Ok(paths)
 }
 
 pub(in crate::core::implementation) fn trusted(
@@ -165,27 +77,17 @@ pub(super) fn after(
     )
 }
 
-fn eligible(path: &str) -> bool {
-    let parts = path.split('/').collect::<Vec<_>>();
-    parts
-        .iter()
-        .take(parts.len().saturating_sub(1))
-        .any(|part| {
-            matches!(
-                *part,
-                "bin"
-                    | "obj"
-                    | "target"
-                    | "node_modules"
-                    | "dist"
-                    | "build"
-                    | "coverage"
-                    | ".cache"
-            )
-        })
-        || (parts.len() >= 2
-            && parts[parts.len() - 2] == "DataProtectionKeys"
-            && path.ends_with(".xml"))
+pub(in crate::core::implementation) fn verify(
+    runner: &Runner,
+    state: &Implementation,
+    dir: &Path,
+    command: &str,
+) -> anyhow::Result<String> {
+    quarantine_untrusted_ignored(runner, state, dir)?;
+    let before = before(runner, state, dir)?;
+    let result = runner.verify(&state.task_repository, command);
+    after(runner, state, dir, before)?;
+    result
 }
 
 pub(in crate::core::implementation) fn clean(
@@ -193,27 +95,38 @@ pub(in crate::core::implementation) fn clean(
     state: &Implementation,
     dir: &Path,
 ) -> anyhow::Result<bool> {
-    let generated = if dir.join(FILE).exists() {
-        trusted(runner, state, dir)?
-    } else {
-        crate::harness::pi_sandbox::runtime_config::paths_with_source(
-            &state.task_repository,
-            runner.runtime_config_source.as_deref(),
-        )?
-    };
+    let generated =
+        if dir.join(FILE).exists() || super::super::integrated_candidate_matches(dir, state)? {
+            trusted(runner, state, dir)?
+        } else {
+            crate::harness::pi_sandbox::runtime_config::paths_with_source(
+                &state.task_repository,
+                runner.runtime_config_source.as_deref(),
+            )?
+        };
     for args in [
         vec!["diff", "--name-only", "-z"],
         vec!["diff", "--cached", "--name-only", "-z"],
-        vec!["ls-files", "--others", "--exclude-standard", "-z"],
     ] {
         if runner
-            .git(&state.task_repository, &args)?
-            .split('\0')
-            .filter(|path| !path.is_empty())
+            .git_nul_records(&state.task_repository, &args)?
+            .iter()
             .any(|path| !generated.contains(path))
         {
             return Ok(false);
         }
+    }
+    if visible_inventory(runner, &state.task_repository)?
+        .iter()
+        .any(|path| !generated.contains(path))
+    {
+        return Ok(false);
+    }
+    if ignored_inventory(runner, &state.task_repository)?
+        .iter()
+        .any(|path| !generated.contains(path))
+    {
+        return Ok(false);
     }
     Ok(true)
 }
@@ -227,7 +140,7 @@ pub(in crate::core::implementation) fn stage_task(
         &state.task_repository,
         runner.runtime_config_source.as_deref(),
     )?;
-    if dir.join(FILE).exists() {
+    if dir.join(FILE).exists() || super::super::integrated_candidate_matches(dir, state)? {
         let ledger = load(dir, state)?;
         let trusted = trusted(runner, state, dir)?;
         let current = inventory(runner, &state.task_repository)?;
@@ -241,11 +154,11 @@ pub(in crate::core::implementation) fn stage_task(
         protected.extend(trusted);
     }
     let mut args = vec!["add".to_owned(), "--all".into(), "--".into(), ".".into()];
-    let visible = runner.git(
+    let visible = runner.git_nul_records(
         &state.task_repository,
         &["ls-files", "--others", "--exclude-standard", "-z"],
     )?;
-    let visible = visible.split('\0').collect::<BTreeSet<_>>();
+    let visible = visible.into_iter().collect::<BTreeSet<_>>();
     args.extend(
         protected
             .iter()

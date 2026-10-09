@@ -86,11 +86,7 @@ fn reclaim_legacy(
     )];
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
-        if !entry
-            .file_name()
-            .to_string_lossy()
-            .starts_with("integration-")
-        {
+        if !task_repository::is_integration_state_dir(&entry.file_name()) {
             continue;
         }
         anyhow::ensure!(

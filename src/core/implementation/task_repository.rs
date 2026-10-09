@@ -1,6 +1,9 @@
 use super::{Implementation, Runner, TaskRepositoryKind, key};
 use crate::core::implementation::repository_cache::RepositoryCache;
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 pub(super) fn task_path(
     planning_root: &Path,
@@ -71,20 +74,9 @@ pub(super) fn validate_task_path(
     planning_root: &Path,
     state: &Implementation,
 ) -> anyhow::Result<()> {
-    let repository_id = state
-        .repository_id
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("Saved task repository identity is missing"))?;
     let project_id = project_id(planning_root)?;
     anyhow::ensure!(state.project_id.as_deref() == Some(project_id.as_str()));
-    let allocation = allocation_key(state);
-    validate_allocation_key(&allocation)?;
-    let expected = repository_root(&project_id, repository_id)?.join(allocation);
-    anyhow::ensure!(
-        state.task_repository == expected,
-        "Saved task repository path differs from its Kool.ad/e allocation"
-    );
-    Ok(())
+    validate_clone_path_at(state, &state.task_repository)
 }
 
 pub(super) fn validate_clone_path(state: &Implementation) -> anyhow::Result<()> {
@@ -109,7 +101,9 @@ pub(super) fn validate_clone_path_at(state: &Implementation, path: &Path) -> any
         .ok_or_else(|| anyhow::anyhow!("Saved task repository path is invalid"))?;
     anyhow::ensure!(
         path.parent() == Some(root.as_path())
-            && (name == key || valid_integration_name(name, &key))
+            && (name == key
+                || valid_integration_name(name, &key)
+                || valid_verification_name(name, &key))
             && state.task_repositories.contains(&path.to_path_buf()),
         "Saved task repository path differs from its Kool.ad/e allocation"
     );
@@ -124,7 +118,7 @@ pub(super) fn branch_for_path(state: &Implementation, path: &Path) -> anyhow::Re
         .ok_or_else(|| anyhow::anyhow!("Saved task repository path is invalid"))?;
     let key = allocation_key(state);
     validate_allocation_key(&key)?;
-    if name == key {
+    if name == key || valid_verification_name(name, &key) {
         Ok(format!("koolade/{key}"))
     } else {
         let suffix = name
@@ -132,6 +126,14 @@ pub(super) fn branch_for_path(state: &Implementation, path: &Path) -> anyhow::Re
             .ok_or_else(|| anyhow::anyhow!("Invalid integration repository name"))?;
         Ok(format!("koolade/integration/{key}/{suffix}"))
     }
+}
+
+pub(super) fn is_integration_state_dir(name: &OsStr) -> bool {
+    name.to_str()
+        .and_then(|name| name.strip_prefix("integration-"))
+        .is_some_and(|commit| {
+            matches!(commit.len(), 40 | 64) && commit.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
 }
 
 fn repository_root(project_id: &str, repository_id: &str) -> anyhow::Result<PathBuf> {
@@ -158,6 +160,13 @@ fn repository_root(project_id: &str, repository_id: &str) -> anyhow::Result<Path
 
 fn valid_integration_name(name: &str, task_key: &str) -> bool {
     name.strip_prefix(&format!("{task_key}-integration-"))
+        .is_some_and(|suffix| {
+            suffix.len() == 12 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+}
+
+fn valid_verification_name(name: &str, task_key: &str) -> bool {
+    name.strip_prefix(&format!("{task_key}-verification-"))
         .is_some_and(|suffix| {
             suffix.len() == 12 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit())
         })

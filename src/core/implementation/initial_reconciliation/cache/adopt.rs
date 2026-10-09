@@ -86,16 +86,16 @@ pub(in crate::core::implementation) fn adopt(
         }
         if !support::unmerged_paths(runner, &state.task_repository)?.is_empty()
             || !runner
-                .git(&state.task_repository, &["diff", "--name-only"])?
+                .git_nul_records(&state.task_repository, &["diff", "--name-only", "-z"])?
                 .is_empty()
             || !runner
-                .git(
+                .git_nul_records(
                     &state.task_repository,
                     &["ls-files", "--others", "--exclude-standard", "-z"],
                 )?
                 .is_empty()
             || !runner
-                .git(
+                .git_nul_records(
                     &state.task_repository,
                     &[
                         "ls-files",

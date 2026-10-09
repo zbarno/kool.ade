@@ -180,10 +180,10 @@ pub(super) fn recover_unexpected_merge(
         runner.git(&state.task_repository, &["merge", "--abort"])?;
     }
     let mut clean = runner
-        .git(&state.task_repository, &["diff", "--name-only", "-z"])?
+        .git_nul_records(&state.task_repository, &["diff", "--name-only", "-z"])?
         .is_empty()
         && runner
-            .git(
+            .git_nul_records(
                 &state.task_repository,
                 &["diff", "--cached", "--name-only", "-z"],
             )?
@@ -199,9 +199,8 @@ pub(super) fn recover_unexpected_merge(
         ],
     ] {
         clean &= runner
-            .git(&state.task_repository, &args)?
-            .split('\0')
-            .filter(|path| !path.is_empty())
+            .git_nul_records(&state.task_repository, &args)?
+            .iter()
             .all(|path| config.contains(path));
     }
     anyhow::ensure!(
@@ -244,12 +243,7 @@ pub(super) fn recover_unexpected_merge(
 }
 
 fn paths(runner: &Runner, worktree: &Path, args: &[&str]) -> anyhow::Result<Vec<String>> {
-    Ok(runner
-        .git(worktree, args)?
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .map(str::to_owned)
-        .collect())
+    runner.git_nul_records(worktree, args)
 }
 
 fn write_snapshot(path: &Path, snapshot: &Snapshot) -> anyhow::Result<()> {

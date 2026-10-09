@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "legacy_migration/concurrency.rs"]
 mod concurrency;
+#[path = "legacy_migration/idempotency.rs"]
+mod idempotency;
 #[path = "legacy_migration/metadata.rs"]
 mod metadata;
 
