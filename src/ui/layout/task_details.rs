@@ -26,9 +26,6 @@ pub(super) fn paint(
         return;
     }
     let ticket = &doc.path;
-    s.dispatch(crate::ui::ApplicationCommand::PrepareTaskChat {
-        key: ticket.to_owned(),
-    });
     let Some(mut view) = s.task_detail_view(ticket) else {
         ui.label("Task state is unavailable.");
         return;
