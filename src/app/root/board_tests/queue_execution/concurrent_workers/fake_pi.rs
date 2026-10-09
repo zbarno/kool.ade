@@ -1,5 +1,60 @@
 use std::path::{Path, PathBuf};
 
+pub(super) fn sandbox_available() -> bool {
+    crate::harness::runtime_capabilities::RuntimeCapabilities::detect().implementation
+}
+
+pub(super) struct RestoreEnvironmentVariable {
+    name: &'static str,
+    previous: Option<std::ffi::OsString>,
+}
+
+impl Drop for RestoreEnvironmentVariable {
+    fn drop(&mut self) {
+        unsafe {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
+    }
+}
+
+pub(super) fn restore_environment_variable(name: &'static str) -> RestoreEnvironmentVariable {
+    RestoreEnvironmentVariable {
+        name,
+        previous: std::env::var_os(name),
+    }
+}
+
+pub(super) fn configure_harness_settings(root: &Path) -> RestoreEnvironmentVariable {
+    let restore = restore_environment_variable("KOOLADE_HOME");
+    let home = root.join("app-home");
+    std::fs::create_dir_all(&home).unwrap();
+    unsafe { std::env::set_var("KOOLADE_HOME", &home) };
+    crate::persistence::harness_settings::save(
+        &crate::persistence::harness_settings::HarnessSettings {
+            discovered: std::collections::BTreeMap::from([(
+                "pi".into(),
+                crate::persistence::harness_settings::DetectedHarness {
+                    status: "pi fixture 1.0".into(),
+                    version: Some("1.0".into()),
+                    executable: None,
+                    diagnostic: None,
+                    ready: true,
+                    models: Vec::new(),
+                    default_model: None,
+                    configuration_required: false,
+                    implementation_available: true,
+                },
+            )]),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    restore
+}
+
 pub(super) fn create(root: &Path) -> PathBuf {
     let pi = root.join("pi-fixture");
     std::fs::write(

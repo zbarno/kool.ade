@@ -171,6 +171,7 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
             require_independent_checks: false,
             user_context: None,
             auto_publish_gate: None,
+            claim_lease: None,
         },
     )
     .unwrap();

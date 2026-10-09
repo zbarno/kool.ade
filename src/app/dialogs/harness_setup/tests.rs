@@ -16,6 +16,7 @@ fn report(ok: bool) -> HarnessProbe {
         models: vec!["configured-model".into()],
         default_model: None,
         configuration_required: false,
+        implementation_available: true,
     }
 }
 
@@ -73,6 +74,7 @@ fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
         models: vec![],
         default_model: None,
         configuration_required: true,
+        implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
     apply_probe_results(&mut settings, &[pi, codex], Some("codex"));
@@ -95,6 +97,7 @@ fn configured_codex_default_is_preserved_when_ready() {
         models: vec!["gpt-configured".into()],
         default_model: Some("gpt-configured".into()),
         configuration_required: false,
+        implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
     apply_probe_results(&mut settings, &[report(true), codex], Some("codex"));
@@ -191,6 +194,86 @@ fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
         &shape.shape,
         egui::Shape::Text(text) if text.galley.text() == "Available coding tools"
     )));
+}
+
+#[test]
+fn codex_settings_show_every_reported_model_even_when_repository_routing_is_disabled() {
+    use crate::persistence::harness_settings::DetectedHarness;
+
+    let models = vec![
+        "gpt-6.1-sol".into(),
+        "gpt-6-astra".into(),
+        "gpt-6-sol".into(),
+        "gpt-6-luna".into(),
+        "gpt-5.6-sol".into(),
+    ];
+    let mut dialog = DlgHarnessSetup {
+        settings: HarnessSettings {
+            default_harness: Some("codex".into()),
+            discovered: std::collections::BTreeMap::from([(
+                "codex".into(),
+                DetectedHarness {
+                    status: "codex ready".into(),
+                    version: Some("0.162.0".into()),
+                    executable: Some("/example/bin/codex".into()),
+                    diagnostic: None,
+                    ready: true,
+                    models,
+                    default_model: Some("gpt-6.1-sol".into()),
+                    configuration_required: false,
+                    implementation_available: false,
+                },
+            )]),
+            ..HarnessSettings::default()
+        },
+        probe_view: ProbeView::Complete,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: std::collections::BTreeMap::new(),
+        probe_rx: None,
+    };
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 700.0),
+            )),
+            ..Default::default()
+        },
+        |ui| {
+            paint::paint_harness_setup_card(ui, &mut dialog);
+        },
+    );
+    let visible = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        visible
+            .iter()
+            .any(|text| text == "Models reported by this CLI")
+    );
+    assert!(
+        visible
+            .iter()
+            .any(|text| { text == "gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-sol" })
+    );
+    assert!(
+        visible
+            .iter()
+            .any(|text| text == "CLI default: gpt-6.1-sol")
+    );
+    assert!(
+        visible
+            .iter()
+            .any(|text| text.contains("no application owned sandbox policy"))
+    );
+    output.textures_delta.clear();
 }
 
 #[cfg(unix)]

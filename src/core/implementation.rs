@@ -118,6 +118,9 @@ pub struct Implementation {
     pub project_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_identity: Option<String>,
+    /// Configured push repository identity captured before the worker starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub push_repository: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_cache: Option<PathBuf>,
     /// Original task key used for private clone/worktree allocations and refs.
@@ -185,6 +188,7 @@ struct RunOptions<'a> {
     require_independent_checks: bool,
     user_context: Option<&'a str>,
     auto_publish_gate: Option<Arc<AtomicBool>>,
+    claim_lease: Option<crate::core::task_claim::ClaimLeaseHandle>,
 }
 
 struct ExecutionPolicy<'a> {
@@ -192,6 +196,7 @@ struct ExecutionPolicy<'a> {
     publication_mode: PublicationMode,
     require_independent_checks: bool,
     auto_publish_gate: Option<&'a AtomicBool>,
+    claim_lease: Option<&'a crate::core::task_claim::ClaimLeaseHandle>,
     /// Per-workspace accrual scope (F7): `Some` when identifiers resolved.
     accrual: Option<crate::core::time_accrual::AgentSpan>,
 }
@@ -239,6 +244,7 @@ mod tests {
                 require_independent_checks: false,
                 user_context: None,
                 auto_publish_gate: None,
+                claim_lease: None,
             },
         )
     }

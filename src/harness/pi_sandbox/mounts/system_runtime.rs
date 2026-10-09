@@ -40,6 +40,12 @@ const RUNTIME_DIRS: &[&str] = &[
     "/usr/local/share/libtool",
 ];
 const RUNTIME_ALIASES: &[&str] = &["/bin", "/sbin", "/lib", "/lib64"];
+const PUBLIC_CA_DIRS: &[&str] = &[
+    "/etc/ssl/certs",
+    "/etc/pki/tls/certs",
+    "/etc/pki/ca-trust/extracted/pem",
+    "/etc/pki/ca-trust/extracted/openssl",
+];
 
 pub(in crate::harness::pi_sandbox) fn runtime_visible(path: &Path) -> bool {
     RUNTIME_DIRS
@@ -156,10 +162,7 @@ pub(in crate::harness::pi_sandbox) fn mount_system_runtime(
         "/etc/localtime",
     ] {
         let path = Path::new(location);
-        let Some(source) = resolve_source(path, |target| {
-            target == path
-                || (location == "/etc/localtime" && target.starts_with("/usr/share/zoneinfo"))
-        })?
+        let Some(source) = resolve_source(path, |target| os_config_source_allowed(path, target))?
         else {
             continue;
         };
@@ -187,17 +190,34 @@ pub(in crate::harness::pi_sandbox) fn mount_system_runtime(
             alias.to_string_lossy().into_owned(),
         ]);
     }
-    let certs = Path::new("/etc/ssl/certs");
-    if let Some(source) = resolve_source(certs, |target| {
-        target == certs || target.starts_with("/usr/share/ca-certificates")
-    })? {
+    for location in PUBLIC_CA_DIRS {
+        let path = Path::new(location);
+        let Some(source) = resolve_source(path, |target| public_ca_source_allowed(path, target))?
+        else {
+            continue;
+        };
         anyhow::ensure!(
             source.is_dir(),
             "Sandbox environment prerequisite: CA certificate mount must be a directory"
         );
-        bind_readonly(args, created, &source, certs)?;
+        bind_readonly(args, created, &source, path)?;
     }
     Ok(())
+}
+
+fn os_config_source_allowed(location: &Path, target: &Path) -> bool {
+    target == location
+        || (location == Path::new("/etc/localtime") && target.starts_with("/usr/share/zoneinfo"))
+        || (location == Path::new("/etc/nsswitch.conf")
+            && target == Path::new("/etc/authselect/nsswitch.conf"))
+}
+
+fn public_ca_source_allowed(location: &Path, target: &Path) -> bool {
+    target == location
+        || (location == Path::new("/etc/ssl/certs")
+            && (target == Path::new("/usr/share/ca-certificates")
+                || target == Path::new("/etc/pki/tls/certs")))
+        || (location == Path::new("/etc/pki/tls/certs") && target == Path::new("/etc/ssl/certs"))
 }
 
 fn resolve_source(

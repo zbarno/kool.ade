@@ -11,10 +11,8 @@ use super::mounts::{
 };
 mod clone;
 mod path_safety;
-mod worktree;
 pub(super) use clone::validate_koolade_clone;
 use path_safety::inside_workspace;
-pub(super) use worktree::validate_koolade_worktree;
 
 pub(super) fn locate_bwrap(root: &Path) -> anyhow::Result<PathBuf> {
     if let Some(path) = std::env::var_os("KOOLADE_BWRAP_BIN") {
@@ -172,32 +170,21 @@ fn mount_git_metadata(
         anyhow::anyhow!("Implementation must run from Kool.ad/e's assigned task repository")
     })?;
     anyhow::ensure!(
-        (metadata.is_file() || metadata.is_dir()) && !metadata.file_type().is_symlink(),
+        !metadata.is_file(),
+        "Legacy linked worktrees must migrate to an independent task clone before execution"
+    );
+    anyhow::ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
         "Implementation must run from Kool.ad/e's assigned task repository"
     );
     let admin = git_path(root, "--git-dir")?;
     let common = git_path(root, "--git-common-dir")?;
-    let linked_worktree = metadata.is_file();
-    if linked_worktree {
-        validate_koolade_worktree(root, &admin, &common)?;
-        bind_readonly_file(args, created, &git_entry, &git_entry);
-        bind_readonly(args, created, &common, &common)?;
-    } else {
-        anyhow::ensure!(
-            admin == common && git_entry.canonicalize()? == common,
-            "Task repository does not have independent Git metadata"
-        );
-        validate_koolade_clone(root, &common)?;
-        bind_readonly(args, created, &common, &common)?;
-    }
-    if admin != common && !admin.starts_with(&common) {
-        bind_readonly(args, created, &admin, &admin)?;
-    }
-    let worktrees = common.join("worktrees");
-    if linked_worktree && fs::symlink_metadata(&worktrees).is_ok_and(|metadata| metadata.is_dir()) {
-        mount_tmpfs(args, created, &worktrees, 67_108_864);
-        bind_readonly(args, created, &admin, &admin)?;
-    }
+    anyhow::ensure!(
+        admin == common && git_entry.canonicalize()? == common,
+        "Task repository must have independent Git metadata"
+    );
+    validate_koolade_clone(root, &common)?;
+    bind_readonly(args, created, &common, &common)?;
     let diagnostics = common.join("koolade-harness");
     match fs::symlink_metadata(&diagnostics) {
         Ok(metadata) => anyhow::ensure!(
@@ -211,9 +198,6 @@ fn mount_git_metadata(
     }
     mount_tmpfs(args, created, &diagnostics, 67_108_864);
     mask_git_config(args, created, empty_file, &common.join("config"))?;
-    if admin != common {
-        mask_git_config(args, created, empty_file, &admin.join("config.worktree"))?;
-    }
     Ok(common)
 }
 
@@ -229,7 +213,7 @@ pub(super) fn git_path(root: &Path, option: &str) -> anyhow::Result<PathBuf> {
         .output()?;
     anyhow::ensure!(
         output.status.success(),
-        "Cannot safely locate this worktree's Git metadata"
+        "Cannot safely locate this task clone's Git metadata"
     );
     let path = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
     let path = path.canonicalize()?;

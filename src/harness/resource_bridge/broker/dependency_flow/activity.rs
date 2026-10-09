@@ -48,9 +48,7 @@ pub(super) fn set_dependency_request(context: &BrokerContext<'_>, request: &mut 
             });
         }
     }
-    if let Ok(mut pending) = context.dependency.lock() {
-        *pending = Some(request.clone());
-    }
+    store_dependency_request(context, request);
     let activity = match request.status {
         crate::harness::DependencyRequestStatus::ManagerReviewing => {
             "Man.ager is reviewing a dependency request"
@@ -73,6 +71,22 @@ pub(super) fn set_dependency_request(context: &BrokerContext<'_>, request: &mut 
         dependency_requests: vec![request.clone()],
         ..Default::default()
     });
+}
+
+pub(in crate::harness::resource_bridge::broker) fn store_dependency_request(
+    context: &BrokerContext<'_>,
+    request: &DependencyRequest,
+) {
+    if let Ok(mut requests) = context.dependency.lock() {
+        if let Some(existing) = requests
+            .iter_mut()
+            .find(|existing| existing.id == request.id)
+        {
+            *existing = request.clone();
+        } else {
+            requests.push(request.clone());
+        }
+    }
 }
 
 pub(super) fn authorization_source(

@@ -57,13 +57,7 @@ impl RoutedHarness {
         &self,
         request: &PlanningRequest,
     ) -> Result<(), crate::error::AppError> {
-        if request.mode == crate::harness::ExecutionMode::Implementation && self.harness_id != "pi"
-        {
-            return Err(crate::error::AppError::Other(
-                "Implementation is available only with Pi until this harness uses Kool.ad/e's dependency authorization broker. Select Pi in Coding tools.".into(),
-            ));
-        }
-        Ok(())
+        crate::harness::require_application_implementation_boundary(&self.harness_id, request)
     }
 }
 
@@ -127,7 +121,8 @@ impl UnavailableHarness {
     fn error(&self) -> crate::error::AppError {
         crate::error::AppError::Other(
             if self.0.starts_with("The selected model ")
-                || self.0.starts_with("Implementation is available only")
+                || self.0.starts_with("Implementation is unavailable")
+                || self.0.starts_with("Repository access is unavailable")
             {
                 self.0.clone()
             } else {

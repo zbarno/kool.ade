@@ -71,6 +71,8 @@ pub(super) fn authorized_dependency(
         cargo_cache: context.cargo_cache,
         downloaded_bytes: context.downloaded_bytes,
         npm_operations: context.npm_operations,
+        npm_cache_gate: context.npm_cache_gate,
+        cargo_cache_gate: context.cargo_cache_gate,
     };
     let bytes_before = context
         .downloaded_bytes

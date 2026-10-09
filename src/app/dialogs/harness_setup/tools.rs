@@ -92,15 +92,16 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
             data.insert_temp(selected_id, selected);
         }
     });
-    if dialog
-        .settings
-        .default_harness
-        .as_ref()
-        .is_some_and(|id| !dialog.settings.discovered.get(id).is_some_and(|h| h.ready))
-    {
+    if dialog.settings.default_harness.as_ref().is_some_and(|id| {
+        !dialog.settings.discovered.get(id).is_some_and(|harness| {
+            harness.ready
+                && harness.implementation_available
+                && crate::harness::implementation_route_available(id)
+        })
+    }) {
         ui.colored_label(
             theme::DANGER,
-            "Your saved default is currently unavailable. Kool.ad/e will not silently select another tool.",
+            "Your saved default cannot run repository work inside Kool.ad/e's Bubblewrap sandbox. Select a supported tool before starting work.",
         );
     }
     if ui.button("Rediscover tools").clicked() {
@@ -131,8 +132,28 @@ fn paint_tool_details(
         theme::DANGER
     }));
     ui.label(theme::helper_text(format!("Status: {}", harness.status)));
+    ui.label(theme::helper_text(format!(
+        "Security boundary: {}",
+        crate::harness::execution_security::summary_for_harness(id)
+    )));
+    if harness.ready && !harness.implementation_available {
+        ui.label(theme::helper_text(
+            "Implementation is unavailable for this tool until Kool.ad/e can run it inside the application-owned Linux sandbox. Pi requires Bubblewrap.",
+        ));
+    }
     if let Some(version) = &harness.version {
         ui.label(theme::helper_text(format!("Version: {version}")));
+    }
+    if !harness.models.is_empty() {
+        ui.label(RichText::new("Models reported by this CLI").strong());
+        ui.label(harness.models.join(", "));
+        if let Some(model) = &harness.default_model {
+            ui.label(theme::metadata_text(format!("CLI default: {model}")));
+        }
+    } else {
+        ui.label(theme::metadata_text(
+            "This CLI did not report a model catalog.",
+        ));
     }
     let configured = dialog.settings.manual_executable_paths.get(id).cloned();
     let current_path = configured.as_deref().or(harness.executable.as_deref());
@@ -150,7 +171,9 @@ fn paint_tool_details(
     });
     if ui
         .add_enabled(
-            harness.ready,
+            harness.ready
+                && harness.implementation_available
+                && crate::harness::implementation_route_available(id),
             egui::RadioButton::new(
                 dialog.settings.default_harness.as_deref() == Some(id),
                 "Default tool",

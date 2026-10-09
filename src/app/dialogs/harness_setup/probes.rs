@@ -1,4 +1,5 @@
 use super::HarnessProbe;
+mod codex_models;
 
 fn configured_model_catalog(harness: &str) -> (Vec<String>, Option<String>) {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
@@ -102,10 +103,20 @@ fn configured_model_catalog(harness: &str) -> (Vec<String>, Option<String>) {
 pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
     let pi = crate::harness::PiHarness::probe_report();
     let codex = crate::harness::CodexHarness::probe_report();
+    let (configured_codex_models, configured_codex_default) = configured_model_catalog("codex");
+    let (available_codex_models, available_codex_default) = codex
+        .binary
+        .as_deref()
+        .and_then(|binary| codex_models::discover(binary).ok())
+        .unwrap_or_default();
+    let codex_models = merge_models(available_codex_models, configured_codex_models);
+    let codex_default = configured_codex_default.or(available_codex_default);
     let claude = crate::harness::ClaudeHarness::probe_report();
     let antigravity = crate::harness::AntigravityHarness::probe_report();
     let opencode = crate::harness::OpenCodeHarness::probe_report();
     let copilot = crate::harness::CopilotHarness::probe_report();
+    let sandbox_available =
+        crate::harness::runtime_capabilities::RuntimeCapabilities::detect().implementation;
     vec![
         HarnessProbe {
             id: "pi".into(),
@@ -120,6 +131,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             models: configured_model_catalog("pi").0,
             default_model: configured_model_catalog("pi").1,
             configuration_required: pi.configuration_required,
+            implementation_available: pi.ok && sandbox_available,
             status: pi.status,
         },
         HarnessProbe {
@@ -131,10 +143,11 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
                 .map(|path| path.to_string_lossy().into()),
             diagnostic: (!codex.diagnostic.is_empty()).then_some(codex.diagnostic),
             ready: codex.ready,
-            models: configured_model_catalog("codex").0,
-            default_model: configured_model_catalog("codex").1,
+            models: codex_models,
+            default_model: codex_default,
             configuration_required: codex.readiness
                 == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
+            implementation_available: false,
             status: codex.status,
         },
         HarnessProbe {
@@ -150,6 +163,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             default_model: configured_model_catalog("claude").1,
             configuration_required: claude.readiness
                 == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
+            implementation_available: false,
             status: claude.status,
         },
         HarnessProbe {
@@ -168,6 +182,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             .ok()
             .filter(|m| !m.trim().is_empty()),
             configuration_required: false,
+            implementation_available: false,
             status: antigravity.status,
         },
         HarnessProbe {
@@ -186,6 +201,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
                 crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
                     | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired
             ),
+            implementation_available: false,
             status: opencode.status,
         },
         HarnessProbe {
@@ -200,6 +216,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             models: configured_model_catalog("copilot").0,
             default_model: configured_model_catalog("copilot").1,
             configuration_required: false,
+            implementation_available: false,
             status: match copilot.readiness {
                 crate::harness::copilot_harness::CopilotReadiness::Missing => {
                     "copilot (not installed)".into()
@@ -213,4 +230,13 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             },
         },
     ]
+}
+
+fn merge_models(mut available: Vec<String>, configured: Vec<String>) -> Vec<String> {
+    for model in configured {
+        if !available.contains(&model) {
+            available.push(model);
+        }
+    }
+    available
 }

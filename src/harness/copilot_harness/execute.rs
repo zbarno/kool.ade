@@ -91,6 +91,7 @@ impl AiHarness for CopilotHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::require_application_implementation_boundary("Copilot CLI", request)?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!(
                 "Cannot resolve GitHub Copilot CLI executable: {error}"

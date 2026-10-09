@@ -1,5 +1,28 @@
 use super::*;
 
+struct StateHomeGuard(Option<std::ffi::OsString>);
+
+impl StateHomeGuard {
+    fn set(path: &Path) -> Self {
+        let previous = std::env::var_os("KOOLADE_HOME");
+        // SAFETY: the repository quality gate runs tests serially.
+        unsafe { std::env::set_var("KOOLADE_HOME", path) };
+        Self(previous)
+    }
+}
+
+impl Drop for StateHomeGuard {
+    fn drop(&mut self) {
+        // SAFETY: the repository quality gate runs tests serially.
+        unsafe {
+            match self.0.take() {
+                Some(previous) => std::env::set_var("KOOLADE_HOME", previous),
+                None => std::env::remove_var("KOOLADE_HOME"),
+            }
+        }
+    }
+}
+
 #[test]
 fn publication_targets_the_origin_repository() {
     assert_eq!(
@@ -27,24 +50,32 @@ fn verification_receives_corrections_even_after_report_retries_are_used() {
 }
 
 #[test]
-fn verification_worktree_path_survives_cd_and_spaces() {
+fn verification_task_clone_path_survives_cd_and_spaces() {
     let s = Sandbox::new();
-    let cwd = s
-        .root
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(&s.repo))
-        .join("worktree with spaces");
+    let state_home = s.root.join("state home with spaces");
+    let _state_home = StateHomeGuard::set(&state_home);
+    let project_id = crate::persistence::project_slug(&s.repo.canonicalize().unwrap());
+    let repository_id = "repo";
+    let task_key = crate::core::implementation::key_for_ticket(&s.ticket);
+    let cwd = state_home
+        .join("projects")
+        .join(project_id)
+        .join("task-repositories")
+        .join(repository_id)
+        .join(task_key);
     fs::create_dir_all(cwd.parent().unwrap()).unwrap();
     s.git(
         &s.repo,
         &[
-            "worktree",
-            "add",
+            "clone",
             "--quiet",
-            "-b",
-            "koolade/verify-path-test",
+            s.repo.to_str().unwrap(),
             cwd.to_str().unwrap(),
         ],
+    );
+    s.git(
+        &cwd,
+        &["switch", "--quiet", "-c", "koolade/verify-path-test"],
     );
     fs::write(cwd.join("marker"), "proof").unwrap();
     let (progress, _rx) = mpsc::channel();

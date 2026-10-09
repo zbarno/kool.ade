@@ -1,24 +1,11 @@
-# Task repository migration checklist
+# Legacy task repository migration
 
-Issue: [#85](https://github.com/zbarno/kool.ade/issues/85)
+New and resumed in-progress tasks use independent clones under Kool.ad/e's private project state and an app-owned bare repository cache. Older saved tasks migrate on their next resume.
 
-## Migration decision
+Migration validates that the saved workspace is the expected Kool.ad/e linked worktree, then records its branch and commit. It captures staged and unstaged patches separately, plus untracked regular files and symlinks. Explicitly granted project `.env` files are copied too. For a clean in-progress merge pinned to the saved reconciliation plan, ignored files are copied within a 128 MiB and 20,000-file limit so reconciliation recovery retains the full workspace state. It restores the captured changes into an independent clone and verifies the result before updating the task state. Conflicts and other unfinished Git operations stop for review. A legacy reconciliation plan is pinned into the repository cache before the original checkout can lose its commits.
 
-New tasks use full independent clones under Kool.ad/e's private project state and an app-owned bare repository cache. Existing saved task records keep their current linked worktree path and use a narrowly scoped legacy execution path until those tasks complete. The decoder preserves the old path and marks the record as legacy; migration never copies, resets, or discards partial work.
+The original linked worktree is left in place and unchanged. If validation or restoration fails, the task is blocked for operator attention, and both the original and any partial clone remain available. Retrying uses the durable migration record and refuses to overwrite changes made to a partial clone. Completed legacy tasks retain their record for the compatibility cleanup path. The execution sandbox rejects a linked `.git` worktree pointer, so direct harness invocation cannot skip migration.
 
-## Checklist
+Remaining linked-worktree code is limited to old-state decoding, migration, completed-task cleanup, and recovery of historical reconciliation snapshots. New task creation, execution, integration, and publication use independent clones.
 
-- [x] Inventory execution, verification, reconciliation, resume, publication, cleanup, sandbox, UI, docs, and tests for worktree assumptions.
-- [x] Persist task repository kind, repository identity, selected source ref, exact source SHA, cache path, and execution path.
-- [x] Seed and refresh an app-owned bare cache without writing to the user checkout.
-- [x] Create full per-task clones from the cache; reject alternates and shared Git metadata.
-- [x] Run Bubblewrap with the task clone as its writable root and retain the existing sandbox restrictions.
-- [x] Resume dirty task clones in place and keep interrupted clones during cleanup.
-- [x] Reconcile destination movement from the persisted source SHA in an independent clone.
-- [x] Clean completed clones only after durable publication and verified evidence retention.
-- [x] Keep legacy linked-worktree behavior reachable only for records written by older versions.
-- [x] Update prompts, UI labels, README, and task failure documentation.
-- [x] Add regression coverage for dirty checkouts, exact SHA, local-only refs, clone isolation, resume, integration, publication, and cleanup.
-- [x] Search the full repository for remaining worktree references and classify every survivor.
-
-Active prompts, status messages, security text, and product copy describe independent task repositories. Remaining source references are compatibility and implementation details: the state decoder reads the old `worktree` field and labels that record `legacy_worktree`; recovery accepts schema 1 snapshots with a `worktree` field only for those legacy records, while new snapshots use schema 2 and `task_repository`; legacy-only execution, reconciliation, integration, and cleanup retain linked-worktree operations; Git's `is-inside-work-tree`, generic filesystem helper names, and the example error refer to Git working trees; and task-failure notes describe historical linked-worktree cleanup.
+The repository cache keeps Git fetch and push transport URLs separately. Automatic independent checks and pull requests require both the configured push identity and the effective push destination to resolve to the PR base repository. A separate fork destination or URL rewrite to another repository stops publication before a task branch is pushed. Fork-based automatic PR creation is not supported yet. Configure `origin` to push directly to the PR base repository to publish automatically.

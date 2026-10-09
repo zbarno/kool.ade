@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use super::support::{TestTree, bwrap_available, create_worktree, run};
+use super::support::{TestTree, bwrap_available, create_task_clone, run};
 use crate::harness::pi_sandbox::{Sandbox, components};
 
 #[test]
@@ -17,7 +17,7 @@ fn sandbox_reuses_nuget_toolchains_and_keeps_npm_cache_project_scoped() {
         .filter(|output| output.status.success())
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "host-components");
+    let (_repository, root) = create_task_clone(&tree, "host-components");
 
     for _ in 0..2 {
         let sandbox = Sandbox::new(&root).unwrap();
@@ -104,7 +104,7 @@ fn cargo_registry_keeps_archives_read_only_and_source_extraction_ephemeral() {
         return;
     }
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "cargo-source-cache");
+    let (_repository, root) = create_task_clone(&tree, "cargo-source-cache");
     let cache = tree.0.join("prepared-cargo-cache");
     let archive = cache.join("registry/cache/index.crates.io-test/serde-1.0.0.crate");
     std::fs::create_dir_all(archive.parent().unwrap()).unwrap();

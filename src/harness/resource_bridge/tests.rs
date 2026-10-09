@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool, mpsc},
 };
 
+mod concurrency;
 mod end_to_end;
 mod rejection;
 mod success;
@@ -34,15 +35,13 @@ fn pending_dependency_review_does_not_block_unrelated_requests() {
     )
     .unwrap();
     waiting.write_all(b"\n").unwrap();
-    waiting.shutdown(std::net::Shutdown::Write).unwrap();
     let pending = take_dependency_update(&updates);
     assert_eq!(
         pending.status,
         crate::harness::DependencyRequestStatus::ManagerReviewing
     );
 
-    // This used to time out: the first connection held request_gate for the
-    // entire user/manager approval wait, blocking even rejected resources.
+    // This must complete while another request waits on a user or manager.
     let mut independent = UnixStream::connect(bridge.socket_path()).unwrap();
     independent
         .set_read_timeout(Some(std::time::Duration::from_secs(2)))
@@ -61,7 +60,6 @@ fn pending_dependency_review_does_not_block_unrelated_requests() {
     )
     .unwrap();
     independent.write_all(b"\n").unwrap();
-    independent.shutdown(std::net::Shutdown::Write).unwrap();
     let mut response = String::new();
     BufReader::new(independent)
         .read_line(&mut response)
@@ -71,7 +69,7 @@ fn pending_dependency_review_does_not_block_unrelated_requests() {
     assert!(response.summary.contains("example.com"));
 
     answer(
-        &pending.id,
+        &pending,
         crate::harness::DependencyDecision::Reject,
         None,
         "No approval for an unsupported manager",
@@ -140,13 +138,15 @@ fn take_dependency_update(
 }
 
 fn answer(
-    id: &str,
+    request: &crate::harness::DependencyRequest,
     decision: crate::harness::DependencyDecision,
     scope: Option<crate::harness::DependencyAuthorizationScope>,
     rationale: &str,
 ) {
     assert!(crate::harness::dependency_authorization::answer(
-        id,
+        &request.id,
+        &request.task_id,
+        &request.need,
         crate::harness::dependency_authorization::DependencyResolution {
             decision,
             scope,
@@ -209,7 +209,6 @@ fn uncertain_resource_request_is_returned_and_recorded_for_operator_attention() 
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
     let mut response = String::new();
     BufReader::new(client).read_line(&mut response).unwrap();
     let response: ResourceResponse = serde_json::from_str(&response).unwrap();
@@ -241,14 +240,13 @@ fn unsupported_package_manager_is_returned_for_operator_attention() {
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
     let request = take_dependency_update(&updates);
     assert_eq!(
         request.status,
         crate::harness::DependencyRequestStatus::ManagerReviewing
     );
     answer(
-        &request.id,
+        &request,
         crate::harness::DependencyDecision::RequiresUserAuthorization,
         None,
         "The unsupported package manager needs an explicit decision.",
@@ -259,7 +257,7 @@ fn unsupported_package_manager_is_returned_for_operator_attention() {
         crate::harness::DependencyRequestStatus::AwaitingUser
     );
     answer(
-        &request.id,
+        &request,
         crate::harness::DependencyDecision::Reject,
         None,
         "The operator denied the unsupported package manager request.",
@@ -318,10 +316,9 @@ fn structured_dependency_request_uses_application_task_identity_and_public_sourc
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
     let pending = take_dependency_update(&updates);
     answer(
-        &pending.id,
+        &pending,
         crate::harness::DependencyDecision::RequiresUserAuthorization,
         None,
         "Man.ager requests approval for this new package.",
@@ -332,7 +329,7 @@ fn structured_dependency_request_uses_application_task_identity_and_public_sourc
         crate::harness::DependencyRequestStatus::AwaitingUser
     );
     answer(
-        &pending.id,
+        &pending,
         crate::harness::DependencyDecision::Reject,
         None,
         "The user denied this dependency request.",

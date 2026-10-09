@@ -1,6 +1,8 @@
 use super::*;
 #[cfg(test)]
 mod git_trace;
+mod large_output;
+mod verification;
 mod verification_command;
 #[cfg(test)]
 pub(super) use git_trace::capture_git_worktree_commands;
@@ -94,81 +96,6 @@ impl Runner {
             }
         }
     }
-    pub(super) fn check_storage(&self, _cwd: &Path) -> anyhow::Result<()> {
-        #[cfg(unix)]
-        {
-            let existing = _cwd.ancestors().find(|path| path.is_dir()).ok_or_else(|| {
-                anyhow::anyhow!("Cannot locate filesystem for {}", _cwd.display())
-            })?;
-            let output = self.command(existing, "df", &["-Pk", "."])?;
-            let available = output
-                .lines()
-                .last()
-                .and_then(|line| line.split_whitespace().nth(3))
-                .and_then(|value| value.parse::<u64>().ok())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Cannot determine available disk space for {}",
-                        _cwd.display()
-                    )
-                })?;
-            anyhow::ensure!(
-                available >= 1024 * 1024,
-                "Insufficient disk space at {}: {} MiB available; at least 1 GiB is required to start implementation or verification. Free rebuildable build caches, then Resume implementation. Existing work is preserved.",
-                _cwd.display(),
-                available / 1024
-            );
-        }
-        Ok(())
-    }
-    pub(super) fn verify(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
-        verification_command::validate(command)?;
-        self.check_storage(cwd)?;
-        match self.verify_once(cwd, command) {
-            Ok(output) => Ok(output),
-            Err(error) if is_nuget_audit_failure(&error) => {
-                self.update(
-                    "Refreshing public NuGet vulnerability data, then retrying verification…",
-                );
-                let timeout = self.remaining()?.min(Duration::from_secs(90));
-                crate::harness::refresh_nuget_audit_cache(timeout).map_err(|refresh_error| {
-                    anyhow::anyhow!(
-                        "{error}\nKool.ad/e could not refresh the public NuGet audit cache: {refresh_error:#}"
-                    )
-                })?;
-                self.verify_once(cwd, command).map_err(|retry_error| {
-                    anyhow::anyhow!(
-                        "{retry_error}\nKool.ad/e refreshed the public NuGet audit cache and retried verification, but the feed error remains."
-                    )
-                })
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    fn verify_once(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
-        cwd.to_str()
-            .ok_or_else(|| anyhow::anyhow!("Non-UTF8 task repository path"))?;
-        let mut sandbox = if let Some(source) = &self.runtime_config_source {
-            crate::harness::pi_sandbox::Sandbox::new_for_task_repository(cwd, source)?
-        } else {
-            crate::harness::pi_sandbox::Sandbox::new(cwd)?
-        };
-        let npm_cache = crate::harness::prepared_npm_cache_path(cwd)?;
-        sandbox.mount_npm_cache(&npm_cache)?;
-        let cargo_cache = crate::harness::prepared_cargo_cache_path()?;
-        sandbox.mount_cargo_cache(&cargo_cache)?;
-        let args = sandbox.command_args("/bin/sh", command);
-        let args = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.command_clean_env(
-            cwd,
-            sandbox
-                .bwrap
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Non-UTF8 bubblewrap path"))?,
-            &args,
-        )
-    }
     pub(super) fn git(&self, cwd: &Path, args: &[&str]) -> anyhow::Result<String> {
         #[cfg(test)]
         git_trace::record(args);
@@ -191,6 +118,17 @@ impl Runner {
             }
         }
         Err(last.unwrap())
+    }
+
+    pub(super) fn git_to_file(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        output: &Path,
+    ) -> anyhow::Result<()> {
+        #[cfg(test)]
+        git_trace::record(args);
+        large_output::git_to_file(self, cwd, args, output)
     }
 
     /// Some Git operations write reflogs even though they do not create a
@@ -254,13 +192,6 @@ impl Runner {
     }
 }
 
-fn is_nuget_audit_failure(error: &anyhow::Error) -> bool {
-    error
-        .to_string()
-        .to_ascii_lowercase()
-        .contains("error nu1900:")
-}
-
 pub(super) fn append_tail(out: &mut String, line: &str) {
     out.push_str(line);
     out.push('\n');
@@ -271,23 +202,5 @@ pub(super) fn append_tail(out: &mut String, line: &str) {
             .find(|i| *i >= out.len() - 24_000)
             .unwrap_or(0);
         out.drain(..boundary);
-    }
-}
-
-#[cfg(test)]
-mod audit_recovery_tests {
-    use super::is_nuget_audit_failure;
-
-    #[test]
-    fn refresh_retry_is_limited_to_fatal_nuget_audit_errors() {
-        assert!(is_nuget_audit_failure(&anyhow::anyhow!(
-            "dotnet build failed: error NU1900: audit feed unavailable"
-        )));
-        assert!(!is_nuget_audit_failure(&anyhow::anyhow!(
-            "dotnet build failed: warning NU1900: audit feed unavailable"
-        )));
-        assert!(!is_nuget_audit_failure(&anyhow::anyhow!(
-            "dotnet build failed: error CS0246: missing type"
-        )));
     }
 }

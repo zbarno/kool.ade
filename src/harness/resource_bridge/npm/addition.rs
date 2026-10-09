@@ -9,6 +9,8 @@ use std::{
 
 use super::{ResourceResponse, cache};
 use crate::harness::resource_bridge::proxy::HttpsRegistryProxy;
+mod download_budget;
+use download_budget::resolve_with_download_budget;
 
 const RESOLUTION_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -43,29 +45,31 @@ pub(super) fn prepare(
         },
         |project, npm_cache, package_spec, registry| {
             let npm = cache::locate_npm(worktree)?;
-            let used = downloaded_bytes.load(std::sync::atomic::Ordering::Relaxed);
-            anyhow::ensure!(
-                used < crate::harness::resource_bridge::MAX_SESSION_BYTES,
-                "npm dependency download budget is exhausted"
-            );
-            let remaining = crate::harness::resource_bridge::MAX_SESSION_BYTES - used;
             let registry_host = url::Url::parse(registry)?
                 .host_str()
                 .ok_or_else(|| anyhow::anyhow!("The requested npm registry has no host"))?
                 .to_owned();
-            let proxy = HttpsRegistryProxy::start([registry_host], remaining)?;
-            let resolved = cache::resolve_lockfile_only(
-                &npm,
-                npm_cache,
-                project,
-                package_spec,
-                registry,
-                &proxy.url(),
-                RESOLUTION_TIMEOUT,
-            );
-            downloaded_bytes
-                .fetch_add(proxy.bytes_received(), std::sync::atomic::Ordering::Relaxed);
-            resolved
+            resolve_with_download_budget(
+                downloaded_bytes,
+                crate::harness::resource_bridge::MAX_SESSION_BYTES,
+                crate::harness::resource_bridge::MAX_SESSION_BYTES,
+                |reservation| {
+                    let proxy = match HttpsRegistryProxy::start([registry_host], reservation) {
+                        Ok(proxy) => proxy,
+                        Err(error) => return (Err(error), 0),
+                    };
+                    let resolved = cache::resolve_lockfile_only(
+                        &npm,
+                        npm_cache,
+                        project,
+                        package_spec,
+                        registry,
+                        &proxy.url(),
+                        RESOLUTION_TIMEOUT,
+                    );
+                    (resolved, proxy.bytes_received())
+                },
+            )
         },
         None,
     )

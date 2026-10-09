@@ -1,5 +1,12 @@
 use super::*;
-use crate::core::implementation::repository_cache::RepositoryCache;
+mod payload;
+mod pull_request;
+#[cfg(test)]
+pub(super) use payload::remote_repository;
+pub(super) use payload::{
+    effective_push_remote, pr_body, push_identity_remote, validate_target_remotes,
+};
+pub(super) use pull_request::{create_pull_request, fenced_push};
 
 const HOLD_FOR_REVIEW_NOTE: &str =
     "Verified locally. No remote changes were made; share for review when ready.";
@@ -25,149 +32,6 @@ pub(super) fn hold_for_review(dir: &Path, state: &mut Implementation) -> anyhow:
         state.detail.push_str(HOLD_FOR_REVIEW_NOTE);
     }
     save(dir, state)
-}
-
-pub(super) fn create_pull_request(
-    dir: &Path,
-    state: &mut Implementation,
-    runner: &Runner,
-) -> anyhow::Result<()> {
-    runner.remaining()?;
-    let repository_cache = if state.task_repository_kind == TaskRepositoryKind::Clone {
-        Some(RepositoryCache::from_saved_state(state, runner)?)
-    } else {
-        None
-    };
-    if state.destination_branch.is_some() {
-        let available = if let Some(cache) = repository_cache.as_ref() {
-            cache
-                .refresh_branch(&state.base, runner)
-                .map(|_| String::new())
-        } else {
-            runner.git(
-                &state.task_repository,
-                &[
-                    "ls-remote",
-                    "--exit-code",
-                    "--heads",
-                    "origin",
-                    &format!("refs/heads/{}", state.base),
-                ],
-            )
-        };
-        available.map_err(|error| {
-            crate::core::implementation::initial_reconciliation::support::user_action(
-                format!("Selected destination branch '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base),
-            )
-        })?;
-    }
-    anyhow::ensure!(
-        !matches!(state.branch.as_str(), "main" | "master"),
-        "Refusing to push implementation changes from the main or master branch"
-    );
-    anyhow::ensure!(
-        state.branch.starts_with("koolade/"),
-        "Refusing to push implementation changes from a non-Kool.ad/e branch"
-    );
-    runner.update("Publishing the verified implementation and creating its pull request…");
-    // Explicit base/head and body file avoid prompts, accidental forks and shell expansion.
-    let remote = if let Some(cache) = repository_cache.as_ref() {
-        cache.validate_task_remote(&state.task_repository, runner)?;
-        cache
-            .origin_url
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("Saved task has no trusted Git origin"))?
-            .to_owned()
-    } else {
-        runner.git(&state.task_repository, &["remote", "get-url", "origin"])?
-    };
-    let repository = remote_repository(&remote);
-    let prs = runner.command(
-        &state.task_repository,
-        &runner.gh,
-        &[
-            "pr",
-            "list",
-            "--repo",
-            &repository,
-            "--head",
-            &state.branch,
-            "--base",
-            &state.base,
-            "--state",
-            "all",
-            "--json",
-            "url,state",
-        ],
-    )?;
-    let existing: Vec<serde_json::Value> = serde_json::from_str(&prs)?;
-    if let Some(pr) = existing.first() {
-        anyhow::ensure!(
-            pr["state"] == "OPEN",
-            "The existing PR is closed or merged. Review it before publishing more changes; no duplicate PR created."
-        );
-    }
-    let current_branch =
-        runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?;
-    anyhow::ensure!(
-        current_branch == state.branch,
-        "Implementation repository branch changed; refusing to push"
-    );
-    if let Some(cache) = repository_cache.as_ref() {
-        cache.push_commit(
-            &state.task_repository,
-            state.verified_head.as_deref().ok_or_else(|| {
-                anyhow::anyhow!("Verified task commit is missing; refusing to publish")
-            })?,
-            &format!("refs/heads/{}", state.branch),
-            runner,
-        )?;
-    } else {
-        runner.git(
-            &state.task_repository,
-            &["push", "--set-upstream", "origin", &state.branch],
-        )?;
-    }
-    if let Some(pr) = existing.first() {
-        anyhow::ensure!(
-            pr["state"] != "CLOSED",
-            "The existing PR is closed. Review it before continuing; no duplicate PR created."
-        );
-        state.pr_url = pr["url"].as_str().map(String::from);
-    } else {
-        let body = dir.join("pr-body.md");
-        let url = runner.command(
-            &state.task_repository,
-            &runner.gh,
-            &[
-                "pr",
-                "create",
-                "--repo",
-                &repository,
-                "--head",
-                &state.branch,
-                "--base",
-                &state.base,
-                "--title",
-                &title(&state.ticket_text),
-                "--body-file",
-                body.to_str()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid PR body path"))?,
-            ],
-        )?;
-        state.pr_url = Some(url);
-    }
-    anyhow::ensure!(
-        state
-            .pr_url
-            .as_ref()
-            .is_some_and(|url| url.starts_with("https://")),
-        "GitHub did not return a PR URL"
-    );
-    state.status = ImplementationStatus::AwaitingReview;
-    state.pr_state = Some(PullRequestState::Open);
-    update_pull_request_detail(state);
-    Ok(())
 }
 
 pub(super) fn update_pull_request_detail(state: &mut Implementation) {
@@ -246,36 +110,4 @@ pub(super) fn finish_auto_publish(
         ));
     }
     Ok(())
-}
-
-pub(super) fn remote_repository(remote: &str) -> String {
-    let remote = remote.trim().trim_end_matches('/').trim_end_matches(".git");
-    if let Some(path) = remote.strip_prefix("git@") {
-        return path.replacen(':', "/", 1);
-    }
-    for scheme in ["https://", "http://", "ssh://"] {
-        if let Some(path) = remote.strip_prefix(scheme) {
-            return path
-                .rsplit_once('@')
-                .map(|(_, p)| p)
-                .unwrap_or(path)
-                .to_owned();
-        }
-    }
-    remote.to_owned()
-}
-
-pub(super) fn pr_body(state: &Implementation, report: &Report) -> String {
-    let mut text = format!(
-        "{}\n\nTicket: `{}`\n\n## Acceptance criteria\n\n",
-        report.summary, state.ticket
-    );
-    for c in &report.acceptance_criteria {
-        text.push_str(&format!("- {}: {}\n", c.criterion, c.evidence));
-    }
-    text.push_str("\n## Validation\n\nKool.ad/e reran these commands successfully in the implementation repository:\n\n");
-    for c in &report.verification {
-        text.push_str(&format!("```sh\n{c}\n```\n\n"));
-    }
-    text
 }

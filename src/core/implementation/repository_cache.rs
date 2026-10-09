@@ -1,6 +1,7 @@
 mod commit_identity;
 mod endpoints;
 mod identity;
+mod import;
 mod lock;
 mod operations;
 mod saved_state;
@@ -27,8 +28,10 @@ pub(super) struct RepositoryCache {
     pub(super) path: PathBuf,
     /// Sanitized manifest URL used for GitHub identity and clone configuration.
     pub(super) origin_url: Option<String>,
-    /// Sanitized effective push URL, which may honor a configured local mirror.
+    /// Sanitized effective push URL used by the app-owned cache for pushes.
     pub(super) push_url: Option<String>,
+    /// Configured push URL used to identify the PR and CI repository.
+    pub(super) push_identity_url: Option<String>,
     /// Sanitized effective fetch URL. It is used only for explicit cache fetches.
     pub(super) fetch_url: Option<String>,
 }
@@ -63,6 +66,8 @@ impl RepositoryCache {
         };
         let fetch_url = effective_remote_url(repo, false, runner)?;
         let push_url = effective_remote_url(repo, true, runner)?;
+        let push_identity_url =
+            configured_value(repo, "remote.origin.pushurl", runner)?.or_else(|| origin_url.clone());
         let identity = identity_for_repository(
             &repository.remote,
             fetch_url.as_deref(),
@@ -82,6 +87,7 @@ impl RepositoryCache {
             path,
             origin_url,
             push_url,
+            push_identity_url,
             fetch_url,
         };
         cache.ensure(repo, runner)?;

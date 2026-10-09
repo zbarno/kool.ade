@@ -39,17 +39,6 @@ fn runtime_config_survives_recovery_and_never_enters_stash_or_task_commit() {
     )
     .unwrap();
     approve(&s);
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
-    fs::create_dir_all(&dir).unwrap();
-    crate::core::implementation::initial_reconciliation::save_plan(
-        &dir,
-        "main",
-        &local,
-        &remote,
-        &common,
-        &[],
-    )
-    .unwrap();
     let worktree = super::merge_recovery::task_worktree(&s);
     fs::create_dir_all(worktree.parent().unwrap()).unwrap();
     let branch = format!(
@@ -79,6 +68,9 @@ fn runtime_config_survives_recovery_and_never_enters_stash_or_task_commit() {
         "preserve unrelated work\n",
     )
     .unwrap();
+    super::save_legacy_reconciliation_state(
+        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
+    );
     let (_, agent) = super::merge_recovery::agent();
     let result = run_with_agent(&s, &agent, None).unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingReview);
@@ -93,8 +85,9 @@ fn runtime_config_survives_recovery_and_never_enters_stash_or_task_commit() {
         serde_json::json!(["App/.env"])
     );
     let stash = snapshot["stash_commit"].as_str().unwrap();
+    let repository_cache = result.repository_cache.as_deref().unwrap();
     let saved = s.git(
-        &s.repo,
+        repository_cache,
         &["ls-tree", "-r", "--name-only", &format!("{stash}^3")],
     );
     assert!(saved.contains(".cache/unexpected.txt"));
@@ -150,7 +143,7 @@ fn runtime_config_recovery_blocks_revoked_grants_without_rotating_snapshot() {
     let (path, _) = super::merge_recovery::recovery_snapshot(&s);
     let before = fs::read(&path).unwrap();
     fs::remove_file(s.repo.join(".git/koolade/runtime-config.json")).unwrap();
-    let worktree = super::merge_recovery::task_worktree(&s);
+    let worktree = super::merge_recovery::migrated_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
     let (_, agent) = super::merge_recovery::agent();
@@ -173,7 +166,7 @@ fn runtime_config_recovery_reviews_new_grants_already_inside_old_stash() {
     let stash = snapshot["stash_commit"].as_str().unwrap();
     assert!(
         s.git(
-            &s.repo,
+            super::merge_recovery::repository_cache(&s).as_path(),
             &["ls-tree", "-r", "--name-only", &format!("{stash}^3")]
         )
         .contains(".cache/.env")
@@ -185,7 +178,7 @@ fn runtime_config_recovery_reviews_new_grants_already_inside_old_stash() {
     )
     .unwrap();
     approve_path(&s, ".cache/.env");
-    let worktree = super::merge_recovery::task_worktree(&s);
+    let worktree = super::merge_recovery::migrated_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
     let (_, agent) = super::merge_recovery::agent();

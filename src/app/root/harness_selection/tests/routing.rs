@@ -1,4 +1,6 @@
 use super::*;
+#[path = "routing/model_catalog.rs"]
+mod model_catalog;
 #[test]
 fn saved_supported_harness_ids_resolve_to_their_adapters() {
     assert!(resolve(Some("pi")).label().starts_with("pi "));
@@ -68,106 +70,6 @@ fn work_categories_route_independently_and_unmapped_categories_use_the_global_de
 }
 
 #[test]
-fn configured_model_missing_from_refreshed_catalog_fails_closed() {
-    use crate::persistence::harness_settings::{DetectedHarness, HarnessSettings, WorkRoute};
-    let settings = HarnessSettings {
-        work_routes: std::collections::BTreeMap::from([(
-            "manager".into(),
-            WorkRoute {
-                harness: "codex".into(),
-                model: Some("removed-model".into()),
-            },
-        )]),
-        discovered: std::collections::BTreeMap::from([(
-            "codex".into(),
-            DetectedHarness {
-                status: "codex ready".into(),
-                version: None,
-                executable: None,
-                diagnostic: None,
-                ready: true,
-                models: vec!["available-model".into()],
-                default_model: None,
-                configuration_required: false,
-            },
-        )]),
-        ..HarnessSettings::default()
-    };
-    let harness = routed_harness(&settings, Some("manager"), None, None);
-    let error = harness.check_available().unwrap_err().detail();
-    assert!(error.contains("removed-model"));
-    assert!(error.contains("refresh discovery"));
-}
-
-#[test]
-fn route_label_reports_configured_default_model_before_harness_usage() {
-    use crate::persistence::harness_settings::{DetectedHarness, HarnessSettings, WorkRoute};
-    let settings = HarnessSettings {
-        work_routes: std::collections::BTreeMap::from([(
-            "manager".into(),
-            WorkRoute {
-                harness: "codex".into(),
-                model: None,
-            },
-        )]),
-        discovered: std::collections::BTreeMap::from([(
-            "codex".into(),
-            DetectedHarness {
-                status: "codex ready".into(),
-                version: None,
-                executable: None,
-                diagnostic: None,
-                ready: true,
-                models: vec!["gpt-configured".into()],
-                default_model: Some("gpt-configured".into()),
-                configuration_required: false,
-            },
-        )]),
-        ..HarnessSettings::default()
-    };
-    let harness = routed_harness(&settings, Some("manager"), None, None);
-    assert!(
-        harness
-            .label()
-            .ends_with(" / CLI default (last discovered: gpt-configured)")
-    );
-}
-
-#[test]
-fn route_label_says_when_cli_does_not_report_its_default_model() {
-    use crate::persistence::harness_settings::{DetectedHarness, HarnessSettings, WorkRoute};
-    let settings = HarnessSettings {
-        work_routes: std::collections::BTreeMap::from([(
-            "manager".into(),
-            WorkRoute {
-                harness: "codex".into(),
-                model: None,
-            },
-        )]),
-        discovered: std::collections::BTreeMap::from([(
-            "codex".into(),
-            DetectedHarness {
-                status: "codex ready".into(),
-                version: None,
-                executable: None,
-                diagnostic: None,
-                ready: true,
-                models: vec![],
-                default_model: None,
-                configuration_required: false,
-            },
-        )]),
-        ..HarnessSettings::default()
-    };
-    let harness = routed_harness(&settings, Some("manager"), None, None);
-    assert!(
-        harness
-            .label()
-            .contains("CLI default (model not reported for codex)")
-    );
-}
-
-#[test]
 fn task_route_overrides_each_category_and_remain_stable_when_app_defaults_change() {
     use crate::persistence::harness_settings::{
         DOCUMENTATION, HarnessSettings, IMPLEMENTATION, QA, WorkRoute,
@@ -233,6 +135,48 @@ fn task_route_overrides_each_category_and_remain_stable_when_app_defaults_change
 }
 
 #[test]
+fn unsupported_implementation_route_fails_closed_without_falling_back_to_pi() {
+    use crate::persistence::harness_settings::{
+        DetectedHarness, HarnessSettings, IMPLEMENTATION, WorkRoute,
+    };
+    let detected = |id: &str, implementation_available| DetectedHarness {
+        status: format!("{id} ready"),
+        version: None,
+        executable: Some(format!("/tools/{id}")),
+        diagnostic: None,
+        ready: true,
+        models: vec![],
+        default_model: None,
+        configuration_required: false,
+        implementation_available,
+    };
+    let settings = HarnessSettings {
+        default_harness: Some("pi".into()),
+        discovered: std::collections::BTreeMap::from([
+            ("pi".into(), detected("pi", true)),
+            ("codex".into(), detected("codex", false)),
+        ]),
+        work_routes: std::collections::BTreeMap::from([(
+            IMPLEMENTATION.into(),
+            WorkRoute {
+                harness: "codex".into(),
+                model: None,
+            },
+        )]),
+        ..HarnessSettings::default()
+    };
+
+    let error = routed_harness(&settings, Some(IMPLEMENTATION), None, None)
+        .check_available()
+        .unwrap_err()
+        .detail();
+
+    assert!(error.contains("codex"));
+    assert!(error.contains("application-owned Linux sandbox"));
+    assert!(error.contains("no fallback"));
+}
+
+#[test]
 fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
     use crate::persistence::harness_settings::{
         DetectedHarness, HarnessSettings, IMPLEMENTATION, MANAGER, WorkRoute,
@@ -249,6 +193,7 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
                 models: vec!["available".into()],
                 default_model: None,
                 configuration_required: false,
+                implementation_available: false,
             },
         )]),
         ..Default::default()
@@ -271,7 +216,15 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
             &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("removed")))])
         )
         .unwrap_err()
-        .contains("unavailable")
+        .contains("application-owned Linux sandbox")
+    );
+    assert!(
+        validate_task_routes(
+            &settings,
+            &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))])
+        )
+        .unwrap_err()
+        .contains("application-owned Linux sandbox")
     );
     assert!(
         validate_task_routes(
@@ -287,11 +240,29 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
         .unwrap_err()
         .contains("not been discovered")
     );
+    let mut available = settings.clone();
+    available
+        .discovered
+        .get_mut("codex")
+        .unwrap()
+        .implementation_available = true;
+    assert!(
+        validate_task_routes(
+            &available,
+            &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))])
+        )
+        .unwrap_err()
+        .contains("application-owned Linux sandbox")
+    );
     assert!(
         validate_task_routes(
             &settings,
-            &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))])
+            &std::collections::BTreeMap::from([(
+                crate::persistence::harness_settings::DOCUMENTATION.into(),
+                route(Some("available")),
+            )])
         )
-        .is_ok()
+        .unwrap_err()
+        .contains("application-owned Linux sandbox")
     );
 }

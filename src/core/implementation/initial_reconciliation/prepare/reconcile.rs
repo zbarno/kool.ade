@@ -36,7 +36,7 @@ pub(super) fn run(
     let mut last_failure = String::new();
     for attempt in 1..=MAX_ATTEMPTS {
         runner.remaining()?;
-        validate_task_repository(repo, state, runner)?;
+        validate_task_repository(state, runner)?;
         let status = runner.git(&state.task_repository, &["status", "--short"])?;
         let unmerged = unmerged_paths(runner, &state.task_repository)?;
         let diff = runner.git(&state.task_repository, &["diff", "--cc"])?;
@@ -187,7 +187,7 @@ pub(super) fn run(
             state,
             false,
         )?;
-        validate_task_repository(repo, state, runner)?;
+        validate_task_repository(state, runner)?;
         let merge_head = auto_verify::current_merge_head(runner, &state.task_repository)?;
         let merge_in_progress = merge_head.is_some();
         whitespace::check(runner, &state.task_repository, plan)?;

@@ -4,7 +4,7 @@ use anyhow::Context;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::AtomicUsize,
     time::{Duration, Instant},
 };
 
@@ -162,14 +162,11 @@ pub(super) fn prepare_with_registry_and_ops(
             cached += 1;
             continue;
         }
-        let already = downloaded_bytes.load(Ordering::Relaxed);
-        anyhow::ensure!(
-            already < super::super::MAX_SESSION_BYTES,
-            "npm dependency download budget is exhausted"
-        );
-        let reservation =
-            (super::super::MAX_SESSION_BYTES - already).min(fetch::MAX_RESOURCE_BYTES as usize);
-        downloaded_bytes.fetch_add(reservation, Ordering::Relaxed);
+        let reservation = crate::harness::resource_bridge::budget::reserve_downloads(
+            downloaded_bytes,
+            fetch::MAX_RESOURCE_BYTES as usize,
+            super::super::MAX_SESSION_BYTES,
+        )?;
         let response = (operations.retrieve)(
             response_dir,
             &package.url,
@@ -182,13 +179,18 @@ pub(super) fn prepare_with_registry_and_ops(
             Err(error) => {
                 let received = crate::harness::resource_bridge::fetch::bytes_from_failure(&error)
                     .unwrap_or_default();
-                downloaded_bytes.fetch_sub(reservation.saturating_sub(received), Ordering::Relaxed);
+                crate::harness::resource_bridge::budget::settle_downloads(
+                    downloaded_bytes,
+                    reservation,
+                    received,
+                );
                 return Err(error).context("retrieving a lockfile-pinned npm package");
             }
         };
-        downloaded_bytes.fetch_sub(
-            reservation.saturating_sub(response.bytes),
-            Ordering::Relaxed,
+        crate::harness::resource_bridge::budget::settle_downloads(
+            downloaded_bytes,
+            reservation,
+            response.bytes,
         );
         if response.status != "allowed" {
             return Ok(response);

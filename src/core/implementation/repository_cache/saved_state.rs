@@ -28,6 +28,13 @@ impl RepositoryCache {
             .or_else(|| origin_url.clone());
         let fetch_url =
             configured_value(&path, "koolade.fetchUrl", runner)?.or_else(|| origin_url.clone());
+        let push_identity_url = state.push_repository.clone().or_else(|| {
+            if push_url == fetch_url {
+                origin_url.clone()
+            } else {
+                push_url.clone()
+            }
+        });
         if let Some(origin) = origin_url.as_deref() {
             anyhow::ensure!(
                 identity_for_repository(
@@ -44,6 +51,7 @@ impl RepositoryCache {
             path,
             origin_url,
             push_url,
+            push_identity_url,
             fetch_url,
         })
     }

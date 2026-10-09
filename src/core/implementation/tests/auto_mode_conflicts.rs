@@ -58,6 +58,16 @@ fn auto_mode_repairs_conflicts_and_keeps_verified_integration_for_review() {
     .unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert!(
+        result.detail.contains("both changed these paths"),
+        "{}",
+        result.detail
+    );
+    assert!(
+        result.detail.contains("implemented.txt"),
+        "{}",
+        result.detail
+    );
+    assert!(
         result
             .independent_check
             .as_ref()

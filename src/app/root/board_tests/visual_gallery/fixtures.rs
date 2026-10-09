@@ -23,6 +23,7 @@ pub(super) fn settings(ctx: &egui::Context) {
                 models: vec!["project-default".into()],
                 default_model: Some("project-default".into()),
                 configuration_required: false,
+                implementation_available: id == "pi" && ready,
             },
         );
     }

@@ -5,7 +5,7 @@ use crate::harness::pi_sandbox::{
     config::{locate_bwrap, locate_git},
 };
 
-use super::support::{TestTree, bwrap_available, create_worktree, git, run};
+use super::support::{TestTree, bwrap_available, create_task_clone, git, run};
 
 #[test]
 fn worker_can_inspect_git_but_cannot_change_metadata_or_read_other_task_secrets() {
@@ -13,41 +13,7 @@ fn worker_can_inspect_git_but_cannot_change_metadata_or_read_other_task_secrets(
         return;
     }
     let tree = TestTree::new();
-    let repository = tree.0.join("repository");
-    let root = tree
-        .0
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(&repository))
-        .join("task worktree");
-    fs::create_dir(&repository).unwrap();
-    fs::create_dir_all(root.parent().unwrap()).unwrap();
-    git(&repository, &["init", "--quiet"]);
-    fs::write(repository.join("tracked.txt"), "initial\n").unwrap();
-    git(&repository, &["add", "tracked.txt"]);
-    git(
-        &repository,
-        &[
-            "-c",
-            "user.name=Koolade test",
-            "-c",
-            "user.email=koolade-test@example.invalid",
-            "commit",
-            "--quiet",
-            "-m",
-            "initial",
-        ],
-    );
-    git(
-        &repository,
-        &[
-            "worktree",
-            "add",
-            "--quiet",
-            "-b",
-            "koolade-sandbox-test",
-            root.to_str().unwrap(),
-        ],
-    );
+    let (repository, root) = create_task_clone(&tree, "git-access");
     git(
         &root,
         &[
@@ -57,17 +23,29 @@ fn worker_can_inspect_git_but_cannot_change_metadata_or_read_other_task_secrets(
             "https://worker:secret@example.invalid/repository.git",
         ],
     );
-    let other_root = root.parent().unwrap().join("other task");
+    let other_root = crate::persistence::state_root()
+        .join("projects")
+        .join("sandbox-peer-project")
+        .join("task-repositories")
+        .join(crate::persistence::project_slug(&repository))
+        .join(format!(
+            "other-task-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..16]
+        ));
+    fs::create_dir_all(other_root.parent().unwrap()).unwrap();
     git(
-        &repository,
+        &tree.0,
         &[
-            "worktree",
-            "add",
+            "clone",
             "--quiet",
-            "-b",
-            "koolade-sandbox-other",
+            "--no-hardlinks",
+            repository.to_str().unwrap(),
             other_root.to_str().unwrap(),
         ],
+    );
+    git(
+        &other_root,
+        &["switch", "--quiet", "-c", "koolade-sandbox-other"],
     );
     let other_admin = git(
         &other_root,
@@ -104,8 +82,33 @@ fn sandbox_rejects_main_checkout_and_unregistered_worktrees() {
         return;
     }
     let tree = TestTree::new();
-    let (repository, _registered) = create_worktree(&tree, "registered");
+    let (repository, _registered) = create_task_clone(&tree, "registered");
     assert!(Sandbox::new(&repository).is_err());
+    let legacy = crate::persistence::state_root()
+        .join("projects")
+        .join(crate::persistence::project_slug(&repository))
+        .join("task-repositories")
+        .join(format!(
+            "legacy-task-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..16]
+        ));
+    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    git(
+        &repository,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            "koolade-legacy-test",
+            legacy.to_str().unwrap(),
+        ],
+    );
+    let error = Sandbox::new(&legacy).unwrap_err().to_string();
+    assert!(
+        error.contains("migrate to an independent task clone"),
+        "{error}"
+    );
     let outside = tree.0.join("unregistered-worktree");
     let branch = format!("koolade-sandbox-outside-{}", uuid::Uuid::new_v4());
     git(
@@ -126,9 +129,9 @@ fn sandbox_rejects_main_checkout_and_unregistered_worktrees() {
 #[test]
 fn executable_lookup_ignores_task_binaries_and_relative_path_entries() {
     use std::os::unix::fs::PermissionsExt;
-    let _shield = crate::core::gitops::test_support::shield("sandbox-git-path");
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "git-path");
+    let (_repository, root) = create_task_clone(&tree, "git-path");
+    let _shield = crate::core::gitops::test_support::shield("sandbox-git-path");
     let fake_git = root.join("git");
     let fake_bwrap = root.join("bwrap");
     fs::write(&fake_git, "#!/bin/sh\nexit 99\n").unwrap();

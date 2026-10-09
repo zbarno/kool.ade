@@ -2,7 +2,7 @@ use std::{fs, path::Path};
 
 use crate::harness::pi_sandbox::Sandbox;
 
-use super::support::{TestTree, bwrap_available, create_worktree, run};
+use super::support::{TestTree, bwrap_available, create_task_clone, run};
 
 #[test]
 fn compiler_alternative_retains_support_file_discovery() {
@@ -18,7 +18,7 @@ fn compiler_alternative_retains_support_file_discovery() {
         return;
     }
     let tree = TestTree::new();
-    let (_repository, root) = create_worktree(&tree, "compiler-runtime");
+    let (_repository, root) = create_task_clone(&tree, "compiler-runtime");
     fs::write(root.join("fixture.c"), "int main(void) { return 0; }\n").unwrap();
     let sandbox = Sandbox::new(&root).unwrap();
     let output = run(

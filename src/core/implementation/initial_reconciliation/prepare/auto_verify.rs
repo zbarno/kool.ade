@@ -59,11 +59,15 @@ pub(super) fn inspect_disjoint_merge(
         ],
     )?;
     let generated = generated::trusted(runner, state, dir)?;
+    let runtime_configuration = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+        task_repository,
+        runner.runtime_config_source.as_deref(),
+    )?;
     let unknown = |paths: &str| {
         paths
             .split('\0')
             .filter(|path| !path.is_empty())
-            .any(|path| !generated.contains(path))
+            .any(|path| !generated.contains(path) && !runtime_configuration.contains(path))
     };
     if staged_paths != expected_local
         || !unstaged.is_empty()

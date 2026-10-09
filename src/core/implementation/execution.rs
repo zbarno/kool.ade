@@ -1,5 +1,5 @@
 use super::*;
-mod initial_base;
+use crate::core::implementation::status::FailureCause;
 mod resume_state;
 mod source;
 mod task_state;
@@ -25,6 +25,7 @@ pub fn run(
             require_independent_checks: false,
             user_context: None,
             auto_publish_gate: None,
+            claim_lease: None,
         },
     )
 }
@@ -43,6 +44,7 @@ pub(super) fn run_with_project_options(
         require_independent_checks,
         user_context,
         auto_publish_gate,
+        claim_lease,
     } = options;
     let active_progress = progress.clone();
     let migration_gate = crate::artifacts::migration::acquire_project_state_gate(planning_root)?;
@@ -112,14 +114,10 @@ pub(super) fn run_with_project_options(
     if state.status == ImplementationStatus::Completed {
         return Ok(state);
     }
-    let lifecycle_repository = if state.task_repository_kind == TaskRepositoryKind::Clone {
-        state
-            .repository_cache
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Saved repository cache path is missing"))?
-    } else {
-        repo.to_path_buf()
-    };
+    let lifecycle_repository = state
+        .repository_cache
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Saved repository cache path is missing"))?;
     save(&dir, &state)?;
     drop(migration_gate);
     let result = runner
@@ -138,11 +136,37 @@ pub(super) fn run_with_project_options(
                     require_independent_checks,
                     auto_publish_gate: auto_publish_gate.as_deref(),
                     accrual,
+                    claim_lease: claim_lease.as_ref(),
                 },
             )
         });
+    let lease_lost = claim_lease
+        .as_ref()
+        .is_some_and(crate::core::task_claim::ClaimLeaseHandle::is_lost);
+    let result = if lease_lost && result.is_ok() {
+        Err(anyhow::Error::new(FailureCause(Failure::new(
+            FailureKind::LeaseLost,
+            RecoveryDisposition::UserAction,
+            "The remote task claim was lost or could not be verified. Publication stopped and the task repository is preserved. Reacquire the task claim before resuming.",
+        ))))
+    } else {
+        result
+    };
     if let Err(error) = result {
-        state.status = if runner.cancel.load(Ordering::SeqCst) {
+        let error = if lease_lost {
+            anyhow::Error::new(FailureCause(Failure::new(
+                FailureKind::LeaseLost,
+                RecoveryDisposition::UserAction,
+                format!(
+                    "The remote task claim was lost or could not be verified. Publication stopped and the task repository is preserved. Reacquire the task claim before resuming. Previous operation: {error:#}"
+                ),
+            )))
+        } else {
+            error
+        };
+        state.status = if lease_lost {
+            ImplementationStatus::Blocked
+        } else if runner.cancel.load(Ordering::SeqCst) {
             ImplementationStatus::Interrupted
         } else {
             ImplementationStatus::Blocked

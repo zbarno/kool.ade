@@ -68,6 +68,7 @@ impl AiHarness for AntigravityHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::require_application_implementation_boundary("Antigravity", request)?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|e| {
             AppError::Other(format!("Cannot resolve Antigravity CLI executable: {e}"))
         })?;

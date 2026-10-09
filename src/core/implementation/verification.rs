@@ -63,16 +63,8 @@ pub(super) fn prepare_verified(
         let report = loop {
             runner.remaining()?;
             attempt += 1;
-            if state.task_repository_kind == TaskRepositoryKind::Clone {
-                task_repository::validate_clone_path(state)?;
-                RepositoryCache::verify_task_repository(&state.task_repository, runner)?;
-            } else {
-                anyhow::ensure!(
-                    common(&state.task_repository)?.canonicalize()?
-                        == common(repo)?.canonicalize()?,
-                    "Legacy task workspace belongs to a different repository"
-                );
-            }
+            task_repository::validate_clone_path(state)?;
+            RepositoryCache::verify_task_repository(&state.task_repository, runner)?;
             anyhow::ensure!(
                 runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
                     == state.branch,

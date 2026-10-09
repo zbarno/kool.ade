@@ -225,7 +225,10 @@ fn executes_structured_events_and_normalizes_usage() {
     );
     let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
     let (tx, rx) = mpsc::channel();
-    let outcome = CodexHarness.execute(&request(root.clone(), tx)).unwrap();
+    let outcome = crate::harness::with_uncontained_provider_test_execution(|| {
+        CodexHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap();
     assert_eq!(outcome.final_text, r#"{"ok":true}"#);
     let progress = rx.try_iter().last().unwrap();
     assert_eq!(progress.model_calls.len(), 1);
@@ -254,17 +257,19 @@ fn failure_and_malformed_completion_are_reported_as_harness_failures() {
     );
     let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
     let (tx, _) = mpsc::channel();
-    let error = CodexHarness
-        .execute(&request(root.clone(), tx))
-        .unwrap_err();
+    let error = crate::harness::with_uncontained_provider_test_execution(|| {
+        CodexHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap_err();
     assert!(error.detail().contains("approval required"));
 
     let binary = fake_cli(&root, "echo not-json\nexit 0");
     _env.set_value(&binary);
     let (tx, _) = mpsc::channel();
-    let error = CodexHarness
-        .execute(&request(root.clone(), tx))
-        .unwrap_err();
+    let error = crate::harness::with_uncontained_provider_test_execution(|| {
+        CodexHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap_err();
     assert!(error.detail().contains("without a final assistant message"));
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -282,9 +287,11 @@ fn cancellation_terminates_the_active_codex_process() {
     let worker_root = root.clone();
     let worker = std::thread::spawn(move || {
         let (tx, _) = mpsc::channel();
-        CodexHarness.execute(&PlanningRequest {
-            cancel: worker_cancel,
-            ..request(worker_root, tx)
+        crate::harness::with_uncontained_provider_test_execution(|| {
+            CodexHarness.execute(&PlanningRequest {
+                cancel: worker_cancel,
+                ..request(worker_root, tx)
+            })
         })
     });
     let deadline = std::time::Instant::now() + Duration::from_secs(3);

@@ -86,15 +86,12 @@ fn bindings(root: &Path, runtime_source: Option<&Path>) -> anyhow::Result<Vec<(S
     if root == source {
         return Ok(Vec::new());
     }
-    let admin = super::config::git_path(&root, "--git-dir")?;
     if common != source_common {
         super::config::validate_koolade_clone(&root, &common)?;
         anyhow::ensure!(
             repository_identity(&root)? == repository_identity(&source)?,
             "Runtime configuration source belongs to another repository"
         );
-    } else {
-        super::config::validate_koolade_worktree(&root, &admin, &common)?;
     }
     let mut result = Vec::new();
     let mut unique = BTreeSet::new();

@@ -1,10 +1,32 @@
 use super::*;
 
+struct RestoreSshCommand(Option<std::ffi::OsString>);
+
+impl RestoreSshCommand {
+    fn capture() -> Self {
+        Self(std::env::var_os("GIT_SSH_COMMAND"))
+    }
+}
+
+impl Drop for RestoreSshCommand {
+    fn drop(&mut self) {
+        // SAFETY: repository tests run serially, so restoring the prior value cannot race a test.
+        unsafe {
+            if let Some(command) = self.0.as_ref() {
+                std::env::set_var("GIT_SSH_COMMAND", command);
+            } else {
+                std::env::remove_var("GIT_SSH_COMMAND");
+            }
+        }
+    }
+}
+
 pub(super) struct Sandbox {
     pub(super) root: PathBuf,
     pub(super) repo: PathBuf,
     pub(super) gh: PathBuf,
     pub(super) ticket: String,
+    _ssh_command_restore: RestoreSshCommand,
 }
 impl Sandbox {
     pub(super) fn git(&self, cwd: &Path, args: &[&str]) -> String {
@@ -79,12 +101,27 @@ impl Sandbox {
             "-q",
             root.join("remote.git").to_str().unwrap(),
         ]);
-        let github_remote = "https://github.com/fixture/repo.git";
-        git(&["remote", "add", "origin", github_remote]);
+        let ssh = root.join("ssh-fixture");
+        fs::write(
+            &ssh,
+            "#!/bin/sh\nroot=$(dirname \"$0\")\ncase \"$*\" in\n  *git-upload-pack*) exec git-upload-pack \"$root/remote.git\" ;;\n  *git-receive-pack*) exec git-receive-pack \"$root/remote.git\" ;;\n  *) echo 'unsupported fixture SSH command' >&2; exit 2 ;;\nesac\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let ssh_command_restore = RestoreSshCommand::capture();
+        // SAFETY: repository tests run serially, and the RAII guard restores this value on drop.
+        unsafe {
+            std::env::set_var("GIT_SSH_COMMAND", &ssh);
+        }
         git(&[
-            "config",
-            &format!("url.{}.insteadOf", root.join("remote.git").display()),
-            github_remote,
+            "remote",
+            "add",
+            "origin",
+            "ssh://git@github.com/fixture/repo.git",
         ]);
         git(&["push", "-q", "origin", "main"]);
         let gh = root.join("gh-fixture");
@@ -99,6 +136,7 @@ impl Sandbox {
             repo,
             gh,
             ticket,
+            _ssh_command_restore: ssh_command_restore,
         }
     }
     pub(super) fn run(
@@ -141,6 +179,7 @@ impl Sandbox {
                 require_independent_checks,
                 user_context: None,
                 auto_publish_gate,
+                claim_lease: None,
             },
         )
     }

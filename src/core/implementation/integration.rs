@@ -1,5 +1,6 @@
 use super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
+mod change_set;
 mod prepare;
 use prepare::prepare_integration;
 
@@ -127,13 +128,13 @@ fn integrate(
                 && !checks_gate::independent_check_passed(state.independent_check.as_ref(), &commit)
             {
                 checks_gate::wait_for_independent_checks(
-                    integration_git_repo,
                     dir,
                     state,
                     &state.task_repository.clone(),
                     &commit,
                     runner,
                     policy.auto_publish_gate,
+                    policy.claim_lease,
                 )?;
             }
             return publication::finish_auto_publish(repo, dir, state, runner);
@@ -174,6 +175,25 @@ fn integrate(
                 runner,
             )?;
         }
+        if let Some(task_head) = state.verified_head.as_deref() {
+            let conflicts = change_set::overlap(
+                integration_git_repo,
+                &state.base_commit,
+                task_head,
+                &remote,
+                &dir.join("integration-change-audit"),
+                runner,
+            )?;
+            if !conflicts.is_empty() {
+                let paths = change_set::display_paths(&conflicts);
+                state.detail = format!(
+                    "The task and origin/{} both changed these paths: {paths}. Kool.ad/e is checking the changes in an isolated integration clone.",
+                    state.base
+                );
+                save(dir, state)?;
+                runner.update(state.detail.clone());
+            }
+        }
         let integration =
             prepare_integration(repo, dir, state, &integration_base, harness, runner, policy)?;
         if !publish_after_integration {
@@ -201,13 +221,13 @@ fn integrate(
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("Integrated commit is missing"))?;
             checks_gate::wait_for_independent_checks(
-                integration_git_repo,
                 dir,
                 state,
                 &integration.task_repository,
                 &verified_commit,
                 runner,
                 policy.auto_publish_gate,
+                policy.claim_lease,
             )?;
         }
         // Automatic publication stops at verified local work. The operator

@@ -5,6 +5,8 @@ use std::fmt;
 #[serde(rename_all = "snake_case")]
 pub enum FailureKind {
     RemoteDiverged,
+    LeaseLost,
+    ChangeConflict,
     NoImplementationChanges,
     ExternalPrerequisite,
     Harness,

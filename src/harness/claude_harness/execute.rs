@@ -30,6 +30,7 @@ impl AiHarness for ClaudeHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::require_application_implementation_boundary("Claude Code", request)?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Claude Code executable: {error}"))
         })?;

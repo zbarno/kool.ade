@@ -290,6 +290,7 @@ mod tests {
             repository_id: None,
             project_id: None,
             repository_identity: None,
+            push_repository: None,
             repository_cache: None,
             task_repository_allocation_key: None,
             base: "main".into(),

@@ -12,6 +12,7 @@ pub mod claude_harness;
 pub mod codex_harness;
 pub mod copilot_harness;
 pub(crate) mod dependency_authorization;
+pub(crate) mod execution_security;
 pub mod live_preview;
 pub mod opencode_harness;
 pub mod pi_events;
@@ -23,6 +24,66 @@ pub mod responses;
 pub mod runtime_capabilities;
 
 pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
+
+pub(crate) fn implementation_route_available(harness: &str) -> bool {
+    execution_security::implementation_route_available(harness)
+}
+
+pub(crate) fn require_application_implementation_boundary(
+    harness: &str,
+    request: &PlanningRequest,
+) -> Result<(), crate::error::AppError> {
+    #[cfg(test)]
+    if provider_test_override::enabled() {
+        return Ok(());
+    }
+    let policy_id = match harness {
+        "Claude Code" => "claude",
+        "Copilot CLI" => "copilot",
+        other => other,
+    };
+    if !execution_security::for_harness(policy_id)
+        .is_some_and(|capabilities| capabilities.supports(request.mode))
+    {
+        return Err(crate::error::AppError::HarnessFailed {
+            reason: format!(
+                "{harness} repository access is unavailable because it cannot run inside Kool.ad/e's application-owned Linux sandbox. Select Pi on a host with Bubblewrap. No CLI was started."
+            ),
+            stderr_tail: String::new(),
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn with_uncontained_provider_test_execution<T>(run: impl FnOnce() -> T) -> T {
+    provider_test_override::with_enabled(run)
+}
+
+#[cfg(test)]
+mod provider_test_override {
+    use std::cell::Cell;
+
+    std::thread_local! {
+        static ENABLED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn enabled() -> bool {
+        ENABLED.with(Cell::get)
+    }
+
+    pub(super) fn with_enabled<T>(run: impl FnOnce() -> T) -> T {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ENABLED.with(|enabled| enabled.set(self.0));
+            }
+        }
+        let previous = ENABLED.with(|enabled| enabled.replace(true));
+        let _restore = Restore(previous);
+        run()
+    }
+}
 
 /// Return a saved operator path, validating the filesystem part before a
 /// provider probe or task launch uses it. Provider-specific probes still

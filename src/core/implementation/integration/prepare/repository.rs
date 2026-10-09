@@ -1,43 +1,17 @@
 use super::*;
 
 pub(super) fn ensure_integration_repository(
-    repo: &Path,
     dir: &Path,
     state: &mut Implementation,
     integration_base: &str,
-    commit_identity: Option<&crate::core::implementation::repository_cache::GitCommitIdentity>,
+    commit_identity: &crate::core::implementation::repository_cache::GitCommitIdentity,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree {
-        if !state.task_repository.exists() {
-            let path = state
-                .task_repository
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid legacy integration path"))?;
-            runner.git_with_reflog_identity(
-                repo,
-                &[
-                    "worktree",
-                    "add",
-                    "-b",
-                    &state.branch,
-                    path,
-                    integration_base,
-                ],
-            )?;
-        }
-        anyhow::ensure!(
-            common(&state.task_repository)?.canonicalize()? == common(repo)?.canonicalize()?
-                && runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
-                    == state.branch,
-            "Legacy integration workspace identity changed; refusing to modify it"
-        );
-        return Ok(());
-    }
-
+    anyhow::ensure!(
+        state.task_repository_kind == TaskRepositoryKind::Clone,
+        "Legacy integration repositories must migrate before use"
+    );
     task_repository::validate_clone_path_at(state, &state.task_repository)?;
-    let commit_identity = commit_identity
-        .ok_or_else(|| anyhow::anyhow!("Clone integration is missing its saved Git identity"))?;
     let cache = RepositoryCache::from_saved_state(state, runner)?;
     if state.task_repository.exists() {
         RepositoryCache::verify_task_repository(&state.task_repository, runner)?;

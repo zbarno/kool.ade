@@ -59,6 +59,15 @@ fn section_tab(
 
 pub(super) use super::tools::paint_tools;
 
+fn route_available(
+    id: &str,
+    harness: &crate::persistence::harness_settings::DetectedHarness,
+) -> bool {
+    harness.ready
+        && harness.implementation_available
+        && crate::harness::implementation_route_available(id)
+}
+
 pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
     ui.label(
         RichText::new("Models & routing")
@@ -67,6 +76,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .color(theme::TEXT),
     );
     ui.label(RichText::new("Choose the coding tool and model for each kind of work. Settings are saved on this device. Unchanged categories use your default tool.").size(11.0).weak());
+    ui.label(RichText::new("All repository work requires Kool.ad/e's Bubblewrap sandbox. Tools without that boundary remain discoverable, but cannot be routed until sandbox support is available.").size(10.5).weak());
     let categories = [
         (
             crate::persistence::harness_settings::IMPLEMENTATION,
@@ -85,14 +95,14 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             "Documentation",
         ),
     ];
-    let available = dialog
-        .settings
-        .discovered
-        .iter()
-        .filter(|(_, harness)| harness.ready)
-        .map(|(id, _)| id.clone())
-        .collect::<Vec<_>>();
     for (key, label) in categories {
+        let available = dialog
+            .settings
+            .discovered
+            .iter()
+            .filter(|(id, harness)| route_available(id, harness))
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
         let current = dialog
             .settings
             .work_routes
@@ -126,10 +136,20 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .settings
                 .discovered
                 .get(id)
-                .is_some_and(|harness| harness.ready)
+                .is_some_and(|harness| route_available(id, harness))
         {
+            let detail = if dialog
+                .settings
+                .discovered
+                .get(id)
+                .is_some_and(|harness| harness.ready)
+            {
+                "does not support repository work inside Kool.ad/e's application-owned sandbox"
+            } else {
+                "is currently unavailable"
+            };
             ui.label(
-                RichText::new(format!("Saved {label} route uses {id}, which is currently unavailable. Kool.ad/e will surface the failure without switching tools."))
+                RichText::new(format!("Saved {label} route uses {id}, which {detail}. Choose an available route before starting work."))
                     .size(10.5)
                     .color(theme::DANGER),
             );

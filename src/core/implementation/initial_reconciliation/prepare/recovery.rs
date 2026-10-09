@@ -45,10 +45,13 @@ pub(super) fn recover_unexpected_merge(
                 "The prior recovery is retained. Explicitly resume to authorize one fresh preservation attempt."
             )
         );
-        history::archive(repo, &snapshot_path, state, runner, plan)?;
+        history::archive(&snapshot_path, state, runner, plan)?;
     }
 
-    let config = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
+    let config = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+        &state.task_repository,
+        runner.runtime_config_source.as_deref(),
+    )?;
     let status = Snapshot {
         schema_version: 2,
         phase: "snapshot_pending".into(),
@@ -153,7 +156,19 @@ pub(super) fn recover_unexpected_merge(
         "refs/koolade/reconciliation-recovery/{}/{nonce}",
         task_repository::allocation_key(state)
     );
-    runner.git(repo, &["update-ref", &private_ref, &stash_commit])?;
+    runner.git(
+        &state.task_repository,
+        &["update-ref", &private_ref, &stash_commit],
+    )?;
+    let task_repository = state
+        .task_repository
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Non-UTF8 task repository path"))?;
+    let refspec = format!("{private_ref}:{private_ref}");
+    runner.git(
+        repo,
+        &["fetch", "--no-tags", task_repository, refspec.as_str()],
+    )?;
 
     let mut saved = status;
     saved.phase = "snapshot_saved".into();

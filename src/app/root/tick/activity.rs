@@ -162,6 +162,8 @@ fn advance_dependency_review(
         }
         let _ = crate::harness::dependency_authorization::answer(
             &request_id,
+            &request.task_id,
+            &request.need,
             crate::harness::dependency_authorization::DependencyResolution {
                 decision: triage.decision,
                 scope,

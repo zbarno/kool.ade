@@ -20,7 +20,11 @@ fn private_runtime_config_blocks_managed_npm_fetch_without_a_verified_cache() {
         return;
     }
     let (tree, repo, root) = fixture("runtime-dependency");
-    assert!(!runtime_config::paths(&root).unwrap().is_empty());
+    assert!(
+        !runtime_config::paths_with_source(&root, Some(&repo))
+            .unwrap()
+            .is_empty()
+    );
     let package_dir = tree.0.join("synthetic-runtime-helper");
     fs::create_dir_all(&package_dir).unwrap();
     fs::write(
@@ -118,8 +122,9 @@ fn private_runtime_config_blocks_managed_npm_fetch_without_a_verified_cache() {
         },
         "purpose": "synthetic fixture"
     });
-    stream.write_all(request.to_string().as_bytes()).unwrap();
-    stream.shutdown(std::net::Shutdown::Write).unwrap();
+    stream
+        .write_all(format!("{}\n", request).as_bytes())
+        .unwrap();
     let (response_tx, response_rx) = mpsc::channel();
     std::thread::spawn(move || {
         let mut response = String::new();
@@ -139,6 +144,8 @@ fn private_runtime_config_blocks_managed_npm_fetch_without_a_verified_cache() {
     };
     assert!(crate::harness::dependency_authorization::answer(
         &reviewed.id,
+        &reviewed.task_id,
+        &reviewed.need,
         crate::harness::dependency_authorization::DependencyResolution {
             decision: crate::harness::DependencyDecision::AutoAuthorize,
             scope: None,

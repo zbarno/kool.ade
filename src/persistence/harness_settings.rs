@@ -45,6 +45,8 @@ pub struct DetectedHarness {
     pub default_model: Option<String>,
     #[serde(default)]
     pub configuration_required: bool,
+    #[serde(default)]
+    pub implementation_available: bool,
 }
 
 pub fn settings_path() -> std::path::PathBuf {

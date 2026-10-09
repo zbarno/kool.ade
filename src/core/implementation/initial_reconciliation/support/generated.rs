@@ -110,7 +110,10 @@ pub(in crate::core::implementation) fn trusted(
     dir: &Path,
 ) -> anyhow::Result<BTreeSet<String>> {
     let ledger = load(dir, state)?;
-    let mut trusted = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
+    let mut trusted = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+        &state.task_repository,
+        runner.runtime_config_source.as_deref(),
+    )?;
     for path in inventory(runner, &state.task_repository)? {
         if !eligible(&path) {
             continue;
@@ -193,7 +196,10 @@ pub(in crate::core::implementation) fn clean(
     let generated = if dir.join(FILE).exists() {
         trusted(runner, state, dir)?
     } else {
-        crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?
+        crate::harness::pi_sandbox::runtime_config::paths_with_source(
+            &state.task_repository,
+            runner.runtime_config_source.as_deref(),
+        )?
     };
     for args in [
         vec!["diff", "--name-only", "-z"],
@@ -217,7 +223,10 @@ pub(in crate::core::implementation) fn stage_task(
     state: &Implementation,
     dir: &Path,
 ) -> anyhow::Result<()> {
-    let mut protected = crate::harness::pi_sandbox::runtime_config::paths(&state.task_repository)?;
+    let mut protected = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+        &state.task_repository,
+        runner.runtime_config_source.as_deref(),
+    )?;
     if dir.join(FILE).exists() {
         let ledger = load(dir, state)?;
         let trusted = trusted(runner, state, dir)?;

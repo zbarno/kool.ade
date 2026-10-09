@@ -1,6 +1,10 @@
 use super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
 
+#[path = "task_repositories/legacy_migration.rs"]
+mod legacy_migration;
+#[path = "task_repositories/push_safety.rs"]
+mod push_safety;
 #[path = "task_repositories/source_start.rs"]
 mod source_start;
 
@@ -22,6 +26,7 @@ fn run_on_worker(sandbox: &Sandbox, ticket: &str) -> anyhow::Result<Implementati
             require_independent_checks: false,
             user_context: None,
             auto_publish_gate: None,
+            claim_lease: None,
         },
     )
 }
