@@ -22,77 +22,6 @@ impl Controller {
     pub(crate) fn cancellation_requested(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
     }
-    pub fn start(
-        repo: PathBuf,
-        ticket: String,
-        auto_merge: bool,
-        harness: Box<dyn AiHarness>,
-    ) -> Self {
-        Self::start_project(repo.clone(), repo, ticket, auto_merge, harness)
-    }
-    pub fn start_project(
-        planning_root: PathBuf,
-        target_repo: PathBuf,
-        ticket: String,
-        auto_merge: bool,
-        harness: Box<dyn AiHarness>,
-    ) -> Self {
-        Self::start_project_with_context(
-            planning_root,
-            target_repo,
-            ticket,
-            auto_merge,
-            None,
-            harness,
-        )
-    }
-    pub fn start_project_with_context(
-        planning_root: PathBuf,
-        target_repo: PathBuf,
-        ticket: String,
-        auto_merge: bool,
-        user_context: Option<String>,
-        harness: Box<dyn AiHarness>,
-    ) -> Self {
-        let mode = if auto_merge {
-            PublicationMode::AutoPublish
-        } else {
-            PublicationMode::HoldForReview
-        };
-        Self::start_project_with_policy(
-            planning_root,
-            target_repo,
-            ticket,
-            mode,
-            false,
-            user_context,
-            harness,
-        )
-    }
-
-    pub(crate) fn start_project_with_policy(
-        planning_root: PathBuf,
-        target_repo: PathBuf,
-        ticket: String,
-        publication_mode: PublicationMode,
-        require_independent_checks: bool,
-        user_context: Option<String>,
-        harness: Box<dyn AiHarness>,
-    ) -> Self {
-        Self::start_project_with_policy_and_claim_request(
-            planning_root,
-            target_repo,
-            ticket,
-            super::StartPolicy {
-                publication_mode,
-                require_independent_checks,
-            },
-            user_context,
-            harness,
-            None,
-        )
-    }
-
     pub(crate) fn start_project_with_policy_and_claim_request(
         planning_root: PathBuf,
         target_repo: PathBuf,
@@ -100,7 +29,7 @@ impl Controller {
         policy: super::StartPolicy,
         user_context: Option<String>,
         harness: Box<dyn AiHarness>,
-        claim_request: Option<crate::core::task_claim::ClaimRequest>,
+        claim_request: crate::core::task_claim::ClaimRequest,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -123,24 +52,22 @@ impl Controller {
                 )))));
                 return;
             }
-            let claim = if let Some(request) = claim_request {
-                match request.acquire() {
-                    Ok(attempt) => {
-                        if let Some(warning) = attempt.warning {
-                            let _ = tx.send(Event::ClaimWarning(warning));
-                        }
-                        attempt.lease
+            let claim_lease = match claim_request.acquire() {
+                Ok(attempt) => {
+                    if let Some(warning) = attempt.warning {
+                        let _ = tx.send(Event::ClaimWarning(warning));
                     }
-                    Err(error) => {
-                        let _ = tx.send(Event::ClaimBlocked(Box::new(error)));
-                        return;
-                    }
+                    Some(crate::core::task_claim::ClaimLeaseHandle::new(
+                        attempt.lease,
+                    ))
                 }
-            } else {
-                None
+                Err(error) => {
+                    let _ = tx.send(Event::ClaimBlocked(Box::new(error)));
+                    return;
+                }
             };
             if worker_cancel.load(Ordering::SeqCst) {
-                drop(claim);
+                drop(claim_lease);
                 let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
                     FailureKind::Other,
                     RecoveryDisposition::ExplicitResume,
@@ -148,25 +75,27 @@ impl Controller {
                 )))));
                 return;
             }
-            let heartbeat = claim.map(|claim| {
-                let heartbeat_cancel = worker_cancel.clone();
-                let (stop, stopped) = mpsc::channel();
-                let thread = std::thread::spawn(move || {
-                    let mut claim = claim;
-                    while let Err(mpsc::RecvTimeoutError::Timeout) =
-                        stopped.recv_timeout(std::time::Duration::from_secs(
-                            crate::core::task_claim::HEARTBEAT_INTERVAL_SECONDS,
-                        ))
-                    {
-                        if claim.refresh().is_err() {
-                            heartbeat_cancel.store(true, Ordering::SeqCst);
-                            break;
+            let heartbeat = claim_lease
+                .as_ref()
+                .filter(|claim| claim.has_lease())
+                .cloned()
+                .map(|claim| {
+                    let heartbeat_cancel = worker_cancel.clone();
+                    let (stop, stopped) = mpsc::channel();
+                    let thread = std::thread::spawn(move || {
+                        while let Err(mpsc::RecvTimeoutError::Timeout) =
+                            stopped.recv_timeout(std::time::Duration::from_secs(
+                                crate::core::task_claim::HEARTBEAT_INTERVAL_SECONDS,
+                            ))
+                        {
+                            if claim.refresh().is_err() {
+                                heartbeat_cancel.store(true, Ordering::SeqCst);
+                                break;
+                            }
                         }
-                    }
-                    drop(claim);
+                    });
+                    (stop, thread)
                 });
-                (stop, thread)
-            });
             let (progress, updates) = mpsc::channel::<LiveProgress>();
             let fwd = tx.clone();
             let forward = std::thread::spawn(move || {
@@ -192,6 +121,7 @@ impl Controller {
                     require_independent_checks: policy.require_independent_checks,
                     user_context: user_context.as_deref(),
                     auto_publish_gate: Some(worker_publish_gate),
+                    claim_lease,
                 },
             );
             if let Some((stop, thread)) = heartbeat {

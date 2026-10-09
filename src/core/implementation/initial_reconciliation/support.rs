@@ -192,30 +192,22 @@ pub(super) fn unmerged_paths(runner: &Runner, worktree: &Path) -> anyhow::Result
 }
 
 pub(super) fn validate_task_repository(
-    repo: &Path,
     state: &Implementation,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    match state.task_repository_kind {
-        TaskRepositoryKind::LegacyWorktree => anyhow::ensure!(
-            common(&state.task_repository)?.canonicalize()? == common(repo)?.canonicalize()?
-                && runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
-                    == state.branch,
-            "Legacy reconciliation repository identity changed; refusing to modify it"
-        ),
-        TaskRepositoryKind::Clone => {
-            crate::core::implementation::task_repository::validate_clone_path(state)?;
-            crate::core::implementation::repository_cache::RepositoryCache::verify_task_repository(
-                &state.task_repository,
-                runner,
-            )?;
-            anyhow::ensure!(
-                runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
-                    == state.branch,
-                "Reconciliation task repository identity changed; refusing to modify it"
-            );
-        }
-    }
+    anyhow::ensure!(
+        state.task_repository_kind == TaskRepositoryKind::Clone,
+        "Legacy reconciliation repositories must migrate before use"
+    );
+    crate::core::implementation::task_repository::validate_clone_path(state)?;
+    crate::core::implementation::repository_cache::RepositoryCache::verify_task_repository(
+        &state.task_repository,
+        runner,
+    )?;
+    anyhow::ensure!(
+        runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
+        "Reconciliation task repository identity changed; refusing to modify it"
+    );
     Ok(())
 }
 

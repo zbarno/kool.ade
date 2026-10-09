@@ -1,6 +1,8 @@
 use super::super::*;
-use super::{initial_base, source};
+use super::source;
 use std::path::Path;
+mod legacy_plan;
+mod legacy_workspace;
 
 pub(super) struct Request<'a> {
     pub(super) planning_root: &'a Path,
@@ -39,35 +41,17 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             "Ticket changed since implementation started. Review the existing task repository before starting a revised ticket."
         );
         if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree
-            && let Some(source) = state.source_branch.as_deref()
+            && state.status != ImplementationStatus::Completed
         {
-            let local_exists = runner
-                .git(
-                    repo,
-                    &["show-ref", "--verify", &format!("refs/heads/{source}")],
-                )
-                .is_ok();
-            let remote_exists = runner
-                .git(
-                    repo,
-                    &[
-                        "ls-remote",
-                        "--exit-code",
-                        "--heads",
-                        "origin",
-                        &format!("refs/heads/{source}"),
-                    ],
-                )
-                .is_ok();
-            if !local_exists && !remote_exists {
-                return Err(
-                    crate::core::implementation::initial_reconciliation::support::user_action(
-                        format!(
-                            "Selected source branch '{source}' no longer exists or cannot be reached. Restore it or select an existing source branch before resuming."
-                        ),
-                    ),
-                );
-            }
+            state = legacy_workspace::migrate(
+                planning_root,
+                repo,
+                text,
+                metadata.as_ref(),
+                dir,
+                state,
+                runner,
+            )?;
         }
 
         if state.task_repository_kind == TaskRepositoryKind::Clone {
@@ -99,83 +83,57 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         save(dir, &state)?;
         state
     } else {
-        let saved_plan = initial_reconciliation::load_plan(dir)?;
-        let has_legacy_reconciliation = saved_plan
+        let mut saved_plan = initial_reconciliation::load_plan(dir)?;
+        if let Some(plan) = saved_plan.as_ref()
+            && plan.clone_repository.is_none()
+        {
+            legacy_plan::attach_clone_identity(
+                planning_root,
+                repo,
+                &key(ticket),
+                text,
+                metadata.as_ref(),
+                dir,
+                plan,
+                runner,
+            )?;
+            saved_plan = initial_reconciliation::load_plan(dir)?;
+        }
+        let source = match saved_plan.as_ref() {
+            Some(plan) => source::resume_from_plan(
+                planning_root,
+                repo,
+                ticket,
+                metadata.as_ref(),
+                plan,
+                runner,
+            )?,
+            None => source::resolve(source::Request {
+                planning_root,
+                repo,
+                dir,
+                ticket,
+                text,
+                metadata: metadata.as_ref(),
+                publication_mode,
+                runner,
+            })?,
+        };
+        let task_repository_path =
+            task_repository::task_path(planning_root, &source.repository_id, ticket)?;
+        let destination = source.destination_branch;
+        let head = source.base_commit;
+        let explicit_source = metadata
             .as_ref()
-            .is_some_and(|plan| plan.clone_repository.is_none());
-        let (
-            destination,
-            head,
-            explicit_source,
-            source_ref,
-            source_commit,
-            repository_id,
-            repository_identity,
-            repository_cache,
-            task_repository_path,
-            repository_kind,
-        ) = if has_legacy_reconciliation {
-            let (destination, head, explicit_source) =
-                initial_base::prepare(repo, dir, ticket, metadata, publication_mode, runner)?;
-            let task_repository_path = task_repository::legacy_path(repo, ticket)?;
-            if let Some(parent) = task_repository_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            (
-                destination,
-                head,
-                explicit_source,
-                None,
-                None,
-                None,
-                None,
-                None,
-                task_repository_path,
-                TaskRepositoryKind::LegacyWorktree,
-            )
-        } else {
-            let source = match saved_plan.as_ref() {
-                Some(plan) => source::resume_from_plan(
-                    planning_root,
-                    repo,
-                    ticket,
-                    metadata.as_ref(),
-                    plan,
-                    runner,
-                )?,
-                None => source::resolve(source::Request {
-                    planning_root,
-                    repo,
-                    dir,
-                    ticket,
-                    text,
-                    metadata: metadata.as_ref(),
-                    publication_mode,
-                    runner,
-                })?,
-            };
-            let task_repository_path =
-                task_repository::task_path(planning_root, &source.repository_id, ticket)?;
-            (
-                source.destination_branch,
-                source.base_commit.clone(),
-                metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.source_branch.clone()),
-                Some(source.source_ref),
-                Some(source.source_commit),
-                Some(source.repository_id),
-                Some(source.cache.identity),
-                Some(source.cache.path),
-                task_repository_path,
-                TaskRepositoryKind::Clone,
-            )
-        };
-        let project_id = if repository_kind == TaskRepositoryKind::Clone {
-            Some(task_repository::project_id(planning_root)?)
-        } else {
-            None
-        };
+            .and_then(|metadata| metadata.source_branch.clone());
+        let source_ref = Some(source.source_ref);
+        let source_commit = Some(source.source_commit);
+        let repository_id = Some(source.repository_id);
+        let project_id = Some(task_repository::project_id(planning_root)?);
+        let repository_identity = Some(source.cache.identity);
+        let push_repository = source.cache.push_identity_url.clone();
+        let repository_cache = Some(source.cache.path);
+        let repository_kind = TaskRepositoryKind::Clone;
         let dependency_context = completed_dependency_context(planning_root, ticket, text)?;
         Implementation {
             ticket: ticket.into(),
@@ -193,6 +151,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             repository_id,
             project_id,
             repository_identity,
+            push_repository,
             repository_cache,
             task_repository_allocation_key: Some(key(ticket)),
             destination_branch: metadata

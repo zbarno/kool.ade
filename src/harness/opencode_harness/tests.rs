@@ -119,9 +119,10 @@ fn executes_structured_result_with_model_and_telemetry() {
     );
     let _env = EnvOverride::set(&binary);
     let (tx, rx) = mpsc::channel();
-    let result = OpenCodeHarness
-        .execute_with_model(&request(root.clone(), tx), Some("openai/gpt-test"))
-        .unwrap();
+    let result = crate::harness::with_uncontained_provider_test_execution(|| {
+        OpenCodeHarness.execute_with_model(&request(root.clone(), tx), Some("openai/gpt-test"))
+    })
+    .unwrap();
     assert_eq!(result.final_text, r#"{"ok":true}"#);
     let activity = rx.try_iter().last().unwrap();
     assert_eq!(activity.model_calls.len(), 1);
@@ -162,7 +163,10 @@ exit 1"#,
     );
     let _env = EnvOverride::set(&binary);
     let (tx, rx) = mpsc::channel();
-    OpenCodeHarness.execute(&request(root.clone(), tx)).unwrap();
+    crate::harness::with_uncontained_provider_test_execution(|| {
+        OpenCodeHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap();
     let updates = rx.try_iter().last().unwrap();
     let calls = updates.model_calls;
     assert_eq!(calls.len(), 2);
@@ -182,13 +186,15 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
     let binary = fake_cli(&root, "cat >/dev/null; echo malformed; exit 0");
     let _env = EnvOverride::set(&binary);
     let (tx, _) = mpsc::channel();
-    assert!(
-        OpenCodeHarness
-            .execute(&request(root.clone(), tx))
-            .unwrap_err()
-            .detail()
-            .contains("completed final response")
-    );
+    assert!(crate::harness::with_uncontained_provider_test_execution(
+        || {
+            OpenCodeHarness
+                .execute(&request(root.clone(), tx))
+                .unwrap_err()
+                .detail()
+                .contains("completed final response")
+        }
+    ));
 
     let ready = root.join("started");
     let binary = fake_cli(&root, &format!("touch '{}'; sleep 30", ready.display()));
@@ -197,9 +203,11 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
     let worker_cancel = cancel.clone();
     let worker_root = root.clone();
     let worker = std::thread::spawn(move || {
-        OpenCodeHarness.execute(&PlanningRequest {
-            cancel: worker_cancel,
-            ..request(worker_root, mpsc::channel().0)
+        crate::harness::with_uncontained_provider_test_execution(|| {
+            OpenCodeHarness.execute(&PlanningRequest {
+                cancel: worker_cancel,
+                ..request(worker_root, mpsc::channel().0)
+            })
         })
     });
     let deadline = std::time::Instant::now() + Duration::from_secs(3);

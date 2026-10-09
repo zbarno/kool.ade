@@ -37,6 +37,14 @@ pub(crate) fn validate_task_routes(
                 route.harness
             ));
         }
+        if !detected.implementation_available
+            || !crate::harness::implementation_route_available(&route.harness)
+        {
+            return Err(format!(
+                "Harness '{}' cannot run inside Kool.ad/e's application-owned Linux sandbox. Select a supported tool before starting the task.",
+                route.harness
+            ));
+        }
         if let Some(model) = route.model.as_deref()
             && !detected.models.iter().any(|available| available == model)
         {
@@ -113,11 +121,16 @@ fn routed_harness(
         .map(|route| route.harness.as_str())
         .or(selected)
         .unwrap_or("pi");
-    if work_type == Some(crate::persistence::harness_settings::IMPLEMENTATION) && harness_id != "pi"
-    {
-        return Box::new(UnavailableHarness(
-            "Implementation is available only with Pi until this harness uses Kool.ad/e's dependency authorization broker. Select Pi in Coding tools; other harnesses remain available for planning and QA.".into(),
-        ));
+    let repository_access_unavailable = !crate::harness::implementation_route_available(harness_id)
+        || (work_type.is_some()
+            && !settings
+                .discovered
+                .get(harness_id)
+                .is_some_and(|detected| detected.implementation_available));
+    if repository_access_unavailable {
+        return Box::new(UnavailableHarness(format!(
+            "Repository access is unavailable for {harness_id} because it cannot run inside Kool.ad/e's application-owned Linux sandbox. Select a supported tool in Coding tools; no fallback will run this task."
+        )));
     }
     let explicit_model = route
         .and_then(|route| route.model.as_deref())

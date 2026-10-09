@@ -9,6 +9,7 @@ use std::{
 
 mod adapter;
 mod broker;
+mod budget;
 mod cargo;
 pub(super) mod dependency;
 mod fetch;

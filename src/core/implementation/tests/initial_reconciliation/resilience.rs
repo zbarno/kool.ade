@@ -32,16 +32,6 @@ pub(super) fn interrupted_with_configuration(granted: bool) -> Sandbox {
     s.git(&s.repo, &["push", "-q", "origin", "main"]);
     let (remote, local, common) = super::merge_recovery::make_divergent(&s);
     let dir = state_dir(&s.repo, &s.ticket).unwrap();
-    fs::create_dir_all(&dir).unwrap();
-    crate::core::implementation::initial_reconciliation::save_plan(
-        &dir,
-        "main",
-        &local,
-        &remote,
-        &common,
-        &[],
-    )
-    .unwrap();
     let worktree = super::merge_recovery::task_worktree(&s);
     fs::create_dir_all(worktree.parent().unwrap()).unwrap();
     let branch = format!(
@@ -83,6 +73,9 @@ pub(super) fn interrupted_with_configuration(granted: bool) -> Sandbox {
         .unwrap();
         super::runtime_config::approve_path(&s, ".cache/.env");
     }
+    super::save_legacy_reconciliation_state(
+        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
+    );
     let error = run_with_agent(&s, &StopAfterVerification, None)
         .unwrap_err()
         .to_string();
@@ -115,7 +108,7 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
     );
     assert!(
         s.git(
-            &s.repo,
+            super::merge_recovery::repository_cache(&s).as_path(),
             &[
                 "show",
                 &format!(
@@ -132,16 +125,25 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
 fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
     let s = interrupted();
     let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
+    let worktree = super::merge_recovery::task_worktree(&s);
+    let repository_cache = super::merge_recovery::repository_cache(&s);
+    let private_ref = snapshot["private_ref"].as_str().unwrap();
+    let refspec = format!("{private_ref}:{private_ref}");
+    s.git(
+        &worktree,
+        &[
+            "fetch",
+            "--no-tags",
+            repository_cache.to_str().unwrap(),
+            &refspec,
+        ],
+    );
     snapshot["schema_version"] = serde_json::json!(1);
-    let repository_path = snapshot
-        .as_object_mut()
-        .unwrap()
-        .remove("task_repository")
-        .unwrap();
-    snapshot["worktree"] = repository_path;
+    snapshot.as_object_mut().unwrap().remove("task_repository");
+    snapshot["worktree"] = serde_json::json!(worktree.to_string_lossy());
     let old = serde_json::to_vec_pretty(&snapshot).unwrap();
     fs::write(&path, &old).unwrap();
-    let worktree = super::merge_recovery::task_worktree(&s);
+    let worktree = super::merge_recovery::migrated_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
     let error = run_with_agent(&s, &StopAfterVerification, Some("Resume verification"))
@@ -162,12 +164,15 @@ fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
     let (_, new) = super::merge_recovery::recovery_snapshot(&s);
     let stash = new["stash_commit"].as_str().unwrap();
     assert_eq!(
-        s.git(&s.repo, &["show", &format!("{stash}^3:build/cache.txt")]),
+        s.git(
+            super::merge_recovery::repository_cache(&s).as_path(),
+            &["show", &format!("{stash}^3:build/cache.txt")]
+        ),
         "operator edit"
     );
     assert_eq!(
         s.git(
-            &s.repo,
+            super::merge_recovery::repository_cache(&s).as_path(),
             &["rev-parse", snapshot["private_ref"].as_str().unwrap()]
         ),
         snapshot["stash_commit"].as_str().unwrap()
@@ -192,7 +197,7 @@ fn incomplete_or_mismatched_recovery_history_cannot_grant_another_attempt() {
             "invalid"
         });
         fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
-        let worktree = super::merge_recovery::task_worktree(&s);
+        let worktree = super::merge_recovery::migrated_task_repository(&s);
         fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
         let (_, agent) = super::merge_recovery::agent();
         crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
@@ -274,7 +279,7 @@ fn ordinary_user_context_does_not_authorize_snapshot_rotation() {
     let s = interrupted();
     let (path, _) = super::merge_recovery::recovery_snapshot(&s);
     let old = fs::read(&path).unwrap();
-    let worktree = super::merge_recovery::task_worktree(&s);
+    let worktree = super::merge_recovery::migrated_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     let (_, agent) = super::merge_recovery::agent();
     let error = run_with_agent(&s, &agent, Some("Use the existing API conventions"))

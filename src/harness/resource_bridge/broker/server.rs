@@ -1,8 +1,10 @@
+mod disconnect;
+
 use super::super::{MAX_REQUEST_BYTES, ResourceRequest, ResourceResponse, write_json};
 use super::BrokerContext;
-use super::dependency_flow::prepare_request;
+use super::dependency_flow::{activity::store_dependency_request, prepare_request};
 use std::{
-    io::{self, Read},
+    io::{self, BufRead, Read},
     os::unix::net::UnixStream,
 };
 
@@ -10,9 +12,9 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
     client.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
     client.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
     let mut request = Vec::new();
-    let read = (&mut client)
+    let read = std::io::BufReader::new(client.try_clone()?)
         .take(MAX_REQUEST_BYTES as u64 + 1)
-        .read_to_end(&mut request)?;
+        .read_until(b'\n', &mut request)?;
     if read == 0 || request.len() > MAX_REQUEST_BYTES {
         return write_json(
             &mut client,
@@ -30,8 +32,9 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
     }
     let parsed =
         serde_json::from_slice::<ResourceRequest>(request.strip_suffix(b"\n").unwrap_or(&request));
+    let monitor = disconnect::ClientDisconnectMonitor::start(&client)?;
     let response = match parsed {
-        Ok(request) => match prepare_request(context, &request) {
+        Ok(request) => match prepare_request(context, &request, monitor.disconnected()) {
             Ok(response) => response,
             Err(error) => ResourceResponse {
                 status: "error".into(),
@@ -55,10 +58,8 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
             bytes: 0,
         },
     };
-    if let Some(request) = response.dependency_request.as_ref()
-        && let Ok(mut pending) = context.dependency.lock()
-    {
-        *pending = Some(request.clone());
+    if let Some(request) = response.dependency_request.as_ref() {
+        store_dependency_request(context, request);
     }
     if response.status != "allowed"
         && response.status != "prepared"
@@ -67,5 +68,6 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
     {
         *pending = Some(response.summary.clone());
     }
+    drop(monitor);
     write_json(&mut client, &response)
 }

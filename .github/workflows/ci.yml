@@ -41,5 +41,39 @@ jobs:
         run: cargo +1.98.1 fmt --all --check
       - name: Run all tests
         run: cargo +1.98.1 test --locked --all-targets -- --test-threads=1
+      - name: Verify sandbox runtime layout on Fedora 44
+        run: |
+          test_binary="$(cargo +1.98.1 test --locked --lib --no-run --message-format=json | python3 -c '
+          import json
+          import sys
+
+          executables = []
+          for line in sys.stdin:
+              try:
+                  artifact = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              target = artifact.get("target", {})
+              profile = artifact.get("profile", {})
+              if (
+                  artifact.get("reason") == "compiler-artifact"
+                  and target.get("name") == "koolade"
+                  and "lib" in target.get("kind", [])
+                  and profile.get("test")
+                  and artifact.get("executable")
+              ):
+                  executables.append(artifact["executable"])
+          if len(executables) != 1:
+              raise SystemExit(f"expected one koolade library test executable, got {executables!r}")
+          print(executables[0])
+          ')"
+          test_output="$(docker run --rm \
+            --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
+            --workdir "$GITHUB_WORKSPACE" \
+            fedora:44 \
+            "$test_binary" \
+            harness::pi_sandbox::mounts::system_runtime --test-threads=1)"
+          printf '%s\n' "$test_output"
+          printf '%s\n' "$test_output" | grep -Eq '^test result: ok\. [1-9][0-9]* passed;'
       - name: Reject all clippy warnings
         run: cargo +1.98.1 clippy --locked --all-targets -- -D warnings

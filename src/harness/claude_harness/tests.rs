@@ -126,7 +126,10 @@ fn executes_normalized_result_and_usage_from_fake_claude() {
     );
     let _env = EnvOverride::set(&binary);
     let (tx, rx) = mpsc::channel();
-    let result = ClaudeHarness.execute(&request(root.clone(), tx)).unwrap();
+    let result = crate::harness::with_uncontained_provider_test_execution(|| {
+        ClaudeHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap();
     assert_eq!(result.final_text, r#"{"ok":true}"#);
     let activity = rx.try_iter().last().unwrap();
     assert_eq!(activity.model_calls.len(), 1);
@@ -151,9 +154,10 @@ fn malformed_output_is_rejected_and_cancellation_kills_the_child() {
     let binary = fake_cli(&root, "echo malformed\nexit 0");
     let _env = EnvOverride::set(&binary);
     let (tx, _) = mpsc::channel();
-    let error = ClaudeHarness
-        .execute(&request(root.clone(), tx))
-        .unwrap_err();
+    let error = crate::harness::with_uncontained_provider_test_execution(|| {
+        ClaudeHarness.execute(&request(root.clone(), tx))
+    })
+    .unwrap_err();
     assert!(error.detail().contains("without a final result"));
 
     let ready = root.join("started");
@@ -163,9 +167,11 @@ fn malformed_output_is_rejected_and_cancellation_kills_the_child() {
     let worker_cancel = cancel.clone();
     let worker_root = root.clone();
     let worker = std::thread::spawn(move || {
-        ClaudeHarness.execute(&PlanningRequest {
-            cancel: worker_cancel,
-            ..request(worker_root, mpsc::channel().0)
+        crate::harness::with_uncontained_provider_test_execution(|| {
+            ClaudeHarness.execute(&PlanningRequest {
+                cancel: worker_cancel,
+                ..request(worker_root, mpsc::channel().0)
+            })
         })
     });
     let deadline = std::time::Instant::now() + Duration::from_secs(3);

@@ -36,7 +36,6 @@ fn unsupported_custom_registry_path_reaches_the_response_with_its_reason() {
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
 
     let mut response = String::new();
     BufReader::new(client).read_line(&mut response).unwrap();

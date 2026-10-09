@@ -1,8 +1,6 @@
 use super::super::{Plan, support};
 use super::{VerifiedBase, cache_key, cache_ref};
-use crate::core::implementation::{
-    Implementation, Runner, TaskRepositoryKind, state_paths::common, task_repository,
-};
+use crate::core::implementation::{Implementation, Runner, TaskRepositoryKind, task_repository};
 
 pub(in crate::core::implementation) fn adopt(
     repo: &std::path::Path,
@@ -11,6 +9,10 @@ pub(in crate::core::implementation) fn adopt(
     cached: &VerifiedBase,
     runner: &Runner,
 ) -> anyhow::Result<bool> {
+    anyhow::ensure!(
+        state.task_repository_kind == TaskRepositoryKind::Clone,
+        "Legacy task repositories must migrate before reconciliation"
+    );
     let branch_ref = format!("refs/heads/{}", state.branch);
     if !state.task_repository.exists() {
         let current = match runner.git(repo, &["rev-parse", "--verify", &branch_ref]) {
@@ -33,26 +35,15 @@ pub(in crate::core::implementation) fn adopt(
         return Ok(true);
     }
 
-    match state.task_repository_kind {
-        TaskRepositoryKind::LegacyWorktree => anyhow::ensure!(
-            common(&state.task_repository)?.canonicalize()? == common(repo)?.canonicalize()?
-                && runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
-                    == state.branch,
-            "Existing task repository identity changed; refusing to adopt a cached baseline"
-        ),
-        TaskRepositoryKind::Clone => {
-            crate::core::implementation::task_repository::validate_clone_path(state)?;
-            crate::core::implementation::repository_cache::RepositoryCache::verify_task_repository(
-                &state.task_repository,
-                runner,
-            )?;
-            anyhow::ensure!(
-                runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
-                    == state.branch,
-                "Existing task repository identity changed; refusing to adopt a cached baseline"
-            );
-        }
-    }
+    crate::core::implementation::task_repository::validate_clone_path(state)?;
+    crate::core::implementation::repository_cache::RepositoryCache::verify_task_repository(
+        &state.task_repository,
+        runner,
+    )?;
+    anyhow::ensure!(
+        runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])? == state.branch,
+        "Existing task repository identity changed; refusing to adopt a cached baseline"
+    );
     if state.task_repository_kind == TaskRepositoryKind::Clone {
         let cache_path = repo
             .to_str()

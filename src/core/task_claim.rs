@@ -1,7 +1,9 @@
 //! Cross-clone claims stored as atomically-created refs on the repository remote.
 mod git;
+mod handle;
 #[cfg(test)]
 mod tests;
+pub(crate) use handle::ClaimLeaseHandle;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -30,6 +32,7 @@ impl ClaimRecord {
 #[derive(Debug)]
 pub struct ClaimLease {
     repo: PathBuf,
+    remote: String,
     reference: String,
     object: String,
 }
@@ -109,11 +112,33 @@ impl ClaimLease {
     }
 
     pub fn record(&self) -> Result<ClaimRecord, ClaimError> {
-        git::read_claim(&self.repo, &self.reference, &self.object)
+        git::read_claim(&self.repo, &self.remote, &self.reference, &self.object)
+    }
+
+    pub(crate) fn verify(&self) -> Result<(), ClaimError> {
+        git::verify(&self.repo, &self.remote, &self.reference, &self.object)
     }
 
     pub(crate) fn refresh(&mut self) -> Result<(), ClaimError> {
-        self.object = git::refresh(&self.repo, &self.reference, &self.object)?;
+        self.object = git::refresh(&self.repo, &self.remote, &self.reference, &self.object)?;
+        Ok(())
+    }
+
+    pub(crate) fn fenced_push(
+        &mut self,
+        source: &std::path::Path,
+        commit: &str,
+        destination_ref: &str,
+    ) -> Result<(), ClaimError> {
+        self.object = git::fenced_push(
+            &self.repo,
+            &self.remote,
+            &self.reference,
+            &self.object,
+            source,
+            commit,
+            destination_ref,
+        )?;
         Ok(())
     }
 }
@@ -160,7 +185,7 @@ impl ClaimRequest {
 
 impl Drop for ClaimLease {
     fn drop(&mut self) {
-        let _ = git::release(&self.repo, &self.reference, &self.object);
+        let _ = git::release(&self.repo, &self.remote, &self.reference, &self.object);
     }
 }
 

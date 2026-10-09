@@ -16,27 +16,47 @@ pub(super) struct CheckRequest<'a> {
 }
 
 pub(super) fn wait_for_independent_checks(
-    repo: &Path,
     dir: &Path,
     state: &mut Implementation,
     repository_path: &Path,
     commit: &str,
     runner: &Runner,
     auto_publish_gate: Option<&AtomicBool>,
+    claim_lease: Option<&crate::core::task_claim::ClaimLeaseHandle>,
 ) -> anyhow::Result<()> {
-    let remote = if state.task_repository_kind == TaskRepositoryKind::Clone {
-        let cache = RepositoryCache::from_saved_state(state, runner)?;
-        cache.validate_task_remote(&state.task_repository, runner)?;
-        cache
-            .origin_url
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("Saved task has no trusted Git origin"))?
-    } else {
-        // Keep the configured hosting identity. `remote get-url` applies
-        // insteadOf rewrites that can point at a local mirror or transport alias.
-        runner.git(repo, &["config", "--get", "remote.origin.url"])?
-    };
-    let Some(provider) = checks::for_remote(&remote) else {
+    let (base_remote, push_identity, effective_push) =
+        if state.task_repository_kind == TaskRepositoryKind::Clone {
+            let cache = RepositoryCache::from_saved_state(state, runner)?;
+            cache.validate_task_remote(repository_path, runner)?;
+            let base = cache
+                .origin_url
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Saved task has no trusted Git origin"))?;
+            let push_identity = state
+                .push_repository
+                .clone()
+                .or_else(|| cache.push_identity_url.clone())
+                .unwrap_or_else(|| base.clone());
+            let effective_push = cache
+                .push_url
+                .clone()
+                .or_else(|| cache.origin_url.clone())
+                .ok_or_else(|| anyhow::anyhow!("Saved task has no effective push destination"))?;
+            (base, push_identity, effective_push)
+        } else {
+            let base = runner.git(repository_path, &["config", "--get", "remote.origin.url"])?;
+            let push_identity = publication::push_identity_remote(repository_path, runner)?;
+            let effective_push = publication::effective_push_remote(repository_path, runner)?;
+            (base, push_identity, effective_push)
+        };
+    publication::validate_target_remotes(&base_remote, &push_identity, &effective_push).map_err(
+        |error| {
+            crate::core::implementation::initial_reconciliation::support::user_action(
+                error.to_string(),
+            )
+        },
+    )?;
+    let Some(provider) = checks::for_remote(&push_identity) else {
         state.independent_check = Some(IndependentCheck {
             provider: "Unsupported provider".into(),
             commit: commit.into(),
@@ -44,7 +64,7 @@ pub(super) fn wait_for_independent_checks(
             status: IndependentCheckStatus::Unavailable,
             checked_at: Some(chrono::Utc::now().to_rfc3339()),
             detail: Some(
-                "Independent checks are required, but Kool.ad/e does not support this project's Git hosting provider yet."
+                "Independent checks are required, but Kool.ad/e does not support the task's Git push destination yet."
                     .into(),
             ),
         });
@@ -56,14 +76,14 @@ pub(super) fn wait_for_independent_checks(
             "Independent checks are required, but this Git remote has no supported CI provider",
         ));
     };
-    let repository = provider.repository(&remote).ok_or_else(|| {
+    let push_repository = provider.repository(&push_identity).ok_or_else(|| {
         anyhow::anyhow!("Supported CI provider could not identify its repository")
     })?;
     let candidate_ref = checks::candidate_ref(&task_repository::allocation_key(state), commit);
     wait_with_provider(
         CheckRequest {
             provider,
-            repository: &repository,
+            repository: &push_repository,
             candidate_ref: &candidate_ref,
             repository_path,
             commit,
@@ -72,6 +92,7 @@ pub(super) fn wait_for_independent_checks(
         state,
         runner,
         auto_publish_gate,
+        claim_lease,
     )
 }
 
@@ -81,6 +102,7 @@ pub(super) fn wait_with_provider(
     state: &mut Implementation,
     runner: &Runner,
     auto_publish_gate: Option<&AtomicBool>,
+    claim_lease: Option<&crate::core::task_claim::ClaimLeaseHandle>,
 ) -> anyhow::Result<()> {
     let CheckRequest {
         provider,
@@ -104,6 +126,7 @@ pub(super) fn wait_with_provider(
     if already_passed {
         return Ok(());
     }
+    let context_detail = state.detail.clone();
     state.independent_check = Some(IndependentCheck {
         provider: provider.name().into(),
         commit: commit.into(),
@@ -113,16 +136,21 @@ pub(super) fn wait_with_provider(
         detail: Some("Waiting for project checks on the locally verified commit.".into()),
     });
     state.status = ImplementationStatus::WaitingForIndependentChecks;
-    state.detail = format!(
-        "Waiting for {} to verify the integrated change.",
-        provider.name()
+    state.detail = contextual_detail(
+        &context_detail,
+        &format!(
+            "Waiting for {} to verify the integrated change.",
+            provider.name()
+        ),
     );
     save(dir, state)?;
     runner.update(format!(
         "Starting {} for the verified integrated change…",
         provider.name()
     ));
-    if let Some(cache) = repository_cache.as_ref() {
+    if let Some(claim_lease) = claim_lease {
+        publication::fenced_push(claim_lease, repository_path, commit, candidate_ref)?;
+    } else if let Some(cache) = repository_cache.as_ref() {
         cache.push_commit(repository_path, commit, candidate_ref, runner)?;
     } else {
         runner.git(
@@ -151,7 +179,7 @@ pub(super) fn wait_with_provider(
                 check.status = IndependentCheckStatus::Unavailable;
                 check.checked_at = Some(chrono::Utc::now().to_rfc3339());
                 check.detail = Some(detail.clone());
-                state.detail = detail;
+                state.detail = contextual_detail(&context_detail, &detail);
                 save(dir, state)?;
                 return Err(failure(
                     FailureKind::ExternalPrerequisite,
@@ -174,13 +202,17 @@ pub(super) fn wait_with_provider(
                     return publication::hold_for_review(dir, state);
                 }
                 state.status = ImplementationStatus::Publishing;
-                state.detail = "Project checks passed. Publishing the verified change.".into();
+                state.detail = contextual_detail(
+                    &context_detail,
+                    "Project checks passed. Publishing the verified change.",
+                );
                 save(dir, state)?;
                 return Ok(());
             }
             checks::ResultState::Failed(detail) => {
                 check.detail = Some(detail.clone());
-                state.detail = format!("Project checks failed: {detail}");
+                state.detail =
+                    contextual_detail(&context_detail, &format!("Project checks failed: {detail}"));
                 save(dir, state)?;
                 return Err(failure(
                     FailureKind::Verification,
@@ -198,7 +230,7 @@ pub(super) fn wait_with_provider(
                     check.status = IndependentCheckStatus::Unavailable;
                     check.checked_at = Some(chrono::Utc::now().to_rfc3339());
                     check.detail = Some(detail.into());
-                    state.detail = detail.into();
+                    state.detail = contextual_detail(&context_detail, detail);
                     save(dir, state)?;
                     return Err(failure(
                         FailureKind::ExternalPrerequisite,
@@ -219,4 +251,15 @@ fn failure(
     message: impl Into<String>,
 ) -> anyhow::Error {
     anyhow::Error::new(status::FailureCause(Failure::new(kind, recovery, message)))
+}
+
+fn contextual_detail(context: &str, status: &str) -> String {
+    let context = context.trim();
+    if context.is_empty() {
+        status.to_owned()
+    } else if context.lines().any(|line| line.trim() == status.trim()) {
+        context.to_owned()
+    } else {
+        format!("{context}\n{status}")
+    }
 }

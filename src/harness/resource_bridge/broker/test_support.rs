@@ -18,5 +18,6 @@ pub(in crate::harness::resource_bridge) fn start_with_state_root_and_npm_operati
         cancel,
         state_root,
         Some(npm_operations),
+        None,
     )
 }

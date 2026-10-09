@@ -6,35 +6,21 @@ mod fake_pi;
 
 #[test]
 fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
+    if !fake_pi::sandbox_available() {
+        eprintln!(
+            "Skipping queue execution integration: application Bubblewrap capabilities are unavailable"
+        );
+        return;
+    }
     let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
-    struct Restore(Option<std::ffi::OsString>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            unsafe {
-                match self.0.take() {
-                    Some(value) => std::env::set_var("KOOLADE_PI_BIN", value),
-                    None => std::env::remove_var("KOOLADE_PI_BIN"),
-                }
-            }
-        }
-    }
-    let _restore = Restore(std::env::var_os("KOOLADE_PI_BIN"));
-    struct RestorePath(Option<std::ffi::OsString>);
-    impl Drop for RestorePath {
-        fn drop(&mut self) {
-            unsafe {
-                match self.0.take() {
-                    Some(value) => std::env::set_var("PATH", value),
-                    None => std::env::remove_var("PATH"),
-                }
-            }
-        }
-    }
-    let _restore_path = RestorePath(std::env::var_os("PATH"));
+    let _restore_pi = fake_pi::restore_environment_variable("KOOLADE_PI_BIN");
+    let _restore_path = fake_pi::restore_environment_variable("PATH");
+    let _restore_ssh = fake_pi::restore_environment_variable("GIT_SSH_COMMAND");
     let root = std::env::temp_dir().join(format!(
         "koolade-auto-e2e-{}",
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
+    let _restore_home = fake_pi::configure_harness_settings(&root);
     let repo = root.join("repo");
     let remote = root.join("remote.git");
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/fixture")).unwrap();
@@ -89,14 +75,22 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "baseline"]);
     git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
-    let github_remote = "https://github.com/koolade-fixture/fixture.git";
-    git(&repo, &["remote", "add", "origin", github_remote]);
+    let ssh = root.join("ssh-fixture");
+    std::fs::write(
+        &ssh,
+        "#!/bin/sh\nroot=$(dirname \"$0\")\ncase \"$*\" in\n  *git-upload-pack*) exec git-upload-pack \"$root/remote.git\" ;;\n  *git-receive-pack*) exec git-receive-pack \"$root/remote.git\" ;;\n  *) echo 'unsupported fixture SSH command' >&2; exit 2 ;;\nesac\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    // SAFETY: this integration test runs under the repository's serial test gate and restores the value above.
+    unsafe { std::env::set_var("GIT_SSH_COMMAND", &ssh) };
     git(
         &repo,
         &[
-            "config",
-            &format!("url.{}.insteadOf", remote.display()),
-            github_remote,
+            "remote",
+            "add",
+            "origin",
+            "ssh://git@github.com/koolade-fixture/fixture.git",
         ],
     );
     git(&repo, &["push", "-q", "origin", "main"]);
@@ -293,5 +287,6 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
             .running
     );
     drop(app);
+    drop(_restore_home);
     std::fs::remove_dir_all(&root).unwrap();
 }

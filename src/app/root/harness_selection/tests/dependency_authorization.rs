@@ -80,7 +80,7 @@ fn non_pi_harnesses_cannot_run_writable_implementation_requests() {
     };
 
     let error = harness.execute(&request).unwrap_err();
-    assert!(error.detail().contains("dependency authorization broker"));
+    assert!(error.detail().contains("application-owned Linux sandbox"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
@@ -100,6 +100,6 @@ fn configured_alternate_implementation_route_reports_broker_requirement() {
     .check_available()
     .unwrap_err();
 
-    assert!(error.detail().contains("dependency authorization broker"));
-    assert!(error.detail().contains("Select Pi"));
+    assert!(error.detail().contains("application-owned Linux sandbox"));
+    assert!(error.detail().contains("no fallback"));
 }

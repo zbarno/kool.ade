@@ -277,7 +277,7 @@ impl KooladeApp {
                     },
                     user_context,
                     harness,
-                    Some(claim_request),
+                    claim_request,
                 ),
             );
         }

@@ -48,11 +48,11 @@ pub(super) fn acquire(
 ) -> Result<Option<ClaimLease>, ClaimError> {
     let reference = super::reference(task_uid)
         .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
-    let remote = run(repo, &["remote", "get-url", "origin"], None)?;
-    if !remote.status.success() {
+    let Some(remote) = push_remote(repo)? else {
         return Ok(None);
-    }
-    let reachable = run(repo, &["ls-remote", "--refs", "origin", "HEAD"], None)?;
+    };
+    validate_remote(repo, &remote)?;
+    let reachable = run(repo, &["ls-remote", "--refs", &remote, "HEAD"], None)?;
     if !reachable.status.success() {
         return Err(ClaimError::RemoteUnavailable(
             String::from_utf8_lossy(&reachable.stderr).trim().to_owned(),
@@ -62,19 +62,21 @@ pub(super) fn acquire(
     let object = create_object(repo, &record)?;
     let refspec = format!("{object}:{reference}");
     let lease = format!("--force-with-lease={reference}:");
+    validate_remote(repo, &remote)?;
     let pushed = run(
         repo,
-        &["push", "--porcelain", &lease, "origin", &refspec],
+        &["push", "--porcelain", &lease, &remote, &refspec],
         None,
     )?;
     if pushed.status.success() {
         return Ok(Some(ClaimLease {
             repo: repo.to_owned(),
+            remote,
             reference,
             object,
         }));
     }
-    match inspect(repo, &reference) {
+    match inspect(repo, &remote, &reference) {
         Ok(Some(existing)) => Err(ClaimError::AlreadyClaimed {
             stale: existing.0.appears_stale(now()),
             record: existing.0,
@@ -96,7 +98,9 @@ pub(super) fn take_over_stale(
 ) -> Result<ClaimLease, ClaimError> {
     let reference = super::reference(task_uid)
         .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
-    let Some((record, old_object)) = inspect(repo, &reference)? else {
+    let remote = push_remote(repo)?
+        .ok_or_else(|| ClaimError::RemoteUnavailable("Repository has no origin remote".into()))?;
+    let Some((record, old_object)) = inspect(repo, &remote, &reference)? else {
         return Err(ClaimError::RemoteUnavailable(
             "The claim no longer exists; retry normal acquisition".into(),
         ));
@@ -111,19 +115,21 @@ pub(super) fn take_over_stale(
     let object = create_object(repo, &replacement)?;
     let lease = format!("--force-with-lease={reference}:{old_object}");
     let refspec = format!("{object}:{reference}");
+    validate_remote(repo, &remote)?;
     let pushed = run(
         repo,
-        &["push", "--porcelain", &lease, "origin", &refspec],
+        &["push", "--porcelain", &lease, &remote, &refspec],
         None,
     )?;
     if pushed.status.success() {
         return Ok(ClaimLease {
             repo: repo.to_owned(),
+            remote,
             reference,
             object,
         });
     }
-    if let Some((record, _)) = inspect(repo, &reference)? {
+    if let Some((record, _)) = inspect(repo, &remote, &reference)? {
         return Err(ClaimError::AlreadyClaimed {
             stale: record.appears_stale(now()),
             record,
@@ -146,6 +152,40 @@ fn new_record(task_uid: &str, base_commit: &str) -> ClaimRecord {
             .unwrap_or_default()
             .as_secs() as i64,
     }
+}
+
+fn push_remote(repo: &std::path::Path) -> Result<Option<String>, ClaimError> {
+    let output = run(
+        repo,
+        &["remote", "get-url", "--push", "--all", "origin"],
+        None,
+    )?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let output = String::from_utf8(output.stdout)
+        .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
+    let urls = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    match urls.as_slice() {
+        [] => Ok(None),
+        [url] => Ok(Some((*url).to_owned())),
+        _ => Err(ClaimError::CoordinationRejected(
+            "Repositories with multiple origin push URLs cannot hold a single task claim".into(),
+        )),
+    }
+}
+
+fn validate_remote(repo: &std::path::Path, expected: &str) -> Result<(), ClaimError> {
+    if push_remote(repo)?.as_deref() != Some(expected) {
+        return Err(ClaimError::CoordinationRejected(
+            "The repository push destination changed during task coordination".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn create_object(
@@ -171,9 +211,11 @@ pub(super) fn create_object(
 
 fn inspect(
     repo: &std::path::Path,
+    remote: &str,
     reference: &str,
 ) -> Result<Option<(ClaimRecord, String)>, ClaimError> {
-    let listing = run(repo, &["ls-remote", "--refs", "origin", reference], None)?;
+    validate_remote(repo, remote)?;
+    let listing = run(repo, &["ls-remote", "--refs", remote, reference], None)?;
     if !listing.status.success() {
         return Err(ClaimError::RemoteUnavailable(
             String::from_utf8_lossy(&listing.stderr).trim().to_owned(),
@@ -186,7 +228,7 @@ fn inspect(
     else {
         return Ok(None);
     };
-    let fetched = run(repo, &["fetch", "--no-tags", "origin", reference], None)?;
+    let fetched = run(repo, &["fetch", "--no-tags", remote, reference], None)?;
     if !fetched.status.success() {
         return Err(ClaimError::RemoteUnavailable(
             String::from_utf8_lossy(&fetched.stderr).trim().to_owned(),
@@ -202,81 +244,46 @@ fn inspect(
 
 pub(super) fn read_claim(
     repo: &std::path::Path,
-    reference: &str,
-    _object: &str,
-) -> Result<ClaimRecord, ClaimError> {
-    inspect(repo, reference)?.map(|pair| pair.0).ok_or_else(|| {
-        ClaimError::RemoteUnavailable("Claim disappeared before it could be read".into())
-    })
-}
-
-pub(super) fn refresh(
-    repo: &std::path::Path,
+    remote: &str,
     reference: &str,
     expected_object: &str,
-) -> Result<String, ClaimError> {
-    let Some((mut record, actual_object)) = inspect(repo, reference)? else {
+) -> Result<ClaimRecord, ClaimError> {
+    let Some((record, actual_object)) = inspect(repo, remote, reference)? else {
         return Err(ClaimError::RemoteUnavailable(
-            "The task claim disappeared".into(),
+            "Claim disappeared before it could be read".into(),
         ));
     };
     if actual_object != expected_object {
-        return Err(ClaimError::RemoteUnavailable(
+        return Err(ClaimError::CoordinationRejected(
             "The task claim was replaced by another session".into(),
         ));
     }
-    record.claimed_at = now();
-    let object = create_object(repo, &record)?;
-    let lease = format!("--force-with-lease={reference}:{expected_object}");
-    let refspec = format!("{object}:{reference}");
-    let pushed = run(
-        repo,
-        &["push", "--porcelain", &lease, "origin", &refspec],
-        None,
-    )?;
-    if pushed.status.success() {
-        Ok(object)
-    } else {
-        Err(ClaimError::CoordinationRejected(
-            String::from_utf8_lossy(&pushed.stderr).trim().to_owned(),
-        ))
-    }
+    Ok(record)
 }
 
-pub(super) fn release(
+pub(super) fn verify(
     repo: &std::path::Path,
+    remote: &str,
     reference: &str,
-    object: &str,
+    expected_object: &str,
 ) -> Result<(), ClaimError> {
-    let listing = run(repo, &["ls-remote", "--refs", "origin", reference], None)?;
-    if !listing.status.success() {
-        return Err(ClaimError::RemoteUnavailable(
-            String::from_utf8_lossy(&listing.stderr).trim().to_owned(),
+    let Some((_, actual_object)) = inspect(repo, remote, reference)? else {
+        return Err(ClaimError::CoordinationRejected(
+            "The task claim disappeared before publication".into(),
+        ));
+    };
+    if actual_object != expected_object {
+        return Err(ClaimError::CoordinationRejected(
+            "The task claim was replaced by another session".into(),
         ));
     }
-    if !String::from_utf8_lossy(&listing.stdout).starts_with(object) {
-        return Ok(());
-    }
-    let lease = format!("--force-with-lease={reference}:{object}");
-    let result = run(
-        repo,
-        &[
-            "push",
-            "--porcelain",
-            &lease,
-            "origin",
-            &format!(":{reference}"),
-        ],
-        None,
-    )?;
-    if result.status.success() {
-        Ok(())
-    } else {
-        Err(ClaimError::RemoteUnavailable(
-            String::from_utf8_lossy(&result.stderr).trim().to_owned(),
-        ))
-    }
+    Ok(())
 }
+
+mod publication;
+#[cfg(test)]
+pub(super) use publication::fenced_push_after_prepare;
+pub(super) use publication::{fenced_push, refresh, release};
 
 fn now() -> i64 {
     SystemTime::now()

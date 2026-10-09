@@ -26,11 +26,20 @@ pub fn prepare(
     support::validate_pinned_commits(repo, runner, &task_repository::allocation_key(state), &plan)?;
     requirements::refresh(repo, runner, &path, &mut plan)?;
     if let Some(verified) = plan.verified_commit.as_deref() {
-        let history = if state.task_repository_kind == TaskRepositoryKind::Clone {
-            &state.task_repository
-        } else {
-            repo
-        };
+        anyhow::ensure!(
+            state.task_repository_kind == TaskRepositoryKind::Clone,
+            "Legacy reconciliation repositories must migrate before use"
+        );
+        let (clean, head) = verification::prepare_task_workspace(repo, dir, state, runner)?;
+        import_pinned_commits(repo, state, &plan, runner)?;
+        if !is_ancestor(runner, &state.task_repository, verified, &head)? {
+            anyhow::ensure!(
+                clean && is_ancestor(runner, &state.task_repository, &head, verified)?,
+                "Saved verified baseline is not a safe fast-forward from the task clone; its contents are preserved"
+            );
+            runner.git(&state.task_repository, &["reset", "--hard", verified])?;
+        }
+        let history = &state.task_repository;
         ensure_combines(history, runner, &plan, verified)?;
         if state.base_commit != verified {
             state.base_commit = verified.into();
@@ -45,7 +54,7 @@ pub fn prepare(
     if state.task_repository_kind == TaskRepositoryKind::Clone {
         import_pinned_commits(repo, state, &plan, runner)?;
     }
-    validate_task_repository(repo, state, runner)?;
+    validate_task_repository(state, runner)?;
     scope::ensure_pinned_path_scope(
         repo,
         &state.task_repository,
@@ -71,8 +80,9 @@ pub fn prepare(
     }
 
     let mut head = runner.git(&state.task_repository, &["rev-parse", "HEAD"])?;
-    let local_in_head = is_ancestor(runner, &state.task_repository, &plan.local_commit, &head)?;
-    let remote_in_head = is_ancestor(runner, &state.task_repository, &plan.remote_commit, &head)?;
+    let mut local_in_head = is_ancestor(runner, &state.task_repository, &plan.local_commit, &head)?;
+    let mut remote_in_head =
+        is_ancestor(runner, &state.task_repository, &plan.remote_commit, &head)?;
     let mut merge_head = auto_verify::current_merge_head(runner, &state.task_repository)?;
     let mut merge_in_progress = merge_head.is_some();
     if merge_in_progress {
@@ -80,6 +90,59 @@ pub fn prepare(
             head == plan.remote_commit && merge_head.as_deref() == Some(plan.local_commit.as_str()),
             "The saved reconciliation repository has unexpected merge parents. Its contents are preserved for review."
         );
+    }
+
+    if !(local_in_head && remote_in_head) && !merge_in_progress {
+        let status = runner.git(&state.task_repository, &["status", "--porcelain"])?;
+        anyhow::ensure!(
+            status.is_empty(),
+            "The saved reconciliation repository has unexpected edits or a changed base. Its contents are preserved for review."
+        );
+        if head == plan.local_commit {
+            anyhow::ensure!(
+                state.task_repository_kind == TaskRepositoryKind::Clone
+                    && plan.clone_repository.is_some()
+                    && state.source_commit.as_deref() == Some(plan.local_commit.as_str()),
+                "The saved reconciliation repository has an unexpected source base. Its contents are preserved for review."
+            );
+            runner.git(
+                &state.task_repository,
+                &["reset", "--hard", &plan.remote_commit],
+            )?;
+            head = plan.remote_commit.clone();
+            local_in_head = is_ancestor(runner, &state.task_repository, &plan.local_commit, &head)?;
+            remote_in_head =
+                is_ancestor(runner, &state.task_repository, &plan.remote_commit, &head)?;
+        }
+        if !(local_in_head && remote_in_head) {
+            anyhow::ensure!(
+                head == plan.remote_commit,
+                "The saved reconciliation repository has an unexpected base. Its contents are preserved for review."
+            );
+            let result = runner.git(
+                &state.task_repository,
+                &[
+                    "merge",
+                    "--no-ff",
+                    "--no-commit",
+                    "--no-edit",
+                    &plan.local_commit,
+                ],
+            );
+            let unmerged = unmerged_paths(runner, &state.task_repository)?;
+            if let Err(error) = result {
+                anyhow::ensure!(
+                    !unmerged.is_empty(),
+                    "Could not combine local and shared histories: {error}"
+                );
+            }
+            merge_head = auto_verify::current_merge_head(runner, &state.task_repository)?;
+            merge_in_progress = merge_head.is_some();
+            anyhow::ensure!(
+                merge_in_progress,
+                "Git did not leave a resumable merge in the isolated task repository"
+            );
+        }
     }
 
     let already_in_base = local_in_head && remote_in_head && !merge_in_progress;
@@ -101,54 +164,6 @@ pub fn prepare(
                 state.task_repository.display()
             )));
         }
-    }
-
-    if !(local_in_head && remote_in_head) && !merge_in_progress {
-        let status = runner.git(&state.task_repository, &["status", "--porcelain"])?;
-        anyhow::ensure!(
-            status.is_empty(),
-            "The saved reconciliation repository has unexpected edits or a changed base. Its contents are preserved for review."
-        );
-        if head == plan.local_commit {
-            anyhow::ensure!(
-                state.task_repository_kind == TaskRepositoryKind::Clone
-                    && plan.clone_repository.is_some()
-                    && state.source_commit.as_deref() == Some(plan.local_commit.as_str()),
-                "The saved reconciliation repository has an unexpected source base. Its contents are preserved for review."
-            );
-            runner.git(
-                &state.task_repository,
-                &["reset", "--hard", &plan.remote_commit],
-            )?;
-            head = plan.remote_commit.clone();
-        }
-        anyhow::ensure!(
-            head == plan.remote_commit,
-            "The saved reconciliation repository has an unexpected base. Its contents are preserved for review."
-        );
-        let result = runner.git(
-            &state.task_repository,
-            &[
-                "merge",
-                "--no-ff",
-                "--no-commit",
-                "--no-edit",
-                &plan.local_commit,
-            ],
-        );
-        let unmerged = unmerged_paths(runner, &state.task_repository)?;
-        if let Err(error) = result {
-            anyhow::ensure!(
-                !unmerged.is_empty(),
-                "Could not combine local and shared histories: {error}"
-            );
-        }
-        merge_head = auto_verify::current_merge_head(runner, &state.task_repository)?;
-        merge_in_progress = merge_head.is_some();
-        anyhow::ensure!(
-            merge_in_progress,
-            "Git did not leave a resumable merge in the isolated task repository"
-        );
     }
 
     let automatically_verified = match auto_verify::inspect_disjoint_merge(

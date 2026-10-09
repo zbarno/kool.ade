@@ -31,6 +31,7 @@ pub struct HarnessProbe {
     pub models: Vec<String>,
     pub default_model: Option<String>,
     pub configuration_required: bool,
+    pub implementation_available: bool,
 }
 
 #[derive(Clone)]
@@ -289,6 +290,7 @@ fn update_settings_from_probe(
             models: report.models.clone(),
             default_model: report.default_model.clone(),
             configuration_required: report.configuration_required,
+            implementation_available: report.implementation_available,
         },
     );
 }

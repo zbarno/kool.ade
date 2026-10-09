@@ -33,6 +33,7 @@ impl AiHarness for CodexHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::require_application_implementation_boundary("Codex", request)?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Codex CLI executable: {error}"))
         })?;

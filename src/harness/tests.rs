@@ -5,8 +5,57 @@ fn temp_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("koolade-manual-cli-{}", uuid::Uuid::new_v4()))
 }
 
-#[cfg(unix)]
+fn planning_request(mode: ExecutionMode) -> PlanningRequest {
+    let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
+    PlanningRequest {
+        mode,
+        task_id: Some("synthetic-task".into()),
+        reasoning_level: "medium".into(),
+        telemetry_phase: None,
+        repo_root: std::path::PathBuf::from("/synthetic/project"),
+        runtime_config_source: None,
+        prompt_body: String::new(),
+        system_instructions: String::new(),
+        timeout: std::time::Duration::from_secs(1),
+        progress_tx,
+        cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    }
+}
+
 #[test]
+fn application_boundary_rejects_uncontained_repository_access_modes() {
+    for mode in ExecutionMode::ALL {
+        let request = planning_request(mode);
+        for provider in ["codex", "claude", "opencode", "copilot", "antigravity"] {
+            let error = require_application_implementation_boundary(provider, &request)
+                .unwrap_err()
+                .detail();
+            assert!(error.contains("application-owned Linux sandbox"), "{error}");
+            assert!(error.contains("No CLI was started"), "{error}");
+        }
+        require_application_implementation_boundary("pi", &request).unwrap();
+    }
+}
+
+#[test]
+fn provider_adapters_fail_before_locating_or_starting_an_uncontained_cli() {
+    let request = planning_request(ExecutionMode::Implementation);
+    let providers: [(&str, &dyn AiHarness); 5] = [
+        ("Codex", &CodexHarness),
+        ("Claude Code", &ClaudeHarness),
+        ("OpenCode", &OpenCodeHarness),
+        ("Copilot CLI", &CopilotHarness),
+        ("Antigravity", &AntigravityHarness),
+    ];
+    for (name, provider) in providers {
+        let error = provider.execute(&request).unwrap_err().detail();
+        assert!(error.contains(&format!("{name} repository access is unavailable")));
+        assert!(error.contains("No CLI was started"));
+    }
+}
+
+#[test]
+#[cfg(unix)]
 fn manual_path_accepts_spaces_and_symlinks_but_rejects_non_executables() {
     use std::os::unix::fs::{PermissionsExt, symlink};
 

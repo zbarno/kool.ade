@@ -30,7 +30,9 @@ pub(super) struct Plan {
 }
 
 pub(super) use self::prepare::prepare;
-pub(super) use clone_plan::{CloneRepositoryPlan, save_clone_plan, save_plan};
+#[cfg(test)]
+pub(super) use clone_plan::save_plan;
+pub(super) use clone_plan::{CloneRepositoryPlan, attach_clone_repository, save_clone_plan};
 
 pub(super) fn load_plan(dir: &Path) -> anyhow::Result<Option<Plan>> {
     let path = dir.join(PLAN_FILE);

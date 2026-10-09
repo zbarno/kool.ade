@@ -133,14 +133,13 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
 
     let reviewing = super::super::take_dependency_update(&updates);
     assert_eq!(reviewing.status, DependencyRequestStatus::ManagerReviewing);
     assert_eq!(reviewing.need.package.as_deref(), Some("archive-helper"));
     assert_eq!(reviewing.need.version.as_deref(), Some("1.0.0"));
     super::super::answer(
-        &reviewing.id,
+        &reviewing,
         DependencyDecision::AuthorizeForTask,
         None,
         "This exact public package is required by the task verification.",
@@ -229,7 +228,6 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     )
     .unwrap();
     retry_client.write_all(b"\n").unwrap();
-    retry_client.shutdown(std::net::Shutdown::Write).unwrap();
     retry_client
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();

@@ -21,6 +21,10 @@ impl DependencyAdapter for Adapter {
             crate::harness::dependency_decision_allowed(need, context.decision),
             "npm dependency request did not pass its exact authorization decision"
         );
+        let _cache_gate = context
+            .npm_cache_gate
+            .lock()
+            .map_err(|_| anyhow::anyhow!("npm cache coordination lock is unavailable"))?;
         match need.kind {
             crate::harness::DependencyKind::ExistingRestore => {
                 crate::harness::resource_bridge::dependency::validate_lockfile_identity(

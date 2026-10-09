@@ -6,6 +6,9 @@ use std::{
     sync::{Arc, Barrier},
 };
 
+#[path = "tests/remote_publication.rs"]
+mod remote_publication;
+
 struct Fixture {
     root: PathBuf,
     clones: [PathBuf; 2],
@@ -249,47 +252,4 @@ fn unavailable_remote_claim_requires_explicit_per_run_override() {
         claim().acquire(),
         Err(ClaimError::RemoteUnavailable(_))
     ));
-}
-
-#[test]
-fn implementation_controller_reports_remote_conflicts_before_running_the_harness() {
-    let fixture = Fixture::new();
-    let owner = &fixture.clones[0];
-    let other = &fixture.clones[1];
-    let base = git_at(owner, &["rev-parse", "HEAD"]);
-    let _owner_claim = ClaimLease::acquire(owner, "task-worker", &base)
-        .unwrap()
-        .unwrap();
-    let request = ClaimRequest::new(
-        other.clone(),
-        "task-worker".into(),
-        git_at(other, &["rev-parse", "HEAD"]),
-        None,
-        false,
-    );
-    let controller =
-        crate::core::implementation::Controller::start_project_with_policy_and_claim_request(
-            other.clone(),
-            other.clone(),
-            "task.md".into(),
-            crate::core::implementation::StartPolicy {
-                publication_mode: crate::core::implementation::PublicationMode::HoldForReview,
-                require_independent_checks: false,
-            },
-            None,
-            Box::new(crate::harness::PiHarness),
-            Some(request),
-        );
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        if let Some(crate::core::implementation::Event::ClaimBlocked(error)) = controller.poll() {
-            assert!(matches!(*error, ClaimError::AlreadyClaimed { .. }));
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "claim conflict was not reported"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
 }

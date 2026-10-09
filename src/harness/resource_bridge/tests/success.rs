@@ -67,14 +67,13 @@ fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
 
     let request = take_dependency_update(&updates);
     assert_eq!(request.status, DependencyRequestStatus::ManagerReviewing);
     assert!(request.need.lockfile_identity.is_some());
     assert!(request.need.introduced_packages.is_empty());
     answer(
-        &request.id,
+        &request,
         DependencyDecision::AuthorizeForTask,
         None,
         "The locked public npm restore is required by the task.",
@@ -154,7 +153,6 @@ fn approved_npm_restore_rejects_a_lockfile_changed_during_manager_review() {
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
 
     let request = take_dependency_update(&updates);
     assert_eq!(request.status, DependencyRequestStatus::ManagerReviewing);
@@ -167,7 +165,7 @@ fn approved_npm_restore_rejects_a_lockfile_changed_during_manager_review() {
     )
     .unwrap();
     answer(
-        &request.id,
+        &request,
         DependencyDecision::AuthorizeForTask,
         None,
         "Man.ager approved the exact public lockfile restore.",

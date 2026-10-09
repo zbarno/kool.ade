@@ -16,6 +16,7 @@ fn report(ok: bool) -> HarnessProbe {
         models: vec!["configured-model".into()],
         default_model: None,
         configuration_required: false,
+        implementation_available: true,
     }
 }
 
@@ -73,6 +74,7 @@ fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
         models: vec![],
         default_model: None,
         configuration_required: true,
+        implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
     apply_probe_results(&mut settings, &[pi, codex], Some("codex"));
@@ -95,6 +97,7 @@ fn configured_codex_default_is_preserved_when_ready() {
         models: vec!["gpt-configured".into()],
         default_model: Some("gpt-configured".into()),
         configuration_required: false,
+        implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
     apply_probe_results(&mut settings, &[report(true), codex], Some("codex"));

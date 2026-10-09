@@ -58,6 +58,12 @@ an explicit stale-only compare-and-swap takeover, so a competing recovery
 cannot replace a newer claim. Neither mechanism makes planning edits
 collaborative.
 
+When a claim is held, the verified candidate branch and renewed claim are
+updated in one atomic Git push. A stale claim cannot update the candidate
+branch after takeover. Pull request creation uses the GitHub API and cannot be
+part of that Git transaction, so Kool.ad/e checks the claim immediately before
+the API call; a takeover can still race that final check.
+
 Migration preflights all sources and destinations before moving files. If a
 legacy and canonical destination conflict, it preserves both and reports the
 specific conflict instead of overwriting either copy. A private checkpoint lets

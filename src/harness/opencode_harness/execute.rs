@@ -30,6 +30,7 @@ impl AiHarness for OpenCodeHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::require_application_implementation_boundary("OpenCode", request)?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve OpenCode executable: {error}"))
         })?;

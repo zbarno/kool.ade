@@ -47,7 +47,7 @@ function requestResource(socketPath: string, request: BrokerRequest, timeoutMs =
 		const socket = connect(socketPath);
 		let response = "";
 		socket.setTimeout(timeoutMs, () => socket.destroy(new Error("Resource request timed out")));
-		socket.on("connect", () => socket.end(JSON.stringify(request) + "\n"));
+		socket.on("connect", () => socket.write(JSON.stringify(request) + "\n"));
 		socket.on("data", (chunk: Buffer) => {
 			response += chunk.toString("utf8");
 			if (response.length > 1_000_000) socket.destroy(new Error("Resource response is too large"));

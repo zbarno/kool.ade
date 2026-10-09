@@ -8,7 +8,16 @@ pub(super) fn task_path(
     ticket: &str,
 ) -> anyhow::Result<PathBuf> {
     let project_id = crate::persistence::project_slug(&planning_root.canonicalize()?);
-    Ok(repository_root(&project_id, repository_id)?.join(key(ticket)))
+    allocated_path(&project_id, repository_id, &key(ticket))
+}
+
+pub(super) fn allocated_path(
+    project_id: &str,
+    repository_id: &str,
+    allocation: &str,
+) -> anyhow::Result<PathBuf> {
+    validate_allocation_key(allocation)?;
+    Ok(repository_root(project_id, repository_id)?.join(allocation))
 }
 
 pub(super) fn project_id(planning_root: &Path) -> anyhow::Result<String> {
@@ -22,16 +31,6 @@ pub(super) fn allocation_key(state: &Implementation) -> String {
         .task_repository_allocation_key
         .clone()
         .unwrap_or_else(|| key(&state.ticket))
-}
-
-pub(super) fn legacy_path(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
-    let parent = repo
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Repository has no parent"))?;
-    Ok(parent
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(&repo.canonicalize()?))
-        .join(key(ticket)))
 }
 
 pub(super) fn cache_for_state(

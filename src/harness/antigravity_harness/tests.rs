@@ -106,7 +106,10 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
         progress_tx: tx,
         cancel: Arc::new(AtomicBool::new(false)),
     };
-    let result = AntigravityHarness.execute(&request).unwrap();
+    let result = crate::harness::with_uncontained_provider_test_execution(|| {
+        AntigravityHarness.execute(&request)
+    })
+    .unwrap();
     assert_eq!(result.final_text, "done");
     let call = rx.try_iter().flat_map(|p| p.model_calls).last().unwrap();
     assert_eq!(call.input_tokens, Some(11));
@@ -128,17 +131,19 @@ fn auth_errors_and_malformed_output_are_reported() {
         "cat >/dev/null\nprintf '%s\\n' '{\"event\":\"result\",\"result\":{\"status\":\"ERROR\",\"error\":\"authentication required\"}}'\nexit 1\n",
     );
     let _env = set_binary(&cli);
-    let error = AntigravityHarness
-        .execute(&request(&root, std::sync::mpsc::channel().0))
-        .unwrap_err();
+    let error = crate::harness::with_uncontained_provider_test_execution(|| {
+        AntigravityHarness.execute(&request(&root, std::sync::mpsc::channel().0))
+    })
+    .unwrap_err();
     assert!(error.detail().to_ascii_lowercase().contains("authenticate"));
     fake_cli(
         &cli,
         "cat >/dev/null\necho 'not-json Bearer secretsupersecret'\nexit 0\n",
     );
-    let error = AntigravityHarness
-        .execute(&request(&root, std::sync::mpsc::channel().0))
-        .unwrap_err();
+    let error = crate::harness::with_uncontained_provider_test_execution(|| {
+        AntigravityHarness.execute(&request(&root, std::sync::mpsc::channel().0))
+    })
+    .unwrap_err();
     assert!(error.detail().contains("before a result"));
     assert!(error.detail().contains("not-json"));
     assert!(!error.detail().contains("secretsupersecret"));
@@ -164,9 +169,11 @@ fn cancellation_stops_the_active_cli_process() {
     let worker_cancel = cancel.clone();
     let worker_root = root.clone();
     let worker = std::thread::spawn(move || {
-        AntigravityHarness.execute(&PlanningRequest {
-            cancel: worker_cancel,
-            ..request(&worker_root, std::sync::mpsc::channel().0)
+        crate::harness::with_uncontained_provider_test_execution(|| {
+            AntigravityHarness.execute(&PlanningRequest {
+                cancel: worker_cancel,
+                ..request(&worker_root, std::sync::mpsc::channel().0)
+            })
         })
     });
     let deadline = Instant::now() + Duration::from_secs(3);

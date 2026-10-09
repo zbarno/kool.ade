@@ -22,7 +22,10 @@ Both profiles use `src/harness/pi_sandbox/mounts/system_runtime.rs`:
 - Compatibility paths: `/bin`, `/sbin`, `/lib`, `/lib64`, resolved to the
   same approved runtime directories on merged-layout Linux distributions.
 - Individual OS files: `/etc/ld.so.cache`, `/etc/passwd`, `/etc/group`,
-  `/etc/nsswitch.conf`, `/etc/localtime`; public roots under `/etc/ssl/certs`.
+  `/etc/nsswitch.conf`, `/etc/localtime`; Fedora's `nsswitch.conf` may come
+  from the single file `/etc/authselect/nsswitch.conf`. Public certificate
+  roots include `/etc/ssl/certs` and Fedora's
+  `/etc/pki/{tls/certs,ca-trust/extracted/pem,ca-trust/extracted/openssl}`.
 - Compiler and build-tool alternatives: only `cc`, `c++`, `cpp`, `automake`,
   and `aclocal`. Canonical symlinks preserve executable lookup and GCC's
   support-file lookup; the alternatives directory remains hidden.
@@ -73,12 +76,11 @@ be handled as environment prerequisites, never by restoring a broad host bind.
 
 Tests cover mount-policy construction, runtime redirects into private data,
 dangling links, broad project roots, and read denial for unrelated host paths
-in both profiles. Existing C, Cargo, npm, credential, network, and Git-metadata
-fixtures exercise allowed work and forbidden access on Linux CI.
+in both profiles. Ubuntu Linux CI runs the complete C, Cargo, npm, credential,
+network, and Git-metadata fixtures. Fedora 44 CI runs the runtime-layout policy
+tests against Fedora's authselect and certificate paths.
 
 This document describes the Pi filesystem profiles. Issue #94 tracks enforcing
-the same application-owned boundary for all coding CLIs. Issue #93 remains
-open until the complete tool-specific mount audit, cross-distribution checks,
-and its remaining acceptance criteria are satisfied. Trusted system runtime
+the same application-owned boundary for all coding CLIs. Trusted system runtime
 mutation by another host process during construction is outside this boundary;
 the sandbox does not make an already compromised host trustworthy.

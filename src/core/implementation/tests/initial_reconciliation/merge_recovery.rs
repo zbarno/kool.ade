@@ -39,6 +39,23 @@ pub(super) fn task_worktree(s: &Sandbox) -> std::path::PathBuf {
         .join(key)
 }
 
+pub(super) fn migrated_task_repository(s: &Sandbox) -> std::path::PathBuf {
+    crate::core::implementation::read_state_file(
+        &state_dir(&s.repo, &s.ticket).unwrap().join("state.json"),
+    )
+    .unwrap()
+    .task_repository
+}
+
+pub(super) fn repository_cache(s: &Sandbox) -> std::path::PathBuf {
+    crate::core::implementation::read_state_file(
+        &state_dir(&s.repo, &s.ticket).unwrap().join("state.json"),
+    )
+    .unwrap()
+    .repository_cache
+    .unwrap()
+}
+
 pub(super) fn agent() -> (Arc<AtomicUsize>, ReconcilingAgent) {
     let calls = Arc::new(AtomicUsize::new(0));
     (

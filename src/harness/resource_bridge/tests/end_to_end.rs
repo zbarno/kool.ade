@@ -164,7 +164,6 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     )
     .unwrap();
     client.write_all(b"\n").unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
 
     let reviewed = super::take_dependency_update(&updates);
     assert_eq!(
@@ -178,7 +177,7 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     assert_eq!(reviewed.need.version, None);
     assert_eq!(reviewed.need.command, "npm ci");
     super::answer(
-        &reviewed.id,
+        &reviewed,
         DependencyDecision::AuthorizeForTask,
         None,
         "The task's committed npm lockfile is needed for verification.",

@@ -275,6 +275,7 @@ fn run_with_agent_for_ticket(
             require_independent_checks: false,
             user_context,
             auto_publish_gate: None,
+            claim_lease: None,
         },
     )
 }

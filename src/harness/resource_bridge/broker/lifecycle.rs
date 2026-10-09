@@ -27,7 +27,29 @@ impl ResourceBridge {
     }
 
     pub(crate) fn dependency_request(&self) -> Option<crate::harness::DependencyRequest> {
-        self.pending_dependency.lock().ok()?.clone()
+        self.pending_dependency.lock().ok()?.last().cloned()
+    }
+}
+
+#[cfg(test)]
+impl ResourceBridge {
+    pub(crate) fn start_with_preparation_hook(
+        worktree: &std::path::Path,
+        task_id: Option<&str>,
+        progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+        cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        hook: std::sync::Arc<dyn Fn() + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        Self::start_inner(
+            worktree,
+            None,
+            task_id,
+            progress,
+            cancel,
+            &crate::persistence::state_root(),
+            None,
+            Some(hook),
+        )
     }
 }
 

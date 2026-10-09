@@ -133,6 +133,7 @@ fn pi_guide_tracks_tool_discovery_from_pending_to_live_report() {
             models: vec![],
             default_model: None,
             configuration_required: false,
+            implementation_available: true,
         },
     );
     dialog.probe_view = ProbeView::Complete;

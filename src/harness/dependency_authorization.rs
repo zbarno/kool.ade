@@ -2,7 +2,11 @@ use crate::harness::{DependencyAuthorizationScope, DependencyDecision, Dependenc
 use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock, mpsc},
+    time::Duration,
 };
+
+const MAX_PENDING_PER_TASK: usize = 8;
+const MAX_PENDING_GLOBAL: usize = 64;
 
 #[derive(Debug, Clone)]
 pub(crate) struct DependencyResolution {
@@ -11,9 +15,39 @@ pub(crate) struct DependencyResolution {
     pub rationale: String,
 }
 
-static PENDING: OnceLock<Mutex<HashMap<String, mpsc::Sender<DependencyResolution>>>> =
-    OnceLock::new();
+static PENDING: OnceLock<Mutex<HashMap<String, PendingAuthorization>>> = OnceLock::new();
 static ONCE_GRANTS: OnceLock<Mutex<Vec<OnceGrant>>> = OnceLock::new();
+
+struct PendingAuthorization {
+    task_id: String,
+    need: DependencyNeed,
+    sender: mpsc::Sender<DependencyResolution>,
+    awaiting_user: bool,
+}
+
+pub(crate) struct ResolutionRegistration {
+    id: String,
+    receiver: mpsc::Receiver<DependencyResolution>,
+}
+
+impl ResolutionRegistration {
+    pub(crate) fn recv_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<DependencyResolution, mpsc::RecvTimeoutError> {
+        self.receiver.recv_timeout(timeout)
+    }
+
+    pub(crate) fn unregister(&self) {
+        unregister(&self.id);
+    }
+}
+
+impl Drop for ResolutionRegistration {
+    fn drop(&mut self) {
+        unregister(&self.id);
+    }
+}
 
 struct OnceGrant {
     project_id: String,
@@ -21,7 +55,7 @@ struct OnceGrant {
     need: DependencyNeed,
 }
 
-fn pending() -> &'static Mutex<HashMap<String, mpsc::Sender<DependencyResolution>>> {
+fn pending() -> &'static Mutex<HashMap<String, PendingAuthorization>> {
     PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -29,7 +63,11 @@ fn once_grants() -> &'static Mutex<Vec<OnceGrant>> {
     ONCE_GRANTS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-pub(crate) fn register(id: &str) -> anyhow::Result<mpsc::Receiver<DependencyResolution>> {
+pub(crate) fn register(
+    id: &str,
+    task_id: &str,
+    need: &DependencyNeed,
+) -> anyhow::Result<ResolutionRegistration> {
     let (sender, receiver) = mpsc::channel();
     let mut pending = pending()
         .lock()
@@ -38,16 +76,56 @@ pub(crate) fn register(id: &str) -> anyhow::Result<mpsc::Receiver<DependencyReso
         !pending.contains_key(id),
         "Dependency authorization request ID is already active"
     );
-    pending.insert(id.to_owned(), sender);
-    Ok(receiver)
+    anyhow::ensure!(
+        pending.len() < MAX_PENDING_GLOBAL
+            && pending
+                .values()
+                .filter(|request| request.task_id == task_id)
+                .count()
+                < MAX_PENDING_PER_TASK,
+        "Too many dependency authorizations are already outstanding; resolve or cancel an existing request first"
+    );
+    pending.insert(
+        id.to_owned(),
+        PendingAuthorization {
+            task_id: task_id.to_owned(),
+            need: need.clone(),
+            sender,
+            awaiting_user: false,
+        },
+    );
+    Ok(ResolutionRegistration {
+        id: id.to_owned(),
+        receiver,
+    })
 }
 
-pub(crate) fn answer(id: &str, answer: DependencyResolution) -> bool {
-    let sender = pending()
-        .lock()
-        .ok()
-        .and_then(|pending| pending.get(id).cloned());
-    sender.is_some_and(|sender| sender.send(answer).is_ok())
+pub(crate) fn answer(
+    id: &str,
+    task_id: &str,
+    need: &DependencyNeed,
+    answer: DependencyResolution,
+) -> bool {
+    let Ok(mut pending) = pending().lock() else {
+        return false;
+    };
+    let Some(request) = pending.get_mut(id) else {
+        return false;
+    };
+    if request.task_id != task_id || request.need != *need {
+        return false;
+    }
+    if answer.decision == DependencyDecision::RequiresUserAuthorization {
+        if request.awaiting_user {
+            return false;
+        }
+        request.awaiting_user = true;
+        return request.sender.send(answer).is_ok();
+    }
+    let Some(request) = pending.remove(id) else {
+        return false;
+    };
+    request.sender.send(answer).is_ok()
 }
 
 pub(crate) fn unregister(id: &str) {
@@ -108,48 +186,5 @@ fn same_need(left: &DependencyNeed, right: &DependencyNeed) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{DependencyNeed, remember_once_for_request, take_once};
-    use crate::harness::{
-        DependencyDecision, DependencyFailureCategory, DependencyKind, DependencyRequest,
-        DependencyRequestStatus, PackageEcosystem,
-    };
-
-    #[test]
-    fn one_time_grant_is_project_and_task_scoped_and_consumed_by_one_request() {
-        let need = DependencyNeed {
-            ecosystem: PackageEcosystem::Npm,
-            package: Some("zod".into()),
-            version: Some("4.0.0".into()),
-            source: Some("https://registry.npmjs.org".into()),
-            command: "npm install zod@4.0.0".into(),
-            reason: "Validate imported settings data".into(),
-            kind: DependencyKind::NewProjectDependency,
-            lockfile_identity: None,
-            introduced_packages: Vec::new(),
-        };
-        let request = DependencyRequest {
-            id: "request-1".into(),
-            task_id: "stable-task-uid".into(),
-            need: need.clone(),
-            category: DependencyFailureCategory::Unknown,
-            decision: DependencyDecision::RequiresUserAuthorization,
-            rationale: "User decision required".into(),
-            risk: "External package source".into(),
-            status: DependencyRequestStatus::AwaitingUser,
-            preparation: None,
-        };
-        assert!(remember_once_for_request("project-a", &request));
-        assert!(!take_once("project-b", "stable-task-uid", &need));
-        assert!(!take_once("project-a", "ticket/path.md", &need));
-        let mut different_command = need.clone();
-        different_command.command = "npm install zod@4.0.0 --save-prod".into();
-        assert!(!take_once(
-            "project-a",
-            "stable-task-uid",
-            &different_command
-        ));
-        assert!(take_once("project-a", "stable-task-uid", &need));
-        assert!(!take_once("project-a", "stable-task-uid", &need));
-    }
-}
+#[path = "dependency_authorization/tests.rs"]
+mod tests;

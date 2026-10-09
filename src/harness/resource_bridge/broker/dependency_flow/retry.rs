@@ -22,7 +22,8 @@ pub(super) fn record_retry_result(
         .lock()
         .map_err(|_| anyhow::anyhow!("Dependency activity is unavailable"))?
         .clone()
-        .filter(|request| request.id == request_id)
+        .into_iter()
+        .find(|request| request.id == request_id)
     else {
         return Ok(ResourceResponse::needs_attention(
             "The dependency retry result did not match the active request.".into(),

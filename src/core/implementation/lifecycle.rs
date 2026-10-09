@@ -10,9 +10,7 @@ pub(super) fn execute(
 ) -> anyhow::Result<()> {
     let publication_mode = policy.publication_mode;
     let auto_publish_gate = policy.auto_publish_gate;
-    if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree
-        || dir.join("base-reconciliation.json").exists()
-    {
+    if dir.join("base-reconciliation.json").exists() {
         super::initial_reconciliation::prepare(
             repo,
             dir,
@@ -55,7 +53,7 @@ pub(super) fn execute(
             if state.source_branch.is_some() || state.destination_branch.is_some() {
                 integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
             }
-            publication::create_pull_request(dir, state, runner)
+            publication::create_pull_request(dir, state, runner, policy.claim_lease)
         }
     }
 }

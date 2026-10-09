@@ -2,27 +2,17 @@ use super::super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
 
 pub(in crate::core::implementation) fn prepare_task_workspace(
-    repo: &Path,
+    repository_cache: &Path,
     dir: &Path,
     state: &mut Implementation,
     runner: &Runner,
 ) -> anyhow::Result<(bool, String)> {
     match state.task_repository_kind {
-        TaskRepositoryKind::LegacyWorktree => prepare_worktree(repo, state, runner),
-        TaskRepositoryKind::Clone => prepare_workspace(repo, dir, state, runner),
+        TaskRepositoryKind::LegacyWorktree => anyhow::bail!(
+            "This saved task must migrate from its legacy linked worktree before execution. Its original workspace is preserved."
+        ),
+        TaskRepositoryKind::Clone => prepare_workspace(repository_cache, dir, state, runner),
     }
-}
-
-pub(super) fn prepare_worktree(
-    repo: &Path,
-    state: &Implementation,
-    runner: &Runner,
-) -> anyhow::Result<(bool, String)> {
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::LegacyWorktree,
-        "Legacy reconciliation requested a linked worktree for a task clone"
-    );
-    prepare_legacy_worktree(repo, state, runner)
 }
 
 pub(super) fn prepare_workspace(
@@ -31,66 +21,11 @@ pub(super) fn prepare_workspace(
     state: &mut Implementation,
     runner: &Runner,
 ) -> anyhow::Result<(bool, String)> {
-    match state.task_repository_kind {
-        TaskRepositoryKind::LegacyWorktree => {
-            prepare_legacy_worktree(repository_cache, state, runner)
-        }
-        TaskRepositoryKind::Clone => prepare_clone(repository_cache, dir, state, runner),
-    }
-}
-
-fn prepare_legacy_worktree(
-    repo: &Path,
-    state: &Implementation,
-    runner: &Runner,
-) -> anyhow::Result<(bool, String)> {
-    runner.update("Preparing a legacy task workspace…");
-    if state.task_repository.exists() {
-        anyhow::ensure!(
-            common(&state.task_repository)?.canonicalize()? == common(repo)?.canonicalize()?,
-            "Existing legacy task workspace belongs to a different repository; no changes made"
-        );
-        anyhow::ensure!(
-            runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?
-                == state.branch,
-            "Existing legacy task workspace is on another branch; no changes made"
-        );
-    } else {
-        let path = state
-            .task_repository
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Non-UTF8 legacy task workspace path"))?;
-        let branch_exists = runner
-            .git(
-                repo,
-                &[
-                    "show-ref",
-                    "--verify",
-                    &format!("refs/heads/{}", state.branch),
-                ],
-            )
-            .is_ok();
-        if branch_exists {
-            runner.git_with_reflog_identity(repo, &["worktree", "add", path, &state.branch])?;
-        } else {
-            runner.git_with_reflog_identity(
-                repo,
-                &[
-                    "worktree",
-                    "add",
-                    "-b",
-                    &state.branch,
-                    path,
-                    &state.base_commit,
-                ],
-            )?;
-        }
-    }
-    let clean = runner
-        .git(&state.task_repository, &["status", "--porcelain"])?
-        .is_empty();
-    let head = runner.git(&state.task_repository, &["rev-parse", "HEAD"])?;
-    Ok((clean, head))
+    anyhow::ensure!(
+        state.task_repository_kind == TaskRepositoryKind::Clone,
+        "Legacy task repositories must migrate before verification"
+    );
+    prepare_clone(repository_cache, dir, state, runner)
 }
 
 fn prepare_clone(

@@ -4,17 +4,6 @@ use super::*;
 fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
     let s = Sandbox::new();
     let (remote, local, common) = make_divergent(&s);
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
-    fs::create_dir_all(&dir).unwrap();
-    crate::core::implementation::initial_reconciliation::save_plan(
-        &dir,
-        "main",
-        &local,
-        &remote,
-        &common,
-        &[],
-    )
-    .unwrap();
     let worktree = task_worktree(&s);
     fs::create_dir_all(worktree.parent().unwrap()).unwrap();
     let key = crate::core::implementation::key_for_ticket(&s.ticket);
@@ -48,6 +37,9 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
         "ignored extra\n",
     )
     .unwrap();
+    super::super::save_legacy_reconciliation_state(
+        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
+    );
     let (calls, agent) = agent();
 
     let result = run_with_agent(&s, &agent, None).unwrap();
@@ -59,7 +51,7 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
     assert_eq!(snapshot["schema_version"], 2);
     assert_eq!(
         snapshot["task_repository"],
-        worktree.to_string_lossy().as_ref()
+        result.task_repository.to_string_lossy().as_ref()
     );
     assert!(snapshot.get("worktree").is_none());
     assert!(snapshot_path.exists());
@@ -92,30 +84,37 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
             .any(|p| p == ".cache/recovery-ignored.txt")
     );
     let stash = snapshot["stash_commit"].as_str().unwrap();
+    let repository_cache = result.repository_cache.as_deref().unwrap();
     assert_eq!(
-        s.git(&s.repo, &["show", &format!("{stash}:upstream.txt")]),
+        s.git(
+            repository_cache,
+            &["show", &format!("{stash}:upstream.txt")]
+        ),
         "unstaged edit"
     );
     assert_eq!(
-        s.git(&s.repo, &["show", &format!("{stash}:recovery-staged.txt")]),
+        s.git(
+            repository_cache,
+            &["show", &format!("{stash}:recovery-staged.txt")]
+        ),
         "staged extra"
     );
     assert_eq!(
         s.git(
-            &s.repo,
+            repository_cache,
             &["show", &format!("{stash}^3:recovery-untracked.txt")]
         ),
         "interrupted edit"
     );
     assert_eq!(
         s.git(
-            &s.repo,
+            repository_cache,
             &["show", &format!("{stash}^3:.cache/recovery-ignored.txt")]
         ),
         "ignored extra"
     );
     let private_ref = snapshot["private_ref"].as_str().unwrap();
-    assert_eq!(s.git(&s.repo, &["rev-parse", private_ref]), stash);
+    assert_eq!(s.git(repository_cache, &["rev-parse", private_ref]), stash);
     assert!(
         s.git(
             &result.task_repository,

@@ -53,6 +53,8 @@ impl KooladeApp {
                 project.activity.mark_ticket_dirty(ticket);
                 let _ = crate::harness::dependency_authorization::answer(
                     request_id,
+                    &request.task_id,
+                    &request.need,
                     crate::harness::dependency_authorization::DependencyResolution {
                         decision: crate::harness::DependencyDecision::Reject,
                         scope: None,
@@ -103,6 +105,8 @@ impl KooladeApp {
             project.activity.mark_ticket_dirty(ticket);
             let delivered = crate::harness::dependency_authorization::answer(
                 request_id,
+                &request.task_id,
+                &request.need,
                 crate::harness::dependency_authorization::DependencyResolution {
                     decision,
                     scope: Some(scope),
@@ -195,10 +199,14 @@ impl KooladeApp {
             request.category = crate::harness::DependencyFailureCategory::DependencyPolicyDenied;
             request.status = crate::harness::DependencyRequestStatus::Denied;
             request.rationale = "You denied this dependency request in Task Details.".into();
+            let task_id = request.task_id.clone();
+            let need = request.need.clone();
             project.save_task_activity(ticket);
             project.activity.mark_ticket_dirty(ticket);
             let _ = crate::harness::dependency_authorization::answer(
                 request_id,
+                &task_id,
+                &need,
                 crate::harness::dependency_authorization::DependencyResolution {
                     decision: crate::harness::DependencyDecision::Reject,
                     scope: None,

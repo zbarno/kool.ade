@@ -91,6 +91,56 @@ fn tool_alternatives_preserve_canonical_targets_without_exposing_other_aliases()
     );
 }
 
+#[test]
+fn runtime_view_mounts_fedora_os_files_without_their_parent_trees() {
+    let mut args = Vec::new();
+    let mut created = BTreeSet::from(["/".to_owned()]);
+    mount_system_runtime(&mut args, &mut created).unwrap();
+
+    let authselect = Path::new("/etc/authselect/nsswitch.conf");
+    let fedora = Path::new("/etc/fedora-release").is_file();
+    if fedora {
+        assert!(
+            authselect.is_file(),
+            "Fedora authselect nsswitch target is missing"
+        );
+    }
+    if authselect.is_file() {
+        assert!(args.windows(3).any(|mount| {
+            mount[0] == "--ro-bind"
+                && mount[1] == authselect.to_string_lossy()
+                && mount[2] == "/etc/nsswitch.conf"
+        }));
+    }
+    let fedora_ca_roots = [
+        "/etc/pki/tls/certs",
+        "/etc/pki/ca-trust/extracted/pem",
+        "/etc/pki/ca-trust/extracted/openssl",
+    ];
+    for location in fedora_ca_roots {
+        let path = Path::new(location);
+        if fedora {
+            assert!(
+                path.is_dir(),
+                "Fedora CA runtime path is missing: {location}"
+            );
+        }
+        if path.is_dir() {
+            let source = path.canonicalize().unwrap();
+            assert!(args.windows(3).any(|mount| {
+                mount[0] == "--ro-bind"
+                    && mount[1] == source.to_string_lossy()
+                    && mount[2] == location
+            }));
+        }
+    }
+    for parent in ["/etc/authselect", "/etc/pki", "/etc/pki/ca-trust"] {
+        assert!(!args.windows(3).any(|mount| {
+            mount[0] == "--ro-bind" && (mount[1] == parent || mount[2] == parent)
+        }));
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn runtime_symlinks_cannot_redirect_into_private_or_parent_directories() {
@@ -184,4 +234,52 @@ fn visibility_requires_actual_runtime_paths_and_precise_build_data_versions() {
     ] {
         assert!(runtime_visible(Path::new(path)), "missing runtime {path}");
     }
+}
+
+#[test]
+fn distro_os_configuration_redirects_are_explicit_and_narrow() {
+    assert!(os_config_source_allowed(
+        Path::new("/etc/nsswitch.conf"),
+        Path::new("/etc/authselect/nsswitch.conf")
+    ));
+    assert!(!os_config_source_allowed(
+        Path::new("/etc/nsswitch.conf"),
+        Path::new("/etc/authselect/authselect.conf")
+    ));
+    assert!(!os_config_source_allowed(
+        Path::new("/etc/nsswitch.conf"),
+        Path::new("/etc/passwd")
+    ));
+    assert!(os_config_source_allowed(
+        Path::new("/etc/localtime"),
+        Path::new("/usr/share/zoneinfo/Etc/UTC")
+    ));
+    assert!(!os_config_source_allowed(
+        Path::new("/etc/localtime"),
+        Path::new("/usr/share/zoneinfo-private/Etc/UTC")
+    ));
+}
+
+#[test]
+fn distro_certificate_roots_are_mounted_only_at_public_locations() {
+    assert!(public_ca_source_allowed(
+        Path::new("/etc/ssl/certs"),
+        Path::new("/etc/pki/tls/certs")
+    ));
+    assert!(public_ca_source_allowed(
+        Path::new("/etc/pki/tls/certs"),
+        Path::new("/etc/ssl/certs")
+    ));
+    assert!(public_ca_source_allowed(
+        Path::new("/etc/pki/ca-trust/extracted/pem"),
+        Path::new("/etc/pki/ca-trust/extracted/pem")
+    ));
+    assert!(!public_ca_source_allowed(
+        Path::new("/etc/ssl/certs"),
+        Path::new("/etc/pki/private")
+    ));
+    assert!(!public_ca_source_allowed(
+        Path::new("/etc/pki/ca-trust/extracted/pem"),
+        Path::new("/etc/pki/ca-trust")
+    ));
 }
