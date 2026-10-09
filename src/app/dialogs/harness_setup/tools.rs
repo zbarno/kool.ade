@@ -138,7 +138,7 @@ fn paint_tool_details(
     )));
     if harness.ready && !harness.implementation_available {
         ui.label(theme::helper_text(
-            "Implementation is unavailable for this tool until Kool.ad/e can run it inside the application-owned Linux sandbox. Pi requires Bubblewrap.",
+            "Implementation is unavailable until Kool.ad/e has an application-managed repository boundary for this tool. Supported tools require Linux and Bubblewrap.",
         ));
     }
     if let Some(version) = &harness.version {

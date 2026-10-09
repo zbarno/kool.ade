@@ -127,8 +127,14 @@ fn probe(binary: &Path) -> Result<(String, Vec<String>), (String, Option<String>
 fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), (String, Option<String>)> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))
-        .map_err(|e| (format!("Antigravity CLI could not start: {e}"), None))?;
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        &argv,
+        Path::new("."),
+        None,
+        &[],
+        crate::harness::execution_security::CliProvider::Antigravity.excluded_child_environment(),
+    )
+    .map_err(|e| (format!("Antigravity CLI could not start: {e}"), None))?;
     let deadline = Instant::now() + PROBE_TIMEOUT;
     let mut stdout = String::new();
     let mut exit = None;

@@ -408,10 +408,15 @@ Current capabilities include:
 | Multi-repository projects | ✅ |
 | Bubblewrap sandboxing | ✅ |
 | Pi CLI | ✅ |
+| Codex CLI | ✅ |
+| Claude Code CLI | ✅ |
+| Antigravity CLI | ✅ |
+| OpenCode CLI | ✅ |
+| GitHub Copilot CLI | ✅ |
 | Linux x86_64 | ✅ |
 | macOS | 🥤 Eventually |
 | Windows | 🥤 Eventually |
-| Other agent CLIs | 🥤 Very much planned |
+| Additional agent CLIs | 🥤 Very much planned |
 | Telepathic requirements gathering | ❌ Pending model improvement |
 
 ### Current constraints
@@ -420,9 +425,9 @@ Right now Kool.ad/e is deliberately opinionated:
 
 - **Linux x86_64 only**
 - **single operator**
-- **Pi is the only agent CLI adapter**
+- supported agent CLIs use an application-managed Bubblewrap boundary for repository commands
 - autonomous repository access requires **Bubblewrap**
-- provider integration is currently aimed at **private/local HTTP OpenAI-compatible endpoints**
+- Pi's built-in provider bridge currently targets **private/local HTTP OpenAI-compatible endpoints**
 - collaboration between multiple human operators is not implemented
 
 If you need something polished, cross-platform, and enterprise-ready today, this is probably early for you.

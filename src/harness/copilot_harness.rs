@@ -152,8 +152,14 @@ fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
     let argv = std::iter::once(binary.to_string_lossy().into_owned())
         .chain(args.iter().map(|arg| (*arg).to_owned()))
         .collect::<Vec<_>>();
-    let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))
-        .map_err(|error| format!("Could not start GitHub Copilot CLI: {error}"))?;
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        &argv,
+        Path::new("."),
+        None,
+        &[],
+        crate::harness::execution_security::CliProvider::Copilot.excluded_child_environment(),
+    )
+    .map_err(|error| format!("Could not start GitHub Copilot CLI: {error}"))?;
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut output = Vec::new();
     let mut status = None;

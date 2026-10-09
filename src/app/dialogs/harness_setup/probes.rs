@@ -147,7 +147,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             default_model: codex_default,
             configuration_required: codex.readiness
                 == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
-            implementation_available: false,
+            implementation_available: codex.ready && sandbox_available,
             status: codex.status,
         },
         HarnessProbe {
@@ -163,7 +163,9 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             default_model: configured_model_catalog("claude").1,
             configuration_required: claude.readiness
                 == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
-            implementation_available: false,
+            implementation_available: claude.readiness
+                == crate::harness::claude_harness::ClaudeReadiness::Ready
+                && sandbox_available,
             status: claude.status,
         },
         HarnessProbe {
@@ -182,7 +184,7 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             .ok()
             .filter(|m| !m.trim().is_empty()),
             configuration_required: false,
-            implementation_available: false,
+            implementation_available: antigravity.ready && sandbox_available,
             status: antigravity.status,
         },
         HarnessProbe {
@@ -201,7 +203,9 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
                 crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
                     | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired
             ),
-            implementation_available: false,
+            implementation_available: opencode.readiness
+                == crate::harness::opencode_harness::OpenCodeReadiness::Ready
+                && sandbox_available,
             status: opencode.status,
         },
         HarnessProbe {
@@ -216,7 +220,9 @@ pub(super) fn discover_harnesses() -> Vec<HarnessProbe> {
             models: configured_model_catalog("copilot").0,
             default_model: configured_model_catalog("copilot").1,
             configuration_required: false,
-            implementation_available: false,
+            implementation_available: copilot.readiness
+                == crate::harness::copilot_harness::CopilotReadiness::Ready
+                && sandbox_available,
             status: match copilot.readiness {
                 crate::harness::copilot_harness::CopilotReadiness::Missing => {
                     "copilot (not installed)".into()

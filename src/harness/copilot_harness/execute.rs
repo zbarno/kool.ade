@@ -92,6 +92,10 @@ impl AiHarness for CopilotHarness {
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
         crate::harness::require_application_implementation_boundary("Copilot CLI", request)?;
+        let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
+            .map_err(|error| {
+                AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
+            })?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!(
                 "Cannot resolve GitHub Copilot CLI executable: {error}"
@@ -99,19 +103,38 @@ impl AiHarness for CopilotHarness {
         })?;
         let model = model.map(str::to_owned).or_else(configured_model);
         let usage_file = supports_usage_output(&binary).then(UsageFile::new);
-        let argv = command(
+        let mut argv = command(
             &binary,
             request,
             model.as_deref(),
             usage_file.as_ref().map(|file| file.path.as_path()),
         );
+        let mut child_env = Vec::new();
+        boundary
+            .configure(
+                crate::harness::execution_security::CliProvider::Copilot,
+                &mut argv,
+                &mut child_env,
+            )
+            .map_err(|error| {
+                AppError::Other(format!("Cannot configure Copilot sandbox tools: {error:#}"))
+            })?;
         let mut developer = String::from(
             "Kool.ad/e owns task lifecycle, branches, approvals, Git operations, and pull request publication. Never switch branches, commit, push, open a pull request, or publish. Work only inside the current task repository and return the requested structured result.\n\n",
         );
         developer.push_str(&request.system_instructions);
+        developer.push_str("\n\n");
+        developer.push_str(boundary.system_policy());
         let input = format!("{developer}\n\n{}", request.prompt_body);
         let started = chrono::Utc::now();
-        let output = run_process(request, &argv, input)?;
+        let output = run_process_at(
+            &argv,
+            input,
+            boundary.working_directory(),
+            request,
+            &child_env,
+            crate::harness::execution_security::CliProvider::Copilot.excluded_child_environment(),
+        )?;
         let response = normalize_output(&output.stdout);
         if output.success != Some(true) {
             let diagnostics = output
@@ -158,12 +181,30 @@ impl AiHarness for CopilotHarness {
     }
 }
 
+#[cfg(test)]
 pub(super) fn run_process(
     request: &PlanningRequest,
     argv: &[String],
     input: String,
 ) -> Result<ProcessOutput, AppError> {
-    let task = crate::harness::pi_proc::spawn_with_input(argv, &request.repo_root, Some(input))?;
+    run_process_at(argv, input, &request.repo_root, request, &[], &[])
+}
+
+fn run_process_at(
+    argv: &[String],
+    input: String,
+    working_directory: &std::path::Path,
+    request: &PlanningRequest,
+    env: &[(String, String)],
+    excluded_env: &[&str],
+) -> Result<ProcessOutput, AppError> {
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        argv,
+        working_directory,
+        Some(input),
+        env,
+        excluded_env,
+    )?;
     let deadline = Instant::now() + request.timeout;
     let mut stderr = Vec::new();
     let mut stdout = Vec::new();

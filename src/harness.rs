@@ -29,6 +29,12 @@ pub(crate) fn implementation_route_available(harness: &str) -> bool {
     execution_security::implementation_route_available(harness)
 }
 
+/// Entry point used by the desktop binary's private stdio MCP subprocess.
+#[doc(hidden)]
+pub fn serve_internal_mcp_server(config_path: &std::path::Path) -> anyhow::Result<()> {
+    execution_security::serve_mcp_server(config_path)
+}
+
 pub(crate) fn require_application_implementation_boundary(
     harness: &str,
     request: &PlanningRequest,
@@ -47,7 +53,7 @@ pub(crate) fn require_application_implementation_boundary(
     {
         return Err(crate::error::AppError::HarnessFailed {
             reason: format!(
-                "{harness} repository access is unavailable because it cannot run inside Kool.ad/e's application-owned Linux sandbox. Select Pi on a host with Bubblewrap. No CLI was started."
+                "{harness} repository access is unavailable because it has no configured application-owned Linux sandbox policy. Select a supported CLI on a Linux host with Bubblewrap. No CLI was started."
             ),
             stderr_tail: String::new(),
         });
@@ -58,6 +64,11 @@ pub(crate) fn require_application_implementation_boundary(
 #[cfg(test)]
 pub(crate) fn with_uncontained_provider_test_execution<T>(run: impl FnOnce() -> T) -> T {
     provider_test_override::with_enabled(run)
+}
+
+#[cfg(test)]
+pub(crate) fn uncontained_provider_test_execution_enabled() -> bool {
+    provider_test_override::enabled()
 }
 
 #[cfg(test)]

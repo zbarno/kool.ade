@@ -221,14 +221,6 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
     assert!(
         validate_task_routes(
             &settings,
-            &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))])
-        )
-        .unwrap_err()
-        .contains("application-owned Linux sandbox")
-    );
-    assert!(
-        validate_task_routes(
-            &settings,
             &std::collections::BTreeMap::from([(
                 IMPLEMENTATION.into(),
                 WorkRoute {
@@ -249,11 +241,16 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
     assert!(
         validate_task_routes(
             &available,
-            &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))])
+            &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("removed")))])
         )
         .unwrap_err()
-        .contains("application-owned Linux sandbox")
+        .contains("Model 'removed' is unavailable")
     );
+    validate_task_routes(
+        &available,
+        &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))]),
+    )
+    .unwrap();
     assert!(
         validate_task_routes(
             &settings,

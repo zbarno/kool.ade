@@ -1,8 +1,14 @@
 use super::ExecutionMode;
 
+mod application_boundary;
+mod mcp_server;
+
+pub(crate) use application_boundary::{ApplicationBoundary, CliProvider};
+pub(crate) use mcp_server::serve as serve_mcp_server;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FilesystemScope {
-    AssignedCloneAndExplicitAllowlist,
+    PrivateCliDirectoryAndAssignedCloneAllowlist,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,12 +28,12 @@ pub(crate) enum DependencyPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CredentialPolicy {
-    ApplicationControlled,
+    ProviderManagedButUnavailableToRepositoryCommands,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessIsolation {
-    BubblewrapNamespaces,
+    BubblewrapForRepositoryCommands,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,34 +64,48 @@ impl HarnessCapabilities {
     pub(crate) fn settings_summary(self) -> &'static str {
         match self.policy {
             ExecutionSecurityPolicy {
-                filesystem: FilesystemScope::AssignedCloneAndExplicitAllowlist,
+                filesystem: FilesystemScope::PrivateCliDirectoryAndAssignedCloneAllowlist,
                 network: NetworkPolicy::NoAmbientNetwork,
                 tool_operations: ToolOperations::SandboxedShellAndBrokeredResources,
                 dependency_requests: DependencyPolicy::ApplicationAuthorizationBroker,
-                credentials: CredentialPolicy::ApplicationControlled,
-                process_isolation: ProcessIsolation::BubblewrapNamespaces,
+                credentials: CredentialPolicy::ProviderManagedButUnavailableToRepositoryCommands,
+                process_isolation: ProcessIsolation::BubblewrapForRepositoryCommands,
             } => {
-                "Bubblewrap isolates the assigned clone with explicit mounts, no ambient network, brokered dependency requests, and application controlled credentials."
+                "Pi runs inside Bubblewrap. Other supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and have native repository tools disabled by Kool.ad/e. Repository commands run only through Kool.ad/e's per-run MCP bridge inside Bubblewrap, with explicit mounts, no ambient network or host credentials, and brokered resource and dependency requests. Host-side CLIs start without NODE_OPTIONS so Node startup code cannot run before restrictions apply. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex or Claude account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings; the app cannot preflight cloud-delivered policy. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
             }
         }
     }
 }
 
-static PI_MODES: [ExecutionMode; 7] = ExecutionMode::ALL;
-const PI_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
+static SUPPORTED_MODES: [ExecutionMode; 7] = ExecutionMode::ALL;
+const APPLICATION_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
     policy: ExecutionSecurityPolicy {
-        filesystem: FilesystemScope::AssignedCloneAndExplicitAllowlist,
+        filesystem: FilesystemScope::PrivateCliDirectoryAndAssignedCloneAllowlist,
         network: NetworkPolicy::NoAmbientNetwork,
         tool_operations: ToolOperations::SandboxedShellAndBrokeredResources,
         dependency_requests: DependencyPolicy::ApplicationAuthorizationBroker,
-        credentials: CredentialPolicy::ApplicationControlled,
-        process_isolation: ProcessIsolation::BubblewrapNamespaces,
+        credentials: CredentialPolicy::ProviderManagedButUnavailableToRepositoryCommands,
+        process_isolation: ProcessIsolation::BubblewrapForRepositoryCommands,
     },
-    modes: &PI_MODES,
+    modes: &SUPPORTED_MODES,
 };
 
 pub(crate) fn for_harness(id: &str) -> Option<HarnessCapabilities> {
-    (id == "pi").then_some(PI_CAPABILITIES)
+    let supported = [
+        "pi",
+        "codex",
+        "claude",
+        "claude code",
+        "antigravity",
+        "opencode",
+        "open code",
+        "copilot",
+        "copilot cli",
+    ];
+    supported
+        .iter()
+        .any(|name| id.trim().eq_ignore_ascii_case(name))
+        .then_some(APPLICATION_CAPABILITIES)
 }
 
 pub(crate) fn implementation_route_available(id: &str) -> bool {
@@ -94,7 +114,7 @@ pub(crate) fn implementation_route_available(id: &str) -> bool {
 
 pub(crate) fn summary_for_harness(id: &str) -> &'static str {
     for_harness(id).map_or(
-        "Repository execution is disabled because this CLI has no application owned sandbox policy.",
+        "Repository execution is disabled because this CLI has no application-owned sandbox policy.",
         HarnessCapabilities::settings_summary,
     )
 }
@@ -104,17 +124,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_pi_advertises_a_complete_application_owned_execution_policy() {
-        let pi = for_harness("pi").unwrap();
-        assert!(pi.supports_implementation());
-        assert!(ExecutionMode::ALL.into_iter().all(|mode| pi.supports(mode)));
-        assert_eq!(
-            pi.policy.process_isolation,
-            ProcessIsolation::BubblewrapNamespaces
-        );
-        for id in ["codex", "claude", "opencode", "copilot", "antigravity"] {
-            assert!(for_harness(id).is_none());
-            assert!(!implementation_route_available(id));
+    fn every_supported_cli_advertises_the_shared_application_owned_policy() {
+        for id in [
+            "pi",
+            "codex",
+            "claude",
+            "opencode",
+            "copilot",
+            "antigravity",
+        ] {
+            let capabilities = for_harness(id).unwrap();
+            assert!(capabilities.supports_implementation(), "{id}");
+            assert!(
+                ExecutionMode::ALL
+                    .into_iter()
+                    .all(|mode| capabilities.supports(mode))
+            );
+            assert_eq!(
+                capabilities.policy.process_isolation,
+                ProcessIsolation::BubblewrapForRepositoryCommands
+            );
+            assert!(implementation_route_available(id), "{id}");
         }
+        assert!(for_harness("unknown").is_none());
+        assert!(!implementation_route_available("unknown"));
     }
 }

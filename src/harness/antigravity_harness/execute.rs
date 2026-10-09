@@ -27,7 +27,6 @@ pub(super) fn command(
         "stream-json".into(),
         "--output-format".into(),
         "stream-json".into(),
-        "--sandbox".into(),
     ];
     if let Some(model) = model.filter(|m| !m.trim().is_empty()) {
         args.extend(["--model".into(), model.to_owned()]);
@@ -41,10 +40,15 @@ pub(super) fn command(
     args
 }
 
+#[cfg(test)]
 pub(super) fn prompt_input(request: &PlanningRequest) -> String {
+    prompt_input_with_policy(request, "")
+}
+
+fn prompt_input_with_policy(request: &PlanningRequest, boundary_policy: &str) -> String {
     let prompt = format!(
-        "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Never switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.\n\n{}\n\n{}",
-        request.system_instructions, request.prompt_body
+        "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Never switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.\n\n{}\n\n{}\n\n{}",
+        request.system_instructions, boundary_policy, request.prompt_body
     );
     serde_json::json!({"event":"user","message":{"content":prompt}}).to_string() + "\n"
 }
@@ -69,6 +73,10 @@ impl AiHarness for AntigravityHarness {
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
         crate::harness::require_application_implementation_boundary("Antigravity", request)?;
+        let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
+            .map_err(|error| {
+                AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
+            })?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|e| {
             AppError::Other(format!("Cannot resolve Antigravity CLI executable: {e}"))
         })?;
@@ -77,11 +85,26 @@ impl AiHarness for AntigravityHarness {
                 .ok()
                 .filter(|m| !m.trim().is_empty())
         });
-        let argv = command(&binary, request, requested_model.as_deref());
-        let task = crate::harness::pi_proc::spawn_with_input(
+        let mut argv = command(&binary, request, requested_model.as_deref());
+        let mut child_env = Vec::new();
+        boundary
+            .configure(
+                crate::harness::execution_security::CliProvider::Antigravity,
+                &mut argv,
+                &mut child_env,
+            )
+            .map_err(|error| {
+                AppError::Other(format!(
+                    "Cannot configure Antigravity sandbox tools: {error:#}"
+                ))
+            })?;
+        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
             &argv,
-            &request.repo_root,
-            Some(prompt_input(request)),
+            boundary.working_directory(),
+            Some(prompt_input_with_policy(request, boundary.system_policy())),
+            &child_env,
+            crate::harness::execution_security::CliProvider::Antigravity
+                .excluded_child_environment(),
         )?;
         let started_at = chrono::Utc::now();
         let started = Instant::now();

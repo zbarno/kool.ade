@@ -20,12 +20,17 @@ struct ModelPage {
 }
 
 pub(super) fn discover(binary: &Path) -> anyhow::Result<(Vec<String>, Option<String>)> {
-    let mut child = Command::new(binary)
+    let mut command = Command::new(binary);
+    command
         .args(["app-server", "--listen", "stdio://"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    for name in crate::harness::execution_security::CliProvider::Codex.excluded_child_environment()
+    {
+        command.env_remove(name);
+    }
+    let mut child = command.spawn()?;
     let mut input = child
         .stdin
         .take()

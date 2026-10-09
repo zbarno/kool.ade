@@ -31,6 +31,10 @@ impl AiHarness for ClaudeHarness {
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
         crate::harness::require_application_implementation_boundary("Claude Code", request)?;
+        let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
+            .map_err(|error| {
+                AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
+            })?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Claude Code executable: {error}"))
         })?;
@@ -40,6 +44,8 @@ impl AiHarness for ClaudeHarness {
         );
         developer.push_str("\n\n");
         developer.push_str(&request.system_instructions);
+        developer.push_str("\n\n");
+        developer.push_str(boundary.system_policy());
         let mut argv = argv;
         argv.extend(["--append-system-prompt".into(), developer]);
         let requested_model = model.map(str::to_owned).or_else(|| {
@@ -52,11 +58,23 @@ impl AiHarness for ClaudeHarness {
         }
         let effort = normalize_effort(&request.reasoning_level);
         argv.extend(["--effort".into(), effort.into()]);
+        let mut child_env = Vec::new();
+        boundary
+            .configure(
+                crate::harness::execution_security::CliProvider::Claude,
+                &mut argv,
+                &mut child_env,
+            )
+            .map_err(|error| {
+                AppError::Other(format!("Cannot configure Claude sandbox tools: {error:#}"))
+            })?;
 
-        let task = crate::harness::pi_proc::spawn_with_input(
+        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
             &argv,
-            &request.repo_root,
+            boundary.working_directory(),
             Some(prompt_input(&request.prompt_body)),
+            &child_env,
+            crate::harness::execution_security::CliProvider::Claude.excluded_child_environment(),
         )?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();

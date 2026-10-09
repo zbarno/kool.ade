@@ -135,7 +135,19 @@ pub fn spawn_with_input_env(
     input: Option<String>,
     env: &[(String, String)],
 ) -> anyhow::Result<ChildTask> {
-    spawn_with_input_env_policy(argv, cwd, input, env, false)
+    spawn_with_input_env_policy(argv, cwd, input, env, false, &[])
+}
+
+/// Pipe a prompt while adding child environment values and removing selected
+/// inherited variables that can execute host commands.
+pub fn spawn_with_input_env_excluding(
+    argv: &[String],
+    cwd: &Path,
+    input: Option<String>,
+    env: &[(String, String)],
+    excluded_env: &[&str],
+) -> anyhow::Result<ChildTask> {
+    spawn_with_input_env_policy(argv, cwd, input, env, false, excluded_env)
 }
 
 /// Spawn with a clean environment, then add only the supplied values.
@@ -145,7 +157,7 @@ pub fn spawn_with_input_clear_env(
     input: Option<String>,
     env: &[(String, String)],
 ) -> anyhow::Result<ChildTask> {
-    spawn_with_input_env_policy(argv, cwd, input, env, true)
+    spawn_with_input_env_policy(argv, cwd, input, env, true, &[])
 }
 
 fn spawn_with_input_env_policy(
@@ -154,6 +166,7 @@ fn spawn_with_input_env_policy(
     input: Option<String>,
     env: &[(String, String)],
     clear_env: bool,
+    excluded_env: &[&str],
 ) -> anyhow::Result<ChildTask> {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut cmd = Command::new(&argv[0]);
@@ -171,6 +184,9 @@ fn spawn_with_input_env_policy(
         .stderr(Stdio::piped());
     for (name, value) in env {
         cmd.env(name, value);
+    }
+    for name in excluded_env {
+        cmd.env_remove(name);
     }
     #[cfg(unix)]
     {

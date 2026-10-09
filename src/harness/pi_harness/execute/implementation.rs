@@ -199,11 +199,12 @@ impl AiHarness for PiHarness {
             argv.retain(|arg| arg != "--no-context-files");
         }
         let diagnostics = diagnostics::open(&req.repo_root, req.mode, git_common_dir.as_deref())?;
-        let task = crate::harness::pi_proc::spawn_with_input_env(
+        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
             &argv,
             &req.repo_root,
             Some(req.prompt_body.clone()),
             &child_env,
+            &["NODE_OPTIONS"],
         )?;
         stream::run(
             task,
