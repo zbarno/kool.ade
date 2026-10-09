@@ -80,11 +80,47 @@ in both profiles. Ubuntu Linux CI runs the complete C, Cargo, npm, credential,
 network, and Git-metadata fixtures. Fedora 44 CI runs the runtime-layout policy
 tests against Fedora's authselect and certificate paths.
 
-Pi is currently the only coding CLI with an implementation route. Kool.ad/e
-declares that route through a typed execution policy covering filesystem scope,
-network, tools, dependency authorization, credentials, process isolation, and
-supported modes. Other coding CLIs remain discoverable, but the application
-rejects their repository routes before starting a process. OpenCode command
-filters are not treated as a security boundary. Trusted system runtime mutation
-by another host process during construction is outside this boundary; the
+Pi runs inside Bubblewrap. Codex, Claude Code, Antigravity, OpenCode, and GitHub
+Copilot keep their provider CLI process on the host so each CLI can use its
+provider's authentication and model connection. Kool.ad/e starts those CLIs in
+a private empty working directory, disables their native repository tools,
+and exposes only a per-run application-managed MCP server. The MCP server runs
+repository commands inside the same Bubblewrap planning or implementation
+profile described above. It also sends resource and dependency requests through
+the existing application broker.
+
+The provider CLI process itself is not inside Bubblewrap. Its own authentication
+and network access remain with that CLI. This policy contains model-requested
+repository operations when the provider's tool restrictions work as configured;
+it does not isolate a compromised provider CLI executable from the host user.
+The app refuses to start when it detects locally visible host execution
+settings. This includes Copilot policy hooks; Codex hooks in TOML or
+`hooks.json`, notify commands, enabled feature flags, extra MCP servers, or
+plugins in system configuration; any Claude Code local managed-settings file
+or drop-in; and OpenCode system-managed settings. Claude's restricted mode
+still loads managed policy, which can configure hooks, credential helpers,
+status-line and file-suggestion commands, and MCP servers, so Kool.ad/e
+rejects the local policy files rather than trying to maintain a partial key
+list. These settings can
+launch commands on the host outside Bubblewrap.
+Kool.ad/e removes `NODE_OPTIONS` before launching every provider CLI so
+Node-based CLIs cannot preload host code before applying these restrictions.
+It also removes Claude Code's `CLAUDE_CODE_SHELL_PREFIX` override so a
+host-provided wrapper cannot intercept startup of the app-managed MCP server.
+
+Codex and Claude Code can receive additional administrator-managed settings
+through account or cloud policy. Their CLIs do not let Kool.ad/e reliably
+inspect or disable all of those policies before launch. A remote policy may
+provide hooks, helper commands, or MCP servers, and Codex requirements may pin
+feature flags. If such a policy is delivered, its host-side actions remain
+trusted code and can run outside Bubblewrap. Operators must trust the
+administrators and accounts that configure those policies. Claude Code is
+unavailable under WSL because it can inherit Windows-managed settings from the
+registry, which Kool.ad/e cannot inspect from Linux. Provider documentation:
+[Codex hooks](https://learn.chatgpt.com/docs/hooks), [Codex managed configuration](https://learn.chatgpt.com/docs/enterprise/managed-configuration), [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference), [Claude Code managed settings](https://code.claude.com/docs/en/managed-settings), [Claude Code AWS credential commands](https://code.claude.com/docs/en/amazon-bedrock), [Claude Code environment variables](https://code.claude.com/docs/en/env-vars), and [Copilot hooks](https://docs.github.com/en/copilot/reference/hooks-reference).
+
+Trusted system runtime mutation by another host process during construction is
+outside this boundary. Kool.ad/e declares the shared tool boundary through a
+typed execution policy covering filesystem scope, network, tools, dependency
+authorization, credentials, process isolation, and supported modes. The
 sandbox does not make an already compromised host trustworthy.

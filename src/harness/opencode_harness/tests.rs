@@ -36,33 +36,6 @@ fn parses_json_events_and_usage() {
 }
 
 #[test]
-fn permissions_are_denied_by_default_and_mode_scoped() {
-    let no_access: serde_json::Value =
-        serde_json::from_str(&permission_policy(crate::harness::ToolAccess::None)).unwrap();
-    assert_eq!(no_access["read"], "deny");
-    assert_eq!(no_access["edit"], "deny");
-    assert_eq!(no_access["bash"], "deny");
-
-    let readonly: serde_json::Value =
-        serde_json::from_str(&permission_policy(crate::harness::ToolAccess::ReadOnly)).unwrap();
-    assert_eq!(readonly["*"], "deny");
-    assert_eq!(readonly["read"], "allow");
-    assert_eq!(readonly["edit"], "deny");
-    assert_eq!(readonly["bash"], "deny");
-    assert_eq!(readonly["task"], "deny");
-
-    let implementation: serde_json::Value = serde_json::from_str(&permission_policy(
-        crate::harness::ToolAccess::BoundedImplementation,
-    ))
-    .unwrap();
-    assert_eq!(implementation["edit"], "allow");
-    assert_eq!(implementation["bash"]["git *"], "deny");
-    assert_eq!(implementation["bash"]["gh *"], "deny");
-    assert_eq!(implementation["bash"]["curl *"], "deny");
-    assert_eq!(implementation["external_directory"], "deny");
-}
-
-#[test]
 fn version_parser_accepts_cli_prefix_and_rejects_malformed_versions() {
     assert_eq!(parse_version("1.2.3"), Some("1.2.3".into()));
     assert_eq!(parse_version("opencode 1.2.3"), Some("1.2.3".into()));
@@ -112,7 +85,7 @@ fn executes_structured_result_with_model_and_telemetry() {
     let binary = fake_cli(
         &root,
         &format!(
-            "if [ \"$1\" = \"--pure\" ]; then cat > '{}'; test -s '{}' || exit 10; echo \"$OPENCODE_PERMISSION\" | grep -F '\"git *\":\"deny\"' >/dev/null || exit 11; case \" $* \" in *\"--model openai/gpt-test\"*) ;; *) exit 12 ;; esac; printf '%s\\n' '{{\"type\":\"tool_use\",\"part\":{{\"tool\":\"read\"}}}}' '{{\"type\":\"text\",\"part\":{{\"text\":\"{{\\\"ok\\\":true}}\"}}}}' '{{\"type\":\"step_finish\",\"part\":{{\"reason\":\"stop\",\"cost\":0.02,\"tokens\":{{\"input\":12,\"output\":4}}}}}}'; exit 0; fi\nif [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi\nif [ \"$1\" = \"--pure\" ] && [ \"$2\" = \"models\" ]; then echo 'openai/gpt-test'; exit 0; fi\nexit 1",
+            "if [ \"$1\" = \"--pure\" ]; then cat > '{}'; test -s '{}' || exit 10; echo \"$OPENCODE_CONFIG_CONTENT\" | grep -F '\"*\":\"deny\"' >/dev/null; if [ $? -ne 0 ]; then echo missing-config-deny >&2; exit 11; fi; printf '%s\\n' \"$*\" | grep -F -- '--agent koolade_' >/dev/null; if [ $? -ne 0 ]; then echo missing-isolated-agent >&2; exit 12; fi; printf '%s\\n' \"$*\" | grep -F -- '--model openai/gpt-test' >/dev/null; if [ $? -ne 0 ]; then echo missing-model >&2; exit 13; fi; printf '%s\\n' '{{\"type\":\"tool_use\",\"part\":{{\"tool\":\"read\"}}}}' '{{\"type\":\"text\",\"part\":{{\"text\":\"{{\\\"ok\\\":true}}\"}}}}' '{{\"type\":\"step_finish\",\"part\":{{\"reason\":\"stop\",\"cost\":0.02,\"tokens\":{{\"input\":12,\"output\":4}}}}}}'; exit 0; fi\nif [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi\nif [ \"$1\" = \"--pure\" ] && [ \"$2\" = \"models\" ]; then echo 'openai/gpt-test'; exit 0; fi\nexit 1",
             root.join("prompt.txt").display(),
             root.join("prompt.txt").display()
         ),

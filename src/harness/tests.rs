@@ -23,22 +23,29 @@ fn planning_request(mode: ExecutionMode) -> PlanningRequest {
 }
 
 #[test]
-fn application_boundary_rejects_uncontained_repository_access_modes() {
+fn application_boundary_accepts_supported_clis_and_rejects_unknown_providers() {
     for mode in ExecutionMode::ALL {
         let request = planning_request(mode);
-        for provider in ["codex", "claude", "opencode", "copilot", "antigravity"] {
-            let error = require_application_implementation_boundary(provider, &request)
-                .unwrap_err()
-                .detail();
-            assert!(error.contains("application-owned Linux sandbox"), "{error}");
-            assert!(error.contains("No CLI was started"), "{error}");
+        for provider in [
+            "pi",
+            "codex",
+            "claude",
+            "opencode",
+            "copilot",
+            "antigravity",
+        ] {
+            require_application_implementation_boundary(provider, &request).unwrap();
         }
-        require_application_implementation_boundary("pi", &request).unwrap();
+        let error = require_application_implementation_boundary("unsupported", &request)
+            .unwrap_err()
+            .detail();
+        assert!(error.contains("application-owned Linux sandbox"), "{error}");
+        assert!(error.contains("No CLI was started"), "{error}");
     }
 }
 
 #[test]
-fn provider_adapters_fail_before_locating_or_starting_an_uncontained_cli() {
+fn providers_fail_closed_when_the_application_cannot_prepare_a_workspace() {
     let request = planning_request(ExecutionMode::Implementation);
     let providers: [(&str, &dyn AiHarness); 5] = [
         ("Codex", &CodexHarness),
@@ -49,8 +56,10 @@ fn provider_adapters_fail_before_locating_or_starting_an_uncontained_cli() {
     ];
     for (name, provider) in providers {
         let error = provider.execute(&request).unwrap_err().detail();
-        assert!(error.contains(&format!("{name} repository access is unavailable")));
-        assert!(error.contains("No CLI was started"));
+        assert!(
+            error.contains("sandbox") || error.contains("resource broker"),
+            "{name}: {error}"
+        );
     }
 }
 

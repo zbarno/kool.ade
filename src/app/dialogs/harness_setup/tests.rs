@@ -197,7 +197,7 @@ fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
 }
 
 #[test]
-fn codex_settings_show_every_reported_model_even_when_repository_routing_is_disabled() {
+fn codex_settings_show_models_when_the_runtime_sandbox_is_unavailable() {
     use crate::persistence::harness_settings::DetectedHarness;
 
     let models = vec![
@@ -268,11 +268,9 @@ fn codex_settings_show_every_reported_model_even_when_repository_routing_is_disa
             .iter()
             .any(|text| text == "CLI default: gpt-6.1-sol")
     );
-    assert!(
-        visible
-            .iter()
-            .any(|text| text.contains("no application owned sandbox policy"))
-    );
+    assert!(visible.iter().any(|text| text.contains(
+        "Repository commands run only through Kool.ad/e's per-run MCP bridge inside Bubblewrap"
+    )));
     output.textures_delta.clear();
 }
 

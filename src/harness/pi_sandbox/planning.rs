@@ -8,11 +8,30 @@ use super::{config::locate_bwrap, mounts};
 
 pub(crate) struct PlanningSandbox {
     pub bwrap: PathBuf,
+    pub root: PathBuf,
     pub args: Vec<String>,
     provider: Option<super::provider_bridge::ProviderBridge>,
 }
 
 impl PlanningSandbox {
+    pub(crate) fn new_for_application(root: &Path) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            cfg!(target_os = "linux"),
+            "Planning reads are paused because this platform has no configured filesystem sandbox"
+        );
+        let root = root.canonicalize()?;
+        anyhow::ensure!(root.is_dir(), "Planning root is not a directory");
+        let repositories = registered_roots(&root)?;
+        let bwrap = locate_bwrap(&root)?;
+        let args = planning_arguments(&root, None, &repositories)?;
+        Ok(Self {
+            bwrap,
+            root,
+            args,
+            provider: None,
+        })
+    }
+
     #[cfg(test)]
     pub fn new(root: &Path, pi_executable: &Path) -> anyhow::Result<Self> {
         Self::new_with_model(root, pi_executable, None)
@@ -46,9 +65,10 @@ impl PlanningSandbox {
         repositories: Vec<PathBuf>,
     ) -> anyhow::Result<Self> {
         let bwrap = locate_bwrap(root)?;
-        let args = planning_arguments(root, pi_executable, &repositories)?;
+        let args = planning_arguments(root, Some(pi_executable), &repositories)?;
         Ok(Self {
             bwrap,
+            root: root.to_path_buf(),
             args,
             provider: None,
         })
@@ -88,7 +108,7 @@ fn is_pi_cli(executable: &Path) -> bool {
 
 fn planning_arguments(
     root: &Path,
-    pi_executable: &Path,
+    pi_executable: Option<&Path>,
     repositories: &[PathBuf],
 ) -> anyhow::Result<Vec<String>> {
     use mounts::{bind_readonly, make_dir, mount_system_runtime, mount_tmpfs, push_env};
@@ -127,7 +147,9 @@ fn planning_arguments(
         mounts::validate_workspace_root(repository)?;
         bind_readonly(&mut args, &mut created, repository, repository)?;
     }
-    mount_pi_install(&mut args, &mut created, pi_executable)?;
+    if let Some(pi_executable) = pi_executable {
+        mount_pi_install(&mut args, &mut created, pi_executable)?;
+    }
     make_dir(&mut args, &mut created, Path::new("/tmp/koolade-home"));
     args.extend(["--chdir".into(), root.to_string_lossy().into_owned()]);
     args.push("--clearenv".into());

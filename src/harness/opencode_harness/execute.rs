@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use super::OpenCodeHarness;
-use super::stream::{OpenCodeEvent, parse_event, permission_policy};
+use super::stream::{OpenCodeEvent, parse_event};
 use crate::error::AppError;
 use crate::harness::pi_proc::{PollState, StreamEvt};
 use crate::harness::{
@@ -31,6 +31,10 @@ impl AiHarness for OpenCodeHarness {
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
         crate::harness::require_application_implementation_boundary("OpenCode", request)?;
+        let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
+            .map_err(|error| {
+                AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
+            })?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve OpenCode executable: {error}"))
         })?;
@@ -57,20 +61,26 @@ impl AiHarness for OpenCodeHarness {
         prompt.push_str(&request.system_instructions);
         prompt.push_str("\n\nTask:\n");
         prompt.push_str(&request.prompt_body);
-        let env = vec![
-            (
-                "OPENCODE_PERMISSION".into(),
-                permission_policy(request.mode.tool_access()),
-            ),
-            ("OPENCODE_DISABLE_DEFAULT_PLUGINS".into(), "1".into()),
-            ("OPENCODE_DISABLE_AUTOUPDATE".into(), "1".into()),
-            ("OPENCODE_DISABLE_CLAUDE_CODE".into(), "1".into()),
-        ];
-        let task = crate::harness::pi_proc::spawn_with_input_env(
+        prompt.push_str("\n\n");
+        prompt.push_str(boundary.system_policy());
+        let mut env = Vec::new();
+        boundary
+            .configure(
+                crate::harness::execution_security::CliProvider::OpenCode,
+                &mut argv,
+                &mut env,
+            )
+            .map_err(|error| {
+                AppError::Other(format!(
+                    "Cannot configure OpenCode sandbox tools: {error:#}"
+                ))
+            })?;
+        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
             &argv,
-            &request.repo_root,
+            boundary.working_directory(),
             Some(prompt),
             &env,
+            crate::harness::execution_security::CliProvider::OpenCode.excluded_child_environment(),
         )?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();

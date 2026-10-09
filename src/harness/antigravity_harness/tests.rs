@@ -212,7 +212,6 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
         cancel: Arc::new(AtomicBool::new(false)),
     };
     let args = execute::command(Path::new("agy"), &request, Some("gemini-3.8-flash-high"));
-    assert!(args.iter().any(|arg| arg == "--sandbox"));
     assert!(
         args.windows(2)
             .any(|pair| pair == ["--model", "gemini-3.8-flash-high"])

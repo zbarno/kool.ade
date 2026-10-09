@@ -204,7 +204,13 @@ fn run_probe(binary: &Path, args: &[&str]) -> Result<String, AppError> {
 fn run_probe_status(binary: &Path, args: &[&str]) -> Result<(String, bool), AppError> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))?;
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        &argv,
+        Path::new("."),
+        None,
+        &[],
+        crate::harness::execution_security::CliProvider::Codex.excluded_child_environment(),
+    )?;
     let deadline = Instant::now() + PROBE_TIMEOUT;
     let mut output = String::new();
     let mut success = None;

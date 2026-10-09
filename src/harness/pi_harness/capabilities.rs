@@ -64,9 +64,12 @@ fn help_output(exe: &Path) -> Result<String, String> {
 }
 
 fn read_help(exe: &Path) -> Result<String, String> {
-    let task = crate::harness::pi_proc::spawn(
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
         &[exe.to_string_lossy().into_owned(), "--help".into()],
         Path::new("."),
+        None,
+        &[],
+        &["NODE_OPTIONS"],
     )
     .map_err(|error| format!("could not inspect Pi capabilities: {error}"))?;
     let deadline = Instant::now() + Duration::from_secs(10);

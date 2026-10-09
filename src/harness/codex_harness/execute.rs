@@ -34,6 +34,10 @@ impl AiHarness for CodexHarness {
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
         crate::harness::require_application_implementation_boundary("Codex", request)?;
+        let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
+            .map_err(|error| {
+                AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
+            })?;
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Codex CLI executable: {error}"))
         })?;
@@ -46,9 +50,25 @@ impl AiHarness for CodexHarness {
         let requested_model_name = requested_model
             .as_ref()
             .map(|model: &std::ffi::OsString| model.to_string_lossy().into_owned());
-        let (argv, prompt) = command(&binary, request, requested_model);
-        let task =
-            crate::harness::pi_proc::spawn_with_input(&argv, &request.repo_root, Some(prompt))?;
+        let (mut argv, prompt) = command(&binary, request, requested_model);
+        let mut child_env = Vec::new();
+        boundary
+            .configure(
+                crate::harness::execution_security::CliProvider::Codex,
+                &mut argv,
+                &mut child_env,
+            )
+            .map_err(|error| {
+                AppError::Other(format!("Cannot configure Codex sandbox tools: {error:#}"))
+            })?;
+        let prompt = format!("{prompt}\n\n{}", boundary.system_policy());
+        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+            &argv,
+            boundary.working_directory(),
+            Some(prompt),
+            &child_env,
+            crate::harness::execution_security::CliProvider::Codex.excluded_child_environment(),
+        )?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();
         let mut exit_status = None;

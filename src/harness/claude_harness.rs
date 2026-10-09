@@ -180,8 +180,14 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
 fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))
-        .map_err(|error| format!("Claude Code could not start: {error}"))?;
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        &argv,
+        Path::new("."),
+        None,
+        &[],
+        crate::harness::execution_security::CliProvider::Claude.excluded_child_environment(),
+    )
+    .map_err(|error| format!("Claude Code could not start: {error}"))?;
     let deadline = Instant::now() + PROBE_TIMEOUT;
     let mut stdout = String::new();
     let mut exit = None;

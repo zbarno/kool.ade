@@ -76,7 +76,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .color(theme::TEXT),
     );
     ui.label(RichText::new("Choose the coding tool and model for each kind of work. Settings are saved on this device. Unchanged categories use your default tool.").size(11.0).weak());
-    ui.label(RichText::new("All repository work requires Kool.ad/e's Bubblewrap sandbox. Tools without that boundary remain discoverable, but cannot be routed until sandbox support is available.").size(10.5).weak());
+    ui.label(RichText::new("Repository commands run through Kool.ad/e's application-managed Bubblewrap boundary. Supported provider CLIs keep their own model connection; their native repository tools are disabled.").size(10.5).weak());
     let categories = [
         (
             crate::persistence::harness_settings::IMPLEMENTATION,

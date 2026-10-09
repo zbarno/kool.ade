@@ -56,14 +56,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
 }
 
 #[test]
-fn non_pi_harnesses_cannot_run_writable_implementation_requests() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let harness = RoutedHarness {
-        inner: Box::new(CountHarness(calls.clone(), "codex")),
-        harness_id: "codex".into(),
-        model: None,
-        default_model_hint: None,
-    };
+fn supported_provider_clis_pass_implementation_requests_through_the_shared_policy() {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
         mode: crate::harness::ExecutionMode::Implementation,
@@ -79,7 +72,26 @@ fn non_pi_harnesses_cannot_run_writable_implementation_requests() {
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
-    let error = harness.execute(&request).unwrap_err();
+    for provider in ["codex", "claude", "antigravity", "opencode", "copilot"] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let harness = RoutedHarness {
+            inner: Box::new(CountHarness(calls.clone(), "supported")),
+            harness_id: provider.into(),
+            model: None,
+            default_model_hint: None,
+        };
+        harness.execute(&request).unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "{provider}");
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let unsupported = RoutedHarness {
+        inner: Box::new(CountHarness(calls.clone(), "unsupported")),
+        harness_id: "unsupported".into(),
+        model: None,
+        default_model_hint: None,
+    };
+    let error = unsupported.execute(&request).unwrap_err();
     assert!(error.detail().contains("application-owned Linux sandbox"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

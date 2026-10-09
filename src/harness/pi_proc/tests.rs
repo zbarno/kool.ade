@@ -54,6 +54,35 @@ fn clean_spawn_passes_only_explicit_environment_values() {
 }
 
 #[test]
+fn spawn_can_remove_an_environment_value_even_when_explicitly_added() {
+    let task = spawn_with_input_env_excluding(
+        &sh(
+            "test -z \"${CLAUDE_CODE_SHELL_PREFIX+x}\" && test -z \"${NODE_OPTIONS+x}\" && printf absent",
+        ),
+        Path::new("/"),
+        None,
+        &[
+            ("CLAUDE_CODE_SHELL_PREFIX".into(), "host-wrapper".into()),
+            ("NODE_OPTIONS".into(), "--require=host-wrapper".into()),
+        ],
+        &["CLAUDE_CODE_SHELL_PREFIX", "NODE_OPTIONS"],
+    )
+    .unwrap();
+    let mut lines = Vec::new();
+    loop {
+        match task.poll_next(Duration::from_secs(3)).unwrap() {
+            StreamEvt::Stdout(line) => lines.push(line),
+            StreamEvt::Exited(ok) => {
+                assert!(ok);
+                break;
+            }
+            StreamEvt::Stderr(line) => panic!("environment check failed: {line}"),
+        }
+    }
+    assert_eq!(lines, ["absent"]);
+}
+
+#[test]
 fn exit_follows_all_buffered_output() {
     let task = spawn(
         &sh("i=0; while [ $i -lt 12000 ]; do echo final-payload; i=$((i+1)); done"),

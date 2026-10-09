@@ -176,9 +176,12 @@ impl PiHarness {
     /// from `check_available`, which now delegates here (behavior and the
     /// `AiHarness` contract are unchanged).
     fn probe_version(exe: &Path) -> Result<String, AppError> {
-        let task = crate::harness::pi_proc::spawn(
+        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
             &[exe.to_string_lossy().into_owned(), "--version".into()],
             Path::new("."),
+            None,
+            &[],
+            &["NODE_OPTIONS"],
         )?;
         let deadline = Instant::now() + CHECK_TIMEOUT;
         let mut version = String::new();

@@ -12,7 +12,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 mod execute;
 mod stream;
 #[cfg(test)]
-use stream::{OpenCodeEvent, parse_event, permission_policy};
+use stream::{OpenCodeEvent, parse_event};
 
 #[derive(Default)]
 pub struct OpenCodeHarness;
@@ -174,8 +174,14 @@ fn probe(path: &Path) -> Result<(String, Vec<String>), (OpenCodeReadiness, Strin
 fn run(binary: &Path, args: &[&str]) -> Result<String, String> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn(&argv, Path::new("."))
-        .map_err(|error| format!("OpenCode could not start: {error}"))?;
+    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        &argv,
+        Path::new("."),
+        None,
+        &[],
+        crate::harness::execution_security::CliProvider::OpenCode.excluded_child_environment(),
+    )
+    .map_err(|error| format!("OpenCode could not start: {error}"))?;
     let deadline = Instant::now() + PROBE_TIMEOUT;
     let mut stdout = String::new();
     let mut stderr = String::new();

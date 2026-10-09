@@ -1,4 +1,3 @@
-use crate::harness::ToolAccess;
 use serde_json::Value;
 
 #[derive(Debug, PartialEq)]
@@ -58,45 +57,4 @@ fn error_text(value: &Value) -> String {
         .or_else(|| value.as_str())
         .unwrap_or("OpenCode reported an execution error")
         .to_owned()
-}
-
-pub(super) fn permission_policy(access: ToolAccess) -> String {
-    let can_read = access != ToolAccess::None;
-    let can_edit = access == ToolAccess::BoundedImplementation;
-    let edit = if can_edit { "allow" } else { "deny" };
-    let bash = if can_edit {
-        serde_json::json!({
-            "*": "allow",
-            "git": "deny",
-            "git *": "deny",
-            "gh": "deny",
-            "gh *": "deny",
-            "curl": "deny",
-            "curl *": "deny",
-            "wget": "deny",
-            "wget *": "deny",
-            "ssh": "deny",
-            "ssh *": "deny",
-            "scp": "deny",
-            "scp *": "deny"
-        })
-    } else {
-        serde_json::json!("deny")
-    };
-    serde_json::json!({
-        "*": "deny",
-        "read": if can_read { "allow" } else { "deny" },
-        "glob": if can_read { "allow" } else { "deny" },
-        "grep": if can_read { "allow" } else { "deny" },
-        "list": if can_read { "allow" } else { "deny" },
-        "edit": edit,
-        "bash": bash,
-        "lsp": "deny",
-        "task": "deny",
-        "skill": "deny",
-        "webfetch": "deny",
-        "websearch": "deny",
-        "external_directory": "deny"
-    })
-    .to_string()
 }
