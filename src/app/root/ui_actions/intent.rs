@@ -109,9 +109,16 @@ impl KooladeApp {
         };
         let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
         match manager.migrate_legacy_checkout(&path) {
-            Ok(_) => {
+            Ok(workspace) => {
+                let summary = migration_discovery_summary(&path, &workspace);
                 let selected = path.to_string_lossy().into_owned();
                 self.finish_connect(crate::app::welcome::attempt_connect(&selected));
+                match summary {
+                    Ok(summary) => self.toasts.success(summary),
+                    Err(error) => self.toasts.warning(format!(
+                        "Migration completed, but its discovery report could not be read: {error:#}"
+                    )),
+                }
             }
             Err(error) => self
                 .toasts
@@ -139,5 +146,92 @@ impl KooladeApp {
                 .toasts
                 .warning(format!("Planning rollback did not run: {error:#}")),
         }
+    }
+}
+
+fn migration_discovery_summary(
+    source_root: &std::path::Path,
+    workspace: &crate::core::managed_workspace::ManagedWorkspace,
+) -> anyhow::Result<String> {
+    use crate::core::managed_workspace::MigrationReport;
+
+    let report: MigrationReport = serde_json::from_slice(&std::fs::read(
+        workspace.planning_repo.join("migration-report.json"),
+    )?)?;
+    Ok(format_migration_discovery_summary(source_root, &report))
+}
+
+fn format_migration_discovery_summary(
+    source_root: &std::path::Path,
+    report: &crate::core::managed_workspace::MigrationReport,
+) -> String {
+    let sources = report
+        .source_repositories
+        .iter()
+        .map(|source| {
+            let commit: String = source.source_commit.chars().take(8).collect();
+            let branch_count = report
+                .source_branches
+                .iter()
+                .filter(|branch| branch.repository_id == source.repository_id)
+                .count();
+            format!(
+                "{} · {} @ {} · {} artifacts · {} branch snapshots{}",
+                source.repository_id,
+                source.source_ref,
+                commit,
+                source.artifact_count,
+                branch_count,
+                if source.available {
+                    ""
+                } else {
+                    " · unavailable"
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "Migration complete. Source root: {}\n{}",
+        source_root.display(),
+        sources
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_migration_discovery_summary;
+
+    #[test]
+    fn migration_summary_shows_source_root_refs_commits_and_counts() {
+        let report: crate::core::managed_workspace::MigrationReport =
+            serde_json::from_value(serde_json::json!({
+                "schemaVersion": 1,
+                "workspaceId": "11111111-1111-4111-8111-111111111111",
+                "sourceCommit": "0123456789abcdef",
+                "sourceRef": "main",
+                "sourceRepositories": [{
+                    "repositoryId": "root",
+                    "sourceCommit": "0123456789abcdef",
+                    "sourceRef": "main",
+                    "artifactCount": 4,
+                    "available": true
+                }],
+                "sourceArtifacts": [],
+                "sourceBranches": [{
+                    "repositoryId": "root",
+                    "sourceRef": "feature/demo",
+                    "sourceCommit": "fedcba9876543210",
+                    "sourcePath": "planning/items/example.md",
+                    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "disposition": "shared"
+                }],
+                "generatedArtifacts": []
+            }))
+            .unwrap();
+        let summary =
+            format_migration_discovery_summary(std::path::Path::new("/test/source"), &report);
+        assert!(summary.contains("Source root: /test/source"));
+        assert!(summary.contains("root · main @ 01234567 · 4 artifacts · 1 branch snapshots"));
     }
 }
