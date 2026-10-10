@@ -53,6 +53,8 @@ fn linked_worktrees_keep_artifact_migration_state_isolated() {
     let linked = parent.join("linked");
     fs::create_dir_all(&primary).unwrap();
     assert!(git(&primary, &["init", "-q"]).status.success());
+    git_ok(&primary, &["config", "user.name", "Fixture"]);
+    git_ok(&primary, &["config", "user.email", "fixture@example.test"]);
     fs::write(primary.join("README.md"), "fixture\n").unwrap();
     commit_all(&primary, "fixture");
     git_ok(

@@ -112,6 +112,19 @@ fn linked_worktrees_use_distinct_legacy_transaction_state() {
             .unwrap()
             .success()
     );
+    for (key, value) in [
+        ("user.name", "Test User"),
+        ("user.email", "test@example.invalid"),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(["config", key, value])
+                .current_dir(&primary)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     assert!(
         std::process::Command::new("git")
             .args([
