@@ -155,7 +155,11 @@ fn temporary_live_fixture_prepare_and_generate() {
             );
         }
         if id == "CHG-007" {
-            let directory = root.join(&batch.directory);
+            let directory = state
+                .planning_store
+                .layout()
+                .canonical_path(&batch.directory)
+                .expect("generated batch directory should resolve in the planning store");
             let stories = std::fs::read_dir(&directory)
                 .unwrap()
                 .filter_map(Result::ok)

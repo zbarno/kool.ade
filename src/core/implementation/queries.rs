@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 
 pub fn load_all(repo: &Path) -> Vec<Implementation> {
     let Ok(roots) = state_paths::implementation_roots(repo) else {
@@ -26,8 +27,17 @@ pub fn load_all(repo: &Path) -> Vec<Implementation> {
         .collect()
 }
 pub fn load(repo: &Path, ticket: &str) -> Option<Implementation> {
-    let uid = ticket_identity(repo, ticket).ok().flatten();
-    let directory = state_dir_for_task(repo, ticket, uid.as_deref()).ok()?;
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    load_with_store(&store, repo, ticket)
+}
+
+pub fn load_with_store(
+    planning_store: &PlanningStore,
+    state_root: &Path,
+    ticket: &str,
+) -> Option<Implementation> {
+    let uid = ticket_identity(planning_store, ticket).ok().flatten();
+    let directory = state_dir_for_task(state_root, ticket, uid.as_deref()).ok()?;
     read_state_file(&directory.join("state.json")).ok()
 }
 

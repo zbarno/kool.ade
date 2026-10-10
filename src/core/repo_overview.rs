@@ -64,11 +64,31 @@ const MANIFEST_NAMES: &[&str] = &[
 ];
 
 pub fn scan(repo: &Path) -> Overview {
+    scan_inner(repo, true)
+}
+
+/// Scan source code without treating stale embedded artifacts as planning
+/// context when a project uses a managed planning repository.
+pub fn scan_for_store(
+    repo: &Path,
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> Overview {
+    scan_inner(
+        repo,
+        store.mode == crate::artifacts::planning_store::StoreMode::LegacyEmbedded,
+    )
+}
+
+fn scan_inner(repo: &Path, include_legacy_planning: bool) -> Overview {
     Overview {
         readme: find_readme(repo),
-        tree_lines: tree_walk(repo),
+        tree_lines: tree_walk(repo, include_legacy_planning),
         manifests: scan_manifests(repo),
-        planning_files: list_planning(repo),
+        planning_files: if include_legacy_planning {
+            list_planning(repo)
+        } else {
+            Vec::new()
+        },
     }
 }
 
@@ -109,23 +129,30 @@ fn truncate_chars(s: &str, cap: usize) -> String {
     out
 }
 
-fn is_skipped(name: &str) -> bool {
+fn is_skipped(name: &str, include_legacy_planning: bool) -> bool {
     SKIP_DIRS.contains(&name)
         || (name.starts_with('.')
-            && name
-                != std::path::Path::new(crate::artifacts::layout::canonical::ROOT)
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy())
+            && (!include_legacy_planning
+                || name
+                    != std::path::Path::new(crate::artifacts::layout::canonical::ROOT)
+                        .file_name()
+                        .unwrap()
+                        .to_string_lossy()))
 }
 
-fn tree_walk(root: &Path) -> Vec<String> {
+fn tree_walk(root: &Path, include_legacy_planning: bool) -> Vec<String> {
     let mut out = Vec::new();
-    walk_into(root, root, 0, &mut out);
+    walk_into(root, root, 0, &mut out, include_legacy_planning);
     out
 }
 
-fn walk_into(root: &Path, dir: &Path, depth: u32, out: &mut Vec<String>) {
+fn walk_into(
+    root: &Path,
+    dir: &Path,
+    depth: u32,
+    out: &mut Vec<String>,
+    include_legacy_planning: bool,
+) {
     if out.len() >= MAX_TREE_LINES || depth > TREE_DEPTH {
         return;
     }
@@ -135,7 +162,7 @@ fn walk_into(root: &Path, dir: &Path, depth: u32, out: &mut Vec<String>) {
     let mut names: Vec<(String, std::path::PathBuf)> = entries
         .flatten()
         .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-        .filter(|(n, _)| !is_skipped(n))
+        .filter(|(n, _)| !is_skipped(n, include_legacy_planning))
         .collect();
     names.sort_by(|a, b| a.0.cmp(&b.0));
     for (name, path) in names {
@@ -149,7 +176,7 @@ fn walk_into(root: &Path, dir: &Path, depth: u32, out: &mut Vec<String>) {
             .unwrap_or(name.clone());
         if path.is_dir() {
             out.push(format!("{rel}/"));
-            walk_into(root, &path, depth + 1, out);
+            walk_into(root, &path, depth + 1, out, include_legacy_planning);
         } else {
             out.push(rel);
         }
@@ -199,46 +226,4 @@ fn rec_list(dir: &Path, root: &Path, out: &mut Vec<String>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scans_shape_of_repo() {
-        let tmp = std::env::temp_dir().join(format!("koolade_ov_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        fs::create_dir_all(tmp.join("src/deep/deeper/deepest")).unwrap();
-        fs::create_dir_all(tmp.join("node_modules/pkg")).unwrap();
-        fs::write(tmp.join("README.md"), "# Hi\nWorld").unwrap();
-        fs::write(tmp.join("Cargo.toml"), "[package]\n").unwrap();
-        fs::write(tmp.join("src/lib.rs"), "//").unwrap();
-        fs::write(tmp.join("node_modules/pkg/index.js"), "").unwrap();
-        let imports = crate::artifacts::layout::ArtifactLayout::new(&tmp).imports_root();
-        fs::create_dir_all(&imports).unwrap();
-        fs::write(imports.join("doc.txt"), "ref").unwrap();
-
-        let ov = scan(&tmp);
-        assert!(ov.readme.as_deref().unwrap_or("").contains("# Hi"));
-        assert!(ov.manifests.contains(&"cargo.toml".to_string()));
-        assert!(ov.tree_lines.iter().any(|l| l == "src/"));
-        assert!(!ov.tree_lines.iter().any(|l| l.starts_with("node_modules")));
-        assert!(!ov.tree_lines.iter().any(|l| l.contains("deepest")));
-        assert!(
-            ov.planning_files
-                .iter()
-                .any(|l| l.contains(".koolade-packet/planning/imports/doc.txt (0 KB)"))
-        );
-        let _ = fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn readme_truncation_caps_length() {
-        let tmp = std::env::temp_dir().join(format!("koolade_rd_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&tmp);
-        fs::create_dir_all(&tmp).unwrap();
-        fs::write(tmp.join("README.md"), "x".repeat(9000)).unwrap();
-        let rd = find_readme(&tmp).unwrap();
-        assert!(rd.chars().count() <= MAX_README_CHARS + 5);
-        assert!(rd.ends_with("…[truncated]"));
-        let _ = fs::remove_dir_all(&tmp);
-    }
-}
+mod tests;

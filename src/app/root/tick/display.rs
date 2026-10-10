@@ -11,6 +11,7 @@ impl KooladeApp {
             if let Ok(result) = self.display_refresh.take().unwrap().join()
                 && let Screen::Connected(p) = &mut self.screen
                 && p.state.repo_root == result.repo
+                && p.state.planning_store == result.planning_store
                 && p.state.workflow == result.workflow
                 && p.implementation_states == result.previous_implementations
             {
@@ -29,13 +30,17 @@ impl KooladeApp {
             && let Screen::Connected(p) = &self.screen
         {
             let repo = p.state.repo_root.clone();
+            let planning_store = p.state.planning_store.clone();
             let workflow = p.state.workflow.clone();
             let previous_implementations = p.implementation_states.clone();
             let ctx = ctx.clone();
             self.display_refresh = Some(std::thread::spawn(move || {
                 let git = crate::core::gitops::snapshot(&repo);
-                let documents = crate::artifacts::task_docs::load_board(&repo, &workflow);
-                let implementations = crate::core::implementation::load_board_states(&repo);
+                let documents = crate::artifacts::task_docs::load_board(&planning_store, &workflow);
+                let implementations = crate::core::implementation::load_board_states_with_store(
+                    &repo,
+                    &planning_store,
+                );
                 let activity = implementations
                     .keys()
                     .filter_map(|ticket| {
@@ -46,6 +51,7 @@ impl KooladeApp {
                 ctx.request_repaint();
                 DisplayRefresh {
                     repo,
+                    planning_store,
                     workflow,
                     git,
                     documents,

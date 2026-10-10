@@ -1,10 +1,16 @@
-//! Recoverable multi-artifact planning write. A private git-common-dir journal
-//! contains the pre-turn bytes until every file has reached its new version.
-//! A crash with a journal rolls the incomplete turn back on next connection.
+//! Recoverable multi-artifact planning write. A private operator-local journal
+//! scoped to the canonical planning-store root contains the pre-turn bytes
+//! until every file has reached its new version.
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::{Path, PathBuf},
+};
+
+mod store;
+pub(crate) use store::{
+    apply_store, apply_store_with_removals, apply_store_with_removals_and_revision,
+    apply_store_with_revision, recover_store, revision,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,10 +21,21 @@ struct Entry {
 }
 #[derive(Debug, Serialize, Deserialize)]
 struct Journal {
+    root: String,
     entries: Vec<Entry>,
 }
 
-fn common(repo: &Path) -> anyhow::Result<PathBuf> {
+fn root_identity(repo: &Path) -> anyhow::Result<String> {
+    Ok(repo.canonicalize()?.to_string_lossy().into_owned())
+}
+
+fn root_key(repo: &Path) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(root_identity(repo)?.as_bytes());
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+pub(super) fn common(repo: &Path) -> anyhow::Result<PathBuf> {
     let output = std::process::Command::new("git")
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .current_dir(repo)
@@ -57,10 +74,16 @@ fn path(repo: &Path, rel: &str) -> anyhow::Result<PathBuf> {
     Ok(candidate)
 }
 fn journal_path(repo: &Path) -> anyhow::Result<PathBuf> {
-    Ok(common(repo)?.join("koolade-planning-transaction.json"))
+    Ok(common(repo)?.join(format!(
+        "koolade-planning-transaction-{}.json",
+        root_key(repo)?
+    )))
 }
-fn transaction_lock(repo: &Path) -> anyhow::Result<fs::File> {
-    let lock = common(repo)?.join("koolade-planning-transaction.lock");
+pub(super) fn transaction_lock(repo: &Path) -> anyhow::Result<fs::File> {
+    let lock = common(repo)?.join(format!(
+        "koolade-planning-transaction-{}.lock",
+        root_key(repo)?
+    ));
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -126,6 +149,7 @@ fn apply_with_limit(
     }
     let journal = journal_path(repo)?;
     let serialized = serde_json::to_vec(&Journal {
+        root: root_identity(repo)?,
         entries: entries.clone(),
     })?;
     crate::artifacts::atomic_create_bytes(&journal, &serialized)?;
@@ -150,96 +174,4 @@ fn apply_with_limit(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn interrupted_document_set_restores_original_bytes() {
-        let root = std::env::temp_dir().join(format!("koolade_tx_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join(".koolade-packet/planning/product")).unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(&root)
-                .status()
-                .unwrap()
-                .success()
-        );
-        let a = root.join(".koolade-packet/planning/product/01-vision.md");
-        let b = root.join(".koolade-packet/planning/product/02-scope.md");
-        fs::write(&a, "old a").unwrap();
-        fs::write(&b, "old b").unwrap();
-        let changes = vec![
-            (
-                ".koolade-packet/planning/product/01-vision.md".into(),
-                "new a".into(),
-            ),
-            (
-                ".koolade-packet/planning/product/02-scope.md".into(),
-                "new b".into(),
-            ),
-        ];
-        assert!(apply_with_limit(&root, &changes, Some(1)).is_err());
-        assert_eq!(fs::read_to_string(a).unwrap(), "old a");
-        assert_eq!(fs::read_to_string(b).unwrap(), "old b");
-        assert!(!journal_path(&root).unwrap().exists());
-        assert_eq!(apply(&root, &changes).unwrap().len(), 2);
-        let _ = fs::remove_dir_all(root);
-    }
-    #[test]
-    fn interrupted_plan_adoption_bundle_recovers_after_restart() {
-        let root = std::env::temp_dir().join(format!(
-            "koolade_tx_recover_{}-{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap()
-        ));
-        fs::create_dir_all(root.join(".koolade-packet/planning/changes")).unwrap();
-        fs::create_dir_all(root.join(".koolade-packet/planning/decisions")).unwrap();
-        fs::create_dir_all(root.join(".koolade-packet/state")).unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(&root)
-                .status()
-                .unwrap()
-                .success()
-        );
-        let feature = root.join(".koolade-packet/planning/changes/F7/specification.md");
-        let adr = root.join(".koolade-packet/planning/decisions/ADR-001.md");
-        let workflow = root.join(".koolade-packet/state/workflow.json");
-        fs::create_dir_all(feature.parent().unwrap()).unwrap();
-        fs::write(&feature, "old feature").unwrap();
-        fs::write(&workflow, "old workflow").unwrap();
-        let entries = vec![
-            Entry {
-                path: ".koolade-packet/planning/changes/F7/specification.md".into(),
-                before: Some("old feature".into()),
-                after: "adopted Plan B".into(),
-            },
-            Entry {
-                path: ".koolade-packet/planning/decisions/ADR-001.md".into(),
-                before: None,
-                after: "Plan B decision record".into(),
-            },
-            Entry {
-                path: ".koolade-packet/state/workflow.json".into(),
-                before: Some("old workflow".into()),
-                after: "adopted comparison record".into(),
-            },
-        ];
-        fs::write(
-            journal_path(&root).unwrap(),
-            serde_json::to_vec(&Journal { entries }).unwrap(),
-        )
-        .unwrap();
-        fs::write(&feature, "adopted Plan B").unwrap();
-        fs::write(&adr, "Plan B decision record").unwrap();
-        assert!(recover(&root).unwrap());
-        assert_eq!(fs::read_to_string(&feature).unwrap(), "old feature");
-        assert_eq!(fs::read_to_string(&workflow).unwrap(), "old workflow");
-        assert!(!adr.exists());
-        assert!(!journal_path(&root).unwrap().exists());
-        assert!(!recover(&root).unwrap());
-        let _ = fs::remove_dir_all(root);
-    }
-}
+mod tests;

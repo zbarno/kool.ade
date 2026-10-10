@@ -1,4 +1,5 @@
 use crate::app::session::Project;
+use crate::artifacts::planning_store::{PlanningStore, StoreMode};
 use crate::core::gitops;
 use crate::core::state::PlannerState;
 use crate::error::AppError;
@@ -7,6 +8,28 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 /// Normalize user-typed paths (`~` expansion), then load-or-bootstrap.
 pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
+    let canonical = canonical_repository(raw)?;
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &canonical);
+    connect_canonical(canonical, store)
+}
+
+/// Connect a code checkout to an explicitly selected planning store. Managed
+/// stores keep planning files in their own Git repository; private project
+/// state remains tied to the code checkout.
+pub fn attempt_connect_with_store(raw: &str, store: PlanningStore) -> Result<Project, AppError> {
+    let canonical = canonical_repository(raw)?;
+    if store.mode == StoreMode::LegacyEmbedded
+        && store.root != canonical.join(crate::artifacts::layout::canonical::ROOT)
+    {
+        return Err(AppError::InvalidRepo {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: "legacy planning stores must remain inside the connected code checkout".into(),
+        });
+    }
+    connect_canonical(canonical, store)
+}
+
+fn canonical_repository(raw: &str) -> Result<PathBuf, AppError> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Err(AppError::InvalidRepo {
@@ -25,6 +48,10 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
             detail: "path is not a directory".into(),
         });
     }
+    Ok(canonical)
+}
+
+fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project, AppError> {
     if !gitops::is_work_tree(&canonical) {
         return Err(AppError::InvalidRepo {
             path: canonical.to_string_lossy().into_owned(),
@@ -32,29 +59,42 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         });
     }
 
-    crate::artifacts::transaction::recover(&canonical)
-        .map_err(|e| AppError::Other(format!("planning transaction recovery failed: {e:#}")))?;
-    crate::artifacts::migration::run(&canonical).map_err(|e| AppError::Artifact {
-        path: canonical.to_string_lossy().into_owned(),
-        detail: format!("project artifact migration failed: {e:#}"),
-    })?;
-    let mut state = PlannerState::load(&canonical).map_err(|e| AppError::Artifact {
-        path: canonical.to_string_lossy().into_owned(),
-        detail: e.to_string(),
-    })?;
+    if store.mode == StoreMode::LegacyEmbedded {
+        store
+            .recover()
+            .map_err(|e| AppError::Other(format!("planning store recovery failed: {e}")))?;
+        crate::artifacts::transaction::recover(&canonical)
+            .map_err(|e| AppError::Other(format!("planning transaction recovery failed: {e:#}")))?;
+        crate::artifacts::migration::run(&canonical).map_err(|e| AppError::Artifact {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: format!("project artifact migration failed: {e:#}"),
+        })?;
+    } else {
+        store
+            .recover()
+            .map_err(|e| AppError::Other(format!("planning store recovery failed: {e}")))?;
+    }
+    let mut state =
+        PlannerState::load_with_store(&canonical, &store).map_err(|e| AppError::Artifact {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: e.to_string(),
+        })?;
     let created = state.bootstrap_missing().map_err(|e| AppError::Io {
         op: "bootstrap planning artifacts".into(),
         detail: e.to_string(),
     })?;
     let paths = created;
     if !paths.is_empty() {
-        gitops::commit(&canonical, "Kool.ad/e: bootstrap project artifacts", &paths).map_err(
-            |e| {
-                AppError::Other(format!(
-                    "bootstrapped artifacts are preserved but checkpoint failed: {e}"
-                ))
-            },
-        )?;
+        gitops::commit(
+            &store.git_root(),
+            "Kool.ad/e: bootstrap project artifacts",
+            &paths,
+        )
+        .map_err(|e| {
+            AppError::Other(format!(
+                "bootstrapped artifacts are preserved but checkpoint failed: {e}"
+            ))
+        })?;
     }
     let slug = project_slug(&canonical);
     let mut chat = chat_store::load(&slug).0;
@@ -63,16 +103,17 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
         chat.push(welcome.clone());
         chat_store::append(&slug, &[welcome]).ok();
     }
-    let task_documents = crate::artifacts::task_docs::load_board(&canonical, &state.workflow);
+    let task_documents = crate::artifacts::task_docs::load_board(&store, &state.workflow);
     let archived_tasks = crate::persistence::archived_tasks::load(&slug);
-    let cancelled_work = crate::persistence::cancelled_work::load(&canonical).map_err(|error| {
-        AppError::Artifact {
+    let cancelled_work =
+        crate::persistence::cancelled_work::load(&store).map_err(|error| AppError::Artifact {
             path: canonical.to_string_lossy().into_owned(),
             detail: format!("cancelled work could not be loaded: {error}"),
-        }
-    })?;
-    let mut planning_work = crate::core::planning_work::load(&canonical)
-        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+        })?;
+    let (mut planning_work, planning_revision) =
+        crate::core::planning_work::load_expected(&store, &state.baseline_planning_revision)
+            .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+    state.baseline_planning_revision = planning_revision;
     let cancelled_planning = planning_work
         .iter()
         .filter(|work| {
@@ -88,7 +129,17 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     );
     let linked = crate::core::planning_work::link_feature_identities(&state, &mut planning_work);
     let planning_save_error = if linked || !reconciled.is_empty() {
-        crate::core::planning_work::save(&canonical, &planning_work).err()
+        match crate::core::planning_work::save_expected(
+            &store,
+            &planning_work,
+            &state.baseline_planning_revision,
+        ) {
+            Ok(revision) => {
+                state.baseline_planning_revision = revision;
+                None
+            }
+            Err(error) => Some(error),
+        }
     } else {
         None
     };

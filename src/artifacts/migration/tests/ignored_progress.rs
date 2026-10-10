@@ -43,7 +43,7 @@ fn ignored_progress_is_migrated_but_excluded_from_git_checkpoint() {
             .status
             .success()
     );
-    assert!(!common_dir(&root).unwrap().join(PENDING_NAME).exists());
+    assert!(!scoped_pending_path(&root).exists());
 
     let _ = fs::remove_dir_all(root);
 }

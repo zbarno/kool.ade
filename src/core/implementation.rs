@@ -25,11 +25,16 @@ mod task_repository;
 mod telemetry;
 mod verification;
 pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
-pub use board_states::{BOARD_COLUMNS, board_column, load_board_states};
+pub use board_states::{
+    BOARD_COLUMNS, board_column, load_board_states, load_board_states_with_store,
+};
 pub use controller::Controller;
+pub(crate) use controller::ProjectStartRequest;
 pub(crate) use execution::mark_resume_started;
 pub(crate) use execution::record_failed_attempt;
 pub use execution::run;
+use execution::run_with_planning_store_options;
+#[cfg(test)]
 use execution::run_with_project_options;
 pub use pr_refresh::PrRefresh;
 #[cfg(test)]
@@ -38,7 +43,7 @@ use publication::pr_body;
 #[cfg(test)]
 use publication::remote_repository;
 use queries::{history_preflight_context, resume_failure_context};
-pub use queries::{load, load_all};
+pub use queries::{load, load_all, load_with_store};
 pub use recovery::latest_external_blocker;
 pub(crate) use report::{BlockerDisposition, Report, ReportStatus, parse_report};
 use report::{external_blocker, external_blocker_detail, validate_report};
@@ -50,12 +55,15 @@ pub(crate) use state_paths::{key_for_ticket, state_dir, state_dir_for_task};
 pub(crate) use task::permits_evidence_only_completion;
 #[cfg(test)]
 use task::read_ticket;
+#[cfg(test)]
+use task::scoped_product_context;
 pub(crate) use task::task_repository_id;
 pub use task::{completed_dependency_context, target_repository};
-use task::{
-    read_ticket_and_identity, scoped_product_context, specification_matches_task, ticket_identity,
-    title,
+pub(crate) use task::{
+    completed_dependency_context_with_store, scoped_product_context_with_store,
+    target_repository_with_store,
 };
+use task::{read_ticket_and_identity, specification_matches_task, ticket_identity, title};
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

@@ -23,7 +23,7 @@ impl KooladeApp {
             }) => {
                 project.state = state;
                 project.task_documents = crate::artifacts::task_docs::load_board(
-                    &project.state.repo_root,
+                    &project.state.planning_store,
                     &project.state.workflow,
                 );
                 project.refresh_git();
@@ -118,9 +118,10 @@ impl KooladeApp {
                 project.save_task_activity(&item_id);
                 project.activity.dirty_tickets.remove(&item_id);
                 if cancelled {
-                    if let Ok(current) =
-                        crate::core::state::PlannerState::load(&project.state.repo_root)
-                    {
+                    if let Ok(current) = crate::core::state::PlannerState::load_with_store(
+                        &project.state.repo_root,
+                        &project.state.planning_store,
+                    ) {
                         project.state = current;
                     }
                     if let Some(progress) = project.activity.tasks.get_mut(&item_id) {
@@ -139,9 +140,10 @@ impl KooladeApp {
                                 .push(format!("Agent item {item_id}: {message}"));
                         }
                         Err(error) => {
-                            if let Ok(current) =
-                                crate::core::state::PlannerState::load(&project.state.repo_root)
-                            {
+                            if let Ok(current) = crate::core::state::PlannerState::load_with_store(
+                                &project.state.repo_root,
+                                &project.state.planning_store,
+                            ) {
                                 project.state = current;
                             }
                             let error = error.to_string();

@@ -20,12 +20,12 @@ impl DlgProjectSettings {
         if !repository_names::persist(project, &mut self.repositories)? {
             return Ok(None);
         }
-        project.state.repositories =
-            crate::core::project_repos::ProjectManifest::load(&project.state.repo_root)
-                .map_err(AppError::from)?;
-        let path = crate::artifacts::layout::canonical::PROJECT_MANIFEST.to_string();
+        let path = project
+            .state
+            .planning_store
+            .git_path(crate::artifacts::planning_store::paths::PROJECT_MANIFEST);
         let sha = gitops::commit(
-            &project.state.repo_root,
+            &project.state.planning_store.git_root(),
             "settings: update project repositories",
             &[path],
         )?;

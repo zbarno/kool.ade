@@ -2,19 +2,32 @@
 use std::{fs, path::Path};
 
 use super::plan::Generated;
-use crate::artifacts::layout::{ArtifactLayout, canonical, legacy};
+use crate::artifacts::layout::canonical;
+use crate::artifacts::planning_store::PlanningStore;
 use crate::artifacts::product_docs::{CoreConcept, ProductManifest, ProductModule};
+
+mod active_features;
+use active_features::append_active_features;
 
 pub(super) fn bootstrap_files(
     repo: &Path,
     title_override: Option<&str>,
 ) -> anyhow::Result<Vec<Generated>> {
-    let layout = ArtifactLayout::new(repo);
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    bootstrap_files_with_store(repo, &store, title_override)
+}
+
+pub(super) fn bootstrap_files_with_store(
+    repo: &Path,
+    store: &PlanningStore,
+    title_override: Option<&str>,
+) -> anyhow::Result<Vec<Generated>> {
+    let layout = store.layout();
     let old = directory_state(&layout.legacy_product_root())?;
     let current = directory_state(&layout.product_root())?;
     if current {
         let manifest = if layout.product_manifest().is_file() {
-            crate::artifacts::product_docs::load_manifest(repo)?
+            crate::artifacts::product_docs::load_manifest(store)?
         } else {
             crate::artifacts::product_docs::legacy_manifest(&layout.product_root())?
         }
@@ -34,11 +47,7 @@ pub(super) fn bootstrap_files(
     }
 
     let source = layout.legacy_specification();
-    let existing = match fs::read_to_string(&source) {
-        Ok(text) => Some(text),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
+    let existing = read_legacy_specification(store, &layout, &source)?;
     let (title, archive_note, documents, manifest) = match existing {
         Some(text) => documents_from_spec(&text)?,
         None => {
@@ -82,7 +91,7 @@ pub(super) fn bootstrap_files(
         index.push_str(&format!("- [{}]({})\n", module.title, module.path));
     }
     index.push_str("\n## Active features\n\n");
-    append_active_features(repo, &layout, &mut index)?;
+    append_active_features(store, &layout, &mut index)?;
     files.push(Generated {
         target: canonical::PRODUCT_INDEX.into(),
         bytes: index.into_bytes(),
@@ -90,6 +99,38 @@ pub(super) fn bootstrap_files(
     files.push(manifest_file(&manifest));
     Ok(files)
 }
+
+fn read_legacy_specification(
+    store: &PlanningStore,
+    layout: &crate::artifacts::planning_store::PlanningLayout,
+    source: &Path,
+) -> anyhow::Result<Option<String>> {
+    if source.starts_with(layout.root()) {
+        return match store.read_planning_path(source) {
+            Ok(bytes) => Ok(Some(String::from_utf8(bytes)?)),
+            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(error.into()),
+        };
+    }
+
+    match fs::symlink_metadata(source) {
+        Ok(metadata) => anyhow::ensure!(
+            metadata.is_file() && !metadata.file_type().is_symlink(),
+            "Legacy specification {} must be a regular file",
+            source.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    }
+    Ok(Some(fs::read_to_string(source)?))
+}
+
+#[cfg(test)]
+mod tests;
 
 fn documents_from_spec(
     text: &str,
@@ -188,68 +229,6 @@ fn legacy_core_concept(index: usize) -> Option<CoreConcept> {
         5 => Some(CoreConcept::QualityAndAcceptance),
         _ => None,
     }
-}
-
-fn append_active_features(
-    repo: &Path,
-    layout: &ArtifactLayout,
-    index: &mut String,
-) -> anyhow::Result<()> {
-    let changes = if repo.join(legacy::FEATURES).is_dir() {
-        repo.join(legacy::FEATURES)
-    } else {
-        layout.changes_root()
-    };
-    let mut features = Vec::new();
-    if changes.is_dir() {
-        for entry in fs::read_dir(changes)? {
-            let entry = entry?;
-            let metadata = fs::symlink_metadata(entry.path())?;
-            anyhow::ensure!(
-                metadata.is_dir() && !metadata.file_type().is_symlink(),
-                "Feature entry {} is not a real directory",
-                entry.path().display()
-            );
-            let name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| anyhow::anyhow!("Feature directory name is not valid UTF-8"))?;
-            let feature = entry.path().join("specification.md");
-            let Some(text) = fs::read_to_string(&feature).ok() else {
-                continue;
-            };
-            let Some((id, title)) = text
-                .lines()
-                .find_map(|line| line.strip_prefix("# "))
-                .and_then(|heading| heading.split_once(": "))
-            else {
-                continue;
-            };
-            if !crate::artifacts::product_docs::valid_feature_id(id) || title.trim().is_empty() {
-                continue;
-            }
-            let status = crate::domain::ChangeMetadata::from_markdown(&text)?
-                .map(|metadata| metadata.status)
-                .map_or_else(
-                    || crate::domain::ChangeMetadata::parse_legacy_markdown(&text),
-                    Ok,
-                )?;
-            if !status.is_terminal() {
-                features.push(name);
-            }
-        }
-    }
-    features.sort();
-    if features.is_empty() {
-        index.push_str("None.\n");
-    } else {
-        for feature in features {
-            index.push_str(&format!(
-                "- [`{feature}`](../changes/{feature}/specification.md)\n"
-            ));
-        }
-    }
-    Ok(())
 }
 
 fn manifest_file(manifest: &ProductManifest) -> Generated {

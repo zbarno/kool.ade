@@ -1,5 +1,16 @@
 use super::*;
 
+pub(super) fn init_git(root: &std::path::Path) {
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 pub(super) struct ReplyHarness {
     pub(super) prompts: Arc<Mutex<Vec<String>>>,
     pub(super) reply: String,

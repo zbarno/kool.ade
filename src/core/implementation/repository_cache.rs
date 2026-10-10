@@ -13,6 +13,7 @@ pub(crate) use commit_identity::{
 };
 
 use super::Runner;
+use crate::artifacts::planning_store::PlanningRoot;
 use std::path::{Path, PathBuf};
 
 use endpoints::{configured_raw_value, configured_value, effective_remote_url};
@@ -37,18 +38,18 @@ pub(super) struct RepositoryCache {
 }
 
 impl RepositoryCache {
-    pub(super) fn open(
+    pub(super) fn open<R: PlanningRoot + ?Sized>(
         repo: &Path,
-        planning_root: &Path,
+        planning_root: &R,
         repository_id: &str,
         runner: &Runner,
     ) -> anyhow::Result<Self> {
         Self::open_at(repo, planning_root, repository_id, None, runner)
     }
 
-    pub(super) fn open_at(
+    pub(super) fn open_at<R: PlanningRoot + ?Sized>(
         repo: &Path,
-        planning_root: &Path,
+        planning_root: &R,
         repository_id: &str,
         saved_path: Option<&Path>,
         runner: &Runner,

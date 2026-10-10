@@ -2,7 +2,8 @@
 use crate::domain::ArtifactIdentity;
 use std::path::Path;
 
-pub(super) fn new_adr_identity(
+pub(super) fn new_adr_identity<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
+    repo: &R,
     directory: &Path,
     title: &str,
     parent_uid: Option<&str>,
@@ -12,7 +13,12 @@ pub(super) fn new_adr_identity(
         .into_iter()
         .flatten()
         .flatten()
-        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            repo.read_planning_path(&path)
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+        })
         .filter_map(|text| ArtifactIdentity::from_markdown(&text).ok().flatten())
         .filter_map(|identity| {
             identity

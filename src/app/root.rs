@@ -156,6 +156,7 @@ fn persist_automation_settings(project: &mut Project) -> Result<(), String> {
 
 struct DisplayRefresh {
     repo: std::path::PathBuf,
+    planning_store: crate::artifacts::planning_store::PlanningStore,
     workflow: crate::core::workflow::Workflow,
     git: crate::core::gitops::GitSnapshot,
     documents: Vec<crate::artifacts::task_docs::TaskDocument>,

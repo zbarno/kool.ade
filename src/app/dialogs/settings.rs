@@ -104,41 +104,43 @@ impl DlgSettings {
             user: Some(user),
             stakeholders: sk,
         });
-        let dest = crate::artifacts::repo_artifact(&proj.state.repo_root, CONFIG_FILE);
-        let previous_config = match std::fs::read_to_string(&dest) {
-            Ok(config) => Some(config),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => {
-                return Err(AppError::Io {
-                    op: "read previous workspace settings".into(),
-                    detail: error.to_string(),
-                });
-            }
-        };
-        atomic_write(&dest, &md).map_err(|e| AppError::Io {
-            op: "write .koolade-packet/config/project.md".into(),
-            detail: e.to_string(),
-        })?;
-        if let Err(error) = proj.state.resync() {
-            return Err(ownership::rollback_config_update(
-                proj,
-                &dest,
-                previous_config.as_deref(),
-                &error.to_string(),
+        let store = proj.state.planning_store.clone();
+        let config = config_io::parse(&md).map_err(AppError::Other)?;
+        let (mut candidate, resolutions_changed) = ownership::apply_config_and_resolve_ownership(
+            &proj.state,
+            previously_synthesized,
+            config,
+        )
+        .map_err(|error| AppError::Other(error.to_string()))?;
+        let mut changes = vec![(
+            crate::artifacts::planning_store::paths::PROJECT_CONFIG.to_owned(),
+            md.into_bytes(),
+        )];
+        if resolutions_changed {
+            changes.push((
+                crate::artifacts::planning_store::paths::OPEN_ITEMS.to_owned(),
+                crate::artifacts::items_io::serialize(&candidate.items).into_bytes(),
+            ));
+            changes.push((
+                crate::artifacts::planning_store::paths::RESOLVED_ITEMS.to_owned(),
+                serde_json::to_vec_pretty(&candidate.resolved_items)
+                    .map_err(|error| AppError::Other(error.to_string()))?,
             ));
         }
-        let mut changed_paths = vec![CONFIG_FILE.to_string()];
-        if ownership::persist_assigned_resolutions(
-            proj,
-            previously_synthesized,
-            previous_config,
-            &dest,
-        )? {
-            changed_paths.push(crate::artifacts::layout::canonical::OPEN_ITEMS.into());
-            changed_paths.push(crate::artifacts::layout::canonical::RESOLVED_ITEMS.into());
+        let (paths, revision) = store
+            .transaction_with_revision(&changes, Some(&proj.state.baseline_planning_revision))
+            .map_err(|error| AppError::Other(format!("workspace settings save failed: {error}")))?;
+        candidate.baseline_planning_revision = revision;
+        proj.state = candidate;
+        let changed_paths = paths
+            .iter()
+            .map(|path| store.git_path(path))
+            .collect::<Vec<_>>();
+        if changed_paths.is_empty() {
+            return Ok(String::new());
         }
         let sha = gitops::commit(
-            &proj.state.repo_root,
+            &store.git_root(),
             "settings: update workspace settings",
             &changed_paths,
         )?;

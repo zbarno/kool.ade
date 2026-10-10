@@ -125,7 +125,10 @@ fn implementation_reads_only_canonical_board_task_paths() {
         "# Legacy fixture task",
     )
     .unwrap();
-    assert!(read_ticket(&s.repo, "planning/tasks/validation/001-task.md").is_err());
+    assert_eq!(
+        read_ticket(&s.repo, "planning/tasks/validation/001-task.md").unwrap(),
+        "# Fixture task"
+    );
     assert!(read_ticket(&s.repo, ".koolade-packet/planning/tasks/../001-task.md").is_err());
 }
 

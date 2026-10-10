@@ -60,7 +60,7 @@ impl KooladeApp {
                     project.refresh_git();
                     project.refresh_implementations();
                     project.task_documents = crate::artifacts::task_docs::load_board(
-                        &project.state.repo_root,
+                        &project.state.planning_store,
                         &project.state.workflow,
                     );
                     self.toasts.info("Git state refreshed");

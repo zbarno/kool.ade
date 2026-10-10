@@ -1,9 +1,24 @@
+use crate::artifacts::planning_store::{PlanningRoot, StoreError, paths};
 use crate::core::workflow::Workflow;
 use std::path::Path;
 
 /// Refuse links in app-owned paths before creating directories or files.
-pub fn safe_directory(repo: &Path, relative: &str) -> anyhow::Result<()> {
-    let mut path = repo.to_path_buf();
+pub fn safe_directory<R: PlanningRoot + ?Sized>(repo: &R, relative: &str) -> anyhow::Result<()> {
+    let layout = repo.planning_layout();
+    let relative = relative
+        .strip_prefix(".koolade-packet/")
+        .unwrap_or(relative);
+    let root = layout.root();
+    if !root.exists() {
+        std::fs::create_dir_all(root)?;
+    }
+    let root_metadata = std::fs::symlink_metadata(root)?;
+    anyhow::ensure!(
+        root_metadata.is_dir() && !root_metadata.file_type().is_symlink(),
+        "{} must be a real directory",
+        root.display()
+    );
+    let mut path = root.to_path_buf();
     for component in Path::new(relative).components() {
         anyhow::ensure!(
             matches!(component, std::path::Component::Normal(_)),
@@ -23,24 +38,19 @@ pub fn safe_directory(repo: &Path, relative: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn save_workflow(repo: &Path, workflow: &Workflow) -> anyhow::Result<()> {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
-    safe_directory(repo, crate::artifacts::layout::canonical::STATE)?;
-    let target = layout.workflow_state();
-    if let Ok(meta) = std::fs::symlink_metadata(&target) {
-        anyhow::ensure!(
-            meta.is_file() && !meta.file_type().is_symlink(),
-            "Workflow must be a regular file"
-        );
-    }
-    crate::artifacts::atomic_write(&target, &serde_json::to_string_pretty(workflow)?)
+pub fn save_workflow<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    workflow: &Workflow,
+) -> anyhow::Result<()> {
+    safe_directory(repo, paths::STATE)?;
+    repo.write_planning(paths::WORKFLOW, &serde_json::to_vec_pretty(workflow)?)?;
+    Ok(())
 }
 
-pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
-    match std::fs::read_to_string(
-        crate::artifacts::layout::ArtifactLayout::new(repo).workflow_state(),
-    ) {
-        Ok(text) => {
+pub fn load_workflow<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Workflow> {
+    match repo.read_planning(paths::WORKFLOW) {
+        Ok(bytes) => {
+            let text = String::from_utf8(bytes)?;
             let workflow: Workflow = serde_json::from_str(&text)?;
             for (feature_id, record) in &workflow.plan_comparisons {
                 anyhow::ensure!(
@@ -51,7 +61,7 @@ pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
             }
             promote_legacy_comparisons(repo, workflow)
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
             promote_legacy_comparisons(repo, Workflow::default())
         }
         Err(e) => Err(e.into()),
@@ -61,7 +71,10 @@ pub fn load_workflow(repo: &Path) -> anyhow::Result<Workflow> {
 /// Reconstruct old feature-metadata comparisons into the authoritative
 /// workflow index. The next workflow write persists this migration; repeated
 /// loads remain deterministic until then.
-fn promote_legacy_comparisons(repo: &Path, mut workflow: Workflow) -> anyhow::Result<Workflow> {
+fn promote_legacy_comparisons<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    mut workflow: Workflow,
+) -> anyhow::Result<Workflow> {
     for (feature_id, markdown) in crate::artifacts::product_docs::active_features(repo) {
         if workflow.plan_comparisons.contains_key(&feature_id) {
             continue;

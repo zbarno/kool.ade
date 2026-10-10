@@ -223,10 +223,10 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
     else {
         panic!("generation did not apply: {result:#?}");
     };
-    assert!(commit_result.is_ok());
+    assert!(commit_result.is_ok(), "commit failed: {commit_result:?}");
     let batch = state.workflow.task_batches.last().unwrap();
     assert_eq!(batch.count, 2);
-    let dir = planning.join(&batch.directory);
+    let dir = state.planning_store.root.join(&batch.directory);
     let contract: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("contract.json")).unwrap()).unwrap();
     assert_eq!(contract["featureId"], "CHG-001");

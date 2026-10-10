@@ -57,14 +57,16 @@ impl KooladeApp {
             Some(Status::Error(error)) => View::Error(error.clone()),
             None => {
                 let controller = if let Some(report_path) = report {
-                    Controller::start(
+                    Controller::start_with_store(
+                        project.state.planning_store.clone(),
                         project.state.repo_root.clone(),
                         ticket.into(),
                         report_path,
                         super::configured_harness(&mut self.task_harness),
                     )
                 } else {
-                    Controller::start_detail(
+                    Controller::start_detail_with_store(
+                        project.state.planning_store.clone(),
                         project.state.repo_root.clone(),
                         ticket.into(),
                         detail.into(),

@@ -1,7 +1,7 @@
 //! Durable cancellation tombstones keyed by stable planning or task identity.
-use std::{collections::BTreeSet, fs, path::Path};
+use std::collections::BTreeSet;
 
-const FILE: &str = ".koolade-packet/state/cancelled-work.json";
+use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10,11 +10,12 @@ struct Store {
     ids: BTreeSet<String>,
 }
 
-pub fn load(repo: &Path) -> anyhow::Result<BTreeSet<String>> {
-    let path = repo.join(FILE);
-    let bytes = match fs::read(path) {
+pub fn load(store: &PlanningStore) -> anyhow::Result<BTreeSet<String>> {
+    let bytes = match store.read(crate::artifacts::planning_store::paths::CANCELLED_WORK) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(BTreeSet::new());
+        }
         Err(error) => return Err(error.into()),
     };
     let store: Store = serde_json::from_slice(&bytes)?;
@@ -25,15 +26,23 @@ pub fn load(repo: &Path) -> anyhow::Result<BTreeSet<String>> {
     Ok(store.ids)
 }
 
-pub fn save(repo: &Path, ids: &BTreeSet<String>) -> anyhow::Result<()> {
-    let path = repo.join(FILE);
-    crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::canonical::STATE)?;
+pub fn save_expected(
+    store: &PlanningStore,
+    ids: &BTreeSet<String>,
+    expected_revision: &str,
+) -> anyhow::Result<String> {
     let bytes = serde_json::to_vec_pretty(&Store {
         schema_version: 1,
         ids: ids.clone(),
     })?;
-    crate::artifacts::atomic_write_bytes(&path, &bytes)?;
-    Ok(())
+    let (_, revision) = store.transaction_with_revision(
+        &[(
+            crate::artifacts::planning_store::paths::CANCELLED_WORK.to_owned(),
+            bytes,
+        )],
+        Some(expected_revision),
+    )?;
+    Ok(revision)
 }
 
 pub fn planning_id(uid: &str) -> String {

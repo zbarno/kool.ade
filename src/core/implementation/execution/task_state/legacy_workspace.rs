@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::repository_cache::RepositoryCache;
 use std::fs;
 
@@ -7,33 +8,31 @@ mod migration;
 mod snapshot;
 use migration::migrate_one;
 
+#[derive(Clone, Copy)]
+pub(super) struct MigrationRequest<'a> {
+    pub(super) planning_store: &'a PlanningStore,
+    pub(super) state_root: &'a Path,
+    pub(super) repo: &'a Path,
+    pub(super) text: &'a str,
+    pub(super) metadata: Option<&'a crate::artifacts::task_docs::TaskMetadata>,
+    pub(super) dir: &'a Path,
+    pub(super) runner: &'a Runner,
+}
+
 pub(super) fn migrate(
-    planning_root: &Path,
-    repo: &Path,
-    text: &str,
-    metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
-    dir: &Path,
+    request: MigrationRequest<'_>,
     mut state: Implementation,
-    runner: &Runner,
 ) -> anyhow::Result<Implementation> {
     let original_repository = state.task_repository.clone();
     let mut migrated = state.clone();
-    let result = migrate_inner(
-        planning_root,
-        repo,
-        text,
-        metadata,
-        dir,
-        &mut migrated,
-        runner,
-    );
+    let result = migrate_inner(request, &mut migrated);
     if let Err(error) = result {
         state.status = ImplementationStatus::Blocked;
         state.detail = format!(
             "Legacy task repository migration needs attention. The original workspace is preserved at {}. {error:#}",
             original_repository.display()
         );
-        save(dir, &state)?;
+        save(request.dir, &state)?;
         return Err(anyhow::Error::new(
             crate::core::implementation::status::FailureCause(
                 crate::core::implementation::Failure::new(
@@ -47,22 +46,23 @@ pub(super) fn migrate(
     Ok(migrated)
 }
 
-fn migrate_inner(
-    planning_root: &Path,
-    repo: &Path,
-    text: &str,
-    metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
-    dir: &Path,
-    state: &mut Implementation,
-    runner: &Runner,
-) -> anyhow::Result<()> {
+fn migrate_inner(request: MigrationRequest<'_>, state: &mut Implementation) -> anyhow::Result<()> {
+    let MigrationRequest {
+        planning_store,
+        state_root,
+        repo,
+        text,
+        metadata,
+        dir,
+        runner,
+    } = request;
     let allocation = task_repository::allocation_key(state);
     let mut reconciliation_plan = initial_reconciliation::load_plan(dir)?;
     if let Some(plan) = reconciliation_plan.as_ref()
         && plan.clone_repository.is_none()
     {
         super::legacy_plan::attach_clone_identity(
-            planning_root,
+            planning_store,
             repo,
             &allocation,
             text,
@@ -73,12 +73,12 @@ fn migrate_inner(
         )?;
         reconciliation_plan = initial_reconciliation::load_plan(dir)?;
     }
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let repository_id = crate::core::implementation::task_repository_id(text, metadata, &manifest)?;
-    let cache = RepositoryCache::open(repo, planning_root, &repository_id, runner)?;
+    let cache = RepositoryCache::open(repo, planning_store, &repository_id, runner)?;
     let identity =
         crate::core::implementation::repository_cache::load_task_git_identity(dir, repo, runner)?;
-    let project_id = task_repository::project_id(planning_root)?;
+    let project_id = task_repository::project_id(state_root)?;
     let main_target = task_repository::allocated_path(&project_id, &repository_id, &allocation)?;
     let target = if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree
         && state.branch == format!("koolade/{allocation}")

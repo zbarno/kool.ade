@@ -74,6 +74,26 @@ pub(super) fn staged_paths(
     Ok(staged)
 }
 
+pub(super) fn existing_or_tracked_paths(
+    cwd: &Path,
+    paths: &[String],
+    snapshot: &IndexSnapshot,
+) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| {
+            std::fs::symlink_metadata(cwd.join(path)).is_ok()
+                || snapshot.entries.keys().any(|tracked| {
+                    tracked == *path
+                        || tracked
+                            .strip_prefix(path.as_str())
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                })
+        })
+        .cloned()
+        .collect()
+}
+
 pub(super) fn reject_unmerged_paths(cwd: &Path, specs: &[String]) -> Result<(), AppError> {
     let mut args = vec![
         "ls-files".to_owned(),

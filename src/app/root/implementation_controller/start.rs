@@ -61,7 +61,7 @@ impl KooladeApp {
                     .lines()
                     .find_map(|line| line.strip_prefix("Feature ID: "))
                 && !crate::core::workflow::feature_approved(
-                    &p.state.repo_root,
+                    &p.state.planning_store,
                     &p.state.workflow,
                     id,
                 )
@@ -69,20 +69,23 @@ impl KooladeApp {
                 p.queue.last_error = format!("{id} needs explicit approval before implementation");
                 return;
             }
-            let target_repo =
-                match crate::core::implementation::target_repository(&p.state.repo_root, &ticket) {
-                    Ok(target) => target,
-                    Err(error) => {
-                        let message = format!("Cannot start {ticket}: {error}");
-                        p.queue.last_error = message.clone();
-                        p.queue.blocked.insert(
-                            ticket.clone(),
-                            crate::core::implementation::Failure::other(message.clone()),
-                        );
-                        self.toasts.danger(message);
-                        return;
-                    }
-                };
+            let target_repo = match crate::core::implementation::target_repository_with_store(
+                &p.state.planning_store,
+                &p.state.repo_root,
+                &ticket,
+            ) {
+                Ok(target) => target,
+                Err(error) => {
+                    let message = format!("Cannot start {ticket}: {error}");
+                    p.queue.last_error = message.clone();
+                    p.queue.blocked.insert(
+                        ticket.clone(),
+                        crate::core::implementation::Failure::other(message.clone()),
+                    );
+                    self.toasts.danger(message);
+                    return;
+                }
+            };
             if let Err(error) = crate::core::implementation_queue::ticket_readiness(
                 &p.task_documents,
                 &p.implementation_states,
@@ -267,17 +270,20 @@ impl KooladeApp {
             }
             p.active_implementations.insert(
                 ticket.clone(),
-                crate::core::implementation::Controller::start_project_with_policy_and_claim_request(
-                    p.state.repo_root.clone(),
-                    target_repo,
-                    ticket,
-                    crate::core::implementation::StartPolicy {
+                crate::core::implementation::Controller::start_project_with_store_and_policy_and_claim_request(
+                    crate::core::implementation::ProjectStartRequest {
+                        planning_store: p.state.planning_store.clone(),
+                        state_root: p.state.repo_root.clone(),
+                        target_repo,
+                        ticket,
+                        policy: crate::core::implementation::StartPolicy {
                         publication_mode,
                         require_independent_checks,
+                        },
+                        user_context,
+                        harness,
+                        claim_request,
                     },
-                    user_context,
-                    harness,
-                    claim_request,
                 ),
             );
         }

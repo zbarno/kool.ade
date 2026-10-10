@@ -1,12 +1,10 @@
 use std::path::{Path, PathBuf};
 
-use crate::{
-    artifacts::layout::ArtifactLayout,
-    domain::{PlanAlternative, PlanComparison},
-};
+use crate::artifacts::planning_store::PlanningRoot;
+use crate::domain::{PlanAlternative, PlanComparison};
 
-pub(crate) fn prepare_plan_choice_record(
-    repo: &Path,
+pub(crate) fn prepare_plan_choice_record<R: PlanningRoot + ?Sized>(
+    repo: &R,
     feature_id: &str,
     feature_uid: &str,
     comparison: &PlanComparison,
@@ -23,10 +21,11 @@ pub(crate) fn prepare_plan_choice_record(
         .find(|plan| plan.id == selected_alt)
         .ok_or_else(|| anyhow::anyhow!("Selected plan is missing"))?;
     let title = format!("Adopt Alt {selected_alt} for {feature_id}");
-    let layout = ArtifactLayout::new(repo);
+    let store = repo.planning_store();
+    let layout = repo.planning_layout();
     let directory = layout.decisions_root();
-    ensure_safe_path(repo, &directory)?;
-    let identity = super::identity::new_adr_identity(&directory, &title, Some(feature_uid));
+    ensure_safe_path(layout.root(), &directory)?;
+    let identity = super::identity::new_adr_identity(repo, &directory, &title, Some(feature_uid));
     let body = render(
         &identity.display_id,
         feature_id,
@@ -43,16 +42,14 @@ pub(crate) fn prepare_plan_choice_record(
     let path = layout
         .decision_record(&name)
         .ok_or_else(|| anyhow::anyhow!("Generated plan ADR path is unsafe"))?;
-    ensure_safe_path(repo, &path)?;
+    ensure_safe_path(layout.root(), &path)?;
     anyhow::ensure!(
         !path.exists(),
         "Plan ADR path already exists: {}",
         path.display()
     );
     Ok((
-        path.strip_prefix(repo)?
-            .to_string_lossy()
-            .replace('\\', "/"),
+        store.git_path(&path.strip_prefix(&store.root)?.to_string_lossy()),
         content,
     ))
 }

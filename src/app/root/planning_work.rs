@@ -135,10 +135,7 @@ impl KooladeApp {
                         work.key = format!("task:{}", work.uid);
                         let key = work.key.clone();
                         project.planning_work.push(work);
-                        if let Err(error) = crate::core::planning_work::save(
-                            &project.state.repo_root,
-                            &project.planning_work,
-                        ) {
+                        if let Err(error) = project.save_planning_work() {
                             project.planning_work.pop();
                             if let (Some(parent_uid), Some(offer)) = (&parent_uid, prior_offer)
                                 && let Some(parent) = project

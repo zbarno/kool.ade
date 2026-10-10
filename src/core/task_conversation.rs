@@ -3,6 +3,7 @@ use crate::core::{context_build::clip, state::PlannerState};
 
 mod documentation_refresh;
 mod feature_planning;
+mod references;
 
 /// Immediate opening copy from the current in-memory board. Opening a chat
 /// must not wait for a model or perform repository I/O on an input frame.
@@ -85,7 +86,7 @@ pub fn presentation(
         .iter()
         .filter(|item| eligible(item))
         .filter(|item| {
-            tokens(&doc.text).any(|token| token == item.id)
+            references::tokens(&doc.text).any(|token| token == item.id)
                 || item.evidence.contains(&doc.path)
                 || item.reason.contains(&doc.path)
         })
@@ -107,57 +108,13 @@ pub fn presentation(
     ))
 }
 
-fn tokens(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|c: char| !c.is_alphanumeric() && c != '-')
-        .filter(|token| !token.is_empty())
-}
-
-/// Include sections defining explicitly referenced IDs, without copying the document.
-fn referenced_sections(document: &str, subject: &str) -> String {
-    let ids = tokens(subject)
-        .filter(|token| {
-            token.split_once('-').is_some_and(|(prefix, number)| {
-                !prefix.is_empty()
-                    && prefix.chars().all(|c| c.is_ascii_uppercase())
-                    && !number.is_empty()
-                    && number.chars().all(|c| c.is_ascii_digit())
-            })
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut sections = Vec::new();
-    let mut current = String::new();
-    for line in document.lines() {
-        if (line.starts_with('#') || line.starts_with("- **") || line.starts_with('|'))
-            && !current.is_empty()
-        {
-            sections.push(std::mem::take(&mut current));
-        }
-        current.push_str(line);
-        current.push('\n');
-    }
-    sections.push(current);
-    sections
-        .into_iter()
-        .filter(|section| {
-            // A heading or table row defining the identifier is relevant; incidental
-            // references elsewhere do not pull the whole project into this thread.
-            section.lines().any(|line| {
-                (line.starts_with('#') || line.starts_with('|') || line.starts_with("- **"))
-                    && tokens(line).any(|token| ids.contains(token))
-            })
-        })
-        .map(|section| clip(&section, 5000))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 pub fn prompt(
     state: &PlannerState,
     key: &str,
     message: &str,
     history: &[(String, String)],
 ) -> Result<String, String> {
-    let docs = crate::artifacts::task_docs::load_board(&state.repo_root, &state.workflow);
+    let docs = crate::artifacts::task_docs::load_board(&state.planning_store, &state.workflow);
     let synthetic = crate::core::ownership::synthesize_for_state(state);
     let mut subject = if let Some(item) = state
         .items
@@ -186,7 +143,14 @@ pub fn prompt(
             return Ok(question::build(&context, &history, message));
         }
         if work.kind == crate::core::planning_work::WorkKind::DocumentationRefresh {
-            return Ok(documentation_refresh::build(&context, &history, message));
+            return Ok(documentation_refresh::build(
+                &context,
+                &history,
+                message,
+                &state
+                    .planning_store
+                    .git_path(crate::artifacts::planning_store::paths::PRODUCT),
+            ));
         }
         let context = format!(
             "{context}\nTask-specific guidance: {}",
@@ -197,10 +161,12 @@ pub fn prompt(
             &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
             &history,
             message,
-            crate::artifacts::product_docs::next_feature_id(&state.repo_root),
+            crate::artifacts::product_docs::next_feature_id(&state.planning_store),
         ));
     };
-    if let Some(worker) = crate::core::implementation::load(&state.repo_root, key) {
+    if let Some(worker) =
+        crate::core::implementation::load_with_store(&state.planning_store, &state.repo_root, key)
+    {
         subject.push_str(&format!(
             "\nCurrent implementation status: {}\n{}\nPull request: {}\nMerged commit: {}",
             worker.status,
@@ -214,25 +180,27 @@ pub fn prompt(
         .iter()
         .chain(&state.resolved_items)
         .filter(|item| {
-            item.conversation_key() != key && tokens(&subject).any(|token| token == item.id)
+            item.conversation_key() != key
+                && references::tokens(&subject).any(|token| token == item.id)
         })
         .collect::<Vec<_>>();
     let mut references = String::new();
-    for id in tokens(&subject)
+    for id in references::tokens(&subject)
         .filter(|id| crate::artifacts::product_docs::valid_feature_id(id))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .take(3)
     {
         if let Ok(path) = crate::artifacts::product_docs::document_path(
-            &state.repo_root,
+            &state.planning_store,
             &format!("feature:{id}"),
         ) && let Ok(body) = std::fs::read_to_string(path)
         {
             references.push_str(&format!("\nFeature {id}\n{}", clip(&body, 10000)));
         }
     }
-    if let Ok(Some(modules)) = crate::artifacts::product_docs::load_documents(&state.repo_root) {
+    if let Ok(Some(modules)) = crate::artifacts::product_docs::load_documents(&state.planning_store)
+    {
         for document in modules {
             if subject.contains(&document.module.id) || subject.contains(&document.module.title) {
                 references.push_str(&format!(
@@ -242,7 +210,7 @@ pub fn prompt(
                     clip(&document.content, 8000)
                 ));
             } else {
-                let selected = referenced_sections(&document.content, &subject);
+                let selected = references::referenced_sections(&document.content, &subject);
                 if !selected.is_empty() {
                     references.push_str(&format!(
                         "\n{} ({})\n{selected}",
@@ -252,7 +220,7 @@ pub fn prompt(
             }
         }
     } else if let Some(spec) = &state.spec_text {
-        references.push_str(&referenced_sections(spec, &subject));
+        references.push_str(&references::referenced_sections(spec, &subject));
         if references.is_empty() {
             // Small project synopsis for an early, unreferenced question.
             references.push_str(&clip(spec.split("\n## ").next().unwrap_or(spec), 1200));

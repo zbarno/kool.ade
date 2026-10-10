@@ -4,6 +4,7 @@ mod generate;
 mod validation;
 use validation::validate;
 
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::{self, BlockerDisposition, Report, ReportStatus};
 use crate::harness::AiHarness;
 pub use brief::{Brief, HumanStep, OptionBrief, Recommendation};
@@ -44,11 +45,23 @@ impl Controller {
         report_path: PathBuf,
         harness: Box<dyn AiHarness>,
     ) -> Self {
+        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+        Self::start_with_store(store, repo, ticket, report_path, harness)
+    }
+
+    pub fn start_with_store(
+        planning_store: PlanningStore,
+        repo: PathBuf,
+        ticket: String,
+        report_path: PathBuf,
+        harness: Box<dyn AiHarness>,
+    ) -> Self {
         let (send, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         std::thread::spawn(move || {
-            let outcome = run(
+            let outcome = run_with_store(
+                &planning_store,
                 &repo,
                 &ticket,
                 &report_path,
@@ -71,12 +84,30 @@ impl Controller {
         detail: String,
         harness: Box<dyn AiHarness>,
     ) -> Self {
+        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+        Self::start_detail_with_store(store, repo, ticket, detail, harness)
+    }
+
+    pub fn start_detail_with_store(
+        planning_store: PlanningStore,
+        repo: PathBuf,
+        ticket: String,
+        detail: String,
+        harness: Box<dyn AiHarness>,
+    ) -> Self {
         let (send, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
         std::thread::spawn(move || {
-            let outcome = run_detail(&repo, &ticket, &detail, harness.as_ref(), worker_cancel)
-                .map_err(|error| format!("{error:#}"));
+            let outcome = run_detail_with_store(
+                &planning_store,
+                &repo,
+                &ticket,
+                &detail,
+                harness.as_ref(),
+                worker_cancel,
+            )
+            .map_err(|error| format!("{error:#}"));
             let _ = send.send(outcome);
         });
         Self {
@@ -149,7 +180,20 @@ fn cache_path(report_path: &Path) -> PathBuf {
     report_path.with_file_name(format!("{stem}-attention.json"))
 }
 
+#[cfg(test)]
 fn run(
+    repo: &Path,
+    ticket: &str,
+    report_path: &Path,
+    harness: &dyn AiHarness,
+    cancel: Arc<AtomicBool>,
+) -> anyhow::Result<Brief> {
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    run_with_store(&store, repo, ticket, report_path, harness, cancel)
+}
+
+fn run_with_store(
+    planning_store: &PlanningStore,
     repo: &Path,
     ticket: &str,
     report_path: &Path,
@@ -162,7 +206,7 @@ fn run(
         report.status == ReportStatus::Blocked,
         "Report is no longer blocked"
     );
-    let (worktree, task, documents) = generate::context(repo, ticket, &report);
+    let (worktree, task, documents) = generate::context(planning_store, repo, ticket, &report);
     let mut source = bytes;
     source.extend_from_slice(task.as_bytes());
     source.extend_from_slice(documents.as_bytes());
@@ -198,7 +242,20 @@ fn run(
     Ok(brief)
 }
 
+#[cfg(test)]
 fn run_detail(
+    repo: &Path,
+    ticket: &str,
+    detail: &str,
+    harness: &dyn AiHarness,
+    cancel: Arc<AtomicBool>,
+) -> anyhow::Result<Brief> {
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    run_detail_with_store(&store, repo, ticket, detail, harness, cancel)
+}
+
+fn run_detail_with_store(
+    planning_store: &PlanningStore,
     repo: &Path,
     ticket: &str,
     detail: &str,
@@ -218,7 +275,7 @@ fn run_detail(
         remaining: vec![actions],
         human_choices: Vec::new(),
     };
-    let (worktree, task, documents) = generate::context(repo, ticket, &report);
+    let (worktree, task, documents) = generate::context(planning_store, repo, ticket, &report);
     generate::run(&worktree, &task, &documents, &report, harness, cancel)
 }
 

@@ -91,7 +91,21 @@ pub fn span_for_ticket(
     metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
     task_uid: Option<&str>,
 ) -> Option<AgentSpan> {
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root).ok()?;
+    let store = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::nil(),
+        planning_root,
+    );
+    span_for_ticket_with_store(&store, planning_root, ticket_text, metadata, task_uid)
+}
+
+pub fn span_for_ticket_with_store(
+    planning_store: &crate::artifacts::planning_store::PlanningStore,
+    code_root: &Path,
+    ticket_text: &str,
+    metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
+    task_uid: Option<&str>,
+) -> Option<AgentSpan> {
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store).ok()?;
     let workspace_id =
         crate::core::implementation::task_repository_id(ticket_text, metadata, &manifest).ok()?;
     let ticket_stem = Path::new(ticket_text)
@@ -107,8 +121,8 @@ pub fn span_for_ticket(
         "task",
     );
     Some(AgentSpan {
-        repo_root: planning_root.to_path_buf(),
-        repo_id: root_repo_id(planning_root, &manifest),
+        repo_root: code_root.to_path_buf(),
+        repo_id: root_repo_id(code_root, &manifest),
         workspace_id: identifier(&workspace_id, "root"),
         item_uid,
     })

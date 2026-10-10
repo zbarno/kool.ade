@@ -149,11 +149,11 @@ fn restart_finishes_checkpoint_after_files_and_manifest_are_written() {
         root.join(crate::artifacts::layout::canonical::MANIFEST)
             .exists()
     );
-    assert!(common_dir(&root).unwrap().join(PENDING_NAME).exists());
+    assert!(scoped_pending_path(&root).exists());
 
     fs::remove_file(hook).unwrap();
     run(&root).unwrap();
-    assert!(!common_dir(&root).unwrap().join(PENDING_NAME).exists());
+    assert!(!scoped_pending_path(&root).exists());
     let committed = git_ok(
         &root,
         &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
@@ -164,7 +164,7 @@ fn restart_finishes_checkpoint_after_files_and_manifest_are_written() {
 }
 
 #[test]
-fn legacy_transaction_is_rolled_back_before_its_artifacts_are_migrated() {
+fn unscoped_legacy_transaction_is_refused_as_ambiguous() {
     let root = repo("legacy-transaction");
     let legacy = root.join("planning/open-items.md");
     fs::create_dir_all(legacy.parent().unwrap()).unwrap();
@@ -178,14 +178,9 @@ fn legacy_transaction_is_rolled_back_before_its_artifacts_are_migrated() {
     )
     .unwrap();
 
-    assert!(crate::artifacts::migration::recover_transaction(&root).unwrap());
-    assert_eq!(fs::read_to_string(&legacy).unwrap(), "original bytes");
-    run(&root).unwrap();
-    assert_eq!(
-        fs::read_to_string(root.join(crate::artifacts::layout::canonical::OPEN_ITEMS)).unwrap(),
-        "original bytes"
-    );
-    assert!(!legacy.exists());
-    assert!(!journal.exists());
+    let error = crate::artifacts::migration::recover_transaction(&root).unwrap_err();
+    assert!(error.to_string().contains("cannot be safely recovered"));
+    assert_eq!(fs::read_to_string(&legacy).unwrap(), "partially written");
+    assert!(journal.exists());
     let _ = fs::remove_dir_all(root);
 }

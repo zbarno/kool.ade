@@ -29,7 +29,7 @@ pub(super) fn render(state: &PlannerState) -> String {
                 .map(|identity| identity.uid)
                 .unwrap_or_else(|| "no stable ID".into());
             let approved =
-                crate::core::workflow::feature_approved(&state.repo_root, &state.workflow, id);
+                crate::core::workflow::feature_approved(&state.planning_store, &state.workflow, id);
             let status = crate::domain::ChangeMetadata::require_markdown(body)
                 .map(|metadata| metadata.status.wire_name().to_owned())
                 .unwrap_or_else(|_| "invalid structured status".into());
@@ -48,8 +48,11 @@ pub(super) fn render(state: &PlannerState) -> String {
             "{omitted_features} additional active changes are omitted from this bounded target list; ask the user for the exact change if needed"
         ));
     }
-    let states = crate::core::implementation::load_board_states(&state.repo_root);
-    let tasks = crate::artifacts::task_docs::load_board(&state.repo_root, &state.workflow)
+    let states = crate::core::implementation::load_board_states_with_store(
+        &state.repo_root,
+        &state.planning_store,
+    );
+    let tasks = crate::artifacts::task_docs::load_board(&state.planning_store, &state.workflow)
         .into_iter()
         .filter(|document| !document.path.ends_with("/README.md"))
         .take(80)

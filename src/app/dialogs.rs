@@ -4,7 +4,9 @@
 use egui::{Layout, RichText, TextEdit};
 
 use crate::app::session::Project;
-use crate::artifacts::{CONFIG_FILE, IMPORTS_DIR, atomic_write, config_io, imports_io};
+#[cfg(test)]
+use crate::artifacts::CONFIG_FILE;
+use crate::artifacts::{config_io, imports_io};
 use crate::core::gitops;
 use crate::domain::stakeholder::{CategoryOwners, Stakeholders};
 use crate::domain::user::{CurrentUser, IdentitySource};

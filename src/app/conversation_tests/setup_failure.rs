@@ -25,6 +25,7 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
     ));
     std::fs::create_dir_all(&root).unwrap();
+    init_git(&root);
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();

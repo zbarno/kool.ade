@@ -1,14 +1,14 @@
 use super::feature_index::directory_feature_id;
-use std::path::Path;
+use crate::artifacts::planning_store::PlanningRoot;
 
-pub fn active_feature(repo: &Path) -> Option<(String, String)> {
+pub fn active_feature<R: PlanningRoot + ?Sized>(repo: &R) -> Option<(String, String)> {
     active_features(repo).into_iter().next()
 }
 
 /// Select the current planning focus by the durable brief title, falling back
 /// to the first active feature for legacy projects without a matching brief.
-pub fn active_feature_for_workflow(
-    repo: &Path,
+pub fn active_feature_for_workflow<R: PlanningRoot + ?Sized>(
+    repo: &R,
     workflow: &crate::core::workflow::Workflow,
 ) -> Option<(String, String)> {
     select_active_feature(&active_features(repo), workflow)
@@ -52,13 +52,14 @@ fn normalize_title(title: &str) -> String {
 
 /// Every feature that is still active. Feature status is independent, so
 /// several deltas may be planned or implemented at the same time.
-pub fn active_features(repo: &Path) -> Vec<(String, String)> {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+pub fn active_features<R: PlanningRoot + ?Sized>(repo: &R) -> Vec<(String, String)> {
+    let layout = repo.planning_layout();
     active_feature_directories(repo)
         .into_iter()
         .filter_map(|name| {
             let id = directory_feature_id(&name)?.to_string();
-            let body = std::fs::read_to_string(layout.change_specification(&name)?).ok()?;
+            let path = layout.change_specification(&name)?;
+            let body = String::from_utf8(repo.read_planning_path(&path).ok()?).ok()?;
             let metadata = crate::domain::ChangeMetadata::require_markdown(&body).ok()?;
             let body = crate::domain::ChangeMetadata::render_status(&body, metadata.status).ok()?;
             Some((id, body))
@@ -66,8 +67,8 @@ pub fn active_features(repo: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
-pub(super) fn active_feature_directories(repo: &Path) -> Vec<String> {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+pub(super) fn active_feature_directories<R: PlanningRoot + ?Sized>(repo: &R) -> Vec<String> {
+    let layout = repo.planning_layout();
     let Ok(entries) = std::fs::read_dir(layout.changes_root()) else {
         return Vec::new();
     };
@@ -76,7 +77,7 @@ pub(super) fn active_feature_directories(repo: &Path) -> Vec<String> {
         .filter_map(|entry| {
             let name = entry.file_name().into_string().ok()?;
             let path = layout.change_specification(&name)?;
-            let body = std::fs::read_to_string(path).ok()?;
+            let body = String::from_utf8(repo.read_planning_path(&path).ok()?).ok()?;
             let status = crate::domain::ChangeMetadata::require_markdown(&body)
                 .ok()?
                 .status;
@@ -90,13 +91,13 @@ pub(super) fn active_feature_directories(repo: &Path) -> Vec<String> {
     entries
 }
 
-pub fn validate_change_metadata(repo: &Path) -> anyhow::Result<()> {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+pub fn validate_change_metadata<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<()> {
+    let layout = repo.planning_layout();
     for name in active_feature_directories_all(repo)? {
         let path = layout
             .change_specification(&name)
             .ok_or_else(|| anyhow::anyhow!("Invalid change directory {name}"))?;
-        let markdown = std::fs::read_to_string(&path)?;
+        let markdown = String::from_utf8(repo.read_planning_path(&path)?)?;
         let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)?
             .ok_or_else(|| anyhow::anyhow!("Change {} has no stable identity", path.display()))?;
         let metadata = crate::domain::ChangeMetadata::from_markdown(&markdown)?
@@ -111,13 +112,15 @@ pub fn validate_change_metadata(repo: &Path) -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
-pub(crate) fn migrate_legacy_change_fixtures(repo: &Path) -> anyhow::Result<()> {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+pub(crate) fn migrate_legacy_change_fixtures<R: PlanningRoot + ?Sized>(
+    repo: &R,
+) -> anyhow::Result<()> {
     for name in active_feature_directories_all(repo)? {
+        let layout = repo.planning_layout();
         let Some(path) = layout.change_specification(&name) else {
             continue;
         };
-        let markdown = std::fs::read_to_string(&path)?;
+        let markdown = String::from_utf8(repo.read_planning_path(&path)?)?;
         if crate::domain::ChangeMetadata::from_markdown(&markdown)?.is_some() {
             continue;
         }
@@ -140,13 +143,15 @@ pub(crate) fn migrate_legacy_change_fixtures(repo: &Path) -> anyhow::Result<()> 
         let status = crate::domain::ChangeMetadata::parse_legacy_markdown(&identified)?;
         let migrated =
             crate::domain::ChangeMetadata::write_markdown(&identified, &identity, status)?;
-        std::fs::write(path, migrated)?;
+        repo.write_planning_path(&path, migrated.as_bytes())?;
     }
     Ok(())
 }
 
-fn active_feature_directories_all(repo: &Path) -> anyhow::Result<Vec<String>> {
-    let root = crate::artifacts::layout::ArtifactLayout::new(repo).changes_root();
+fn active_feature_directories_all<R: PlanningRoot + ?Sized>(
+    repo: &R,
+) -> anyhow::Result<Vec<String>> {
+    let root = repo.planning_layout().changes_root();
     let entries = match std::fs::read_dir(&root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -159,7 +164,8 @@ fn active_feature_directories_all(repo: &Path) -> anyhow::Result<Vec<String>> {
             .file_name()
             .into_string()
             .map_err(|_| anyhow::anyhow!("Change directory name is not UTF-8"))?;
-        if crate::artifacts::layout::ArtifactLayout::new(repo)
+        if repo
+            .planning_layout()
             .change_specification(&name)
             .is_some_and(|path| path.is_file())
         {

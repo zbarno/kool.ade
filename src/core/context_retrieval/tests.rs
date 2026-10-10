@@ -36,6 +36,14 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut state = PlannerState::load(&root).unwrap();
     state.bootstrap_missing().unwrap();
     let layout = crate::artifacts::layout::ArtifactLayout::new(&root);
@@ -130,9 +138,7 @@ fn model_selected_sources_follow_the_issue_without_literal_names_in_the_request(
             .contains(user_message)
     );
     assert!(prompt.contains("Session credentials are restored from the local session store."));
-    assert!(
-        prompt.contains("Source: .koolade-packet/planning/product/architecture-and-constraints.md")
-    );
+    assert!(prompt.contains("Source: planning/product/architecture-and-constraints.md"));
     assert!(prompt.contains("CLR-021"));
     assert!(prompt.contains("This determines safe retry behavior after restart."));
     assert!(prompt.contains("repo:src/persistence/session.rs"));
@@ -219,10 +225,12 @@ fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
     assert_eq!(selected.documents.len(), 2);
     assert_eq!(selected.open_items.len(), 2);
     assert_eq!(selected.repository_areas.len(), 1);
-    assert!(selected.documents.iter().all(|doc| {
-        doc.source_path
-            .starts_with(".koolade-packet/planning/product/")
-    }));
+    assert!(
+        selected
+            .documents
+            .iter()
+            .all(|doc| doc.source_path.starts_with("planning/product/"))
+    );
     assert!(
         selected
             .repository_areas

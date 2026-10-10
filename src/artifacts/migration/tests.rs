@@ -1,6 +1,7 @@
 use super::*;
 use std::{
     os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
     process::{Command, Output},
 };
 
@@ -41,6 +42,44 @@ fn commit_all(repo: &Path, message: &str) {
     git_ok(repo, &["commit", "-q", "-m", message]);
 }
 
+#[test]
+fn linked_worktrees_keep_artifact_migration_state_isolated() {
+    let parent = std::env::temp_dir().join(format!(
+        "koolade_migration_worktrees_{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    let primary = parent.join("primary");
+    let linked = parent.join("linked");
+    fs::create_dir_all(&primary).unwrap();
+    assert!(git(&primary, &["init", "-q"]).status.success());
+    fs::write(primary.join("README.md"), "fixture\n").unwrap();
+    commit_all(&primary, "fixture");
+    git_ok(
+        &primary,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "linked",
+            linked.to_str().unwrap(),
+        ],
+    );
+
+    let common = common_dir(&primary).unwrap();
+    assert_eq!(common, common_dir(&linked).unwrap());
+    assert_ne!(
+        super::pending_path(&common, &primary).unwrap(),
+        super::pending_path(&common, &linked).unwrap()
+    );
+    assert_ne!(
+        super::lock_path(&common, &primary).unwrap(),
+        super::lock_path(&common, &linked).unwrap()
+    );
+    let _ = fs::remove_dir_all(parent);
+}
+
 mod canonical_state;
 mod files;
 mod identities;
@@ -48,3 +87,7 @@ mod ignored_progress;
 mod implementation_merge;
 mod status;
 mod task_state;
+
+fn scoped_pending_path(root: &Path) -> PathBuf {
+    super::pending_path(&common_dir(root).unwrap(), root).unwrap()
+}

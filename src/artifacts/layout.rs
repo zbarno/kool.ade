@@ -78,6 +78,16 @@ impl ArtifactLayout {
         safe_repository_path(&self.repository.join(canonical::ROOT), relative)
     }
 
+    /// Resolve a root-relative planning path. Legacy `.koolade-packet/...`
+    /// spellings remain accepted while managed stores use paths such as
+    /// `planning/changes/F1/specification.md`.
+    pub fn resolve_planning_root_relative(root: &Path, relative: &str) -> Option<PathBuf> {
+        let relative = relative
+            .strip_prefix(&format!("{}/", canonical::ROOT))
+            .unwrap_or(relative);
+        safe_repository_path(root, relative)
+    }
+
     pub fn legacy_path(&self, relative: &str) -> Option<PathBuf> {
         safe_repository_path(&self.repository, relative)
     }

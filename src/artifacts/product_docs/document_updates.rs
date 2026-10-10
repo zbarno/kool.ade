@@ -1,8 +1,13 @@
 //! Resolve logical document IDs and prepare manifest changes for model output.
 use super::{ProductManifest, ProductModule};
-use std::path::{Path, PathBuf};
+use crate::artifacts::planning_store::PlanningRoot;
+use std::path::PathBuf;
 
-pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow::Result<PathBuf> {
+pub fn document_path_for_update<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    id: &str,
+    content: &str,
+) -> anyhow::Result<PathBuf> {
     if let Some(module_id) = id.strip_prefix("product:") {
         anyhow::ensure!(
             module_id != "index",
@@ -10,7 +15,7 @@ pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow:
         );
         anyhow::ensure!(super::valid_id(module_id), "Invalid product module ID");
         super::validate_module(content)?;
-        let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+        let layout = repo.planning_layout();
         anyhow::ensure!(
             super::feature_index::real_dir(&layout.product_root())?,
             "Product root does not exist"
@@ -60,7 +65,7 @@ pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow:
         .find_map(|line| line.strip_prefix(&format!("# {feature_id}: ")))
         .ok_or_else(|| anyhow::anyhow!("Feature title missing"))?;
     let slug = crate::artifacts::task_docs::slug(title);
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    let layout = repo.planning_layout();
     let root = layout.changes_root();
     let _ = super::feature_index::real_dir(&root)?;
     let dir = layout
@@ -70,13 +75,13 @@ pub fn document_path_for_update(repo: &Path, id: &str, content: &str) -> anyhow:
     Ok(dir.join("specification.md"))
 }
 
-pub fn updated_manifest(
-    repo: &Path,
+pub fn updated_manifest<R: PlanningRoot + ?Sized>(
+    repo: &R,
     updates: &[(String, String)],
 ) -> anyhow::Result<ProductManifest> {
     let mut manifest = super::load_manifest(repo)?
         .ok_or_else(|| anyhow::anyhow!("Product module manifest is missing"))?;
-    let root = crate::artifacts::layout::ArtifactLayout::new(repo).product_root();
+    let root = repo.planning_layout().product_root();
     for (document_id, content) in updates {
         let Some(id) = document_id.strip_prefix("product:") else {
             continue;
@@ -138,12 +143,12 @@ pub fn preserved_ids(old: &str, new: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn document_path(repo: &Path, id: &str) -> anyhow::Result<PathBuf> {
+pub fn document_path<R: PlanningRoot + ?Sized>(repo: &R, id: &str) -> anyhow::Result<PathBuf> {
     if id == "product:index" {
-        return Ok(crate::artifacts::layout::ArtifactLayout::new(repo).product_index());
+        return Ok(repo.planning_layout().product_index());
     }
     if let Some(name) = id.strip_prefix("product:") {
-        let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+        let layout = repo.planning_layout();
         anyhow::ensure!(
             super::feature_index::real_dir(&layout.product_root())?,
             "Product root does not exist"
@@ -163,7 +168,7 @@ pub fn document_path(repo: &Path, id: &str) -> anyhow::Result<PathBuf> {
             super::feature_index::valid_feature_id(id),
             "Invalid feature document ID"
         );
-        let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+        let layout = repo.planning_layout();
         let root = layout.changes_root();
         anyhow::ensure!(
             super::feature_index::real_dir(&root)?,

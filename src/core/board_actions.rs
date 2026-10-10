@@ -75,7 +75,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
     // checkpoints, so it joins the planning writer gate like every other
     // artifact mutator.
     let guard = crate::core::writer_gate::acquire();
-    let current = PlannerState::load(&state.repo_root)?;
+    let current = PlannerState::load_with_store(&state.repo_root, &state.planning_store)?;
     let drifted = PlannerState::drift_report(state, &current);
     anyhow::ensure!(
         drifted.is_empty(),
@@ -98,10 +98,10 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Review item has no related feature"))?;
     let path = crate::artifacts::product_docs::document_path(
-        &state.repo_root,
+        &state.planning_store,
         &format!("feature:{feature_id}"),
     )?;
-    let feature = std::fs::read_to_string(path)?;
+    let feature = String::from_utf8(state.planning_store.read_planning_path(&path)?)?;
     let revised = insert_decision(&feature, id, &recommendation, &evidence)?;
     let envelope = TurnEnvelope {
         schema_version: Some(2),
@@ -129,7 +129,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
     let mut normalized = validation::validate(&envelope, state, &state.effective_user())
         .map_err(|problems| anyhow::anyhow!(problems.join("; ")))?;
     if let Some((path, content)) =
-        crate::artifacts::koolade::prepare_decision_record(&state.repo_root, item)?
+        crate::artifacts::koolade::prepare_decision_record(&state.planning_store, item)?
     {
         normalized
             .additional_planning_artifacts
@@ -137,7 +137,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
     }
     let receipt = apply::apply(state, &normalized)?;
     let result = gitops::commit(
-        &state.repo_root,
+        &state.planning_store.git_root(),
         &receipt.commit_message,
         &receipt.repo_relative_paths,
     )

@@ -302,19 +302,17 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             let batch_ref = &state.workflow.task_batches[0];
             let batch_identity = batch_ref.identity.as_ref().expect("batch UID persisted");
             assert!(batch_identity.display_id.starts_with("BATCH-"));
-            let batch_index =
-                std::fs::read_to_string(root.join(&batch_ref.directory).join("README.md")).unwrap();
+            let batch_root = state.planning_store.root.join(&batch_ref.directory);
+            let batch_index = std::fs::read_to_string(batch_root.join("README.md")).unwrap();
             assert_eq!(
                 koolade::domain::ArtifactIdentity::from_markdown(&batch_index)
                     .unwrap()
                     .unwrap(),
                 *batch_identity
             );
-            let first_story = std::fs::read_to_string(
-                root.join(&batch_ref.directory)
-                    .join("001-persist-named-search-filters.md"),
-            )
-            .unwrap();
+            let first_story =
+                std::fs::read_to_string(batch_root.join("001-persist-named-search-filters.md"))
+                    .unwrap();
             let story_identity = koolade::domain::ArtifactIdentity::from_markdown(&first_story)
                 .unwrap()
                 .unwrap();

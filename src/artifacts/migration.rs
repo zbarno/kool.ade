@@ -1,10 +1,14 @@
 //! One-time, restartable migration of shared repository artifacts.
+mod bootstrap;
 mod checkpoint;
 mod identities;
 mod plan;
 mod product;
 mod state;
 mod transaction;
+#[cfg(test)]
+pub(crate) use bootstrap::bootstrap_product;
+pub(crate) use bootstrap::{bootstrap_product_with_store, bootstrap_product_with_store_expected};
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -19,7 +23,6 @@ mod tests;
 
 const SCHEMA_VERSION: u32 = 4;
 const PENDING_NAME: &str = "koolade-artifact-migration.pending.json";
-const LOCK_NAME: &str = "koolade-artifact-migration.lock";
 
 /// Roll back a pre-migration planning journal before legacy files are moved.
 /// This is the only startup path that is allowed to write to legacy locations.
@@ -37,6 +40,7 @@ struct Manifest {
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 struct Pending {
+    root: Option<String>,
     source_schema_version: u32,
     paths: BTreeSet<String>,
 }
@@ -47,10 +51,16 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
     let repo = repo.canonicalize()?;
     let _writer = crate::core::writer_gate::acquire();
     let common = common_dir(&repo)?;
-    let _lock = lock(&common)?;
+    let _lock = lock(&common, &repo)?;
+    let legacy_pending_path = common.join(PENDING_NAME);
+    anyhow::ensure!(
+        !legacy_pending_path.exists(),
+        "an unscoped artifact migration journal exists at {}; it cannot be safely resumed because it does not identify its working tree",
+        legacy_pending_path.display()
+    );
     let layout = crate::artifacts::layout::ArtifactLayout::new(&repo);
     let manifest_path = layout.manifest();
-    let pending_path = common.join(PENDING_NAME);
+    let pending_path = pending_path(&common, &repo)?;
 
     let manifest = read_manifest(&manifest_path)?;
     if let Some(manifest) = &manifest {
@@ -83,10 +93,11 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
         return Ok(Vec::new());
     }
 
-    let mut pending = read_pending(&pending_path)?;
+    let mut pending = read_pending(&pending_path, &repo)?;
     if pending.source_schema_version == 0 {
         pending.source_schema_version = source_schema_version;
     }
+    pending.root = Some(root_identity(&repo)?);
     pending.paths.extend(plan.git_paths());
     pending.paths.extend(identity_plan.git_paths());
     pending
@@ -153,21 +164,6 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
     Ok(paths)
 }
 
-/// Bootstrap product modules for callers that create state directly instead
-/// of entering through the connection pipeline. Normal connection uses
-/// `run`, which plans, versions, and checkpoints the same files with every
-/// other project artifact.
-pub(crate) fn bootstrap_product(repo: &Path, title: &str) -> anyhow::Result<Vec<String>> {
-    let generated = product::bootstrap_files(repo, Some(title))?;
-    let mut paths = Vec::with_capacity(generated.len());
-    for file in generated {
-        let text = String::from_utf8(file.bytes)?;
-        crate::artifacts::atomic_write(&repo.join(&file.target), &text)?;
-        paths.push(file.target);
-    }
-    Ok(paths)
-}
-
 #[cfg(test)]
 pub(crate) fn migrate_files_for_test(repo: &Path) -> anyhow::Result<Vec<String>> {
     let plan = plan::Plan::build(repo)?;
@@ -199,9 +195,17 @@ fn detect_source_schema(repo: &Path) -> u32 {
     u32::from(has_legacy || layout.koolade_root().exists())
 }
 
-fn read_pending(path: &Path) -> anyhow::Result<Pending> {
+fn read_pending(path: &Path, repo: &Path) -> anyhow::Result<Pending> {
     match fs::read(path) {
-        Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+        Ok(bytes) => {
+            let pending: Pending = serde_json::from_slice(&bytes)?;
+            let root_identity = root_identity(repo)?;
+            anyhow::ensure!(
+                pending.root.as_deref() == Some(root_identity.as_str()),
+                "artifact migration journal belongs to a different working tree"
+            );
+            Ok(pending)
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Pending::default()),
         Err(error) => Err(error.into()),
     }
@@ -223,19 +227,43 @@ fn common_dir(repo: &Path) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
+fn root_identity(repo: &Path) -> anyhow::Result<String> {
+    Ok(repo.canonicalize()?.to_string_lossy().into_owned())
+}
+
+fn root_key(repo: &Path) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(root_identity(repo)?.as_bytes());
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn pending_path(common: &Path, repo: &Path) -> anyhow::Result<PathBuf> {
+    Ok(common.join(format!(
+        "koolade-artifact-migration-{}.pending.json",
+        root_key(repo)?
+    )))
+}
+
+fn lock_path(common: &Path, repo: &Path) -> anyhow::Result<PathBuf> {
+    Ok(common.join(format!(
+        "koolade-artifact-migration-{}.lock",
+        root_key(repo)?
+    )))
+}
+
 /// Coordinate first creation of task evidence with path migration across
 /// Koolade instances. Workers release this after owning the per-task lock.
 pub(crate) fn acquire_project_state_gate(repo: &Path) -> anyhow::Result<fs::File> {
-    lock(&common_dir(repo)?)
+    lock(&common_dir(repo)?, repo)
 }
 
-fn lock(common: &Path) -> anyhow::Result<fs::File> {
+fn lock(common: &Path, repo: &Path) -> anyhow::Result<fs::File> {
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .open(common.join(LOCK_NAME))?;
+        .open(lock_path(common, repo)?)?;
     file.lock()?;
     Ok(file)
 }

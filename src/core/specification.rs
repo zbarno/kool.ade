@@ -209,6 +209,14 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
         std::fs::create_dir_all(&repo).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
         crate::artifacts::migration::bootstrap_product(&repo, "Layout Test").unwrap();
         let modules = crate::artifacts::product_docs::load_modules(&repo)
             .unwrap()

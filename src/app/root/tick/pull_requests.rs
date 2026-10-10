@@ -58,10 +58,12 @@ impl KooladeApp {
                     .map(|(ticket, _)| ticket.clone())
                     .collect::<Vec<_>>();
                 if !tickets.is_empty() {
-                    project.pr_refresh = Some(crate::core::implementation::PrRefresh::start(
-                        project.state.repo_root.clone(),
-                        tickets,
-                    ));
+                    project.pr_refresh =
+                        Some(crate::core::implementation::PrRefresh::start_with_store(
+                            project.state.planning_store.clone(),
+                            project.state.repo_root.clone(),
+                            tickets,
+                        ));
                 }
                 project.last_pr_refresh = Some(Instant::now());
             }

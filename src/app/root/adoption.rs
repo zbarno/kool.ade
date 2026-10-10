@@ -38,7 +38,7 @@ impl KooladeApp {
             state, normalized, ..
         } = &outcome
             && !normalized.planning_tasks.is_empty()
-            && let Ok(work) = crate::core::planning_work::load(&state.repo_root)
+            && let Ok(work) = crate::core::planning_work::load(&state.planning_store)
         {
             project.planning_work = work;
         }
@@ -181,10 +181,13 @@ impl KooladeApp {
                 let previous_batches = project.state.workflow.task_batches.len();
                 // Another worker may have committed since this outcome was
                 // queued. Adopt current disk truth, never an older snapshot.
-                project.state =
-                    crate::core::state::PlannerState::load(&state.repo_root).unwrap_or(*state);
+                project.state = crate::core::state::PlannerState::load_with_store(
+                    &state.repo_root,
+                    &state.planning_store,
+                )
+                .unwrap_or(*state);
                 project.task_documents = crate::artifacts::task_docs::load_board(
-                    &project.state.repo_root,
+                    &project.state.planning_store,
                     &project.state.workflow,
                 );
                 if project.task_chats.active.is_none() {

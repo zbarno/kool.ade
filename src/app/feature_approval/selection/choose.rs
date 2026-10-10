@@ -25,18 +25,21 @@ impl KooladeApp {
                 .danger(format!("Feature {id} is no longer available."));
             return;
         };
-        let path = match crate::artifacts::product_docs::document_path(
-            &project.state.repo_root,
-            &format!("feature:{id}"),
-        ) {
-            Ok(path) => path,
-            Err(error) => {
-                self.toasts.danger(format!("Cannot select plan: {error}"));
-                return;
-            }
-        };
+        let store = &project.state.planning_store;
+        let path =
+            match crate::artifacts::product_docs::document_path(store, &format!("feature:{id}")) {
+                Ok(path) => path,
+                Err(error) => {
+                    self.toasts.danger(format!("Cannot select plan: {error}"));
+                    return;
+                }
+            };
         let guard = crate::core::writer_gate::acquire();
-        let current = match crate::artifacts::read_utf8_lossy(&path) {
+        let current = match store.read_planning_path(&path).and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|error| {
+                crate::artifacts::planning_store::StoreError::MalformedState(error.to_string())
+            })
+        }) {
             Ok(current) if current == *body => current,
             Ok(_) => {
                 self.toasts
@@ -72,7 +75,7 @@ impl KooladeApp {
             }
         };
         let (adr_path, adr_content) = match crate::artifacts::koolade::prepare_plan_choice_record(
-            &project.state.repo_root,
+            store,
             id,
             &identity.uid,
             &comparison,
@@ -97,15 +100,14 @@ impl KooladeApp {
                 return;
             }
         };
-        let mut workflow =
-            match crate::artifacts::task_docs::load_workflow(&project.state.repo_root) {
-                Ok(workflow) => workflow,
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Cannot load approval state: {error}"));
-                    return;
-                }
-            };
+        let mut workflow = match crate::artifacts::task_docs::load_workflow(store) {
+            Ok(workflow) => workflow,
+            Err(error) => {
+                self.toasts
+                    .danger(format!("Cannot load approval state: {error}"));
+                return;
+            }
+        };
         if let Some(record) = workflow.plan_comparisons.get_mut(id) {
             record.alternatives.selected_plan = Some(plan_id.to_owned());
             record.selected_plan = Some(plan_id.to_owned());
@@ -142,25 +144,23 @@ impl KooladeApp {
             workflow.plan_comparisons.insert(id.to_owned(), record);
         }
         workflow.approved_features.remove(id);
-        let layout = crate::artifacts::layout::ArtifactLayout::new(&project.state.repo_root);
         let feature_rel = path
-            .strip_prefix(&project.state.repo_root)
+            .strip_prefix(store.root.as_path())
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let workflow_rel = layout
-            .workflow_state()
-            .strip_prefix(&project.state.repo_root)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
+        let workflow_rel = crate::artifacts::planning_store::paths::WORKFLOW.to_owned();
+        let adr_relative = adr_path
+            .strip_prefix(".koolade-packet/")
+            .unwrap_or(&adr_path)
+            .to_owned();
         let changes = vec![
-            (feature_rel.clone(), updated.clone()),
-            (adr_path.clone(), adr_content),
+            (feature_rel.clone(), updated.clone().into_bytes()),
+            (adr_relative, adr_content.into_bytes()),
             (
                 workflow_rel.clone(),
                 match serde_json::to_string_pretty(&workflow) {
-                    Ok(json) => json,
+                    Ok(json) => json.into_bytes(),
                     Err(error) => {
                         self.toasts
                             .danger(format!("Cannot serialize approval state: {error}"));
@@ -169,16 +169,24 @@ impl KooladeApp {
                 },
             ),
         ];
-        let committed_paths =
-            match crate::artifacts::transaction::apply(&project.state.repo_root, &changes) {
-                Ok(paths) => paths,
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Plan adoption was rolled back: {error}"));
-                    return;
-                }
-            };
+        let (committed_paths, committed_revision) = match store
+            .transaction_with_revision(&changes, Some(&project.state.baseline_planning_revision))
+        {
+            Ok((paths, revision)) => (
+                paths
+                    .iter()
+                    .map(|path| store.git_path(path))
+                    .collect::<Vec<_>>(),
+                revision,
+            ),
+            Err(error) => {
+                self.toasts
+                    .danger(format!("Plan adoption was rolled back: {error}"));
+                return;
+            }
+        };
         project.state.workflow = workflow;
+        project.state.baseline_planning_revision = committed_revision;
         if let Some((_, feature_body)) = project
             .state
             .active_features
@@ -196,7 +204,7 @@ impl KooladeApp {
             project.state.active_feature = Some((id.to_owned(), updated));
         }
         let commit = crate::core::gitops::commit(
-            &project.state.repo_root,
+            &store.git_root(),
             &format!("planner: adopt plan {plan_id} for {id}"),
             &committed_paths,
         );

@@ -87,14 +87,15 @@ pub(super) fn run_with_settle_window(
                     );
                     let guard = crate::core::writer_gate::acquire();
                     let attempt = (|| -> anyhow::Result<(PlannerState, String)> {
-                        let current = PlannerState::load(&state.repo_root)?;
+                        let current =
+                            PlannerState::load_with_store(&state.repo_root, &state.planning_store)?;
                         if !PlannerState::drift_report(state, &current).is_empty() {
                             anyhow::bail!("{DEFER_PREFIX}");
                         }
                         let mut next = state.clone();
                         let receipt = apply::apply(&mut next, &normalized)?;
                         let commit = gitops::commit(
-                            &next.repo_root,
+                            &next.planning_store.git_root(),
                             &receipt.commit_message,
                             &receipt.repo_relative_paths,
                         )

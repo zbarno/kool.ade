@@ -1,6 +1,6 @@
 use super::workflow::safe_directory;
+use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::workflow::TaskStory;
-use std::path::Path;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct ProgressBatch {
@@ -17,10 +17,13 @@ pub(super) struct ProgressBatch {
     pub(super) identity: Option<crate::domain::ArtifactIdentity>,
 }
 
-pub(super) fn progress_batches(repo: &Path) -> Vec<(String, ProgressBatch)> {
+pub(super) fn progress_batches<R: PlanningRoot + ?Sized>(repo: &R) -> Vec<(String, ProgressBatch)> {
     let mut batches = Vec::new();
     let task_dir = crate::artifacts::koolade::task_dir(repo);
-    if let Ok(entries) = std::fs::read_dir(repo.join(&task_dir)) {
+    let layout = repo.planning_layout();
+    if let Some(task_root) = layout.canonical_path(&task_dir)
+        && let Ok(entries) = std::fs::read_dir(task_root)
+    {
         for entry in entries.flatten() {
             if !entry.file_type().is_ok_and(|t| t.is_dir()) {
                 continue;
@@ -29,7 +32,8 @@ pub(super) fn progress_batches(repo: &Path) -> Vec<(String, ProgressBatch)> {
             if safe_directory(repo, &directory).is_err() {
                 continue;
             }
-            if let Ok(text) = std::fs::read_to_string(entry.path().join(".koolade-progress.json"))
+            if let Ok(bytes) = repo.read_planning_path(&entry.path().join(".koolade-progress.json"))
+                && let Ok(text) = String::from_utf8(bytes)
                 && let Ok(batch) = serde_json::from_str(&text)
             {
                 batches.push((directory, batch));
@@ -37,17 +41,10 @@ pub(super) fn progress_batches(repo: &Path) -> Vec<(String, ProgressBatch)> {
         }
     }
     batches.sort_by_key(|(directory, _)| {
-        std::fs::metadata(repo.join(directory).join("README.md"))
-            .and_then(|m| m.modified())
-            .ok()
+        repo.planning_layout()
+            .canonical_path(directory)
+            .and_then(|path| std::fs::metadata(path.join("README.md")).ok())
+            .and_then(|m| m.modified().ok())
     });
     batches
-}
-
-pub(super) fn replace_progress_file(path: &Path, text: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()),
-        "Refusing linked task file"
-    );
-    crate::artifacts::atomic_write(path, text)
 }

@@ -5,6 +5,7 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
     for mode in ["rejected", "failed", "cancelled"] {
         let root = std::env::temp_dir().join(format!("koolade_chat_{mode}_{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
+        init_git(&root);
         let mut app = fixture();
         if let Screen::Connected(p) = &mut app.screen {
             p.state = crate::core::state::PlannerState::load(&root).unwrap();

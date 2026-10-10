@@ -1,16 +1,14 @@
 //! Stable identity handling for feature specifications.
 use crate::domain::ArtifactIdentity;
+#[cfg(test)]
 use std::path::Path;
 
+#[cfg(test)]
 pub(crate) fn preserve_feature_identity(
     path: &Path,
     feature_id: &str,
     content: &str,
 ) -> anyhow::Result<String> {
-    let title = content
-        .lines()
-        .find_map(|line| line.strip_prefix(&format!("# {feature_id}: ")))
-        .ok_or_else(|| anyhow::anyhow!("Feature title missing"))?;
     let previous = match std::fs::symlink_metadata(path) {
         Ok(meta) => {
             anyhow::ensure!(
@@ -22,7 +20,19 @@ pub(crate) fn preserve_feature_identity(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => return Err(error.into()),
     };
-    ArtifactIdentity::preserve_markdown(content, previous.as_deref(), feature_id, title)
+    preserve_feature_identity_with_previous(previous.as_deref(), feature_id, content)
+}
+
+pub(crate) fn preserve_feature_identity_with_previous(
+    previous: Option<&str>,
+    feature_id: &str,
+    content: &str,
+) -> anyhow::Result<String> {
+    let title = content
+        .lines()
+        .find_map(|line| line.strip_prefix(&format!("# {feature_id}: ")))
+        .ok_or_else(|| anyhow::anyhow!("Feature title missing"))?;
+    ArtifactIdentity::preserve_markdown(content, previous, feature_id, title)
 }
 
 #[cfg(test)]

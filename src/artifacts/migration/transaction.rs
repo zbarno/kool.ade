@@ -14,7 +14,19 @@ struct Entry {
 
 #[derive(Deserialize)]
 struct Journal {
+    #[serde(default)]
+    root: Option<String>,
     entries: Vec<Entry>,
+}
+
+fn root_identity(repo: &Path) -> anyhow::Result<String> {
+    Ok(repo.canonicalize()?.to_string_lossy().into_owned())
+}
+
+fn root_key(repo: &Path) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(root_identity(repo)?.as_bytes());
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn common_dir(repo: &Path) -> anyhow::Result<PathBuf> {
@@ -30,11 +42,17 @@ fn common_dir(repo: &Path) -> anyhow::Result<PathBuf> {
 }
 
 fn journal_path(repo: &Path) -> anyhow::Result<PathBuf> {
-    Ok(common_dir(repo)?.join("koolade-planning-transaction.json"))
+    Ok(common_dir(repo)?.join(format!(
+        "koolade-planning-transaction-{}.json",
+        root_key(repo)?
+    )))
 }
 
 fn lock(repo: &Path) -> anyhow::Result<fs::File> {
-    let path = common_dir(repo)?.join("koolade-planning-transaction.lock");
+    let path = common_dir(repo)?.join(format!(
+        "koolade-planning-transaction-{}.lock",
+        root_key(repo)?
+    ));
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -77,12 +95,24 @@ fn recovery_path(repo: &Path, relative: &str) -> anyhow::Result<PathBuf> {
 pub(super) fn recover(repo: &Path) -> anyhow::Result<bool> {
     let _lock = lock(repo)?;
     let journal = journal_path(repo)?;
+    let legacy = common_dir(repo)?.join("koolade-planning-transaction.json");
+    if legacy.exists() {
+        anyhow::bail!(
+            "an unscoped planning transaction journal exists at {}; it cannot be safely recovered because it does not identify its working tree",
+            legacy.display()
+        );
+    }
     let text = match fs::read_to_string(&journal) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
     };
     let state: Journal = serde_json::from_str(&text)?;
+    let root_identity = root_identity(repo)?;
+    anyhow::ensure!(
+        state.root.as_deref() == Some(root_identity.as_str()),
+        "planning transaction journal belongs to a different working tree"
+    );
     for entry in state.entries.iter().rev() {
         let target = recovery_path(repo, &entry.path)?;
         match &entry.before {

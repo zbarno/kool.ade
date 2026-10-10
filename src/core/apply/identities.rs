@@ -1,9 +1,10 @@
 //! Koolade-owned identities and durable feature links for open items.
+use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::state::PlannerState;
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn preserve_feature_updates(
-    repo: &std::path::Path,
+pub(super) fn preserve_feature_updates<R: PlanningRoot + ?Sized>(
+    repo: &R,
     updates: &mut [(String, String)],
     statuses: &std::collections::BTreeMap<String, crate::domain::ChangeStatus>,
 ) -> anyhow::Result<BTreeMap<String, String>> {
@@ -13,28 +14,27 @@ pub(super) fn preserve_feature_updates(
             continue;
         };
         let path = crate::artifacts::product_docs::document_path_for_update(repo, id, content)?;
-        let previous_status = match std::fs::symlink_metadata(&path) {
-            Ok(metadata) => {
-                anyhow::ensure!(
-                    metadata.is_file() && !metadata.file_type().is_symlink(),
-                    "Feature specification must be a regular file"
-                );
-                Some(
-                    crate::domain::ChangeMetadata::require_markdown(&std::fs::read_to_string(
-                        &path,
-                    )?)?
-                    .status,
-                )
+        let previous = match repo.read_planning_path(&path) {
+            Ok(bytes) => Some(String::from_utf8(bytes)?),
+            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(error.into()),
         };
+        let previous_status = previous
+            .as_deref()
+            .map(crate::domain::ChangeMetadata::require_markdown)
+            .transpose()?
+            .map(|metadata| metadata.status);
         let clean_content = crate::domain::ChangeMetadata::strip_markers(content);
-        *content = crate::artifacts::product_docs::identity::preserve_feature_identity(
-            &path,
-            feature_id,
-            &clean_content,
-        )?;
+        *content =
+            crate::artifacts::product_docs::identity::preserve_feature_identity_with_previous(
+                previous.as_deref(),
+                feature_id,
+                &clean_content,
+            )?;
         let identity = crate::domain::ArtifactIdentity::from_markdown(content)?
             .ok_or_else(|| anyhow::anyhow!("Feature identity was not written"))?;
         let status = statuses
@@ -85,13 +85,13 @@ pub(super) fn stabilize_open_item_identities(
             Some(uid.clone())
         } else {
             let Ok(path) = crate::artifacts::product_docs::document_path(
-                &state.repo_root,
+                &state.planning_store,
                 &format!("feature:{feature_id}"),
             ) else {
                 continue;
             };
-            crate::domain::ArtifactIdentity::from_markdown(&std::fs::read_to_string(path)?)?
-                .map(|identity| identity.uid)
+            let text = String::from_utf8(state.planning_store.read_planning_path(&path)?)?;
+            crate::domain::ArtifactIdentity::from_markdown(&text)?.map(|identity| identity.uid)
         };
         let Some(feature_uid) = feature_uid else {
             continue;

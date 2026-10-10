@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 
 /// Refresh in a worker: GitHub outages must not block the UI or erase the
 /// last confirmed state. The implementation lock prevents stale writes.
@@ -8,6 +9,15 @@ pub struct PrRefresh {
 }
 impl PrRefresh {
     pub fn start(repo: PathBuf, tickets: Vec<String>) -> Self {
+        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+        Self::start_with_store(store, repo, tickets)
+    }
+
+    pub fn start_with_store(
+        planning_store: PlanningStore,
+        state_root: PathBuf,
+        tickets: Vec<String>,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -25,7 +35,9 @@ impl PrRefresh {
                 if runner.remaining().is_err() {
                     break;
                 }
-                if let Err(error) = refresh_pr(&repo, &ticket, &runner) {
+                if let Err(error) =
+                    refresh_pr_with_store(&planning_store, &state_root, &ticket, &runner)
+                {
                     errors.push((ticket, format!("{error:#}")));
                 }
             }
@@ -50,10 +62,21 @@ impl Drop for PrRefresh {
     }
 }
 
+#[cfg(test)]
 pub(super) fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> {
-    let migration_gate = crate::artifacts::migration::acquire_project_state_gate(repo)?;
-    let task_uid = ticket_identity(repo, ticket)?;
-    let dir = state_dir_for_task(repo, ticket, task_uid.as_deref())?;
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    refresh_pr_with_store(&store, repo, ticket, runner)
+}
+
+fn refresh_pr_with_store(
+    planning_store: &PlanningStore,
+    state_root: &Path,
+    ticket: &str,
+    runner: &Runner,
+) -> anyhow::Result<()> {
+    let migration_gate = crate::artifacts::migration::acquire_project_state_gate(state_root)?;
+    let task_uid = ticket_identity(planning_store, ticket)?;
+    let dir = state_dir_for_task(state_root, ticket, task_uid.as_deref())?;
     let lock = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -78,7 +101,7 @@ pub(super) fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::
     }
     drop(migration_gate);
     let mut state = read_state_file(&dir.join("state.json"))?;
-    let target_repo = target_repository(repo, ticket)?;
+    let target_repo = target_repository_with_store(planning_store, state_root, ticket)?;
     if state.status == ImplementationStatus::Completed
         && (state.merged_commit.is_some() || state.pr_url.is_none())
     {

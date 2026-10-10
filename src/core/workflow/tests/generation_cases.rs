@@ -25,11 +25,9 @@ fn stale_spec_cannot_write_tasks_and_revisions_preserve_previous_batches() {
     let mut s = state("revision");
     mark_ready(&mut s);
     let nt = generation(&s, vec![story()]).unwrap();
-    std::fs::write(
-        s.repo_root.join(crate::artifacts::SPEC_FILE),
-        "# External change",
-    )
-    .unwrap();
+    let spec_path = s.repo_root.join(crate::artifacts::SPEC_FILE);
+    let original_spec = std::fs::read(&spec_path).unwrap();
+    std::fs::write(&spec_path, "# External change").unwrap();
     assert!(apply::apply(&mut s, &nt).is_err());
     assert!(!s.repo_root.join(".koolade-packet/planning/tasks").exists());
     assert!(
@@ -38,11 +36,7 @@ fn stale_spec_cannot_write_tasks_and_revisions_preserve_previous_batches() {
             .workflow
             .ready(Some("# External change"))
     );
-    std::fs::write(
-        s.repo_root.join(crate::artifacts::SPEC_FILE),
-        s.spec_text.as_ref().unwrap(),
-    )
-    .unwrap();
+    std::fs::write(&spec_path, original_spec).unwrap();
     apply::apply(&mut s, &nt).unwrap();
     let first = s
         .repo_root

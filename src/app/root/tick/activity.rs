@@ -253,9 +253,9 @@ fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) 
         return;
     }
 
-    match crate::core::planning_work::save(&project.state.repo_root, &updated) {
+    project.planning_work = updated;
+    match project.save_planning_work() {
         Ok(()) => {
-            project.planning_work = updated;
             if retry {
                 project
                     .activity
@@ -273,7 +273,6 @@ fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) 
             }
         }
         Err(error) => {
-            project.planning_work = updated.clone();
             project.activity.pending_planning_work = true;
             if !project
                 .activity

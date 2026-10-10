@@ -38,6 +38,7 @@ fn queued_running_attention_review_and_completed_tasks_cancel_safely() {
         panic!("disconnected");
     };
     project.state = crate::core::state::PlannerState::load(&root).unwrap();
+    project.state.bootstrap_missing().unwrap();
     let queued = project.task_documents[0].path.clone();
     let review = project.task_documents[1].path.clone();
     let complete = project.task_documents[2].path.clone();
@@ -92,8 +93,12 @@ fn queued_running_attention_review_and_completed_tasks_cancel_safely() {
         assert!(!project.queue.blocked.contains_key(&queued));
         assert!(!project.queue.recovery_attempts.contains_key(&queued));
         assert_eq!(
-            crate::persistence::cancelled_work::load(&root).unwrap(),
+            crate::persistence::cancelled_work::load(&project.state.planning_store).unwrap(),
             project.cancelled_work
+        );
+        assert_eq!(
+            project.state.baseline_planning_revision,
+            project.state.planning_store.revision().unwrap()
         );
     }
     if let Screen::Connected(project) = &mut app.screen {
@@ -167,6 +172,7 @@ fn cancelling_a_feature_cancels_unfinished_children_but_keeps_completed_children
         panic!("disconnected");
     };
     project.state = crate::core::state::PlannerState::load(&root).unwrap();
+    project.state.bootstrap_missing().unwrap();
     project
         .state
         .active_features

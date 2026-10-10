@@ -167,7 +167,8 @@ pub struct TaskRoutingSnapshot {
 }
 
 pub use feature_approval::{
-    approve_feature, approve_feature_if_current, feature_approved, feature_contract,
+    approve_feature, approve_feature_if_current, approve_feature_if_current_with_revision,
+    feature_approved, feature_contract,
 };
 
 impl Workflow {
@@ -201,10 +202,38 @@ pub fn brief_target_problem(
     stamped: Option<&str>,
     feature_dir_exists: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
+    brief_target_problem_at(
+        declared,
+        stamped,
+        feature_dir_exists,
+        ".koolade-packet/planning/changes",
+    )
+}
+
+pub fn brief_target_problem_with_store(
+    declared: &[String],
+    stamped: Option<&str>,
+    feature_dir_exists: &dyn Fn(&str) -> bool,
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> Option<String> {
+    brief_target_problem_at(
+        declared,
+        stamped,
+        feature_dir_exists,
+        &store.git_path(crate::artifacts::planning_store::paths::CHANGES),
+    )
+}
+
+fn brief_target_problem_at(
+    declared: &[String],
+    stamped: Option<&str>,
+    feature_dir_exists: &dyn Fn(&str) -> bool,
+    changes_directory: &str,
+) -> Option<String> {
     match declared {
         [] => None,
         [id] if !feature_dir_exists(id) => Some(format!(
-            "Brief references unknown feature {id}; record the change specification under .koolade-packet/planning/changes before generating tasks"
+            "Brief references unknown feature {id}; record the change specification under {changes_directory} before generating tasks"
         )),
         [id] => match stamped {
             Some(stamped) if *id == stamped => None,

@@ -101,14 +101,19 @@ fn commit_with_cancel(
     if is_cancelled(cancel) {
         return Err(cancelled_error());
     }
-    let specs = pathspecs(paths)?;
-    if specs.is_empty() {
+    let requested_specs = pathspecs(paths)?;
+    if requested_specs.is_empty() {
         return short_head(cwd);
     }
 
-    index::reject_unmerged_paths(cwd, &specs)?;
-    let snapshot = index::snapshot(cwd, &specs)?;
-    let original_staged = index::staged_paths(cwd, paths, &specs)?;
+    index::reject_unmerged_paths(cwd, &requested_specs)?;
+    let snapshot = index::snapshot(cwd, &requested_specs)?;
+    let paths = index::existing_or_tracked_paths(cwd, paths, &snapshot);
+    let specs = pathspecs(&paths)?;
+    if specs.is_empty() {
+        return short_head(cwd);
+    }
+    let original_staged = index::staged_paths(cwd, &paths, &specs)?;
     let all_authorized = paths.iter().cloned().collect::<BTreeSet<_>>();
 
     let mut add = vec!["add".to_owned(), "--all".to_owned(), "--".to_owned()];

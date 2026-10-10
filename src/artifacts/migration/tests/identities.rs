@@ -98,6 +98,6 @@ fn duplicate_uids_abort_identity_migration_before_writes() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
     assert_eq!(manifest["schemaVersion"], 2);
-    assert!(!common_dir(&root).unwrap().join(PENDING_NAME).exists());
+    assert!(!scoped_pending_path(&root).exists());
     let _ = fs::remove_dir_all(root);
 }

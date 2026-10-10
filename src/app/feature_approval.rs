@@ -127,18 +127,31 @@ impl KooladeApp {
             return;
         }
         let contract = workflow::feature_contract(&action.specification);
-        if let Err(error) = workflow::approve_feature_if_current(
-            &p.state.repo_root,
-            &mut p.state.workflow,
+        let mut approved_workflow = p.state.workflow.clone();
+        let receipt = match workflow::approve_feature_if_current_with_revision(
+            &p.state.planning_store,
+            &mut approved_workflow,
             id,
             Some(&contract),
+            &p.state.baseline_planning_revision,
         ) {
-            p.remember_chat(vec![ChatMessage::new(
-                ChatRole::System,
-                format!("Cannot approve {id}: {error}"),
-                None,
-            )]);
-            self.toasts.danger(format!("Cannot approve {id}: {error}"));
+            Ok(receipt) => receipt,
+            Err(error) => {
+                p.remember_chat(vec![ChatMessage::new(
+                    ChatRole::System,
+                    format!("Cannot approve {id}: {error}"),
+                    None,
+                )]);
+                self.toasts.danger(format!("Cannot approve {id}: {error}"));
+                return;
+            }
+        };
+        p.state.workflow = approved_workflow;
+        p.state.baseline_planning_revision = receipt.planning_revision;
+        if let Err(error) = receipt.commit_result {
+            self.toasts.warning(format!(
+                "{id} was approved, but its Git checkpoint failed: {error}"
+            ));
             return;
         }
         let message =
@@ -215,7 +228,7 @@ impl KooladeApp {
             && current
             && p.state.workflow.ready(p.state.planning_contract())
             && !has_current_task_batch(p)
-            && workflow::feature_approved(&repo, &p.state.workflow, &id)
+            && workflow::feature_approved(&p.state.planning_store, &p.state.workflow, &id)
         {
             self.start_turn_for_work(
                 &format!("Generate task stories for approved feature {id}."),

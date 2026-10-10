@@ -69,9 +69,7 @@ impl KooladeApp {
                     text.into(),
                     "Planning in progress".into(),
                 ));
-            if let Err(error) =
-                crate::core::planning_work::save(&project.state.repo_root, &project.planning_work)
-            {
+            if let Err(error) = project.save_planning_work() {
                 project.planning_work.pop();
                 self.toasts
                     .danger(format!("Cannot record planning work: {error}"));

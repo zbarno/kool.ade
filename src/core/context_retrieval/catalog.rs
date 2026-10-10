@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::context_build::clip;
 use crate::core::repo_overview;
 use crate::core::state::PlannerState;
@@ -24,6 +25,7 @@ const MAX_CATALOG_CHARS: usize = 48_000;
 
 pub(super) struct Catalog {
     repo_root: PathBuf,
+    planning_store: PlanningStore,
     documents: BTreeMap<String, CandidateDocument>,
     items: BTreeMap<String, OpenItem>,
     areas: BTreeMap<String, String>,
@@ -31,30 +33,31 @@ pub(super) struct Catalog {
 
 impl Catalog {
     pub(super) fn build(state: &PlannerState) -> Self {
-        let mut documents = documents::product_documents(&state.repo_root);
+        let mut documents = documents::product_documents(&state.planning_store);
         for (id, body) in state.active_features.iter().take(MAX_CHANGE_CANDIDATES) {
-            let Some(path) = documents::find_change_path(&state.repo_root, id, body) else {
+            let Some(path) = documents::find_change_path(&state.planning_store, id, body) else {
                 continue;
             };
             documents::insert_document(
                 &mut documents,
-                &state.repo_root,
+                &state.planning_store,
                 format!("change:{id}"),
                 &path,
                 body,
             );
         }
-        documents::add_recent_changes(&state.repo_root, &mut documents);
+        documents::add_recent_changes(&state.planning_store, &mut documents);
         let items = state
             .items
             .iter()
             .take(MAX_ITEM_CANDIDATES)
             .map(|item| (item.id.clone(), item.clone()))
             .collect();
-        let overview = repo_overview::scan(&state.repo_root);
+        let overview = repo_overview::scan_for_store(&state.repo_root, &state.planning_store);
         let areas = areas::catalog(&state.repo_root, &overview);
         Self {
             repo_root: state.repo_root.clone(),
+            planning_store: state.planning_store.clone(),
             documents,
             items,
             areas,
@@ -103,7 +106,7 @@ impl Catalog {
             }
             let remaining = DOCUMENT_BUDGET - used_budget;
             let Some(document) =
-                documents::load_selected(&self.repo_root, candidate, remaining.min(8_000))
+                documents::load_selected(&self.planning_store, candidate, remaining.min(8_000))
             else {
                 continue;
             };

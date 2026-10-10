@@ -11,9 +11,9 @@ mod workflow;
 #[cfg(test)]
 mod naming_tests;
 
-pub use batch_write::write_batch;
+pub use batch_write::{write_batch, write_batch_expected, write_batch_expected_with_revision};
 pub use board::{load_board, load_latest};
-pub use generation::save_progress;
+pub use generation::{save_progress, save_progress_expected};
 pub(crate) use identity::visible_content;
 pub use metadata::TaskMetadata;
 pub(crate) use metadata::legacy_dependencies;

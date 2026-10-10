@@ -3,8 +3,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub fn load_board_states(repo: &Path) -> BTreeMap<String, Implementation> {
-    let workflow = crate::artifacts::task_docs::load_workflow(repo).unwrap_or_default();
-    let documents = crate::artifacts::task_docs::load_board(repo, &workflow);
+    let store =
+        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    load_board_states_with_store(repo, &store)
+}
+
+pub fn load_board_states_with_store(
+    repo: &Path,
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> BTreeMap<String, Implementation> {
+    let workflow = crate::artifacts::task_docs::load_workflow(store).unwrap_or_default();
+    let documents = crate::artifacts::task_docs::load_board(store, &workflow);
     let mut states = load_all(repo);
     states.sort_by(|left, right| left.ticket.cmp(&right.ticket));
     let mut assigned = BTreeSet::new();
