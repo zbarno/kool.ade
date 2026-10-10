@@ -2,15 +2,38 @@ use super::*;
 
 pub(in crate::app::root) fn fixture() -> KooladeApp {
     static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let chat_slug = std::env::temp_dir()
-        .join(format!(
-            "koolade-board-chat-{}-{}",
-            std::process::id(),
-            NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ))
-        .to_string_lossy()
-        .into_owned();
-    let root = std::env::temp_dir().join("koolade-board-ui-fixture-nonexistent");
+    let chat_root = std::env::temp_dir().join(format!(
+        "koolade-board-chat-{}-{}",
+        std::process::id(),
+        NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let chat_slug = chat_root.to_string_lossy().into_owned();
+    let test_root = std::env::temp_dir().join(format!(
+        "koolade-board-ui-fixture-{}-{}",
+        std::process::id(),
+        NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::create_dir_all(&test_root).unwrap();
+    let root = test_root.join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.name", "Koolade Test"]);
+    git(&["config", "user.email", "koolade@example.test"]);
+    std::fs::write(root.join("README.md"), "isolated UI fixture\n").unwrap();
+    git(&["add", "README.md"]);
+    git(&["commit", "-q", "-m", "UI fixture"]);
     let docs = ["First task", "Review task", "Merged task"]
         .iter()
         .enumerate()
@@ -73,6 +96,10 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
         states.insert(record.ticket.clone(), record);
     }
     KooladeApp {
+        _test_temp_roots: vec![
+            crate::app::root::TestTempRoot(test_root),
+            crate::app::root::TestTempRoot(chat_root),
+        ],
         screen: Screen::Connected(Box::new(Project {
             task_chats: Default::default(),
             activity: Default::default(),
@@ -300,20 +327,6 @@ pub(in crate::app::root) fn frame_toasting(
 // handle locally, and the assertion needs exactly that Rc's identity.
 pub(in crate::app::root) fn park_fixture_with_unapproved_feature(lapsed: bool) -> KooladeApp {
     let mut app = fixture();
-    // Queue locking and persistence run `git rev-parse` against the repo
-    // root, so promote the throwaway fixture directory to a real (bare
-    // minimum) repository before driving the auto queue.
-    let root = std::env::temp_dir().join("koolade-board-ui-fixture-nonexistent");
-    std::fs::create_dir_all(&root).expect("fixture root");
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&root)
-            .status()
-            .unwrap()
-            .success(),
-        "fixture root must initialize as a git repository"
-    );
     if let Screen::Connected(p) = &mut app.screen {
         p.queue.running = true;
         if lapsed {

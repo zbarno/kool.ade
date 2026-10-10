@@ -216,8 +216,9 @@ fn probe_op<R, F: FnMut() -> Option<R>>(
     panic!(
         "{label}: the persona window stayed contested across {MAX_ATTEMPTS} \
              rebuilt attempts (last known intrusion: {last_intrusion}). House \
-             KOOLADE_HOME contention exceeded the absorption budget — if this \
-             recurs, run the suite with --test-threads=1."
+             KOOLADE_HOME contention exceeded the absorption budget — run \
+             stateful tests through cargo-nextest to isolate their process \
+             environments."
     );
 }
 
@@ -476,7 +477,7 @@ fn clone_dir_tree(src: &std::path::Path, dst: &std::path::Path) {
 //   * presentations differ byte-for-byte across personas.
 // Any shared-home contamination aborts the op; the prober retries
 // with FRESH fixtures up to MAX_ATTEMPTS. A final loud panic
-// recommends --test-threads=1.
+// recommends cargo-nextest, which isolates each test process.
 //
 const PREFACE_OPENING: &str = "You are Kool.ad/e Man.ager, called Kool.ad/e Man for short: the user's proactive project manager";
 const FRAG_ROUTE: &str = "violates the routing law";

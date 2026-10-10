@@ -86,8 +86,20 @@ pub struct KooladeApp {
     setup_retry_requested: bool,
     #[cfg(test)]
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
+    #[cfg(test)]
+    _test_temp_roots: Vec<TestTempRoot>,
     /// Synthesized ownership-gap items for the side pane.
     synth: Vec<OpenItem>,
+}
+
+#[cfg(test)]
+struct TestTempRoot(std::path::PathBuf);
+
+#[cfg(test)]
+impl Drop for TestTempRoot {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// Application composition boundary for AI work. Pi is the configured MVP
@@ -246,6 +258,8 @@ impl Default for KooladeApp {
             setup_retry_requested: false,
             #[cfg(test)]
             attention_fixture: Default::default(),
+            #[cfg(test)]
+            _test_temp_roots: Vec::new(),
             synth: Vec::new(),
         }
     }

@@ -66,7 +66,7 @@ Do not claim the task is complete until:
 - Treat `.koolade-packet/` as the only live shared Kool.ad/e project-artifact root; legacy roots are migration inputs or historical records only.
 - Keep Markdown human-readable and derive workflow behavior from structured metadata and state.
 - Treat plan recommendations as advisory; only explicit operator adoption selects a plan and unlocks approval.
-- Before an agent marks a task complete, run the repository quality gates: `cargo +1.98.1 fmt --all --check`, `cargo +1.98.1 test --locked --all-targets -- --test-threads=1`, and `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`.
+- Before an agent marks a task complete, run the repository quality gates: `cargo +1.98.1 fmt --all --check`, `cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast`, `cargo +1.98.1 test --locked --doc`, and `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`.
 - All three quality gates must pass before marking the task complete or committing. If a gate cannot run or fails, report the result and leave the task incomplete until it is resolved.
 
 # Never

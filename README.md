@@ -298,8 +298,10 @@ Implementation tasks carry explicit verification commands and acceptance criteri
 For Kool.ad/e itself, the current definition-of-done gates are:
 
 ```sh
+cargo install cargo-nextest --version 0.9.148 --locked
 cargo +1.98.1 fmt --all --check
-cargo +1.98.1 test --locked --all-targets -- --test-threads=1
+cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
+cargo +1.98.1 test --locked --doc
 cargo +1.98.1 clippy --locked --all-targets -- -D warnings
 ```
 
@@ -602,8 +604,10 @@ cargo +1.98.1 run --offline
 Run the quality gates:
 
 ```sh
+cargo install cargo-nextest --version 0.9.148 --locked
 cargo +1.98.1 fmt --all --check
-cargo +1.98.1 test --locked --all-targets -- --test-threads=1
+cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
+cargo +1.98.1 test --locked --doc
 cargo +1.98.1 clippy --locked --all-targets -- -D warnings
 ```
 

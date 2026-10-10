@@ -32,8 +32,8 @@ that lock the visual design in place.
 ```sh
 KOOLADE_HOME="$(mktemp -d)" \
 KOOLADE_UI_REVIEW_DIR=/tmp/koolade-ui-review \
-cargo +1.98.1 test --locked --lib render_workspace_review_gallery \
-  -- --ignored --test-threads=1
+cargo +1.98.1 nextest run --locked --lib --run-ignored only \
+  -E 'test(/render_workspace_review_gallery/)'
 ```
 
 The gallery covers 1600×900, 1280×720, 900×720, 360×720, 360×480 and 1280×480:

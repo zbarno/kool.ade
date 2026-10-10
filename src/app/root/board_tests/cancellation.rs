@@ -2,8 +2,6 @@ use super::*;
 
 #[test]
 fn board_cancel_requires_a_visible_confirmation() {
-    std::fs::create_dir_all(std::env::temp_dir().join("koolade-board-ui-fixture-nonexistent"))
-        .unwrap();
     let mut app = fixture();
     let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
