@@ -14,8 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: format, tests, and clippy
+  format:
+    name: format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt
+      - name: Check formatting
+        run: cargo +1.98.1 fmt --all --check
+
+  tests:
+    name: tests and sandbox runtime
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -25,7 +35,15 @@ jobs:
           node-version: 24.21.0
           package-manager-cache: false
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-tests
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: nextest@0.9.148
       - name: Install Linux sandbox dependency
         run: |
           sudo apt-get update
@@ -37,10 +55,10 @@ jobs:
           # bringing up loopback inside the isolated network namespace.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --ro-bind / / -- /bin/true
-      - name: Check formatting
-        run: cargo +1.98.1 fmt --all --check
-      - name: Run all tests
-        run: cargo +1.98.1 test --locked --all-targets -- --test-threads=1
+      - name: Run all tests in parallel
+        run: cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
+      - name: Run documentation tests
+        run: cargo +1.98.1 test --locked --doc
       - name: Verify sandbox runtime layout on Fedora 44
         run: |
           test_binary="$(cargo +1.98.1 test --locked --lib --no-run --message-format=json | python3 -c '
@@ -72,8 +90,38 @@ jobs:
             --workdir "$GITHUB_WORKSPACE" \
             fedora:44 \
             "$test_binary" \
-            harness::pi_sandbox::mounts::system_runtime --test-threads=1)"
+            harness::pi_sandbox::mounts::system_runtime)"
           printf '%s\n' "$test_output"
           printf '%s\n' "$test_output" | grep -Eq '^test result: ok\. [1-9][0-9]* passed;'
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-clippy
       - name: Reject all clippy warnings
         run: cargo +1.98.1 clippy --locked --all-targets -- -D warnings
+
+  quality:
+    name: format, tests, and clippy
+    if: always()
+    needs: [format, tests, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every quality gate
+        env:
+          FORMAT_RESULT: ${{ needs.format.result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+          CLIPPY_RESULT: ${{ needs.clippy.result }}
+        run: |
+          printf 'format: %s\ntests: %s\nclippy: %s\n' \
+            "$FORMAT_RESULT" "$TESTS_RESULT" "$CLIPPY_RESULT"
+          test "$FORMAT_RESULT" = success
+          test "$TESTS_RESULT" = success
+          test "$CLIPPY_RESULT" = success

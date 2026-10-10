@@ -51,7 +51,10 @@ fn worker_can_inspect_git_but_cannot_change_metadata_or_read_other_task_secrets(
         &other_root,
         &["rev-parse", "--path-format=absolute", "--git-dir"],
     );
-    let common = PathBuf::from(git(&root, &["rev-parse", "--git-common-dir"]));
+    let common = PathBuf::from(git(
+        &root,
+        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ));
     let private_log = common.join("koolade-harness").join("other-task.jsonl");
     fs::create_dir_all(private_log.parent().unwrap()).unwrap();
     fs::write(&private_log, "private other task activity").unwrap();
