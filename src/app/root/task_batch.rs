@@ -14,7 +14,7 @@ pub(super) fn has_current_task_batch(project: &Project) -> bool {
                     .as_ref()
                     .map(|brief| brief.feature_name.as_str()),
             ) && crate::core::contract_snapshot::batch_contract_matches_feature(
-                &project.state.repo_root,
+                &project.state.planning_store,
                 &batch.directory,
                 feature_id,
                 feature,

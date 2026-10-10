@@ -1,9 +1,10 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::repository_cache::RepositoryCache;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn attach_clone_identity(
-    planning_root: &Path,
+    planning_store: &PlanningStore,
     repo: &Path,
     task_key: &str,
     text: &str,
@@ -12,9 +13,9 @@ pub(super) fn attach_clone_identity(
     plan: &initial_reconciliation::Plan,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let repository_id = crate::core::implementation::task_repository_id(text, metadata, &manifest)?;
-    let cache = RepositoryCache::open(repo, planning_root, &repository_id, runner)?;
+    let cache = RepositoryCache::open(repo, planning_store, &repository_id, runner)?;
     cache.validate_branch(&plan.base, runner)?;
     cache.import_local_branch(repo, &plan.base, &plan.local_commit, runner)?;
     let repo_path = repo

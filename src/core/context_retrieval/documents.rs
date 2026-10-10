@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use super::CandidateDocument;
-use crate::artifacts::layout::ArtifactLayout;
+use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::context_build::clip;
 use crate::domain::ArtifactIdentity;
 
@@ -13,18 +12,20 @@ const MAX_CHANGE_CANDIDATES: usize = 64;
 const MAX_CANDIDATE_BYTES: usize = 64 * 1024;
 const MAX_EXCERPT_BYTES: usize = 4 * 1024;
 
-pub(super) fn product_documents(repo: &Path) -> BTreeMap<String, CandidateDocument> {
+pub(super) fn product_documents<R: PlanningRoot + ?Sized>(
+    repo: &R,
+) -> BTreeMap<String, CandidateDocument> {
     let mut result = BTreeMap::new();
     let Ok(Some(manifest)) = crate::artifacts::product_docs::load_manifest(repo) else {
         return result;
     };
-    let root = ArtifactLayout::new(repo).product_root();
+    let root = repo.planning_layout().product_root();
     for module in manifest.modules.iter().take(MAX_PRODUCT_CANDIDATES) {
         let Some(path) = crate::artifacts::product_docs::safe_module_path(&root, &module.path)
         else {
             continue;
         };
-        let Some(body) = read_bounded(&path, MAX_EXCERPT_BYTES) else {
+        let Some(body) = read_bounded(repo, &path, MAX_EXCERPT_BYTES) else {
             continue;
         };
         if crate::artifacts::product_docs::validate_module(&body).is_err()
@@ -43,8 +44,11 @@ pub(super) fn product_documents(repo: &Path) -> BTreeMap<String, CandidateDocume
     result
 }
 
-pub(super) fn add_recent_changes(repo: &Path, documents: &mut BTreeMap<String, CandidateDocument>) {
-    let layout = ArtifactLayout::new(repo);
+pub(super) fn add_recent_changes<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    documents: &mut BTreeMap<String, CandidateDocument>,
+) {
+    let layout = repo.planning_layout();
     let root = layout.changes_root();
     if !real_directory(&root) {
         return;
@@ -76,7 +80,7 @@ pub(super) fn add_recent_changes(repo: &Path, documents: &mut BTreeMap<String, C
         if !regular_file(&path) {
             continue;
         }
-        let Some(body) = read_bounded(&path, MAX_EXCERPT_BYTES) else {
+        let Some(body) = read_bounded(repo, &path, MAX_EXCERPT_BYTES) else {
             continue;
         };
         let id = ArtifactIdentity::from_markdown(&body)
@@ -99,8 +103,12 @@ pub(super) fn add_recent_changes(repo: &Path, documents: &mut BTreeMap<String, C
     }
 }
 
-pub(super) fn find_change_path(repo: &Path, id: &str, body: &str) -> Option<PathBuf> {
-    let layout = ArtifactLayout::new(repo);
+pub(super) fn find_change_path<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    id: &str,
+    body: &str,
+) -> Option<PathBuf> {
+    let layout = repo.planning_layout();
     let root = layout.changes_root();
     if !real_directory(&root) {
         return None;
@@ -118,7 +126,7 @@ pub(super) fn find_change_path(repo: &Path, id: &str, body: &str) -> Option<Path
         if !regular_file(&path) {
             continue;
         }
-        let Some(candidate) = read_bounded(&path, MAX_EXCERPT_BYTES) else {
+        let Some(candidate) = read_bounded(repo, &path, MAX_EXCERPT_BYTES) else {
             continue;
         };
         let identity = ArtifactIdentity::from_markdown(&candidate).ok().flatten();
@@ -139,23 +147,25 @@ pub(super) fn find_change_path(repo: &Path, id: &str, body: &str) -> Option<Path
     None
 }
 
-pub(super) fn insert_document(
+pub(super) fn insert_document<R: PlanningRoot + ?Sized>(
     documents: &mut BTreeMap<String, CandidateDocument>,
-    repo: &Path,
+    repo: &R,
     id: String,
     path: &Path,
     body: &str,
 ) {
-    let Some(source_path) = relative(repo, path) else {
+    let root = repo.planning_layout().root().to_path_buf();
+    let Some(source_path) = relative(&root, path) else {
         return;
     };
     if !regular_file(path) {
         return;
     }
-    let Some(canonical) = safe_candidate_path(repo, path) else {
+    let Some(canonical) = safe_candidate_path(&root, path) else {
         return;
     };
-    let content = read_bounded(&canonical, MAX_EXCERPT_BYTES).unwrap_or_else(|| body.to_owned());
+    let content =
+        read_bounded(repo, &canonical, MAX_EXCERPT_BYTES).unwrap_or_else(|| body.to_owned());
     let excerpt = excerpt(&content);
     documents.entry(id.clone()).or_insert(CandidateDocument {
         id,
@@ -164,13 +174,14 @@ pub(super) fn insert_document(
     });
 }
 
-pub(super) fn load_selected(
-    repo: &Path,
+pub(super) fn load_selected<R: PlanningRoot + ?Sized>(
+    repo: &R,
     candidate: &CandidateDocument,
     cap: usize,
 ) -> Option<super::RetrievedDocument> {
-    let path = safe_source_path(repo, &candidate.source_path)?;
-    let content = read_bounded(&path, MAX_CANDIDATE_BYTES)?;
+    let root = repo.planning_layout().root().to_path_buf();
+    let path = safe_source_path(&root, &candidate.source_path)?;
+    let content = read_bounded(repo, &path, MAX_CANDIDATE_BYTES)?;
     Some(super::RetrievedDocument {
         id: candidate.id.clone(),
         source_path: candidate.source_path.clone(),
@@ -220,10 +231,13 @@ fn relative(repo: &Path, path: &Path) -> Option<String> {
     Some(path.to_string_lossy().replace('\\', "/"))
 }
 
-fn read_bounded(path: &Path, max_bytes: usize) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
-    let mut bytes = Vec::new();
-    file.take(max_bytes as u64).read_to_end(&mut bytes).ok()?;
+fn read_bounded<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    path: &Path,
+    max_bytes: usize,
+) -> Option<String> {
+    let mut bytes = repo.read_planning_path(path).ok()?;
+    bytes.truncate(max_bytes);
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -258,5 +272,5 @@ fn safe_relative_path(repo: &Path, relative: &Path) -> Option<PathBuf> {
         }
     }
     let canonical = candidate.canonicalize().ok()?;
-    canonical.starts_with(&canonical_repo).then_some(canonical)
+    canonical.starts_with(&canonical_repo).then_some(candidate)
 }

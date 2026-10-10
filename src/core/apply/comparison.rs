@@ -11,13 +11,15 @@ pub(super) fn apply(
         .as_ref()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Plan comparison has no feature target"))?;
-    let path =
-        crate::artifacts::product_docs::document_path(&state.repo_root, &format!("feature:{id}"))?;
+    let path = crate::artifacts::product_docs::document_path(
+        &state.planning_store,
+        &format!("feature:{id}"),
+    )?;
     anyhow::ensure!(
-        crate::artifacts::read_utf8_lossy(&path)? == body,
+        String::from_utf8(state.planning_store.read_planning_path(&path)?)? == body,
         "Feature changed before the plan comparison was saved"
     );
-    let mut workflow = crate::artifacts::task_docs::load_workflow(&state.repo_root)?;
+    let mut workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store)?;
     anyhow::ensure!(
         workflow == state.workflow,
         "Workflow changed before the plan comparison was saved"
@@ -46,20 +48,25 @@ pub(super) fn apply(
     };
     record.validate()?;
     workflow.plan_comparisons.insert(id.clone(), record);
-    let layout = crate::artifacts::layout::ArtifactLayout::new(&state.repo_root);
-    let path = layout.workflow_state();
-    let relative = path
-        .strip_prefix(&state.repo_root)?
-        .to_string_lossy()
-        .replace('\\', "/");
-    let json = serde_json::to_string_pretty(&workflow)?;
-    crate::artifacts::atomic_write(&path, &json)?;
+    let bytes = serde_json::to_vec_pretty(&workflow)?;
+    let (paths, revision) = state.planning_store.transaction_with_revision(
+        &[(
+            crate::artifacts::planning_store::paths::WORKFLOW.into(),
+            bytes,
+        )],
+        Some(&state.baseline_planning_revision),
+    )?;
+    let relative = paths
+        .iter()
+        .map(|path| state.planning_store.git_path(path))
+        .collect();
     state.workflow = workflow;
+    state.baseline_planning_revision = revision;
     Ok(ApplyReceipt {
         spec_written: false,
         items_written: false,
         commit_message: format!("planner: compare implementation plans for {id}"),
-        repo_relative_paths: vec![relative],
+        repo_relative_paths: relative,
         synthesized_open_items: Vec::new(),
     })
 }

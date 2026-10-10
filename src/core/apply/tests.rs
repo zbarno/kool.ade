@@ -44,6 +44,103 @@ fn make_norm(change: Option<&str>, spec: Option<&str>) -> NormalizedTurn {
     }
 }
 
+fn task_batch() -> crate::core::workflow::TaskBatch {
+    crate::core::workflow::TaskBatch {
+        brief: crate::core::workflow::InterviewBrief {
+            feature_name: "Revision-fenced generation".into(),
+            goal: "Publish one generated task batch safely.".into(),
+            target_users: "Project operators".into(),
+            intended_outcome: "Task stories appear on the board.".into(),
+            success_criteria: vec!["The workflow records the batch.".into()],
+            in_scope: vec!["Generate one story.".into()],
+            ready_for_tasks: true,
+            ..Default::default()
+        },
+        specification: "# Revision-fenced generation\n".into(),
+        feature_id: None,
+        contract: None,
+        branch_targets: None,
+        task_routing: Default::default(),
+        stories: vec![crate::core::workflow::TaskStory {
+            title: "Write the generated task".into(),
+            purpose: "Show a completed task batch.".into(),
+            ..Default::default()
+        }],
+    }
+}
+
+fn task_batch_turn(batch: crate::core::workflow::TaskBatch) -> NormalizedTurn {
+    let mut turn = make_norm(None, None);
+    turn.task_batch = Some(batch);
+    turn
+}
+
+#[test]
+fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
+    let (mut state, root) = state_at("task_generation_revision");
+    let store = state.planning_store.clone();
+    let batch = task_batch();
+    let (_, revision) = crate::artifacts::task_docs::save_progress_expected(
+        &store,
+        "revision-fenced-run",
+        &batch,
+        1,
+        &state.baseline_planning_revision,
+    )
+    .unwrap();
+    state.baseline_planning_revision = revision;
+
+    let receipt = apply(&mut state, &task_batch_turn(batch)).unwrap();
+
+    assert_eq!(state.workflow.task_batches.len(), 1);
+    assert_eq!(
+        crate::artifacts::task_docs::load_workflow(&store)
+            .unwrap()
+            .task_batches,
+        state.workflow.task_batches
+    );
+    assert!(
+        receipt
+            .repo_relative_paths
+            .iter()
+            .any(|path| { path.ends_with(".koolade-progress.json") })
+    );
+    assert_eq!(state.baseline_planning_revision, store.revision().unwrap());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn external_store_change_between_generation_and_apply_is_rejected_as_stale() {
+    let (mut state, root) = state_at("task_generation_stale");
+    let store = state.planning_store.clone();
+    let batch = task_batch();
+    let (_, generation_revision) = crate::artifacts::task_docs::save_progress_expected(
+        &store,
+        "stale-generation-run",
+        &batch,
+        1,
+        &state.baseline_planning_revision,
+    )
+    .unwrap();
+    store
+        .transaction_with_revision(
+            &[("planning/external.md".into(), b"another writer".to_vec())],
+            Some(&generation_revision),
+        )
+        .unwrap();
+    state.baseline_planning_revision = generation_revision;
+
+    assert!(apply(&mut state, &task_batch_turn(batch)).is_err());
+    assert!(state.workflow.task_batches.is_empty());
+    assert!(
+        crate::artifacts::task_docs::load_workflow(&store)
+            .unwrap()
+            .task_batches
+            .is_empty()
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn writes_changed_files_and_labels_checkpoint() {
     let (mut st, root) = state_at("both");
@@ -119,136 +216,8 @@ fn refresh_discovery_tasks_are_committed_with_the_planning_transaction() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-#[test]
-fn compare_plans_saves_typed_workflow_record_without_mutating_feature_document() {
-    let (mut state, root) = state_at("plan_comparison");
-    let feature_dir = root.join(".koolade-packet/planning/changes/CHG-004-saved-searches");
-    std::fs::create_dir_all(&feature_dir).unwrap();
-    let path = feature_dir.join("specification.md");
-    let body = crate::artifacts::product_docs::identity::preserve_feature_identity(
-        &path,
-        "CHG-004",
-        "# CHG-004: Saved searches\n\n**Status:** Draft\n",
-    )
-    .unwrap();
-    let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
-        .unwrap()
-        .unwrap();
-    let body = crate::domain::ChangeMetadata::write_markdown(
-        &body,
-        &identity,
-        crate::domain::ChangeStatus::Draft,
-    )
-    .unwrap();
-    let body = crate::domain::ChangeMetadata::write_markdown(
-        &body,
-        &identity,
-        crate::domain::ChangeStatus::Ready,
-    )
-    .unwrap();
-    std::fs::write(&path, &body).unwrap();
-    state.active_feature = Some(("CHG-004".into(), body.clone()));
-    state.active_features.push(("CHG-004".into(), body));
-    let plan = |id: &str| crate::domain::PlanAlternative {
-        id: id.into(),
-        objective: "Safe rollout".into(),
-        phases: vec![
-            crate::domain::PlanPhase {
-                name: "Prepare".into(),
-                subtasks: vec!["Record current values".into()],
-            };
-            3
-        ],
-        files_touched: vec![format!("src/search_{id}.rs")],
-        state_changes: vec!["Persist choice".into()],
-        failure_modes: vec!["Write error".into()],
-        effort_band: "Small — one module".into(),
-        known_risks: vec!["Migration".into()],
-        reversibility: "Restore prior file".into(),
-    };
-    let mut normalized = make_norm(Some("Compare plans"), None);
-    normalized.plan_comparison = Some(crate::domain::PlanComparison {
-        alternatives: vec![plan("A"), plan("B")],
-        recommendation: crate::domain::PlanRecommendation {
-            plan_id: "A".into(),
-            rationale: "Fewer writes".into(),
-            evidence: vec!["src/search.rs".into()],
-        },
-        selected_plan: None,
-    });
-    let receipt = apply(&mut state, &normalized).unwrap();
-    assert_eq!(
-        receipt.repo_relative_paths,
-        vec![".koolade-packet/state/workflow.json"]
-    );
-    assert!(!state.active_feature.unwrap().1.contains("planComparison"));
-    assert!(!state.active_features[0].1.contains("planComparison"));
-    assert!(
-        state.workflow.plan_comparisons["CHG-004"]
-            .validate()
-            .is_ok()
-    );
-    let restarted = crate::artifacts::task_docs::load_workflow(&root).unwrap();
-    assert_eq!(
-        restarted.plan_comparisons["CHG-004"],
-        state.workflow.plan_comparisons["CHG-004"]
-    );
-    assert!(
-        !std::fs::read_to_string(path)
-            .unwrap()
-            .contains("planComparison")
-    );
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn new_open_item_links_to_feature_created_in_same_turn() {
-    let (mut state, root) = state_at("new_feature_link");
-    let feature_id = crate::artifacts::product_docs::next_feature_id(&root);
-    let feature = format!(
-        "# {feature_id}: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave named searches.\n\n## Current Behavior\n\nSearches are temporary.\n\n## Desired Behavior\n\nUsers can save searches.\n\n## Scope\n\nSearch controls only.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nSaved searches reopen.\n\n## Decisions and Assumptions\n\nNone yet.\n\n## Acceptance Criteria\n\nSaved searches reopen after restart.\n"
-    );
-    let mut item = crate::domain::OpenItem::new(
-        "CLR-001".into(),
-        Priority::High,
-        ItemKind::Question,
-        "Product".into(),
-        None,
-        "Should saved searches be shared?".into(),
-        "The feature draft leaves sharing open.".into(),
-    );
-    item.feature_id = Some(feature_id.clone());
-    state.items.push(item);
-    let mut turn = make_norm(None, None);
-    turn.document_updates
-        .push((format!("feature:{feature_id}"), feature));
-    turn.change_status_updates
-        .insert(feature_id.clone(), crate::domain::ChangeStatus::Draft);
-
-    apply(&mut state, &turn).unwrap();
-
-    let path =
-        crate::artifacts::product_docs::document_path(&root, &format!("feature:{feature_id}"))
-            .unwrap();
-    let feature_uid =
-        crate::domain::ArtifactIdentity::from_markdown(&std::fs::read_to_string(path).unwrap())
-            .unwrap()
-            .unwrap()
-            .uid;
-    assert_eq!(
-        state.items[0].feature_uid.as_deref(),
-        Some(feature_uid.as_str())
-    );
-    let persisted = crate::artifacts::items_io::parse(
-        &std::fs::read_to_string(root.join(crate::artifacts::OPEN_ITEMS_FILE)).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        persisted[0].feature_uid.as_deref(),
-        Some(feature_uid.as_str())
-    );
-    let _ = std::fs::remove_dir_all(&root);
-}
+#[path = "tests/feature_workflow.rs"]
+mod feature_workflow;
 
 #[test]
 fn no_change_turn_touches_nothing() {
@@ -322,7 +291,7 @@ fn commit_phrase_lowercases_agent_summary() {
     let (st, root) = state_at("msg");
     let nt = make_norm(Some("Establish initial specification"), None);
     assert_eq!(
-        compose_commit_message(&nt, true, false, 0, 0, 0),
+        commit_message::compose(&nt, true, false, 0, 0, 0),
         "planner: establish initial specification"
     );
     let _ = (st, std::fs::remove_dir_all(&root));

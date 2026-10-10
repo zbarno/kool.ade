@@ -15,8 +15,14 @@ pub const CONFIG_FILE: &str = super::layout::canonical::PROJECT_CONFIG;
 pub const SPEC_FILE: &str = super::layout::canonical::PRODUCT_INDEX;
 
 /// Absolute path for a repository-relative artifact.
-pub fn repo_artifact(repo_root: &Path, rel: &str) -> PathBuf {
-    repo_root.join(rel)
+pub fn repo_artifact<R: super::planning_store::PlanningRoot + ?Sized>(
+    repository: &R,
+    relative: &str,
+) -> PathBuf {
+    repository
+        .planning_layout()
+        .canonical_path(relative)
+        .expect("artifact constants must stay beneath the planning root")
 }
 
 /// Read a UTF-8 file, reporting a clean error message when absent.

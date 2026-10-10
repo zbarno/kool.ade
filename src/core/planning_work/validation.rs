@@ -1,5 +1,5 @@
-use super::{FILE, SCHEMA_VERSION, Work, WorkFile, WorkKind, load};
-use std::path::Path;
+use super::{SCHEMA_VERSION, Work, WorkFile, WorkKind, load};
+use crate::artifacts::planning_store::PlanningRoot;
 
 pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
     let mut uids = std::collections::BTreeSet::new();
@@ -64,25 +64,35 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn save(repo: &Path, work: &[Work]) -> anyhow::Result<()> {
+pub fn save<R: PlanningRoot + ?Sized>(repo: &R, work: &[Work]) -> anyhow::Result<()> {
+    let revision = repo.planning_store().revision()?;
+    save_expected(repo, work, &revision)?;
+    Ok(())
+}
+
+pub fn save_expected<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    work: &[Work],
+    expected_revision: &str,
+) -> anyhow::Result<String> {
     validate(work)?;
-    crate::artifacts::task_docs::safe_directory(repo, crate::artifacts::layout::canonical::STATE)?;
-    let path = repo.join(FILE);
-    anyhow::ensure!(
-        !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()),
-        "Linked planning work ledger"
-    );
     let file = WorkFile {
         schema_version: SCHEMA_VERSION,
         items: work.to_vec(),
     };
-    crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(&file)?)
+    let store = repo.planning_store();
+    let changes = vec![(
+        crate::artifacts::planning_store::paths::WORK.to_owned(),
+        serde_json::to_vec_pretty(&file)?,
+    )];
+    let (_, revision) = store.transaction_with_revision(&changes, Some(expected_revision))?;
+    Ok(revision)
 }
 
 /// Snapshot task-owned routing into implementation stories for a feature.
 /// The saved task record is authoritative even if app defaults changed later.
-pub fn routing_for_feature(
-    repo: &Path,
+pub fn routing_for_feature<R: PlanningRoot + ?Sized>(
+    repo: &R,
     feature_id: &str,
     feature_uid: Option<&str>,
 ) -> anyhow::Result<crate::core::workflow::TaskRoutingSnapshot> {

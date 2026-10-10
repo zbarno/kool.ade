@@ -83,7 +83,8 @@ impl Lifecycle {
                     }
                 }
                 Err(error) => {
-                    let current = PlannerState::load(&state.repo_root).ok();
+                    let current =
+                        PlannerState::load_with_store(&state.repo_root, &state.planning_store).ok();
                     let error = error.to_string();
                     if error.starts_with(crate::core::reconciliation::DEFER_PREFIX) {
                         self.cooldown_until = Some(now + Duration::from_secs(300));

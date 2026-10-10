@@ -8,6 +8,7 @@ fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() 
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     std::fs::create_dir_all(&root).unwrap();
+    init_git(&root);
     if let Screen::Connected(p) = &mut app.screen {
         p.state = crate::core::state::PlannerState::load(&root).unwrap();
         p.state.bootstrap_missing().unwrap();

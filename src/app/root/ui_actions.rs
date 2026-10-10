@@ -222,9 +222,10 @@ impl KooladeApp {
                 self.toasts.success(format!("Approved review {id}"));
             }
             Err(error) => {
-                if let Ok(current) =
-                    crate::core::state::PlannerState::load(&project.state.repo_root)
-                {
+                if let Ok(current) = crate::core::state::PlannerState::load_with_store(
+                    &project.state.repo_root,
+                    &project.state.planning_store,
+                ) {
                     project.state = current;
                 }
                 self.toasts

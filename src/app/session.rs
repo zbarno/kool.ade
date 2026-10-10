@@ -51,8 +51,14 @@ pub struct Project {
 
 impl Project {
     pub fn save_planning_work(&mut self) -> Result<(), String> {
-        match crate::core::planning_work::save(&self.state.repo_root, &self.planning_work) {
-            Ok(()) => {
+        let _guard = crate::core::writer_gate::acquire();
+        match crate::core::planning_work::save_expected(
+            &self.state.planning_store,
+            &self.planning_work,
+            &self.state.baseline_planning_revision,
+        ) {
+            Ok(revision) => {
+                self.state.baseline_planning_revision = revision;
                 self.activity.pending_planning_work = false;
                 self.activity
                     .pending
@@ -156,7 +162,10 @@ impl Project {
     }
 
     pub fn refresh_implementations(&mut self) {
-        let latest = crate::core::implementation::load_board_states(&self.state.repo_root);
+        let latest = crate::core::implementation::load_board_states_with_store(
+            &self.state.repo_root,
+            &self.state.planning_store,
+        );
         self.adopt_implementations(latest);
         for ticket in self.implementation_states.keys() {
             if !self.activity.tasks.contains_key(ticket)

@@ -79,7 +79,10 @@ impl TurnController {
                 else {
                     break;
                 };
-                let Ok(current) = PlannerState::load(&inputs.state.repo_root) else {
+                let Ok(current) = PlannerState::load_with_store(
+                    &inputs.state.repo_root,
+                    &inputs.state.planning_store,
+                ) else {
                     break;
                 };
                 inputs.state = current;

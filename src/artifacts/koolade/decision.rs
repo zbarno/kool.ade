@@ -1,16 +1,16 @@
 //! Compact ADRs created from user-approved durable planning decisions.
-use crate::{
-    artifacts::layout::ArtifactLayout,
-    domain::{AdrAssessment, ArtifactIdentity, Authority, DecisionOption, OpenItem},
-};
+#[cfg(test)]
+use crate::artifacts::layout::ArtifactLayout;
+use crate::artifacts::planning_store::PlanningRoot;
+use crate::domain::{AdrAssessment, ArtifactIdentity, Authority, DecisionOption, OpenItem};
 use std::path::{Path, PathBuf};
 
 /// Prepare an immutable ADR artifact for the planning transaction.
 ///
 /// Implementation reports and command evidence remain under the separate
 /// implementation workspace; this document records only an approved decision.
-pub(crate) fn prepare_decision_record(
-    repo: &Path,
+pub(crate) fn prepare_decision_record<R: PlanningRoot + ?Sized>(
+    repo: &R,
     item: &OpenItem,
 ) -> anyhow::Result<Option<(String, String)>> {
     let Some(brief) = item.decision_brief.as_ref() else {
@@ -40,11 +40,12 @@ pub(crate) fn prepare_decision_record(
         .find(|option| option.id == recommendation.option_id)
         .ok_or_else(|| anyhow::anyhow!("Approved decision option is missing"))?;
 
-    let layout = ArtifactLayout::new(repo);
+    let store = repo.planning_store();
+    let layout = repo.planning_layout();
     let dir = layout.decisions_root();
-    ensure_path_has_no_symlinks(repo, &dir)?;
+    ensure_path_has_no_symlinks(layout.root(), &dir)?;
     let title = assessment.title.trim();
-    if let Some((path, previous)) = matching_decision(&dir, &item.id)? {
+    if let Some((path, previous)) = matching_decision(repo, &dir, &item.id)? {
         let identity = ArtifactIdentity::from_markdown(&previous)?
             .ok_or_else(|| anyhow::anyhow!("Existing ADR has no Koolade identity"))?;
         let expected = render(
@@ -60,10 +61,10 @@ pub(crate) fn prepare_decision_record(
             "An immutable ADR already exists for decision {}",
             item.id
         );
-        return Ok(Some((relative_path(repo, &path)?, previous)));
+        return Ok(Some((relative_path(&store, &path)?, previous)));
     }
 
-    let identity = super::identity::new_adr_identity(&dir, title, item.uid.as_deref());
+    let identity = super::identity::new_adr_identity(repo, &dir, title, item.uid.as_deref());
     let body = render(
         &identity.display_id,
         item,
@@ -81,13 +82,13 @@ pub(crate) fn prepare_decision_record(
     let path = layout
         .decision_record(&file_name)
         .ok_or_else(|| anyhow::anyhow!("Generated ADR filename is unsafe"))?;
-    ensure_path_has_no_symlinks(repo, &path)?;
+    ensure_path_has_no_symlinks(layout.root(), &path)?;
     anyhow::ensure!(
         !path.exists(),
         "ADR path already exists without matching decision identity: {}",
         path.display()
     );
-    Ok(Some((relative_path(repo, &path)?, content)))
+    Ok(Some((relative_path(&store, &path)?, content)))
 }
 
 fn render(
@@ -176,7 +177,11 @@ fn append_inline(body: &mut String, label: &str, values: &[String]) {
     }
 }
 
-fn matching_decision(directory: &Path, item_id: &str) -> anyhow::Result<Option<(PathBuf, String)>> {
+fn matching_decision<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    directory: &Path,
+    item_id: &str,
+) -> anyhow::Result<Option<(PathBuf, String)>> {
     let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries.collect::<Result<Vec<_>, _>>()?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -195,7 +200,7 @@ fn matching_decision(directory: &Path, item_id: &str) -> anyhow::Result<Option<(
             continue;
         }
         let path = entry.path();
-        let previous = std::fs::read_to_string(&path)?;
+        let previous = String::from_utf8(repo.read_planning_path(&path)?)?;
         if previous.lines().any(|line| line == marker) {
             return Ok(Some((path, previous)));
         }
@@ -219,11 +224,16 @@ fn stable_visible(markdown: &str) -> String {
 
 fn ensure_path_has_no_symlinks(repo: &Path, target: &Path) -> anyhow::Result<()> {
     let relative = target.strip_prefix(repo)?;
-    let canonical_repo = repo.canonicalize()?;
-    let mut path = canonical_repo.clone();
-    let target = canonical_repo.join(relative);
-    for component in relative.components() {
-        path.push(component);
+    anyhow::ensure!(
+        relative
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_))),
+        "ADR path contains an invalid component"
+    );
+
+    let mut path = PathBuf::new();
+    for component in repo.components() {
+        path.push(component.as_os_str());
         match std::fs::symlink_metadata(&path) {
             Ok(metadata) => {
                 anyhow::ensure!(
@@ -231,7 +241,28 @@ fn ensure_path_has_no_symlinks(repo: &Path, target: &Path) -> anyhow::Result<()>
                     "ADR path contains a symlink: {}",
                     path.display()
                 );
-                if path != target {
+                anyhow::ensure!(
+                    metadata.is_dir(),
+                    "ADR parent is not a directory: {}",
+                    path.display()
+                );
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    let components = relative.components().collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        path.push(component.as_os_str());
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    !metadata.file_type().is_symlink(),
+                    "ADR path contains a symlink: {}",
+                    path.display()
+                );
+                if index + 1 < components.len() {
                     anyhow::ensure!(metadata.is_dir(), "ADR parent is not a directory");
                 }
             }
@@ -242,11 +273,12 @@ fn ensure_path_has_no_symlinks(repo: &Path, target: &Path) -> anyhow::Result<()>
     Ok(())
 }
 
-fn relative_path(repo: &Path, path: &Path) -> anyhow::Result<String> {
-    Ok(path
-        .strip_prefix(repo)?
-        .to_string_lossy()
-        .replace(std::path::MAIN_SEPARATOR, "/"))
+fn relative_path(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    path: &Path,
+) -> anyhow::Result<String> {
+    let relative = path.strip_prefix(&store.root)?.to_string_lossy();
+    Ok(store.git_path(&relative))
 }
 
 #[cfg(test)]

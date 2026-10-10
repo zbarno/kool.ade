@@ -1,10 +1,26 @@
 use super::ProjectManifest;
-use std::path::Path;
+use crate::artifacts::planning_store::{PlanningRoot, PlanningStore};
 
 /// Persist only repository display-name edits, preserving all stable identity
 /// and routing fields from the connected manifest.
-pub fn save_display_names(root: &Path, mut updated: ProjectManifest) -> anyhow::Result<()> {
-    let current = ProjectManifest::load(root)?;
+pub fn save_display_names<R: PlanningRoot + ?Sized>(
+    root: &R,
+    updated: ProjectManifest,
+) -> anyhow::Result<()> {
+    let store = root.planning_store();
+    let expected_revision = store.revision()?;
+    save_display_names_expected(&store, updated, &expected_revision).map(|_| ())
+}
+
+/// Persist display-name edits only if the planning store still matches the
+/// revision the caller loaded. Return the exact post-commit revision so app
+/// state can advance without accepting an intervening writer.
+pub fn save_display_names_expected(
+    store: &PlanningStore,
+    mut updated: ProjectManifest,
+    expected_revision: &str,
+) -> anyhow::Result<String> {
+    let current = ProjectManifest::load(store)?;
     updated.normalize_display_names()?;
     updated.validate()?;
     anyhow::ensure!(
@@ -18,9 +34,14 @@ pub fn save_display_names(root: &Path, mut updated: ProjectManifest) -> anyhow::
         );
     }
     let bytes = serde_json::to_vec_pretty(&updated)?;
-    let path = crate::artifacts::layout::ArtifactLayout::new(root).project_manifest();
-    crate::artifacts::atomic_write(&path, std::str::from_utf8(&bytes)?)?;
-    Ok(())
+    let (_, revision) = store.transaction_with_revision(
+        &[(
+            crate::artifacts::planning_store::paths::PROJECT_MANIFEST.to_owned(),
+            bytes,
+        )],
+        Some(expected_revision),
+    )?;
+    Ok(revision)
 }
 
 #[cfg(test)]

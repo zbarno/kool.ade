@@ -1,4 +1,16 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
+
+pub(crate) struct ProjectStartRequest {
+    pub(crate) planning_store: PlanningStore,
+    pub(crate) state_root: PathBuf,
+    pub(crate) target_repo: PathBuf,
+    pub(crate) ticket: String,
+    pub(crate) policy: super::StartPolicy,
+    pub(crate) user_context: Option<String>,
+    pub(crate) harness: Box<dyn AiHarness>,
+    pub(crate) claim_request: crate::core::task_claim::ClaimRequest,
+}
 
 pub struct Controller {
     #[cfg(test)]
@@ -22,6 +34,7 @@ impl Controller {
     pub(crate) fn cancellation_requested(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
     }
+    #[cfg(test)]
     pub(crate) fn start_project_with_policy_and_claim_request(
         planning_root: PathBuf,
         target_repo: PathBuf,
@@ -31,6 +44,32 @@ impl Controller {
         harness: Box<dyn AiHarness>,
         claim_request: crate::core::task_claim::ClaimRequest,
     ) -> Self {
+        let planning_store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &planning_root);
+        Self::start_project_with_store_and_policy_and_claim_request(ProjectStartRequest {
+            planning_store,
+            state_root: planning_root,
+            target_repo,
+            ticket,
+            policy,
+            user_context,
+            harness,
+            claim_request,
+        })
+    }
+
+    pub(crate) fn start_project_with_store_and_policy_and_claim_request(
+        request: ProjectStartRequest,
+    ) -> Self {
+        let ProjectStartRequest {
+            planning_store,
+            state_root,
+            target_repo,
+            ticket,
+            policy,
+            user_context,
+            harness,
+            claim_request,
+        } = request;
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -38,7 +77,7 @@ impl Controller {
             policy.publication_mode == PublicationMode::AutoPublish,
         ));
         let worker_publish_gate = auto_publish_gate.clone();
-        let previous_revision = super::load_activity(&planning_root, &ticket)
+        let previous_revision = super::load_activity(&state_root, &ticket)
             .map(|progress| progress.checklist_revision)
             .unwrap_or_default();
         let checklist_epoch =
@@ -108,8 +147,9 @@ impl Controller {
                     let _ = fwd.send(Event::Progress(Box::new(p)));
                 }
             });
-            let result = run_with_project_options(
-                &planning_root,
+            let result = run_with_planning_store_options(
+                &planning_store,
+                &state_root,
                 &target_repo,
                 &ticket,
                 RunOptions {

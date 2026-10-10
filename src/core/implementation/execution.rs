@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::status::FailureCause;
 mod resume_state;
 mod source;
@@ -35,6 +36,17 @@ pub(super) fn run_with_project_options(
     ticket: &str,
     options: RunOptions<'_>,
 ) -> anyhow::Result<Implementation> {
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    run_with_planning_store_options(&store, planning_root, repo, ticket, options)
+}
+
+pub(super) fn run_with_planning_store_options(
+    planning_store: &PlanningStore,
+    state_root: &Path,
+    repo: &Path,
+    ticket: &str,
+    options: RunOptions<'_>,
+) -> anyhow::Result<Implementation> {
     let RunOptions {
         harness,
         cancel,
@@ -47,9 +59,10 @@ pub(super) fn run_with_project_options(
         claim_lease,
     } = options;
     let active_progress = progress.clone();
-    let migration_gate = crate::artifacts::migration::acquire_project_state_gate(planning_root)?;
+    let migration_gate = crate::artifacts::migration::acquire_project_state_gate(state_root)?;
     anyhow::ensure!(
-        target_repository(planning_root, ticket)?.canonicalize()? == repo.canonicalize()?,
+        target_repository_with_store(planning_store, state_root, ticket)?.canonicalize()?
+            == repo.canonicalize()?,
         "Implementation checkout does not match the task repository manifest"
     );
     let runner = Runner {
@@ -59,23 +72,24 @@ pub(super) fn run_with_project_options(
         cancel,
         progress,
     };
-    let (text, task_uid, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let (text, task_uid, metadata) = read_ticket_and_identity(planning_store, ticket)?;
     let telemetry_harness = super::telemetry::CaptureHarness::new(
         harness,
-        planning_root,
+        state_root,
         repo,
         &text,
         metadata.as_ref(),
         task_uid.as_deref(),
     );
     let harness: &dyn AiHarness = &telemetry_harness;
-    let accrual = crate::core::time_accrual::span_for_ticket(
-        planning_root,
+    let accrual = crate::core::time_accrual::span_for_ticket_with_store(
+        planning_store,
+        state_root,
         &text,
         metadata.as_ref(),
         task_uid.as_deref(),
     );
-    let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
+    let dir = state_dir_for_task(state_root, ticket, task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;
     let lock = fs::OpenOptions::new()
         .read(true)
@@ -87,7 +101,7 @@ pub(super) fn run_with_project_options(
         anyhow::anyhow!("This ticket is already being implemented in another Kool.ad/e instance")
     })?;
     let _active_telemetry = super::telemetry::ActiveSpan::new(
-        planning_root,
+        state_root,
         &text,
         metadata.as_ref(),
         task_uid.as_deref(),
@@ -95,7 +109,8 @@ pub(super) fn run_with_project_options(
         active_progress,
     );
     let mut state = task_state::load_or_create(task_state::Request {
-        planning_root,
+        planning_store,
+        state_root,
         repo,
         ticket,
         text: &text,
@@ -106,7 +121,7 @@ pub(super) fn run_with_project_options(
         runner: &runner,
     })?;
     if state.task_repository_kind == TaskRepositoryKind::Clone {
-        task_repository::validate_task_path(planning_root, &state)?;
+        task_repository::validate_task_path(state_root, &state)?;
     }
     if state.pr_url.is_none() && state.merged_commit.is_none() {
         state.auto_merge = publication_mode == PublicationMode::AutoPublish;
@@ -214,11 +229,12 @@ pub(super) fn persist_source_plan_before_task_state(
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    let (text, task_uid, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let planning_store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let (text, task_uid, metadata) = read_ticket_and_identity(&planning_store, ticket)?;
     let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;
     source::resolve(source::Request {
-        planning_root,
+        planning_store: &planning_store,
         repo,
         dir: &dir,
         ticket,
@@ -237,11 +253,13 @@ pub(super) fn prepare_task_repository_before_reconciliation(
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<Implementation> {
-    let (text, task_uid, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let planning_store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let (text, task_uid, metadata) = read_ticket_and_identity(&planning_store, ticket)?;
     let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;
     let mut state = task_state::load_or_create(task_state::Request {
-        planning_root,
+        planning_store: &planning_store,
+        state_root: planning_root,
         repo,
         ticket,
         text: &text,

@@ -26,25 +26,55 @@ pub fn feature_contract(text: &str) -> String {
     selected
 }
 
-pub fn approve_feature(
-    repo: &std::path::Path,
+pub fn approve_feature<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
+    repo: &R,
     workflow: &mut Workflow,
     id: &str,
 ) -> anyhow::Result<String> {
     approve_feature_if_current(repo, workflow, id, None)
 }
 
-pub fn approve_feature_if_current(
-    repo: &std::path::Path,
+pub fn approve_feature_if_current<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
+    repo: &R,
     workflow: &mut Workflow,
     id: &str,
     expected_contract: Option<&str>,
 ) -> anyhow::Result<String> {
+    let store = repo.planning_store();
+    let expected_revision = store.revision()?;
+    let receipt = approve_feature_if_current_with_revision(
+        repo,
+        workflow,
+        id,
+        expected_contract,
+        &expected_revision,
+    )?;
+    receipt
+        .commit_result
+        .map_err(|error| anyhow::anyhow!("approval saved but checkpoint failed: {error}"))
+}
+
+#[derive(Debug)]
+pub struct FeatureApprovalReceipt {
+    pub planning_revision: String,
+    pub commit_result: Result<String, String>,
+}
+
+pub fn approve_feature_if_current_with_revision<
+    R: crate::artifacts::planning_store::PlanningRoot + ?Sized,
+>(
+    repo: &R,
+    workflow: &mut Workflow,
+    id: &str,
+    expected_contract: Option<&str>,
+    expected_revision: &str,
+) -> anyhow::Result<FeatureApprovalReceipt> {
     // Writer section: this read-modify-commit of workflow.json shares the
     // planning index with background turns/reconciliation.
     let guard = crate::core::writer_gate::acquire();
+    let store = repo.planning_store();
     let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
-    let text = std::fs::read_to_string(path)?;
+    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
     crate::core::specification::validate_feature(id, &text)?;
     let metadata = crate::domain::ChangeMetadata::require_markdown(&text)?;
     let status = metadata.status;
@@ -72,23 +102,41 @@ pub fn approve_feature_if_current(
     // Another conversation may have saved a brief or another approval since display.
     *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
     workflow.approved_features.insert(id.to_string(), contract);
-    crate::artifacts::task_docs::save_workflow(repo, workflow)?;
+    let changes = vec![(
+        crate::artifacts::planning_store::paths::WORKFLOW.to_owned(),
+        serde_json::to_vec_pretty(workflow)?,
+    )];
+    let (paths, planning_revision) =
+        store.transaction_with_revision(&changes, Some(expected_revision))?;
     let result = crate::core::gitops::commit(
-        repo,
+        &store.git_root(),
         &format!("planner: approve feature {id}"),
-        &[WORKFLOW_FILE.to_string()],
+        &paths
+            .iter()
+            .map(|path| store.git_path(path))
+            .collect::<Vec<_>>(),
     )
-    .map_err(|e| anyhow::anyhow!("approval saved but checkpoint failed: {e}"));
+    .map_err(|error| error.to_string());
     drop(guard);
-    result
+    Ok(FeatureApprovalReceipt {
+        planning_revision,
+        commit_result: result,
+    })
 }
 
-pub fn feature_approved(repo: &std::path::Path, workflow: &Workflow, id: &str) -> bool {
+pub fn feature_approved<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
+    repo: &R,
+    workflow: &Workflow,
+    id: &str,
+) -> bool {
     let Ok(path) = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))
     else {
         return false;
     };
-    let Ok(text) = std::fs::read_to_string(path) else {
+    let Ok(bytes) = repo.read_planning_path(&path) else {
+        return false;
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
         return false;
     };
     let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(&text) else {

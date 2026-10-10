@@ -37,7 +37,7 @@ pub fn prepare(
         }
         let stories = env.task_stories.clone().unwrap_or_default();
         validate_stories(&brief, &stories)?;
-        let manifest = crate::core::project_repos::ProjectManifest::load(&state.repo_root)
+        let manifest = crate::core::project_repos::ProjectManifest::load(&state.planning_store)
             .map_err(|error| vec![error.to_string()])?;
         for story in &stories {
             if manifest.repositories.len() > 1 && story.target_repository.is_empty() {
@@ -56,7 +56,7 @@ pub fn prepare(
         }
         let feature_id = state.active_feature.as_ref().map(|(id, _)| id.clone());
         if let Some(id) = &feature_id
-            && !feature_approved(&state.repo_root, &workflow, id)
+            && !feature_approved(&state.planning_store, &workflow, id)
         {
             return Err(vec![format!("{id} needs explicit implementation approval")]);
         }
@@ -66,13 +66,18 @@ pub fn prepare(
         // while narrating another, deadlocking the implementation queue with
         // no visible reason.
         let declared = feature_ids_in(&brief.feature_name);
-        if let Some(problem) = brief_target_problem(&declared, feature_id.as_deref(), &|id| {
-            crate::artifacts::product_docs::document_path(
-                &state.repo_root,
-                &format!("feature:{id}"),
-            )
-            .is_ok()
-        }) {
+        if let Some(problem) = brief_target_problem_with_store(
+            &declared,
+            feature_id.as_deref(),
+            &|id| {
+                crate::artifacts::product_docs::document_path(
+                    &state.planning_store,
+                    &format!("feature:{id}"),
+                )
+                .is_ok()
+            },
+            &state.planning_store,
+        ) {
             return Err(vec![problem]);
         }
         nt.task_batch = Some(TaskBatch {
@@ -142,7 +147,7 @@ pub fn prepare(
                     .any(|(document, _)| document.starts_with("product:"))
                 {
                     crate::artifacts::product_docs::render_product_with_updates(
-                        &state.repo_root,
+                        &state.planning_store,
                         &nt.document_updates,
                     )
                     .map_err(|error| vec![error.to_string()])?

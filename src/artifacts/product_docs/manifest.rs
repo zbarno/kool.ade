@@ -1,3 +1,4 @@
+use crate::artifacts::planning_store::PlanningRoot;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -5,7 +6,6 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::{safe_module_path, valid_id};
-use crate::artifacts::layout::ArtifactLayout;
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -192,8 +192,8 @@ impl ProductManifest {
     }
 }
 
-pub fn read(repo: &Path) -> anyhow::Result<Option<ProductManifest>> {
-    let layout = ArtifactLayout::new(repo);
+pub fn read<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Option<ProductManifest>> {
+    let layout = repo.planning_layout();
     let root = layout.product_root();
     let path = layout.product_manifest();
     match fs::symlink_metadata(&root) {
@@ -210,7 +210,7 @@ pub fn read(repo: &Path) -> anyhow::Result<Option<ProductManifest>> {
                 meta.is_file() && !meta.file_type().is_symlink(),
                 "Product manifest must be a regular file"
             );
-            let bytes = fs::read(&path)?;
+            let bytes = repo.read_planning_path(&path)?;
             let manifest: ProductManifest = serde_json::from_slice(&bytes)?;
             manifest.validate(&root, true)?;
             Ok(Some(manifest))

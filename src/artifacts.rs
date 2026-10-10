@@ -15,6 +15,7 @@ pub mod items_io;
 pub mod layout;
 pub mod mcp_io;
 pub mod migration;
+pub mod planning_store;
 pub mod spec_doc;
 pub mod time_ledger;
 

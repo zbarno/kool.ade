@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 
 fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &str) -> String {
     let dir = root
@@ -6,7 +7,7 @@ fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &s
         .join(format!("{id}-fixture-{state_tag}"));
     std::fs::create_dir_all(&dir).unwrap();
     let body = format!(
-        "# {id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
+        "# {id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Affected Product Areas\n\nOverview.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
     );
     let path = dir.join("specification.md");
     let body =
@@ -23,6 +24,106 @@ fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &s
     .unwrap();
     std::fs::write(path, &body).unwrap();
     body
+}
+
+#[test]
+fn legacy_store_routes_spec_edit_approval_and_task_generation_to_embedded_paths() {
+    let project = state("store-compatibility");
+    let code_root = project.repo_root.clone();
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &code_root);
+    assert_eq!(store.root, code_root.join(".koolade-packet"));
+
+    let spec = "# Overview\n\nUpdated through the injected planning store.\n";
+    let updates = vec![("product:overview".to_owned(), spec.to_owned())];
+    let layout = store.layout();
+    let module_path =
+        crate::artifacts::product_docs::document_path_for_update(&store, &updates[0].0, spec)
+            .unwrap();
+    let manifest = crate::artifacts::product_docs::updated_manifest(&store, &updates).unwrap();
+    let index = crate::artifacts::product_docs::refreshed_index(&store, &updates).unwrap();
+    let module_relative = module_path
+        .strip_prefix(layout.root())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let changes = vec![
+        (module_relative, spec.as_bytes().to_vec()),
+        (
+            crate::artifacts::planning_store::paths::PRODUCT_MANIFEST.to_owned(),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        ),
+        (
+            crate::artifacts::planning_store::paths::PRODUCT_INDEX.to_owned(),
+            index.into_bytes(),
+        ),
+    ];
+    let revision = store.revision().unwrap();
+    store.transaction(&changes, Some(&revision)).unwrap();
+    assert_eq!(std::fs::read(module_path).unwrap(), spec.as_bytes());
+
+    let feature = feature_document(
+        "store-compatibility",
+        &code_root,
+        "CHG-097",
+        "Saved searches",
+    );
+    for (key, value) in [
+        ("user.name", "Koolade Test"),
+        ("user.email", "koolade@example.test"),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(&code_root)
+                .args(["config", key, value])
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let mut workflow = crate::artifacts::task_docs::load_workflow(&store).unwrap();
+    crate::core::workflow::approve_feature(&store, &mut workflow, "CHG-097").unwrap();
+    assert!(crate::core::workflow::feature_approved(
+        &store, &workflow, "CHG-097"
+    ));
+
+    let mut task_brief = brief();
+    task_brief.feature_name = "Saved searches (CHG-097)".into();
+    let batch = TaskBatch {
+        brief: task_brief,
+        specification: feature.clone(),
+        feature_id: Some("CHG-097".into()),
+        contract: None,
+        branch_targets: None,
+        task_routing: TaskRoutingSnapshot::default(),
+        stories: vec![story()],
+    };
+    let generated =
+        crate::artifacts::task_docs::write_batch(&store, &batch, &mut workflow).unwrap();
+
+    assert!(
+        generated
+            .iter()
+            .any(|path| path.starts_with(".koolade-packet/planning/tasks/"))
+    );
+    assert!(
+        generated
+            .iter()
+            .any(|path| { path == ".koolade-packet/state/workflow.json" })
+    );
+    assert_eq!(
+        std::fs::read(layout.product_root().join("overview.md")).unwrap(),
+        spec.as_bytes()
+    );
+    assert!(store.layout().workflow_state().is_file());
+    assert!(
+        crate::artifacts::task_docs::load_board(&store, &workflow)
+            .iter()
+            .any(|document| document.path.starts_with(".koolade-packet/planning/tasks/"))
+    );
+    assert!(!code_root.join("planning/tasks").exists());
+
+    let _ = std::fs::remove_dir_all(project.repo_root);
 }
 
 #[test]
@@ -124,4 +225,25 @@ fn feature_id_scan_handles_legacy_prose_duplicates_and_short_ids() {
             .contains("no feature is active")
     );
     assert!(brief_target_problem(&[], Some("CHG-001"), &|_| false).is_none());
+}
+
+#[test]
+fn unknown_feature_guidance_uses_the_injected_planning_path() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-managed-feature-path-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let message =
+        brief_target_problem_with_store(&["F2".into()], None, &|_| false, &store).unwrap();
+
+    assert!(message.contains("planning/changes"));
+    assert!(!message.contains(".koolade-packet"));
+    let _ = std::fs::remove_dir_all(root);
 }

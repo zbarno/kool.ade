@@ -27,8 +27,17 @@ pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {
     }
     let mut selected = None;
     for batch in state.workflow.task_batches.iter().rev() {
-        let path = state.repo_root.join(&batch.directory).join("contract.json");
-        let Ok(text) = std::fs::read_to_string(path) else {
+        let Some(path) = state
+            .planning_store
+            .layout()
+            .canonical_path(&format!("{}/contract.json", batch.directory))
+        else {
+            continue;
+        };
+        let Ok(bytes) = state.planning_store.read_planning_path(&path) else {
+            continue;
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
             continue;
         };
         let Ok(contract) =
@@ -44,7 +53,11 @@ pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {
     let Some((batch, contract)) = selected else {
         return Ok(None);
     };
-    let directory = state.repo_root.join(&batch.directory);
+    let directory = state
+        .planning_store
+        .layout()
+        .canonical_path(&batch.directory)
+        .ok_or_else(|| anyhow::anyhow!("Task batch directory is outside planning root"))?;
     let mut stories = std::fs::read_dir(&directory)?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()?
@@ -58,19 +71,25 @@ pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {
     );
     let mut tasks = Vec::with_capacity(stories.len());
     for path in stories {
-        let relative = path
-            .strip_prefix(&state.repo_root)?
-            .to_string_lossy()
-            .into_owned();
-        let Some(record) = crate::core::implementation::load(&state.repo_root, &relative) else {
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Task story filename is not UTF-8"))?;
+        let relative = format!("{}/{filename}", batch.directory);
+        let Some(record) = crate::core::implementation::load_with_store(
+            &state.planning_store,
+            &state.repo_root,
+            &relative,
+        ) else {
             return Ok(None);
         };
         if record.status != ImplementationStatus::Completed || record.merged_commit.is_none() {
             return Ok(None);
         }
         anyhow::ensure!(
-            crate::artifacts::task_docs::visible_content(&std::fs::read_to_string(&path)?)
-                == record.ticket_text,
+            crate::artifacts::task_docs::visible_content(&String::from_utf8(
+                state.planning_store.read_planning_path(&path)?,
+            )?) == record.ticket_text,
             "Task story changed after implementation: {relative}"
         );
         tasks.push(record);

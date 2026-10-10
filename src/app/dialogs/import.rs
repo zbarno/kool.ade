@@ -30,21 +30,30 @@ impl DlgImport {
                     detail: "file or folder does not exist".into(),
                 });
             }
-            let doc = imports_io::import_into_repo(&proj.state.repo_root, src).map_err(|e| {
-                AppError::Io {
-                    op: format!("import {line}"),
-                    detail: e.to_string(),
-                }
+            let (doc, revision) = imports_io::import_into_store(
+                &proj.state.planning_store,
+                &proj.state.repo_root,
+                src,
+                &proj.state.baseline_planning_revision,
+            )
+            .map_err(|e| AppError::Io {
+                op: format!("import {line}"),
+                detail: e.to_string(),
             })?;
-            authorized_paths.push(format!("{IMPORTS_DIR}/{}", doc.stored_name));
+            proj.state.baseline_planning_revision = revision;
+            let imports = proj
+                .state
+                .planning_store
+                .git_path(crate::artifacts::planning_store::paths::IMPORTS);
+            authorized_paths.push(format!("{imports}/{}", doc.stored_name));
             if let Some(companion) = doc.companion {
-                authorized_paths.push(format!("{IMPORTS_DIR}/{companion}"));
+                authorized_paths.push(format!("{imports}/{companion}"));
             }
             staged += 1;
         }
         if staged > 0 {
             gitops::commit(
-                &proj.state.repo_root,
+                &proj.state.planning_store.git_root(),
                 "planner: import reference material",
                 &authorized_paths,
             )

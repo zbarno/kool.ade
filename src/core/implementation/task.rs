@@ -1,16 +1,20 @@
 use super::*;
+use crate::artifacts::planning_store::{PlanningRoot, PlanningStore};
 
 #[cfg(test)]
 pub(super) fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
     read_ticket_and_identity(repo, ticket).map(|(text, _, _)| text)
 }
 
-pub(super) fn ticket_identity(repo: &Path, ticket: &str) -> anyhow::Result<Option<String>> {
+pub(super) fn ticket_identity<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    ticket: &str,
+) -> anyhow::Result<Option<String>> {
     read_ticket_and_identity(repo, ticket).map(|(_, identity, _)| identity)
 }
 
-pub(super) fn read_ticket_and_identity(
-    repo: &Path,
+pub(super) fn read_ticket_and_identity<R: PlanningRoot + ?Sized>(
+    repo: &R,
     ticket: &str,
 ) -> anyhow::Result<(
     String,
@@ -18,7 +22,11 @@ pub(super) fn read_ticket_and_identity(
     Option<crate::artifacts::task_docs::TaskMetadata>,
 )> {
     anyhow::ensure!(
-        crate::artifacts::layout::ArtifactLayout::is_task_ticket_path(ticket)
+        (crate::artifacts::layout::ArtifactLayout::is_task_ticket_path(ticket)
+            || ticket.starts_with(&format!(
+                "{}/",
+                crate::artifacts::planning_store::paths::TASKS
+            )))
             && Path::new(ticket)
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -31,12 +39,11 @@ pub(super) fn read_ticket_and_identity(
             .all(|c| matches!(c, std::path::Component::Normal(_))),
         "Invalid ticket path"
     );
-    let path = repo.join(ticket).canonicalize()?;
-    anyhow::ensure!(
-        path.starts_with(repo.canonicalize()?),
-        "Ticket is outside the repository"
-    );
-    let raw = fs::read_to_string(path)?;
+    let path = repo
+        .planning_layout()
+        .canonical_path(ticket)
+        .ok_or_else(|| anyhow::anyhow!("Invalid ticket path"))?;
+    let raw = String::from_utf8(repo.read_planning_path(&path)?)?;
     let artifact_identity = crate::domain::ArtifactIdentity::from_markdown(&raw)?;
     let identity = artifact_identity.as_ref().map(|id| id.uid.clone());
     let metadata = crate::artifacts::task_docs::parse_metadata(&raw)?;
@@ -53,10 +60,19 @@ pub(super) fn read_ticket_and_identity(
 }
 
 pub fn target_repository(planning_root: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
-    let (text, _, metadata) = read_ticket_and_identity(planning_root, ticket)?;
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root)?;
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    target_repository_with_store(&store, planning_root, ticket)
+}
+
+pub(crate) fn target_repository_with_store(
+    planning_store: &PlanningStore,
+    code_root: &Path,
+    ticket: &str,
+) -> anyhow::Result<PathBuf> {
+    let (text, _, metadata) = read_ticket_and_identity(planning_store, ticket)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let id = task_repository_id(&text, metadata.as_ref(), &manifest)?;
-    manifest.target(planning_root, &id)
+    manifest.target(code_root, &id)
 }
 
 pub(crate) fn task_repository_id(
@@ -91,17 +107,33 @@ fn legacy_repository_target(
     Ok(target.unwrap_or_else(|| "root".into()))
 }
 
+#[cfg(test)]
 pub(super) fn scoped_product_context(
     planning_root: &Path,
+    ticket: &str,
+) -> anyhow::Result<Option<String>> {
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    scoped_product_context_with_store(&store, ticket)
+}
+
+pub(crate) fn scoped_product_context_with_store(
+    planning_store: &PlanningStore,
     ticket: &str,
 ) -> anyhow::Result<Option<String>> {
     let Some(parent) = Path::new(ticket).parent() else {
         return Ok(None);
     };
-    let contract_path = planning_root.join(parent).join("contract.json");
-    let bytes = match fs::read(&contract_path) {
+    let relative = parent.join("contract.json");
+    let relative = relative
+        .strip_prefix(crate::artifacts::layout::canonical::ROOT)
+        .unwrap_or(&relative);
+    let bytes = match planning_store.read(relative) {
         Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound =>
+        {
+            return Ok(None);
+        }
         Err(error) => return Err(error.into()),
     };
     let contract: crate::core::contract_snapshot::BatchContract = serde_json::from_slice(&bytes)?;
@@ -121,14 +153,24 @@ pub fn completed_dependency_context(
     ticket: &str,
     ticket_text: &str,
 ) -> anyhow::Result<Option<String>> {
-    let (current_text, _, metadata) = read_ticket_and_identity(planning_root, ticket)?;
+    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    completed_dependency_context_with_store(&store, planning_root, ticket, ticket_text)
+}
+
+pub(crate) fn completed_dependency_context_with_store(
+    planning_store: &PlanningStore,
+    state_root: &Path,
+    ticket: &str,
+    ticket_text: &str,
+) -> anyhow::Result<Option<String>> {
+    let (current_text, _, metadata) = read_ticket_and_identity(planning_store, ticket)?;
     anyhow::ensure!(
         current_text == ticket_text,
         "Task changed while resolving dependencies"
     );
     let dependencies = if let Some(metadata) = metadata {
-        let workflow = crate::artifacts::task_docs::load_workflow(planning_root)?;
-        let documents = crate::artifacts::task_docs::load_board(planning_root, &workflow);
+        let workflow = crate::artifacts::task_docs::load_workflow(planning_store)?;
+        let documents = crate::artifacts::task_docs::load_board(planning_store, &workflow);
         metadata
             .dependency_uids
             .iter()
@@ -174,7 +216,7 @@ pub fn completed_dependency_context(
     let mut context = String::new();
     for (relative, expected_uid) in dependencies {
         anyhow::ensure!(relative.as_str() != ticket, "Task cannot depend on itself");
-        let record = load(planning_root, &relative)
+        let record = load(state_root, &relative)
             .ok_or_else(|| anyhow::anyhow!("Dependency {relative} has no implementation record"))?;
         if let Some(expected_uid) = expected_uid {
             anyhow::ensure!(
@@ -188,8 +230,12 @@ pub fn completed_dependency_context(
                 && record.merged_commit.is_some(),
             "Dependency {relative} has not merged"
         );
-        let story = crate::artifacts::task_docs::visible_content(&fs::read_to_string(
-            planning_root.join(&relative),
+        let story_path = planning_store
+            .planning_layout()
+            .canonical_path(&relative)
+            .ok_or_else(|| anyhow::anyhow!("Invalid dependency task path"))?;
+        let story = crate::artifacts::task_docs::visible_content(&String::from_utf8(
+            planning_store.read_planning_path(&story_path)?,
         )?);
         anyhow::ensure!(
             story == record.ticket_text,

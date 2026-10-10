@@ -80,6 +80,6 @@ fn conflicting_previous_work_target_stops_before_writing_the_project_manifest() 
             .join(crate::artifacts::layout::canonical::PROJECT_MANIFEST)
             .exists()
     );
-    assert!(!common_dir(&root).unwrap().join(PENDING_NAME).exists());
+    assert!(!scoped_pending_path(&root).exists());
     let _ = fs::remove_dir_all(root);
 }

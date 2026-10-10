@@ -218,7 +218,7 @@ pub fn validate_for_turn_with_resolutions(
         }
     };
 
-    let modular = crate::artifacts::product_docs::load_modules(&state.repo_root)
+    let modular = crate::artifacts::product_docs::load_modules(&state.planning_store)
         .map(|parts| parts.is_some())
         .unwrap_or_else(|error| {
             fatals.push(format!("product modules unreadable: {error}"));
@@ -259,7 +259,7 @@ pub fn validate_for_turn_with_resolutions(
             update.content.clone()
         };
         let path = match crate::artifacts::product_docs::document_path_for_update(
-            &state.repo_root,
+            &state.planning_store,
             &update.document_id,
             &content,
         ) {
@@ -283,7 +283,8 @@ pub fn validate_for_turn_with_resolutions(
             if let Err(error) = crate::artifacts::product_docs::validate_module(&content) {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
-            if let Ok(old) = std::fs::read_to_string(&path)
+            if let Ok(bytes) = state.planning_store.read_planning_path(&path)
+                && let Ok(old) = String::from_utf8(bytes)
                 && let Err(error) = crate::artifacts::product_docs::preserved_ids(&old, &content)
             {
                 fatals.push(format!("{}: {error}", update.document_id));
@@ -709,7 +710,7 @@ fn valid_feature_reference(state: &PlannerState, envelope: &TurnEnvelope, id: &s
     if !crate::artifacts::product_docs::valid_feature_id(id) {
         return false;
     }
-    crate::artifacts::product_docs::document_path(&state.repo_root, &format!("feature:{id}"))
+    crate::artifacts::product_docs::document_path(&state.planning_store, &format!("feature:{id}"))
         .is_ok()
         || envelope
             .document_updates

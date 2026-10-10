@@ -1,11 +1,13 @@
 use super::super::*;
 use super::source;
+use crate::artifacts::planning_store::PlanningStore;
 use std::path::Path;
 mod legacy_plan;
 mod legacy_workspace;
 
 pub(super) struct Request<'a> {
-    pub(super) planning_root: &'a Path,
+    pub(super) planning_store: &'a PlanningStore,
+    pub(super) state_root: &'a Path,
     pub(super) repo: &'a Path,
     pub(super) ticket: &'a str,
     pub(super) text: &'a str,
@@ -18,7 +20,8 @@ pub(super) struct Request<'a> {
 
 pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementation> {
     let Request {
-        planning_root,
+        planning_store,
+        state_root,
         repo,
         ticket,
         text,
@@ -44,26 +47,36 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             && state.status != ImplementationStatus::Completed
         {
             state = legacy_workspace::migrate(
-                planning_root,
-                repo,
-                text,
-                metadata.as_ref(),
-                dir,
+                legacy_workspace::MigrationRequest {
+                    planning_store,
+                    state_root,
+                    repo,
+                    text,
+                    metadata: metadata.as_ref(),
+                    dir,
+                    runner,
+                },
                 state,
-                runner,
             )?;
         }
 
         if state.task_repository_kind == TaskRepositoryKind::Clone {
-            task_repository::validate_task_path(planning_root, &state)?;
+            task_repository::validate_task_path(state_root, &state)?;
             if state.task_repository_allocation_key.is_none() {
                 state.task_repository_allocation_key =
                     Some(task_repository::allocation_key(&state));
             }
         }
+        if state.approved_specification.is_none() {
+            state.approved_specification = read_approved_specification(planning_store, ticket);
+        }
+        if state.approved_product_context.is_none() {
+            state.approved_product_context =
+                scoped_product_context_with_store(planning_store, ticket)?;
+        }
         state.ticket = ticket.to_owned();
         if state.task_repository_kind == TaskRepositoryKind::Clone {
-            let _cache = task_repository::cache_for_state(repo, planning_root, &state, runner)?;
+            let _cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
             anyhow::ensure!(
                 state.source_ref.is_some() && state.source_commit.is_some(),
                 "Saved task source commit is missing; the task repository is preserved"
@@ -88,7 +101,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             && plan.clone_repository.is_none()
         {
             legacy_plan::attach_clone_identity(
-                planning_root,
+                planning_store,
                 repo,
                 &key(ticket),
                 text,
@@ -101,7 +114,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         }
         let source = match saved_plan.as_ref() {
             Some(plan) => source::resume_from_plan(
-                planning_root,
+                planning_store,
                 repo,
                 ticket,
                 metadata.as_ref(),
@@ -109,7 +122,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
                 runner,
             )?,
             None => source::resolve(source::Request {
-                planning_root,
+                planning_store,
                 repo,
                 dir,
                 ticket,
@@ -120,7 +133,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             })?,
         };
         let task_repository_path =
-            task_repository::task_path(planning_root, &source.repository_id, ticket)?;
+            task_repository::task_path(state_root, &source.repository_id, ticket)?;
         let destination = source.destination_branch;
         let head = source.base_commit;
         let explicit_source = metadata
@@ -129,20 +142,19 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         let source_ref = Some(source.source_ref);
         let source_commit = Some(source.source_commit);
         let repository_id = Some(source.repository_id);
-        let project_id = Some(task_repository::project_id(planning_root)?);
+        let project_id = Some(task_repository::project_id(state_root)?);
         let repository_identity = Some(source.cache.identity);
         let push_repository = source.cache.push_identity_url.clone();
         let repository_cache = Some(source.cache.path);
         let repository_kind = TaskRepositoryKind::Clone;
-        let dependency_context = completed_dependency_context(planning_root, ticket, text)?;
+        let dependency_context =
+            completed_dependency_context_with_store(planning_store, state_root, ticket, text)?;
         Implementation {
             ticket: ticket.into(),
             task_uid: task_uid.map(str::to_owned),
             ticket_text: text.to_owned(),
-            approved_specification: Path::new(ticket).parent().and_then(|parent| {
-                fs::read_to_string(planning_root.join(parent).join("specification.md")).ok()
-            }),
-            approved_product_context: scoped_product_context(planning_root, ticket)?,
+            approved_specification: read_approved_specification(planning_store, ticket),
+            approved_product_context: scoped_product_context_with_store(planning_store, ticket)?,
             completed_dependency_context: dependency_context,
             branch: format!("koolade/{}", key(ticket)),
             source_branch: explicit_source,
@@ -184,4 +196,11 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
     }
 
     Ok(state)
+}
+
+fn read_approved_specification(store: &PlanningStore, ticket: &str) -> Option<String> {
+    let parent = Path::new(ticket).parent()?;
+    let relative = parent.join("specification.md");
+    let path = store.layout().canonical_path(&relative.to_string_lossy())?;
+    String::from_utf8(store.read_planning_path(&path).ok()?).ok()
 }

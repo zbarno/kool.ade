@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn main_turn_receives_the_model_selected_authoritative_context() {
-    let (inputs, dir) = inputs_for("retrieval_pipeline", "The session vanishes after restart.");
+    let (mut inputs, dir) = inputs_for("retrieval_pipeline", "The session vanishes after restart.");
     let product = dir.join(".koolade-packet/planning/product/architecture-and-constraints.md");
     std::fs::write(
         &product,
@@ -15,6 +15,7 @@ fn main_turn_receives_the_model_selected_authoritative_context() {
         "// session restore implementation\n",
     )
     .unwrap();
+    inputs.state.resync().unwrap();
     let harness = RetrievalPipelineHarness;
     match drain(&TurnController::start(inputs, Box::new(harness))) {
         TurnOutcome::Applied { .. } => {}

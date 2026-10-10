@@ -1,4 +1,5 @@
 use super::{Implementation, Runner, TaskRepositoryKind, key};
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::repository_cache::RepositoryCache;
 use std::{
     ffi::OsStr,
@@ -38,7 +39,7 @@ pub(super) fn allocation_key(state: &Implementation) -> String {
 
 pub(super) fn cache_for_state(
     repo: &Path,
-    planning_root: &Path,
+    planning_store: &PlanningStore,
     state: &Implementation,
     runner: &Runner,
 ) -> anyhow::Result<RepositoryCache> {
@@ -51,8 +52,8 @@ pub(super) fn cache_for_state(
         .repository_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Saved task repository identity is missing"))?;
-    let (text, _, metadata) = super::read_ticket_and_identity(planning_root, &state.ticket)?;
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root)?;
+    let (text, _, metadata) = super::read_ticket_and_identity(planning_store, &state.ticket)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     anyhow::ensure!(
         super::task_repository_id(&text, metadata.as_ref(), &manifest)? == repository_id,
         "Task repository mapping changed; review the saved task before resuming"
@@ -61,8 +62,13 @@ pub(super) fn cache_for_state(
         .repository_cache
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Saved repository cache path is missing"))?;
-    let cache =
-        RepositoryCache::open_at(repo, planning_root, repository_id, Some(cache_path), runner)?;
+    let cache = RepositoryCache::open_at(
+        repo,
+        planning_store,
+        repository_id,
+        Some(cache_path),
+        runner,
+    )?;
     anyhow::ensure!(
         state.repository_identity.as_deref() == Some(cache.identity.as_str()),
         "Repository identity changed since task start; the saved clone is preserved"
@@ -70,11 +76,8 @@ pub(super) fn cache_for_state(
     Ok(cache)
 }
 
-pub(super) fn validate_task_path(
-    planning_root: &Path,
-    state: &Implementation,
-) -> anyhow::Result<()> {
-    let project_id = project_id(planning_root)?;
+pub(super) fn validate_task_path(state_root: &Path, state: &Implementation) -> anyhow::Result<()> {
+    let project_id = project_id(state_root)?;
     anyhow::ensure!(state.project_id.as_deref() == Some(project_id.as_str()));
     validate_clone_path_at(state, &state.task_repository)
 }

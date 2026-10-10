@@ -60,9 +60,7 @@ impl KooladeApp {
         work.feature_uid = Some(identity.uid);
         work.key = format!("task-generation:{}", work.uid);
         project.planning_work.push(work);
-        if let Err(error) =
-            crate::core::planning_work::save(&project.state.repo_root, &project.planning_work)
-        {
+        if let Err(error) = project.save_planning_work() {
             project.planning_work.pop();
             self.toasts.danger(format!(
                 "Feature was approved, but the task generation card could not be saved: {error}"

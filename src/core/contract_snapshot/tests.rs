@@ -28,6 +28,22 @@ fn stale_plan_choice_invalidates_a_feature_batch_contract() {
     assert!(!super::batch_contract_matches_feature(
         &root, &directory, "F7", plan_b
     ));
+    let root_relative_directory = format!(
+        "{}/F7-plan-a",
+        crate::artifacts::planning_store::paths::TASKS
+    );
+    assert!(super::batch_contract_matches_feature(
+        &root,
+        &root_relative_directory,
+        "F7",
+        plan_a
+    ));
+    assert!(!super::batch_contract_matches_feature(
+        &root,
+        &root_relative_directory,
+        "F7",
+        plan_b
+    ));
     assert!(!super::batch_contract_matches_feature(
         &root,
         "../../outside",

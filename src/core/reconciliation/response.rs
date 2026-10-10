@@ -6,19 +6,20 @@ pub(super) fn prompt(
     evidence: &str,
 ) -> anyhow::Result<String> {
     let feature_path = crate::artifacts::product_docs::document_path(
-        &state.repo_root,
+        &state.planning_store,
         &format!("feature:{}", candidate.feature_id),
     )?;
-    let current_feature = std::fs::read_to_string(feature_path)?;
+    let current_feature =
+        String::from_utf8(state.planning_store.read_planning_path(&feature_path)?)?;
     let mut modules = String::new();
     for id in candidate.contract.product_modules.keys() {
         let path = crate::artifacts::product_docs::document_path(
-            &state.repo_root,
+            &state.planning_store,
             &format!("product:{id}"),
         )?;
         modules.push_str(&format!(
             "\n=== product:{id} ===\n{}\n",
-            std::fs::read_to_string(path)?
+            String::from_utf8(state.planning_store.read_planning_path(&path)?)?
         ));
     }
     Ok(format!(

@@ -1,5 +1,16 @@
 use super::*;
 
+fn init_git(root: &std::path::Path) {
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+}
+
 fn identified_story() -> (crate::domain::ArtifactIdentity, String, String) {
     let batch = crate::domain::ArtifactIdentity::new("BATCH-001", "Batch");
     let mut task = crate::domain::ArtifactIdentity::new("TASK-001", "Story");
@@ -140,6 +151,7 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
+    init_git(&root);
     let targets = crate::core::workflow::BranchTargets {
         source: "release/2.1".into(),
         destination: "integration".into(),
@@ -177,6 +189,7 @@ fn generated_task_stories_embed_the_batch_routing_snapshot() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
+    init_git(&root);
     let source_uid = uuid::Uuid::new_v4().to_string();
     let inherited_from = uuid::Uuid::new_v4().to_string();
     let routes = std::collections::BTreeMap::from([(

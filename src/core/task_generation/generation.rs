@@ -10,6 +10,11 @@ use crate::{
 };
 use std::time::Instant;
 
+pub struct TaskGenerationOutcome {
+    pub outcome: HarnessOutcome,
+    pub planning_revision: String,
+}
+
 pub(super) fn model_batch_context(contract: &serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "product_modules": contract["productModules"],
@@ -22,7 +27,7 @@ pub fn generate(
     request: &PlanningRequest,
     state: &PlannerState,
     started: Instant,
-) -> Result<HarnessOutcome, AppError> {
+) -> Result<TaskGenerationOutcome, AppError> {
     let run = Run::open(request, state, started)?;
     let brief = state
         .workflow
@@ -37,8 +42,12 @@ pub fn generate(
                 .ok()
                 .flatten()
                 .map(|identity| identity.uid);
-            crate::core::planning_work::routing_for_feature(&state.repo_root, id, uid.as_deref())
-                .map_err(|error| AppError::Other(format!("Cannot load task routing: {error}")))
+            crate::core::planning_work::routing_for_feature(
+                &state.planning_store,
+                id,
+                uid.as_deref(),
+            )
+            .map_err(|error| AppError::Other(format!("Cannot load task routing: {error}")))
         })
         .transpose()?
         .unwrap_or_default();
@@ -98,14 +107,15 @@ pub fn generate(
         run.write("checkpoint", &cp)?;
         cp
     };
-    let publish = |cp: &Checkpoint| -> anyhow::Result<()> {
+    let mut planning_revision = state.baseline_planning_revision.clone();
+    let publish = |cp: &Checkpoint, planning_revision: &mut String| -> anyhow::Result<()> {
         anyhow::ensure!(
-            crate::artifacts::spec_doc::load(&state.repo_root)? == state.spec_text,
+            crate::artifacts::spec_doc::load(&state.planning_store)? == state.spec_text,
             "Specification changed during generation"
         );
         anyhow::ensure!(
             crate::artifacts::product_docs::active_feature_for_workflow(
-                &state.repo_root,
+                &state.planning_store,
                 &state.workflow,
             ) == state.active_feature,
             "Active feature changed during generation"
@@ -116,7 +126,7 @@ pub fn generate(
             "Affected product modules or repository bases changed during generation"
         );
         anyhow::ensure!(
-            crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow,
+            crate::artifacts::task_docs::load_workflow(&state.planning_store)? == state.workflow,
             "Interview changed during generation"
         );
         if let Some((id, body)) = &state.active_feature {
@@ -126,7 +136,7 @@ pub fn generate(
                 .map(|identity| identity.uid);
             anyhow::ensure!(
                 crate::core::planning_work::routing_for_feature(
-                    &state.repo_root,
+                    &state.planning_store,
                     id,
                     uid.as_deref()
                 )? == task_routing,
@@ -151,9 +161,12 @@ pub fn generate(
         // refactor that loosens the front door.
         let stamped = batch.feature_id.clone();
         let declared = crate::core::workflow::feature_ids_in(&batch.brief.feature_name);
-        if let Some(problem) =
-            crate::core::workflow::brief_target_problem(&declared, stamped.as_deref(), &|_| true)
-        {
+        if let Some(problem) = crate::core::workflow::brief_target_problem_with_store(
+            &declared,
+            stamped.as_deref(),
+            &|_| true,
+            &state.planning_store,
+        ) {
             anyhow::bail!("{problem}");
         }
         if let (Some(spec_id), Some(stamped)) = (
@@ -165,18 +178,20 @@ pub fn generate(
                 "Batch specification is the {spec_id} document, but the batch is stamped {stamped}; activate {spec_id} as the active feature and regenerate its stories"
             );
         }
-        crate::artifacts::task_docs::save_progress(
-            &state.repo_root,
+        let (_, revision) = crate::artifacts::task_docs::save_progress_expected(
+            &state.planning_store,
             &format!(
                 "{:016x}",
                 crate::persistence::fnv1a64(&serde_json::to_vec(&run.identity).unwrap_or_default())
             ),
             &batch,
             cp.outline.len(),
+            planning_revision,
         )?;
+        *planning_revision = revision;
         Ok(())
     };
-    publish(&cp)?;
+    publish(&cp, &mut planning_revision)?;
     for i in cp.stories.len()..cp.outline.len() {
         run.remaining(request)?;
         let planned = &cp.outline[i];
@@ -204,13 +219,16 @@ pub fn generate(
         )?;
         cp.stories.push(story);
         run.write("checkpoint", &cp)?;
-        publish(&cp)?;
+        publish(&cp, &mut planning_revision)?;
     }
     run.remaining(request)?;
     let final_text = serde_json::json!({"schema_version":1,"assistant_message":format!("Prepared {} implementation-ready task stories, each validated for detail, dependencies and approved scope.", cp.stories.len()),"task_stories":cp.stories}).to_string();
-    Ok(HarnessOutcome {
-        final_text,
-        envelope: None,
-        stderr_tail: String::new(),
+    Ok(TaskGenerationOutcome {
+        outcome: HarnessOutcome {
+            final_text,
+            envelope: None,
+            stderr_tail: String::new(),
+        },
+        planning_revision,
     })
 }

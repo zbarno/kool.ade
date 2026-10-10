@@ -36,7 +36,7 @@ mod host;
 
 pub use host::{
     SpanGuard, activate_project, app_close_flush, drain_errors, root_repo_id, span_begin,
-    span_for_ticket,
+    span_for_ticket, span_for_ticket_with_store,
 };
 
 /// Smallest closed-span duration that earns a ledger row.

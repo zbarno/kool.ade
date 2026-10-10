@@ -1,4 +1,5 @@
 //! Feature identifiers, safe paths, and the application-maintained index.
+use crate::artifacts::planning_store::PlanningRoot;
 use std::path::Path;
 
 pub fn valid_feature_id(id: &str) -> bool {
@@ -56,8 +57,8 @@ pub(super) fn real_dir(path: &Path) -> anyhow::Result<bool> {
     }
 }
 
-pub fn next_feature_id(repo: &Path) -> String {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+pub fn next_feature_id<R: PlanningRoot + ?Sized>(repo: &R) -> String {
+    let layout = repo.planning_layout();
     let mut maximum = 0u32;
     if let Ok(entries) = std::fs::read_dir(layout.changes_root()) {
         for entry in entries.flatten() {
@@ -68,6 +69,16 @@ pub fn next_feature_id(repo: &Path) -> String {
             }
         }
     }
+    let store = repo.planning_store();
+    let git_root = repo
+        .code_repository_root()
+        .unwrap_or_else(|| layout.root().to_path_buf());
+    let history_path = if store.mode == crate::artifacts::planning_store::StoreMode::LegacyEmbedded
+    {
+        crate::artifacts::layout::canonical::CHANGES
+    } else {
+        crate::artifacts::planning_store::paths::CHANGES
+    };
     if let Ok(output) = std::process::Command::new("git")
         .args([
             "log",
@@ -75,17 +86,15 @@ pub fn next_feature_id(repo: &Path) -> String {
             "--name-only",
             "--pretty=format:",
             "--",
-            crate::artifacts::layout::canonical::CHANGES,
+            history_path,
         ])
-        .current_dir(repo)
+        .current_dir(git_root)
         .output()
         && output.status.success()
     {
         for line in String::from_utf8_lossy(&output.stdout).lines() {
-            if let Some(name) = line.strip_prefix(&format!(
-                "{}/",
-                crate::artifacts::layout::canonical::CHANGES
-            )) && let Some(number) = directory_feature_id(name).and_then(feature_number)
+            if let Some(name) = line.strip_prefix(&format!("{history_path}/"))
+                && let Some(number) = directory_feature_id(name).and_then(feature_number)
             {
                 maximum = maximum.max(number);
             }
@@ -94,20 +103,22 @@ pub fn next_feature_id(repo: &Path) -> String {
     format!("F{}", maximum + 1)
 }
 
-pub fn refreshed_index(repo: &Path, updates: &[(String, String)]) -> anyhow::Result<String> {
-    let index = std::fs::read_to_string(
-        crate::artifacts::layout::ArtifactLayout::new(repo).product_index(),
-    )?;
+pub fn refreshed_index<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    updates: &[(String, String)],
+) -> anyhow::Result<String> {
+    let index =
+        String::from_utf8(repo.read_planning_path(&repo.planning_layout().product_index())?)?;
     refreshed_index_from(repo, &index, updates)
 }
 
-pub fn refreshed_index_from(
-    repo: &Path,
+pub fn refreshed_index_from<R: PlanningRoot + ?Sized>(
+    repo: &R,
     index: &str,
     updates: &[(String, String)],
 ) -> anyhow::Result<String> {
     let manifest = super::document_updates::updated_manifest(repo, updates)?;
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    let layout = repo.planning_layout();
     let title = index
         .lines()
         .find_map(|line| line.strip_prefix("# "))

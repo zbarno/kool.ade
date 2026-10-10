@@ -23,6 +23,7 @@ impl KooladeApp {
         let body = body.clone();
         if let Some(mut record) = project.state.workflow.plan_comparisons.get(id).cloned() {
             let guard = crate::core::writer_gate::acquire();
+            let store = &project.state.planning_store;
             record.status = crate::core::workflow::PlanComparisonStatus::Discarded;
             record.selected_plan = None;
             record.alternatives.selected_plan = None;
@@ -33,7 +34,7 @@ impl KooladeApp {
             let mut workflow = project.state.workflow.clone();
             workflow.plan_comparisons.insert(id.to_owned(), record);
             let feature_path = match crate::artifacts::product_docs::document_path(
-                &project.state.repo_root,
+                store,
                 &format!("feature:{id}"),
             ) {
                 Ok(path) => path,
@@ -43,7 +44,11 @@ impl KooladeApp {
                     return;
                 }
             };
-            let current_feature = match crate::artifacts::read_utf8_lossy(&feature_path) {
+            let current_feature = match store.read_planning_path(&feature_path).and_then(|bytes| {
+                String::from_utf8(bytes).map_err(|error| {
+                    crate::artifacts::planning_store::StoreError::MalformedState(error.to_string())
+                })
+            }) {
                 Ok(current) if current == body => current,
                 Ok(_) => {
                     self.toasts
@@ -74,15 +79,9 @@ impl KooladeApp {
                     return;
                 }
             };
-            let layout = crate::artifacts::layout::ArtifactLayout::new(&project.state.repo_root);
-            let path = layout.workflow_state();
-            let workflow_relative = path
-                .strip_prefix(&project.state.repo_root)
-                .unwrap()
-                .to_string_lossy()
-                .replace('\\', "/");
+            let workflow_relative = crate::artifacts::planning_store::paths::WORKFLOW.to_owned();
             let feature_relative = feature_path
-                .strip_prefix(&project.state.repo_root)
+                .strip_prefix(store.root.as_path())
                 .unwrap()
                 .to_string_lossy()
                 .replace('\\', "/");
@@ -95,19 +94,28 @@ impl KooladeApp {
                 }
             };
             let changes = vec![
-                (workflow_relative, content),
-                (feature_relative, updated_feature.clone()),
+                (workflow_relative, content.into_bytes()),
+                (feature_relative, updated_feature.clone().into_bytes()),
             ];
-            let paths =
-                match crate::artifacts::transaction::apply(&project.state.repo_root, &changes) {
-                    Ok(paths) => paths,
-                    Err(error) => {
-                        self.toasts
-                            .danger(format!("Discard was rolled back: {error}"));
-                        return;
-                    }
-                };
+            let (paths, revision) = match store.transaction_with_revision(
+                &changes,
+                Some(&project.state.baseline_planning_revision),
+            ) {
+                Ok((paths, revision)) => (
+                    paths
+                        .iter()
+                        .map(|path| store.git_path(path))
+                        .collect::<Vec<_>>(),
+                    revision,
+                ),
+                Err(error) => {
+                    self.toasts
+                        .danger(format!("Discard was rolled back: {error}"));
+                    return;
+                }
+            };
             project.state.workflow = workflow;
+            project.state.baseline_planning_revision = revision;
             if let Some((_, feature)) = project
                 .state
                 .active_features
@@ -125,7 +133,7 @@ impl KooladeApp {
                 project.state.active_feature = Some((id.to_owned(), updated_feature));
             }
             let commit = crate::core::gitops::commit(
-                &project.state.repo_root,
+                &store.git_root(),
                 &format!("planner: discard plan comparison for {id}"),
                 &paths,
             );
@@ -141,7 +149,7 @@ impl KooladeApp {
             return;
         }
         let path = match crate::artifacts::product_docs::document_path(
-            &project.state.repo_root,
+            &project.state.planning_store,
             &format!("feature:{id}"),
         ) {
             Ok(path) => path,
@@ -152,7 +160,12 @@ impl KooladeApp {
             }
         };
         let guard = crate::core::writer_gate::acquire();
-        let current = match crate::artifacts::read_utf8_lossy(&path) {
+        let store = &project.state.planning_store;
+        let current = match store.read_planning_path(&path).and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|error| {
+                crate::artifacts::planning_store::StoreError::MalformedState(error.to_string())
+            })
+        }) {
             Ok(current) if current == *body => current,
             Ok(_) => {
                 self.toasts
@@ -173,21 +186,28 @@ impl KooladeApp {
             }
         };
         let relative = path
-            .strip_prefix(&project.state.repo_root)
+            .strip_prefix(store.root.as_path())
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let paths = match crate::artifacts::transaction::apply(
-            &project.state.repo_root,
-            &[(relative, updated.clone())],
+        let (paths, revision) = match store.transaction_with_revision(
+            &[(relative, updated.clone().into_bytes())],
+            Some(&project.state.baseline_planning_revision),
         ) {
-            Ok(paths) => paths,
+            Ok((paths, revision)) => (
+                paths
+                    .iter()
+                    .map(|path| store.git_path(path))
+                    .collect::<Vec<_>>(),
+                revision,
+            ),
             Err(error) => {
                 self.toasts
                     .danger(format!("Discard was rolled back: {error}"));
                 return;
             }
         };
+        project.state.baseline_planning_revision = revision;
         if let Some((_, feature_body)) = project
             .state
             .active_features
@@ -205,7 +225,7 @@ impl KooladeApp {
             project.state.active_feature = Some((id.to_owned(), updated));
         }
         let commit = crate::core::gitops::commit(
-            &project.state.repo_root,
+            &store.git_root(),
             &format!("planner: discard plan comparison for {id}"),
             &paths,
         );

@@ -384,9 +384,11 @@ impl Surface for KooladeApp {
     }
     fn feature_approved(&self, id: &str) -> bool {
         match &self.screen {
-            Screen::Connected(p) => {
-                crate::core::workflow::feature_approved(&p.state.repo_root, &p.state.workflow, id)
-            }
+            Screen::Connected(p) => crate::core::workflow::feature_approved(
+                &p.state.planning_store,
+                &p.state.workflow,
+                id,
+            ),
             Screen::Welcome => false,
         }
     }

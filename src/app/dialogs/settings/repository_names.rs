@@ -24,7 +24,7 @@ pub(super) fn rows(
 }
 
 pub(super) fn persist(
-    project: &Project,
+    project: &mut Project,
     rows: &mut [RepositoryNameRow],
 ) -> Result<bool, crate::AppError> {
     let current = &project.state.repositories;
@@ -58,8 +58,14 @@ pub(super) fn persist(
         }
         return Ok(false);
     }
-    crate::core::project_repos::save_display_names(&project.state.repo_root, updated)
-        .map_err(crate::AppError::from)?;
+    let revision = crate::core::project_repos::save_display_names_expected(
+        &project.state.planning_store,
+        updated.clone(),
+        &project.state.baseline_planning_revision,
+    )
+    .map_err(crate::AppError::from)?;
+    project.state.repositories = updated;
+    project.state.baseline_planning_revision = revision;
     for row in rows {
         row.name = row.name.trim().to_owned();
         row.original_name.clone_from(&row.name);

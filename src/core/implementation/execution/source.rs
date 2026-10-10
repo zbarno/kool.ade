@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::initial_reconciliation::CloneRepositoryPlan;
 use crate::core::implementation::repository_cache::RepositoryCache;
 
@@ -12,7 +13,7 @@ pub(super) struct TaskSource {
 }
 
 pub(super) struct Request<'a> {
-    pub(super) planning_root: &'a Path,
+    pub(super) planning_store: &'a PlanningStore,
     pub(super) repo: &'a Path,
     pub(super) dir: &'a Path,
     pub(super) ticket: &'a str,
@@ -24,7 +25,7 @@ pub(super) struct Request<'a> {
 
 pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
     let Request {
-        planning_root,
+        planning_store,
         repo,
         dir,
         ticket,
@@ -33,9 +34,9 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         publication_mode,
         runner,
     } = request;
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_root)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let repository_id = task_repository_id(text, metadata, &manifest)?;
-    let cache = RepositoryCache::open(repo, planning_root, &repository_id, runner)?;
+    let cache = RepositoryCache::open(repo, planning_store, &repository_id, runner)?;
     let explicitly_selected = metadata.and_then(|metadata| metadata.source_branch.as_deref());
     let source_ref = if let Some(source) = explicitly_selected {
         source.to_owned()
@@ -92,7 +93,7 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
 }
 
 pub(super) fn resume_from_plan(
-    planning_root: &Path,
+    planning_store: &PlanningStore,
     repo: &Path,
     ticket: &str,
     metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
@@ -120,7 +121,7 @@ pub(super) fn resume_from_plan(
         crate::core::implementation::repository_cache::cache_path(&saved.repository_identity)?;
     let cache = RepositoryCache::open_at(
         repo,
-        planning_root,
+        planning_store,
         &saved.repository_id,
         Some(&cache_path),
         runner,

@@ -114,7 +114,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
 }
 
 pub fn context(state: &crate::core::state::PlannerState, key: &str) -> Option<String> {
-    let work = load(&state.repo_root).ok()?;
+    let work = load(&state.planning_store).ok()?;
     let card = cards(state, &work).into_iter().find(|w| w.key == key)?;
     let feature = card.feature_uid.as_ref().and_then(|uid| {
         state.active_features.iter().find(|(_, body)| {

@@ -185,6 +185,14 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
         let mut state = PlannerState::load(&root).unwrap();
         let markdown = crate::domain::ArtifactIdentity::preserve_markdown(
             "# CHG-001: Example\n\n**Status:** Draft\n",

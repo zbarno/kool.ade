@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::state::PlannerState;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,17 +16,28 @@ pub struct BatchContract {
     pub configuration: String,
 }
 
-pub fn batch_contract_matches_feature(
-    repo: &std::path::Path,
+pub fn batch_contract_matches_feature<R: PlanningRoot + ?Sized>(
+    repo: &R,
     directory: &str,
     feature_id: &str,
     feature: &str,
 ) -> bool {
-    let prefix = format!("{}/", crate::artifacts::layout::canonical::TASKS);
-    let Some(name) = directory.strip_prefix(&prefix) else {
+    let store = repo.planning_store();
+    let git_task_root = format!(
+        "{}/",
+        store.git_path(crate::artifacts::planning_store::paths::TASKS)
+    );
+    let store_task_root = format!("{}/", crate::artifacts::planning_store::paths::TASKS);
+    // TaskBatchRef.directory is persisted in both the legacy Git-root form
+    // and the planning-store-root form. Resolve both through the active
+    // layout so legacy records remain readable after the path normalization.
+    let Some(name) = directory
+        .strip_prefix(&git_task_root)
+        .or_else(|| directory.strip_prefix(&store_task_root))
+    else {
         return false;
     };
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+    let layout = repo.planning_layout();
     let Some(batch_dir) = layout.task_batch(name) else {
         return false;
     };
@@ -47,8 +59,9 @@ pub fn batch_contract_matches_feature(
     if !file_meta.is_file() || file_meta.file_type().is_symlink() {
         return false;
     }
-    std::fs::read_to_string(path)
+    repo.read_planning_path(&path)
         .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
         .and_then(|text| serde_json::from_str::<BatchContract>(&text).ok())
         .is_some_and(|snapshot| {
             snapshot.feature_id == feature_id
@@ -87,17 +100,21 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
         return Ok(None);
     };
     anyhow::ensure!(
-        crate::core::project_repos::ProjectManifest::load(&state.repo_root)? == state.repositories,
+        crate::core::project_repos::ProjectManifest::load(&state.planning_store)?
+            == state.repositories,
         "Project repository manifest changed during generation"
     );
-    let layout = crate::artifacts::layout::ArtifactLayout::new(&state.repo_root);
-    let config = std::fs::read_to_string(layout.project_config())?;
+    let config = String::from_utf8(
+        state
+            .planning_store
+            .read(crate::artifacts::planning_store::paths::PROJECT_CONFIG)?,
+    )?;
     anyhow::ensure!(
         crate::artifacts::config_io::parse(&config).map_err(anyhow::Error::msg)? == state.config,
         "Planning configuration changed during generation"
     );
     let mut product_modules = BTreeMap::new();
-    let modules = crate::artifacts::product_docs::load_documents(&state.repo_root)?
+    let modules = crate::artifacts::product_docs::load_documents(&state.planning_store)?
         .ok_or_else(|| anyhow::anyhow!("Product modules are missing"))?;
     for document in modules {
         if references_module(

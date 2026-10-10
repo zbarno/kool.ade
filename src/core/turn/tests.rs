@@ -90,9 +90,9 @@ impl AiHarness for RetrievalPipelineHarness {
                 .contains("SESSION_CONTEXT_FROM_RETRIEVAL")
         );
         assert!(
-            request.prompt_body.contains(
-                "Source: .koolade-packet/planning/product/architecture-and-constraints.md"
-            )
+            request
+                .prompt_body
+                .contains("Source: planning/product/architecture-and-constraints.md")
         );
         assert!(request.prompt_body.contains("repo:src/session.rs"));
         Ok(HarnessOutcome {

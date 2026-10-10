@@ -48,7 +48,7 @@ impl KooladeApp {
                         .lines()
                         .find_map(|line| line.strip_prefix("Feature ID: "))
                         && !crate::core::workflow::feature_approved(
-                            &project.state.repo_root,
+                            &project.state.planning_store,
                             &project.state.workflow,
                             id,
                         )
@@ -150,7 +150,7 @@ impl KooladeApp {
                     .lines()
                     .find_map(|line| line.strip_prefix("Feature ID: "))
                     && !crate::core::workflow::feature_approved(
-                        &project.state.repo_root,
+                        &project.state.planning_store,
                         &project.state.workflow,
                         id,
                     )

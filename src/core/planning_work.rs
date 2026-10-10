@@ -1,21 +1,23 @@
 //! Versioned durable work records for planning requests that may not yet have
 //! produced a feature specification.
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 pub const FILE: &str = crate::artifacts::layout::canonical::WORK;
+pub const STORE_FILE: &str = crate::artifacts::planning_store::paths::WORK;
 const SCHEMA_VERSION: u32 = 3;
 
 mod projection;
+mod storage;
 mod validation;
 use validation::validate;
-pub use validation::{routing_for_feature, save};
+pub use validation::{routing_for_feature, save, save_expected};
 mod reconcile;
 #[cfg(test)]
 mod tests;
 
 pub use projection::{cards, context, link_feature_identities};
 pub use reconcile::{completed_turn_status, reconcile_inactive, reconcile_inactive_excluding};
+pub use storage::{append_discovered, find, load, load_expected};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -169,99 +171,4 @@ impl Work {
 struct WorkFile {
     schema_version: u32,
     items: Vec<Work>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegacyWork {
-    key: String,
-    title: String,
-    request: String,
-    column: usize,
-    feature: Option<String>,
-    detail: String,
-}
-
-pub fn load(repo: &Path) -> anyhow::Result<Vec<Work>> {
-    let path = repo.join(FILE);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    if value.is_array() {
-        let legacy: Vec<LegacyWork> = serde_json::from_value(value)?;
-        let work: Vec<Work> = legacy
-            .into_iter()
-            .map(migrate_legacy)
-            .collect::<anyhow::Result<_>>()?;
-        save(repo, &work)?;
-        return Ok(work);
-    }
-    let file: WorkFile = serde_json::from_value(value)?;
-    anyhow::ensure!(
-        (1..=SCHEMA_VERSION).contains(&file.schema_version),
-        "Unsupported planning work schema version {}",
-        file.schema_version
-    );
-    validate(&file.items)?;
-    if file.schema_version < SCHEMA_VERSION {
-        save(repo, &file.items)?;
-    }
-    Ok(file.items)
-}
-
-fn migrate_legacy(work: LegacyWork) -> anyhow::Result<Work> {
-    Ok(Work {
-        uid: uuid::Uuid::new_v4().hyphenated().to_string(),
-        key: work.key,
-        kind: WorkKind::Feature,
-        title: work.title,
-        request: work.request,
-        status: WorkStatus::from_legacy_column(work.column)?,
-        feature_id: work.feature,
-        feature_uid: None,
-        parent_uid: None,
-        source_branch: None,
-        destination_branch: None,
-        routing_overrides: std::collections::BTreeMap::new(),
-        routing_inherited_from: None,
-        follow_up_task: None,
-        detail: work.detail,
-    })
-}
-
-pub fn append_discovered(
-    repo: &Path,
-    drafts: &[crate::harness::PlanningTaskDraft],
-) -> anyhow::Result<Option<String>> {
-    if drafts.is_empty() {
-        return Ok(None);
-    }
-    let mut items = load(repo)?;
-    for draft in drafts {
-        let mut work = Work::new(
-            String::new(),
-            draft.title.trim().to_owned(),
-            draft.description.trim().to_owned(),
-            "Discovered during repository documentation review; triage before acting.".into(),
-        );
-        work.key = format!("task:{}", work.uid);
-        work.kind = draft.kind;
-        work.status = draft.status;
-        items.push(work);
-    }
-    validate(&items)?;
-    Ok(Some(serde_json::to_string_pretty(&WorkFile {
-        schema_version: SCHEMA_VERSION,
-        items,
-    })?))
-}
-
-pub fn find(state: &crate::core::state::PlannerState, key: &str) -> Option<Work> {
-    load(&state.repo_root)
-        .ok()?
-        .into_iter()
-        .find(|item| item.key == key)
 }

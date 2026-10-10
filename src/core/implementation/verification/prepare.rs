@@ -33,16 +33,7 @@ pub(in crate::core::implementation) fn prepare_verified(
         state.detail =
             "Starting a fresh attempt budget; previous work and evidence are preserved.".into();
         let mut previous_response = String::new();
-        let specification = state
-            .approved_specification
-            .clone()
-            .or_else(|| {
-                Path::new(&state.ticket)
-                    .parent()
-                    .map(|p| repo.join(p).join("specification.md"))
-                    .and_then(|p| fs::read_to_string(p).ok())
-            })
-            .unwrap_or_default();
+        let specification = state.approved_specification.clone().unwrap_or_default();
         let specification = if specification_matches_task(&state.ticket_text, &specification) {
             specification
         } else {

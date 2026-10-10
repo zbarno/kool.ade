@@ -2,6 +2,7 @@
 mod task;
 
 use super::{Brief, Report, validate};
+use crate::artifacts::planning_store::PlanningStore;
 use crate::harness::{AiHarness, PlanningRequest};
 use std::{
     collections::BTreeSet,
@@ -149,15 +150,17 @@ fn verification_context(report: &Report) -> String {
 }
 
 pub(super) fn context(
+    planning_store: &PlanningStore,
     repo: &Path,
     ticket: &str,
     report: &Report,
 ) -> (std::path::PathBuf, String, String) {
-    let task_repository = crate::core::implementation::load(repo, ticket)
-        .map(|state| state.task_repository)
-        .filter(|path| path.is_dir())
-        .unwrap_or_else(|| repo.to_owned());
-    let task = task::content(&task_repository, repo, ticket);
+    let task_repository =
+        crate::core::implementation::load_with_store(planning_store, repo, ticket)
+            .map(|state| state.task_repository)
+            .filter(|path| path.is_dir())
+            .unwrap_or_else(|| repo.to_owned());
+    let task = task::content(&task_repository, repo, planning_store, ticket);
     let documents = referenced_documents(&task_repository, report);
     (task_repository, task, documents)
 }

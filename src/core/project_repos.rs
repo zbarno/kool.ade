@@ -1,4 +1,5 @@
 //! Planning-root manifest and private machine checkout map.
+use crate::artifacts::planning_store::PlanningRoot;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
@@ -8,7 +9,7 @@ use std::{
 mod names;
 mod save;
 pub use names::{display_labels, normalize_display_name};
-pub use save::save_display_names;
+pub use save::{save_display_names, save_display_names_expected};
 
 pub const PROJECT_FILE: &str = crate::artifacts::layout::canonical::PROJECT_MANIFEST;
 
@@ -25,12 +26,34 @@ pub struct ProjectManifest {
     pub repositories: Vec<Repository>,
 }
 impl ProjectManifest {
-    pub fn load(planning_root: &Path) -> anyhow::Result<Self> {
-        let path = crate::artifacts::layout::ArtifactLayout::new(planning_root).project_manifest();
-        let contents = match std::fs::read_to_string(&path) {
-            Ok(contents) => contents,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let remote = git_remote(planning_root)
+    pub fn load<R: PlanningRoot + ?Sized>(planning_root: &R) -> anyhow::Result<Self> {
+        let code_root = planning_root.code_repository_root();
+        Self::load_with_optional_code_root(planning_root, code_root.as_deref())
+    }
+
+    pub fn load_with_code_root<R: PlanningRoot + ?Sized>(
+        planning_root: &R,
+        code_root: &Path,
+    ) -> anyhow::Result<Self> {
+        Self::load_with_optional_code_root(planning_root, Some(code_root))
+    }
+
+    fn load_with_optional_code_root<R: PlanningRoot + ?Sized>(
+        planning_root: &R,
+        code_root: Option<&Path>,
+    ) -> anyhow::Result<Self> {
+        let path = planning_root.planning_layout().project_manifest();
+        let contents = match planning_root.read_planning_path(&path) {
+            Ok(bytes) => String::from_utf8(bytes)?,
+            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                anyhow::ensure!(
+                    code_root.is_some(),
+                    "A code repository root is required to initialize project repository identity"
+                );
+                let remote = code_root
+                    .and_then(git_remote)
                     .filter(|remote| portable_remote(remote))
                     .unwrap_or_default();
                 return Ok(Self {

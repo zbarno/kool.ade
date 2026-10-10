@@ -2,9 +2,11 @@
 //! in-memory state, synthesize ownership items, atomically write changed
 //! artifacts, and produce the checkpoint commit message. Git staging/commit
 //! is sequenced by `core::turn` right after these writes succeed.
+mod commit_message;
 mod comparison;
 mod identities;
 mod product_documents;
+mod store_transaction;
 
 use crate::artifacts::{OPEN_ITEMS_FILE, SPEC_FILE, items_io, spec_doc};
 use crate::core::ownership;
@@ -33,27 +35,32 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             "Task generation cannot write supplemental planning artifacts"
         );
         anyhow::ensure!(
-            spec_doc::load(&state.repo_root)? == state.spec_text,
+            spec_doc::load(&state.planning_store)? == state.spec_text,
             "The specification changed during task generation; review it again before retrying"
         );
         anyhow::ensure!(
             crate::artifacts::product_docs::active_feature_for_workflow(
-                &state.repo_root,
+                &state.planning_store,
                 &state.workflow,
             ) == state.active_feature,
             "The active feature changed during task generation; review it again before retrying"
         );
         anyhow::ensure!(
-            crate::artifacts::task_docs::load_workflow(&state.repo_root)? == state.workflow,
+            crate::artifacts::task_docs::load_workflow(&state.planning_store)? == state.workflow,
             "The interview changed during task generation; review it again"
         );
         let mut workflow = nt
             .workflow
             .clone()
             .unwrap_or_else(|| state.workflow.clone());
-        let paths =
-            crate::artifacts::task_docs::write_batch(&state.repo_root, batch, &mut workflow)?;
+        let (paths, revision) = crate::artifacts::task_docs::write_batch_expected_with_revision(
+            &state.planning_store,
+            batch,
+            &mut workflow,
+            &state.baseline_planning_revision,
+        )?;
         state.workflow = workflow;
+        state.baseline_planning_revision = revision;
         return Ok(ApplyReceipt {
             spec_written: false,
             items_written: false,
@@ -149,7 +156,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
 
     let mut document_updates = nt.document_updates.clone();
     let feature_uids = identities::preserve_feature_updates(
-        &state.repo_root,
+        &state.planning_store,
         &mut document_updates,
         &nt.change_status_updates,
     )?;
@@ -172,7 +179,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         changes.push((SPEC_FILE.to_string(), spec.clone()));
     }
     changes.extend(product_documents::changes(
-        &state.repo_root,
+        &state.planning_store,
         &document_updates,
     )?);
     changes.push((OPEN_ITEMS_FILE.into(), items_md.clone()));
@@ -184,34 +191,49 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     }
     changes.extend(nt.additional_planning_artifacts.iter().cloned());
     if let Some(work_file) =
-        crate::core::planning_work::append_discovered(&state.repo_root, &nt.planning_tasks)?
+        crate::core::planning_work::append_discovered(&state.planning_store, &nt.planning_tasks)?
     {
         changes.push((crate::core::planning_work::FILE.into(), work_file));
     }
-    let repo_relative_paths = crate::artifacts::transaction::apply(&state.repo_root, &changes)?;
-    let spec_written = repo_relative_paths.iter().any(|p| p == SPEC_FILE)
+    let (repo_relative_paths, revision) = store_transaction::apply(
+        &state.planning_store,
+        &changes,
+        &state.baseline_planning_revision,
+    )?;
+    let spec_path = state
+        .planning_store
+        .git_path(crate::artifacts::planning_store::paths::PRODUCT_INDEX);
+    let items_path = state
+        .planning_store
+        .git_path(crate::artifacts::planning_store::paths::OPEN_ITEMS);
+    let spec_written = repo_relative_paths.iter().any(|p| p == &spec_path)
         || repo_relative_paths.iter().any(|p| {
             p.starts_with(&format!(
                 "{}/",
-                crate::artifacts::layout::canonical::PRODUCT
+                state
+                    .planning_store
+                    .git_path(crate::artifacts::planning_store::paths::PRODUCT)
             )) || p.starts_with(&format!(
                 "{}/",
-                crate::artifacts::layout::canonical::CHANGES
+                state
+                    .planning_store
+                    .git_path(crate::artifacts::planning_store::paths::CHANGES)
             ))
         });
-    let items_written = repo_relative_paths.iter().any(|p| p == OPEN_ITEMS_FILE);
-    state.spec_text = spec_doc::load(&state.repo_root)?;
-    state.active_features = crate::artifacts::product_docs::active_features(&state.repo_root);
+    let items_written = repo_relative_paths.iter().any(|p| p == &items_path);
+    state.spec_text = spec_doc::load(&state.planning_store)?;
+    state.active_features = crate::artifacts::product_docs::active_features(&state.planning_store);
     state.baseline_spec = state.spec_text.clone();
     state.baseline_items_md = items_md;
+    state.baseline_planning_revision = revision;
     if let Some(workflow) = &nt.workflow {
         state.workflow = workflow.clone();
     }
     state.active_feature = crate::artifacts::product_docs::active_feature_for_workflow(
-        &state.repo_root,
+        &state.planning_store,
         &state.workflow,
     );
-    let commit_message = compose_commit_message(
+    let commit_message = commit_message::compose(
         nt,
         spec_pre_existed,
         spec_written,
@@ -226,61 +248,6 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         repo_relative_paths,
         synthesized_open_items: synthetic_ids,
     })
-}
-
-/// Subject like `planner: add caching policy` — agent-supplied summary when
-/// sensible, otherwise derived from what actually happened (§20).
-fn compose_commit_message(
-    nt: &NormalizedTurn,
-    spec_pre_existed: bool,
-    spec_written: bool,
-    n_resolved: usize,
-    n_added: usize,
-    n_updated: usize,
-) -> String {
-    let phrase_src = match (
-        &nt.change_summary,
-        spec_pre_existed,
-        spec_written,
-        n_resolved,
-        n_added,
-        n_updated,
-    ) {
-        (Some(summary), _, _, _, _, _) if !summary.is_empty() => summary.clone(),
-        (_, false, true, _, _, _) => "establish initial specification".to_string(),
-        (_, _, _, 0, 0, 0) => "refresh working notes".to_string(),
-        (_, _, _, r, a, u) => {
-            let mut parts = Vec::new();
-            if r > 0 {
-                parts.push(format!("resolve {r} open item{}", plural(r)));
-            }
-            if a > 0 {
-                parts.push(format!("raise {a} open item{}", plural(a)));
-            }
-            if u > 0 {
-                parts.push(format!("adjust {u} item{}", plural(u)));
-            }
-            if parts.is_empty() {
-                "advance specification".to_string()
-            } else {
-                format!("advance specification ({})", parts.join(", "))
-            }
-        }
-    };
-    let mut phrase: String = phrase_src.chars().take(80).collect();
-    if let Some((i, c)) = phrase.char_indices().next()
-        && c.is_ascii_uppercase()
-    {
-        phrase.replace_range(i..i + c.len_utf8(), &c.to_lowercase().to_string());
-    }
-    if phrase.is_empty() {
-        phrase = "advance specification".to_string();
-    }
-    format!("planner: {phrase}")
-}
-
-fn plural(n: usize) -> &'static str {
-    if n == 1 { "" } else { "s" }
 }
 
 #[cfg(test)]

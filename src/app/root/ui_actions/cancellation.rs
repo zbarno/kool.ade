@@ -80,12 +80,19 @@ impl KooladeApp {
             return;
         }
 
-        if let Err(error) = crate::persistence::cancelled_work::save(&project.state.repo_root, &ids)
-        {
-            self.toasts
-                .danger(format!("Could not cancel work: {error}"));
-            return;
-        }
+        let revision = match crate::persistence::cancelled_work::save_expected(
+            &project.state.planning_store,
+            &ids,
+            &project.state.baseline_planning_revision,
+        ) {
+            Ok(revision) => revision,
+            Err(error) => {
+                self.toasts
+                    .danger(format!("Could not cancel work: {error}"));
+                return;
+            }
+        };
+        project.state.baseline_planning_revision = revision;
         project.cancelled_work = ids;
         for ticket in &tickets {
             project.queue.in_flight.remove(ticket);

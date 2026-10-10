@@ -20,8 +20,11 @@ pub(super) fn implementation_evidence(
 ) -> anyhow::Result<String> {
     let mut text = String::new();
     for task in &candidate.tasks {
-        let repository =
-            crate::core::implementation::target_repository(&state.repo_root, &task.ticket)?;
+        let repository = crate::core::implementation::target_repository_with_store(
+            &state.planning_store,
+            &state.repo_root,
+            &task.ticket,
+        )?;
         let merged = task.merged_commit.as_deref().unwrap();
         if git(
             &repository,

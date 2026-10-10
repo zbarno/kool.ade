@@ -1,5 +1,5 @@
+use crate::artifacts::planning_store::PlanningRoot;
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
-use std::path::Path;
 
 use super::{CoreConcept, ProductModule};
 
@@ -129,8 +129,10 @@ pub fn split_legacy(text: &str) -> anyhow::Result<[String; 13]> {
         .expect("thirteen legacy sections"))
 }
 
-pub fn load_documents(repo: &Path) -> anyhow::Result<Option<Vec<ProductDocument>>> {
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
+pub fn load_documents<R: PlanningRoot + ?Sized>(
+    repo: &R,
+) -> anyhow::Result<Option<Vec<ProductDocument>>> {
+    let layout = repo.planning_layout();
     let root = layout.product_root();
     if !super::feature_index::real_dir(&root)? {
         return Ok(None);
@@ -146,7 +148,7 @@ pub fn load_documents(repo: &Path) -> anyhow::Result<Option<Vec<ProductDocument>
     let mut documents = Vec::with_capacity(manifest.modules.len());
     for module in manifest.modules {
         let path = super::safe_module_path(&root, &module.path).unwrap();
-        let content = std::fs::read_to_string(&path)?;
+        let content = String::from_utf8(repo.read_planning_path(&path)?)?;
         validate_module(&content)?;
         anyhow::ensure!(
             module_title(&content).is_some_and(|title| title == module.title),
@@ -158,7 +160,7 @@ pub fn load_documents(repo: &Path) -> anyhow::Result<Option<Vec<ProductDocument>
     Ok(Some(documents))
 }
 
-pub fn load_modules(repo: &Path) -> anyhow::Result<Option<Vec<String>>> {
+pub fn load_modules<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Option<Vec<String>>> {
     Ok(load_documents(repo)?.map(|documents| {
         documents
             .into_iter()
@@ -167,18 +169,17 @@ pub fn load_modules(repo: &Path) -> anyhow::Result<Option<Vec<String>>> {
     }))
 }
 
-pub fn render_product(repo: &Path) -> anyhow::Result<Option<String>> {
+pub fn render_product<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Option<String>> {
     let Some(documents) = load_documents(repo)? else {
         return Ok(None);
     };
-    let index = std::fs::read_to_string(
-        crate::artifacts::layout::ArtifactLayout::new(repo).product_index(),
-    )?;
+    let index =
+        String::from_utf8(repo.read_planning_path(&repo.planning_layout().product_index())?)?;
     Ok(Some(render_documents(&index, &documents)))
 }
 
-pub fn render_product_with_updates(
-    repo: &Path,
+pub fn render_product_with_updates<R: PlanningRoot + ?Sized>(
+    repo: &R,
     updates: &[(String, String)],
 ) -> anyhow::Result<Option<String>> {
     let Some(mut documents) = load_documents(repo)? else {
@@ -205,9 +206,8 @@ pub fn render_product_with_updates(
             });
         }
     }
-    let index = std::fs::read_to_string(
-        crate::artifacts::layout::ArtifactLayout::new(repo).product_index(),
-    )?;
+    let index =
+        String::from_utf8(repo.read_planning_path(&repo.planning_layout().product_index())?)?;
     Ok(Some(render_documents(&index, &documents)))
 }
 

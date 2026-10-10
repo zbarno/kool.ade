@@ -50,7 +50,7 @@ pub(super) fn start_from_button(app: &mut KooladeApp) {
     if let Some(feature_id) = feature_id {
         let needs_approval = matches!(&app.screen, Screen::Connected(project)
         if !crate::core::workflow::feature_approved(
-            &project.state.repo_root,
+            &project.state.planning_store,
             &project.state.workflow,
             &feature_id,
         ));
@@ -193,7 +193,7 @@ pub(super) fn start(app: &mut KooladeApp, target: Option<String>, resume: bool) 
             .lines()
             .find_map(|line| line.strip_prefix("Feature ID: "))
             && !crate::core::workflow::feature_approved(
-                &project.state.repo_root,
+                &project.state.planning_store,
                 &project.state.workflow,
                 feature_id,
             )

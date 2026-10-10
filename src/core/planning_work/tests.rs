@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::PlanningRoot;
 
 fn root() -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!(
@@ -7,11 +8,19 @@ fn root() -> std::path::PathBuf {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&path).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
     path
 }
 
 #[test]
-fn legacy_work_is_migrated_once_to_versioned_typed_records() {
+fn legacy_work_reads_are_pure_and_upgrade_with_revision_fencing() {
     let root = root();
     let path = root.join(FILE);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -21,19 +30,34 @@ fn legacy_work_is_migrated_once_to_versioned_typed_records() {
     )
     .unwrap();
 
+    let store = root.planning_store();
+    let original = std::fs::read(&path).unwrap();
+    let expected_revision = store.revision().unwrap();
     let work = load(&root).unwrap();
     assert_eq!(work.len(), 1);
     assert_eq!(work[0].status, WorkStatus::NeedsAttention);
     assert_eq!(work[0].kind, WorkKind::Feature);
     assert_eq!(work[0].feature_id.as_deref(), Some("CHG-001"));
     assert!(uuid::Uuid::parse_str(&work[0].uid).is_ok());
+    assert_eq!(load(&root).unwrap()[0].uid, work[0].uid);
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert_eq!(store.revision().unwrap(), expected_revision);
+
+    let (migrated_work, migration_revision) = load_expected(&root, &expected_revision).unwrap();
+    assert_eq!(migrated_work, work);
     let migrated: serde_json::Value =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(migrated["schemaVersion"], SCHEMA_VERSION);
     assert_eq!(migrated["items"][0]["status"], "needs_attention");
     assert!(migrated["items"][0].get("column").is_none());
+    assert_eq!(migration_revision, store.revision().unwrap());
 
-    assert_eq!(load(&root).unwrap()[0].uid, work[0].uid);
+    let current_bytes = std::fs::read(root.join(FILE)).unwrap();
+    assert!(load_expected(&root, &expected_revision).is_err());
+    assert_eq!(std::fs::read(root.join(FILE)).unwrap(), current_bytes);
+    let (loaded_again, unchanged_revision) = load_expected(&root, &migration_revision).unwrap();
+    assert_eq!(loaded_again, work);
+    assert_eq!(unchanged_revision, migration_revision);
     std::fs::remove_dir_all(root).unwrap();
 }
 

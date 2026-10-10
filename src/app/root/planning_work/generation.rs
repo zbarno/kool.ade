@@ -55,15 +55,33 @@ impl KooladeApp {
         workflow
             .feature_branch_targets
             .insert(feature_id.to_owned(), targets);
-        if let Err(error) =
-            crate::artifacts::task_docs::save_workflow(&project.state.repo_root, &workflow)
+        let planning_store = project.state.planning_store.clone();
+        let changes = match serde_json::to_vec_pretty(&workflow) {
+            Ok(bytes) => vec![(
+                crate::artifacts::planning_store::paths::WORKFLOW.to_owned(),
+                bytes,
+            )],
+            Err(error) => {
+                self.toasts.danger(format!(
+                    "Cannot save the feature branch selection before task generation: {error}"
+                ));
+                return;
+            }
+        };
+        match planning_store
+            .transaction_with_revision(&changes, Some(&project.state.baseline_planning_revision))
         {
-            self.toasts.danger(format!(
-                "Cannot save the feature branch selection before task generation: {error}"
-            ));
-            return;
+            Ok((_, revision)) => {
+                project.state.baseline_planning_revision = revision;
+                project.state.workflow = workflow;
+            }
+            Err(error) => {
+                self.toasts.danger(format!(
+                    "Cannot save the feature branch selection before task generation: {error}"
+                ));
+                return;
+            }
         }
-        project.state.workflow = workflow;
         if project.active_turn.is_some() {
             self.toasts
                 .warning("Wait for the current planning turn before generating tasks.");
@@ -86,7 +104,7 @@ impl KooladeApp {
             return;
         };
         if !crate::core::workflow::feature_approved(
-            &project.state.repo_root,
+            &project.state.planning_store,
             &project.state.workflow,
             feature_id,
         ) {
