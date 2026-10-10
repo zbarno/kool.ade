@@ -189,7 +189,7 @@ impl KooladeApp {
             .or(p.state.spec_text.as_deref())
             .unwrap_or_default()
             .to_owned();
-        clipboard_put(&text);
+        super::clipboard::put(&text);
         self.toasts.info(format!(
             "Copied {} characters to clipboard",
             text.chars().count()

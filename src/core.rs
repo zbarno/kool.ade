@@ -41,6 +41,7 @@ pub mod implementation_queue;
 
 pub mod specification;
 
+pub mod managed_workspace;
 pub mod project_repos;
 pub mod task_claim;
 pub mod task_conversation;

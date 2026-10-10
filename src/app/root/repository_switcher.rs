@@ -21,6 +21,12 @@ pub(super) fn choices(screen: &Screen) -> Vec<RepositoryChoice> {
 }
 
 impl KooladeApp {
+    pub(super) fn can_add_code_repository(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(project)
+            if project.state.planning_store.mode == crate::artifacts::planning_store::StoreMode::ManagedLocal
+                && !project.state.planning_store.project_id.is_nil())
+    }
+
     pub(super) fn open_registered_repository(&mut self, id: &str) {
         let target = match &self.screen {
             Screen::Connected(project) => project

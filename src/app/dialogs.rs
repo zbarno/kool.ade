@@ -15,6 +15,7 @@ use crate::persistence::persona;
 use crate::ui::theme;
 
 mod browse;
+mod code_repository;
 mod harness_setup;
 mod import;
 mod mcp;
@@ -25,6 +26,7 @@ use browse::expand_tilde;
 #[cfg(test)]
 use browse::{DirRow, resolve_seed};
 pub use browse::{DlgBrowse, paint_browse_card};
+pub use code_repository::DlgCodeRepository;
 pub use harness_setup::{
     DlgHarnessSetup, HarnessSettingsSection, paint_harness_setup_card, paint_harness_setup_page,
 };

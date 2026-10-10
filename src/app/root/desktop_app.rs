@@ -27,12 +27,14 @@ impl KooladeApp {
                 let slot = std::cell::RefCell::new(false);
                 let browse_slot = std::cell::RefCell::new(false);
                 let clone_slot = std::cell::RefCell::new(false);
+                let create_workspace_slot = std::cell::RefCell::new(false);
                 let harness_setup_slot = std::cell::RefCell::new(false);
                 // In-flight badge for the card: ("github.com/{o}/{r}", repo).
                 let cloning = self
                     .clone_job
                     .as_ref()
                     .map(|j| (j.url_display.as_str(), j.repo.as_str()));
+                let clone_busy = cloning.is_some();
                 egui::CentralPanel::default().show(ui, |ui| {
                     let top_space = ((ui.available_height() - 730.0) * 0.5).max(16.0);
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -58,6 +60,23 @@ impl KooladeApp {
                         });
                         ui.add_space(10.0);
                         ui.vertical_centered(|ui| {
+                            ui.label("Or start with a local planning workspace");
+                            let field_width = ui.available_width().min(340.0);
+                            ui.add_sized(
+                                egui::vec2(field_width, 34.0),
+                                egui::TextEdit::singleline(&mut self.conn_create_title)
+                                    .hint_text("Project name"),
+                            );
+                            if ui
+                                .add_enabled(
+                                    !clone_busy,
+                                    egui::Button::new("Create planning workspace"),
+                                )
+                                .clicked()
+                            {
+                                *create_workspace_slot.borrow_mut() = true;
+                            }
+                            ui.add_space(6.0);
                             if ui.link("Configure coding tools…").clicked() {
                                 *harness_setup_slot.borrow_mut() = true;
                             }
@@ -68,6 +87,8 @@ impl KooladeApp {
                     self.submit_connect();
                 } else if *clone_slot.borrow() {
                     self.begin_clone_from_field();
+                } else if *create_workspace_slot.borrow() {
+                    self.submit_create_workspace();
                 } else if *browse_slot.borrow() {
                     // Start the native folder chooser at the current field's
                     // directory, or its parent when the field is a file path.

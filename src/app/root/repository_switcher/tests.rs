@@ -9,6 +9,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "tests/registration_ui.rs"]
+mod registration_ui;
+
 struct KooladeHome(Option<OsString>);
 impl Drop for KooladeHome {
     fn drop(&mut self) {

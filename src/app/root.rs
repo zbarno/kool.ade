@@ -26,6 +26,7 @@ mod harness_selection;
 mod adoption;
 mod agent_updates;
 mod attention;
+mod clipboard;
 mod connection;
 mod dependency_authorization;
 mod desktop_app;
@@ -59,6 +60,7 @@ pub struct KooladeApp {
     dialog: Option<Dialog>,
     toasts: ToastQueue,
     conn_path: String,
+    conn_create_title: String,
     /// Pasted GitHub URL on the connect card. Per-launch state only (no
     /// persistence); preserved across a FAILED connect so the operator can
     /// fix a typo, cleared only after a successful connect.
@@ -188,6 +190,7 @@ type CloneWorkerCalc = std::sync::Arc<
 
 enum Dialog {
     Import(DlgImport),
+    AddCodeRepository(app_dialogs::DlgCodeRepository),
     Settings(DlgSettings),
     ProjectSettings(app_dialogs::DlgProjectSettings),
     HarnessSetup(app_dialogs::DlgHarnessSetup),
@@ -244,6 +247,7 @@ impl Default for KooladeApp {
             conn_path: std::env::current_dir()
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
+            conn_create_title: String::new(),
             conn_github: String::new(),
             conn_error: None,
             session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -266,41 +270,8 @@ impl Default for KooladeApp {
     }
 }
 
-// ------------------------------------------------------------------------ tick
-
-fn clipboard_put(text: &str) {
-    let bins = ["pbcopy", "wl-copy", "xclip"];
-    for bin in bins {
-        if let Ok(mut child) = std::process::Command::new(bin)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        {
-            use std::io::Write;
-            if let Some(stdin) = child.stdin.as_mut() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            if child.wait().map(|s| s.success()).unwrap_or(false) {
-                return;
-            }
-        }
-    }
-}
-
 // ------------------------------------------------------------------- Surface
 impl KooladeApp {
-    #[cfg(test)]
-    fn implementation_capacity(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(project)
-            if project.active_implementations.len() < project.queue.max_parallel.clamp(1, 8))
-    }
-
-    #[cfg(test)]
-    fn implement_task(&mut self, ticket: String) {
-        self.start_implementation(ticket, true);
-    }
-
     fn cancel_task_for(&mut self, ticket: &str) {
         self.cancel_board_work(ticket);
     }

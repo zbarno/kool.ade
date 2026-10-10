@@ -65,6 +65,10 @@ impl Surface for KooladeApp {
         repository_switcher::choices(&self.screen)
     }
 
+    fn can_register_code_repository(&self) -> bool {
+        self.can_add_code_repository()
+    }
+
     fn git_branch(&self) -> &str {
         match &self.screen {
             Screen::Connected(p) => p.git.branch.as_str(),
