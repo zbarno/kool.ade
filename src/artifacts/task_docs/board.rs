@@ -6,6 +6,20 @@ use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::workflow::{TaskBatchRef, Workflow};
 
 pub fn load_latest<R: PlanningRoot + ?Sized>(repo: &R, workflow: &Workflow) -> Vec<TaskDocument> {
+    let store = repo.planning_store();
+    store
+        .with_consistent_read(|| {
+            Ok::<_, crate::artifacts::planning_store::StoreError>(load_latest_unlocked(
+                repo, workflow,
+            ))
+        })
+        .unwrap_or_default()
+}
+
+fn load_latest_unlocked<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    workflow: &Workflow,
+) -> Vec<TaskDocument> {
     let layout = repo.planning_layout();
     let completed_time = workflow
         .task_batches
@@ -36,6 +50,7 @@ pub fn load_latest<R: PlanningRoot + ?Sized>(repo: &R, workflow: &Workflow) -> V
         feature: p.brief.feature_name.clone(),
         directory: directory.clone(),
         count: p.stories.len(),
+        created_at_ms: 0,
     });
     let Some(batch) = pending_ref
         .as_ref()
@@ -48,6 +63,20 @@ pub fn load_latest<R: PlanningRoot + ?Sized>(repo: &R, workflow: &Workflow) -> V
 
 /// The board accounts for every batch, including interrupted generation.
 pub fn load_board<R: PlanningRoot + ?Sized>(repo: &R, workflow: &Workflow) -> Vec<TaskDocument> {
+    let store = repo.planning_store();
+    store
+        .with_consistent_read(|| {
+            Ok::<_, crate::artifacts::planning_store::StoreError>(load_board_unlocked(
+                repo, workflow,
+            ))
+        })
+        .unwrap_or_default()
+}
+
+pub(super) fn load_board_unlocked<R: PlanningRoot + ?Sized>(
+    repo: &R,
+    workflow: &Workflow,
+) -> Vec<TaskDocument> {
     let mut docs = Vec::new();
     for batch in &workflow.task_batches {
         docs.extend(load_batch(repo, batch, false));
@@ -73,6 +102,7 @@ pub fn load_board<R: PlanningRoot + ?Sized>(repo: &R, workflow: &Workflow) -> Ve
                     feature: p.brief.feature_name,
                     directory,
                     count: p.stories.len(),
+                    created_at_ms: 0,
                 },
                 true,
             ));
@@ -131,7 +161,7 @@ fn load_batch<R: PlanningRoot + ?Sized>(
             let identity = crate::domain::ArtifactIdentity::from_markdown(&text)
                 .ok()
                 .flatten();
-            let (metadata, metadata_error) =
+            let (metadata, mut metadata_error) =
                 match super::metadata::parse(&text).and_then(|metadata| {
                     if let Some(metadata) = &metadata {
                         metadata.validate(identity.as_ref())?;
@@ -141,6 +171,17 @@ fn load_batch<R: PlanningRoot + ?Sized>(
                     Ok(metadata) => (metadata, None),
                     Err(error) => (None, Some(error.to_string())),
                 };
+            let task_state = if let Some(metadata) = &metadata {
+                match super::task_state::load(&repo.planning_store(), &metadata.uid) {
+                    Ok(state) => state,
+                    Err(error) => {
+                        metadata_error.get_or_insert_with(|| error.to_string());
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             let visible = super::visible_content(&text);
             let title = visible
                 .lines()
@@ -154,6 +195,7 @@ fn load_batch<R: PlanningRoot + ?Sized>(
                 text: visible,
                 identity,
                 metadata,
+                task_state,
                 metadata_error,
             });
         }
@@ -175,6 +217,7 @@ fn load_batch<R: PlanningRoot + ?Sized>(
                 text: super::visible_content(&text),
                 identity,
                 metadata: None,
+                task_state: None,
                 metadata_error: None,
             },
         );

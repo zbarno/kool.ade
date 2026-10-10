@@ -286,7 +286,14 @@ fn assigning_category_owner_resolves_ownership_gap_with_a_checkpoint() {
     }
     assert!(persisted_gap.evidence.contains("assigned to Morgan"));
     assert!(derived_gap.evidence.contains("assigned to Riley"));
-    assert!(derived_gap.id.starts_with("ownership:"));
+    assert!(crate::core::ids::is_valid_id(&derived_gap.id));
+    assert!(
+        derived_gap
+            .conversation_id
+            .as_deref()
+            .unwrap()
+            .starts_with("ownership:")
+    );
     let persisted = crate::core::state::PlannerState::load(&root).unwrap();
     assert_eq!(persisted.items.len(), 2);
     assert_eq!(persisted.resolved_items.len(), 2);

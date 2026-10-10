@@ -11,6 +11,8 @@ fn task(path: &str, feature: &str, file: &str) -> TaskDocument {
         ),
         identity: None,
         metadata: None,
+        task_state: None,
+
         metadata_error: None,
     }
 }

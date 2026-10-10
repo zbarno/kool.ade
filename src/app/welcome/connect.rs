@@ -96,6 +96,24 @@ fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project
             ))
         })?;
     }
+    let task_record_paths =
+        crate::artifacts::task_docs::backfill_missing_task_records(&store, &state.workflow)
+            .map_err(|error| AppError::Artifact {
+                path: canonical.to_string_lossy().into_owned(),
+                detail: format!("task record migration failed: {error:#}"),
+            })?;
+    if !task_record_paths.is_empty() {
+        gitops::commit(
+            &store.git_root(),
+            "Kool.ad/e: normalize task status records",
+            &task_record_paths,
+        )
+        .map_err(|error| {
+            AppError::Other(format!(
+                "task records were migrated but checkpoint failed: {error}"
+            ))
+        })?;
+    }
     let slug = project_slug(&canonical);
     let mut chat = chat_store::load(&slug).0;
     if chat.is_empty() {
@@ -136,7 +154,13 @@ fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project
         ) {
             Ok(revision) => {
                 state.baseline_planning_revision = revision;
-                None
+                match crate::core::planning_work::load(&store) {
+                    Ok(work) => {
+                        planning_work = work;
+                        None
+                    }
+                    Err(error) => Some(error),
+                }
             }
             Err(error) => Some(error),
         }

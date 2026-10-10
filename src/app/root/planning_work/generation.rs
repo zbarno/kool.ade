@@ -56,11 +56,11 @@ impl KooladeApp {
             .feature_branch_targets
             .insert(feature_id.to_owned(), targets);
         let planning_store = project.state.planning_store.clone();
-        let changes = match serde_json::to_vec_pretty(&workflow) {
-            Ok(bytes) => vec![(
-                crate::artifacts::planning_store::paths::WORKFLOW.to_owned(),
-                bytes,
-            )],
+        let (changes, checks, _) = match crate::artifacts::task_docs::workflow_record_changes(
+            &planning_store,
+            &workflow,
+        ) {
+            Ok(changes) => changes,
             Err(error) => {
                 self.toasts.danger(format!(
                     "Cannot save the feature branch selection before task generation: {error}"
@@ -68,12 +68,23 @@ impl KooladeApp {
                 return;
             }
         };
-        match planning_store
-            .transaction_with_revision(&changes, Some(&project.state.baseline_planning_revision))
-        {
+        match planning_store.transaction_with_revision_and_record_revisions(
+            &changes,
+            Some(&project.state.baseline_planning_revision),
+            &checks,
+        ) {
             Ok((_, revision)) => {
                 project.state.baseline_planning_revision = revision;
-                project.state.workflow = workflow;
+                project.state.workflow =
+                    match crate::artifacts::task_docs::load_workflow(&planning_store) {
+                        Ok(workflow) => workflow,
+                        Err(error) => {
+                            self.toasts.danger(format!(
+                                "Branch selection was saved but workflow reload failed: {error}"
+                            ));
+                            return;
+                        }
+                    };
             }
             Err(error) => {
                 self.toasts.danger(format!(

@@ -134,12 +134,13 @@ fn candidate_waits_for_every_task_to_reach_merged_state() {
         serde_json::to_string_pretty(&expected.contract).unwrap(),
     )
     .unwrap();
-    let mut workflow = workflow::Workflow::default();
+    let mut workflow = crate::artifacts::task_docs::load_workflow(&repo).unwrap();
     workflow.task_batches.push(workflow::TaskBatchRef {
         identity: None,
         feature: "Search".into(),
         directory: ".koolade-packet/planning/tasks/search".into(),
         count: 1,
+        created_at_ms: 0,
     });
     crate::artifacts::task_docs::save_workflow(&repo, &workflow).unwrap();
     let storage = crate::core::implementation::state_dir(&repo, &expected.tasks[0].ticket).unwrap();

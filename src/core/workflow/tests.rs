@@ -163,7 +163,12 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
         std::fs::read_to_string(dir.join("specification.md")).unwrap(),
         s.spec_text.clone().unwrap()
     );
-    assert!(receipt.repo_relative_paths.contains(&WORKFLOW_FILE.into()));
+    assert!(
+        receipt
+            .repo_relative_paths
+            .iter()
+            .any(|path| path.starts_with(".koolade-packet/state/workflow/"))
+    );
     let restored = PlannerState::load(&s.repo_root).unwrap();
     assert!(!restored.workflow.ready(restored.spec_text.as_deref()));
     assert_eq!(

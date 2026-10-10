@@ -8,9 +8,13 @@ use std::{
 };
 
 mod store;
+#[cfg(test)]
+pub(crate) use store::apply_store_with_record_revisions_interruption_for_test;
 pub(crate) use store::{
-    apply_store, apply_store_with_removals, apply_store_with_removals_and_revision,
-    apply_store_with_revision, recover_store, revision,
+    apply_store, apply_store_with_record_revisions, apply_store_with_removals,
+    apply_store_with_removals_and_record_revisions, apply_store_with_removals_and_revision,
+    apply_store_with_revision, apply_store_with_revision_and_record_revisions, recover_store,
+    revision, with_consistent_read,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

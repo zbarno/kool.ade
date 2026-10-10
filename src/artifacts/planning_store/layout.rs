@@ -25,6 +25,11 @@ pub mod paths {
     pub const RESOLVED_ITEMS: &str = "planning/resolved-items.json";
     pub const IMPORTS: &str = "planning/imports";
     pub const TASKS: &str = "planning/tasks";
+    pub const ITEM_CONTENTS: &str = "planning/items";
+    pub const WORK_RECORDS: &str = "state/work";
+    pub const WORKFLOW_RECORDS: &str = "state/workflow";
+    pub const ITEM_STATES: &str = "state/items";
+    pub const TASK_STATES: &str = "state/tasks";
     pub const WORKFLOW: &str = "state/workflow.json";
     pub const WORK: &str = "state/work.json";
     pub const CANCELLED_WORK: &str = "state/cancelled-work.json";
@@ -135,8 +140,25 @@ impl PlanningLayout {
     pub fn workflow_state(&self) -> PathBuf {
         self.at(paths::WORKFLOW)
     }
+    pub fn workflow_record(&self, uid: &str) -> Option<PathBuf> {
+        record_path(&self.root, paths::WORKFLOW_RECORDS, uid)
+    }
     pub fn work_state(&self) -> PathBuf {
         self.at(paths::WORK)
+    }
+    pub fn work_record(&self, uid: &str) -> Option<PathBuf> {
+        record_path(&self.root, paths::WORK_RECORDS, uid)
+    }
+    pub fn item_content(&self, uid: &str) -> Option<PathBuf> {
+        uuid::Uuid::parse_str(uid)
+            .ok()
+            .map(|uid| self.at(paths::ITEM_CONTENTS).join(format!("{uid}.md")))
+    }
+    pub fn item_state(&self, uid: &str) -> Option<PathBuf> {
+        record_path(&self.root, paths::ITEM_STATES, uid)
+    }
+    pub fn task_state(&self, uid: &str) -> Option<PathBuf> {
+        record_path(&self.root, paths::TASK_STATES, uid)
     }
     pub fn archive_root(&self) -> PathBuf {
         self.at(paths::ARCHIVE)
@@ -240,6 +262,11 @@ impl PlanningLayout {
 fn safe_component(name: &str) -> bool {
     let mut parts = Path::new(name).components();
     matches!(parts.next(), Some(Component::Normal(_))) && parts.next().is_none()
+}
+
+fn record_path(root: &Path, collection: &str, uid: &str) -> Option<PathBuf> {
+    let uid = uuid::Uuid::parse_str(uid).ok()?.hyphenated().to_string();
+    Some(root.join(collection).join(format!("{uid}.json")))
 }
 
 fn safe_path(root: &Path, relative: &str) -> Option<PathBuf> {

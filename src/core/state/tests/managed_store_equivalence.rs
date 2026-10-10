@@ -129,7 +129,13 @@ fn assert_stores_equal(legacy: &PlanningStore, managed: &PlanningStore, stage: &
         .collect::<std::collections::BTreeSet<_>>();
     let differences = paths
         .into_iter()
-        .filter(|path| left.get(*path) != right.get(*path))
+        .filter(|path| {
+            !equivalent_record_bytes(
+                path,
+                left.get(*path).map(Vec::as_slice),
+                right.get(*path).map(Vec::as_slice),
+            )
+        })
         .collect::<Vec<_>>();
     let details = differences
         .iter()
@@ -145,6 +151,44 @@ fn assert_stores_equal(legacy: &PlanningStore, managed: &PlanningStore, stage: &
         })
         .collect::<Vec<_>>();
     assert!(differences.is_empty(), "{stage} differs: {details:#?}");
+}
+
+fn equivalent_record_bytes(path: &str, left: Option<&[u8]>, right: Option<&[u8]>) -> bool {
+    let (Some(left), Some(right)) = (left, right) else {
+        return left == right;
+    };
+    let record_path = path.starts_with("state/work/")
+        || path.starts_with("state/workflow/")
+        || path.starts_with("state/items/")
+        || path.starts_with("state/tasks/");
+    if !record_path {
+        return left == right;
+    }
+    fn without_timestamps(bytes: &[u8]) -> Option<serde_json::Value> {
+        let mut value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+        fn strip(value: &mut serde_json::Value) {
+            match value {
+                serde_json::Value::Object(object) => {
+                    object.remove("createdAtMs");
+                    object.remove("updatedAtMs");
+                    for nested in object.values_mut() {
+                        strip(nested);
+                    }
+                }
+                serde_json::Value::Array(values) => {
+                    for nested in values {
+                        strip(nested);
+                    }
+                }
+                _ => {}
+            }
+        }
+        strip(&mut value);
+        Some(value)
+    }
+    without_timestamps(left)
+        .zip(without_timestamps(right))
+        .is_some_and(|(left, right)| left == right)
 }
 
 fn seed_existing_feature(store: &PlanningStore) {

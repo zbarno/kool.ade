@@ -85,6 +85,7 @@ fn moved_batch_and_renamed_task_are_resolved_by_uid() {
                 crate::artifacts::koolade::KOOLADE_TASKS_DIR
             ),
             count: 1,
+            created_at_ms: 0,
         });
     let documents = crate::artifacts::task_docs::load_board(&root, &workflow);
     assert_eq!(documents.len(), 1);
@@ -112,6 +113,7 @@ fn legacy_store_resolves_store_relative_batch_directory() {
         feature: "Shared batch".into(),
         directory: "planning/tasks/shared-batch".into(),
         count: 0,
+        created_at_ms: 0,
     };
     assert_eq!(
         resolve_batch_directory(&root, &batch).as_deref(),

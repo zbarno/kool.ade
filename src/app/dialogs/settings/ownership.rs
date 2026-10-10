@@ -8,11 +8,18 @@ pub(super) fn apply_config_and_resolve_ownership(
     let mut updated = state.clone();
     updated.config = config;
     let stakeholders = updated.config.stakeholders.clone();
-    updated.items.extend(
-        synthesized
-            .into_iter()
-            .filter(|item| stakeholders.owner_exists(&item.category)),
-    );
+    let mut synthesized = synthesized
+        .into_iter()
+        .filter(|item| stakeholders.owner_exists(&item.category))
+        .collect::<Vec<_>>();
+    let taken = updated
+        .items
+        .iter()
+        .chain(&updated.resolved_items)
+        .map(|item| item.id.clone())
+        .collect::<Vec<_>>();
+    crate::core::ownership::assign_ids(&mut synthesized, taken);
+    updated.items.extend(synthesized);
     let resolved = crate::core::ownership::resolve_assigned_gaps(
         &mut updated.items,
         &mut updated.resolved_items,

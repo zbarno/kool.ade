@@ -213,8 +213,7 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
         batch_id.parent_uid.as_deref(),
         Some(feature_id.uid.as_str())
     );
-    let workflow: crate::core::workflow::Workflow =
-        serde_json::from_slice(&fs::read(workflow_path).unwrap()).unwrap();
+    let workflow = crate::artifacts::task_docs::load_workflow(&root).unwrap();
     assert_eq!(workflow.task_batches[0].identity.as_ref(), Some(&batch_id));
     let legacy = workflow
         .legacy_plan_comparison_evidence
@@ -263,7 +262,6 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
 
     for path in [
         crate::artifacts::layout::canonical::CHANGES.to_owned(),
-        crate::artifacts::layout::canonical::WORKFLOW.to_owned(),
         crate::artifacts::layout::canonical::OPEN_ITEMS.to_owned(),
         crate::artifacts::layout::canonical::RESOLVED_ITEMS.to_owned(),
         crate::artifacts::layout::canonical::DECISIONS.to_owned(),
@@ -274,6 +272,12 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
                 .any(|changed_path| changed_path.starts_with(&path))
         );
     }
+    assert!(changed.iter().any(|changed_path| {
+        changed_path.starts_with(&format!(
+            "{}/workflow/",
+            crate::artifacts::layout::canonical::STATE
+        ))
+    }));
     let first_head = git_ok(&root, &["rev-parse", "HEAD"]);
     let second_run = run(&root).unwrap();
     assert!(

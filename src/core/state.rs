@@ -71,21 +71,15 @@ impl PlannerState {
     pub fn load_with_store(repo: &Path, store: &PlanningStore) -> anyhow::Result<Self> {
         #[cfg(test)]
         crate::artifacts::product_docs::migrate_legacy_change_fixtures(store)?;
+        store.with_consistent_read(|| Self::load_with_store_snapshot(repo, store))
+    }
+
+    fn load_with_store_snapshot(repo: &Path, store: &PlanningStore) -> anyhow::Result<Self> {
         let starting_revision = store.revision()?;
         crate::artifacts::product_docs::validate_change_metadata(store)?;
         let spec = spec_doc::load(store)?;
-        let items_text = match store.read(crate::artifacts::planning_store::paths::OPEN_ITEMS) {
-            Ok(bytes) => String::from_utf8(bytes)?,
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound =>
-            {
-                items_io::serialize(&[])
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let items = items_io::parse(&items_text).map_err(|e| {
-            anyhow!("open-items.md is unreadable to the planner: {e} (restore it with git checkout if needed)")
-        })?;
+        let (items, resolved_items, _) = items_io::load_store_unlocked(store)
+            .map_err(|error| anyhow!("planning items are unreadable to the planner: {error}"))?;
         let baseline_items_md = items_io::serialize(&items);
         let config_text = match store.read(crate::artifacts::planning_store::paths::PROJECT_CONFIG)
         {
@@ -113,22 +107,12 @@ impl PlannerState {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "project".into());
-        let workflow = crate::artifacts::task_docs::load_workflow(store)?;
+        let workflow = crate::artifacts::task_docs::load_workflow_unlocked(store)?;
         let active_features = crate::artifacts::product_docs::active_features(store);
         let active_feature =
             crate::artifacts::product_docs::active_feature_for_workflow(store, &workflow);
         let repositories =
             crate::core::project_repos::ProjectManifest::load_with_code_root(store, repo)?;
-        let resolved_items =
-            match store.read(crate::artifacts::planning_store::paths::RESOLVED_ITEMS) {
-                Ok(bytes) => serde_json::from_slice(&bytes)?,
-                Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                    if source.kind() == std::io::ErrorKind::NotFound =>
-                {
-                    Vec::new()
-                }
-                Err(error) => return Err(error.into()),
-            };
         let ending_revision = store.revision()?;
         anyhow::ensure!(
             starting_revision == ending_revision,
@@ -167,19 +151,7 @@ impl PlannerState {
         self.spec_text = Some(spec_now);
 
         let mut seeded_config = None;
-        let items_missing = matches!(
-            self.planning_store
-                .read(crate::artifacts::planning_store::paths::OPEN_ITEMS),
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound
-        );
         let mut changes = Vec::new();
-        if items_missing {
-            changes.push((
-                crate::artifacts::planning_store::paths::OPEN_ITEMS.to_owned(),
-                self.baseline_items_md.as_bytes().to_vec(),
-            ));
-        }
         let manifest_missing = matches!(
             self.planning_store
                 .read(crate::artifacts::planning_store::paths::PROJECT_MANIFEST),

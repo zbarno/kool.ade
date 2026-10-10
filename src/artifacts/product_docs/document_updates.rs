@@ -186,7 +186,8 @@ pub fn document_path<R: PlanningRoot + ?Sized>(repo: &R, id: &str) -> anyhow::Re
             .collect::<Vec<_>>();
         anyhow::ensure!(
             matches.len() == 1,
-            "Feature ID must identify exactly one directory"
+            "Feature ID must identify exactly one directory (found {} for {id})",
+            matches.len()
         );
         let dir = matches.remove(0);
         anyhow::ensure!(

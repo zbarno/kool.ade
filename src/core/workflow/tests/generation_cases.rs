@@ -64,8 +64,13 @@ fn batch_publication_rolls_back_on_metadata_failure() {
     mark_ready(&mut s);
     let nt = generation(&s, vec![story()]).unwrap();
     // Exercise the writer's rollback after publication without mutating a real project.
-    std::fs::remove_file(s.repo_root.join(WORKFLOW_FILE)).unwrap();
-    std::fs::create_dir(s.repo_root.join(WORKFLOW_FILE)).unwrap();
+    let workflow_record = s
+        .planning_store
+        .layout()
+        .workflow_record("00000000-0000-0000-0000-000000000000")
+        .unwrap();
+    std::fs::remove_file(&workflow_record).unwrap();
+    std::fs::create_dir(&workflow_record).unwrap();
     let mut workflow = nt.workflow.unwrap();
     assert!(
         crate::artifacts::task_docs::write_batch(

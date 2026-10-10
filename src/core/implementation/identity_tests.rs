@@ -36,6 +36,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
             feature: "Saved searches".into(),
             directory: directory.into(),
             count: 1,
+            created_at_ms: 0,
         }],
         ..Workflow::default()
     };

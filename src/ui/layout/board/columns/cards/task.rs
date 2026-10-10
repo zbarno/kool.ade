@@ -11,7 +11,7 @@ pub(in crate::ui::layout::board::columns) fn task(
 ) {
     let active = s.implementation_active(&doc.path);
     let waiting = s.implementation_waiting_for_capacity(&doc.path);
-    let complete = task_board_column(s, &doc.path) == 4;
+    let complete = task_document_board_column(s, doc) == 4;
     let prerequisite =
         dependency_blocker(s, board, doc).map(|title| format!("Waiting for {title}"));
     let title = task_cards::card_summary(super::super::super::presentation::human_title(

@@ -116,6 +116,7 @@ pub(super) fn build(
                 feature: batch_title(None, &progress, files, directory),
                 directory: directory.clone(),
                 count: story_count,
+                created_at_ms: 0,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

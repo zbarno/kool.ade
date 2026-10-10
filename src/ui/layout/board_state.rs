@@ -1,15 +1,22 @@
 use crate::ui::Surface;
 
-pub(crate) fn task_board_column(s: &dyn Surface, key: &str) -> usize {
-    if !s.implementation_active(key) && s.implementation_failure(key).is_some() {
-        return 3;
-    }
-    let base = crate::core::implementation::board_column(
-        s.implementation_state(key),
-        s.implementation_active(key),
-    );
-    // An active implementation owns its status even if an older chat failed.
-    if s.implementation_active(key) {
+pub(crate) fn task_document_board_column(
+    s: &dyn Surface,
+    document: &crate::artifacts::task_docs::TaskDocument,
+) -> usize {
+    let key = document.path.as_str();
+    let active = s.implementation_active(key);
+    let local = s.implementation_state(key);
+    let base = if active {
+        crate::core::implementation::board_column(local, active)
+    } else if let Some(task_state) = &document.task_state {
+        task_state.status.board_column()
+    } else if s.implementation_failure(key).is_some() {
+        3
+    } else {
+        crate::core::implementation::board_column(local, active)
+    };
+    if active {
         base
     } else {
         crate::ui::task_chat::board_column(base, s.task_messages(key), s.task_chat_active(key))

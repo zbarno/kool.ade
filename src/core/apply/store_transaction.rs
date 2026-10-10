@@ -1,9 +1,11 @@
 use crate::artifacts::planning_store::PlanningStore;
+use crate::artifacts::planning_store::RecordRevisionCheck;
 
 pub(super) fn apply(
     store: &PlanningStore,
     changes: &[(String, String)],
     expected_revision: &str,
+    record_checks: &[RecordRevisionCheck],
 ) -> anyhow::Result<(Vec<String>, String)> {
     let encoded = changes
         .iter()
@@ -16,7 +18,11 @@ pub(super) fn apply(
         })
         .collect::<Vec<_>>();
     store
-        .transaction_with_revision(&encoded, Some(expected_revision))
+        .transaction_with_revision_and_record_revisions(
+            &encoded,
+            Some(expected_revision),
+            record_checks,
+        )
         .map(|(paths, revision)| {
             (
                 paths.iter().map(|path| store.git_path(path)).collect(),

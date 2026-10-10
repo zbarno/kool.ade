@@ -1,4 +1,4 @@
-use crate::artifacts::planning_store::{PlanningRoot, StoreError, paths};
+use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::workflow::Workflow;
 use std::path::Path;
 
@@ -42,36 +42,36 @@ pub fn save_workflow<R: PlanningRoot + ?Sized>(
     repo: &R,
     workflow: &Workflow,
 ) -> anyhow::Result<()> {
-    safe_directory(repo, paths::STATE)?;
-    repo.write_planning(paths::WORKFLOW, &serde_json::to_vec_pretty(workflow)?)?;
+    let store = repo.planning_store();
+    let (changes, checks, migrating) = super::record_files::changes(repo, workflow)?;
+    if changes.is_empty() {
+        return Ok(());
+    }
+    if migrating {
+        let expected = store.revision()?;
+        store.transaction_with_revision_and_record_revisions(&changes, Some(&expected), &checks)?;
+    } else {
+        store.transaction_with_record_revisions(&changes, &checks)?;
+    }
     Ok(())
 }
 
 pub fn load_workflow<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Workflow> {
-    match repo.read_planning(paths::WORKFLOW) {
-        Ok(bytes) => {
-            let text = String::from_utf8(bytes)?;
-            let workflow: Workflow = serde_json::from_str(&text)?;
-            for (feature_id, record) in &workflow.plan_comparisons {
-                anyhow::ensure!(
-                    feature_id == &record.feature_id,
-                    "Comparison workflow key does not match its feature ID"
-                );
-                record.validate()?;
-            }
-            promote_legacy_comparisons(repo, workflow)
-        }
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            promote_legacy_comparisons(repo, Workflow::default())
-        }
-        Err(e) => Err(e.into()),
-    }
+    let store = repo.planning_store();
+    store.with_consistent_read(|| load_workflow_unlocked(repo))
+}
+
+pub(crate) fn load_workflow_unlocked<R: PlanningRoot + ?Sized>(
+    repo: &R,
+) -> anyhow::Result<Workflow> {
+    let workflow = super::record_files::load_unlocked(repo)?;
+    promote_legacy_comparisons(repo, workflow)
 }
 
 /// Reconstruct old feature-metadata comparisons into the authoritative
 /// workflow index. The next workflow write persists this migration; repeated
 /// loads remain deterministic until then.
-fn promote_legacy_comparisons<R: PlanningRoot + ?Sized>(
+pub(super) fn promote_legacy_comparisons<R: PlanningRoot + ?Sized>(
     repo: &R,
     mut workflow: Workflow,
 ) -> anyhow::Result<Workflow> {

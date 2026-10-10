@@ -69,6 +69,7 @@ pub fn write_batch_expected_with_revision<R: PlanningRoot + ?Sized>(
             feature: batch.brief.feature_name.clone(),
             directory: store_relative_directory(&directory),
             count: batch.stories.len(),
+            created_at_ms: super::record_files::next_batch_timestamp(&next),
         });
         let index_path = layout
             .canonical_path(&directory)
@@ -93,45 +94,47 @@ pub fn write_batch_expected_with_revision<R: PlanningRoot + ?Sized>(
             .ok_or_else(|| anyhow::anyhow!("Task directory is outside the planning root"))?
             .join(".koolade-progress.json");
         let progress_relative = progress_path.strip_prefix(layout.root())?;
-        let workflow_bytes = serde_json::to_vec_pretty(&next)?;
+        let (mut changes, workflow_checks, _) = super::record_files::changes(repo, &next)?;
         let index_relative = index_path.strip_prefix(layout.root())?;
-        let changes = vec![
-            (
-                crate::artifacts::planning_store::paths::WORKFLOW.to_owned(),
-                workflow_bytes,
-            ),
-            (
-                index_relative.to_string_lossy().replace('\\', "/"),
-                finalized_index.into_bytes(),
-            ),
-        ];
-        let (_, revision) = store.transaction_with_removals_and_revision(
-            &changes,
-            &[progress_relative.to_string_lossy().replace('\\', "/")],
-            Some(expected_revision),
-        )?;
-        *workflow = next;
-        let mut paths: Vec<_> = batch
+        changes.push((
+            index_relative.to_string_lossy().replace('\\', "/"),
+            finalized_index.into_bytes(),
+        ));
+        let mut record_checks = workflow_checks;
+        let task_paths: Vec<_> = batch
             .stories
             .iter()
             .enumerate()
-            .map(|(i, s)| {
-                format!(
-                    "{directory}/{}",
-                    task_name(progress.feature_id.as_deref(), i, s)
-                )
-            })
+            .map(|(index, story)| task_name(progress.feature_id.as_deref(), index, story))
             .collect();
-        paths.extend([
-            store.git_path(&store_relative(&directory, "README.md")),
-            store.git_path(&store_relative(&directory, "specification.md")),
-            store.git_path(&store_relative(&directory, ".koolade-progress.json")),
-            store.git_path(crate::artifacts::planning_store::paths::WORKFLOW),
-        ]);
-        if batch.contract.is_some() {
-            paths.push(store.git_path(&store_relative(&directory, "contract.json")));
+        for task_path in &task_paths {
+            let text = String::from_utf8(repo.read_planning(&format!("{directory}/{task_path}"))?)?;
+            let metadata = super::metadata::parse(&text)?
+                .ok_or_else(|| anyhow::anyhow!("Generated task {task_path} has no metadata"))?;
+            let (path, bytes, check) = super::task_state::create(&metadata)?;
+            changes.push((path, bytes));
+            record_checks.push(check);
         }
-        return Ok((paths, revision));
+        let (committed, revision) = store.transaction_with_removals_and_record_revisions(
+            &changes,
+            &[progress_relative.to_string_lossy().replace('\\', "/")],
+            Some(expected_revision),
+            &record_checks,
+        )?;
+        *workflow = super::record_files::load(repo)?;
+        let directory_relative = store_relative_directory(&directory);
+        let mut paths = committed
+            .iter()
+            .map(|path| store.git_path(path))
+            .collect::<std::collections::BTreeSet<_>>();
+        for path in std::iter::once("README.md".to_owned())
+            .chain(std::iter::once("specification.md".to_owned()))
+            .chain(task_paths)
+            .chain(batch.contract.as_ref().map(|_| "contract.json".to_owned()))
+        {
+            paths.insert(store.git_path(&format!("{directory_relative}/{path}")));
+        }
+        return Ok((paths.into_iter().collect(), revision));
     }
 
     let feature = batch_slug(batch);
@@ -242,26 +245,40 @@ pub fn write_batch_expected_with_revision<R: PlanningRoot + ?Sized>(
             feature: batch.brief.feature_name.clone(),
             directory: store_relative_directory(&directory),
             count: names.len(),
+            created_at_ms: super::record_files::next_batch_timestamp(&next),
         });
         let directory_relative = store_relative_directory(&directory);
-        let mut changes = std::fs::read_dir(&stage)?
-            .map(|entry| {
-                let entry = entry?;
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let relative = format!("{directory_relative}/{name}");
-                Ok((relative, std::fs::read(entry.path())?))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        changes.push((
-            crate::artifacts::planning_store::paths::WORKFLOW.into(),
-            serde_json::to_vec_pretty(&next)?,
-        ));
-        let (committed, revision) =
-            store.transaction_with_revision(&changes, Some(expected_revision))?;
+        let (mut changes, workflow_checks, _) = super::record_files::changes(repo, &next)?;
+        let mut record_checks = workflow_checks;
+        let mut staged_task_state = Vec::new();
+        for name in names.iter().take(identified.len()) {
+            let task_text = std::fs::read_to_string(stage.join(name))?;
+            let metadata = super::metadata::parse(&task_text)?
+                .ok_or_else(|| anyhow::anyhow!("Generated task {name} has no metadata"))?;
+            let (path, bytes, check) = super::task_state::create(&metadata)?;
+            staged_task_state.push((path, bytes));
+            record_checks.push(check);
+        }
+        changes.extend(
+            std::fs::read_dir(&stage)?
+                .map(|entry| {
+                    let entry = entry?;
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    let relative = format!("{directory_relative}/{name}");
+                    Ok((relative, std::fs::read(entry.path())?))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        );
+        changes.extend(staged_task_state);
+        let (committed, revision) = store.transaction_with_revision_and_record_revisions(
+            &changes,
+            Some(expected_revision),
+            &record_checks,
+        )?;
         if committed.is_empty() {
             anyhow::bail!("Validated task batch produced no planning changes");
         }
-        *workflow = next;
+        *workflow = super::record_files::load(repo)?;
         Ok((
             committed.iter().map(|path| store.git_path(path)).collect(),
             revision,
@@ -278,8 +295,4 @@ fn store_relative_directory(directory: &str) -> String {
         .strip_prefix(".koolade-packet/")
         .unwrap_or(directory)
         .to_owned()
-}
-
-fn store_relative(directory: &str, file: &str) -> String {
-    format!("{}/{file}", store_relative_directory(directory))
 }

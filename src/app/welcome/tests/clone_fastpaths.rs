@@ -90,8 +90,8 @@ fn perform_clone_plain_repo_connects_identically_to_a_typed_path() {
             "{what}: cold bootstrap does not create a legacy spec"
         );
         assert!(
-            root.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
-            "{what}: open-items bootstrapped"
+            !root.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
+            "{what}: an empty queue uses no monolithic file"
         );
         assert!(
             root.join(crate::artifacts::CONFIG_FILE).exists(),

@@ -2,7 +2,7 @@
 use super::{Authority, ItemKind, ItemStatus, Priority};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenItem {
     /// Immutable Koolade identity, absent only on artifacts awaiting migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,7 +39,39 @@ pub struct OpenItem {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked_by: Vec<String>,
     pub status: ItemStatus,
+    /// Revision captured when this item was loaded; omitted from legacy data.
+    #[serde(skip)]
+    pub record_revision: u64,
+    /// Serialized content captured at load time, used to distinguish this
+    /// caller's edits from unrelated changes made by another planner.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub record_baseline: Option<String>,
 }
+
+impl PartialEq for OpenItem {
+    fn eq(&self, other: &Self) -> bool {
+        self.uid == other.uid
+            && self.id == other.id
+            && self.conversation_id == other.conversation_id
+            && self.priority == other.priority
+            && self.authority == other.authority
+            && self.kind == other.kind
+            && self.category == other.category
+            && self.assigned_to == other.assigned_to
+            && self.question == other.question
+            && self.reason == other.reason
+            && self.feature_id == other.feature_id
+            && self.feature_uid == other.feature_uid
+            && self.recommendation == other.recommendation
+            && self.evidence == other.evidence
+            && self.decision_brief == other.decision_brief
+            && self.blocked_by == other.blocked_by
+            && self.status == other.status
+    }
+}
+
+impl Eq for OpenItem {}
 
 impl OpenItem {
     pub fn new(
@@ -69,6 +101,8 @@ impl OpenItem {
             decision_brief: None,
             blocked_by: Vec::new(),
             status: ItemStatus::Open,
+            record_revision: 0,
+            record_baseline: None,
         }
     }
 

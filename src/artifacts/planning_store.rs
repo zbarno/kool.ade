@@ -8,6 +8,8 @@ use std::{
 };
 
 mod layout;
+mod record_api;
+mod records;
 mod root;
 #[path = "planning_store/io.rs"]
 mod store_io;
@@ -15,7 +17,11 @@ mod store_io;
 mod tests;
 
 pub use layout::{PlanningLayout, paths};
+pub use records::RecordRevisionCheck;
+pub(crate) use records::validate_record_revisions as validate_record_changes;
 pub use root::PlanningRoot;
+
+pub(crate) type RecordChangePlan = (Vec<(String, Vec<u8>)>, Vec<RecordRevisionCheck>, bool);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreMode {
@@ -39,9 +45,20 @@ pub struct StoreFile {
 
 #[derive(Debug)]
 pub enum StoreError {
-    Io { path: PathBuf, source: io::Error },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
     InvalidPath(String),
-    StaleRevision { expected: String, actual: String },
+    StaleRevision {
+        expected: String,
+        actual: String,
+    },
+    StaleRecordRevision {
+        path: String,
+        expected: u64,
+        actual: u64,
+    },
     MalformedState(String),
     UnavailableStore(String),
 }
@@ -57,6 +74,14 @@ impl fmt::Display for StoreError {
                     "planning store changed (expected {expected}, found {actual})"
                 )
             }
+            Self::StaleRecordRevision {
+                path,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "planning record {path} changed (expected revision {expected}, found {actual})"
+            ),
             Self::MalformedState(detail) => write!(f, "malformed planning state: {detail}"),
             Self::UnavailableStore(detail) => write!(f, "planning store unavailable: {detail}"),
         }
@@ -147,6 +172,37 @@ impl PlanningStore {
         crate::artifacts::transaction::apply_store_with_revision(self, changes, expected_revision)
     }
 
+    /// Atomically write independent record files after checking each record's
+    /// own revision. Changes to unrelated records do not invalidate these
+    /// writes; a stale same-record update is rejected.
+    pub fn transaction_with_record_revisions(
+        &self,
+        changes: &[(String, Vec<u8>)],
+        expected_records: &[RecordRevisionCheck],
+    ) -> Result<(Vec<String>, String), StoreError> {
+        crate::artifacts::transaction::apply_store_with_record_revisions(
+            self,
+            changes,
+            expected_records,
+        )
+    }
+
+    /// Combine a store-wide snapshot fence with record-specific checks for a
+    /// transaction that also changes legacy singleton planning artifacts.
+    pub fn transaction_with_revision_and_record_revisions(
+        &self,
+        changes: &[(String, Vec<u8>)],
+        expected_revision: Option<&str>,
+        expected_records: &[RecordRevisionCheck],
+    ) -> Result<(Vec<String>, String), StoreError> {
+        crate::artifacts::transaction::apply_store_with_revision_and_record_revisions(
+            self,
+            changes,
+            expected_revision,
+            expected_records,
+        )
+    }
+
     pub fn transaction_with_removals(
         &self,
         changes: &[(String, Vec<u8>)],
@@ -175,6 +231,22 @@ impl PlanningStore {
         )
     }
 
+    pub fn transaction_with_removals_and_record_revisions(
+        &self,
+        changes: &[(String, Vec<u8>)],
+        removals: &[String],
+        expected_revision: Option<&str>,
+        expected_records: &[RecordRevisionCheck],
+    ) -> Result<(Vec<String>, String), StoreError> {
+        crate::artifacts::transaction::apply_store_with_removals_and_record_revisions(
+            self,
+            changes,
+            removals,
+            expected_revision,
+            expected_records,
+        )
+    }
+
     pub fn revision(&self) -> Result<String, StoreError> {
         crate::artifacts::transaction::revision(self)
     }
@@ -182,5 +254,16 @@ impl PlanningStore {
     pub fn recover(&self) -> Result<bool, StoreError> {
         self.validate_root()?;
         crate::artifacts::transaction::recover_store(self)
+    }
+
+    pub(crate) fn with_consistent_read<T, E>(
+        &self,
+        read: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<StoreError>,
+    {
+        self.validate_root().map_err(E::from)?;
+        crate::artifacts::transaction::with_consistent_read(self, read)
     }
 }

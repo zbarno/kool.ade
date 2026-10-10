@@ -48,19 +48,20 @@ pub(super) fn apply(
     };
     record.validate()?;
     workflow.plan_comparisons.insert(id.clone(), record);
-    let bytes = serde_json::to_vec_pretty(&workflow)?;
-    let (paths, revision) = state.planning_store.transaction_with_revision(
-        &[(
-            crate::artifacts::planning_store::paths::WORKFLOW.into(),
-            bytes,
-        )],
-        Some(&state.baseline_planning_revision),
-    )?;
+    let (changes, checks, _) =
+        crate::artifacts::task_docs::workflow_record_changes(&state.planning_store, &workflow)?;
+    let (paths, revision) = state
+        .planning_store
+        .transaction_with_revision_and_record_revisions(
+            &changes,
+            Some(&state.baseline_planning_revision),
+            &checks,
+        )?;
     let relative = paths
         .iter()
         .map(|path| state.planning_store.git_path(path))
         .collect();
-    state.workflow = workflow;
+    state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store)?;
     state.baseline_planning_revision = revision;
     Ok(ApplyReceipt {
         spec_written: false,
