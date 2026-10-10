@@ -15,6 +15,17 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     if managed::is_managed_repository(&canonical)? {
         return managed::join_workspace_path(&canonical);
     }
+    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+    if let Some(workspace) = manager
+        .workspace_for_checkout(&canonical)
+        .map_err(|error| {
+            AppError::Other(format!(
+                "managed workspace association is invalid: {error:#}"
+            ))
+        })?
+    {
+        return connect_canonical(canonical, workspace.store);
+    }
     let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &canonical);
     connect_canonical(canonical, store)
 }

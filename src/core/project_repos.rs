@@ -146,7 +146,11 @@ impl ProjectManifest {
         let Some(path) = mapping.get(id) else {
             return Ok(None);
         };
-        let path = PathBuf::from(path).canonicalize()?;
+        let path = match PathBuf::from(path).canonicalize() {
+            Ok(path) => path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
         anyhow::ensure!(
             git_remote(&path).as_deref() == Some(expected.remote.as_str()),
             "Local checkout for {id} has a different origin"
