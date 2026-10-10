@@ -25,6 +25,8 @@ pub enum HeaderAction {
     OpenWorkspace,
     OpenRegisteredRepository { id: String },
     AddCodeRepository,
+    MigrateEmbeddedPlanning,
+    RollbackPlanningMigration,
     Disconnect,
 }
 

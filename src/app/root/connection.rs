@@ -224,7 +224,10 @@ impl KooladeApp {
         self.finish_connect(welcome::attempt_create_workspace(title));
     }
 
-    fn finish_connect(&mut self, result: Result<session::Project, crate::error::AppError>) {
+    pub(super) fn finish_connect(
+        &mut self,
+        result: Result<session::Project, crate::error::AppError>,
+    ) {
         match result {
             Ok(mut project) => {
                 self.attention.clear();

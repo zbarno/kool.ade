@@ -7,6 +7,19 @@ pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, settings_open: &mut 
     action(ui, s, "Open workspace…", HeaderAction::OpenWorkspace);
     action(ui, s, "Refresh repository", HeaderAction::Refresh);
     ui.separator();
+    action(
+        ui,
+        s,
+        "Migrate embedded planning…",
+        HeaderAction::MigrateEmbeddedPlanning,
+    );
+    action(
+        ui,
+        s,
+        "Return to embedded planning…",
+        HeaderAction::RollbackPlanningMigration,
+    );
+    ui.separator();
     ui.label(theme::metadata_text("PROJECT RESOURCES"));
     action(ui, s, "Import references…", HeaderAction::Import);
     action(ui, s, "MCP servers…", HeaderAction::McpServers);

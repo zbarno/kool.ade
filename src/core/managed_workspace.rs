@@ -6,6 +6,7 @@ mod git;
 mod locking;
 mod manager;
 mod manifest;
+mod migration;
 mod repositories;
 #[cfg(test)]
 mod tests;
@@ -15,6 +16,7 @@ pub use association::{CodeCheckout, WorkspaceAssociation};
 pub(crate) use creation::CreationFailurePoint;
 pub use manager::{CodeRepositoryRegistration, ManagedWorkspace, WorkspaceManager};
 pub use manifest::WorkspaceManifest;
+pub use migration::{MigrationReport, RollbackOutcome};
 
 /// Resolve a directory inside a Git working tree to its actual repository
 /// root. Git environment overrides are cleared by the subprocess helper.

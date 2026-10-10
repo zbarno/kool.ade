@@ -94,7 +94,50 @@ impl KooladeApp {
                         .warning("Code repositories can be added to managed planning workspaces.");
                 }
             }
+            HeaderAction::MigrateEmbeddedPlanning => self.migrate_embedded_planning(),
+            HeaderAction::RollbackPlanningMigration => self.rollback_planning_migration(),
             HeaderAction::Disconnect => self.disconnect(),
+        }
+    }
+
+    fn migrate_embedded_planning(&mut self) {
+        let Some(path) = (match &self.screen {
+            Screen::Connected(project) => Some(project.state.repo_root.clone()),
+            Screen::Welcome => None,
+        }) else {
+            return;
+        };
+        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+        match manager.migrate_legacy_checkout(&path) {
+            Ok(_) => {
+                let selected = path.to_string_lossy().into_owned();
+                self.finish_connect(crate::app::welcome::attempt_connect(&selected));
+            }
+            Err(error) => self
+                .toasts
+                .warning(format!("Planning migration stopped safely: {error:#}")),
+        }
+    }
+
+    fn rollback_planning_migration(&mut self) {
+        let Some(path) = (match &self.screen {
+            Screen::Connected(project) => Some(project.state.repo_root.clone()),
+            Screen::Welcome => None,
+        }) else {
+            return;
+        };
+        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+        match manager.rollback_legacy_migration(&path) {
+            Ok(outcome) => {
+                let selected = path.to_string_lossy().into_owned();
+                self.finish_connect(crate::app::welcome::attempt_connect(&selected));
+                if let Some(warning) = outcome.warning {
+                    self.toasts.warning(warning);
+                }
+            }
+            Err(error) => self
+                .toasts
+                .warning(format!("Planning rollback did not run: {error:#}")),
         }
     }
 }
