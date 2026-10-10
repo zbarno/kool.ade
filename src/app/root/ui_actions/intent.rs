@@ -84,6 +84,16 @@ impl KooladeApp {
             HeaderAction::CopySpec => self.copy_spec_to_clipboard(),
             HeaderAction::OpenWorkspace => self.open_workspace(),
             HeaderAction::OpenRegisteredRepository { id } => self.open_registered_repository(&id),
+            HeaderAction::AddCodeRepository => {
+                if self.can_add_code_repository() {
+                    self.dialog = Some(Dialog::AddCodeRepository(
+                        super::super::app_dialogs::DlgCodeRepository::default(),
+                    ));
+                } else {
+                    self.toasts
+                        .warning("Code repositories can be added to managed planning workspaces.");
+                }
+            }
             HeaderAction::Disconnect => self.disconnect(),
         }
     }

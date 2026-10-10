@@ -1,4 +1,16 @@
 use super::*;
+
+impl KooladeApp {
+    fn implementation_capacity(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(project)
+            if project.active_implementations.len() < project.queue.max_parallel.clamp(1, 8))
+    }
+
+    fn implement_task(&mut self, ticket: String) {
+        self.start_implementation(ticket, true);
+    }
+}
+
 #[path = "board_tests/support.rs"]
 mod support;
 pub(super) use support::*;

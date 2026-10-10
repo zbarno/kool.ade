@@ -17,6 +17,7 @@ pub const PROJECT_FILE: &str = crate::artifacts::layout::canonical::PROJECT_MANI
 pub struct Repository {
     pub id: String,
     pub role: String,
+    #[serde(default)]
     pub remote: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
@@ -82,10 +83,6 @@ impl ProjectManifest {
         Ok(())
     }
     pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !self.repositories.is_empty(),
-            "Project repository manifest is empty"
-        );
         let mut ids = HashSet::new();
         for repo in &self.repositories {
             if let Some(name) = &repo.display_name {
@@ -103,12 +100,7 @@ impl ProjectManifest {
                 repo.id
             );
             anyhow::ensure!(
-                !repo.remote.trim().is_empty() || repo.id == "root",
-                "Repository {} has no remote identity",
-                repo.id
-            );
-            anyhow::ensure!(
-                portable_remote(&repo.remote) || (repo.id == "root" && repo.remote.is_empty()),
+                repo.remote.is_empty() || portable_remote(&repo.remote),
                 "Repository {} remote must be a portable repository identity",
                 repo.id
             );
@@ -132,6 +124,19 @@ impl ProjectManifest {
             .find(|r| r.id == id)
             .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?;
         let root = planning_root.canonicalize()?;
+        if crate::core::managed_workspace::WorkspaceManifest::is_managed_repository(&root)? {
+            let workspace = crate::core::managed_workspace::WorkspaceManifest::read(&root)?;
+            if let Some(checkout) =
+                crate::core::managed_workspace::WorkspaceManager::from_state_root().checkout_path(
+                    workspace.workspace_id,
+                    id,
+                    &expected.remote,
+                )?
+            {
+                return Ok(Some(checkout));
+            }
+            return Ok(None);
+        }
         if (id == "root" && expected.remote.is_empty())
             || git_remote(&root).as_deref() == Some(expected.remote.as_str())
         {
@@ -167,8 +172,17 @@ pub fn map_local_checkout(planning_root: &Path, id: &str, checkout: &Path) -> an
         .find(|r| r.id == id)
         .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?;
     let checkout = checkout.canonicalize()?;
+    if crate::core::managed_workspace::WorkspaceManifest::is_managed_repository(&root)? {
+        let workspace = crate::core::managed_workspace::WorkspaceManifest::read(&root)?;
+        return crate::core::managed_workspace::WorkspaceManager::from_state_root().map_checkout(
+            workspace.workspace_id,
+            id,
+            &checkout,
+        );
+    }
     anyhow::ensure!(
-        git_remote(&checkout).as_deref() == Some(expected.remote.as_str()),
+        expected.remote.is_empty()
+            || git_remote(&checkout).as_deref() == Some(expected.remote.as_str()),
         "Checkout origin does not match registered repository {id}"
     );
     let mut mapping = private_checkout_map(&root)?;

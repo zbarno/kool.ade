@@ -128,6 +128,9 @@ pub trait Surface {
     fn registered_repositories(&self) -> Vec<RepositoryChoice> {
         Vec::new()
     }
+    fn can_register_code_repository(&self) -> bool {
+        false
+    }
     fn git_branch(&self) -> &str;
     fn repository_branches(&self) -> Vec<String> {
         Vec::new()

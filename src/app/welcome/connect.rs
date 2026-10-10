@@ -6,9 +6,15 @@ use crate::error::AppError;
 use crate::persistence::{chat_store, project_slug};
 use std::ffi::OsString;
 use std::path::PathBuf;
+
+mod managed;
+pub use managed::{attempt_create_workspace, attempt_join_workspace, attempt_open_workspace};
 /// Normalize user-typed paths (`~` expansion), then load-or-bootstrap.
 pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     let canonical = canonical_repository(raw)?;
+    if managed::is_managed_repository(&canonical)? {
+        return managed::join_workspace_path(&canonical);
+    }
     let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &canonical);
     connect_canonical(canonical, store)
 }
@@ -48,10 +54,26 @@ fn canonical_repository(raw: &str) -> Result<PathBuf, AppError> {
             detail: "path is not a directory".into(),
         });
     }
-    Ok(canonical)
+    // A folder picker can select a subfolder inside a checkout. Normalize it
+    // to the worktree root before managed detection so legacy bootstrap never
+    // creates planning files under a nested directory in a managed repo.
+    Ok(crate::core::managed_workspace::repository_root(&canonical).unwrap_or(canonical))
 }
 
 fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project, AppError> {
+    let local_key = if store.mode != StoreMode::LegacyEmbedded && !store.project_id.is_nil() {
+        store.project_id.hyphenated().to_string()
+    } else {
+        project_slug(&canonical)
+    };
+    connect_canonical_with_key(canonical, store, local_key)
+}
+
+fn connect_canonical_with_key(
+    canonical: PathBuf,
+    store: PlanningStore,
+    local_key: String,
+) -> Result<Project, AppError> {
     if !gitops::is_work_tree(&canonical) {
         return Err(AppError::InvalidRepo {
             path: canonical.to_string_lossy().into_owned(),
@@ -114,7 +136,7 @@ fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project
             ))
         })?;
     }
-    let slug = project_slug(&canonical);
+    let slug = local_key;
     let mut chat = chat_store::load(&slug).0;
     if chat.is_empty() {
         let welcome = crate::app::session::welcome_message(&state.title);

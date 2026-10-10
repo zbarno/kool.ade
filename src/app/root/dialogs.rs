@@ -1,10 +1,13 @@
 use super::*;
 
+mod code_repository;
+
 impl KooladeApp {
     /// Paint a modal with the dialog moved OUT of `self` (clean borrows);
     /// the dialog is put back unless the user closed or completed it.
     pub(super) fn render_dialog(&mut self, ui: &mut egui::Ui, dialog: Dialog) {
         match dialog {
+            Dialog::AddCodeRepository(d) => self.render_code_repository_dialog(ui, d),
             Dialog::Import(mut d) => {
                 let save_slot = std::cell::RefCell::new(false);
                 let close_slot = std::cell::RefCell::new(false);

@@ -209,7 +209,23 @@ impl KooladeApp {
         if self.conn_path.trim().is_empty() {
             return;
         }
-        match welcome::attempt_connect(&self.conn_path) {
+        self.finish_connect(welcome::attempt_connect(&self.conn_path));
+    }
+
+    pub(super) fn submit_create_workspace(&mut self) {
+        if self.clone_job.is_some() {
+            return;
+        }
+        let title = self.conn_create_title.trim();
+        if title.is_empty() {
+            self.conn_error = Some("Enter a project name to create a planning workspace.".into());
+            return;
+        }
+        self.finish_connect(welcome::attempt_create_workspace(title));
+    }
+
+    fn finish_connect(&mut self, result: Result<session::Project, crate::error::AppError>) {
+        match result {
             Ok(mut project) => {
                 self.attention.clear();
                 self.setup_attention = None;

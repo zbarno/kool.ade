@@ -6,15 +6,24 @@ pub(super) fn paint_menu(ui: &mut egui::Ui, surface: &mut dyn Surface) {
         let repositories = surface.registered_repositories();
         if repositories.is_empty() {
             ui.label("No registered repositories");
-            return;
+        } else {
+            for repository in repositories {
+                if ui
+                    .button(format!("Open {} in a new window", repository.label))
+                    .clicked()
+                {
+                    surface.dispatch(ApplicationCommand::HeaderAction(
+                        HeaderAction::OpenRegisteredRepository { id: repository.id },
+                    ));
+                    ui.close();
+                }
+            }
         }
-        for repository in repositories {
-            if ui
-                .button(format!("Open {} in a new window", repository.label))
-                .clicked()
-            {
+        if surface.can_register_code_repository() {
+            ui.separator();
+            if ui.button("Add code repository…").clicked() {
                 surface.dispatch(ApplicationCommand::HeaderAction(
-                    HeaderAction::OpenRegisteredRepository { id: repository.id },
+                    HeaderAction::AddCodeRepository,
                 ));
                 ui.close();
             }
