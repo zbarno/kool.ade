@@ -51,7 +51,7 @@ fn happy_path_writes_files_and_commits() {
             commit_result,
             ..
         } => {
-            assert_eq!(receipt.repo_relative_paths.len(), 3);
+            assert_eq!(receipt.repo_relative_paths.len(), 4);
             assert!(receipt.commit_message.starts_with("planner: "));
             assert!(commit_result.is_ok(), "commit failed: {commit_result:?}");
             assert_eq!(state.items.len(), 1);

@@ -1,4 +1,4 @@
-use super::{SCHEMA_VERSION, Work, WorkFile, WorkKind, load};
+use super::{Work, WorkKind, load, record_changes};
 use crate::artifacts::planning_store::PlanningRoot;
 
 pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
@@ -76,16 +76,17 @@ pub fn save_expected<R: PlanningRoot + ?Sized>(
     expected_revision: &str,
 ) -> anyhow::Result<String> {
     validate(work)?;
-    let file = WorkFile {
-        schema_version: SCHEMA_VERSION,
-        items: work.to_vec(),
-    };
     let store = repo.planning_store();
-    let changes = vec![(
-        crate::artifacts::planning_store::paths::WORK.to_owned(),
-        serde_json::to_vec_pretty(&file)?,
-    )];
-    let (_, revision) = store.transaction_with_revision(&changes, Some(expected_revision))?;
+    let (changes, checks, legacy_migration) = record_changes(&store, work)?;
+    let (_, revision) = if legacy_migration {
+        store.transaction_with_revision_and_record_revisions(
+            &changes,
+            Some(expected_revision),
+            &checks,
+        )?
+    } else {
+        store.transaction_with_record_revisions(&changes, &checks)?
+    };
     Ok(revision)
 }
 

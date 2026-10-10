@@ -69,8 +69,8 @@ pub fn approve_feature_if_current_with_revision<
     expected_contract: Option<&str>,
     expected_revision: &str,
 ) -> anyhow::Result<FeatureApprovalReceipt> {
-    // Writer section: this read-modify-commit of workflow.json shares the
-    // planning index with background turns/reconciliation.
+    // Writer section: this feature-scoped record write shares the transaction
+    // lock with background turns/reconciliation.
     let guard = crate::core::writer_gate::acquire();
     let store = repo.planning_store();
     let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
@@ -102,12 +102,14 @@ pub fn approve_feature_if_current_with_revision<
     // Another conversation may have saved a brief or another approval since display.
     *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
     workflow.approved_features.insert(id.to_string(), contract);
-    let changes = vec![(
-        crate::artifacts::planning_store::paths::WORKFLOW.to_owned(),
-        serde_json::to_vec_pretty(workflow)?,
-    )];
-    let (paths, planning_revision) =
-        store.transaction_with_revision(&changes, Some(expected_revision))?;
+    let (changes, checks, _) =
+        crate::artifacts::task_docs::workflow_record_changes(repo, workflow)?;
+    let (paths, planning_revision) = store.transaction_with_revision_and_record_revisions(
+        &changes,
+        Some(expected_revision),
+        &checks,
+    )?;
+    *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
     let result = crate::core::gitops::commit(
         &store.git_root(),
         &format!("planner: approve feature {id}"),

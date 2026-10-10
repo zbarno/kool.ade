@@ -1,6 +1,9 @@
 use super::*;
 use crate::artifacts::planning_store::PlanningRoot;
 
+#[path = "tests/record_files.rs"]
+mod record_files;
+
 fn root() -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!(
         "koolade-work-schema-{}-{}",
@@ -45,15 +48,22 @@ fn legacy_work_reads_are_pure_and_upgrade_with_revision_fencing() {
 
     let (migrated_work, migration_revision) = load_expected(&root, &expected_revision).unwrap();
     assert_eq!(migrated_work, work);
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    let record_path = store.layout().work_record(&work[0].uid).unwrap();
     let migrated: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    assert_eq!(migrated["schemaVersion"], SCHEMA_VERSION);
-    assert_eq!(migrated["items"][0]["status"], "needs_attention");
-    assert!(migrated["items"][0].get("column").is_none());
+        serde_json::from_slice(&std::fs::read(record_path).unwrap()).unwrap();
+    assert_eq!(migrated["schemaVersion"], 1);
+    assert_eq!(migrated["uid"], work[0].uid);
+    assert_eq!(migrated["revision"], 1);
+    assert_eq!(migrated["data"]["status"], "needs_attention");
+    assert!(migrated["data"].get("column").is_none());
     assert_eq!(migration_revision, store.revision().unwrap());
 
     let current_bytes = std::fs::read(root.join(FILE)).unwrap();
-    assert!(load_expected(&root, &expected_revision).is_err());
+    let (loaded_from_independent_records, unchanged_revision) =
+        load_expected(&root, &expected_revision).unwrap();
+    assert_eq!(loaded_from_independent_records, work);
+    assert_eq!(unchanged_revision, migration_revision);
     assert_eq!(std::fs::read(root.join(FILE)).unwrap(), current_bytes);
     let (loaded_again, unchanged_revision) = load_expected(&root, &migration_revision).unwrap();
     assert_eq!(loaded_again, work);
@@ -149,38 +159,33 @@ fn task_routing_overrides_roundtrip_with_parent_provenance_and_manager_is_reject
 #[test]
 fn discovered_refresh_tasks_keep_questions_in_attention_and_findings_in_todo() {
     let root = root();
-    let content = append_discovered(
-        &root,
-        &[
-            crate::harness::PlanningTaskDraft {
-                title: "Clarify authentication behavior".into(),
-                description: "README.md conflicts with src/auth.rs.".into(),
-                kind: WorkKind::Question,
-                status: WorkStatus::NeedsAttention,
-            },
-            crate::harness::PlanningTaskDraft {
-                title: "Triage possible token leak".into(),
-                description: "src/auth.rs logs a token-shaped value; verify exposure.".into(),
-                kind: WorkKind::Bug,
-                status: WorkStatus::Todo,
-            },
-        ],
-    )
-    .unwrap()
-    .unwrap();
-    let file: serde_json::Value = serde_json::from_str(&content).unwrap();
-    let items = file["items"].as_array().unwrap();
+    let drafts = [
+        crate::harness::PlanningTaskDraft {
+            title: "Clarify authentication behavior".into(),
+            description: "README.md conflicts with src/auth.rs.".into(),
+            kind: WorkKind::Question,
+            status: WorkStatus::NeedsAttention,
+        },
+        crate::harness::PlanningTaskDraft {
+            title: "Triage possible token leak".into(),
+            description: "src/auth.rs logs a token-shaped value; verify exposure.".into(),
+            kind: WorkKind::Bug,
+            status: WorkStatus::Todo,
+        },
+    ];
+    let work = append_discovered(&drafts).unwrap();
+    let store = root.planning_store();
+    let (changes, checks, _) = record_changes(&store, &work).unwrap();
+    store
+        .transaction_with_record_revisions(&changes, &checks)
+        .unwrap();
+    let items = load(&root).unwrap();
     assert_eq!(items.len(), 2);
-    assert_eq!(items[0]["status"], "needs_attention");
-    assert_eq!(items[0]["kind"], "question");
-    assert_eq!(items[1]["status"], "todo");
-    assert_eq!(items[1]["kind"], "bug");
-    assert!(
-        items[1]["detail"]
-            .as_str()
-            .unwrap()
-            .contains("triage before acting")
-    );
+    assert_eq!(items[0].status, WorkStatus::NeedsAttention);
+    assert_eq!(items[0].kind, WorkKind::Question);
+    assert_eq!(items[1].status, WorkStatus::Todo);
+    assert_eq!(items[1].kind, WorkKind::Bug);
+    assert!(items[1].detail.contains("triage before acting"));
     std::fs::remove_dir_all(root).unwrap();
 }
 

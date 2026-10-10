@@ -1,4 +1,4 @@
-use super::board_state::task_board_column;
+use super::board_state::task_document_board_column;
 use crate::core::implementation::{ImplementationStatus, PullRequestState};
 use crate::ui::Surface;
 use egui::RichText;
@@ -14,30 +14,17 @@ pub(crate) fn paint_task_properties(
     let state = s.implementation_state(ticket).cloned();
     if !ticket.ends_with("/README.md") {
         ui.horizontal_wrapped(|ui| {
-            if let Some(record) = &state {
-                let status = if matches!(
-                    record.status,
-                    ImplementationStatus::Preparing
-                        | ImplementationStatus::Implementing
-                        | ImplementationStatus::Verifying
-                ) && !s.implementation_active(ticket)
-                {
-                    "Interrupted — ready to resume"
-                } else {
-                    record.status.label()
-                };
-                ui.label(RichText::new(status).size(12.0).weak());
-                if let Some(url) = &record.pr_url {
-                    ui.hyperlink_to("Open PR", url);
-                }
-            } else {
-                ui.label(
-                    RichText::new(
-                        crate::core::implementation::BOARD_COLUMNS[task_board_column(s, ticket)],
-                    )
-                    .size(12.0)
-                    .weak(),
-                );
+            let status = doc.task_state.as_ref().map_or_else(
+                || crate::core::implementation::BOARD_COLUMNS[task_document_board_column(s, doc)],
+                |task_state| {
+                    crate::core::implementation::BOARD_COLUMNS[task_state.status.board_column()]
+                },
+            );
+            ui.label(RichText::new(status).size(12.0).weak());
+            if let Some(record) = &state
+                && let Some(url) = &record.pr_url
+            {
+                ui.hyperlink_to("Open PR", url);
             }
         });
         if let Some(record) = &state {

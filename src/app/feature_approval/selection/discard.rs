@@ -79,27 +79,25 @@ impl KooladeApp {
                     return;
                 }
             };
-            let workflow_relative = crate::artifacts::planning_store::paths::WORKFLOW.to_owned();
             let feature_relative = feature_path
                 .strip_prefix(store.root.as_path())
                 .unwrap()
                 .to_string_lossy()
                 .replace('\\', "/");
-            let content = match serde_json::to_string_pretty(&workflow) {
-                Ok(content) => content,
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Cannot save comparison: {error}"));
-                    return;
-                }
-            };
-            let changes = vec![
-                (workflow_relative, content.into_bytes()),
-                (feature_relative, updated_feature.clone().into_bytes()),
-            ];
-            let (paths, revision) = match store.transaction_with_revision(
+            let (mut changes, workflow_checks, _) =
+                match crate::artifacts::task_docs::workflow_record_changes(store, &workflow) {
+                    Ok(changes) => changes,
+                    Err(error) => {
+                        self.toasts
+                            .danger(format!("Cannot save comparison: {error}"));
+                        return;
+                    }
+                };
+            changes.push((feature_relative, updated_feature.clone().into_bytes()));
+            let (paths, revision) = match store.transaction_with_revision_and_record_revisions(
                 &changes,
                 Some(&project.state.baseline_planning_revision),
+                &workflow_checks,
             ) {
                 Ok((paths, revision)) => (
                     paths
@@ -114,7 +112,15 @@ impl KooladeApp {
                     return;
                 }
             };
-            project.state.workflow = workflow;
+            project.state.workflow = match crate::artifacts::task_docs::load_workflow(store) {
+                Ok(workflow) => workflow,
+                Err(error) => {
+                    self.toasts.danger(format!(
+                        "Discard was saved but workflow reload failed: {error}"
+                    ));
+                    return;
+                }
+            };
             project.state.baseline_planning_revision = revision;
             if let Some((_, feature)) = project
                 .state

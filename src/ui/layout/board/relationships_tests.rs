@@ -130,6 +130,8 @@ fn task_doc(
         text: String::new(),
         identity: Some(identity),
         metadata: Some(metadata),
+        task_state: None,
+
         metadata_error: None,
     }
 }

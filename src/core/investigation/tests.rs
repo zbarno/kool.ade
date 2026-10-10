@@ -114,13 +114,10 @@ fn evidence_resolves_agent_item_without_chat_question() {
             .1
             .contains("src/search.rs")
     );
-    assert!(
-        crate::artifacts::items_io::parse(
-            &std::fs::read_to_string(root.join(".koolade-packet/planning/open-items.md"),).unwrap()
-        )
-        .unwrap()
-        .is_empty()
-    );
+    let (open_items, resolved_items, _) =
+        crate::artifacts::items_io::load_store(&updated.planning_store).unwrap();
+    assert!(open_items.is_empty());
+    assert_eq!(resolved_items[0].id, "CLR-001");
     let _ = std::fs::remove_dir_all(root);
 }
 /// Acts as a competing writer: edits the active feature document while

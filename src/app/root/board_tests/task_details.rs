@@ -83,7 +83,15 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             .unwrap()
             .with_branch_targets(Some(&targets))
             .unwrap();
-        project.task_documents[0].metadata = Some(metadata);
+        project.task_documents[0].metadata = Some(metadata.clone());
+        project.task_documents[0].task_state = Some(crate::artifacts::task_docs::TaskState {
+            batch_uid: metadata.batch_uid,
+            repository_id: "root".into(),
+            dependency_uids: Vec::new(),
+            status: crate::core::planning_work::WorkStatus::InReview,
+            execution_status: Some("awaiting_review".into()),
+            revision: 4,
+        });
         project.implementation_states.insert(
             key.into(),
             crate::core::implementation::Implementation {
@@ -138,7 +146,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
     for expected in [
-        "Done",
+        "In review",
         "GitHub Actions · Passed",
         "commit 0123456789ab",
         "All project workflows passed for this exact commit.",
@@ -148,6 +156,19 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             "missing {expected}"
         );
     }
+    let current_state = text_position(&output, "CURRENT STATE").unwrap();
+    assert!(
+        output.shapes.iter().any(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "In review" => {
+                let position = text.pos + text.galley.mesh_bounds.center().to_vec2();
+                position.x >= current_state.x
+                    && position.y > current_state.y
+                    && position.y < current_state.y + 90.0
+            }
+            _ => false,
+        }),
+        "the task detail modal should show the normalized task status"
+    );
     click_text(&mut app, &ctx, "Technical details");
     let output = click_text(&mut app, &ctx, "Branch intent");
     assert!(text_position(&output, "Source branch: release/2.1").is_some());

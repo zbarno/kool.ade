@@ -288,10 +288,34 @@ fn law_evidence(root: &std::path::Path) -> (Vec<u8>, Vec<u8>, Vec<u8>, usize) {
         .expect("commit count parses");
     (
         read(crate::artifacts::SPEC_FILE),
-        read(crate::artifacts::OPEN_ITEMS_FILE),
+        item_files_evidence(root),
         read(crate::artifacts::CONFIG_FILE),
         count,
     )
+}
+
+fn item_files_evidence(root: &std::path::Path) -> Vec<u8> {
+    let store =
+        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), root);
+    let mut files = Vec::new();
+    for directory in [
+        crate::artifacts::planning_store::paths::ITEM_CONTENTS,
+        crate::artifacts::planning_store::paths::ITEM_STATES,
+    ] {
+        for entry in store.list_files(directory).unwrap() {
+            let relative = format!("{directory}/{}", entry.name);
+            files.push((relative.clone(), store.read(relative).unwrap()));
+        }
+    }
+    for legacy in [
+        crate::artifacts::planning_store::paths::OPEN_ITEMS,
+        crate::artifacts::planning_store::paths::RESOLVED_ITEMS,
+    ] {
+        if let Ok(bytes) = store.read(legacy) {
+            files.push((legacy.to_owned(), bytes));
+        }
+    }
+    serde_json::to_vec(&files).unwrap()
 }
 
 fn git_stdout(root: &std::path::Path, args: &[&str]) -> String {

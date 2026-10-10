@@ -75,6 +75,16 @@ fn stale_display_cannot_approve_changed_contract_or_overwrite_other_approval() {
     };
     assert!(p.active_turn.is_none());
     std::fs::write(&path, original).unwrap();
+    let other_directory = root.join(".koolade-packet/planning/changes/CHG-009-other-feature");
+    std::fs::create_dir_all(&other_directory).unwrap();
+    let other_path = other_directory.join("specification.md");
+    let other_spec = crate::artifacts::product_docs::identity::preserve_feature_identity(
+        &other_path,
+        "CHG-009",
+        "# CHG-009: Other feature\n\n## Intent\n\nA separate approved feature.\n",
+    )
+    .unwrap();
+    std::fs::write(other_path, other_spec).unwrap();
     let mut saved = crate::artifacts::task_docs::load_workflow(&root).unwrap();
     saved
         .approved_features

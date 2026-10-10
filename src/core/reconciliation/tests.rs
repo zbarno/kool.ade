@@ -51,7 +51,13 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     std::fs::write(repo.join("planning/specification.md"), &legacy).unwrap();
     crate::artifacts::product_docs::migrate(&repo, &legacy).unwrap();
     std::fs::create_dir_all(repo.join(".koolade-packet/planning")).unwrap();
-    let feature = "# CHG-001: Search\n\n**Status:** Implementing\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo persistence.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nUse local store.\n\n## Acceptance Criteria\n\nQuery survives restart.\n".to_string();
+    let feature = crate::domain::ArtifactIdentity::preserve_markdown(
+        "# CHG-001: Search\n\n**Status:** Implementing\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo persistence.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nUse local store.\n\n## Acceptance Criteria\n\nQuery survives restart.\n",
+        None,
+        "CHG-001",
+        "Search",
+    )
+    .unwrap();
     std::fs::write(
         repo.join(".koolade-packet/planning/changes/CHG-001-search/specification.md"),
         &feature,

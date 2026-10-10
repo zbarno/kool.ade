@@ -17,7 +17,7 @@ mod tests;
 
 pub use projection::{cards, context, link_feature_identities};
 pub use reconcile::{completed_turn_status, reconcile_inactive, reconcile_inactive_excluding};
-pub use storage::{append_discovered, find, load, load_expected};
+pub use storage::{append_discovered, find, load, load_expected, record_changes};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -102,7 +102,7 @@ impl WorkStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Work {
     pub uid: String,
@@ -131,7 +131,38 @@ pub struct Work {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_up_task: Option<FollowUpTaskOffer>,
     pub detail: String,
+    /// Revision captured when this record was loaded; not part of legacy
+    /// aggregate serialization.
+    #[serde(skip)]
+    pub record_revision: u64,
+    /// Serialized content captured at load time so full board snapshots only
+    /// write records this caller actually changed.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub record_baseline: Option<String>,
 }
+
+impl PartialEq for Work {
+    fn eq(&self, other: &Self) -> bool {
+        self.uid == other.uid
+            && self.key == other.key
+            && self.kind == other.kind
+            && self.title == other.title
+            && self.request == other.request
+            && self.status == other.status
+            && self.feature_id == other.feature_id
+            && self.feature_uid == other.feature_uid
+            && self.parent_uid == other.parent_uid
+            && self.source_branch == other.source_branch
+            && self.destination_branch == other.destination_branch
+            && self.routing_overrides == other.routing_overrides
+            && self.routing_inherited_from == other.routing_inherited_from
+            && self.follow_up_task == other.follow_up_task
+            && self.detail == other.detail
+    }
+}
+
+impl Eq for Work {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -158,6 +189,8 @@ impl Work {
             routing_inherited_from: None,
             follow_up_task: None,
             detail,
+            record_revision: 0,
+            record_baseline: None,
         }
     }
 
@@ -171,4 +204,15 @@ impl Work {
 struct WorkFile {
     schema_version: u32,
     items: Vec<Work>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WorkRecord {
+    schema_version: u32,
+    uid: String,
+    revision: u64,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+    data: Work,
 }

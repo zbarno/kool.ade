@@ -79,6 +79,8 @@ fn resume_dispatch_accepts_feature_named_workspace_story() {
             text: record.ticket_text.clone(),
             identity: None,
             metadata: None,
+            task_state: None,
+
             metadata_error: None,
         }];
         p.implementation_states = [(ticket.into(), record)].into();
@@ -141,6 +143,7 @@ fn task_details_offer_implementation_after_generation_and_board_replaces_main_ch
                 feature: "Current feature".into(),
                 directory: ".koolade-packet/planning/tasks/fixture".into(),
                 count: 3,
+                created_at_ms: 0,
             });
     }
     assert!(

@@ -66,10 +66,11 @@ fn bootstraps_skeletons_and_reports_creations() {
     let mut st = PlannerState::load(&repo).unwrap();
     let created = st.bootstrap_missing().unwrap();
     assert!(created.contains(&crate::artifacts::SPEC_FILE.to_owned()));
-    assert!(created.contains(&OPEN_ITEMS_FILE.to_owned()));
+    assert!(!created.contains(&OPEN_ITEMS_FILE.to_owned()));
+    assert!(!repo.join(OPEN_ITEMS_FILE).exists());
     assert!(created.contains(&CONFIG_FILE.to_owned()));
     assert!(created.contains(&crate::core::project_repos::PROJECT_FILE.to_owned()));
-    assert_eq!(created.len(), 11);
+    assert_eq!(created.len(), 10);
     // Second call creates nothing.
     let created2 = st.bootstrap_missing().unwrap();
     assert!(created2.is_empty());
@@ -83,16 +84,15 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
     let mut stale = PlannerState::load(&repo).unwrap();
 
     first.bootstrap_missing().unwrap();
-    let before_items =
-        std::fs::read(repo.join(crate::artifacts::layout::canonical::OPEN_ITEMS)).unwrap();
     let before_config =
         std::fs::read(repo.join(crate::artifacts::layout::canonical::PROJECT_CONFIG)).unwrap();
     let error = stale.bootstrap_missing().unwrap_err();
 
     assert!(error.to_string().contains("planning store changed"));
-    assert_eq!(
-        std::fs::read(repo.join(crate::artifacts::layout::canonical::OPEN_ITEMS)).unwrap(),
-        before_items
+    assert!(
+        !repo
+            .join(crate::artifacts::layout::canonical::OPEN_ITEMS)
+            .exists()
     );
     assert_eq!(
         std::fs::read(repo.join(crate::artifacts::layout::canonical::PROJECT_CONFIG)).unwrap(),

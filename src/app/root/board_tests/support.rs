@@ -46,6 +46,8 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             text: format!("# {title}\n\nUnique story detail {i}"),
             identity: None,
             metadata: None,
+            task_state: None,
+
             metadata_error: None,
         })
         .collect::<Vec<_>>();

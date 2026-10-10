@@ -13,6 +13,7 @@ pub struct ViewModel {
     pub progress: Option<crate::harness::LiveProgress>,
     pub conversation_active: bool,
     pub conversation_error: Option<String>,
+    pub task_status: Option<crate::core::planning_work::WorkStatus>,
     pub board_column: usize,
     pub can_start: bool,
     pub auto_build: bool,

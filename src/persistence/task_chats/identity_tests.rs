@@ -12,6 +12,8 @@ fn story(path: &str, identity: crate::domain::ArtifactIdentity) -> TaskDocument 
         text: format!("# {}", identity.title),
         identity: Some(identity),
         metadata: None,
+        task_state: None,
+
         metadata_error: None,
     }
 }

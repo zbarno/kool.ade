@@ -8,7 +8,7 @@ mod identities;
 mod product_documents;
 mod store_transaction;
 
-use crate::artifacts::{OPEN_ITEMS_FILE, SPEC_FILE, items_io, spec_doc};
+use crate::artifacts::{SPEC_FILE, items_io, spec_doc};
 use crate::core::ownership;
 use crate::core::state::PlannerState;
 use crate::core::validation::NormalizedTurn;
@@ -164,17 +164,11 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
 
     // 5) Canonical queue order + serialize.
     items_io::sort_queue(&mut state.items);
-    let items_md = items_io::serialize(&state.items);
 
     // 6) Stage every changed artifact before writing any of them. The journal
     // restores the old complete set on an interrupted or failed apply.
     let mut changes = Vec::new();
-    if !nt.resolved.is_empty() {
-        changes.push((
-            crate::artifacts::layout::canonical::RESOLVED_ITEMS.into(),
-            serde_json::to_string_pretty(&state.resolved_items)?,
-        ));
-    }
+    let mut record_checks = Vec::new();
     if let Some(spec) = &nt.spec_markdown {
         changes.push((SPEC_FILE.to_string(), spec.clone()));
     }
@@ -182,30 +176,48 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         &state.planning_store,
         &document_updates,
     )?);
-    changes.push((OPEN_ITEMS_FILE.into(), items_md.clone()));
+    let (item_changes, item_checks, _) =
+        items_io::record_changes(&state.planning_store, &state.items, &state.resolved_items)?;
+    changes.extend(item_changes.into_iter().map(|(path, bytes)| {
+        (
+            path,
+            String::from_utf8(bytes).expect("item records are UTF-8"),
+        )
+    }));
+    record_checks.extend(item_checks);
     if let Some(workflow) = &nt.workflow {
-        changes.push((
-            crate::core::workflow::WORKFLOW_FILE.into(),
-            serde_json::to_string_pretty(workflow)?,
-        ));
+        let (workflow_changes, workflow_checks, _) =
+            crate::artifacts::task_docs::workflow_record_changes(&state.planning_store, workflow)?;
+        changes.extend(workflow_changes.into_iter().map(|(path, bytes)| {
+            (
+                path,
+                String::from_utf8(bytes).expect("workflow records are UTF-8 JSON"),
+            )
+        }));
+        record_checks.extend(workflow_checks);
     }
     changes.extend(nt.additional_planning_artifacts.iter().cloned());
-    if let Some(work_file) =
-        crate::core::planning_work::append_discovered(&state.planning_store, &nt.planning_tasks)?
-    {
-        changes.push((crate::core::planning_work::FILE.into(), work_file));
+    let discovered = crate::core::planning_work::append_discovered(&nt.planning_tasks)?;
+    if !discovered.is_empty() {
+        let (work_changes, checks, _) =
+            crate::core::planning_work::record_changes(&state.planning_store, &discovered)?;
+        changes.extend(work_changes.into_iter().map(|(path, bytes)| {
+            (
+                path,
+                String::from_utf8(bytes).expect("work records are UTF-8 JSON"),
+            )
+        }));
+        record_checks.extend(checks);
     }
     let (repo_relative_paths, revision) = store_transaction::apply(
         &state.planning_store,
         &changes,
         &state.baseline_planning_revision,
+        &record_checks,
     )?;
     let spec_path = state
         .planning_store
         .git_path(crate::artifacts::planning_store::paths::PRODUCT_INDEX);
-    let items_path = state
-        .planning_store
-        .git_path(crate::artifacts::planning_store::paths::OPEN_ITEMS);
     let spec_written = repo_relative_paths.iter().any(|p| p == &spec_path)
         || repo_relative_paths.iter().any(|p| {
             p.starts_with(&format!(
@@ -220,14 +232,28 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
                     .git_path(crate::artifacts::planning_store::paths::CHANGES)
             ))
         });
-    let items_written = repo_relative_paths.iter().any(|p| p == &items_path);
+    let items_root = state
+        .planning_store
+        .git_path(crate::artifacts::planning_store::paths::ITEM_CONTENTS);
+    let item_state_root = state
+        .planning_store
+        .git_path(crate::artifacts::planning_store::paths::ITEM_STATES);
+    let items_written = repo_relative_paths.iter().any(|path| {
+        path.starts_with(&format!("{items_root}/"))
+            || path.starts_with(&format!("{item_state_root}/"))
+    });
     state.spec_text = spec_doc::load(&state.planning_store)?;
     state.active_features = crate::artifacts::product_docs::active_features(&state.planning_store);
     state.baseline_spec = state.spec_text.clone();
-    state.baseline_items_md = items_md;
+    let (persisted_items, persisted_resolved_items, _) =
+        items_io::load_store(&state.planning_store)?;
+    state.items = persisted_items;
+    state.resolved_items = persisted_resolved_items;
+    state.baseline_items_md = items_io::serialize(&state.items);
     state.baseline_planning_revision = revision;
     if let Some(workflow) = &nt.workflow {
-        state.workflow = workflow.clone();
+        state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store)?;
+        debug_assert_eq!(&state.workflow, workflow);
     }
     state.active_feature = crate::artifacts::product_docs::active_feature_for_workflow(
         &state.planning_store,

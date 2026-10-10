@@ -187,6 +187,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             .join(koolade::artifacts::layout::canonical::TASKS)
             .exists()
     );
+    workflow = koolade::artifacts::task_docs::load_workflow(&planning).unwrap();
     workflow
         .approved_features
         .insert("CHG-001".into(), feature_contract(&feature));

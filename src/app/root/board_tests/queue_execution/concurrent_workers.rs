@@ -56,6 +56,8 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
                 ),
                 identity: None,
                 metadata: None,
+                task_state: None,
+
                 metadata_error: None,
             }
         })

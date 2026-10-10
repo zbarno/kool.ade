@@ -27,6 +27,7 @@ fn task_story_prompt_includes_explicit_dependency_and_referenced_specification()
             feature: "Authentication".into(),
             directory: directory.into(),
             count: 3,
+            created_at_ms: 0,
         });
     std::fs::write(
         root.join(directory).join("001-login.md"),

@@ -68,9 +68,12 @@ fn compare_plans_saves_typed_workflow_record_without_mutating_feature_document()
         selected_plan: None,
     });
     let receipt = apply(&mut state, &normalized).unwrap();
+    let workflow_uid = state.workflow.feature_record_ids["CHG-004"].clone();
     assert_eq!(
         receipt.repo_relative_paths,
-        vec![".koolade-packet/state/workflow.json"]
+        vec![format!(
+            ".koolade-packet/state/workflow/{workflow_uid}.json"
+        )]
     );
     assert!(!state.active_feature.unwrap().1.contains("planComparison"));
     assert!(!state.active_features[0].1.contains("planComparison"));
@@ -130,10 +133,7 @@ fn new_open_item_links_to_feature_created_in_same_turn() {
         state.items[0].feature_uid.as_deref(),
         Some(feature_uid.as_str())
     );
-    let persisted = crate::artifacts::items_io::parse(
-        &std::fs::read_to_string(root.join(crate::artifacts::OPEN_ITEMS_FILE)).unwrap(),
-    )
-    .unwrap();
+    let (persisted, _, _) = crate::artifacts::items_io::load_store(&state.planning_store).unwrap();
     assert_eq!(
         persisted[0].feature_uid.as_deref(),
         Some(feature_uid.as_str())

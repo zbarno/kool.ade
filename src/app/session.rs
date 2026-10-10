@@ -3,13 +3,15 @@
 
 use std::rc::Rc;
 
-use crate::core::gitops::{self, GitSnapshot};
+use crate::core::gitops::GitSnapshot;
 use crate::core::state::PlannerState;
 use crate::core::turn::TurnController;
 use crate::domain::chatlog::ChatMessage;
 use crate::persistence::chat_store;
 
 mod cancellation;
+mod implementations;
+mod task_status;
 #[cfg(test)]
 pub(crate) mod test_support;
 
@@ -59,6 +61,13 @@ impl Project {
         ) {
             Ok(revision) => {
                 self.state.baseline_planning_revision = revision;
+                match crate::core::planning_work::load(&self.state.planning_store) {
+                    Ok(work) => self.planning_work = work,
+                    Err(error) => {
+                        self.activity.pending_planning_work = true;
+                        return Err(format!("Planning work saved but could not reload: {error}"));
+                    }
+                }
                 self.activity.pending_planning_work = false;
                 self.activity
                     .pending
@@ -159,102 +168,6 @@ impl Project {
         } else {
             self.remember_chat(msgs);
         }
-    }
-
-    pub fn refresh_implementations(&mut self) {
-        let latest = crate::core::implementation::load_board_states_with_store(
-            &self.state.repo_root,
-            &self.state.planning_store,
-        );
-        self.adopt_implementations(latest);
-        for ticket in self.implementation_states.keys() {
-            if !self.activity.tasks.contains_key(ticket)
-                && let Some(activity) =
-                    crate::core::implementation::load_activity(&self.state.repo_root, ticket)
-            {
-                self.activity.tasks.insert(ticket.clone(), activity);
-            }
-        }
-        let finished_ms = chrono::Utc::now().timestamp_millis();
-        let tickets = self
-            .implementation_states
-            .iter()
-            .map(|(ticket, state)| (ticket.clone(), state.task_uid.clone(), state.status))
-            .collect::<Vec<_>>();
-        let mut finalized = Vec::new();
-        for (ticket, task_uid, status) in tickets {
-            if self.active_implementations.contains_key(&ticket) {
-                continue;
-            }
-            let Some(activity) = self.activity.tasks.get_mut(&ticket) else {
-                continue;
-            };
-            if crate::core::implementation::finalize_terminal_activity_if_stale(
-                &self.state.repo_root,
-                &ticket,
-                task_uid.as_deref(),
-                status,
-                activity,
-                finished_ms,
-            ) {
-                finalized.push(ticket);
-            }
-        }
-        for ticket in finalized {
-            self.activity.mark_ticket_dirty(&ticket);
-            self.save_task_activity(&ticket);
-        }
-    }
-
-    pub fn adopt_implementations(
-        &mut self,
-        latest: std::collections::BTreeMap<String, crate::core::implementation::Implementation>,
-    ) {
-        for (ticket, state) in &latest {
-            if let Some(previous) = self.implementation_states.get(ticket)
-                && (previous.status != state.status || previous.pr_state != state.pr_state)
-            {
-                self.activity.pending.push(format!(
-                    "{ticket}: {} → {}; PR {:?}",
-                    previous.status, state.status, state.pr_state
-                ));
-            }
-        }
-        self.implementation_states = latest;
-    }
-
-    pub fn save_task_activity(&mut self, ticket: &str) {
-        if let Some(activity) = self.activity.tasks.get(ticket)
-            && let Err(error) =
-                crate::core::implementation::save_activity(&self.state.repo_root, ticket, activity)
-        {
-            // Record the failure beside (not over) the last real status
-            // so a terminal snapshot does not reduce to infra noise.
-            const MARK: &str = "Activity could not be saved: ";
-            let previous = self
-                .activity
-                .tasks
-                .get(ticket)
-                .and_then(|progress| progress.activity.clone())
-                .unwrap_or_default();
-            // Keep exactly ONE annotation slot: collapse any earlier
-            // failure note so repeated faults cannot stack diagnostics.
-            let head = previous
-                .split(MARK)
-                .next()
-                .unwrap_or("")
-                .trim_end_matches('\n');
-            let rendered = if head.is_empty() {
-                format!("{MARK}{error}")
-            } else {
-                format!("{head}\n{MARK}{error}")
-            };
-            self.activity.tasks.get_mut(ticket).unwrap().activity = Some(rendered);
-        }
-    }
-
-    pub fn refresh_git(&mut self) {
-        self.git = gitops::snapshot(&self.state.repo_root);
     }
 }
 

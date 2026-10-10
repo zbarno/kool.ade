@@ -5,6 +5,25 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
     let root = repo("task-identity");
     let old_ticket = "planning/tasks/demo/001-task.md";
     let new_ticket = format!("{}/{old_ticket}", crate::artifacts::layout::canonical::ROOT);
+    let feature_path = root.join(".koolade-packet/planning/changes/CHG-001-demo/specification.md");
+    fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    let feature = crate::domain::ArtifactIdentity::preserve_markdown(
+        "# CHG-001: Demo\n\n## Intent\n\nPreserve this migration fixture.\n",
+        None,
+        "CHG-001",
+        "Demo",
+    )
+    .unwrap();
+    let feature_identity = crate::domain::ArtifactIdentity::from_markdown(&feature)
+        .unwrap()
+        .unwrap();
+    let feature = crate::domain::ChangeMetadata::write_markdown(
+        &feature,
+        &feature_identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    fs::write(&feature_path, feature).unwrap();
     let task_text = "# Keep the saved task identity\n\n## Acceptance criteria\n\n- Existing work remains attached.\n";
     fs::create_dir_all(root.join(old_ticket).parent().unwrap()).unwrap();
     fs::write(root.join(old_ticket), task_text).unwrap();
@@ -177,10 +196,7 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         Some(new_record_dir.join("123-report.json"))
     );
 
-    let workflow: crate::core::workflow::Workflow = serde_json::from_slice(
-        &fs::read(root.join(crate::artifacts::layout::canonical::WORKFLOW)).unwrap(),
-    )
-    .unwrap();
+    let workflow = crate::artifacts::task_docs::load_workflow(&root).unwrap();
     assert_eq!(
         workflow.task_batches[0].directory,
         format!("{}/demo", crate::artifacts::layout::canonical::TASKS)

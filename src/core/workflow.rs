@@ -53,7 +53,7 @@ pub struct InterviewBrief {
     pub ready_for_tasks: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Workflow {
     pub brief: Option<InterviewBrief>,
@@ -71,7 +71,32 @@ pub struct Workflow {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub legacy_plan_comparison_evidence:
         std::collections::BTreeMap<String, Vec<crate::domain::PlanComparison>>,
+    /// Per-record concurrency metadata loaded from normalized workflow files.
+    /// These fields are intentionally absent from serialized workflow data.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub record_revisions: std::collections::BTreeMap<String, u64>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub record_baselines: std::collections::BTreeMap<String, String>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub feature_record_ids: std::collections::BTreeMap<String, String>,
 }
+
+impl PartialEq for Workflow {
+    fn eq(&self, other: &Self) -> bool {
+        self.brief == other.brief
+            && self.reviewed_specification == other.reviewed_specification
+            && self.task_batches == other.task_batches
+            && self.approved_features == other.approved_features
+            && self.plan_comparisons == other.plan_comparisons
+            && self.feature_branch_targets == other.feature_branch_targets
+            && self.legacy_plan_comparison_evidence == other.legacy_plan_comparison_evidence
+    }
+}
+
+impl Eq for Workflow {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -89,6 +114,9 @@ pub struct TaskBatchRef {
     pub feature: String,
     pub directory: String,
     pub count: usize,
+    /// Creation order across feature-scoped workflow records.
+    #[serde(default)]
+    pub created_at_ms: u64,
 }
 
 fn default_repository() -> String {

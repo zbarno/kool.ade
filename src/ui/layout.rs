@@ -46,7 +46,7 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
 
 #[cfg(test)]
 pub(crate) use activity::task_card_activity_band;
-pub(crate) use board_state::{planning_column, planning_parent_label, task_board_column};
+pub(crate) use board_state::{planning_column, planning_parent_label, task_document_board_column};
 pub(crate) use task_cards::task_key;
 pub(crate) use task_properties::paint_task_properties;
 

@@ -150,6 +150,7 @@ fn historical_features_tasks_and_items_do_not_expand_normal_prompt_without_bound
                 feature: format!("Historical batch {n}"),
                 directory: format!(".koolade-packet/planning/tasks/historical-{n}"),
                 count: 1,
+                created_at_ms: 0,
             });
         let mut item = crate::domain::OpenItem::new(
             format!("CLR-{n:03}"),

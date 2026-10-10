@@ -160,18 +160,19 @@ fn writes_changed_files_and_labels_checkpoint() {
     );
     let rc = apply(&mut st, &nt).unwrap();
     assert!(rc.spec_written && rc.items_written);
-    assert_eq!(rc.repo_relative_paths, vec![SPEC_FILE, OPEN_ITEMS_FILE]);
+    assert!(rc.repo_relative_paths.contains(&SPEC_FILE.to_owned()));
+    assert_eq!(rc.repo_relative_paths.len(), 3);
     assert_eq!(rc.commit_message, "planner: add caching policy");
     let spec_disk =
         crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&root, SPEC_FILE))
             .unwrap();
     assert!(spec_disk.contains("Redis"));
-    let items_disk =
-        crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&root, OPEN_ITEMS_FILE))
-            .unwrap();
+    let (items, resolved, _) = items_io::load_store(&st.planning_store).unwrap();
+    assert!(resolved.is_empty());
+    assert_eq!(items[0].question, "deploy frequency?");
     assert!(
-        items_disk.contains("deploy frequency?"),
-        "queued item must round-trip to disk"
+        !root.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
+        "new workspaces keep no authoritative monolithic open-items file"
     );
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -200,7 +201,8 @@ fn refresh_discovery_tasks_are_committed_with_the_planning_transaction() {
     assert!(
         receipt
             .repo_relative_paths
-            .contains(&crate::core::planning_work::FILE.to_owned())
+            .iter()
+            .any(|path| path.starts_with(".koolade-packet/state/work/"))
     );
     let saved = crate::core::planning_work::load(&root).unwrap();
     assert_eq!(saved.len(), 2);

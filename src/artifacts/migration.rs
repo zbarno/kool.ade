@@ -10,6 +10,7 @@ mod transaction;
 pub(crate) use bootstrap::bootstrap_product;
 pub(crate) use bootstrap::{bootstrap_product_with_store, bootstrap_product_with_store_expected};
 
+use crate::artifacts::planning_store::PlanningRoot;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -117,6 +118,15 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
         Err(error) => return Err(error.into()),
     };
     let workflow = crate::artifacts::task_docs::load_workflow(&repo)?;
+    let store = repo.planning_store();
+    let (workflow_changes, _, workflow_migrating) =
+        crate::artifacts::task_docs::workflow_record_changes(&store, &workflow)?;
+    let workflow_record_paths = workflow_changes
+        .iter()
+        .map(|(path, _)| store.git_path(path))
+        .collect::<Vec<_>>();
+    let persist_workflow =
+        workflow != before_workflow || workflow_migrating || !workflow_record_paths.is_empty();
     let mut migrated_features = Vec::new();
     for (feature_id, _) in crate::artifacts::product_docs::active_features(&repo) {
         let path =
@@ -127,14 +137,15 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
             migrated_features.push((path, updated));
         }
     }
-    if workflow != before_workflow || !migrated_features.is_empty() {
-        if workflow != before_workflow {
+    if persist_workflow || !migrated_features.is_empty() {
+        if persist_workflow {
             pending.paths.insert(
                 workflow_path
                     .strip_prefix(&repo)?
                     .to_string_lossy()
                     .replace('\\', "/"),
             );
+            pending.paths.extend(workflow_record_paths.iter().cloned());
         }
         for (path, _) in &migrated_features {
             pending.paths.insert(
@@ -144,7 +155,7 @@ pub fn run(repo: &Path) -> anyhow::Result<Vec<String>> {
             );
         }
         write_pending(&pending_path, &pending)?;
-        if workflow != before_workflow {
+        if persist_workflow {
             crate::artifacts::task_docs::save_workflow(&repo, &workflow)?;
         }
         for (path, markdown) in migrated_features {

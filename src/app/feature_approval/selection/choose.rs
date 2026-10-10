@@ -149,29 +149,29 @@ impl KooladeApp {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let workflow_rel = crate::artifacts::planning_store::paths::WORKFLOW.to_owned();
         let adr_relative = adr_path
             .strip_prefix(".koolade-packet/")
             .unwrap_or(&adr_path)
             .to_owned();
-        let changes = vec![
+        let (mut changes, workflow_checks, _) =
+            match crate::artifacts::task_docs::workflow_record_changes(store, &workflow) {
+                Ok(changes) => changes,
+                Err(error) => {
+                    self.toasts
+                        .danger(format!("Cannot serialize approval state: {error}"));
+                    return;
+                }
+            };
+        changes.extend([
             (feature_rel.clone(), updated.clone().into_bytes()),
             (adr_relative, adr_content.into_bytes()),
-            (
-                workflow_rel.clone(),
-                match serde_json::to_string_pretty(&workflow) {
-                    Ok(json) => json.into_bytes(),
-                    Err(error) => {
-                        self.toasts
-                            .danger(format!("Cannot serialize approval state: {error}"));
-                        return;
-                    }
-                },
-            ),
-        ];
+        ]);
         let (committed_paths, committed_revision) = match store
-            .transaction_with_revision(&changes, Some(&project.state.baseline_planning_revision))
-        {
+            .transaction_with_revision_and_record_revisions(
+                &changes,
+                Some(&project.state.baseline_planning_revision),
+                &workflow_checks,
+            ) {
             Ok((paths, revision)) => (
                 paths
                     .iter()
@@ -185,7 +185,15 @@ impl KooladeApp {
                 return;
             }
         };
-        project.state.workflow = workflow;
+        project.state.workflow = match crate::artifacts::task_docs::load_workflow(store) {
+            Ok(workflow) => workflow,
+            Err(error) => {
+                self.toasts.danger(format!(
+                    "Plan was saved but workflow reload failed: {error}"
+                ));
+                return;
+            }
+        };
         project.state.baseline_planning_revision = committed_revision;
         if let Some((_, feature_body)) = project
             .state

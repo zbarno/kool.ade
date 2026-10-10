@@ -68,6 +68,9 @@ fn collect_files(
                 relative.to_string_lossy().into_owned(),
             ));
         }
+        if is_independent_record_path(relative) {
+            continue;
+        }
         if metadata.is_dir() {
             collect_files(root, &path, files)?;
         } else if metadata.is_file() {
@@ -75,6 +78,20 @@ fn collect_files(
         }
     }
     Ok(())
+}
+
+/// Record collections have their own optimistic revisions. Excluding these
+/// paths keeps a write to one UID from invalidating a transaction on another.
+fn is_independent_record_path(relative: &Path) -> bool {
+    [
+        Path::new("state/work"),
+        Path::new("state/workflow"),
+        Path::new("state/items"),
+        Path::new("state/tasks"),
+        Path::new("planning/items"),
+    ]
+    .iter()
+    .any(|collection| relative == *collection || relative.starts_with(collection))
 }
 
 fn is_local_only(relative: &Path) -> bool {

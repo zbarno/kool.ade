@@ -72,15 +72,21 @@ pub(super) fn paint(
                     | crate::core::implementation::ImplementationStatus::Interrupted
             )
         });
-    let status = if column == 4 && cleanup_error.is_some() {
-        "Done · cleanup needs attention"
-    } else if pull_request_closed {
-        "PR closed"
-    } else if active {
+    let status = if active {
         record
             .as_ref()
             .map(|record| record.status.label())
             .unwrap_or("Starting")
+    } else if let Some(task_status) = view.task_status {
+        if task_status == crate::core::planning_work::WorkStatus::Done && cleanup_error.is_some() {
+            "Done · cleanup needs attention"
+        } else {
+            crate::core::implementation::BOARD_COLUMNS[task_status.board_column()]
+        }
+    } else if column == 4 && cleanup_error.is_some() {
+        "Done · cleanup needs attention"
+    } else if pull_request_closed {
+        "PR closed"
     } else if failure.is_some() {
         "Needs attention"
     } else if interrupted {

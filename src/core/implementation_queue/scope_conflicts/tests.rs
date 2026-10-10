@@ -13,6 +13,8 @@ fn task(number: usize, repository: &str, affected: Option<&str>) -> TaskDocument
         text: format!("# Task {number}\n\nRepository: {repository}{scope}"),
         identity: None,
         metadata: None,
+        task_state: None,
+
         metadata_error: None,
     }
 }

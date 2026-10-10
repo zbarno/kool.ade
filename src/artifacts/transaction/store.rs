@@ -3,12 +3,21 @@ use std::path::Path;
 
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
+mod consistent_read;
 mod location;
+mod record_transactions;
+#[cfg(test)]
+mod records;
 mod recovery;
 mod revision;
 #[cfg(test)]
 mod tests;
+pub(crate) use consistent_read::with_consistent_read;
 use location::{acquire_lock, journal_path, remove_journal, store_identity, transaction_root};
+pub(crate) use record_transactions::{
+    apply_store_with_record_revisions, apply_store_with_removals_and_record_revisions,
+    apply_store_with_revision_and_record_revisions,
+};
 pub(crate) use recovery::recover_store;
 pub(crate) use revision::revision;
 
@@ -73,11 +82,40 @@ fn apply_store_with_interruption(
     apply_store_inner(store, changes, &[], expected_revision, fail_after)
 }
 
+#[cfg(test)]
+pub(crate) fn apply_store_with_record_revisions_interruption_for_test(
+    store: &PlanningStore,
+    changes: &[(String, Vec<u8>)],
+    expected_revision: Option<&str>,
+    expected_records: &[crate::artifacts::planning_store::RecordRevisionCheck],
+    fail_after: usize,
+) -> Result<(Vec<String>, String), StoreError> {
+    apply_store_inner_with_checks(
+        store,
+        changes,
+        &[],
+        expected_revision,
+        expected_records,
+        Some(fail_after),
+    )
+}
+
 fn apply_store_inner(
     store: &PlanningStore,
     changes: &[(String, Vec<u8>)],
     removals: &[String],
     expected_revision: Option<&str>,
+    fail_after: Option<usize>,
+) -> Result<(Vec<String>, String), StoreError> {
+    apply_store_inner_with_checks(store, changes, removals, expected_revision, &[], fail_after)
+}
+
+pub(super) fn apply_store_inner_with_checks(
+    store: &PlanningStore,
+    changes: &[(String, Vec<u8>)],
+    removals: &[String],
+    expected_revision: Option<&str>,
+    expected_records: &[crate::artifacts::planning_store::RecordRevisionCheck],
     fail_after: Option<usize>,
 ) -> Result<(Vec<String>, String), StoreError> {
     let transaction_root = transaction_root(store)?;
@@ -94,6 +132,7 @@ fn apply_store_inner(
             actual: actual_revision,
         });
     }
+    crate::artifacts::planning_store::validate_record_changes(store, changes, expected_records)?;
     if journal_path.exists() {
         return Err(StoreError::UnavailableStore(
             "an unrecovered planning store transaction exists".into(),

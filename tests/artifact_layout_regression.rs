@@ -95,8 +95,20 @@ fn planning_work_save_creates_the_canonical_state_directory() {
     ));
     fs::create_dir_all(&root).unwrap();
     let _home = TestHome::new(&root);
-    planning_work::save(&root, &[]).unwrap();
-    assert!(root.join(canonical::WORK).is_file());
+    let work = planning_work::Work::new(
+        "planning:fixture".into(),
+        "Fixture work".into(),
+        "Keep this record durable.".into(),
+        "Waiting".into(),
+    );
+    planning_work::save(&root, std::slice::from_ref(&work)).unwrap();
+    assert!(
+        root.join(canonical::STATE)
+            .join("work")
+            .join(format!("{}.json", work.uid))
+            .is_file()
+    );
+    assert!(!root.join(canonical::WORK).exists());
     assert!(root.join(canonical::STATE).is_dir());
     let _ = fs::remove_dir_all(root);
 }

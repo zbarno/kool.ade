@@ -109,17 +109,37 @@ fn legacy_store_routes_spec_edit_approval_and_task_generation_to_embedded_paths(
     assert!(
         generated
             .iter()
-            .any(|path| { path == ".koolade-packet/state/workflow.json" })
+            .any(|path| path.starts_with(".koolade-packet/state/workflow/"))
     );
     assert_eq!(
         std::fs::read(layout.product_root().join("overview.md")).unwrap(),
         spec.as_bytes()
     );
-    assert!(store.layout().workflow_state().is_file());
+    assert!(!store.layout().workflow_state().exists());
     assert!(
-        crate::artifacts::task_docs::load_board(&store, &workflow)
-            .iter()
-            .any(|document| document.path.starts_with(".koolade-packet/planning/tasks/"))
+        !store
+            .list_files(crate::artifacts::planning_store::paths::WORKFLOW_RECORDS)
+            .unwrap()
+            .is_empty()
+    );
+    let board = crate::artifacts::task_docs::load_board(&store, &workflow);
+    let task_documents = board
+        .iter()
+        .filter(|document| document.path.ends_with(".md") && document.metadata.is_some())
+        .collect::<Vec<_>>();
+    assert!(!task_documents.is_empty());
+    assert!(task_documents.iter().all(|document| {
+        document
+            .task_state
+            .as_ref()
+            .is_some_and(|state| state.status == crate::core::planning_work::WorkStatus::Todo)
+    }));
+    assert_eq!(
+        store
+            .list_files(crate::artifacts::planning_store::paths::TASK_STATES)
+            .unwrap()
+            .len(),
+        task_documents.len()
     );
     assert!(!code_root.join("planning/tasks").exists());
 

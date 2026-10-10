@@ -41,8 +41,8 @@ fn perform_clone_local_source_feeds_the_full_connect_pipeline() {
         "cold bootstrap does not create a legacy specification"
     );
     assert!(
-        dest.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
-        "bootstrap_missing created the open-items file"
+        !dest.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
+        "an empty queue has no authoritative monolithic file"
     );
     assert!(
         dest.join(crate::artifacts::CONFIG_FILE).exists(),

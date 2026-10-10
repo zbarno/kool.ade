@@ -116,21 +116,34 @@ impl DlgSettings {
             crate::artifacts::planning_store::paths::PROJECT_CONFIG.to_owned(),
             md.into_bytes(),
         )];
+        let mut record_checks = Vec::new();
         if resolutions_changed {
-            changes.push((
-                crate::artifacts::planning_store::paths::OPEN_ITEMS.to_owned(),
-                crate::artifacts::items_io::serialize(&candidate.items).into_bytes(),
-            ));
-            changes.push((
-                crate::artifacts::planning_store::paths::RESOLVED_ITEMS.to_owned(),
-                serde_json::to_vec_pretty(&candidate.resolved_items)
-                    .map_err(|error| AppError::Other(error.to_string()))?,
-            ));
+            let (item_changes, checks, _) = crate::artifacts::items_io::record_changes(
+                &store,
+                &candidate.items,
+                &candidate.resolved_items,
+            )
+            .map_err(|error| AppError::Other(error.to_string()))?;
+            changes.extend(item_changes);
+            record_checks = checks;
         }
         let (paths, revision) = store
-            .transaction_with_revision(&changes, Some(&proj.state.baseline_planning_revision))
+            .transaction_with_revision_and_record_revisions(
+                &changes,
+                Some(&proj.state.baseline_planning_revision),
+                &record_checks,
+            )
             .map_err(|error| AppError::Other(format!("workspace settings save failed: {error}")))?;
         candidate.baseline_planning_revision = revision;
+        let (items, resolved_items, _) =
+            crate::artifacts::items_io::load_store(&store).map_err(|error| {
+                AppError::Other(format!(
+                    "settings saved but items could not reload: {error}"
+                ))
+            })?;
+        candidate.items = items;
+        candidate.resolved_items = resolved_items;
+        candidate.baseline_items_md = crate::artifacts::items_io::serialize(&candidate.items);
         proj.state = candidate;
         let changed_paths = paths
             .iter()

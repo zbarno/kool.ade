@@ -3,6 +3,61 @@ use super::*;
 mod schema_three;
 
 #[test]
+fn unchanged_legacy_workflow_is_normalized_and_checkpointed() {
+    use crate::{
+        artifacts::layout::canonical,
+        domain::{ArtifactIdentity, ChangeMetadata, ChangeStatus},
+    };
+
+    let root = repo("unchanged-workflow");
+    let feature_path = root
+        .join(canonical::CHANGES)
+        .join("CHG-010-saved-searches/specification.md");
+    fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    let feature = ArtifactIdentity::preserve_markdown(
+        "# CHG-010: Saved searches\n\n## Intent\n\nPreserve the approved feature.\n",
+        None,
+        "CHG-010",
+        "Saved searches",
+    )
+    .unwrap();
+    let identity = ArtifactIdentity::from_markdown(&feature).unwrap().unwrap();
+    let feature = ChangeMetadata::write_markdown(&feature, &identity, ChangeStatus::Ready).unwrap();
+    fs::write(feature_path, feature).unwrap();
+
+    let workflow_path = root.join(canonical::WORKFLOW);
+    fs::create_dir_all(workflow_path.parent().unwrap()).unwrap();
+    let legacy_workflow = serde_json::to_vec_pretty(&serde_json::json!({
+        "brief": null,
+        "reviewedSpecification": null,
+        "taskBatches": [],
+        "approvedFeatures": {"CHG-010": "frozen approved contract"}
+    }))
+    .unwrap();
+    fs::write(&workflow_path, &legacy_workflow).unwrap();
+    commit_all(&root, "legacy workflow without other migration changes");
+
+    let changed = run(&root).unwrap();
+    let workflow = crate::artifacts::task_docs::load_workflow(&root).unwrap();
+    assert_eq!(
+        workflow
+            .approved_features
+            .get("CHG-010")
+            .map(String::as_str),
+        Some("frozen approved contract")
+    );
+    let record_path = root
+        .join(canonical::STATE)
+        .join("workflow")
+        .join(format!("{}.json", workflow.feature_record_ids["CHG-010"]));
+    assert!(record_path.is_file());
+    assert!(changed.iter().any(|path| path.contains("/state/workflow/")));
+    assert_eq!(fs::read(workflow_path).unwrap(), legacy_workflow);
+    assert!(run(&root).unwrap().is_empty());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn story_only_batch_gets_durable_batch_identity_and_workflow_entry() {
     use crate::domain::ArtifactIdentity;
 

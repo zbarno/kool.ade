@@ -13,6 +13,8 @@ fn story(path: &str, identity: ArtifactIdentity) -> TaskDocument {
         text: format!("# {}", identity.title),
         identity: Some(identity),
         metadata: None,
+        task_state: None,
+
         metadata_error: None,
     }
 }
@@ -195,6 +197,8 @@ fn scheduler_uses_dependency_uids_even_when_markdown_links_change() {
             text: "# Dependent task\n\n## Dependencies\n\nNone.".into(),
             identity: Some(blocked_identity),
             metadata: Some(blocked_metadata),
+            task_state: None,
+
             metadata_error: None,
         },
         TaskDocument {
@@ -203,6 +207,8 @@ fn scheduler_uses_dependency_uids_even_when_markdown_links_change() {
             text: "# Dependency\n\n## Dependencies\n\nNone.".into(),
             identity: Some(dependency_identity),
             metadata: Some(dependency_metadata),
+            task_state: None,
+
             metadata_error: None,
         },
     ];

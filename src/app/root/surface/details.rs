@@ -51,6 +51,7 @@ impl KooladeApp {
             progress,
             conversation_active,
             conversation_error,
+            task_status,
             draft,
             auto_build,
             can_start,
@@ -77,6 +78,12 @@ impl KooladeApp {
                 project.activity.tasks.get(ticket).cloned(),
                 project.task_turns.contains_key(ticket),
                 project.task_chats.error.clone(),
+                project
+                    .task_documents
+                    .iter()
+                    .find(|document| document.path == ticket)
+                    .and_then(|document| document.task_state.as_ref())
+                    .map(|state| state.status),
                 project
                     .task_chats
                     .drafts
@@ -108,13 +115,16 @@ impl KooladeApp {
         let attention = failure
             .as_deref()
             .and_then(|detail| self.attention_view(ticket, detail));
-        let base = crate::core::implementation::board_column(
-            implementation.as_ref(),
-            implementation_active,
-        );
-        let board_column = if !implementation_active && failure.is_some() {
+        let base = if implementation_active {
+            crate::core::implementation::board_column(implementation.as_ref(), true)
+        } else if let Some(status) = task_status {
+            status.board_column()
+        } else if failure.is_some() {
             3
-        } else if implementation_active {
+        } else {
+            crate::core::implementation::board_column(implementation.as_ref(), false)
+        };
+        let board_column = if implementation_active {
             base
         } else {
             crate::ui::task_chat::board_column(base, &messages, conversation_active)
@@ -129,6 +139,7 @@ impl KooladeApp {
             progress,
             conversation_active,
             conversation_error,
+            task_status,
             board_column,
             can_start,
             auto_build,
