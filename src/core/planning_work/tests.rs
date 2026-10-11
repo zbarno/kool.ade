@@ -1,6 +1,8 @@
 use super::*;
 use crate::artifacts::planning_store::PlanningRoot;
 
+#[path = "tests/branch_independence.rs"]
+mod branch_independence;
 #[path = "tests/record_files.rs"]
 mod record_files;
 
@@ -92,6 +94,29 @@ fn typed_work_roundtrips_kind_parent_and_feature_uid() {
     let loaded = load(&root).unwrap();
     assert_eq!(loaded, vec![item]);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn snake_case_branch_fields_survive_work_record_migration() {
+    let mut work = Work::new(
+        "feature:branch".into(),
+        "Branch feature".into(),
+        "Honor branch intent".into(),
+        String::new(),
+    );
+    work.source_branch = Some("release/1.2".into());
+    work.destination_branch = Some("develop".into());
+    let mut value = serde_json::to_value(work).unwrap();
+    let object = value.as_object_mut().unwrap();
+    let source = object.remove("sourceBranch").unwrap();
+    let destination = object.remove("destinationBranch").unwrap();
+    object.insert("source_branch".into(), source);
+    object.insert("destination_branch".into(), destination);
+
+    let migrated: Work = serde_json::from_value(value).unwrap();
+
+    assert_eq!(migrated.source_branch.as_deref(), Some("release/1.2"));
+    assert_eq!(migrated.destination_branch.as_deref(), Some("develop"));
 }
 
 #[test]

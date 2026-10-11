@@ -1,4 +1,5 @@
 use super::*;
+mod linkage;
 mod metrics;
 
 pub(super) fn paint(
@@ -12,6 +13,7 @@ pub(super) fn paint(
 ) {
     ui.heading("Task details & state");
     state::paint(ui, s, presentation);
+    linkage::paint(ui, doc);
     let view = presentation.view;
     let record = presentation.record;
     let ticket = presentation.ticket;

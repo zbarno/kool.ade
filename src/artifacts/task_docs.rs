@@ -21,7 +21,9 @@ pub use metadata::TaskMetadata;
 pub(crate) use metadata::legacy_dependencies;
 pub(crate) use metadata::parse as parse_metadata;
 pub use naming::{is_task_story_filename, slug};
-pub use task_state::TaskState;
+pub use task_state::{
+    ExecutionPublicationStatus, PullRequestLinkage, TaskExecutionLinkage, TaskState,
+};
 pub(crate) use workflow::load_workflow_unlocked;
 pub use workflow::{load_workflow, safe_directory, save_workflow};
 
@@ -40,6 +42,7 @@ pub(crate) fn update_task_execution_status(
     expected_revision: u64,
     status: crate::core::planning_work::WorkStatus,
     execution_status: &str,
+    linkage: &TaskExecutionLinkage,
 ) -> anyhow::Result<TaskState> {
     task_state::update_execution_status(
         store,
@@ -47,6 +50,7 @@ pub(crate) fn update_task_execution_status(
         expected_revision,
         status,
         execution_status,
+        linkage,
     )
 }
 

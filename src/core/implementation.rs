@@ -72,7 +72,7 @@ mod identity_tests;
 mod metadata_tests;
 pub use status::{
     Failure, FailureKind, ImplementationStatus, IndependentCheck, IndependentCheckStatus,
-    PublicationStatus, PullRequestState, RecoveryDisposition,
+    PublicationStatus, PullRequestDetails, PullRequestState, RecoveryDisposition,
 };
 
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
@@ -158,6 +158,8 @@ pub struct Implementation {
     pub merged_commit: Option<String>,
     #[serde(default)]
     pub pr_state: Option<PullRequestState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_details: Option<PullRequestDetails>,
     #[serde(default)]
     pub pr_checked_at: Option<String>,
     #[serde(default)]

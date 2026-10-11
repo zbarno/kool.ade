@@ -32,7 +32,7 @@ pub(in crate::core::implementation) fn create_pull_request(
         };
         available.map_err(|error| {
             crate::core::implementation::initial_reconciliation::support::user_action(
-                format!("Selected destination branch '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base),
+                format!("Selected destination branch '{}' in code repository '{}' no longer exists on origin. Select an existing destination branch before creating the pull request. {error}", state.base, state.repository_id.as_deref().unwrap_or("unknown")),
             )
         })?;
     }
@@ -101,7 +101,7 @@ pub(in crate::core::implementation) fn create_pull_request(
             "--state",
             "all",
             "--json",
-            "url,state",
+            "url,state,number,headRefOid,baseRefName",
         ],
     )?;
     let existing: Vec<serde_json::Value> = serde_json::from_str(&prs)?;
@@ -150,6 +150,7 @@ pub(in crate::core::implementation) fn create_pull_request(
             "The existing PR is closed. Review it before continuing; no duplicate PR created."
         );
         state.pr_url = pr["url"].as_str().map(String::from);
+        state.pr_details = pull_request_details(pr, state.pr_url.as_deref(), state);
     } else {
         // The GitHub API cannot join the planning or code Git transactions, so
         // recheck immediately before creating the PR.
@@ -175,6 +176,8 @@ pub(in crate::core::implementation) fn create_pull_request(
             ],
         )?;
         state.pr_url = Some(url);
+        state.pr_details =
+            pull_request_details(&serde_json::Value::Null, state.pr_url.as_deref(), state);
     }
     anyhow::ensure!(
         state
@@ -187,6 +190,42 @@ pub(in crate::core::implementation) fn create_pull_request(
     state.pr_state = Some(PullRequestState::Open);
     update_pull_request_detail(state);
     Ok(())
+}
+
+fn pull_request_details(
+    value: &serde_json::Value,
+    url: Option<&str>,
+    state: &Implementation,
+) -> Option<super::super::PullRequestDetails> {
+    let url = url?;
+    let number = value["number"]
+        .as_u64()
+        .or_else(|| pull_request_number(url))?;
+    let head_sha = value["headRefOid"]
+        .as_str()
+        .or(state.verified_head.as_deref())?;
+    let base_branch = value["baseRefName"]
+        .as_str()
+        .or(state.destination_branch.as_deref())
+        .unwrap_or(&state.base);
+    (number > 0 && valid_sha(head_sha) && !base_branch.is_empty()).then(|| {
+        super::super::PullRequestDetails {
+            number,
+            head_sha: head_sha.to_owned(),
+            base_branch: base_branch.to_owned(),
+        }
+    })
+}
+
+fn pull_request_number(url: &str) -> Option<u64> {
+    let (_, path) = url.strip_prefix("https://")?.split_once('/')?;
+    let mut segments = path.trim_end_matches('/').rsplit('/');
+    let number = segments.next()?.parse::<u64>().ok()?;
+    (segments.next()? == "pull" && number > 0).then_some(number)
+}
+
+fn valid_sha(sha: &str) -> bool {
+    matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn verify_claim(

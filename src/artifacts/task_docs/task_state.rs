@@ -8,8 +8,11 @@ pub(crate) use backfill::backfill_missing;
 #[cfg(test)]
 pub(crate) use backfill::plan_missing as plan_backfill;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
+const OLDEST_SCHEMA_VERSION: u32 = 1;
 
+mod linkage;
+pub use linkage::{ExecutionPublicationStatus, PullRequestLinkage, TaskExecutionLinkage};
 #[cfg(test)]
 #[path = "task_state/tests.rs"]
 mod tests;
@@ -25,7 +28,7 @@ pub(crate) struct TaskStateRecord {
     pub(crate) data: TaskState,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskState {
     pub batch_uid: String,
@@ -34,6 +37,29 @@ pub struct TaskState {
     pub status: WorkStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_status: Option<String>,
+    #[serde(
+        default,
+        alias = "source_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sha: Option<String>,
+    #[serde(
+        default,
+        alias = "destination_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub destination_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub implementation_branch: Option<String>,
+    #[serde(default)]
+    pub publication_status: ExecutionPublicationStatus,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pull_requests: Vec<PullRequestLinkage>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub(crate) legacy_linkage: bool,
     #[serde(skip)]
     #[doc(hidden)]
     pub revision: u64,
@@ -59,6 +85,13 @@ pub(crate) fn create(
             dependency_uids: metadata.dependency_uids.clone(),
             status: WorkStatus::Todo,
             execution_status: None,
+            source_branch: metadata.source_branch.clone(),
+            source_sha: None,
+            destination_branch: metadata.destination_branch.clone(),
+            implementation_branch: None,
+            publication_status: ExecutionPublicationStatus::Planned,
+            pull_requests: Vec::new(),
+            legacy_linkage: false,
             revision: 1,
         },
     };
@@ -83,6 +116,7 @@ pub(crate) fn load(store: &PlanningStore, uid: &str) -> anyhow::Result<Option<Ta
     validate_record(&record, &uid, &path)?;
     let mut state = record.data;
     state.revision = record.revision;
+    state.legacy_linkage = record.schema_version < SCHEMA_VERSION;
     Ok(Some(state))
 }
 
@@ -92,6 +126,7 @@ pub(crate) fn update_execution_status(
     expected_revision: u64,
     status: WorkStatus,
     execution_status: &str,
+    linkage: &TaskExecutionLinkage,
 ) -> anyhow::Result<TaskState> {
     anyhow::ensure!(
         !execution_status.is_empty()
@@ -104,6 +139,10 @@ pub(crate) fn update_execution_status(
     let uid = uuid::Uuid::parse_str(&metadata.uid)?
         .hyphenated()
         .to_string();
+    anyhow::ensure!(
+        linkage.repository_id == metadata.repository_id,
+        "Task execution repository does not match its planning metadata"
+    );
     let path = format!("{}/{uid}.json", paths::TASK_STATES);
     let mut record = match read_record(store, &path)? {
         Some(record) => {
@@ -128,14 +167,29 @@ pub(crate) fn update_execution_status(
                     dependency_uids: metadata.dependency_uids.clone(),
                     status,
                     execution_status: Some(execution_status.to_owned()),
+                    source_branch: linkage.source_branch.clone(),
+                    source_sha: linkage.source_sha.clone(),
+                    destination_branch: linkage.destination_branch.clone(),
+                    implementation_branch: linkage.implementation_branch.clone(),
+                    publication_status: linkage.publication_status,
+                    pull_requests: linkage.pull_requests.clone(),
+                    legacy_linkage: false,
                     revision: 0,
                 },
             }
         }
     };
+    record.data.legacy_linkage = record.schema_version < SCHEMA_VERSION;
     if record.revision > 0
         && record.data.status == status
         && record.data.execution_status.as_deref() == Some(execution_status)
+        && record.data.repository_id == linkage.repository_id
+        && record.data.source_branch == linkage.source_branch
+        && record.data.source_sha == linkage.source_sha
+        && record.data.destination_branch == linkage.destination_branch
+        && record.data.implementation_branch == linkage.implementation_branch
+        && record.data.publication_status == linkage.publication_status
+        && record.data.pull_requests == linkage.pull_requests
     {
         record.data.revision = record.revision;
         return Ok(record.data);
@@ -151,10 +205,28 @@ pub(crate) fn update_execution_status(
         );
     }
     record.revision = expected_revision.saturating_add(1);
+    record.schema_version = SCHEMA_VERSION;
     record.updated_at_ms = now_ms().max(record.created_at_ms);
     record.data.status = status;
     record.data.execution_status = Some(execution_status.to_owned());
+    record.data.repository_id = linkage.repository_id.clone();
+    record.data.source_branch = linkage.source_branch.clone();
+    record.data.source_sha = linkage.source_sha.clone();
+    record.data.destination_branch = linkage.destination_branch.clone();
+    record.data.implementation_branch = linkage.implementation_branch.clone();
+    record.data.publication_status = linkage.publication_status;
+    record.data.pull_requests = linkage.pull_requests.clone();
+    record.data.legacy_linkage = false;
     record.data.revision = record.revision;
+    linkage::validate(
+        &record.data.repository_id,
+        record.data.source_branch.as_deref(),
+        record.data.source_sha.as_deref(),
+        record.data.destination_branch.as_deref(),
+        record.data.implementation_branch.as_deref(),
+        &record.data.pull_requests,
+        &path,
+    )?;
     let bytes = serde_json::to_vec_pretty(&record)?;
     store.transaction_with_record_revisions(
         &[(path.clone(), bytes)],
@@ -178,7 +250,7 @@ fn read_record(store: &PlanningStore, path: &str) -> anyhow::Result<Option<TaskS
 
 fn validate_record(record: &TaskStateRecord, uid: &str, path: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
-        record.schema_version == SCHEMA_VERSION,
+        (OLDEST_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&record.schema_version),
         "Unsupported task state schema in {path}"
     );
     anyhow::ensure!(record.uid == uid, "Task state UID mismatch in {path}");
@@ -199,6 +271,15 @@ fn validate_record(record: &TaskStateRecord, uid: &str, path: &str) -> anyhow::R
             .all(|dependency| uuid::Uuid::parse_str(dependency).is_ok()),
         "Task state {path} has an invalid dependency UID"
     );
+    linkage::validate(
+        &record.data.repository_id,
+        record.data.source_branch.as_deref(),
+        record.data.source_sha.as_deref(),
+        record.data.destination_branch.as_deref(),
+        record.data.implementation_branch.as_deref(),
+        &record.data.pull_requests,
+        path,
+    )?;
     Ok(())
 }
 

@@ -2,6 +2,10 @@ use super::*;
 use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::initial_reconciliation::CloneRepositoryPlan;
 use crate::core::implementation::repository_cache::RepositoryCache;
+use anyhow::Context as _;
+
+mod refs;
+pub(super) use refs::missing_saved_ref;
 
 pub(super) struct TaskSource {
     pub(super) cache: RepositoryCache,
@@ -49,12 +53,24 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         !source_ref.is_empty(),
         "Select a source branch before starting this task"
     );
-    cache.validate_branch(&source_ref, runner)?;
+    cache
+        .validate_branch(&source_ref, runner)
+        .with_context(|| {
+            format!(
+                "Selected source branch '{source_ref}' in code repository '{repository_id}' is invalid"
+            )
+        })?;
 
     let destination_branch = metadata
         .and_then(|metadata| metadata.destination_branch.clone())
         .unwrap_or_else(|| source_ref.clone());
-    cache.validate_branch(&destination_branch, runner)?;
+    cache
+        .validate_branch(&destination_branch, runner)
+        .with_context(|| {
+            format!(
+                "Selected destination branch '{destination_branch}' in code repository '{repository_id}' is invalid"
+            )
+        })?;
 
     let local_ref = format!("refs/heads/{source_ref}");
     let local_commit = runner
@@ -80,6 +96,16 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         explicitly_selected: explicitly_selected.is_some(),
         clone_repository,
         runner,
+    })
+    .map_err(|error| {
+        let selection = if explicitly_selected.is_some() {
+            "Selected source"
+        } else {
+            "Source"
+        };
+        anyhow::anyhow!(
+            "{selection} branch '{source_ref}' in code repository '{repository_id}': {error:#}"
+        )
     })?;
     cache.pin_source(&source_commit, runner)?;
     Ok(TaskSource {

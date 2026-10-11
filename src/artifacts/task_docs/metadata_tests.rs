@@ -83,8 +83,8 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
 
     let legacy = serde_json::json!({
         "schemaVersion": 1,
-        "uid": identity.uid,
-        "batchUid": identity.parent_uid.unwrap(),
+        "uid": identity.uid.clone(),
+        "batchUid": identity.parent_uid.clone().unwrap(),
         "repositoryId": "root",
         "dependencyUids": []
     });
@@ -92,6 +92,25 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
     legacy.validate(None).unwrap();
     assert_eq!(legacy.source_branch, None);
     assert_eq!(legacy.destination_branch, None);
+
+    let legacy_snake_case: TaskMetadata = serde_json::from_value(serde_json::json!({
+        "schemaVersion": 1,
+        "uid": identity.uid,
+        "batchUid": uuid::Uuid::new_v4().to_string(),
+        "repositoryId": "root",
+        "dependencyUids": [],
+        "source_branch": "release/1.2",
+        "destination_branch": "develop"
+    }))
+    .unwrap();
+    assert_eq!(
+        legacy_snake_case.source_branch.as_deref(),
+        Some("release/1.2")
+    );
+    assert_eq!(
+        legacy_snake_case.destination_branch.as_deref(),
+        Some("develop")
+    );
 }
 
 #[test]

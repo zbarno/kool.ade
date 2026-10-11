@@ -113,6 +113,7 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         auto_merge: false,
         merged_commit: None,
         pr_state: None,
+        pr_details: None,
         pr_checked_at: None,
         pr_check_attempted_at: None,
         pr_check_error: None,

@@ -60,17 +60,17 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
             .approved_features
             .get(id)
             .is_some_and(|saved| *saved == contract);
-        let status = if approved {
-            WorkStatus::Done
-        } else {
-            match metadata.status {
-                crate::domain::ChangeStatus::Draft | crate::domain::ChangeStatus::Ready => {
-                    WorkStatus::InReview
-                }
-                crate::domain::ChangeStatus::Implementing
-                | crate::domain::ChangeStatus::Reconciliation
-                | crate::domain::ChangeStatus::Implemented
-                | crate::domain::ChangeStatus::Abandoned => WorkStatus::Done,
+        let status = match metadata.status {
+            crate::domain::ChangeStatus::Draft | crate::domain::ChangeStatus::Ready if approved => {
+                WorkStatus::Done
+            }
+            crate::domain::ChangeStatus::Draft | crate::domain::ChangeStatus::Ready => {
+                WorkStatus::InReview
+            }
+            crate::domain::ChangeStatus::Implementing => WorkStatus::InProgress,
+            crate::domain::ChangeStatus::Reconciliation => WorkStatus::NeedsAttention,
+            crate::domain::ChangeStatus::Implemented | crate::domain::ChangeStatus::Abandoned => {
+                WorkStatus::Done
             }
         };
         let title = body
@@ -180,6 +180,50 @@ mod tests {
         let cards = cards(&state, &[work]);
 
         assert_eq!(cards[0].status, WorkStatus::InReview);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn approved_feature_stays_open_while_code_implementation_is_unmerged() {
+        let root = std::env::temp_dir().join(format!(
+            "koolade_planning_implementation_{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut state = crate::core::state::PlannerState::load(&root).unwrap();
+        let markdown = crate::domain::ArtifactIdentity::preserve_markdown(
+            "# CHG-002: Shared export\n\n**Status:** Ready\n",
+            None,
+            "CHG-002",
+            "Shared export",
+        )
+        .unwrap();
+        let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
+            .unwrap()
+            .unwrap();
+        let feature = crate::domain::ChangeMetadata::write_markdown(
+            &markdown,
+            &identity,
+            crate::domain::ChangeStatus::Implementing,
+        )
+        .unwrap();
+        state.workflow.approved_features.insert(
+            "CHG-002".into(),
+            crate::core::workflow::feature_contract(&feature),
+        );
+        state.active_features.push(("CHG-002".into(), feature));
+        let mut work = Work::new(
+            "feature:shared-export".into(),
+            "Plan shared export".into(),
+            "Build shared export".into(),
+            String::new(),
+        );
+        work.feature_id = Some("CHG-002".into());
+
+        let cards = cards(&state, &[work]);
+
+        assert_eq!(cards[0].status, WorkStatus::InProgress);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
