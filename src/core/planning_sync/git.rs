@@ -1,0 +1,210 @@
+use std::{
+    path::Path,
+    process::{Command, Output},
+};
+
+mod commit;
+mod snapshot;
+pub(super) use commit::create_commit;
+pub(super) use snapshot::{changed_paths, read_path, worktree_paths};
+
+pub(super) fn output(repo: &Path, args: &[&str]) -> anyhow::Result<Output> {
+    Ok(Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .output()?)
+}
+
+pub(super) fn success(repo: &Path, args: &[&str]) -> anyhow::Result<String> {
+    let result = output(repo, args)?;
+    anyhow::ensure!(
+        result.status.success(),
+        "planning Git operation failed ({})",
+        args.first().copied().unwrap_or("unknown")
+    );
+    Ok(String::from_utf8_lossy(&result.stdout).trim().to_owned())
+}
+
+pub(super) fn remote_is_configured(repo: &Path) -> anyhow::Result<bool> {
+    let result = output(repo, &["remote", "get-url", "origin"])?;
+    Ok(result.status.success() && !result.stdout.is_empty())
+}
+
+pub(super) fn head(repo: &Path) -> anyhow::Result<String> {
+    success(repo, &["rev-parse", "--verify", "HEAD^{commit}"])
+}
+
+pub(super) fn remote_tracking_commit(
+    repo: &Path,
+    canonical_ref: &str,
+) -> anyhow::Result<Option<String>> {
+    validate_ref(repo, canonical_ref)?;
+    let branch = canonical_ref
+        .strip_prefix("refs/heads/")
+        .expect("validated branch ref");
+    let tracking = format!("refs/remotes/origin/{branch}^{{commit}}");
+    let result = output(
+        repo,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &tracking,
+        ],
+    )?;
+    Ok(result
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&result.stdout).trim().to_owned()))
+}
+
+pub(super) fn fetch(repo: &Path, canonical_ref: &str) -> anyhow::Result<String> {
+    validate_ref(repo, canonical_ref)?;
+    let result = output(repo, &["fetch", "--no-tags", "origin", canonical_ref])?;
+    if !result.status.success() {
+        let detail = String::from_utf8_lossy(&result.stderr).to_ascii_lowercase();
+        anyhow::bail!("fetch failed: {}", classify_transport(&detail));
+    }
+    success(repo, &["rev-parse", "--verify", "FETCH_HEAD^{commit}"])
+}
+
+pub(super) fn push(repo: &Path, commit: &str, canonical_ref: &str) -> anyhow::Result<()> {
+    validate_ref(repo, canonical_ref)?;
+    let refspec = format!("{commit}:{canonical_ref}");
+    let result = output(repo, &["push", "--porcelain", "origin", &refspec])?;
+    if result.status.success() {
+        return Ok(());
+    }
+    let detail = format!(
+        "{}{}",
+        String::from_utf8_lossy(&result.stderr),
+        String::from_utf8_lossy(&result.stdout)
+    )
+    .to_ascii_lowercase();
+    anyhow::bail!("push failed: {}", classify_transport(&detail));
+}
+
+pub(super) fn contains_operation(
+    repo: &Path,
+    commit: &str,
+    id: uuid::Uuid,
+) -> anyhow::Result<bool> {
+    let trailer = format!("Koolade-Operation: {id}");
+    let result = output(repo, &["log", "--format=%H", "--grep", &trailer, commit])?;
+    anyhow::ensure!(
+        result.status.success(),
+        "could not inspect planning history"
+    );
+    Ok(!result.stdout.is_empty())
+}
+
+pub(super) fn is_ancestor(repo: &Path, older: &str, newer: &str) -> anyhow::Result<bool> {
+    let result = output(repo, &["merge-base", "--is-ancestor", older, newer])?;
+    Ok(result.status.success())
+}
+
+pub(super) fn merge_base(repo: &Path, left: &str, right: &str) -> anyhow::Result<Option<String>> {
+    let result = output(repo, &["merge-base", left, right])?;
+    if result.status.success() {
+        return Ok(Some(
+            String::from_utf8_lossy(&result.stdout).trim().to_owned(),
+        ));
+    }
+    if result.status.code() == Some(1) {
+        return Ok(None);
+    }
+    anyhow::bail!("could not find a common planning history base")
+}
+
+fn validate_ref(repo: &Path, reference: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        reference.starts_with("refs/heads/"),
+        "canonical ref is not a branch"
+    );
+    let result = output(repo, &["check-ref-format", reference])?;
+    anyhow::ensure!(result.status.success(), "canonical planning ref is invalid");
+    Ok(())
+}
+
+pub(super) fn validate_path(path: &str) -> anyhow::Result<()> {
+    let mut components = Path::new(path).components();
+    anyhow::ensure!(
+        !path.is_empty()
+            && components.all(|component| matches!(component, std::path::Component::Normal(_)))
+            && !path.starts_with('/')
+            && !path.contains('\\'),
+        "planning record path is invalid"
+    );
+    Ok(())
+}
+
+pub(super) fn classify_transport(detail: &str) -> &'static str {
+    if [
+        "authentication failed",
+        "could not read username",
+        "http 401",
+        "permission denied (publickey)",
+        "no supported authentication methods available",
+    ]
+    .iter()
+    .any(|text| detail.contains(text))
+    {
+        "credentials are unavailable"
+    } else if [
+        "permission denied",
+        "access denied",
+        "http 403",
+        "not authorized to push",
+        "protected branch",
+        "not permitted",
+    ]
+    .iter()
+    .any(|text| detail.contains(text))
+    {
+        "remote write permission is unavailable"
+    } else if [
+        "could not resolve",
+        "connection refused",
+        "network is unreachable",
+        "timed out",
+        "failed to connect",
+        "remote end hung up",
+        "does not appear to be a git repository",
+        "no such file or directory",
+    ]
+    .iter()
+    .any(|text| detail.contains(text))
+    {
+        "remote is offline"
+    } else if [
+        "non-fast-forward",
+        "fetch first",
+        "stale info",
+        "failed to update ref",
+    ]
+    .iter()
+    .any(|text| detail.contains(text))
+    {
+        "canonical branch advanced during push"
+    } else {
+        "remote rejected the operation"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_transport;
+
+    #[test]
+    fn ssh_public_key_rejection_is_an_authentication_failure() {
+        assert_eq!(
+            classify_transport("permission denied (publickey)."),
+            "credentials are unavailable"
+        );
+    }
+}

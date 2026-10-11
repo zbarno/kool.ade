@@ -113,6 +113,7 @@ fn commit_with_cancel(
     if specs.is_empty() {
         return short_head(cwd);
     }
+    let sync_operation = crate::core::planning_sync::commit_shared_intent(cwd, message, &paths)?;
     let original_staged = index::staged_paths(cwd, &paths, &specs)?;
     let all_authorized = paths.iter().cloned().collect::<BTreeSet<_>>();
 
@@ -148,7 +149,11 @@ fn commit_with_cancel(
     let (code, stdout, stderr) = run(cwd, &diff_refs)?;
     if code == 0 {
         index::restore_paths(cwd, &snapshot, &all_authorized)?;
-        return short_head(cwd);
+        let head = short_head(cwd)?;
+        if let Some(operation_id) = sync_operation {
+            crate::core::planning_sync::finish_shared_intent(cwd, operation_id);
+        }
+        return Ok(head);
     }
     if code != 1 {
         let error = command_error("diff --cached", &format!("{stdout}{stderr}"));
@@ -192,7 +197,11 @@ fn commit_with_cancel(
         ));
     }
     index::restore_paths(cwd, &snapshot, &original_staged)?;
-    short_head(cwd)
+    let head = short_head(cwd)?;
+    if let Some(operation_id) = sync_operation {
+        crate::core::planning_sync::finish_shared_intent(cwd, operation_id);
+    }
+    Ok(head)
 }
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {

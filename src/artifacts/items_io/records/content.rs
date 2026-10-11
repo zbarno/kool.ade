@@ -104,6 +104,15 @@ pub(super) fn parse_content(markdown: &str) -> anyhow::Result<ItemContent> {
     })
 }
 
+pub(crate) fn validate_content_uid(markdown: &str, expected_uid: &str) -> anyhow::Result<()> {
+    let content = parse_content(markdown)?;
+    anyhow::ensure!(
+        content.uid == expected_uid,
+        "Item content UID does not match its path"
+    );
+    Ok(())
+}
+
 fn extract(body: &str, key: &str) -> anyhow::Result<String> {
     let open = format!("<!-- koolade-item-{key} -->");
     let close = format!("<!-- /koolade-item-{key} -->");
