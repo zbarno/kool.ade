@@ -68,6 +68,12 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         .approved_features
         .insert("CHG-001".into(), workflow::feature_contract(&feature));
     crate::artifacts::task_docs::save_workflow(&repo, &workflow).unwrap();
+    crate::persistence::feature_approvals::record(
+        &repo,
+        "CHG-001",
+        &workflow::feature_contract(&feature),
+    )
+    .unwrap();
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/search")).unwrap();
     let ticket = "# Save query\n\nFeature ID: CHG-001\nRepository: root\n";
     std::fs::write(

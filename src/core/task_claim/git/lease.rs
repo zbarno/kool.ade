@@ -76,7 +76,14 @@ pub fn refresh(
     validate_remote(repo, remote)?;
     let pushed = run(
         repo,
-        &["push", "--porcelain", &lease, remote, &refspec],
+        &[
+            "push",
+            "--no-verify",
+            "--porcelain",
+            &lease,
+            remote,
+            &refspec,
+        ],
         None,
     )?;
     if pushed.status.success() {
@@ -110,6 +117,7 @@ pub fn release(
         repo,
         &[
             "push",
+            "--no-verify",
             "--porcelain",
             &lease,
             remote,

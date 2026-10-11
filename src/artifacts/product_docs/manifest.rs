@@ -5,6 +5,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+const MAX_PRODUCT_MANIFEST_BYTES: usize = 1024 * 1024;
+
 use super::{safe_module_path, valid_id};
 
 const SCHEMA_VERSION: u32 = 1;
@@ -211,6 +213,10 @@ pub fn read<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Option<Product
                 "Product manifest must be a regular file"
             );
             let bytes = repo.read_planning_path(&path)?;
+            anyhow::ensure!(
+                bytes.len() <= MAX_PRODUCT_MANIFEST_BYTES,
+                "product manifest exceeds the 1 MiB size limit"
+            );
             let manifest: ProductManifest = serde_json::from_slice(&bytes)?;
             manifest.validate(&root, true)?;
             Ok(Some(manifest))

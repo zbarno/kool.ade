@@ -196,7 +196,7 @@ pub struct TaskRoutingSnapshot {
 
 pub use feature_approval::{
     approve_feature, approve_feature_if_current, approve_feature_if_current_with_revision,
-    feature_approved, feature_contract,
+    feature_approval_lapsed, feature_approved, feature_contract,
 };
 
 impl Workflow {

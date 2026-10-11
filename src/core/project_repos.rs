@@ -12,6 +12,7 @@ pub use names::{display_labels, normalize_display_name};
 pub use save::{save_display_names, save_display_names_expected};
 
 pub const PROJECT_FILE: &str = crate::artifacts::layout::canonical::PROJECT_MANIFEST;
+pub const MAX_PROJECT_MANIFEST_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Repository {
@@ -45,7 +46,13 @@ impl ProjectManifest {
     ) -> anyhow::Result<Self> {
         let path = planning_root.planning_layout().project_manifest();
         let contents = match planning_root.read_planning_path(&path) {
-            Ok(bytes) => String::from_utf8(bytes)?,
+            Ok(bytes) => {
+                anyhow::ensure!(
+                    bytes.len() <= MAX_PROJECT_MANIFEST_BYTES,
+                    "project repository manifest exceeds the 1 MiB size limit"
+                );
+                String::from_utf8(bytes)?
+            }
             Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
                 if source.kind() == std::io::ErrorKind::NotFound =>
             {
@@ -160,11 +167,41 @@ impl ProjectManifest {
 }
 
 pub(crate) fn portable_remote(remote: &str) -> bool {
-    !remote.trim().is_empty()
-        && !remote.contains('\n')
-        && !remote.starts_with('/')
-        && !remote.starts_with("file://")
-        && !remote.contains('\\')
+    if remote != remote.trim()
+        || remote.is_empty()
+        || remote.chars().any(char::is_control)
+        || remote.starts_with('/')
+        || remote.starts_with('-')
+        || remote.contains('\\')
+        || is_remote_helper(remote)
+    {
+        return false;
+    }
+    if let Some((scheme, address)) = remote.split_once("://") {
+        return matches!(
+            scheme.to_ascii_lowercase().as_str(),
+            "http" | "https" | "ssh" | "git"
+        ) && !address.is_empty();
+    }
+    let (host, path) = if remote.starts_with('[') {
+        let Some((host, path)) = remote.rsplit_once("]:") else {
+            return false;
+        };
+        (host, path)
+    } else {
+        let Some((host, path)) = remote.split_once(':') else {
+            return false;
+        };
+        (host, path)
+    };
+    !host.is_empty() && !host.contains('/') && !host.starts_with('.') && !path.is_empty()
+}
+
+fn is_remote_helper(remote: &str) -> bool {
+    remote.starts_with("ext::")
+        || remote.split_once("::").is_some_and(|(transport, _)| {
+            !transport.contains('/') && !transport.contains('@') && !transport.contains('[')
+        })
 }
 
 pub fn map_local_checkout(planning_root: &Path, id: &str, checkout: &Path) -> anyhow::Result<()> {

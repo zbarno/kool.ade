@@ -13,7 +13,7 @@ fn retiring_a_stale_legacy_ref_fences_an_old_atomic_publish() {
         "taskUid": task_uid,
         "owner": "Kool.ad/e session",
         "sessionId": session,
-        "baseCommit": "base-sha",
+        "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "claimedAt": now - 16 * 60,
         "takeoverHistory": []
     }))

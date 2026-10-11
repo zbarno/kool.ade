@@ -1,10 +1,10 @@
 use std::{
     fs,
     path::Path,
-    process::{Command, Output, Stdio},
+    process::{Output, Stdio},
 };
 
-use super::{output, validate_path};
+use super::{output, validate_path, validated_command};
 use crate::core::planning_sync::journal::RecordMutation;
 
 pub(in crate::core::planning_sync) fn create_commit(
@@ -74,12 +74,8 @@ pub(in crate::core::planning_sync) fn create_commit(
 }
 
 fn hash_blob(repo: &Path, bytes: &[u8]) -> anyhow::Result<String> {
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    let mut child = validated_command(repo)?
         .args(["hash-object", "-w", "--stdin"])
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -113,12 +109,8 @@ impl Drop for TemporaryIndex {
 }
 
 fn index_output(repo: &Path, index: &Path, args: &[&str]) -> anyhow::Result<Output> {
-    Ok(Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    Ok(validated_command(repo)?
         .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
         .env("GIT_INDEX_FILE", index)
         .output()?)
 }

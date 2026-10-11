@@ -55,12 +55,8 @@ impl KooladeApp {
                 let compare_plans = metadata.status == crate::domain::ChangeStatus::Ready
                     && metadata.schema_version == 2
                     && comparison.is_none();
-                let approved = p
-                    .state
-                    .workflow
-                    .approved_features
-                    .get(id)
-                    .is_some_and(|saved| *saved == workflow::feature_contract(body));
+                let approved =
+                    workflow::feature_approved(&p.state.planning_store, &p.state.workflow, id);
                 let prepare_tasks = p
                     .state
                     .active_feature

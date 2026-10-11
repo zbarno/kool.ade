@@ -93,7 +93,7 @@ pub(super) fn code_checkout(
             remote.to_str().unwrap(),
         ],
     );
-    let url = format!("../../remotes/{id}.git");
+    let url = format!("ssh://fixture.invalid/team/{id}.git");
     git_ok(Some(&checkout), &["remote", "add", "origin", &url]);
     (checkout, Some(url))
 }

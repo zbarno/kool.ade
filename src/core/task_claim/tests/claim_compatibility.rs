@@ -7,7 +7,7 @@ fn previous_claim_payloads_keep_their_original_expiry_semantics() {
         "taskUid": "legacy-task",
         "owner": "Kool.ad/e session",
         "sessionId": "legacy-session",
-        "baseCommit": "abc",
+        "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "claimedAt": 1_000,
         "takeoverHistory": []
     }))
@@ -27,7 +27,7 @@ fn previous_takeover_history_without_repository_route_deserializes() {
         "operatorId": "operator",
         "sessionId": "session",
         "codeRepositoryId": "web",
-        "baseCommit": "abc",
+        "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "issuedAtUtc": 1_000,
         "expiresAtUtc": 2_000,
         "takeoverHistory": [{
@@ -40,6 +40,30 @@ fn previous_takeover_history_without_repository_route_deserializes() {
     }))
     .unwrap();
     assert_eq!(record.takeover_history[0].code_repository_id, "");
+}
+
+#[test]
+fn remote_claim_metadata_rejects_oversized_and_control_character_fields() {
+    let valid = ClaimRecord {
+        schema_version: 3,
+        project_uid: uuid::Uuid::new_v4().to_string(),
+        task_uid: "task-uid".into(),
+        owner: "Kool.ad/e session".into(),
+        operator_id: uuid::Uuid::new_v4().to_string(),
+        session_id: uuid::Uuid::new_v4().to_string(),
+        code_repository_id: "web".into(),
+        base_commit: "a".repeat(40),
+        issued_at_utc: 1,
+        expires_at_utc: 901,
+        takeover_history: Box::default(),
+    };
+    assert!(super::super::git::validate_remote_record(&valid).is_ok());
+    let mut oversized = valid.clone();
+    oversized.owner = "x".repeat(129);
+    assert!(super::super::git::validate_remote_record(&oversized).is_err());
+    let mut control = valid;
+    control.session_id = "bad\nowner".into();
+    assert!(super::super::git::validate_remote_record(&control).is_err());
 }
 
 #[test]
@@ -56,7 +80,7 @@ fn conflicting_legacy_and_workspace_claims_are_both_preserved() {
         "taskUid": task_uid,
         "owner": "legacy owner",
         "sessionId": "stale-legacy-session",
-        "baseCommit": "legacy-base",
+        "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "claimedAt": now - 16 * 60,
         "takeoverHistory": []
     }))
@@ -78,7 +102,7 @@ fn conflicting_legacy_and_workspace_claims_are_both_preserved() {
         fixture.project_uid,
         task_uid,
         "workspace-session",
-        "workspace-base",
+        "cccccccccccccccccccccccccccccccccccccccc",
         now + 15 * 60,
     );
     let workspace_object = git::create_object(planning_repo, &workspace).unwrap();
@@ -98,7 +122,7 @@ fn conflicting_legacy_and_workspace_claims_are_both_preserved() {
         fixture.project_uid,
         task_uid.into(),
         "web".into(),
-        "candidate-base".into(),
+        "dddddddddddddddddddddddddddddddddddddddd".into(),
         Some("stale-legacy-session".into()),
         ClaimScope::SharedRequired,
         false,

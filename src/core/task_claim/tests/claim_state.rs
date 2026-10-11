@@ -1,12 +1,56 @@
 use super::*;
 
 #[test]
+fn claim_reads_reject_remotes_without_bounded_fetch_support() {
+    let fixture = Fixture::new();
+    let repo = &fixture.clones[0];
+    let task_uid = "task-filter-required";
+    let reference = reference(fixture.project_uid, task_uid).unwrap();
+    let active = record(
+        fixture.project_uid,
+        task_uid,
+        "other-session",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        chrono::Utc::now().timestamp() + 300,
+    );
+    let object = git::create_object(repo, &active).unwrap();
+    git_at(
+        repo,
+        &["push", "-q", "origin", &format!("{object}:{reference}")],
+    );
+    git_at(
+        &fixture.planning_remote,
+        &["config", "--unset", "uploadpack.allowFilter"],
+    );
+
+    let error = ClaimLease::acquire(
+        repo,
+        fixture.project_uid,
+        task_uid,
+        "web",
+        "1111111111111111111111111111111111111111",
+    )
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ClaimError::CoordinationRejected(message)
+            if message.contains("bounded task-claim fetches")
+    ));
+}
+
+#[test]
 fn stale_takeover_rechecks_a_renewed_remote_claim_before_cas() {
     let fixture = Fixture::new();
     let repo = &fixture.clones[0];
     let task_uid = "task-takeover-renewal-race";
     let reference = reference(fixture.project_uid, task_uid).unwrap();
-    let expired = record(fixture.project_uid, task_uid, "stale-session", "base", 2);
+    let expired = record(
+        fixture.project_uid,
+        task_uid,
+        "stale-session",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        2,
+    );
     let object = git::create_object(repo, &expired).unwrap();
     git_at(
         repo,
@@ -149,7 +193,13 @@ fn deleted_claim_blocks_publication_and_is_not_recreated_by_drop() {
 #[test]
 fn claim_clock_and_ref_identity_fail_closed() {
     let project_uid = uuid::Uuid::new_v4();
-    let mut stale = record(project_uid, "task-456", "stale-session", "base", 2);
+    let mut stale = record(
+        project_uid,
+        "task-456",
+        "stale-session",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        2,
+    );
     stale.issued_at_utc = 1_000;
     stale.expires_at_utc = 2_000;
     assert!(!stale.appears_stale(999));

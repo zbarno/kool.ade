@@ -2,6 +2,8 @@ use std::path::Path;
 
 use super::{output, validate_path};
 
+const MAX_PLANNING_BLOB_BYTES: usize = 8 * 1024 * 1024;
+
 pub(in crate::core::planning_sync) fn read_path(
     repo: &Path,
     commit: &str,
@@ -54,6 +56,19 @@ pub(in crate::core::planning_sync) fn read_path(
         "planning snapshot path is not a file"
     );
     let object = String::from_utf8_lossy(fields[2]).to_string();
+    let size = output(repo, &["cat-file", "-s", &object])?;
+    anyhow::ensure!(
+        size.status.success(),
+        "could not inspect planning record size"
+    );
+    let size = String::from_utf8_lossy(&size.stdout)
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| anyhow::anyhow!("planning record size is malformed"))?;
+    anyhow::ensure!(
+        size <= MAX_PLANNING_BLOB_BYTES,
+        "planning record exceeds the 8 MiB safety limit"
+    );
     let result = output(repo, &["cat-file", "blob", &object])?;
     anyhow::ensure!(
         result.status.success(),
@@ -119,7 +134,16 @@ pub(in crate::core::planning_sync) fn changed_paths(
 ) -> anyhow::Result<Vec<String>> {
     let result = output(
         repo,
-        &["diff", "--no-renames", "--name-only", "-z", base, target],
+        &[
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            base,
+            target,
+        ],
     )?;
     anyhow::ensure!(
         result.status.success(),

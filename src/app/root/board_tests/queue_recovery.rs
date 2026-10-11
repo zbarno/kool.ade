@@ -19,7 +19,9 @@ fn parked_auto_queue_names_the_missing_feature_approval() {
         p.queue.last_error
     );
     assert!(
-        p.queue.last_error.contains("no recorded approval")
+        p.queue
+            .last_error
+            .contains("no recorded local approval receipt")
             && p.queue
                 .last_error
                 .contains("Approve feature for implementation"),

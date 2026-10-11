@@ -6,21 +6,11 @@ impl KooladeApp {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
-        let approved = project
-            .state
-            .workflow
-            .approved_features
-            .get(id)
-            .is_some_and(|saved| {
-                project
-                    .state
-                    .active_features
-                    .iter()
-                    .find(|(feature_id, _)| feature_id == id)
-                    .is_some_and(|(_, body)| {
-                        *saved == crate::core::workflow::feature_contract(body)
-                    })
-            });
+        let approved = crate::core::workflow::feature_approved(
+            &project.state.planning_store,
+            &project.state.workflow,
+            id,
+        );
         if !approved {
             return;
         }

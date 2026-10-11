@@ -120,6 +120,7 @@ impl WorkspaceManager {
             planning_repo.is_dir(),
             "associated planning repository is not a directory"
         );
+        crate::core::planning_sync::validate_repository_config(&planning_repo)?;
         let repository_root = git::repository_root(&planning_repo)
             .map_err(|error| anyhow::anyhow!("associated path is not a Git repository: {error}"))?;
         anyhow::ensure!(

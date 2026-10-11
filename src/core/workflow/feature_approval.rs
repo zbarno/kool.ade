@@ -101,7 +101,9 @@ pub fn approve_feature_if_current_with_revision<
     );
     // Another conversation may have saved a brief or another approval since display.
     *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
-    workflow.approved_features.insert(id.to_string(), contract);
+    workflow
+        .approved_features
+        .insert(id.to_string(), contract.clone());
     let (changes, checks, _) =
         crate::artifacts::task_docs::workflow_record_changes(repo, workflow)?;
     let (paths, planning_revision) = store.transaction_with_revision_and_record_revisions(
@@ -119,6 +121,7 @@ pub fn approve_feature_if_current_with_revision<
             .collect::<Vec<_>>(),
     )
     .map_err(|error| error.to_string());
+    crate::persistence::feature_approvals::record(&store.git_root(), id, &contract)?;
     drop(guard);
     Ok(FeatureApprovalReceipt {
         planning_revision,
@@ -150,8 +153,35 @@ pub fn feature_approved<R: crate::artifacts::planning_store::PlanningRoot + ?Siz
     if metadata.schema_version == 2 && !comparison_ready {
         return false;
     }
-    workflow
-        .approved_features
-        .get(id)
-        .is_some_and(|snapshot| snapshot == &feature_contract(&text))
+    let contract = feature_contract(&text);
+    crate::persistence::feature_approvals::contains(
+        &repo.planning_store().git_root(),
+        id,
+        &contract,
+    )
+}
+
+pub fn feature_approval_lapsed<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
+    repo: &R,
+    workflow: &Workflow,
+    id: &str,
+) -> bool {
+    let Some(previous_contract) = workflow.approved_features.get(id) else {
+        return false;
+    };
+    let git_root = repo.planning_store().git_root();
+    if !crate::persistence::feature_approvals::contains(&git_root, id, previous_contract) {
+        return false;
+    }
+    let Ok(path) = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))
+    else {
+        return false;
+    };
+    let Ok(bytes) = repo.read_planning_path(&path) else {
+        return false;
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
+        return false;
+    };
+    feature_contract(&text) != *previous_contract
 }

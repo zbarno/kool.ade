@@ -3,7 +3,7 @@ use koolade::{
         project_repos::{ProjectManifest, Repository, map_local_checkout},
         state::PlannerState,
         turn::{TurnController, TurnEvt, TurnInputs, TurnOutcome},
-        workflow::{TurnPurpose, Workflow, feature_contract},
+        workflow::{TurnPurpose, Workflow},
     },
     error::AppError,
     harness::{AiHarness, HarnessOutcome, PlanningRequest, TurnEnvelope},
@@ -188,12 +188,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             .exists()
     );
     workflow = koolade::artifacts::task_docs::load_workflow(&planning).unwrap();
-    workflow
-        .approved_features
-        .insert("CHG-001".into(), feature_contract(&feature));
-    koolade::artifacts::task_docs::save_workflow(&planning, &workflow).unwrap();
-    git(&planning, &["add", "-A"]);
-    git(&planning, &["commit", "-qm", "approve feature"]);
+    koolade::core::workflow::approve_feature(&planning, &mut workflow, "CHG-001").unwrap();
     let state = PlannerState::load(&planning).unwrap();
     assert!(state.workflow.ready(state.planning_contract()));
     let controller = TurnController::start(

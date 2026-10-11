@@ -69,7 +69,7 @@ fn typed_action_returned_by_the_planner_reaches_the_live_application_gate() {
         .to_string(),
     )));
 
-    app.start_turn("Could you start the implementation?");
+    app.start_turn("Start implementation");
     run_to_idle(&mut app);
 
     assert!(matches!(&app.screen, Screen::Connected(project)

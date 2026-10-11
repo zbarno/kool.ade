@@ -8,6 +8,7 @@ fn claims_use_the_planning_push_url_while_code_publication_uses_code_remote() {
         &fixture.root,
         &["init", "--bare", "-q", push_remote.to_str().unwrap()],
     );
+    git_at(&push_remote, &["config", "uploadpack.allowFilter", "true"]);
     let planning_repo = &fixture.clones[0];
     git_at(
         planning_repo,
@@ -143,6 +144,39 @@ fn multiple_planning_push_urls_are_rejected_before_creating_a_claim() {
 }
 
 #[test]
+fn unsafe_planning_git_configuration_blocks_claim_execution() {
+    let fixture = Fixture::new();
+    let repo = &fixture.clones[0];
+    git_at(
+        repo,
+        &[
+            "config",
+            "--local",
+            "core.fsmonitor",
+            "!echo injected-fsmonitor",
+        ],
+    );
+    let base = git_at(&fixture.code_clones[0], &["rev-parse", "HEAD"]);
+    assert!(matches!(
+        ClaimLease::acquire(repo, fixture.project_uid, "unsafe-config", "web", &base),
+        Err(ClaimError::RemoteUnavailable(message)) if message.contains("security validation")
+    ));
+    let refname = reference(fixture.project_uid, "unsafe-config").unwrap();
+    assert!(
+        git_at(
+            &fixture.root,
+            &[
+                "ls-remote",
+                "--refs",
+                fixture.planning_remote.to_str().unwrap(),
+                &refname,
+            ]
+        )
+        .is_empty()
+    );
+}
+
+#[test]
 fn prior_code_remote_claims_block_and_require_explicit_stale_takeover() {
     let fixture = Fixture::new();
     let planning_repo = fixture.clones[0].clone();
@@ -157,7 +191,7 @@ fn prior_code_remote_claims_block_and_require_explicit_stale_takeover() {
         "taskUid": task_uid,
         "owner": "Kool.ad/e session",
         "sessionId": session,
-        "baseCommit": "base-sha",
+        "baseCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "claimedAt": now,
         "takeoverHistory": []
     }))

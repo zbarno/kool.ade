@@ -86,14 +86,11 @@ fn inactive_status(state: &PlannerState, work: &Work) -> WorkStatus {
         };
     }
 
-    let Some((id, body, status)) = feature else {
+    let Some((id, _body, status)) = feature else {
         return WorkStatus::NeedsAttention;
     };
-    let approved = state
-        .workflow
-        .approved_features
-        .get(id)
-        .is_some_and(|saved| *saved == crate::core::workflow::feature_contract(body));
+    let approved =
+        crate::core::workflow::feature_approved(&state.planning_store, &state.workflow, id);
     match status {
         ChangeStatus::Draft | ChangeStatus::Ready if approved => WorkStatus::Done,
         ChangeStatus::Draft | ChangeStatus::Ready => WorkStatus::InReview,

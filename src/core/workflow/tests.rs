@@ -215,7 +215,15 @@ fn structured_generate_request_keeps_the_current_readiness_snapshot() {
         target_uid: None,
     });
 
-    let normalized = validation::validate(&env, &state, &state.effective_user()).unwrap();
+    let normalized = validation::validate_for_turn_with_user_message(
+        &env,
+        &state,
+        &state.effective_user(),
+        crate::core::workflow::TurnPurpose::Interview,
+        &[],
+        "Generate tasks for the current feature",
+    )
+    .unwrap();
     assert_eq!(normalized.requested_action, env.requested_action);
     assert!(normalized.workflow.is_none());
     assert_eq!(state.workflow, ready_before);

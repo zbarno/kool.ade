@@ -36,14 +36,15 @@ pub(super) fn run_with_settle_window(
             .is_some_and(|(id, _)| id == &candidate.feature_id),
         "Active feature changed before reconciliation"
     );
-    let approved = state.workflow.approved_features.get(&candidate.feature_id);
     anyhow::ensure!(
-        approved.is_some_and(|contract| contract
-            == &workflow::feature_contract(&candidate.contract.feature_specification))
-            && state
-                .active_feature
-                .as_ref()
-                .is_some_and(|(_, text)| workflow::feature_contract(text) == *approved.unwrap()),
+        workflow::feature_approved(
+            &state.planning_store,
+            &state.workflow,
+            &candidate.feature_id,
+        ) && state.active_feature.as_ref().is_some_and(|(_, text)| {
+            workflow::feature_contract(text)
+                == workflow::feature_contract(&candidate.contract.feature_specification)
+        }),
         "Approved feature contract changed since task generation; human review is required"
     );
     let evidence = implementation_evidence(state, candidate)?;

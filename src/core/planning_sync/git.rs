@@ -1,27 +1,18 @@
-use std::{
-    path::Path,
-    process::{Command, Output},
-};
+use std::path::Path;
 
 mod commit;
+mod config;
 mod remote_identity;
 mod snapshot;
 pub(super) use commit::create_commit;
+pub(super) use config::output;
+#[cfg(test)]
+use config::{audit_local_config, is_remote_helper, safe_command};
+pub(crate) use config::{standalone_command, validate_repository_config, validated_command};
 pub(super) use remote_identity::{
     is_canonical_branch, remote_identity, remote_identity_for, remote_is_configured, set_origin,
 };
 pub(super) use snapshot::{changed_paths, read_path, worktree_paths, write_worktree_path};
-
-pub(super) fn output(repo: &Path, args: &[&str]) -> anyhow::Result<Output> {
-    Ok(Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .output()?)
-}
 
 pub(super) fn success(repo: &Path, args: &[&str]) -> anyhow::Result<String> {
     let result = output(repo, args)?;
@@ -236,14 +227,5 @@ pub(super) fn classify_transport(detail: &str) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::classify_transport;
-
-    #[test]
-    fn ssh_public_key_rejection_is_an_authentication_failure() {
-        assert_eq!(
-            classify_transport("permission denied (publickey)."),
-            "credentials are unavailable"
-        );
-    }
-}
+#[path = "git/tests.rs"]
+mod tests;

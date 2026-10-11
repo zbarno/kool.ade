@@ -336,10 +336,46 @@ pub(in crate::app::root) fn park_fixture_with_unapproved_feature(lapsed: bool) -
     if let Screen::Connected(p) = &mut app.screen {
         p.queue.running = true;
         if lapsed {
+            let draft = "# CHG-999: Fixture feature\n\n**Status:** Ready\n\n## Intent\n\nKeep the fixture behavior.\n\n## Desired Behavior\n\nKeep the fixture behavior approved.\n";
+            let identified = crate::domain::ArtifactIdentity::preserve_markdown(
+                draft,
+                None,
+                "CHG-999",
+                "Fixture feature",
+            )
+            .unwrap();
+            let identity = crate::domain::ArtifactIdentity::from_markdown(&identified)
+                .unwrap()
+                .unwrap();
+            let specification = crate::domain::ChangeMetadata::write_markdown(
+                &identified,
+                &identity,
+                crate::domain::ChangeStatus::Ready,
+            )
+            .unwrap();
+            std::fs::create_dir_all(
+                p.state
+                    .repo_root
+                    .join(".koolade-packet/planning/changes/CHG-999-fixture"),
+            )
+            .unwrap();
+            let feature_path = crate::artifacts::product_docs::document_path(
+                &p.state.planning_store,
+                "feature:CHG-999",
+            )
+            .unwrap();
+            std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+            std::fs::write(feature_path, specification).unwrap();
             p.state
                 .workflow
                 .approved_features
                 .insert("CHG-999".into(), "fixture stale contract".into());
+            crate::persistence::feature_approvals::record(
+                &p.state.repo_root,
+                "CHG-999",
+                "fixture stale contract",
+            )
+            .unwrap();
         }
         for doc in &mut p.task_documents {
             doc.text.push_str("\nFeature ID: CHG-999\n");
