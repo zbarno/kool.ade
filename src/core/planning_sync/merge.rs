@@ -165,12 +165,37 @@ pub(super) fn validate_mutation(mutation: &RecordMutation) -> anyhow::Result<()>
     Ok(())
 }
 
+pub(super) fn validate_resolution(mutation: &RecordMutation) -> anyhow::Result<()> {
+    validate_mutation(mutation)?;
+    let Some((uid, _)) = record_json_uid(&mutation.path) else {
+        return Ok(());
+    };
+    let (Some(base), Some(desired)) = (
+        mutation
+            .base
+            .as_deref()
+            .map(|bytes| decode_record(bytes.as_bytes(), &mutation.path, uid))
+            .transpose()?,
+        mutation
+            .desired
+            .as_deref()
+            .map(|bytes| decode_record(bytes.as_bytes(), &mutation.path, uid))
+            .transpose()?,
+    ) else {
+        return Ok(());
+    };
+    validate_immutable_fields(&base, &desired, &base).map_err(|field| {
+        anyhow::anyhow!("planning conflict resolution cannot change immutable field {field}")
+    })
+}
+
 pub(super) fn is_record_collection_path(path: &str) -> bool {
     [
         "state/work",
         "state/workflow",
         "state/items",
         "state/tasks",
+        "state/planning_sync/resolutions",
         "planning/items",
     ]
     .iter()
@@ -200,7 +225,11 @@ pub(super) fn record_json_uid(path: &str) -> Option<(&str, &str)> {
     let (collection, filename) = path.rsplit_once('/')?;
     let allowed = matches!(
         collection,
-        "state/work" | "state/workflow" | "state/items" | "state/tasks"
+        "state/work"
+            | "state/workflow"
+            | "state/items"
+            | "state/tasks"
+            | "state/planning_sync/resolutions"
     );
     let uid = filename.strip_suffix(".json")?;
     let parsed = uuid::Uuid::parse_str(uid).ok()?;

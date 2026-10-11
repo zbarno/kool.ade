@@ -33,11 +33,52 @@ pub(in crate::core::planning_sync) fn prepare_local_intent(
         return Ok(None);
     };
     if !remote_configured {
+        let _lock = journal_lock(state_root, manifest.workspace_id)?;
+        let journal = OperationJournal::load_or_new(
+            state_root,
+            manifest.workspace_id,
+            &manifest.canonical_ref,
+        )?;
+        if journal.remote_identity.is_some()
+            || journal.confirmed_commit.is_some()
+            || journal.state == PlanningSyncState::Synced
+            || !journal.operations.is_empty()
+            || !journal.conflicts.is_empty()
+        {
+            anyhow::bail!(
+                "planning remote is not configured; restore or explicitly reconfigure it before committing shared planning changes"
+            );
+        }
         return Ok(None);
     }
+    anyhow::ensure!(
+        git::is_canonical_branch(repo, &manifest.canonical_ref)?,
+        "shared planning writes are paused because this checkout is not on {}; switch to the canonical planning branch before continuing",
+        manifest.canonical_ref
+    );
     let _lock = journal_lock(state_root, manifest.workspace_id)?;
     let mut journal =
         OperationJournal::load_or_new(state_root, manifest.workspace_id, &manifest.canonical_ref)?;
+    let remote_identity = git::remote_identity(repo)?
+        .ok_or_else(|| anyhow::anyhow!("planning remote is not configured"))?;
+    if journal
+        .remote_identity
+        .as_deref()
+        .is_some_and(|identity| identity != remote_identity.as_str())
+    {
+        journal.state = PlanningSyncState::Pending;
+        journal.detail = Some(
+            "planning remote changed; sync must confirm the destination before new shared edits are queued".into(),
+        );
+        journal.write(state_root)?;
+        anyhow::bail!(
+            "planning remote changed; sync must confirm the destination before new shared edits are queued"
+        );
+    }
+    if journal.remote_identity.is_none() {
+        journal.remote_identity = Some(remote_identity);
+        journal.write(state_root)?;
+    }
     let base_commit = match journal.confirmed_commit.clone() {
         Some(commit) => commit,
         None => initialize_confirmed_base(repo, state_root, &manifest, &mut journal)?,

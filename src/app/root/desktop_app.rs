@@ -28,7 +28,16 @@ impl KooladeApp {
                 let browse_slot = std::cell::RefCell::new(false);
                 let clone_slot = std::cell::RefCell::new(false);
                 let create_workspace_slot = std::cell::RefCell::new(false);
+                let join_workspace_slot = std::cell::RefCell::new(false);
+                let open_local_workspace_slot = std::cell::RefCell::new(false);
                 let harness_setup_slot = std::cell::RefCell::new(false);
+                let local_workspaces =
+                    crate::core::managed_workspace::WorkspaceManager::from_state_root()
+                        .list_local();
+                let local_workspaces = local_workspaces.unwrap_or_default();
+                if self.conn_workspace_id.is_none() {
+                    self.conn_workspace_id = local_workspaces.first().map(|workspace| workspace.id);
+                }
                 // In-flight badge for the card: ("github.com/{o}/{r}", repo).
                 let cloning = self
                     .clone_job
@@ -60,7 +69,7 @@ impl KooladeApp {
                         });
                         ui.add_space(10.0);
                         ui.vertical_centered(|ui| {
-                            ui.label("Or start with a local planning workspace");
+                            ui.label("Create a workspace with its own local planning repository");
                             let field_width = ui.available_width().min(340.0);
                             ui.add_sized(
                                 egui::vec2(field_width, 34.0),
@@ -68,13 +77,67 @@ impl KooladeApp {
                                     .hint_text("Project name"),
                             );
                             if ui
-                                .add_enabled(
-                                    !clone_busy,
-                                    egui::Button::new("Create planning workspace"),
-                                )
+                                .add_enabled(!clone_busy, egui::Button::new("Create workspace"))
                                 .clicked()
                             {
                                 *create_workspace_slot.borrow_mut() = true;
+                            }
+                            ui.add_space(12.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            ui.label("Join an existing shared workspace");
+                            ui.add_sized(
+                                egui::vec2(field_width, 34.0),
+                                egui::TextEdit::singleline(&mut self.conn_join_remote)
+                                    .hint_text("Planning Git remote URL or local checkout path"),
+                            );
+                            if ui
+                                .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
+                                .clicked()
+                            {
+                                *join_workspace_slot.borrow_mut() = true;
+                            }
+                            ui.add_space(12.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            ui.label("Open an existing local workspace");
+                            if local_workspaces.is_empty() {
+                                ui.label(crate::ui::theme::helper_text(
+                                    "No local workspace is registered yet.",
+                                ));
+                            } else {
+                                egui::ComboBox::from_id_salt("welcome_local_workspace")
+                                    .selected_text(
+                                        self.conn_workspace_id
+                                            .and_then(|id| {
+                                                local_workspaces
+                                                    .iter()
+                                                    .find(|workspace| workspace.id == id)
+                                            })
+                                            .map(|workspace| {
+                                                format!("{} · {}", workspace.title, workspace.id)
+                                            })
+                                            .unwrap_or_else(|| "Choose a workspace".into()),
+                                    )
+                                    .width(field_width)
+                                    .show_ui(ui, |ui| {
+                                        for workspace in &local_workspaces {
+                                            ui.selectable_value(
+                                                &mut self.conn_workspace_id,
+                                                Some(workspace.id),
+                                                format!("{} · {}", workspace.title, workspace.id),
+                                            );
+                                        }
+                                    });
+                                if ui
+                                    .add_enabled(
+                                        !clone_busy,
+                                        egui::Button::new("Open local workspace"),
+                                    )
+                                    .clicked()
+                                {
+                                    *open_local_workspace_slot.borrow_mut() = true;
+                                }
                             }
                             ui.add_space(6.0);
                             if ui.link("Configure coding tools…").clicked() {
@@ -89,6 +152,10 @@ impl KooladeApp {
                     self.begin_clone_from_field();
                 } else if *create_workspace_slot.borrow() {
                     self.submit_create_workspace();
+                } else if *join_workspace_slot.borrow() {
+                    self.submit_join_workspace();
+                } else if *open_local_workspace_slot.borrow() {
+                    self.submit_open_local_workspace();
                 } else if *browse_slot.borrow() {
                     // Start the native folder chooser at the current field's
                     // directory, or its parent when the field is a file path.

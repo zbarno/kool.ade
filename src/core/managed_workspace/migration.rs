@@ -1,6 +1,7 @@
 //! Explicit migration from an embedded planning root to a managed repository.
 mod inventory;
 mod journal;
+mod preview;
 mod stage;
 
 #[cfg(test)]
@@ -48,6 +49,8 @@ pub struct RollbackOutcome {
     pub warning: Option<String>,
 }
 
+pub use preview::{MigrationConflictPreview, MigrationPreview};
+
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MigrationFailurePoint {
@@ -58,6 +61,14 @@ pub(super) enum MigrationFailurePoint {
 }
 
 impl WorkspaceManager {
+    /// Inspect legacy planning data without writing to the source checkout.
+    pub fn preview_legacy_migration(
+        &self,
+        code_checkout: &Path,
+    ) -> anyhow::Result<MigrationPreview> {
+        preview::build(code_checkout)
+    }
+
     /// Explicitly migrate one legacy code checkout. The source tree is only
     /// read; the associated planning repository is staged and verified first.
     pub fn migrate_legacy_checkout(
@@ -65,6 +76,14 @@ impl WorkspaceManager {
         code_checkout: &Path,
     ) -> anyhow::Result<ManagedWorkspace> {
         stage::migrate(self, code_checkout)
+    }
+
+    /// Confirm a previewed migration only if the source inventory is unchanged.
+    pub fn migrate_legacy_checkout_from_preview(
+        &self,
+        preview: &MigrationPreview,
+    ) -> anyhow::Result<ManagedWorkspace> {
+        stage::migrate_from_preview(self, preview)
     }
 
     #[cfg(test)]

@@ -61,40 +61,48 @@ impl KooladeApp {
                         failure = Some(error);
                     }
                 }
-                let default_branch = if project.git.default_branch.is_empty() {
-                    if project.git.branch.is_empty() {
+                let selected_code_repository = project.has_selected_code_repository();
+                let default_branch = if !selected_code_repository {
+                    None
+                } else if project.git.default_branch.is_empty() {
+                    Some(if project.git.branch.is_empty() {
                         "main"
                     } else {
                         project.git.branch.as_str()
-                    }
+                    })
                 } else {
-                    project.git.default_branch.as_str()
+                    Some(project.git.default_branch.as_str())
                 };
                 let source_branch = inherited
                     .and_then(|work| work.source_branch.clone())
                     .or(source_branch)
-                    .unwrap_or_else(|| default_branch.to_owned());
+                    .or_else(|| default_branch.map(str::to_owned));
                 let destination_branch = inherited
                     .and_then(|work| work.destination_branch.clone())
                     .or(destination_branch)
-                    .unwrap_or_else(|| default_branch.to_owned());
+                    .or_else(|| default_branch.map(str::to_owned));
                 let destinations = if !project.git.has_origin {
                     &project.git.branches
                 } else {
                     &project.git.remote_branches
                 };
-                for (label, branch, candidates) in [
-                    ("source", &source_branch, &project.git.branches),
-                    ("destination", &destination_branch, destinations),
-                ] {
-                    let default_is_valid = !project.git.has_origin
-                        && candidates.is_empty()
-                        && (project.git.branch == *branch || default_branch == branch.as_str());
-                    if !candidates.contains(branch) && !default_is_valid {
-                        failure = Some(format!(
-                            "The selected {label} branch '{branch}' is not present in this repository. Refresh the repository and select an existing branch."
-                        ));
-                        break;
+                if selected_code_repository {
+                    for (label, branch, candidates) in [
+                        ("source", &source_branch, &project.git.branches),
+                        ("destination", &destination_branch, destinations),
+                    ] {
+                        if let Some(branch) = branch {
+                            let default_is_valid = !project.git.has_origin
+                                && candidates.is_empty()
+                                && (project.git.branch == *branch
+                                    || default_branch == Some(branch.as_str()));
+                            if !candidates.contains(branch) && !default_is_valid {
+                                failure = Some(format!(
+                                    "The selected {label} branch '{branch}' is not present in this repository. Refresh the repository and select an existing branch."
+                                ));
+                                break;
+                            }
+                        }
                     }
                 }
                 if failure.is_some() {
@@ -130,8 +138,8 @@ impl KooladeApp {
                             .as_ref()
                             .filter(|_| !work.routing_overrides.is_empty())
                             .cloned();
-                        work.source_branch = Some(source_branch);
-                        work.destination_branch = Some(destination_branch);
+                        work.source_branch = source_branch;
+                        work.destination_branch = destination_branch;
                         work.key = format!("task:{}", work.uid);
                         let key = work.key.clone();
                         project.planning_work.push(work);
@@ -174,42 +182,5 @@ impl KooladeApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn work(kind: WorkKind, request: &str) -> Work {
-        let mut work = Work::new(
-            String::new(),
-            "Question".into(),
-            request.into(),
-            String::new(),
-        );
-        work.kind = kind;
-        work
-    }
-
-    #[test]
-    fn unsupported_hosted_anthropic_question_gets_an_optional_offer_only() {
-        let offer = provider_support_follow_up(&work(
-            WorkKind::Question,
-            "Why can't Kool.ad/e use hosted Anthropic through Pi?",
-        ))
-        .unwrap();
-        assert!(offer.title.contains("hosted Anthropic"));
-        assert!(offer.description.contains("sandbox security boundaries"));
-        assert!(
-            provider_support_follow_up(&work(
-                WorkKind::Question,
-                "How does Anthropic compare with local providers?",
-            ))
-            .is_none()
-        );
-        assert!(
-            provider_support_follow_up(&work(
-                WorkKind::Feature,
-                "Why can't Kool.ad/e use hosted Anthropic through Pi?",
-            ))
-            .is_none()
-        );
-    }
-}
+#[path = "planning_work/tests.rs"]
+mod tests;

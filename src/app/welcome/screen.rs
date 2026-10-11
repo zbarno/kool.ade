@@ -64,7 +64,7 @@ pub fn paint(
                 .color(theme::TEXT_DIM),
         );
         card_ui.add_space(8.0);
-        presentation::section_label(card_ui, "PROJECT FOLDER");
+        presentation::section_label(card_ui, "OPEN CODE CHECKOUT OR LEGACY PROJECT");
         let path_field = card_ui
             .horizontal(|ui| {
                 let field_width = (ui.available_width() - 96.0 - ui.spacing().item_spacing.x).max(80.0);
@@ -204,6 +204,9 @@ pub fn paint(
             .weak()
             .size(11.0),
         );
+        card_ui.label(theme::helper_text(
+            "To migrate embedded planning data, open the legacy checkout and choose Workspace settings → Planning Repository → Preview migration.",
+        ));
         // Focus-scoped Enter (the retired global hook's replacement): the PATH
         // field's Enter submits (with the incumbent empty guard); the URL
         // field's Enter requests a clone; any other Enter does nothing.

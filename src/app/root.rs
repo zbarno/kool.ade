@@ -33,6 +33,8 @@ mod desktop_app;
 mod dialogs;
 mod implementation_controller;
 mod implementation_decision;
+mod planning_repository;
+mod planning_repository_surface;
 mod planning_work;
 mod repository_switcher;
 mod requested_action;
@@ -74,6 +76,14 @@ pub struct KooladeApp {
     /// In-flight GitHub clone worker (spawned by [`Self::begin_clone`],
     /// drained at the top of [`Self::tick`]). `None` when idle.
     clone_job: Option<CloneJob>,
+    planning_sync_job: Option<
+        std::thread::JoinHandle<(
+            uuid::Uuid,
+            Result<crate::core::planning_sync::PlanningSyncStatus, String>,
+        )>,
+    >,
+    conn_join_remote: String,
+    conn_workspace_id: Option<uuid::Uuid>,
     /// Test-only seam: when `Some`, [`Self::begin_clone`] hands the worker
     /// THIS computation instead of the real `welcome::perform_clone`, so
     /// dispatch can be proven hermetically (no network, no real git
@@ -254,6 +264,9 @@ impl Default for KooladeApp {
             last_git_refresh: Instant::now(),
             display_refresh: None,
             clone_job: None,
+            planning_sync_job: None,
+            conn_join_remote: String::new(),
+            conn_workspace_id: None,
             clone_computation_override: None,
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),

@@ -21,7 +21,7 @@ pub enum PlanningSyncState {
     IncompatibleSchema,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanningSyncConflict {
     pub operation_id: uuid::Uuid,
@@ -29,10 +29,30 @@ pub struct PlanningSyncConflict {
     pub record_id: String,
     pub expected_revision: Option<u64>,
     pub base_commit: String,
+    #[serde(default)]
+    pub local_commit: Option<String>,
     pub remote_commit: String,
     pub fields: Vec<String>,
     pub local_value: Option<String>,
     pub remote_value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanningSyncPendingOperation {
+    pub operation_id: uuid::Uuid,
+    pub created_at_ms: u64,
+    pub summary: String,
+    pub target_ids: Vec<String>,
+    pub has_local_commit: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanningConflictChoice {
+    Local,
+    Remote,
+    Manual,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +64,8 @@ pub struct PlanningSyncStatus {
     pub confirmed_commit: Option<String>,
     pub confirmed_at_ms: Option<u64>,
     pub pending_operations: usize,
+    #[serde(default)]
+    pub pending: Vec<PlanningSyncPendingOperation>,
     pub conflicts: Vec<PlanningSyncConflict>,
     pub detail: Option<String>,
 }
@@ -57,6 +79,7 @@ impl PlanningSyncStatus {
             confirmed_commit: None,
             confirmed_at_ms: None,
             pending_operations: 0,
+            pending: Vec::new(),
             conflicts: Vec::new(),
             detail: None,
         }

@@ -14,6 +14,9 @@ use crate::error::AppError;
 
 mod commit;
 mod snapshot;
+#[cfg(test)]
+pub(crate) use commit::commit_planning_changes_at;
+pub(crate) use commit::lock_repository;
 pub use commit::{commit, commit_cancellable, commit_planning_changes};
 pub use snapshot::snapshot;
 
@@ -229,58 +232,7 @@ pub fn stage(cwd: &Path, paths: &[String]) -> Result<(), AppError> {
 /// Precedent for process-global env mutation under a lock: `ENV_HOME_LOCK`
 /// in `crate::persistence::chat_store::tests`.
 #[cfg(test)]
-pub(crate) mod test_support {
-    use std::env;
-    use std::fs;
-    use std::sync::{Mutex, MutexGuard};
-
-    /// Held for the ENTIRE body of any shielded test so sibling git spawns
-    /// observe a consistent hierarchy, and so our mutation cannot bleed into
-    /// any sibling. (Local repo configs are unaffected by the shield; only
-    /// the global/system layers are swapped for empty control files.)
-    static GIT_HIERARCHY_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Point `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` (honored by git ≥
-    /// 2.32) at empty control files; releases the env vars and removes the
-    /// control dir on drop.
-    pub fn shield(tag: &str) -> Guard {
-        let lock = GIT_HIERARCHY_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let dir = env::temp_dir().join(format!("koolade_git_shield_{tag}_{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let global = dir.join("control.global.empty");
-        let system = dir.join("control.system.empty");
-        fs::write(&global, "").unwrap();
-        fs::write(&system, "").unwrap();
-        // SAFETY: guarded by GIT_HIERARCHY_LOCK; no other test mutates or
-        // depends on the ambient git hierarchy while the guard is held.
-        unsafe {
-            env::set_var("GIT_CONFIG_GLOBAL", &global);
-            env::set_var("GIT_CONFIG_SYSTEM", &system);
-        }
-        Guard {
-            _lock: lock,
-            _cleanup: dir,
-        }
-    }
-
-    pub(crate) struct Guard {
-        _lock: MutexGuard<'static, ()>,
-        // Pid/tag-scoped control dir, removed on drop so repeated suite runs
-        // leave no litter in the temp dir (still held under the lock).
-        _cleanup: std::path::PathBuf,
-    }
-
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            // SAFETY: same lock-guarded invariant as set in `shield`.
-            unsafe {
-                env::remove_var("GIT_CONFIG_GLOBAL");
-                env::remove_var("GIT_CONFIG_SYSTEM");
-            }
-            let _ = fs::remove_dir_all(&self._cleanup);
-        }
-    }
-}
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod tests;

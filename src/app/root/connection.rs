@@ -224,6 +224,29 @@ impl KooladeApp {
         self.finish_connect(welcome::attempt_create_workspace(title));
     }
 
+    pub(super) fn submit_join_workspace(&mut self) {
+        if self.clone_job.is_some() {
+            return;
+        }
+        let remote_or_path = self.conn_join_remote.trim();
+        if remote_or_path.is_empty() {
+            self.conn_error = Some("Enter a planning repository remote URL or local path.".into());
+            return;
+        }
+        self.finish_connect(welcome::attempt_join_workspace(remote_or_path));
+    }
+
+    pub(super) fn submit_open_local_workspace(&mut self) {
+        if self.clone_job.is_some() {
+            return;
+        }
+        let Some(id) = self.conn_workspace_id else {
+            self.conn_error = Some("No local workspace is available to open.".into());
+            return;
+        };
+        self.finish_connect(welcome::attempt_open_workspace(id));
+    }
+
     pub(super) fn finish_connect(
         &mut self,
         result: Result<session::Project, crate::error::AppError>,

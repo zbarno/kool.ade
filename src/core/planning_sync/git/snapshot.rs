@@ -62,6 +62,56 @@ pub(in crate::core::planning_sync) fn read_path(
     Ok(Some(result.stdout))
 }
 
+pub(in crate::core::planning_sync) fn write_worktree_path(
+    repo: &Path,
+    path: &str,
+    content: Option<&[u8]>,
+) -> anyhow::Result<()> {
+    use std::fs;
+
+    validate_path(path)?;
+    let relative = Path::new(path);
+    let mut cursor = repo.to_path_buf();
+    let components = relative.components().collect::<Vec<_>>();
+    for (index, component) in components.iter().enumerate() {
+        let std::path::Component::Normal(part) = component else {
+            anyhow::bail!("planning path is invalid");
+        };
+        cursor.push(part);
+        let is_file = index + 1 == components.len();
+        match fs::symlink_metadata(&cursor) {
+            Ok(metadata) => {
+                anyhow::ensure!(
+                    !metadata.file_type().is_symlink(),
+                    "planning path contains a symlink"
+                );
+                if !is_file {
+                    anyhow::ensure!(metadata.is_dir(), "planning path parent is not a directory");
+                } else if content.is_some() {
+                    anyhow::ensure!(
+                        metadata.is_file(),
+                        "planning path target is not a regular file"
+                    );
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && !is_file => {
+                fs::create_dir(&cursor)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    match content {
+        Some(bytes) => crate::artifacts::atomic_write_bytes(&cursor, bytes)?,
+        None => match fs::remove_file(cursor) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        },
+    }
+    Ok(())
+}
+
 pub(in crate::core::planning_sync) fn changed_paths(
     repo: &Path,
     base: &str,

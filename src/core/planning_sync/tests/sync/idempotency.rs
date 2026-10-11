@@ -102,3 +102,41 @@ fn remote_offline_keeps_the_operation_pending() {
     assert_eq!(status.state, PlanningSyncState::Offline);
     assert_eq!(status.pending_operations, 1);
 }
+
+#[test]
+fn failed_transport_keeps_operation_for_restart_and_explicit_retry() {
+    let fixture = Fixture::new();
+    fixture.write_work(
+        &fixture.first,
+        fixture.work_id,
+        "title",
+        "retry after restart",
+    );
+    let state_root = fixture.state_root("restart-retry");
+    let operation_id = prepare_local_intent(
+        &fixture.first,
+        &state_root,
+        "retry after transport failure",
+        &[work_path(fixture.work_id)],
+    )
+    .unwrap()
+    .unwrap();
+    let unavailable_remote = fixture.root.join("temporarily-unavailable.git");
+    std::fs::rename(&fixture.remote, &unavailable_remote).unwrap();
+
+    let failed = sync_with_state_root(&fixture.first, &state_root).unwrap();
+    assert_eq!(failed.state, PlanningSyncState::Offline);
+    assert_eq!(failed.pending_operations, 1);
+    assert_eq!(failed.pending[0].operation_id, operation_id);
+
+    // A fresh sync call reloads the durable journal, as it would after app restart.
+    std::fs::rename(&unavailable_remote, &fixture.remote).unwrap();
+    let retried = sync_with_state_root(&fixture.first, &state_root).unwrap();
+
+    assert_eq!(retried.state, PlanningSyncState::Synced);
+    assert_eq!(retried.pending_operations, 0);
+    assert_eq!(
+        fixture.remote_record(fixture.work_id)["data"]["title"],
+        "retry after restart"
+    );
+}

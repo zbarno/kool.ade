@@ -35,8 +35,22 @@ pub fn attempt_open_workspace(workspace_id: uuid::Uuid) -> Result<Project, AppEr
 
 /// Join an existing managed planning checkout and reuse its workspace ID.
 pub fn attempt_join_workspace(raw: &str) -> Result<Project, AppError> {
-    let path = expand_home(raw.trim());
-    join_workspace_path(Path::new(path.as_os_str()))
+    let value = raw.trim();
+    let manager = WorkspaceManager::from_state_root();
+    let workspace = if value.contains("://") || value.starts_with("git@") {
+        manager.join_remote(value)
+    } else {
+        let path = expand_home(value);
+        manager.join(Path::new(path.as_os_str()))
+    }
+    .map_err(|error| {
+        AppError::Other(format!("planning workspace could not be joined: {error:#}"))
+    })?;
+    connect_canonical_with_key(
+        workspace.planning_repo,
+        workspace.store,
+        workspace.id.hyphenated().to_string(),
+    )
 }
 
 pub(super) fn is_managed_repository(path: &Path) -> Result<bool, AppError> {

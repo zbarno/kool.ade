@@ -65,7 +65,7 @@ impl KooladeApp {
             );
         };
         let store = project.state.planning_store.clone();
-        if store.mode != crate::artifacts::planning_store::StoreMode::ManagedLocal
+        if store.mode == crate::artifacts::planning_store::StoreMode::LegacyEmbedded
             || store.project_id.is_nil()
         {
             return Err("Code repositories can be added to managed planning workspaces.".into());
@@ -80,7 +80,8 @@ impl KooladeApp {
         let workspace = crate::core::managed_workspace::WorkspaceManager::from_state_root()
             .register_code_repository(store.project_id, registration)
             .map_err(|error| format!("code repository registration failed: {error:#}"))?;
-        project.state.repositories = workspace.repositories;
+        project.state.repositories = workspace.repositories.clone();
+        project.managed_workspace = Some(workspace.clone());
         project.state.baseline_planning_revision = store.revision().map_err(|error| {
             format!("repository registered but planning state could not reload: {error}")
         })?;

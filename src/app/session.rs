@@ -19,6 +19,9 @@ pub struct Project {
     pub task_chats: crate::persistence::task_chats::TaskChats,
     pub activity: super::manager::WorkspaceActivity,
     pub state: PlannerState,
+    pub managed_workspace: Option<crate::core::managed_workspace::ManagedWorkspace>,
+    pub planning_sync: crate::core::planning_sync::PlanningSyncStatus,
+    pub planning_remote_url: Option<String>,
     /// Project slug keying the ~/.koolade chat store.
     pub chat_slug: String,
     pub chat: Vec<ChatMessage>,
@@ -52,6 +55,17 @@ pub struct Project {
 }
 
 impl Project {
+    pub fn has_selected_code_repository(&self) -> bool {
+        let Some(workspace) = &self.managed_workspace else {
+            return true;
+        };
+        workspace
+            .association
+            .code_checkouts
+            .iter()
+            .any(|checkout| checkout.path == self.state.repo_root && checkout.path.is_dir())
+    }
+
     pub fn save_planning_work(&mut self) -> Result<(), String> {
         let _guard = crate::core::writer_gate::acquire();
         match crate::core::planning_work::save_expected(

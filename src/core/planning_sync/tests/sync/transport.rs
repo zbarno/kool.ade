@@ -1,6 +1,6 @@
 use super::super::support::{Fixture, work_path};
 use crate::core::planning_sync::{
-    PlanningSyncState,
+    PlanningSyncState, export_pending_at,
     runner::{prepare_local_intent, sync_with_state_root},
 };
 use std::fs;
@@ -61,6 +61,56 @@ fn ssh_public_key_failure_is_reported_as_auth_required() {
 
     assert_eq!(status.state, PlanningSyncState::AuthRequired);
     assert_eq!(status.pending_operations, 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn first_publish_permission_failure_exports_the_unconfirmed_planning_snapshot() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = Fixture::new();
+    let hook = fixture.remote.join("hooks/pre-receive");
+    fs::write(
+        &hook,
+        "#!/bin/sh\necho 'remote write permission denied' >&2\nexit 1\n",
+    )
+    .unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    super::super::support::git(
+        None,
+        &[
+            "--git-dir",
+            fixture.remote.to_str().unwrap(),
+            "update-ref",
+            "-d",
+            "refs/heads/main",
+        ],
+    );
+    fixture.write_work(
+        &fixture.first,
+        fixture.work_id,
+        "title",
+        "unconfirmed initial planning",
+    );
+    let state_root = fixture.state_root("first-publish");
+
+    let status = sync_with_state_root(&fixture.first, &state_root).unwrap();
+
+    assert_eq!(status.state, PlanningSyncState::ReadOnly);
+    let destination = fixture.root.join("unconfirmed-export.json");
+    export_pending_at(&fixture.first, &state_root, &destination).unwrap();
+    let exported: serde_json::Value =
+        serde_json::from_slice(&fs::read(destination).unwrap()).unwrap();
+    let path = work_path(fixture.work_id);
+    let record = exported["unconfirmedSnapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["path"] == path)
+        .expect("initial planning record must be exported");
+    let record: serde_json::Value =
+        serde_json::from_str(record["content"].as_str().unwrap()).unwrap();
+    assert_eq!(record["data"]["title"], "unconfirmed initial planning");
 }
 
 #[cfg(unix)]

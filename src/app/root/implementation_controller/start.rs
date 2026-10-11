@@ -2,6 +2,7 @@ use super::*;
 mod actions;
 mod claim;
 mod review;
+mod target_error;
 
 impl KooladeApp {
     fn start_implementation_with_claim_mode(
@@ -61,7 +62,7 @@ impl KooladeApp {
             ) {
                 Ok(target) => target,
                 Err(error) => {
-                    let message = format!("Cannot start {ticket}: {error}");
+                    let message = target_error::message(&ticket, &error);
                     p.queue.last_error = message.clone();
                     p.queue.blocked.insert(
                         ticket.clone(),

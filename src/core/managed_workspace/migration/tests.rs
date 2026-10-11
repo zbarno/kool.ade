@@ -8,6 +8,8 @@ mod multi_repository;
 mod preservation_metadata;
 #[path = "tests/preserves.rs"]
 mod preserves;
+#[path = "tests/preview.rs"]
+mod preview;
 #[path = "tests/recovery.rs"]
 mod recovery;
 #[path = "tests/support.rs"]

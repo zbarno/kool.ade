@@ -51,6 +51,77 @@ fn two_operator_homes_join_one_workspace_with_separate_checkout_paths() {
 }
 
 #[test]
+fn planning_remote_rejects_embedded_credentials_before_git_configuration() {
+    let temp = TestDirectory::new("remote-credentials");
+    let manager = temp.manager("operator");
+    let workspace = manager.create("Safe remote configuration").unwrap();
+
+    let error = manager
+        .set_planning_remote(
+            workspace.id,
+            "https://synthetic-token@github.example/org/planning.git",
+        )
+        .unwrap_err();
+
+    assert!(format!("{error:#}").contains("must not embed credentials"));
+    assert!(manager.planning_remote_url(workspace.id).unwrap().is_none());
+}
+
+#[test]
+fn planning_http_remotes_reject_query_and_fragment_credentials() {
+    let temp = TestDirectory::new("remote-query-credentials");
+    let manager = temp.manager("operator");
+    let workspace = manager.create("Safe query remote configuration").unwrap();
+
+    for remote in [
+        "https://github.example/org/planning.git?token=synthetic-token",
+        "https://github.example/org/planning.git#access_token=synthetic-token",
+    ] {
+        let error = manager
+            .set_planning_remote(workspace.id, remote)
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("query or fragment"));
+        assert!(manager.planning_remote_url(workspace.id).unwrap().is_none());
+    }
+}
+
+#[test]
+fn planning_remote_rejects_ssh_passwords_and_preserves_standard_ssh_forms() {
+    let temp = TestDirectory::new("ssh-remote-validation");
+    let manager = temp.manager("operator");
+    let workspace = manager.create("SSH remote validation").unwrap();
+
+    let error = manager
+        .set_planning_remote(
+            workspace.id,
+            "ssh://synthetic-user:synthetic-secret@git.example.test/team/planning.git",
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("must not embed credentials"));
+    assert!(manager.planning_remote_url(workspace.id).unwrap().is_none());
+
+    let ssh_url = "ssh://git@git.example.test/team/planning.git";
+    manager.set_planning_remote(workspace.id, ssh_url).unwrap();
+    assert_eq!(
+        manager
+            .planning_remote_url(workspace.id)
+            .unwrap()
+            .as_deref(),
+        Some(ssh_url)
+    );
+
+    let scp_url = "git@git.example.test:team/planning.git";
+    manager.set_planning_remote(workspace.id, scp_url).unwrap();
+    assert_eq!(
+        manager
+            .planning_remote_url(workspace.id)
+            .unwrap()
+            .as_deref(),
+        Some(scp_url)
+    );
+}
+
+#[test]
 fn unrelated_existing_git_repository_is_rejected_without_modification() {
     let temp = TestDirectory::new("unrelated-repo");
     let manager = temp.manager("operator");
@@ -142,6 +213,46 @@ fn join_rejects_a_planning_path_already_mapped_to_another_identity() {
         "a conflicting identity must not gain a local association"
     );
     assert!(operator.association_path(workspace.id).is_file());
+}
+
+#[test]
+fn local_join_rejects_source_branch_planning_without_importing_it() {
+    let temp = TestDirectory::new("join-source-branch");
+    let owner = temp.manager("owner");
+    let operator = temp.manager("operator");
+    let workspace = owner.create("Canonical planning branch").unwrap();
+    let source_only = workspace.planning_repo.join("planning/source-only.md");
+    fs::create_dir_all(source_only.parent().unwrap()).unwrap();
+    fs::write(&source_only, "branch-local planning data\n").unwrap();
+    git_ok(
+        Some(&workspace.planning_repo),
+        &["add", "planning/source-only.md"],
+    );
+    git_ok(
+        Some(&workspace.planning_repo),
+        &[
+            "-c",
+            "user.name=Test Operator",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "source branch planning",
+        ],
+    );
+    git_ok(
+        Some(&workspace.planning_repo),
+        &["switch", "--quiet", "-c", "feature/source-planning"],
+    );
+
+    let error = operator.join(&workspace.planning_repo).unwrap_err();
+
+    assert!(format!("{error:#}").contains("must be on its canonical branch main"));
+    assert_eq!(
+        fs::read_to_string(source_only).unwrap(),
+        "branch-local planning data\n"
+    );
+    assert!(!operator.association_path(workspace.id).exists());
 }
 
 trait ManagerHome {

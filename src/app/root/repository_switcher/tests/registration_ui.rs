@@ -68,9 +68,36 @@ fn click_text(app: &mut KooladeApp, ctx: &egui::Context, label: &str) -> egui::F
     frame(app, ctx, Vec::new())
 }
 
+fn register_repository_from_settings(
+    app: &mut KooladeApp,
+    ctx: &egui::Context,
+    id: &str,
+    role: &str,
+    remote: &str,
+    checkout: &std::path::Path,
+) {
+    click_text(app, ctx, "Register another code repository…");
+    let mut dialog = match app.dialog.take().unwrap() {
+        crate::app::root::Dialog::AddCodeRepository(dialog) => dialog,
+        _ => panic!("the repository form should be open"),
+    };
+    dialog.id = id.into();
+    dialog.role = role.into();
+    dialog.remote = remote.into();
+    dialog.checkout = checkout.to_string_lossy().into_owned();
+    app.dialog = Some(crate::app::root::Dialog::AddCodeRepository(dialog));
+    click_text(app, ctx, "Register");
+    assert!(
+        app.dialog.is_none(),
+        "successful registration closes the form"
+    );
+}
+
 #[test]
 fn managed_workspace_menu_registers_a_code_repository_and_local_checkout() {
-    let _shield = crate::core::gitops::test_support::shield("register-code-repository-ui");
+    let _shield = crate::core::gitops::test_support::shield_with_synthetic_identity(
+        "register-code-repository-ui",
+    );
     let base = std::env::temp_dir().join(format!(
         "koolade_registration_ui_{}_{}",
         std::process::id(),
@@ -85,55 +112,98 @@ fn managed_workspace_menu_registers_a_code_repository_and_local_checkout() {
 
     let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
     let workspace = manager.create("Registration UI project").unwrap();
+    let planning_remote = base.join("planning.git");
+    git(
+        &base,
+        &[
+            "init",
+            "--quiet",
+            "--bare",
+            "--initial-branch=main",
+            planning_remote.to_str().unwrap(),
+        ],
+    );
+    manager
+        .set_planning_remote(workspace.id, &planning_remote.to_string_lossy())
+        .unwrap();
+    manager.sync_planning(workspace.id).unwrap();
     let project = crate::app::welcome::attempt_open_workspace(workspace.id).unwrap();
+    assert_eq!(
+        project.state.planning_store.mode,
+        crate::artifacts::planning_store::StoreMode::ManagedShared
+    );
     assert!(project.state.repositories.repositories.is_empty());
     let checkout = base.join("api-service");
-    init_repo(&checkout, "https://example.test/team/api-service.git");
+    let api_remote = "https://example.test/team/api-service.git";
+    init_repo(&checkout, api_remote);
+    let frontend_checkout = base.join("web-client");
+    let frontend_remote = "https://example.test/team/web-client.git";
+    init_repo(&frontend_checkout, frontend_remote);
     let mut app = KooladeApp {
         screen: Screen::Connected(Box::new(project)),
         ..Default::default()
     };
     let ctx = egui::Context::default();
+    assert!(!crate::ui::Surface::is_git_repo(&app));
+    assert!(crate::ui::Surface::repository_branches(&app).is_empty());
+    assert_eq!(crate::ui::Surface::default_repository_branch(&app), "");
+    let task_form = click_text(&mut app, &ctx, "+ New Task");
+    let task_text = task_form
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(task_text.contains("You can plan without a code checkout"));
+    assert!(!task_text.contains("Source Branch"));
+    click_text(&mut app, &ctx, "Cancel");
 
     click_text(&mut app, &ctx, "Workspace");
-    click_text(&mut app, &ctx, "Registered repositories");
-    click_text(&mut app, &ctx, "Add code repository…");
-    assert!(matches!(
-        app.dialog,
-        Some(crate::app::root::Dialog::AddCodeRepository(_))
-    ));
-
-    let mut dialog = match app.dialog.take().unwrap() {
-        crate::app::root::Dialog::AddCodeRepository(dialog) => dialog,
-        _ => panic!("the repository form should be open"),
-    };
-    dialog.id = "api-service".into();
-    dialog.role = "API service".into();
-    dialog.remote = "https://example.test/team/api-service.git".into();
-    dialog.checkout = checkout.to_string_lossy().into_owned();
-    app.dialog = Some(crate::app::root::Dialog::AddCodeRepository(dialog));
-    click_text(&mut app, &ctx, "Register");
-
-    assert!(
-        app.dialog.is_none(),
-        "successful registration closes the form; feedback: {:?}",
-        match &app.dialog {
-            Some(crate::app::root::Dialog::AddCodeRepository(dialog)) => {
-                dialog.feedback.as_ref()
-            }
-            _ => None,
-        }
+    click_text(&mut app, &ctx, "Settings…");
+    click_text(&mut app, &ctx, "Planning Repository");
+    register_repository_from_settings(
+        &mut app,
+        &ctx,
+        "api-service",
+        "API service",
+        api_remote,
+        &checkout,
     );
+    register_repository_from_settings(
+        &mut app,
+        &ctx,
+        "web-client",
+        "Web client",
+        frontend_remote,
+        &frontend_checkout,
+    );
+
     let Screen::Connected(project) = &app.screen else {
         panic!("registration keeps the planning workspace connected")
     };
+    assert_eq!(project.state.repositories.repositories.len(), 2);
     assert!(
         project
             .state
             .repositories
             .repositories
             .iter()
-            .any(|repository| repository.id == "api-service")
+            .any(|repository| {
+                repository.id == "api-service" && repository.remote == api_remote
+            })
+    );
+    assert!(
+        project
+            .state
+            .repositories
+            .repositories
+            .iter()
+            .any(|repository| {
+                repository.id == "web-client" && repository.remote == frontend_remote
+            })
     );
     assert_eq!(
         project
@@ -143,7 +213,16 @@ fn managed_workspace_menu_registers_a_code_repository_and_local_checkout() {
             .unwrap(),
         checkout.canonicalize().unwrap()
     );
+    assert_eq!(
+        project
+            .state
+            .repositories
+            .target(&project.state.repo_root, "web-client")
+            .unwrap(),
+        frontend_checkout.canonicalize().unwrap()
+    );
     assert!(!project.state.repo_root.join(".koolade-packet").exists());
+    assert_eq!(manager.list_local().unwrap().len(), 1);
 
     drop(_restore);
     let _ = std::fs::remove_dir_all(base);

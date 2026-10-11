@@ -1,8 +1,11 @@
 mod association;
-mod populate;
+pub(super) mod populate;
+mod preview;
 mod recovery;
 mod verification;
 
+use preview::from_snapshot;
+pub(super) use preview::preview;
 pub(super) use recovery::{rollback, workspace_for_checkout};
 
 use association::{association_for, validate_migrated_final};
@@ -25,7 +28,14 @@ pub(super) fn migrate(
     manager: &WorkspaceManager,
     code_checkout: &Path,
 ) -> anyhow::Result<ManagedWorkspace> {
-    migrate_inner(manager, code_checkout, None, None)
+    migrate_inner(manager, code_checkout, None, None, None)
+}
+
+pub(super) fn migrate_from_preview(
+    manager: &WorkspaceManager,
+    preview: &super::MigrationPreview,
+) -> anyhow::Result<ManagedWorkspace> {
+    migrate_inner(manager, &preview.source_root, None, None, Some(preview))
 }
 
 #[cfg(test)]
@@ -34,7 +44,7 @@ pub(super) fn migrate_with_failure(
     code_checkout: &Path,
     point: super::MigrationFailurePoint,
 ) -> anyhow::Result<ManagedWorkspace> {
-    migrate_inner(manager, code_checkout, Some(point.into()), None)
+    migrate_inner(manager, code_checkout, Some(point.into()), None, None)
 }
 
 #[cfg(test)]
@@ -43,7 +53,7 @@ pub(super) fn migrate_with_registered_sources(
     code_checkout: &Path,
     local_checkouts: &BTreeMap<String, PathBuf>,
 ) -> anyhow::Result<ManagedWorkspace> {
-    migrate_inner(manager, code_checkout, None, Some(local_checkouts))
+    migrate_inner(manager, code_checkout, None, Some(local_checkouts), None)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -71,19 +81,23 @@ fn migrate_inner(
     code_checkout: &Path,
     failure: Option<FailurePoint>,
     local_checkouts: Option<&BTreeMap<String, PathBuf>>,
+    expected_preview: Option<&super::MigrationPreview>,
 ) -> anyhow::Result<ManagedWorkspace> {
     let code_root = canonical_code_checkout(code_checkout)?;
     fs::create_dir_all(manager.home.join("projects"))?;
     let _global =
         super::super::locking::lock(&manager.home.join("projects/.workspace-migrate.lock"))?;
-    if let Some(existing) = workspace_for_checkout(manager, &code_root)? {
+    let existing = workspace_for_checkout(manager, &code_root)?;
+    if expected_preview.is_none()
+        && let Some(existing) = &existing
+    {
         let path = journal::path(manager, &code_root);
         if path.is_file() {
             let mut journal: Journal = serde_json::from_slice(&fs::read(&path)?)?;
             journal.phase = "associated".into();
             journal.write(&path)?;
         }
-        return Ok(existing);
+        return Ok(existing.clone());
     }
 
     let snapshot_result = match local_checkouts {
@@ -103,6 +117,15 @@ fn migrate_inner(
             return Err(error);
         }
     };
+    if let Some(expected) = expected_preview {
+        anyhow::ensure!(
+            *expected == from_snapshot(&snapshot),
+            "legacy planning data changed after the migration preview; review a fresh preview before confirming"
+        );
+    }
+    if let Some(existing) = existing {
+        return Ok(existing);
+    }
     let inventory_sha256 =
         inventory::full_inventory_digest(&snapshot.artifacts, &snapshot.branches);
     let mut journal = Journal::load_or_create(

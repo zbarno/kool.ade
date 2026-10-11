@@ -52,6 +52,14 @@ pub(super) fn repository_root(path: &Path) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
+pub(super) fn current_branch(path: &Path) -> anyhow::Result<Option<String>> {
+    let output = output(Some(path), &["symbolic-ref", "--quiet", "--short", "HEAD"])?;
+    Ok(output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned()))
+}
+
 pub(super) fn status_paths(path: &Path) -> anyhow::Result<Vec<String>> {
     let output = run(
         Some(path),

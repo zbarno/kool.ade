@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::model::{PlanningSyncConflict, PlanningSyncMode, PlanningSyncState, PlanningSyncStatus};
+use super::model::{
+    PlanningSyncConflict, PlanningSyncMode, PlanningSyncPendingOperation, PlanningSyncState,
+    PlanningSyncStatus,
+};
 
 const SCHEMA_VERSION: u32 = 1;
 
@@ -13,7 +16,11 @@ pub(super) struct OperationJournal {
     pub workspace_id: uuid::Uuid,
     pub canonical_ref: String,
     #[serde(default)]
+    pub remote_identity: Option<String>,
+    #[serde(default)]
     pub confirmed_commit: Option<String>,
+    #[serde(default)]
+    pub confirmed_local_commit: Option<String>,
     #[serde(default)]
     pub confirmed_at_ms: Option<u64>,
     #[serde(default)]
@@ -21,9 +28,23 @@ pub(super) struct OperationJournal {
     #[serde(default)]
     pub conflicts: Vec<PlanningSyncConflict>,
     #[serde(default)]
+    pub resolutions: Vec<PlanningSyncResolution>,
+    #[serde(default)]
     pub state: PlanningSyncState,
     #[serde(default)]
     pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct PlanningSyncResolution {
+    pub resolution_id: uuid::Uuid,
+    pub source_operation_id: uuid::Uuid,
+    pub path: String,
+    pub choice: super::model::PlanningConflictChoice,
+    pub remote_commit: String,
+    pub new_operation_id: Option<uuid::Uuid>,
+    pub created_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,10 +82,13 @@ impl OperationJournal {
             schema_version: SCHEMA_VERSION,
             workspace_id,
             canonical_ref: canonical_ref.to_owned(),
+            remote_identity: None,
             confirmed_commit: None,
+            confirmed_local_commit: None,
             confirmed_at_ms: None,
             operations: Vec::new(),
             conflicts: Vec::new(),
+            resolutions: Vec::new(),
             state: PlanningSyncState::Pending,
             detail: None,
         }
@@ -117,13 +141,34 @@ impl OperationJournal {
     }
 
     pub fn status(&self) -> PlanningSyncStatus {
+        let pending = self
+            .operations
+            .iter()
+            .map(|operation| {
+                let mut target_ids = operation
+                    .mutations
+                    .iter()
+                    .map(|mutation| mutation.record_id.clone())
+                    .collect::<Vec<_>>();
+                target_ids.sort();
+                target_ids.dedup();
+                PlanningSyncPendingOperation {
+                    operation_id: operation.operation_id,
+                    created_at_ms: operation.created_at_ms,
+                    summary: operation.message.clone(),
+                    target_ids,
+                    has_local_commit: operation.local_commit.is_some(),
+                }
+            })
+            .collect::<Vec<_>>();
         PlanningSyncStatus {
             mode: PlanningSyncMode::Shared,
             state: self.state.clone(),
             canonical_ref: Some(self.canonical_ref.clone()),
             confirmed_commit: self.confirmed_commit.clone(),
             confirmed_at_ms: self.confirmed_at_ms,
-            pending_operations: self.operations.len(),
+            pending_operations: pending.len(),
+            pending,
             conflicts: self.conflicts.clone(),
             detail: self.detail.clone(),
         }

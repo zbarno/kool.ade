@@ -12,20 +12,28 @@ impl WorkspaceManager {
     /// Associate an existing planning checkout without creating or replacing
     /// any repository. An existing local association is reused by identity.
     pub fn join(&self, planning_repo: &Path) -> anyhow::Result<ManagedWorkspace> {
-        let planning_repo = planning_repo
-            .canonicalize()
-            .map_err(|error| anyhow::anyhow!("planning repository path is unreadable: {error}"))?;
-        anyhow::ensure!(
-            planning_repo.is_dir(),
-            "planning repository is not a directory"
-        );
-        let root = git::repository_root(&planning_repo)
-            .map_err(|error| anyhow::anyhow!("path is not a Git repository: {error}"))?;
-        anyhow::ensure!(root == planning_repo, "path is not the Git repository root");
-        let manifest = WorkspaceManifest::read(&planning_repo)
-            .map_err(|error| anyhow::anyhow!("planning manifest is invalid: {error}"))?;
-        let id = manifest.workspace_id;
+        let (planning_repo, manifest) = validate_join_checkout(planning_repo)?;
         let _join_lock = super::super::locking::lock(&self.home.join("projects/.join.lock"))?;
+        self.join_validated(planning_repo, manifest)
+    }
+
+    /// Complete a join while the caller holds the cross-process join lock.
+    /// Remote joins use this after validating a clone in staging and before
+    /// releasing that lock around the atomic move and association write.
+    pub(super) fn join_while_locked(
+        &self,
+        planning_repo: &Path,
+    ) -> anyhow::Result<ManagedWorkspace> {
+        let (planning_repo, manifest) = validate_join_checkout(planning_repo)?;
+        self.join_validated(planning_repo, manifest)
+    }
+
+    fn join_validated(
+        &self,
+        planning_repo: std::path::PathBuf,
+        manifest: WorkspaceManifest,
+    ) -> anyhow::Result<ManagedWorkspace> {
+        let id = manifest.workspace_id;
         reject_conflicting_path(self, id, &planning_repo)?;
         if self.association_path(id).is_file() {
             let existing = self.open(id)?;
@@ -44,7 +52,9 @@ impl WorkspaceManager {
             }
             let entries = fs::read_dir(&project_dir)?
                 .filter_map(Result::ok)
-                .filter(|entry| entry.file_name() != ".workspace.lock")
+                .filter(|entry| {
+                    entry.file_name() != ".workspace.lock" && entry.path() != planning_repo
+                })
                 .count();
             anyhow::ensure!(
                 entries == 0,
@@ -58,9 +68,17 @@ impl WorkspaceManager {
             return WorkspaceManager::open_unlocked(self, id);
         }
         let association = WorkspaceAssociation::new(id, planning_repo);
-        association.write(&self.association_path(id))?;
-        sync_directory(&project_dir)?;
-        WorkspaceManager::open_unlocked(self, id)
+        let association_path = self.association_path(id);
+        if let Err(error) = association.write(&association_path) {
+            return Err(remove_failed_association(&association_path, error));
+        }
+        if let Err(error) = sync_directory(&project_dir) {
+            return Err(remove_failed_association(&association_path, error.into()));
+        }
+        match WorkspaceManager::open_unlocked(self, id) {
+            Ok(workspace) => Ok(workspace),
+            Err(error) => Err(remove_failed_association(&association_path, error)),
+        }
     }
 
     pub fn register_code_repository(
@@ -95,12 +113,12 @@ impl WorkspaceManager {
         WorkspaceManager::open_unlocked(self, id)
     }
 
-    pub(crate) fn map_checkout(
+    pub fn map_code_checkout(
         &self,
         id: uuid::Uuid,
         repository_id: &str,
         checkout_path: &Path,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<ManagedWorkspace> {
         let _lock = super::super::locking::lock(&self.project_dir(id).join(".workspace.lock"))?;
         let mut workspace = WorkspaceManager::open_unlocked(self, id)?;
         let repository = workspace
@@ -134,7 +152,17 @@ impl WorkspaceManager {
             None => workspace.association.code_checkouts.push(mapping),
         }
         workspace.association.write(&self.association_path(id))?;
-        Ok(())
+        WorkspaceManager::open_unlocked(self, id)
+    }
+
+    pub(crate) fn map_checkout(
+        &self,
+        id: uuid::Uuid,
+        repository_id: &str,
+        checkout_path: &Path,
+    ) -> anyhow::Result<()> {
+        self.map_code_checkout(id, repository_id, checkout_path)
+            .map(|_| ())
     }
 
     pub(crate) fn checkout_path(
@@ -169,6 +197,44 @@ impl WorkspaceManager {
         );
         Ok(Some(path))
     }
+}
+
+fn remove_failed_association(path: &Path, error: anyhow::Error) -> anyhow::Error {
+    match fs::remove_file(path) {
+        Ok(()) => error,
+        Err(cleanup) if cleanup.kind() == std::io::ErrorKind::NotFound => error,
+        Err(cleanup) => error.context(format!(
+            "failed to roll back incomplete workspace association at {}: {cleanup}",
+            path.display()
+        )),
+    }
+}
+
+fn validate_join_checkout(
+    planning_repo: &Path,
+) -> anyhow::Result<(std::path::PathBuf, WorkspaceManifest)> {
+    let planning_repo = planning_repo
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("planning repository path is unreadable: {error}"))?;
+    anyhow::ensure!(
+        planning_repo.is_dir(),
+        "planning repository is not a directory"
+    );
+    let root = git::repository_root(&planning_repo)
+        .map_err(|error| anyhow::anyhow!("path is not a Git repository: {error}"))?;
+    anyhow::ensure!(root == planning_repo, "path is not the Git repository root");
+    let manifest = WorkspaceManifest::read(&planning_repo)
+        .map_err(|error| anyhow::anyhow!("planning manifest is invalid: {error}"))?;
+    let canonical_branch = manifest
+        .canonical_ref
+        .strip_prefix("refs/heads/")
+        .expect("validated canonical planning branch");
+    let current_branch = git::current_branch(&planning_repo)?;
+    anyhow::ensure!(
+        current_branch.as_deref() == Some(canonical_branch),
+        "local planning checkout must be on its canonical branch {canonical_branch}; join by remote URL to fetch the shared canonical branch"
+    );
+    Ok((planning_repo, manifest))
 }
 
 fn reject_conflicting_path(
