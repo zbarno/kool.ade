@@ -72,7 +72,17 @@ fn ensure_private_directory(path: &Path) -> anyhow::Result<()> {
             metadata.is_dir() && !metadata.file_type().is_symlink(),
             "Package cache path contains a symlink or non-directory"
         ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => match fs::create_dir(path) {
+            Ok(()) => {}
+            Err(create_error) if create_error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let metadata = fs::symlink_metadata(path)?;
+                anyhow::ensure!(
+                    metadata.is_dir() && !metadata.file_type().is_symlink(),
+                    "Package cache path contains a symlink or non-directory"
+                );
+            }
+            Err(create_error) => return Err(create_error.into()),
+        },
         Err(error) => return Err(error.into()),
     }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;

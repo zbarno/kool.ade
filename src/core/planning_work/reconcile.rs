@@ -94,20 +94,12 @@ fn inactive_status(state: &PlannerState, work: &Work) -> WorkStatus {
         .approved_features
         .get(id)
         .is_some_and(|saved| *saved == crate::core::workflow::feature_contract(body));
-    if approved
-        || matches!(
-            status,
-            ChangeStatus::Implementing
-                | ChangeStatus::Reconciliation
-                | ChangeStatus::Implemented
-                | ChangeStatus::Abandoned
-        )
-    {
-        WorkStatus::Done
-    } else if matches!(status, ChangeStatus::Draft | ChangeStatus::Ready) {
-        WorkStatus::InReview
-    } else {
-        WorkStatus::NeedsAttention
+    match status {
+        ChangeStatus::Draft | ChangeStatus::Ready if approved => WorkStatus::Done,
+        ChangeStatus::Draft | ChangeStatus::Ready => WorkStatus::InReview,
+        ChangeStatus::Implementing => WorkStatus::InProgress,
+        ChangeStatus::Reconciliation => WorkStatus::NeedsAttention,
+        ChangeStatus::Implemented | ChangeStatus::Abandoned => WorkStatus::Done,
     }
 }
 

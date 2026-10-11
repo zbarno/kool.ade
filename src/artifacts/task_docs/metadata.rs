@@ -16,9 +16,17 @@ pub struct TaskMetadata {
     pub batch_uid: String,
     pub repository_id: String,
     pub dependency_uids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "source_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub source_branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "destination_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub destination_branch: Option<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub routing_overrides:

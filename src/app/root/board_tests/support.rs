@@ -89,6 +89,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             auto_merge: false,
             merged_commit: None,
             pr_state: PullRequestState::parse_legacy(pr_state),
+            pr_details: None,
             pr_checked_at: None,
             pr_check_attempted_at: None,
             pr_check_error: None,

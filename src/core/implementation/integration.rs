@@ -105,8 +105,9 @@ fn integrate(
                 return Err(
                     crate::core::implementation::initial_reconciliation::support::user_action(
                         format!(
-                            "Selected destination branch '{}' is unavailable on origin. Refresh the repository and select an existing destination branch. {error}",
-                            state.base
+                            "Selected destination branch '{}' in code repository '{}' is unavailable on origin. Refresh the repository and select an existing destination branch. {error}",
+                            state.base,
+                            state.repository_id.as_deref().unwrap_or("unknown")
                         ),
                     ),
                 );

@@ -90,6 +90,13 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             dependency_uids: Vec::new(),
             status: crate::core::planning_work::WorkStatus::InReview,
             execution_status: Some("awaiting_review".into()),
+            source_branch: None,
+            source_sha: None,
+            destination_branch: None,
+            implementation_branch: None,
+            publication_status: crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
+            pull_requests: Vec::new(),
+            legacy_linkage: true,
             revision: 4,
         });
         project.implementation_states.insert(
@@ -127,6 +134,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
                 auto_merge: false,
                 merged_commit: Some("0123456789abcdef".into()),
                 pr_state: None,
+                pr_details: None,
                 pr_checked_at: None,
                 pr_check_attempted_at: None,
                 pr_check_error: None,
@@ -150,12 +158,14 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
         "GitHub Actions · Passed",
         "commit 0123456789ab",
         "All project workflows passed for this exact commit.",
+        "Publication: Previously tracked as awaiting review",
     ] {
         assert!(
             text_position(&output, expected).is_some(),
             "missing {expected}"
         );
     }
+    assert!(text_position(&output, "Publication: Planned").is_none());
     let current_state = text_position(&output, "CURRENT STATE").unwrap();
     assert!(
         output.shapes.iter().any(|shape| match &shape.shape {
@@ -169,8 +179,9 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
         }),
         "the task detail modal should show the normalized task status"
     );
-    click_text(&mut app, &ctx, "Technical details");
-    let output = click_text(&mut app, &ctx, "Branch intent");
+    let size = egui::vec2(1800.0, 1400.0);
+    click_text_at(&mut app, &ctx, "Technical details", size);
+    let output = click_text_at(&mut app, &ctx, "Branch intent", size);
     assert!(text_position(&output, "Source branch: release/2.1").is_some());
     assert!(text_position(&output, "Destination branch: integration").is_some());
 }

@@ -117,9 +117,17 @@ pub struct Work {
     pub feature_uid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_uid: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "source_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub source_branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "destination_branch",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub destination_branch: Option<String>,
     /// Explicit task-owned routes; missing categories remain application defaults.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]

@@ -75,6 +75,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
         auto_merge: false,
         merged_commit: None,
         pr_state: None,
+        pr_details: None,
         pr_checked_at: None,
         pr_check_attempted_at: None,
         pr_check_error: None,

@@ -76,11 +76,23 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         }
         state.ticket = ticket.to_owned();
         if state.task_repository_kind == TaskRepositoryKind::Clone {
-            let _cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
+            let cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
             anyhow::ensure!(
                 state.source_ref.is_some() && state.source_commit.is_some(),
                 "Saved task source commit is missing; the task repository is preserved"
             );
+            if state.status != ImplementationStatus::Completed
+                && let Some(detail) = source::missing_saved_ref(repo, &state, &cache, runner)?
+            {
+                state.status = ImplementationStatus::Blocked;
+                state.detail = detail.clone();
+                save(dir, &state)?;
+                return Err(
+                    crate::core::implementation::initial_reconciliation::support::user_action(
+                        detail,
+                    ),
+                );
+            }
         }
         if let Some(metadata) = metadata {
             anyhow::ensure!(
@@ -183,6 +195,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             auto_merge: publication_mode == PublicationMode::AutoPublish,
             merged_commit: None,
             pr_state: None,
+            pr_details: None,
             pr_checked_at: None,
             pr_check_attempted_at: None,
             pr_check_error: None,

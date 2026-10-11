@@ -170,6 +170,15 @@ pub struct IndependentCheck {
     pub detail: Option<String>,
 }
 
+/// Provider details for the single PR currently associated with an implementation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequestDetails {
+    pub number: u64,
+    pub head_sha: String,
+    pub base_branch: String,
+}
+
 impl PublicationStatus {
     pub fn label(self) -> &'static str {
         match self {
