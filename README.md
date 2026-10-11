@@ -410,7 +410,7 @@ Current capabilities include:
 | OpenCode CLI | ✅ |
 | GitHub Copilot CLI | ✅ |
 | Linux x86_64 | ✅ Current host |
-| External managed planning repository | 🚧 Foundation built, multi-user cutover incomplete |
+| External managed planning repository | ✅ One planning repository per workspace; shared Git sync and per-record conflicts |
 | Consistent CLI role support + resilient discovery | 🛠️ Queued migration |
 | Docker-only local execution | 🛠️ Queued migration |
 | Remote Docker workers | 🛠️ Queued migration |
@@ -425,7 +425,7 @@ Current capabilities include:
 Right now Kool.ad/e is deliberately opinionated:
 
 - **Linux x86_64 only**
-- **single operator in the current workflow**, while shared planning-repository sync and arbitration complete their cutover
+- shared planning is coordinated through an explicitly configured Git remote and manual sync; it does not provide live notifications or per-field access control
 - supported agent CLIs use an application-managed Bubblewrap boundary for repository commands
 - autonomous repository access currently requires **Bubblewrap**; **Docker is planned, not required for this release**
 - Pi's provider bridge currently targets **private/local HTTP OpenAI-compatible endpoints**
@@ -455,11 +455,11 @@ flowchart LR
 
 Kanban planning, task-specific conversations, living specifications, six CLI integrations, independent Git clones, concurrent local execution, verification, and human-controlled publication. **Linux x86_64 with Bubblewrap remains the current execution environment.** Useful, but experimental.
 
-### 02. Currently being mixed: planning that survives multiple humans
+### 02. Shared planning across multiple operators
 
-Separate the **planning repository** from code repositories, normalize planning records into merge-friendly files, and make shared Git sync, task claims, branch/PR linkage, operator UX, and conflict recovery work across machines. The foundation is underway; remaining cutover work is tracked in [#116–#120](https://github.com/zbarno/kool.ade/issues/116).
+Each workspace has one external **planning repository**, independent of its zero or more code repositories. Operators join the same workspace by connecting to that repository; local code checkout mappings remain operator-specific. Shared planning uses normalized per-record files, explicit Git sync, task claims, branch/PR linkage, and conflict recovery. Legacy embedded artifacts remain migration and recovery inputs; migration preserves the originals.
 
-The aim is one planning authority per workspace, with as many associated code repositories and participating operators as the workflow needs. No matter which branch you're on, the board shouldn't mysteriously become someone else's board.
+Planning-only workspaces are supported. Code branches belong to their selected code repository and do not change planning authority. See [the planning repository contract](docs/planning-repository-v1.md) and [cutover and recovery notes](docs/releases/2026-10-planning-repository.md) for sync, recovery, security, and limitations.
 
 ### 03. Next major architectural upgrade: Docker everywhere work executes
 

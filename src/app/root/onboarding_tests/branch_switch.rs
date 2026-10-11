@@ -73,6 +73,15 @@ fn planning_signature(
         .collect()
 }
 
+fn approval_fingerprints(app: &KooladeApp) -> std::collections::BTreeMap<String, String> {
+    let Screen::Connected(project) = &app.screen else {
+        panic!("workspace should be connected")
+    };
+    crate::artifacts::task_docs::load_workflow(&project.state.planning_store)
+        .unwrap()
+        .approved_features
+}
+
 fn picker_entries(app: &mut KooladeApp, ctx: &egui::Context) -> Vec<String> {
     click(app, ctx, "Workspace");
     let entries = visible_text(&click(app, ctx, "Registered repositories"))
@@ -111,6 +120,39 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
     work.source_branch = None;
     work.destination_branch = None;
     crate::core::planning_work::save(&workspace_a.store, std::slice::from_ref(&work)).unwrap();
+    let feature_id = crate::artifacts::product_docs::next_feature_id(&workspace_a.store);
+    let feature = format!(
+        "# {feature_id}: Branch-stable feature\n\n**Status:** Ready\n\n## Intent\n\nKeep one planning authority.\n\n## Current Behavior\n\nBoard content is shared.\n\n## Desired Behavior\n\nChanging code branches leaves approved planning unchanged.\n\n## Scope\n\nWorkspace planning.\n\n## Affected Product Areas\n\nOverview.\n\n## Requirements\n\n- BRANCH-R1 (MUST). Keep the same approved contract.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Branches belong to code repositories.\n\n## Acceptance Criteria\n\n1. Board and approval fingerprint remain stable across code branch changes.\n"
+    );
+    let feature_path = crate::artifacts::product_docs::document_path_for_update(
+        &workspace_a.store,
+        &format!("feature:{feature_id}"),
+        &feature,
+    )
+    .unwrap();
+    let feature = crate::artifacts::product_docs::identity::preserve_feature_identity(
+        &feature_path,
+        &feature_id,
+        &feature,
+    )
+    .unwrap();
+    let feature_identity = crate::domain::ArtifactIdentity::from_markdown(&feature)
+        .unwrap()
+        .unwrap();
+    let feature = crate::domain::ChangeMetadata::write_markdown(
+        &feature,
+        &feature_identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    std::fs::write(&feature_path, &feature).unwrap();
+    let mut workflow = crate::artifacts::task_docs::load_workflow(&workspace_a.store).unwrap();
+    workflow.approved_features.insert(
+        feature_id.clone(),
+        crate::core::workflow::feature_contract(&feature),
+    );
+    crate::artifacts::task_docs::save_workflow(&workspace_a.store, &workflow).unwrap();
     let record = workspace_a.store.layout().work_record(&work.uid).unwrap();
     let relative = record
         .strip_prefix(&workspace_a.planning_repo)
@@ -165,6 +207,7 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
         crate::ui::Surface::registered_repositories(&app_b)
     );
     assert_eq!(planning_signature(&app_a), planning_signature(&app_b));
+    assert_eq!(approval_fingerprints(&app_a), approval_fingerprints(&app_b));
 
     let ctx_a = egui::Context::default();
     let ctx_b = egui::Context::default();
@@ -199,6 +242,7 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
         crate::ui::Surface::registered_repositories(&app_b)
     );
     assert_eq!(planning_signature(&app_a), planning_signature(&app_b));
+    assert_eq!(approval_fingerprints(&app_a), approval_fingerprints(&app_b));
     let switched = frame(&mut app_a, &ctx_a, Vec::new());
     assert!(
         visible_text(&switched)
