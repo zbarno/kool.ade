@@ -1,13 +1,15 @@
 use std::{fs, path::Path};
 
 use super::super::{
-    journal::{OperationJournal, SyncOperation},
+    journal::{OperationJournal, RecordMutation, SyncOperation},
     merge,
     model::{PlanningSyncState, PlanningSyncStatus},
 };
 use super::intent::now_ms;
 use super::{git, intent, reapply::transport_state};
 use crate::core::managed_workspace::WorkspaceManifest;
+mod path;
+use path::{safe_target, sync_path};
 
 pub(super) fn refresh_local_records(
     repo: &Path,
@@ -51,6 +53,9 @@ pub(super) fn refresh_local_records(
             })
             .map(|mutation| mutation.desired.as_deref().map(str::as_bytes));
         if later_desired.is_some_and(|desired| local.as_deref() == desired) {
+            continue;
+        }
+        if local.as_deref() == remote.as_deref() {
             continue;
         }
         if local.as_deref() != base.as_deref() && local.as_deref() != operation_desired {
@@ -99,13 +104,21 @@ pub(super) fn refresh_workspace(
     };
     let base = journal.confirmed_commit.clone().unwrap_or(git::head(repo)?);
     if base == remote_tip {
-        if has_unjournaled_local_changes(repo, &remote_tip)? {
+        if has_unjournaled_local_commits(
+            repo,
+            &remote_tip,
+            journal.confirmed_local_commit.as_deref(),
+            journal.confirmed_commit.as_deref(),
+            &[],
+        )? || has_unjournaled_local_changes(repo, &remote_tip)?
+        {
             journal.state = PlanningSyncState::Pending;
             journal.detail = Some("local planning edits have not been journaled for sync".into());
             journal.write(state_root)?;
             return Ok(journal.status());
         }
         journal.confirmed_commit = Some(remote_tip);
+        journal.confirmed_local_commit = Some(git::head(repo)?);
         journal.confirmed_at_ms = Some(now_ms());
         journal.state = PlanningSyncState::Synced;
         journal.detail = None;
@@ -147,13 +160,21 @@ pub(super) fn refresh_workspace(
         }
         Err(error) => return Err(error),
     }
-    if has_unjournaled_local_changes(repo, &remote_tip)? {
+    if has_unjournaled_local_commits(
+        repo,
+        &remote_tip,
+        journal.confirmed_local_commit.as_deref(),
+        journal.confirmed_commit.as_deref(),
+        &[],
+    )? || has_unjournaled_local_changes(repo, &remote_tip)?
+    {
         journal.state = PlanningSyncState::Pending;
         journal.detail = Some("local planning edits have not been journaled for sync".into());
         journal.write(state_root)?;
         return Ok(journal.status());
     }
     journal.confirmed_commit = Some(remote_tip);
+    journal.confirmed_local_commit = Some(git::head(repo)?);
     journal.confirmed_at_ms = Some(now_ms());
     journal.state = PlanningSyncState::Synced;
     journal.detail = None;
@@ -219,33 +240,43 @@ pub(super) fn has_unjournaled_local_changes(repo: &Path, remote_tip: &str) -> an
     Ok(false)
 }
 
-fn safe_target(root: &Path, target: &Path) -> anyhow::Result<bool> {
-    let relative = target.strip_prefix(root)?;
-    let mut cursor = root.to_path_buf();
-    for component in relative.components() {
-        let std::path::Component::Normal(part) = component else {
-            return Ok(false);
-        };
-        cursor.push(part);
-        if fs::symlink_metadata(&cursor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-            return Ok(false);
+pub(super) fn has_unjournaled_local_commits(
+    repo: &Path,
+    remote_tip: &str,
+    confirmed_local_commit: Option<&str>,
+    confirmed_remote_commit: Option<&str>,
+    accepted_mutations: &[RecordMutation],
+) -> anyhow::Result<bool> {
+    let local_head = git::head(repo)?;
+    let legacy_checkpoint = confirmed_remote_commit.unwrap_or(remote_tip);
+    let comparison_base = match confirmed_local_commit {
+        Some(base) if base == local_head => return Ok(false),
+        Some(base) if git::is_ancestor(repo, base, &local_head)? => base.to_owned(),
+        Some(base) => {
+            git::merge_base(repo, base, &local_head)?.unwrap_or_else(|| remote_tip.to_owned())
+        }
+        None => git::merge_base(repo, legacy_checkpoint, &local_head)?
+            .unwrap_or_else(|| legacy_checkpoint.to_owned()),
+    };
+    if comparison_base == local_head {
+        return Ok(false);
+    }
+    let comparison_commit = confirmed_local_commit.unwrap_or(legacy_checkpoint);
+    for path in git::changed_paths(repo, &comparison_base, &local_head)? {
+        if sync_path(&path) {
+            let committed = git::read_path(repo, &local_head, &path)?;
+            let baseline = git::read_path(repo, comparison_commit, &path)?;
+            let remote = git::read_path(repo, remote_tip, &path)?;
+            let operation_published = accepted_mutations
+                .iter()
+                .find(|mutation| mutation.path == path)
+                .is_some_and(|mutation| {
+                    committed.as_deref() == mutation.desired.as_deref().map(str::as_bytes)
+                });
+            if committed != baseline && committed != remote && !operation_published {
+                return Ok(true);
+            }
         }
     }
-    Ok(true)
-}
-
-fn sync_path(path: &str) -> bool {
-    let relative = Path::new(path);
-    let safe = !path.is_empty()
-        && relative
-            .components()
-            .all(|component| matches!(component, std::path::Component::Normal(_)));
-    safe && (path.starts_with("state/") || path.starts_with("planning/"))
-        && !matches!(
-            path,
-            "state/work.json"
-                | "state/workflow.json"
-                | "planning/open-items.md"
-                | "planning/resolved-items.json"
-        )
+    Ok(false)
 }

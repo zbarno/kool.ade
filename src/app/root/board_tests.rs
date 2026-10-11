@@ -53,3 +53,6 @@ mod task_detail_design;
 
 #[path = "board_tests/visual_gallery.rs"]
 mod visual_gallery;
+
+#[path = "onboarding_tests.rs"]
+mod onboarding_tests;

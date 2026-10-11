@@ -51,6 +51,12 @@ impl Fixture {
             .unwrap(),
         )
         .unwrap();
+        fs::create_dir_all(seed.join("config")).unwrap();
+        fs::write(
+            seed.join(crate::artifacts::planning_store::paths::PROJECT_MANIFEST),
+            br#"{"repositories":[]}"#,
+        )
+        .unwrap();
         fs::create_dir_all(seed.join("state/work")).unwrap();
         fs::write(
             seed.join(work_path(work_id)),
@@ -128,6 +134,22 @@ impl Fixture {
         )
         .unwrap()
     }
+
+    pub fn remote_resolution(&self, uid: uuid::Uuid) -> serde_json::Value {
+        serde_json::from_slice(
+            &git(
+                None,
+                &[
+                    "--git-dir",
+                    self.remote.to_str().unwrap(),
+                    "show",
+                    &format!("refs/heads/main:state/planning_sync/resolutions/{uid}.json"),
+                ],
+            )
+            .stdout,
+        )
+        .unwrap()
+    }
 }
 
 impl Drop for Fixture {
@@ -166,7 +188,9 @@ pub fn git(cwd: Option<&Path>, args: &[&str]) -> Output {
     let output = command.output().unwrap();
     assert!(
         output.status.success(),
-        "git {args:?} failed: {}",
+        "git {args:?} failed ({:?}): {}{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     output

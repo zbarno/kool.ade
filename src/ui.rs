@@ -11,6 +11,7 @@ pub mod markdown;
 pub mod message_text;
 pub mod overlays;
 pub mod planning_board;
+pub mod planning_repository;
 pub mod reply_tail;
 pub mod spec_viewer;
 pub mod surface;
@@ -23,6 +24,9 @@ pub mod toast;
 
 pub use chat_pane::Intent;
 pub use layout::HeaderAction;
+pub use planning_repository::{
+    PlanningCodeRepositoryView, PlanningRepositoryCommand, PlanningRepositoryViewModel,
+};
 pub use toast::ToastQueue;
 
 /// Typed actions emitted by views and handled by the application state
@@ -42,6 +46,7 @@ pub enum ApplicationCommand {
     },
     RetryTaskChatSave,
     RetrySetupCheck,
+    PlanningRepository(PlanningRepositoryCommand),
     CreatePlanningTask {
         kind: crate::core::planning_work::WorkKind,
         description: String,
@@ -155,6 +160,23 @@ pub trait Surface {
     }
     fn project_settings_draft(&self) -> Option<crate::app::dialogs::DlgProjectSettings> {
         None
+    }
+    fn planning_repository(&self) -> Option<PlanningRepositoryViewModel> {
+        None
+    }
+    fn save_planning_remote(&mut self, _remote: &str) -> Result<(), String> {
+        Err("Planning repository settings are unavailable in this workspace.".into())
+    }
+    fn migration_preview(
+        &self,
+    ) -> Result<crate::core::managed_workspace::MigrationPreview, String> {
+        Err("Legacy migration preview is unavailable in this workspace.".into())
+    }
+    fn confirm_planning_migration(
+        &mut self,
+        _preview: &crate::core::managed_workspace::MigrationPreview,
+    ) -> Result<(), String> {
+        Err("Legacy migration is unavailable in this workspace.".into())
     }
     fn save_project_settings(
         &mut self,

@@ -88,6 +88,40 @@ pub(super) fn paint(
                     },
                 )
                 .on_hover_text(s.queue_status());
+                if let Some(workspace) = s.planning_repository() {
+                    let (label, fill, foreground) = match workspace.sync.state {
+                        crate::core::planning_sync::PlanningSyncState::Local => {
+                            ("Local".to_owned(), theme::PANEL_ALT, theme::TEXT_DIM)
+                        }
+                        crate::core::planning_sync::PlanningSyncState::Synced => {
+                            ("Synced".to_owned(), theme::SUCCESS, theme::BG)
+                        }
+                        crate::core::planning_sync::PlanningSyncState::Pending => (
+                            format!("Pending {}", workspace.sync.pending_operations),
+                            theme::WARNING,
+                            theme::BG,
+                        ),
+                        crate::core::planning_sync::PlanningSyncState::Offline => {
+                            ("Offline".to_owned(), theme::WARNING, theme::BG)
+                        }
+                        crate::core::planning_sync::PlanningSyncState::AuthRequired => {
+                            ("Auth required".to_owned(), theme::DANGER, theme::BG)
+                        }
+                        crate::core::planning_sync::PlanningSyncState::Conflicted => (
+                            format!("Conflict {}", workspace.sync.conflicts.len()),
+                            theme::DANGER,
+                            theme::BG,
+                        ),
+                        crate::core::planning_sync::PlanningSyncState::ReadOnly => {
+                            ("Permission required".to_owned(), theme::WARNING, theme::BG)
+                        }
+                        crate::core::planning_sync::PlanningSyncState::IncompatibleSchema => {
+                            ("Incompatible schema".to_owned(), theme::DANGER, theme::BG)
+                        }
+                    };
+                    theme::badge(ui, &label, fill, foreground)
+                        .on_hover_text("Workspace planning repository sync state");
+                }
                 if !compact {
                     ui.label(theme::metadata_text("PROJECT"));
                 }

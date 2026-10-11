@@ -1,3 +1,5 @@
+mod commits;
+
 use super::super::support::{Fixture, work_path};
 use crate::core::managed_workspace::{CodeRepositoryRegistration, WorkspaceManager};
 use crate::core::planning_sync::{
@@ -76,13 +78,6 @@ fn manager_shared_sync_leaves_a_registered_code_checkout_untouched() {
     let state_root = fixture.state_root("manager-state");
     let manager = WorkspaceManager::new(&state_root);
     super::super::support::git(Some(&fixture.first), &["remote", "remove", "origin"]);
-    fs::create_dir_all(fixture.first.join("config")).unwrap();
-    fs::write(
-        fixture.first.join("config/repositories.json"),
-        br#"{"repositories":[]}"#,
-    )
-    .unwrap();
-    super::super::support::commit_all(&fixture.first, "initialize code repository registry");
     let workspace = manager.join(&fixture.first).unwrap();
 
     let code_repo = fixture.root.join("code-checkout");

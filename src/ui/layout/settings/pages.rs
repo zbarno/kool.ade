@@ -1,4 +1,5 @@
 mod automation;
+mod planning_repository;
 use super::*;
 use crate::app::dialogs::HarnessSettingsSection;
 
@@ -8,6 +9,7 @@ pub(super) enum Page {
     General,
     Appearance,
     ProjectGit,
+    PlanningRepository,
     CodingTools,
     ModelsRouting,
     Automation,
@@ -15,10 +17,11 @@ pub(super) enum Page {
 }
 
 impl Page {
-    const ALL: [(Self, &'static str); 7] = [
+    const ALL: [(Self, &'static str); 8] = [
         (Self::General, "General"),
         (Self::Appearance, "Appearance"),
         (Self::ProjectGit, "Project & Git"),
+        (Self::PlanningRepository, "Planning Repository"),
         (Self::CodingTools, "Coding Tools"),
         (Self::ModelsRouting, "Models & Routing"),
         (Self::Automation, "Automation"),
@@ -35,8 +38,8 @@ impl Page {
 pub(super) fn paint_navigation(ui: &mut egui::Ui, selected: &mut Page) {
     for (group, pages) in [
         ("APPLICATION", &Page::ALL[..2]),
-        ("WORK & TOOLS", &Page::ALL[3..6]),
-        ("PROJECT", &[Page::ALL[2], Page::ALL[6]][..]),
+        ("WORK & TOOLS", &Page::ALL[4..7]),
+        ("PROJECT", &[Page::ALL[2], Page::ALL[3], Page::ALL[7]][..]),
     ] {
         ui.label(theme::metadata_text(group));
         ui.add_space(4.0);
@@ -87,6 +90,7 @@ pub(super) fn paint_page(
         Page::General => paint_general(ui, surface),
         Page::Appearance => paint_appearance(ui),
         Page::ProjectGit => paint_project_git(ui, surface),
+        Page::PlanningRepository => planning_repository::paint(ui, surface),
         Page::CodingTools => paint_harness(ui, HarnessSettingsSection::Tools),
         Page::ModelsRouting => paint_harness(ui, HarnessSettingsSection::Routing),
         Page::Automation => automation::paint(ui, surface, board),

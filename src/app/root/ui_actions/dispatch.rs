@@ -12,6 +12,9 @@ impl KooladeApp {
             ApplicationCommand::CancelTaskReply { key } => self.cancel_task_reply(&key),
             ApplicationCommand::RetryTaskChatSave => self.retry_task_chat_save(),
             ApplicationCommand::RetrySetupCheck => self.refresh_setup_attention(true),
+            ApplicationCommand::PlanningRepository(command) => {
+                self.handle_planning_repository_command(command)
+            }
             ApplicationCommand::CreatePlanningTask {
                 kind,
                 description,

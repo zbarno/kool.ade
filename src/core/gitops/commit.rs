@@ -17,7 +17,7 @@ pub(super) fn command_error(command: &str, detail: &str) -> AppError {
     }
 }
 
-fn repository_lock(cwd: &Path) -> Result<fs::File, AppError> {
+pub(crate) fn lock_repository(cwd: &Path) -> Result<fs::File, AppError> {
     let (code, common, err) = run(
         cwd,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
@@ -97,7 +97,18 @@ fn commit_with_cancel(
     paths: &[String],
     cancel: Option<&AtomicBool>,
 ) -> Result<String, AppError> {
-    let _lock = repository_lock(cwd)?;
+    let state_root = crate::persistence::state_root();
+    commit_with_cancel_at(cwd, message, paths, cancel, &state_root)
+}
+
+fn commit_with_cancel_at(
+    cwd: &Path,
+    message: &str,
+    paths: &[String],
+    cancel: Option<&AtomicBool>,
+    state_root: &Path,
+) -> Result<String, AppError> {
+    let _lock = lock_repository(cwd)?;
     if is_cancelled(cancel) {
         return Err(cancelled_error());
     }
@@ -113,7 +124,8 @@ fn commit_with_cancel(
     if specs.is_empty() {
         return short_head(cwd);
     }
-    let sync_operation = crate::core::planning_sync::commit_shared_intent(cwd, message, &paths)?;
+    let sync_operation =
+        crate::core::planning_sync::commit_shared_intent_at(cwd, state_root, message, &paths)?;
     let original_staged = index::staged_paths(cwd, &paths, &specs)?;
     let all_authorized = paths.iter().cloned().collect::<BTreeSet<_>>();
 
@@ -151,7 +163,11 @@ fn commit_with_cancel(
         index::restore_paths(cwd, &snapshot, &all_authorized)?;
         let head = short_head(cwd)?;
         if let Some(operation_id) = sync_operation {
-            crate::core::planning_sync::finish_shared_intent(cwd, operation_id);
+            crate::core::planning_sync::finish_shared_intent_locked_at(
+                cwd,
+                state_root,
+                operation_id,
+            );
         }
         return Ok(head);
     }
@@ -199,7 +215,7 @@ fn commit_with_cancel(
     index::restore_paths(cwd, &snapshot, &original_staged)?;
     let head = short_head(cwd)?;
     if let Some(operation_id) = sync_operation {
-        crate::core::planning_sync::finish_shared_intent(cwd, operation_id);
+        crate::core::planning_sync::finish_shared_intent_locked_at(cwd, state_root, operation_id);
     }
     Ok(head)
 }
@@ -219,4 +235,14 @@ pub fn commit_planning_changes(
     paths: &[String],
 ) -> Result<String, AppError> {
     commit(cwd, message, paths)
+}
+
+#[cfg(test)]
+pub(crate) fn commit_planning_changes_at(
+    cwd: &Path,
+    message: &str,
+    paths: &[String],
+    state_root: &Path,
+) -> Result<String, AppError> {
+    commit_with_cancel_at(cwd, message, paths, None, state_root)
 }

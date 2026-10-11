@@ -14,6 +14,8 @@ impl KooladeApp {
         self.poll_setup_attention(ctx);
         self.queue_manager_setup_update();
         self.poll_clone_job();
+        self.poll_planning_sync(ctx);
+        self.refresh_planning_sync_status();
         let (outcome, task_outcomes) = self.poll_turn_events();
         self.poll_implementations();
         self.poll_pull_requests();

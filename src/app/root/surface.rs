@@ -3,6 +3,27 @@ use super::*;
 mod details;
 
 impl Surface for KooladeApp {
+    fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {
+        self.planning_repository_view()
+    }
+
+    fn save_planning_remote(&mut self, remote: &str) -> Result<(), String> {
+        self.update_planning_remote(remote)
+    }
+
+    fn migration_preview(
+        &self,
+    ) -> Result<crate::core::managed_workspace::MigrationPreview, String> {
+        self.build_migration_preview()
+    }
+
+    fn confirm_planning_migration(
+        &mut self,
+        preview: &crate::core::managed_workspace::MigrationPreview,
+    ) -> Result<(), String> {
+        self.confirm_legacy_migration(preview)
+    }
+
     fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
         match &self.screen {
             Screen::Connected(project) => {
@@ -58,7 +79,7 @@ impl Surface for KooladeApp {
     }
 
     fn is_git_repo(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(_))
+        matches!(&self.screen, Screen::Connected(project) if project.has_selected_code_repository())
     }
 
     fn registered_repositories(&self) -> Vec<crate::ui::RepositoryChoice> {
@@ -71,13 +92,15 @@ impl Surface for KooladeApp {
 
     fn git_branch(&self) -> &str {
         match &self.screen {
-            Screen::Connected(p) => p.git.branch.as_str(),
+            Screen::Connected(p) if p.has_selected_code_repository() => p.git.branch.as_str(),
             Screen::Welcome => "",
+            Screen::Connected(_) => "",
         }
     }
 
     fn repository_branches(&self) -> Vec<String> {
         match &self.screen {
+            Screen::Connected(project) if !project.has_selected_code_repository() => Vec::new(),
             Screen::Connected(project) if project.git.branches.is_empty() => {
                 (!project.git.branch.is_empty())
                     .then(|| project.git.branch.clone())
@@ -91,6 +114,7 @@ impl Surface for KooladeApp {
 
     fn repository_destination_branches(&self) -> Vec<String> {
         match &self.screen {
+            Screen::Connected(project) if !project.has_selected_code_repository() => Vec::new(),
             Screen::Connected(project) if !project.git.has_origin => self.repository_branches(),
             Screen::Connected(project) => project.git.remote_branches.clone(),
             Screen::Welcome => Vec::new(),
@@ -99,6 +123,7 @@ impl Surface for KooladeApp {
 
     fn default_repository_branch(&self) -> &str {
         match &self.screen {
+            Screen::Connected(project) if !project.has_selected_code_repository() => "",
             Screen::Connected(project) if project.git.default_branch.is_empty() => {
                 if project.git.branch.is_empty() {
                     "main"
@@ -113,14 +138,15 @@ impl Surface for KooladeApp {
 
     fn git_head(&self) -> &str {
         match &self.screen {
-            Screen::Connected(p) => p.git.head_short.as_str(),
+            Screen::Connected(p) if p.has_selected_code_repository() => p.git.head_short.as_str(),
             Screen::Welcome => "",
+            Screen::Connected(_) => "",
         }
     }
 
     fn git_dirty(&self) -> bool {
         match &self.screen {
-            Screen::Connected(p) => p.git.dirty > 0,
+            Screen::Connected(p) => p.has_selected_code_repository() && p.git.dirty > 0,
             Screen::Welcome => false,
         }
     }

@@ -200,6 +200,39 @@ fn connect_canonical_with_key(
     } else {
         None
     };
+    let (managed_workspace, planning_sync, planning_remote_url) =
+        if state.planning_store.mode == StoreMode::LegacyEmbedded {
+            (
+                None,
+                crate::core::planning_sync::PlanningSyncStatus::local(),
+                None,
+            )
+        } else {
+            let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+            let managed = manager.open(state.planning_store.project_id);
+            let status = manager
+                .planning_sync_status(state.planning_store.project_id)
+                .unwrap_or_else(|error| crate::core::planning_sync::PlanningSyncStatus {
+                    mode: if state.planning_store.mode == StoreMode::ManagedShared {
+                        crate::core::planning_sync::PlanningSyncMode::Shared
+                    } else {
+                        crate::core::planning_sync::PlanningSyncMode::Local
+                    },
+                    state: crate::core::planning_sync::PlanningSyncState::IncompatibleSchema,
+                    canonical_ref: None,
+                    confirmed_commit: None,
+                    confirmed_at_ms: None,
+                    pending_operations: 0,
+                    pending: Vec::new(),
+                    conflicts: Vec::new(),
+                    detail: Some(error.to_string()),
+                });
+            let managed = managed.ok();
+            let remote = managed
+                .as_ref()
+                .and_then(|workspace| manager.planning_remote_url(workspace.id).ok().flatten());
+            (managed, status, remote)
+        };
     let mut project = Project {
         task_chats: Default::default(),
         activity: Default::default(),
@@ -207,6 +240,9 @@ fn connect_canonical_with_key(
         archived_tasks,
         cancelled_work,
         state,
+        managed_workspace,
+        planning_sync,
+        planning_remote_url,
         chat_slug: slug,
         chat,
         draft: String::new(),

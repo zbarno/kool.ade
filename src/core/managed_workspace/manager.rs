@@ -11,7 +11,9 @@ use crate::{
 
 use super::{association::WorkspaceAssociation, creation, git, manifest::WorkspaceManifest};
 
+mod listing;
 mod operations;
+mod remote;
 mod sync;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,6 +32,13 @@ pub struct CodeRepositoryRegistration {
     pub role: String,
     pub remote: Option<String>,
     pub checkout: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalWorkspaceSummary {
+    pub id: uuid::Uuid,
+    pub title: String,
+    pub planning_repo: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -131,6 +140,16 @@ impl WorkspaceManager {
         } else {
             StoreMode::ManagedLocal
         };
+        if mode == StoreMode::ManagedShared {
+            let canonical_branch = manifest
+                .canonical_ref
+                .strip_prefix("refs/heads/")
+                .expect("validated canonical planning branch");
+            anyhow::ensure!(
+                git::current_branch(&planning_repo)?.as_deref() == Some(canonical_branch),
+                "shared planning checkout must be on canonical branch {canonical_branch}; switch to that branch before opening the workspace"
+            );
+        }
         let store = PlanningStore::new(id, &planning_repo, mode);
         anyhow::ensure!(
             store.root == planning_repo,

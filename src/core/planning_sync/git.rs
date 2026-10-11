@@ -4,9 +4,13 @@ use std::{
 };
 
 mod commit;
+mod remote_identity;
 mod snapshot;
 pub(super) use commit::create_commit;
-pub(super) use snapshot::{changed_paths, read_path, worktree_paths};
+pub(super) use remote_identity::{
+    is_canonical_branch, remote_identity, remote_identity_for, remote_is_configured, set_origin,
+};
+pub(super) use snapshot::{changed_paths, read_path, worktree_paths, write_worktree_path};
 
 pub(super) fn output(repo: &Path, args: &[&str]) -> anyhow::Result<Output> {
     Ok(Command::new("git")
@@ -29,9 +33,44 @@ pub(super) fn success(repo: &Path, args: &[&str]) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&result.stdout).trim().to_owned())
 }
 
-pub(super) fn remote_is_configured(repo: &Path) -> anyhow::Result<bool> {
-    let result = output(repo, &["remote", "get-url", "origin"])?;
-    Ok(result.status.success() && !result.stdout.is_empty())
+pub(super) fn remote_heads(repo: &Path) -> anyhow::Result<Vec<String>> {
+    let result = output(repo, &["ls-remote", "--heads", "origin"])?;
+    if !result.status.success() {
+        let detail = format!(
+            "{}{}",
+            String::from_utf8_lossy(&result.stderr),
+            String::from_utf8_lossy(&result.stdout)
+        );
+        anyhow::bail!(
+            "planning remote inspection failed: {}",
+            classify_transport(&detail.to_ascii_lowercase())
+        );
+    }
+    Ok(String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .filter_map(|line| {
+            line.split_once('\t')
+                .map(|(_, reference)| reference.to_owned())
+        })
+        .collect())
+}
+
+pub(super) fn push_initial(repo: &Path, canonical_ref: &str) -> anyhow::Result<()> {
+    validate_ref(repo, canonical_ref)?;
+    let refspec = format!("HEAD:{canonical_ref}");
+    let result = output(repo, &["push", "--porcelain", "origin", &refspec])?;
+    if !result.status.success() {
+        let detail = format!(
+            "{}{}",
+            String::from_utf8_lossy(&result.stderr),
+            String::from_utf8_lossy(&result.stdout)
+        );
+        anyhow::bail!(
+            "initial planning publish failed: {}; remote history was preserved",
+            classify_transport(&detail.to_ascii_lowercase())
+        );
+    }
+    Ok(())
 }
 
 pub(super) fn head(repo: &Path) -> anyhow::Result<String> {

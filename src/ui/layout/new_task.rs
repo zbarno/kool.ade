@@ -29,19 +29,27 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
     let mut submit = false;
     let branches = surface.repository_branches();
     let destination_branches = surface.repository_destination_branches();
+    let code_repository_selected = surface.is_git_repo();
+    let branch_options_available =
+        code_repository_selected && !branches.is_empty() && !destination_branches.is_empty();
     let harness_settings = surface.harness_settings();
-    if draft.source_branch.is_empty() {
+    if !branch_options_available {
+        draft.source_branch.clear();
+        draft.destination_branch.clear();
+    }
+    if branch_options_available && draft.source_branch.is_empty() {
         draft.source_branch = surface.default_repository_branch().to_owned();
     }
-    if draft.destination_branch.is_empty() {
+    if branch_options_available && draft.destination_branch.is_empty() {
         draft.destination_branch = surface.default_repository_branch().to_owned();
     }
     if open {
         let valid = !draft.description.trim().is_empty()
-            && !draft.source_branch.is_empty()
-            && !draft.destination_branch.is_empty()
-            && branches.contains(&draft.source_branch)
-            && destination_branches.contains(&draft.destination_branch)
+            && (!branch_options_available
+                || (!draft.source_branch.is_empty()
+                    && !draft.destination_branch.is_empty()
+                    && branches.contains(&draft.source_branch)
+                    && destination_branches.contains(&draft.destination_branch)))
             && !surface.conversation_busy();
         let closed = crate::ui::overlays::show_medium_modal(
             ui,
@@ -82,13 +90,19 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                         .hint_text("Describe what you want to do…"),
                 );
                 ui.add_space(theme::spacing::S);
-                branch_picker(ui, "Source Branch", &mut draft.source_branch, &branches);
-                branch_picker(
-                    ui,
-                    "Destination Branch",
-                    &mut draft.destination_branch,
-                    &destination_branches,
-                );
+                if branch_options_available {
+                    branch_picker(ui, "Source Branch", &mut draft.source_branch, &branches);
+                    branch_picker(
+                        ui,
+                        "Destination Branch",
+                        &mut draft.destination_branch,
+                        &destination_branches,
+                    );
+                } else {
+                    ui.label(theme::helper_text(
+                        "You can plan without a code checkout. Open a mapped code repository to choose implementation branches.",
+                    ));
+                }
                 routing_editor(ui, &harness_settings, &mut draft.routing_overrides);
             },
             |ui| {
@@ -111,8 +125,8 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
         created = Some((
             draft.kind,
             draft.description.trim().to_owned(),
-            draft.source_branch.clone(),
-            draft.destination_branch.clone(),
+            (!draft.source_branch.is_empty()).then(|| draft.source_branch.clone()),
+            (!draft.destination_branch.is_empty()).then(|| draft.destination_branch.clone()),
             draft.routing_overrides.clone(),
         ));
     }
@@ -122,8 +136,8 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
             kind,
             description,
             parent_uid: None,
-            source_branch: Some(source_branch),
-            destination_branch: Some(destination_branch),
+            source_branch,
+            destination_branch,
             routing_overrides,
         });
         draft.description.clear();
