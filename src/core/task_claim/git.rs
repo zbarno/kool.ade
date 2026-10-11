@@ -17,7 +17,11 @@ pub(super) use lease::{read_claim, refresh, release, verify};
 pub(super) use legacy::{LegacyClaim, read_legacy_claim, remove_expired_legacy_claim};
 pub(super) use publication::fenced_push;
 #[cfg(test)]
+pub(super) use publication::fenced_push_after_code_push;
+#[cfg(test)]
 pub(super) use publication::fenced_push_after_prepare;
+#[cfg(test)]
+pub(super) use publication::fenced_push_with_lost_ack;
 
 pub(super) const LEASE_SECONDS: i64 = 15 * 60;
 const MAX_REMOTE_CLAIM_BYTES: usize = 64 * 1024;

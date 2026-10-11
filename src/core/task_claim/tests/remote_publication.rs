@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "remote_publication/cross_remote.rs"]
+mod cross_remote;
 #[path = "remote_publication/process_fence.rs"]
 mod process_fence;
 #[path = "remote_publication/same_remote.rs"]

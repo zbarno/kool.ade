@@ -304,13 +304,22 @@ commit SHA, and UTC issue and expiry times. Acquisition has one winner;
 renewal and stale takeover compare against the current ref. A worker verifies
 the planning lease before and after publication. When the planning and code
 push destinations are the same Git remote, the candidate branch and claim
-renewal are pushed atomically. With different remotes, a takeover between the
-pre-push check and completion of the code push can leave the candidate branch
-on the code remote; the post-push check prevents pull-request creation but
-cannot retract a branch already accepted by that remote. Existing isolated
-code clones remain the execution environment. Legacy task-only claims on code
-remotes are not shared planning authority, but remain usable while an existing
-worker is running under them.
+renewal are pushed atomically. With different remotes, a takeover can race an
+accepted code push. Each code push updates a session fence and candidate branch
+in one atomic code-remote transaction. The worker rechecks its lease and uses
+the session fence plus the exact branch SHA to compare-and-swap its candidate
+back to its previous value after lease loss. If a newer owner has fenced the
+branch or another writer has replaced it, cleanup preserves the newer ref and
+reports that recovery may be needed. An ambiguous push response is checked
+against both remote refs; if the code remote cannot be reached to verify or
+retract an accepted candidate, the branch can remain and recovery may be
+needed. This cross-remote cleanup cannot make the two remotes one atomic
+transaction, and an accepted branch can be briefly visible before lease loss
+is detected. A lost lease blocks PR creation when observed before the API
+request; the code host request itself cannot be transactionally fenced against a
+simultaneous takeover. Existing isolated code clones remain the execution
+environment. Legacy task-only claims on code remotes are not shared planning
+authority, but remain usable while an existing worker is running under them.
 
 The current legacy claim ref is
 `refs/heads/koolade/claims/<task_uid>` on the task's code-repository remote.
