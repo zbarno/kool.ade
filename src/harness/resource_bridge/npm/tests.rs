@@ -5,6 +5,7 @@ use super::lockfile::{
 use sha2::{Digest, Sha512};
 use std::fs;
 
+mod cache_concurrency;
 mod custom_registry;
 mod private_config;
 

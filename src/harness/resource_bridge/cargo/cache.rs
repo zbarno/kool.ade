@@ -25,9 +25,6 @@ pub(super) fn persistent_cache_at(state_root: &Path) -> anyhow::Result<PathBuf> 
         "registry/src",
     ] {
         let path = cache.join(child);
-        if !path.exists() {
-            fs::create_dir(&path)?;
-        }
         super::ensure_private_dir(&path)?;
         anyhow::ensure!(
             path.canonicalize()?.starts_with(&cache),
@@ -123,7 +120,37 @@ mod tests {
     use super::{verify_locked_packages, verify_sha256};
     use crate::harness::resource_bridge::cargo::lockfile::LockedPackage;
     use sha2::{Digest, Sha256};
-    use std::fs;
+    use std::{
+        fs,
+        sync::{Arc, Barrier},
+        thread,
+    };
+
+    #[test]
+    fn persistent_cache_initialization_is_safe_when_called_concurrently() {
+        let root = std::env::temp_dir().join(format!(
+            "koolade-concurrent-cargo-cache-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let barrier = Arc::new(Barrier::new(8));
+        let workers = (0..8)
+            .map(|_| {
+                let root = root.clone();
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    super::persistent_cache_at(&root).unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let paths = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        assert!(paths.windows(2).all(|pair| pair[0] == pair[1]));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn verifies_cargo_archive_checksum_before_cache_is_exposed() {
