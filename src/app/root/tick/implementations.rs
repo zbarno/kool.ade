@@ -174,7 +174,8 @@ impl KooladeApp {
                                 stale: true,
                             } = claim_error.as_ref()
                             {
-                                project.queue.stale_claim = Some((ticket.clone(), record.clone()));
+                                project.queue.stale_claim =
+                                    Some((ticket.clone(), record.as_ref().clone()));
                             }
                             project.queue.blocked.insert(ticket.clone(), error.clone());
                             project.queue.last_error = claim_error.to_string();

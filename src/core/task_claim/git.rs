@@ -1,10 +1,31 @@
-use super::*;
-use std::{
-    process::{Command, Output},
-    time::{SystemTime, UNIX_EPOCH},
-};
+use super::{ClaimError, ClaimHistoryEntry, ClaimRecord};
+use std::process::{Command, Output};
 
-fn run(repo: &std::path::Path, args: &[&str], input: Option<&[u8]>) -> Result<Output, ClaimError> {
+mod acquisition;
+mod lease;
+mod legacy;
+mod publication;
+
+#[cfg(test)]
+pub(super) use acquisition::create_object;
+#[cfg(test)]
+pub(super) use acquisition::take_over_stale_after_prepare;
+pub(super) use acquisition::{
+    acquire, legacy_project_uid, take_over_stale, workspace_claim_exists,
+};
+pub(super) use lease::{read_claim, refresh, release, verify};
+pub(super) use legacy::{LegacyClaim, read_legacy_claim, remove_expired_legacy_claim};
+pub(super) use publication::fenced_push;
+#[cfg(test)]
+pub(super) use publication::fenced_push_after_prepare;
+
+pub(super) const LEASE_SECONDS: i64 = 15 * 60;
+
+pub(super) fn run(
+    repo: &std::path::Path,
+    args: &[&str],
+    input: Option<&[u8]>,
+) -> Result<Output, ClaimError> {
     let mut command = Command::new("git");
     command.args(args).current_dir(repo);
     if input.is_some() {
@@ -29,7 +50,11 @@ fn run(repo: &std::path::Path, args: &[&str], input: Option<&[u8]>) -> Result<Ou
         .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))
 }
 
-fn git(repo: &std::path::Path, args: &[&str], input: Option<&[u8]>) -> Result<String, ClaimError> {
+pub(super) fn git(
+    repo: &std::path::Path,
+    args: &[&str],
+    input: Option<&[u8]>,
+) -> Result<String, ClaimError> {
     let output = run(repo, args, input)?;
     if !output.status.success() {
         return Err(ClaimError::RemoteUnavailable(
@@ -41,129 +66,7 @@ fn git(repo: &std::path::Path, args: &[&str], input: Option<&[u8]>) -> Result<St
         .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))
 }
 
-pub(super) fn acquire(
-    repo: &std::path::Path,
-    task_uid: &str,
-    base_commit: &str,
-) -> Result<Option<ClaimLease>, ClaimError> {
-    let reference = super::reference(task_uid)
-        .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
-    let Some(remote) = push_remote(repo)? else {
-        return Ok(None);
-    };
-    validate_remote(repo, &remote)?;
-    let reachable = run(repo, &["ls-remote", "--refs", &remote, "HEAD"], None)?;
-    if !reachable.status.success() {
-        return Err(ClaimError::RemoteUnavailable(
-            String::from_utf8_lossy(&reachable.stderr).trim().to_owned(),
-        ));
-    }
-    let record = new_record(task_uid, base_commit);
-    let object = create_object(repo, &record)?;
-    let refspec = format!("{object}:{reference}");
-    let lease = format!("--force-with-lease={reference}:");
-    validate_remote(repo, &remote)?;
-    let pushed = run(
-        repo,
-        &["push", "--porcelain", &lease, &remote, &refspec],
-        None,
-    )?;
-    if pushed.status.success() {
-        return Ok(Some(ClaimLease {
-            repo: repo.to_owned(),
-            remote,
-            reference,
-            object,
-        }));
-    }
-    match inspect(repo, &remote, &reference) {
-        Ok(Some(existing)) => Err(ClaimError::AlreadyClaimed {
-            stale: existing.0.appears_stale(now()),
-            record: existing.0,
-        }),
-        Ok(None) => Err(ClaimError::CoordinationRejected(
-            String::from_utf8_lossy(&pushed.stderr).trim().to_owned(),
-        )),
-        Err(error) => Err(ClaimError::CoordinationRejected(format!(
-            "push failed and the current remote claim could not be verified: {error}"
-        ))),
-    }
-}
-
-pub(super) fn take_over_stale(
-    repo: &std::path::Path,
-    task_uid: &str,
-    expected_session: &str,
-    base_commit: &str,
-) -> Result<ClaimLease, ClaimError> {
-    let reference = super::reference(task_uid)
-        .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
-    let remote = push_remote(repo)?
-        .ok_or_else(|| ClaimError::RemoteUnavailable("Repository has no origin remote".into()))?;
-    let Some((record, old_object)) = inspect(repo, &remote, &reference)? else {
-        return Err(ClaimError::RemoteUnavailable(
-            "The claim no longer exists; retry normal acquisition".into(),
-        ));
-    };
-    if record.session_id != expected_session || !record.appears_stale(now()) {
-        return Err(ClaimError::AlreadyClaimed {
-            stale: record.appears_stale(now()),
-            record,
-        });
-    }
-    let mut replacement = new_record(task_uid, base_commit);
-    replacement.takeover_history = record.takeover_history.clone();
-    replacement.takeover_history.push(ClaimHistoryEntry {
-        owner: record.owner,
-        session_id: record.session_id,
-        base_commit: record.base_commit,
-        claimed_at: record.claimed_at,
-        replaced_at: now(),
-    });
-    let object = create_object(repo, &replacement)?;
-    let lease = format!("--force-with-lease={reference}:{old_object}");
-    let refspec = format!("{object}:{reference}");
-    validate_remote(repo, &remote)?;
-    let pushed = run(
-        repo,
-        &["push", "--porcelain", &lease, &remote, &refspec],
-        None,
-    )?;
-    if pushed.status.success() {
-        return Ok(ClaimLease {
-            repo: repo.to_owned(),
-            remote,
-            reference,
-            object,
-        });
-    }
-    if let Some((record, _)) = inspect(repo, &remote, &reference)? {
-        return Err(ClaimError::AlreadyClaimed {
-            stale: record.appears_stale(now()),
-            record,
-        });
-    }
-    Err(ClaimError::CoordinationRejected(
-        String::from_utf8_lossy(&pushed.stderr).trim().to_owned(),
-    ))
-}
-
-fn new_record(task_uid: &str, base_commit: &str) -> ClaimRecord {
-    ClaimRecord {
-        schema_version: 2,
-        task_uid: task_uid.to_owned(),
-        owner: "Kool.ad/e session".to_owned(),
-        session_id: uuid::Uuid::new_v4().to_string(),
-        base_commit: base_commit.to_owned(),
-        claimed_at: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64,
-        takeover_history: Box::default(),
-    }
-}
-
-fn push_remote(repo: &std::path::Path) -> Result<Option<String>, ClaimError> {
+pub(super) fn push_remote(repo: &std::path::Path) -> Result<Option<String>, ClaimError> {
     let output = run(
         repo,
         &["remote", "get-url", "--push", "--all", "origin"],
@@ -188,7 +91,7 @@ fn push_remote(repo: &std::path::Path) -> Result<Option<String>, ClaimError> {
     }
 }
 
-fn validate_remote(repo: &std::path::Path, expected: &str) -> Result<(), ClaimError> {
+pub(super) fn validate_remote(repo: &std::path::Path, expected: &str) -> Result<(), ClaimError> {
     if push_remote(repo)?.as_deref() != Some(expected) {
         return Err(ClaimError::CoordinationRejected(
             "The repository push destination changed during task coordination".into(),
@@ -197,28 +100,7 @@ fn validate_remote(repo: &std::path::Path, expected: &str) -> Result<(), ClaimEr
     Ok(())
 }
 
-pub(super) fn create_object(
-    repo: &std::path::Path,
-    record: &ClaimRecord,
-) -> Result<String, ClaimError> {
-    let message = serde_json::to_vec(&record)
-        .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
-    let tree = git(repo, &["mktree"], Some(b""))?;
-    git(
-        repo,
-        &[
-            "-c",
-            "user.name=Kool.ad/e",
-            "-c",
-            "user.email=koolade-claim@noreply.invalid",
-            "commit-tree",
-            &tree,
-        ],
-        Some(&message),
-    )
-}
-
-fn inspect(
+pub(super) fn inspect(
     repo: &std::path::Path,
     remote: &str,
     reference: &str,
@@ -237,7 +119,17 @@ fn inspect(
     else {
         return Ok(None);
     };
-    let fetched = run(repo, &["fetch", "--no-tags", remote, reference], None)?;
+    let fetched = run(
+        repo,
+        &[
+            "fetch",
+            "--no-tags",
+            "--no-write-fetch-head",
+            remote,
+            reference,
+        ],
+        None,
+    )?;
     if !fetched.status.success() {
         return Err(ClaimError::RemoteUnavailable(
             String::from_utf8_lossy(&fetched.stderr).trim().to_owned(),
@@ -247,56 +139,62 @@ fn inspect(
     serde_json::from_str(&body)
         .map(|record| Some((record, object)))
         .map_err(|error| {
-            ClaimError::RemoteUnavailable(format!("Remote claim metadata is invalid: {error}"))
+            ClaimError::CoordinationRejected(format!(
+                "Planning remote claim metadata is invalid: {error}"
+            ))
         })
 }
 
-pub(super) fn read_claim(
-    repo: &std::path::Path,
-    remote: &str,
-    reference: &str,
-    expected_object: &str,
-) -> Result<ClaimRecord, ClaimError> {
-    let Some((record, actual_object)) = inspect(repo, remote, reference)? else {
-        return Err(ClaimError::RemoteUnavailable(
-            "Claim disappeared before it could be read".into(),
-        ));
-    };
-    if actual_object != expected_object {
-        return Err(ClaimError::CoordinationRejected(
-            "The task claim was replaced by another session".into(),
-        ));
-    }
-    Ok(record)
+pub(super) fn now() -> Result<i64, ClaimError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .map_err(|_| {
+            ClaimError::CoordinationRejected(
+                "System clock is before the UTC Unix epoch; task coordination is unsafe".into(),
+            )
+        })
 }
 
-pub(super) fn verify(
-    repo: &std::path::Path,
-    remote: &str,
-    reference: &str,
-    expected_object: &str,
-) -> Result<(), ClaimError> {
-    let Some((_, actual_object)) = inspect(repo, remote, reference)? else {
+pub(super) fn validate_clock(record: &ClaimRecord, timestamp: i64) -> Result<(), ClaimError> {
+    if record.issued_at_utc > timestamp {
         return Err(ClaimError::CoordinationRejected(
-            "The task claim disappeared before publication".into(),
+            "System clock is earlier than the task claim issue time; refusing to coordinate".into(),
         ));
-    };
-    if actual_object != expected_object {
+    }
+    if record.expires_at() < record.issued_at_utc {
         return Err(ClaimError::CoordinationRejected(
-            "The task claim was replaced by another session".into(),
+            "Task claim has an invalid UTC lease interval".into(),
         ));
     }
     Ok(())
 }
 
-mod publication;
-#[cfg(test)]
-pub(super) use publication::fenced_push_after_prepare;
-pub(super) use publication::{fenced_push, refresh, release};
-
-fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+pub(super) fn new_record(
+    project_uid: uuid::Uuid,
+    task_uid: &str,
+    code_repository_id: &str,
+    base_commit: &str,
+) -> Result<ClaimRecord, ClaimError> {
+    if !matches!(base_commit.len(), 40 | 64)
+        || !base_commit.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(ClaimError::CoordinationRejected(
+            "Base commit identity must be a Git object SHA".into(),
+        ));
+    }
+    let issued_at_utc = now()?;
+    Ok(ClaimRecord {
+        schema_version: 3,
+        project_uid: project_uid.hyphenated().to_string(),
+        task_uid: task_uid.to_owned(),
+        owner: "Kool.ad/e session".to_owned(),
+        operator_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        code_repository_id: code_repository_id.to_owned(),
+        base_commit: base_commit.to_owned(),
+        issued_at_utc,
+        expires_at_utc: issued_at_utc.saturating_add(LEASE_SECONDS),
+        takeover_history: Box::<Vec<ClaimHistoryEntry>>::default(),
+    })
 }

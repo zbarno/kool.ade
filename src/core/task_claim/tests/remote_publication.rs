@@ -2,158 +2,50 @@ use super::*;
 
 #[path = "remote_publication/process_fence.rs"]
 mod process_fence;
+#[path = "remote_publication/same_remote.rs"]
+mod same_remote;
 
 #[test]
-fn task_claim_uses_the_push_url_for_reads_refreshes_and_release() {
+fn publication_checks_planning_claim_again_after_preflight_and_pushes_code_remote() {
     let fixture = Fixture::new();
-    let push_remote = fixture.root.join("push-only.git");
-    git_at(
-        &fixture.root,
-        &["init", "--bare", "-q", push_remote.to_str().unwrap()],
-    );
-    let repo = &fixture.clones[0];
-    git_at(
-        repo,
-        &[
-            "remote",
-            "set-url",
-            "--push",
-            "origin",
-            push_remote.to_str().unwrap(),
-        ],
-    );
-    let base = git_at(repo, &["rev-parse", "HEAD"]);
-    let mut lease = ClaimLease::acquire(repo, "task-push-url", &base)
-        .unwrap()
-        .unwrap();
-    let reference = reference("task-push-url").unwrap();
-
-    lease.verify().unwrap();
-    lease.refresh().unwrap();
-    lease.verify().unwrap();
-    assert!(
-        git_at(
-            &fixture.root,
-            &[
-                "ls-remote",
-                "--refs",
-                fixture.remote.to_str().unwrap(),
-                &reference,
-            ],
-        )
-        .is_empty()
-    );
-    assert!(
-        !git_at(
-            &fixture.root,
-            &[
-                "ls-remote",
-                "--refs",
-                push_remote.to_str().unwrap(),
-                &reference,
-            ],
-        )
-        .is_empty()
-    );
-
-    drop(lease);
-    assert!(
-        git_at(
-            &fixture.root,
-            &[
-                "ls-remote",
-                "--refs",
-                push_remote.to_str().unwrap(),
-                &reference,
-            ],
-        )
-        .is_empty()
-    );
-}
-
-#[test]
-fn multiple_push_urls_are_rejected_before_creating_a_claim() {
-    let fixture = Fixture::new();
-    let first = fixture.root.join("first-push.git");
-    let second = fixture.root.join("second-push.git");
-    for path in [&first, &second] {
-        git_at(
-            &fixture.root,
-            &["init", "--bare", "-q", path.to_str().unwrap()],
-        );
-    }
-    let repo = &fixture.clones[0];
-    git_at(
-        repo,
-        &[
-            "remote",
-            "set-url",
-            "--push",
-            "origin",
-            first.to_str().unwrap(),
-        ],
-    );
-    git_at(
-        repo,
-        &[
-            "remote",
-            "set-url",
-            "--add",
-            "--push",
-            "origin",
-            second.to_str().unwrap(),
-        ],
-    );
-    let base = git_at(repo, &["rev-parse", "HEAD"]);
-
-    assert!(matches!(
-        ClaimLease::acquire(repo, "task-multiple-push-urls", &base),
-        Err(ClaimError::CoordinationRejected(_))
-    ));
-    let reference = reference("task-multiple-push-urls").unwrap();
-    for path in [&first, &second] {
-        assert!(
-            git_at(
-                &fixture.root,
-                &["ls-remote", "--refs", path.to_str().unwrap(), &reference,],
-            )
-            .is_empty()
-        );
-    }
-}
-
-#[test]
-fn atomic_publication_push_rejects_takeover_after_preflight() {
-    let fixture = Fixture::new();
-    let repo = &fixture.clones[0];
-    let base = git_at(repo, &["rev-parse", "HEAD"]);
-    let lease = ClaimLease::acquire(repo, "task-fenced-push", &base)
-        .unwrap()
-        .unwrap();
+    let planning_repo = &fixture.clones[0];
+    let code_repo = &fixture.code_clones[0];
+    let base = git_at(code_repo, &["rev-parse", "HEAD"]);
+    let lease = ClaimLease::acquire(
+        planning_repo,
+        fixture.project_uid,
+        "task-fenced-push",
+        "web",
+        &base,
+    )
+    .unwrap()
+    .unwrap();
     let expected_object = lease.object.clone();
     let reference = lease.reference.clone();
-    let remote = lease.remote.clone();
-    fs::write(repo.join("published.txt"), "only current owner\n").unwrap();
-    git_at(repo, &["add", "published.txt"]);
-    git_at(repo, &["commit", "-qm", "prepare candidate"]);
-    let commit = git_at(repo, &["rev-parse", "HEAD"]);
+    let planning_remote = lease.remote.clone();
+    fs::write(code_repo.join("published.txt"), "only current owner\n").unwrap();
+    git_at(code_repo, &["add", "published.txt"]);
+    git_at(code_repo, &["commit", "-qm", "prepare candidate"]);
+    let commit = git_at(code_repo, &["rev-parse", "HEAD"]);
     let mut replacement = lease.record().unwrap();
-    replacement.session_id = "replacement-owner-session".into();
-    replacement.claimed_at = chrono::Utc::now().timestamp();
-    let replacement_object = git::create_object(repo, &replacement).unwrap();
+    replacement.session_id = uuid::Uuid::new_v4().to_string();
+    replacement.operator_id = uuid::Uuid::new_v4().to_string();
+    replacement.issued_at_utc = chrono::Utc::now().timestamp();
+    replacement.expires_at_utc = replacement.issued_at_utc + 15 * 60;
+    let replacement_object = git::create_object(planning_repo, &replacement).unwrap();
     let destination = "refs/heads/koolade/fenced-candidate";
 
     let result = git::fenced_push_after_prepare(
-        repo,
-        &remote,
+        planning_repo,
+        &planning_remote,
         &reference,
         &expected_object,
-        repo,
+        code_repo,
         &commit,
         destination,
         || {
             git_at(
-                repo,
+                planning_repo,
                 &[
                     "push",
                     "-q",
@@ -175,38 +67,41 @@ fn atomic_publication_push_rejects_takeover_after_preflight() {
     );
     drop(lease);
     assert_eq!(
-        git_at(&fixture.remote, &["rev-parse", &reference]),
+        git_at(&fixture.planning_remote, &["rev-parse", &reference]),
         replacement_object
     );
 }
 
 #[test]
-fn remote_unavailability_during_publication_does_not_update_claim_or_candidate_refs() {
+fn unavailable_planning_remote_blocks_code_publication_and_preserves_local_evidence() {
     let fixture = Fixture::new();
-    let repo = &fixture.clones[0];
-    let task_uid = "task-remote-unavailable-publication";
-    let base = git_at(repo, &["rev-parse", "HEAD"]);
-    let mut lease = ClaimLease::acquire(repo, task_uid, &base).unwrap().unwrap();
-    let reference = reference(task_uid).unwrap();
-    let claim_object = git_at(&fixture.remote, &["rev-parse", &reference]);
+    let planning_repo = &fixture.clones[0];
+    let code_repo = &fixture.code_clones[0];
+    let task_uid = "task-planning-remote-unavailable-publication";
+    let base = git_at(code_repo, &["rev-parse", "HEAD"]);
+    let mut lease = ClaimLease::acquire(planning_repo, fixture.project_uid, task_uid, "web", &base)
+        .unwrap()
+        .unwrap();
+    let reference = reference(fixture.project_uid, task_uid).unwrap();
+    let claim_object = git_at(&fixture.planning_remote, &["rev-parse", &reference]);
 
     fs::write(
-        repo.join("unverified.txt"),
+        code_repo.join("unverified.txt"),
         "must stay local while offline\n",
     )
     .unwrap();
-    git_at(repo, &["add", "unverified.txt"]);
-    git_at(repo, &["commit", "-qm", "prepare offline candidate"]);
-    let candidate = git_at(repo, &["rev-parse", "HEAD"]);
+    git_at(code_repo, &["add", "unverified.txt"]);
+    git_at(code_repo, &["commit", "-qm", "prepare offline candidate"]);
+    let candidate = git_at(code_repo, &["rev-parse", "HEAD"]);
     let destination = "refs/heads/koolade/offline-candidate";
-    let moved_remote = fixture.root.join("remote-offline.git");
-    fs::rename(&fixture.remote, &moved_remote).unwrap();
-    let result = lease.fenced_push(repo, &candidate, destination);
-    fs::rename(&moved_remote, &fixture.remote).unwrap();
+    let moved_remote = fixture.root.join("planning-offline.git");
+    fs::rename(&fixture.planning_remote, &moved_remote).unwrap();
+    let result = lease.fenced_push(code_repo, &candidate, destination);
+    fs::rename(&moved_remote, &fixture.planning_remote).unwrap();
 
     assert!(result.is_err());
     assert_eq!(
-        git_at(&fixture.remote, &["rev-parse", &reference]),
+        git_at(&fixture.planning_remote, &["rev-parse", &reference]),
         claim_object
     );
     assert!(
@@ -218,32 +113,36 @@ fn remote_unavailability_during_publication_does_not_update_claim_or_candidate_r
             .success()
     );
     assert_eq!(
-        fs::read_to_string(repo.join("unverified.txt")).unwrap(),
+        fs::read_to_string(code_repo.join("unverified.txt")).unwrap(),
         "must stay local while offline\n"
     );
     drop(lease);
 }
 
 #[test]
-fn implementation_controller_reports_remote_conflicts_before_running_the_harness() {
+fn implementation_controller_reports_global_conflicts_before_running_the_harness() {
     let fixture = Fixture::new();
     let owner = &fixture.clones[0];
     let other = &fixture.clones[1];
-    let base = git_at(owner, &["rev-parse", "HEAD"]);
-    let _owner_claim = ClaimLease::acquire(owner, "task-worker", &base)
+    let base = git_at(&fixture.code_clones[0], &["rev-parse", "HEAD"]);
+    let _owner_claim = ClaimLease::acquire(owner, fixture.project_uid, "task-worker", "web", &base)
         .unwrap()
         .unwrap();
     let request = ClaimRequest::new(
         other.clone(),
+        fixture.code_clones[1].clone(),
+        fixture.project_uid,
         "task-worker".into(),
-        git_at(other, &["rev-parse", "HEAD"]),
+        "web".into(),
+        git_at(&fixture.code_clones[1], &["rev-parse", "HEAD"]),
         None,
+        ClaimScope::SharedRequired,
         false,
     );
     let controller =
         crate::core::implementation::Controller::start_project_with_policy_and_claim_request(
             other.clone(),
-            other.clone(),
+            fixture.code_clones[1].clone(),
             "task.md".into(),
             crate::core::implementation::StartPolicy {
                 publication_mode: crate::core::implementation::PublicationMode::HoldForReview,
@@ -255,8 +154,12 @@ fn implementation_controller_reports_remote_conflicts_before_running_the_harness
         );
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        if let Some(crate::core::implementation::Event::ClaimBlocked(error)) = controller.poll() {
-            assert!(matches!(*error, ClaimError::AlreadyClaimed { .. }));
+        if let Some(crate::core::task_claim::ClaimError::AlreadyClaimed { .. }) =
+            controller.poll().and_then(|event| match event {
+                crate::core::implementation::Event::ClaimBlocked(error) => Some(*error),
+                _ => None,
+            })
+        {
             break;
         }
         assert!(

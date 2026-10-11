@@ -8,13 +8,23 @@ use std::sync::{
 pub(crate) struct ClaimLeaseHandle {
     lease: Arc<Mutex<Option<ClaimLease>>>,
     lost: Arc<AtomicBool>,
+    publication_blocked: bool,
 }
 
 impl ClaimLeaseHandle {
-    pub(crate) fn new(lease: Option<ClaimLease>) -> Self {
+    pub(crate) fn new(lease: ClaimLease) -> Self {
         Self {
-            lease: Arc::new(Mutex::new(lease)),
+            lease: Arc::new(Mutex::new(Some(lease))),
             lost: Arc::new(AtomicBool::new(false)),
+            publication_blocked: false,
+        }
+    }
+
+    pub(crate) fn block_publication() -> Self {
+        Self {
+            lease: Arc::new(Mutex::new(None)),
+            lost: Arc::new(AtomicBool::new(false)),
+            publication_blocked: true,
         }
     }
 
@@ -27,6 +37,12 @@ impl ClaimLeaseHandle {
     }
 
     pub(crate) fn verify(&self) -> Result<(), ClaimError> {
+        if self.publication_blocked {
+            self.lost.store(true, Ordering::Release);
+            return Err(ClaimError::CoordinationRejected(
+                "Publication is disabled for an explicitly approved offline run".into(),
+            ));
+        }
         if self.is_lost() {
             return Err(ClaimError::CoordinationRejected(
                 "The remote task claim was already lost".into(),
@@ -52,6 +68,11 @@ impl ClaimLeaseHandle {
     }
 
     pub(crate) fn refresh(&self) -> Result<(), ClaimError> {
+        if self.publication_blocked {
+            return Err(ClaimError::CoordinationRejected(
+                "A shared claim cannot be renewed for an offline run".into(),
+            ));
+        }
         let result = self
             .lease
             .lock()
@@ -59,7 +80,12 @@ impl ClaimLeaseHandle {
                 ClaimError::CoordinationRejected("The remote task claim lock is unavailable".into())
             })?
             .as_mut()
-            .map_or(Ok(()), ClaimLease::refresh);
+            .ok_or_else(|| {
+                ClaimError::CoordinationRejected(
+                    "No remote task claim is available for renewal".into(),
+                )
+            })?
+            .refresh();
         if result.is_err() {
             self.lost.store(true, Ordering::Release);
         }
@@ -72,6 +98,12 @@ impl ClaimLeaseHandle {
         commit: &str,
         destination_ref: &str,
     ) -> Result<(), ClaimError> {
+        if self.publication_blocked {
+            self.lost.store(true, Ordering::Release);
+            return Err(ClaimError::CoordinationRejected(
+                "Publication is disabled for an explicitly approved offline run".into(),
+            ));
+        }
         if self.is_lost() {
             return Err(ClaimError::CoordinationRejected(
                 "The remote task claim was already lost".into(),

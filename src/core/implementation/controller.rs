@@ -96,9 +96,25 @@ impl Controller {
                     if let Some(warning) = attempt.warning {
                         let _ = tx.send(Event::ClaimWarning(warning));
                     }
-                    Some(crate::core::task_claim::ClaimLeaseHandle::new(
-                        attempt.lease,
-                    ))
+                    match attempt.mode {
+                        crate::core::task_claim::ClaimAttemptMode::Shared => match attempt.lease {
+                            Some(lease) => {
+                                Some(crate::core::task_claim::ClaimLeaseHandle::new(lease))
+                            }
+                            None => {
+                                let _ = tx.send(Event::ClaimBlocked(Box::new(
+                                    crate::core::task_claim::ClaimError::CoordinationRejected(
+                                        "Shared claim acquisition returned no lease".into(),
+                                    ),
+                                )));
+                                return;
+                            }
+                        },
+                        crate::core::task_claim::ClaimAttemptMode::LocalOnly => None,
+                        crate::core::task_claim::ClaimAttemptMode::UnsafeOffline => {
+                            Some(crate::core::task_claim::ClaimLeaseHandle::block_publication())
+                        }
+                    }
                 }
                 Err(error) => {
                     let _ = tx.send(Event::ClaimBlocked(Box::new(error)));

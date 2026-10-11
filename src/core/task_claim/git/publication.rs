@@ -1,31 +1,32 @@
-use super::*;
+use super::super::ClaimError;
+use super::{LEASE_SECONDS, git, now, push_remote, run, validate_clock, validate_remote};
 
 struct FencedPush<'a> {
-    repo: &'a std::path::Path,
-    remote: &'a str,
+    planning_repo: &'a std::path::Path,
+    planning_remote: &'a str,
     reference: &'a str,
     expected_object: &'a str,
-    source: &'a std::path::Path,
+    code_repo: &'a std::path::Path,
     commit: &'a str,
     destination_ref: &'a str,
 }
 
-pub(crate) fn fenced_push(
-    repo: &std::path::Path,
-    remote: &str,
+pub fn fenced_push(
+    planning_repo: &std::path::Path,
+    planning_remote: &str,
     reference: &str,
     expected_object: &str,
-    source: &std::path::Path,
+    code_repo: &std::path::Path,
     commit: &str,
     destination_ref: &str,
 ) -> Result<String, ClaimError> {
     fenced_push_inner(
         FencedPush {
-            repo,
-            remote,
+            planning_repo,
+            planning_remote,
             reference,
             expected_object,
-            source,
+            code_repo,
             commit,
             destination_ref,
         },
@@ -35,23 +36,23 @@ pub(crate) fn fenced_push(
 
 #[cfg(test)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn fenced_push_after_prepare(
-    repo: &std::path::Path,
-    remote: &str,
+pub fn fenced_push_after_prepare(
+    planning_repo: &std::path::Path,
+    planning_remote: &str,
     reference: &str,
     expected_object: &str,
-    source: &std::path::Path,
+    code_repo: &std::path::Path,
     commit: &str,
     destination_ref: &str,
     before_push: impl FnOnce(),
 ) -> Result<String, ClaimError> {
     fenced_push_inner(
         FencedPush {
-            repo,
-            remote,
+            planning_repo,
+            planning_remote,
             reference,
             expected_object,
-            source,
+            code_repo,
             commit,
             destination_ref,
         },
@@ -64,11 +65,11 @@ fn fenced_push_inner(
     before_push: impl FnOnce(),
 ) -> Result<String, ClaimError> {
     let FencedPush {
-        repo,
-        remote,
+        planning_repo,
+        planning_remote,
         reference,
         expected_object,
-        source,
+        code_repo,
         commit,
         destination_ref,
     } = push;
@@ -77,56 +78,105 @@ fn fenced_push_inner(
             "Candidate commit identity is invalid".into(),
         ));
     }
-    validate_remote(repo, remote)?;
-    let _ = git(repo, &["check-ref-format", destination_ref], None)?;
-    let record = read_claim(repo, remote, reference, expected_object)?;
-    let source = source
-        .to_str()
-        .ok_or_else(|| ClaimError::CoordinationRejected("Non-UTF8 task repository path".into()))?;
-    let fetched = run(
-        repo,
-        &[
-            "fetch",
-            "--no-tags",
-            "--no-write-fetch-head",
-            source,
-            commit,
-        ],
-        None,
-    )?;
-    if !fetched.status.success() {
-        return Err(ClaimError::CoordinationRejected(
-            String::from_utf8_lossy(&fetched.stderr).trim().to_owned(),
-        ));
-    }
+    validate_remote(planning_repo, planning_remote)?;
+    let _ = git(code_repo, &["check-ref-format", destination_ref], None)?;
+    let code_remote = push_remote(code_repo)?.ok_or_else(|| {
+        ClaimError::RemoteUnavailable("Task code repository has no origin push remote".into())
+    })?;
+    validate_remote(code_repo, &code_remote)?;
     let _ = git(
-        repo,
+        code_repo,
         &["cat-file", "-e", &format!("{commit}^{{commit}}")],
         None,
     )?;
-    let mut renewed = record;
-    renewed.claimed_at = now();
-    let next_object = create_object(repo, &renewed)?;
+
+    if same_remote_target(planning_remote, &code_remote) {
+        return fenced_push_same_remote(
+            planning_repo,
+            planning_remote,
+            reference,
+            expected_object,
+            code_repo,
+            &code_remote,
+            commit,
+            destination_ref,
+            before_push,
+        );
+    }
+
+    // The claim and code repository may use different Git providers. They
+    // cannot participate in one atomic push, so verify immediately before the
+    // code push and again after any potentially slow preparation.
+    super::lease::verify(planning_repo, planning_remote, reference, expected_object)?;
+    before_push();
+    super::lease::verify(planning_repo, planning_remote, reference, expected_object)?;
+    validate_remote(code_repo, &code_remote)?;
+    let candidate = format!("{commit}:{destination_ref}");
+    let pushed = run(
+        code_repo,
+        &["push", "--porcelain", &code_remote, &candidate],
+        None,
+    )?;
+    if pushed.status.success() {
+        Ok(expected_object.to_owned())
+    } else {
+        Err(ClaimError::CoordinationRejected(
+            String::from_utf8_lossy(&pushed.stderr).trim().to_owned(),
+        ))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fenced_push_same_remote(
+    planning_repo: &std::path::Path,
+    planning_remote: &str,
+    reference: &str,
+    expected_object: &str,
+    code_repo: &std::path::Path,
+    code_remote: &str,
+    commit: &str,
+    destination_ref: &str,
+    before_push: impl FnOnce(),
+) -> Result<String, ClaimError> {
+    let Some((mut record, object)) = super::inspect(code_repo, code_remote, reference)? else {
+        return Err(ClaimError::CoordinationRejected(
+            "The planning task claim disappeared before atomic publication".into(),
+        ));
+    };
+    let timestamp = now()?;
+    validate_clock(&record, timestamp)?;
+    if object != expected_object || record.appears_stale(timestamp) {
+        return Err(ClaimError::CoordinationRejected(
+            "The planning task claim changed or expired before atomic publication".into(),
+        ));
+    }
+    record.expires_at_utc = timestamp.saturating_add(LEASE_SECONDS);
+    let renewed_object = super::acquisition::create_object(code_repo, &record)?;
+    before_push();
+
+    // For a shared push destination, update the claim and code branch in one
+    // remote transaction. The expected claim SHA fences a takeover that races
+    // after the last read above.
+    validate_remote(planning_repo, planning_remote)?;
+    validate_remote(code_repo, code_remote)?;
     let lease = format!("--force-with-lease={reference}:{expected_object}");
     let candidate = format!("{commit}:{destination_ref}");
-    let claim = format!("{next_object}:{reference}");
-    before_push();
-    validate_remote(repo, remote)?;
+    let claim = format!("{renewed_object}:{reference}");
     let pushed = run(
-        repo,
+        code_repo,
         &[
             "push",
             "--atomic",
             "--porcelain",
             &lease,
-            remote,
+            code_remote,
             &candidate,
             &claim,
         ],
         None,
     )?;
     if pushed.status.success() {
-        Ok(next_object)
+        Ok(renewed_object)
     } else {
         Err(ClaimError::CoordinationRejected(
             String::from_utf8_lossy(&pushed.stderr).trim().to_owned(),
@@ -134,75 +184,31 @@ fn fenced_push_inner(
     }
 }
 
-pub(crate) fn refresh(
-    repo: &std::path::Path,
-    remote: &str,
-    reference: &str,
-    expected_object: &str,
-) -> Result<String, ClaimError> {
-    let Some((mut record, actual_object)) = inspect(repo, remote, reference)? else {
-        return Err(ClaimError::RemoteUnavailable(
-            "The task claim disappeared".into(),
-        ));
+fn same_remote_target(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    match (push_target_identity(left), push_target_identity(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn push_target_identity(remote: &str) -> Option<String> {
+    let address = if let Some((user_host, path)) = remote.split_once(':')
+        && !remote.contains("://")
+        && !remote.starts_with('/')
+    {
+        format!("ssh://{user_host}/{path}")
+    } else {
+        remote.to_owned()
     };
-    if actual_object != expected_object {
-        return Err(ClaimError::RemoteUnavailable(
-            "The task claim was replaced by another session".into(),
-        ));
-    }
-    record.claimed_at = now();
-    let object = create_object(repo, &record)?;
-    let lease = format!("--force-with-lease={reference}:{expected_object}");
-    let refspec = format!("{object}:{reference}");
-    validate_remote(repo, remote)?;
-    let pushed = run(
-        repo,
-        &["push", "--porcelain", &lease, remote, &refspec],
-        None,
-    )?;
-    if pushed.status.success() {
-        Ok(object)
-    } else {
-        Err(ClaimError::CoordinationRejected(
-            String::from_utf8_lossy(&pushed.stderr).trim().to_owned(),
-        ))
-    }
-}
-
-pub(crate) fn release(
-    repo: &std::path::Path,
-    remote: &str,
-    reference: &str,
-    object: &str,
-) -> Result<(), ClaimError> {
-    validate_remote(repo, remote)?;
-    let listing = run(repo, &["ls-remote", "--refs", remote, reference], None)?;
-    if !listing.status.success() {
-        return Err(ClaimError::RemoteUnavailable(
-            String::from_utf8_lossy(&listing.stderr).trim().to_owned(),
-        ));
-    }
-    if !String::from_utf8_lossy(&listing.stdout).starts_with(object) {
-        return Ok(());
-    }
-    let lease = format!("--force-with-lease={reference}:{object}");
-    validate_remote(repo, remote)?;
-    let result = run(
-        repo,
-        &[
-            "push",
-            "--porcelain",
-            &lease,
-            remote,
-            &format!(":{reference}"),
-        ],
-        None,
-    )?;
-    if result.status.success() {
-        Ok(())
-    } else {
-        Err(ClaimError::RemoteUnavailable(
-            String::from_utf8_lossy(&result.stderr).trim().to_owned(),
-        ))
-    }
+    let parsed = url::Url::parse(&address).ok()?;
+    let host = parsed.host_str().unwrap_or_default().to_ascii_lowercase();
+    let port = parsed
+        .port()
+        .map_or_else(String::new, |port| format!(":{port}"));
+    let path = parsed.path().trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    Some(format!("{host}{port}{path}"))
 }
