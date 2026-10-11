@@ -62,6 +62,10 @@ fn synced_board_is_independent_of_two_code_branch_checkouts() {
     );
     let planning_a = root.join("operator-a-planning");
     let planning_b = root.join("operator-b-planning");
+    for planning in [&planning_a, &planning_b] {
+        git(planning, &["config", "user.name", "Koolade Fixture"]);
+        git(planning, &["config", "user.email", "fixture@example.test"]);
+    }
     let project_id = uuid::Uuid::new_v4();
     let store_a = PlanningStore::new(project_id, &planning_a, StoreMode::ManagedShared);
     let store_b = PlanningStore::new(project_id, &planning_b, StoreMode::ManagedShared);
