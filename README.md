@@ -33,6 +33,8 @@ Turn vague ideas into living specifications, actionable tasks, verified code, an
 
 </div>
 
+> **Currently shipping:** an experimental Linux desktop app with Git-backed planning, independent task clones, concurrent workers, verification, and six coding CLI adapters. **Being built and queued:** separate multi-user planning repositories, Docker-only execution, dependable CLI discovery and role parity, secure remote workers, and interactive runtime QA. The roadmap below separates the two.
+
 
 
 ## What is Kool.ad/e?
@@ -285,7 +287,9 @@ If the required sandbox cannot be established, autonomous execution fails closed
 The [filesystem boundary](docs/sandbox-filesystem.md) documents the runtime
 allowlist, explicit project/toolchain mounts, and remaining security scope.
 
-In technical terms: **no bubble, no trouble.**
+This describes **today's implementation**, not the target architecture. The [Docker-only execution migration](https://github.com/zbarno/kool.ade/issues/133) will replace Bubblewrap, preserve the existing authorization and Git safeguards, and prepare local and remote workers to execute under one policy. [Complete Bubblewrap removal](https://github.com/zbarno/kool.ade/issues/143) is an explicit cutover requirement, not a fallback option.
+
+In technical terms: **the current bubble stays until the replacement passes its tests.**
 
 ---
 
@@ -349,9 +353,9 @@ KOOLADE_TURN_TIMEOUT_SECS=36000 koolade
 
 Long-running local inference is treated as normal rather than evidence that civilization has ended.
 
-The current harness uses **Pi** and works with a configured private/local HTTP OpenAI-compatible provider.
+**Pi** supports configured private/local HTTP OpenAI-compatible providers, including local models. The application also includes adapters for Codex, Claude Code, OpenCode, GitHub Copilot CLI, and Antigravity. Their provider-specific setup and execution capabilities are still being standardized.
 
-The model is not embedded in Kool.ad/e. Agent execution happens through an external CLI harness.
+The model is not embedded in Kool.ad/e. Agent/model communication happens through an external CLI harness; Kool.ad/e coordinates the work.
 
 Which brings us to...
 
@@ -361,23 +365,13 @@ Which brings us to...
 
 Kool.ad/e has an `AiHarness` abstraction separating the application from the coding-agent CLI underneath it.
 
-Today:
+**Already integrated:** Pi, Codex CLI, Claude Code, OpenCode, GitHub Copilot CLI, and Antigravity.
 
-**Pi**
+That does **not** yet mean every provider has identical capabilities, or that discovery never trips over a troublesome installation. [Crash-proof discovery](https://github.com/zbarno/kool.ade/issues/145) and [universal CLI role parity](https://github.com/zbarno/kool.ade/issues/146) are explicit prerequisites of the Docker migration.
 
-Tomorrow:
+**The direction:** any supported, compatible coding CLI can handle planning, task generation, implementation, independent QA, documentation, and Man.ager work through the same application-owned, policy-enforced tools. No "Pi gets the good tools and everybody else gets a security error" arrangement.
 
-**more codes.**
-
-The roadmap includes support for:
-
-- Codex CLI
-- OpenCode
-- Claude Code
-- additional agent harnesses
-- probably whatever new coding CLI was released while you were reading this sentence
-
-The goal is for Kool.ad/e to manage the development process without requiring you to marry a particular agent ecosystem.
+The goal is to manage the development process without requiring you to marry one agent ecosystem.
 
 ---
 
@@ -415,9 +409,14 @@ Current capabilities include:
 | Antigravity CLI | ✅ |
 | OpenCode CLI | ✅ |
 | GitHub Copilot CLI | ✅ |
-| Linux x86_64 | ✅ |
-| macOS | 🥤 Eventually |
-| Windows | 🥤 Eventually |
+| Linux x86_64 | ✅ Current host |
+| External managed planning repository | 🚧 Foundation built, multi-user cutover incomplete |
+| Consistent CLI role support + resilient discovery | 🛠️ Queued migration |
+| Docker-only local execution | 🛠️ Queued migration |
+| Remote Docker workers | 🛠️ Queued migration |
+| Interactive UI / runtime QA | 🥤 Proposed direction |
+| macOS | 🥤 Planned through Docker Desktop |
+| Windows | 🥤 Planned through Docker Desktop |
 | Additional agent CLIs | 🥤 Very much planned |
 | Telepathic requirements gathering | ❌ Pending model improvement |
 
@@ -426,11 +425,12 @@ Current capabilities include:
 Right now Kool.ad/e is deliberately opinionated:
 
 - **Linux x86_64 only**
-- **single operator**
+- **single operator in the current workflow**, while shared planning-repository sync and arbitration complete their cutover
 - supported agent CLIs use an application-managed Bubblewrap boundary for repository commands
-- autonomous repository access requires **Bubblewrap**
-- Pi's built-in provider bridge currently targets **private/local HTTP OpenAI-compatible endpoints**
-- collaboration between multiple human operators is not implemented
+- autonomous repository access currently requires **Bubblewrap**; **Docker is planned, not required for this release**
+- Pi's provider bridge currently targets **private/local HTTP OpenAI-compatible endpoints**
+- a CLI adapter being integrated does not guarantee every role works with every version yet
+- authenticated remote execution and interactive runtime QA are not yet shipped
 
 If you need something polished, cross-platform, and enterprise-ready today, this is probably early for you.
 
@@ -438,57 +438,46 @@ If you enjoy software that is already useful while still being actively invented
 
 ---
 
-## Roadmap
+## Roadmap: from one machine to a whole crew
 
-There is no grand 47-phase master plan carved into stone tablets.
+Kool.ad/e began as a Linux desktop app with a planning board and isolated local coding agents. The next version of the idea is a **Git-backed, multi-operator, Docker-executed work manager**, with workers that can eventually run wherever you trust them.
 
-The current direction is roughly:
+**The distinction matters:** checked-in code and completed issues are not the same thing as a fully tested, released feature. The steps below describe the present system, active cutover work, and queued architecture without pretending the whole drink has been mixed.
 
-### More places to drink it
+```mermaid
+flowchart LR
+    A["01 · TODAY<br/>Linux desktop<br/>Git-backed planning<br/>Task clones + 6 CLI adapters"] --> B["02 · IN FLIGHT<br/>Standalone planning Git repos<br/>Multi-user sync + task claims<br/>Safe branch/PR coordination"]
+    B --> C["03 · QUEUED<br/>Docker-only tool execution<br/>CLI parity + reliable discovery<br/>Remote SSH workers"]
+    C --> D["04 · ON THE HORIZON<br/>Interactive visual / functional QA<br/>macOS + Windows hosts<br/>Smarter context + notifications"]
+```
 
-- [ ] macOS support
-- [ ] Windows support
-- [ ] improved packaging and installation
-- [ ] broader provider connectivity
+### 01. In the glass today
 
-### Better "hey, look at this" support
+Kanban planning, task-specific conversations, living specifications, six CLI integrations, independent Git clones, concurrent local execution, verification, and human-controlled publication. **Linux x86_64 with Bubblewrap remains the current execution environment.** Useful, but experimental.
 
-- [ ] richer desktop notifications
-- [ ] completion alerts
-- [ ] blocker / needs-attention alerts
-- [ ] better long-running task visibility
-- [ ] generally fewer reasons to stare at the board waiting for something to blink
+### 02. Currently being mixed: planning that survives multiple humans
 
-### Use fewer expensive rectangles of text
+Separate the **planning repository** from code repositories, normalize planning records into merge-friendly files, and make shared Git sync, task claims, branch/PR linkage, operator UX, and conflict recovery work across machines. The foundation is underway; remaining cutover work is tracked in [#116–#120](https://github.com/zbarno/kool.ade/issues/116).
 
-- [ ] smarter context selection
-- [ ] token optimization
-- [ ] better context reuse between planning operations
-- [ ] continued specification compaction
-- [ ] reduced agent context without reducing useful project knowledge
+The aim is one planning authority per workspace, with as many associated code repositories and participating operators as the workflow needs. No matter which branch you're on, the board shouldn't mysteriously become someone else's board.
 
-### All the codes™
+### 03. Next major architectural upgrade: Docker everywhere work executes
 
-- [ ] Codex CLI
-- [ ] OpenCode
-- [ ] Claude Code
-- [ ] additional agent harnesses
-- [ ] cleaner harness capability discovery
-- [ ] whatever code agent CLI launches next Tuesday
+Move all repository tooling to a single Docker-backed execution policy; remove Bubblewrap after the replacement is verified. Give **all six CLIs** the same approved capabilities for every role, fix fragile CLI scanning and host-code-mode failures, provision dependencies through controlled brokers, then add authenticated **remote Linux Docker workers over SSH**. Workspaces and evidence travel via verified transfers; provider secrets and Git publication authority do not.
 
-### Eventually
+This is the [Docker migration series, #133–#146](https://github.com/zbarno/kool.ade/issues/133), with dedicated [remote worker transport](https://github.com/zbarno/kool.ade/issues/139) and [verified workspace synchronization](https://github.com/zbarno/kool.ade/issues/140) issues.
 
-- [ ] multi-operator workflows
-- [ ] richer project notifications and integrations
-- [ ] continued improvements to autonomous planning and execution
-- [ ] things discovered by actually using this instead of pretending the roadmap can predict the future
+**Docker is the destination, not a current installation requirement.** Remote workers are queued, not shipping.
 
-The roadmap is intentionally flexible.
+### 04. After the foundation: agents that check their own homework
 
-Kool.ad/e plans software for a living. It would be embarrassing if its own roadmap couldn't change.
+Autonomous runtime QA should launch a finished app, interact with the UI, inspect visuals and behavior, capture evidence, and send defects back through controlled repair loops. Browser automation and containerized Linux UI tests come first; native platform-specific testing will need additional workers and drivers.
+
+Also in the mix: **macOS and Windows controller support**, better completion/blocker alerts, improved context selection and token economics, smarter model and harness routing, and more coding CLIs.
+
+No telepathic requirements gathering. We're keeping that one in research.
 
 ---
-
 ## Install
 
 ### Requirements
@@ -552,7 +541,7 @@ Kool.ad/e intentionally keeps durable project knowledge close to the code.
 └── state/
 ```
 
-This contains the Git-backed planning state: specifications, changes, tasks, decisions, configuration, and workflow metadata.
+This is the **legacy embedded planning layout currently supported by existing workspaces**. The ongoing planning-repository cutover moves shared planning truth to an independent, per-workspace Git repository with one file per mutable record, leaving code branches and checkouts independent. See [the planning repository contract](docs/planning-repository-v1.md) and [cutover issue #120](https://github.com/zbarno/kool.ade/issues/120).
 
 ### Outside the repository
 
@@ -579,7 +568,9 @@ Kool.ad/e is a native Rust application using:
 - **Git** as the durable history substrate
 - **Markdown** for human-readable planning artifacts
 - external coding-agent CLIs through the `AiHarness` boundary
-- **Bubblewrap** for Linux execution isolation
+- **Bubblewrap** for current Linux execution isolation
+
+**Target architecture (queued, not yet shipped):** the same Rust planning and harness layers backed by a Docker-only local/remote execution service, authenticated SSH workers, bounded dependency and evidence flows, and independent shared planning Git repositories. Bubblewrap will be removed after the Docker security and migration gates pass.
 
 There is no embedded LLM.
 
