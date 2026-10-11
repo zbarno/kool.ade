@@ -119,11 +119,21 @@ fn refresh_pr_with_store(
         return save(&dir, &state);
     }
     state.pr_check_attempted_at = Some(chrono::Utc::now().to_rfc3339());
-    let result = (|| -> anyhow::Result<(PullRequestState, Option<String>)> {
+    let result = (|| -> anyhow::Result<(
+        PullRequestState,
+        Option<String>,
+        Option<super::PullRequestDetails>,
+    )> {
         let output = runner.command(
             &target_repo,
             &runner.gh,
-            &["pr", "view", &url, "--json", "state,mergeCommit"],
+            &[
+                "pr",
+                "view",
+                &url,
+                "--json",
+                "state,mergeCommit,number,headRefOid,baseRefName",
+            ],
         )?;
         let value: serde_json::Value = serde_json::from_str(&output)?;
         let status = value["state"]
@@ -134,10 +144,26 @@ fn refresh_pr_with_store(
             .as_str()
             .filter(|oid| !oid.is_empty())
             .map(str::to_owned);
-        Ok((status, merged))
+        let details = match (
+            value["number"].as_u64(),
+            value["headRefOid"].as_str(),
+            value["baseRefName"].as_str(),
+        ) {
+            (Some(number), Some(head_sha), Some(base_branch))
+                if number > 0 && valid_sha(head_sha) && !base_branch.is_empty() =>
+            {
+                Some(super::PullRequestDetails {
+                    number,
+                    head_sha: head_sha.to_owned(),
+                    base_branch: base_branch.to_owned(),
+                })
+            }
+            _ => None,
+        };
+        Ok((status, merged, details))
     })();
     match result {
-        Ok((pull_request, merged)) => {
+        Ok((pull_request, merged, details)) => {
             state.status = match pull_request {
                 PullRequestState::Merged => ImplementationStatus::Completed,
                 PullRequestState::Closed => ImplementationStatus::PullRequestClosed,
@@ -147,6 +173,9 @@ fn refresh_pr_with_store(
             if merged.is_some() {
                 state.merged_commit = merged;
             }
+            if details.is_some() {
+                state.pr_details = details;
+            }
             state.pr_checked_at = Some(chrono::Utc::now().to_rfc3339());
             state.pr_check_error = None;
             publication::update_pull_request_detail(&mut state);
@@ -155,4 +184,8 @@ fn refresh_pr_with_store(
     }
     cleanup::run(&target_repo, &dir, &mut state, runner);
     save(&dir, &state)
+}
+
+fn valid_sha(sha: &str) -> bool {
+    matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

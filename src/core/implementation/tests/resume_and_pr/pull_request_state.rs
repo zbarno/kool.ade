@@ -20,9 +20,14 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
     let merge_commit = "0123456789abcdef0123456789abcdef01234567";
     for (value, column) in [("CLOSED", 3), ("OPEN", 2), ("MERGED", 4)] {
         let response = if value == "MERGED" {
-            format!(
-                "#!/bin/sh\nprintf '%s\\n' '{{\"state\":\"MERGED\",\"mergeCommit\":{{\"oid\":\"{merge_commit}\"}}}}'\n"
-            )
+            let payload = serde_json::json!({
+                "state": "MERGED",
+                "mergeCommit": {"oid": merge_commit},
+                "number": 1,
+                "headRefOid": "f".repeat(40),
+                "baseRefName": "main"
+            });
+            format!("#!/bin/sh\nprintf '%s\\n' '{payload}'\n")
         } else {
             format!("#!/bin/sh\nprintf '%s\\n' '{{\"state\":\"{value}\"}}'\n")
         };
@@ -37,6 +42,10 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
         assert!(state.detail.contains("Pull request status:"));
         if value == "MERGED" {
             assert_eq!(state.merged_commit.as_deref(), Some(merge_commit));
+            let details = state.pr_details.as_ref().unwrap();
+            assert_eq!(details.number, 1);
+            assert_eq!(details.head_sha, "f".repeat(40));
+            assert_eq!(details.base_branch, "main");
             assert!(
                 state
                     .detail

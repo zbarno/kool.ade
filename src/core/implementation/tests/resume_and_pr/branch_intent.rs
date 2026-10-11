@@ -55,25 +55,25 @@ fn save_branch_intent(sandbox: &Sandbox, source: &str, destination: &str) {
 }
 
 #[test]
-fn selected_source_starts_the_task_and_distinct_destination_is_reconciled_and_used_for_pr() {
+fn release_1_2_source_and_develop_destination_are_honored_exactly() {
     let sandbox = Sandbox::new();
-    sandbox.git(&sandbox.repo, &["branch", "release/2.1"]);
-    sandbox.git(&sandbox.repo, &["checkout", "release/2.1"]);
+    sandbox.git(&sandbox.repo, &["branch", "release/1.2"]);
+    sandbox.git(&sandbox.repo, &["checkout", "release/1.2"]);
     fs::write(sandbox.repo.join("source.txt"), "source only\n").unwrap();
     sandbox.git(&sandbox.repo, &["add", "."]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "source update"]);
-    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "release/2.1"]);
+    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "release/1.2"]);
     sandbox.git(&sandbox.repo, &["checkout", "main"]);
-    sandbox.git(&sandbox.repo, &["branch", "integration"]);
-    sandbox.git(&sandbox.repo, &["checkout", "integration"]);
+    sandbox.git(&sandbox.repo, &["branch", "develop"]);
+    sandbox.git(&sandbox.repo, &["checkout", "develop"]);
     fs::write(sandbox.repo.join("destination.txt"), "destination only\n").unwrap();
     sandbox.git(&sandbox.repo, &["add", "."]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "destination update"]);
-    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "integration"]);
+    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "develop"]);
     let destination_head = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
     sandbox.git(&sandbox.repo, &["checkout", "main"]);
 
-    save_branch_intent(&sandbox, "release/2.1", "integration");
+    save_branch_intent(&sandbox, "release/1.2", "develop");
 
     let state = sandbox
         .run_with_publication_policy(
@@ -84,10 +84,18 @@ fn selected_source_starts_the_task_and_distinct_destination_is_reconciled_and_us
             false,
         )
         .unwrap();
-    assert_eq!(state.source_branch.as_deref(), Some("release/2.1"));
-    assert_eq!(state.destination_branch.as_deref(), Some("integration"));
-    assert_eq!(state.base, "integration");
+    assert_eq!(state.source_branch.as_deref(), Some("release/1.2"));
+    assert_eq!(state.source_ref.as_deref(), Some("release/1.2"));
+    assert_eq!(state.destination_branch.as_deref(), Some("develop"));
+    assert_eq!(state.base, "develop");
     assert_eq!(state.base_commit, destination_head);
+    let pull_request = state.pr_details.as_ref().unwrap();
+    assert_eq!(pull_request.number, 1);
+    assert_eq!(
+        pull_request.head_sha,
+        state.verified_head.as_deref().unwrap()
+    );
+    assert_eq!(pull_request.base_branch, "develop");
     assert!(state.task_repository.join("destination.txt").exists());
     assert!(state.task_repository.join("source.txt").exists());
     assert!(state.task_repository.join("implemented.txt").exists());
@@ -114,7 +122,7 @@ fn selected_source_starts_the_task_and_distinct_destination_is_reconciled_and_us
         args.lines()
             .collect::<Vec<_>>()
             .windows(2)
-            .any(|pair| pair == ["--base", "integration"])
+            .any(|pair| pair == ["--base", "develop"])
     );
 }
 
@@ -267,11 +275,15 @@ fn missing_selected_destination_needs_attention_during_final_reconciliation() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("Selected destination branch 'release/deleted'"));
+    assert!(error.contains("code repository"));
     assert!(!sandbox.root.join("pr-created").exists());
+    let saved = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    assert_eq!(saved.status, ImplementationStatus::Blocked);
+    assert!(saved.task_repository.exists());
 }
 
 #[test]
-fn pinned_source_commit_allows_resume_after_source_branch_is_deleted() {
+fn deleted_pinned_source_needs_attention_then_retries_after_ref_is_restored() {
     let sandbox = Sandbox::new();
     sandbox.git(&sandbox.repo, &["branch", "release/2.1"]);
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "release/2.1"]);
@@ -282,11 +294,29 @@ fn pinned_source_commit_allows_resume_after_source_branch_is_deleted() {
     let pinned_source = saved.source_commit.clone().unwrap();
     sandbox.git(&sandbox.repo, &["push", "origin", ":release/2.1"]);
     sandbox.git(&sandbox.repo, &["branch", "-D", "release/2.1"]);
-    let resumed = sandbox.run("complete", calls.clone()).unwrap();
-    assert_eq!(resumed.source_ref.as_deref(), Some("release/2.1"));
+    let error = sandbox
+        .run("complete", calls.clone())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Selected source branch 'release/2.1'"));
+    assert!(error.contains("code repository"));
+    assert!(error.contains("task clone was preserved"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let resumed = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    assert_eq!(resumed.status, ImplementationStatus::Blocked);
     assert_eq!(
         resumed.source_commit.as_deref(),
         Some(pinned_source.as_str())
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(resumed.task_repository.exists());
+
+    sandbox.git(&sandbox.repo, &["branch", "release/2.1", &pinned_source]);
+    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "release/2.1"]);
+    let retried = sandbox.run("complete", calls.clone()).unwrap();
+    assert_eq!(
+        retried.source_commit.as_deref(),
+        Some(pinned_source.as_str())
+    );
+    assert!(retried.task_repository.join("implemented.txt").exists());
+    assert!(sandbox.root.join("pr-created").exists());
 }

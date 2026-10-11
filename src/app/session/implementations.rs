@@ -131,7 +131,17 @@ fn changed_status_baselines(
             previous.get(ticket).and_then(|before| {
                 (before.status != state.status
                     || before.pr_state != state.pr_state
-                    || before.task_uid != state.task_uid)
+                    || before.task_uid != state.task_uid
+                    || before.repository_id != state.repository_id
+                    || before.source_ref != state.source_ref
+                    || before.source_commit != state.source_commit
+                    || before.destination_branch != state.destination_branch
+                    || before.base != state.base
+                    || before.branch != state.branch
+                    || before.pr_url != state.pr_url
+                    || before.pr_details != state.pr_details
+                    || before.verified_head != state.verified_head
+                    || before.merged_commit != state.merged_commit)
                     .then(|| (ticket.clone(), before.clone()))
             })
         })
@@ -186,6 +196,14 @@ mod tests {
                 dependency_uids: Vec::new(),
                 status: crate::core::planning_work::WorkStatus::Todo,
                 execution_status: None,
+                source_branch: None,
+                source_sha: None,
+                destination_branch: None,
+                implementation_branch: None,
+                publication_status:
+                    crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
+                pull_requests: Vec::new(),
+                legacy_linkage: false,
                 revision: 1,
             }),
             metadata_error: None,
@@ -234,6 +252,7 @@ mod tests {
             auto_merge: false,
             merged_commit: None,
             pr_state: None,
+            pr_details: None,
             pr_checked_at: None,
             pr_check_attempted_at: None,
             pr_check_error: None,

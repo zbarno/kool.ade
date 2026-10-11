@@ -83,9 +83,6 @@ pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {
         ) else {
             return Ok(None);
         };
-        if record.status != ImplementationStatus::Completed || record.merged_commit.is_none() {
-            return Ok(None);
-        }
         anyhow::ensure!(
             crate::artifacts::task_docs::visible_content(&String::from_utf8(
                 state.planning_store.read_planning_path(&path)?,
@@ -94,10 +91,65 @@ pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {
         );
         tasks.push(record);
     }
+    if !all_required_repositories_merged(&tasks) {
+        return Ok(None);
+    }
     Ok(Some(Candidate {
         feature_id: feature_id.clone(),
         batch_directory: batch.directory.clone(),
         contract,
         tasks,
     }))
+}
+
+fn all_required_repositories_merged(tasks: &[crate::core::implementation::Implementation]) -> bool {
+    !tasks.is_empty()
+        && tasks.iter().all(|task| {
+            task.status == ImplementationStatus::Completed && task.merged_commit.is_some()
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::all_required_repositories_merged;
+    use crate::core::implementation::Implementation;
+
+    fn task(repository_id: &str, status: &str, merged_commit: Option<&str>) -> Implementation {
+        serde_json::from_value(serde_json::json!({
+            "ticket": format!("{repository_id}.md"),
+            "ticket_text": "",
+            "branch": "koolade/task",
+            "base": "main",
+            "base_commit": "0000000000000000000000000000000000000000",
+            "task_repository": "/tmp/koolade-task",
+            "status": status,
+            "detail": "",
+            "pr_url": null,
+            "verified_head": null,
+            "repository_id": repository_id,
+            "merged_commit": merged_commit
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_multi_repository_feature_waits_for_every_story_merge() {
+        let first = task(
+            "api",
+            "completed",
+            Some("1111111111111111111111111111111111111111"),
+        );
+        let second_open = task("web", "awaiting_review", None);
+        assert!(!all_required_repositories_merged(&[
+            first.clone(),
+            second_open
+        ]));
+
+        let second = task(
+            "web",
+            "completed",
+            Some("2222222222222222222222222222222222222222"),
+        );
+        assert!(all_required_repositories_merged(&[first, second]));
+    }
 }
