@@ -58,6 +58,7 @@ use task::read_ticket;
 #[cfg(test)]
 use task::scoped_product_context;
 pub(crate) use task::task_repository_id;
+pub(crate) use task::task_repository_id_with_store;
 pub use task::{completed_dependency_context, target_repository};
 pub(crate) use task::{
     completed_dependency_context_with_store, scoped_product_context_with_store,

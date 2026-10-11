@@ -301,11 +301,16 @@ workspace-qualified, equivalent to
 `refs/heads/koolade/claims/<workspace_uuid>/<task_uid>`. Its payload records
 the workspace and task UIDs, operator/session UUID, code repository ID, base
 commit SHA, and UTC issue and expiry times. Acquisition has one winner;
-renewal and stale takeover compare against the current ref so an expired
-worker cannot publish after losing its lease. Existing isolated code clones
-remain the execution environment. Legacy task-only claims on code remotes are
-not shared planning authority, but remain usable while an existing worker is
-running under them.
+renewal and stale takeover compare against the current ref. A worker verifies
+the planning lease before and after publication. When the planning and code
+push destinations are the same Git remote, the candidate branch and claim
+renewal are pushed atomically. With different remotes, a takeover between the
+pre-push check and completion of the code push can leave the candidate branch
+on the code remote; the post-push check prevents pull-request creation but
+cannot retract a branch already accepted by that remote. Existing isolated
+code clones remain the execution environment. Legacy task-only claims on code
+remotes are not shared planning authority, but remain usable while an existing
+worker is running under them.
 
 The current legacy claim ref is
 `refs/heads/koolade/claims/<task_uid>` on the task's code-repository remote.

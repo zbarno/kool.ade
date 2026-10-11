@@ -1,5 +1,7 @@
 use super::*;
 use crate::artifacts::planning_store::{PlanningRoot, PlanningStore};
+mod repository_id;
+pub(crate) use repository_id::task_repository_id_with_store;
 
 #[cfg(test)]
 pub(super) fn read_ticket(repo: &Path, ticket: &str) -> anyhow::Result<String> {
@@ -69,9 +71,8 @@ pub(crate) fn target_repository_with_store(
     code_root: &Path,
     ticket: &str,
 ) -> anyhow::Result<PathBuf> {
-    let (text, _, metadata) = read_ticket_and_identity(planning_store, ticket)?;
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-    let id = task_repository_id(&text, metadata.as_ref(), &manifest)?;
+    let id = task_repository_id_with_store(planning_store, ticket)?;
     manifest.target(code_root, &id)
 }
 

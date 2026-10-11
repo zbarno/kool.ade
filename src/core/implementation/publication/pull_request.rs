@@ -141,6 +141,9 @@ pub(in crate::core::implementation) fn create_pull_request(
             &["push", "--set-upstream", "origin", &state.branch],
         )?;
     }
+    // The planning and code remotes cannot commit atomically. Recheck the
+    // planning lease after the code ref push and before publishing a PR.
+    verify_claim(claim_lease)?;
     if let Some(pr) = existing.first() {
         anyhow::ensure!(
             pr["state"] != "CLOSED",
@@ -148,9 +151,8 @@ pub(in crate::core::implementation) fn create_pull_request(
         );
         state.pr_url = pr["url"].as_str().map(String::from);
     } else {
-        // The candidate branch and renewed claim were pushed atomically. The
-        // GitHub API cannot join that Git transaction, so recheck immediately
-        // before creating the PR; takeover can still race this API call.
+        // The GitHub API cannot join the planning or code Git transactions, so
+        // recheck immediately before creating the PR.
         verify_claim(claim_lease)?;
         let body = dir.join("pr-body.md");
         let url = runner.command(
@@ -212,7 +214,7 @@ fn lease_lost_error(error: crate::core::task_claim::ClaimError) -> anyhow::Error
         super::FailureKind::LeaseLost,
         super::RecoveryDisposition::UserAction,
         format!(
-            "The remote task claim was lost or could not be verified. No publication was made. Recover the current task claim before retrying. {error}"
+            "The planning task claim was lost or could not be verified. No pull request was created; a code branch may already have been pushed before the lease loss was detected. Recover the current task claim before retrying. {error}"
         ),
     )))
 }

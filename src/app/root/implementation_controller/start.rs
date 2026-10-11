@@ -4,21 +4,6 @@ mod claim;
 mod review;
 
 impl KooladeApp {
-    pub(in crate::app::root) fn take_over_stale_task_claim(&mut self, ticket: String) {
-        let session = match &self.screen {
-            Screen::Connected(project) => project
-                .queue
-                .stale_claim
-                .as_ref()
-                .filter(|(claimed_ticket, _)| claimed_ticket == &ticket)
-                .map(|(_, record)| record.session_id.clone()),
-            Screen::Welcome => None,
-        };
-        let Some(session) = session else { return };
-        let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session), false);
-    }
-
     fn start_implementation_with_claim_mode(
         &mut self,
         ticket: String,
@@ -94,8 +79,23 @@ impl KooladeApp {
                 p.queue.last_error = error;
                 return;
             }
+            let code_repository_id =
+                match crate::core::implementation::task_repository_id_with_store(
+                    &p.state.planning_store,
+                    &ticket,
+                ) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        let message = format!("Cannot identify the task code repository: {error}");
+                        p.queue.last_error = message.clone();
+                        self.toasts.warning(message);
+                        return;
+                    }
+                };
             let claim_request = match claim::prepare(
-                &p.state.repo_root,
+                &p.state.planning_store,
+                &target_repo,
+                &code_repository_id,
                 &p.task_documents,
                 &ticket,
                 stale_session.as_deref(),
@@ -147,9 +147,9 @@ impl KooladeApp {
             } else {
                 crate::core::implementation::PublicationMode::HoldForReview
             };
-            let require_independent_checks = publication_mode
-                == crate::core::implementation::PublicationMode::AutoPublish
-                || p.queue.require_independent_checks;
+            let require_independent_checks = !allow_offline
+                && (publication_mode == crate::core::implementation::PublicationMode::AutoPublish
+                    || p.queue.require_independent_checks);
             if p.queue_lock.is_none() {
                 match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
                     Ok(lock) => p.queue_lock = Some(lock),

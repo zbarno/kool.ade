@@ -1,11 +1,14 @@
 use crate::{
+    artifacts::planning_store::{PlanningStore, StoreMode},
     artifacts::task_docs::TaskDocument,
-    core::task_claim::{ClaimError, ClaimRequest},
+    core::task_claim::{ClaimError, ClaimRequest, ClaimScope},
 };
 use std::path::Path;
 
 pub(super) fn prepare(
-    repo: &Path,
+    planning_store: &PlanningStore,
+    code_repo: &Path,
+    code_repository_id: &str,
     documents: &[TaskDocument],
     ticket: &str,
     stale_session: Option<&str>,
@@ -19,7 +22,7 @@ pub(super) fn prepare(
         .unwrap_or_else(|| legacy_path_identity(ticket));
     let output = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
-        .current_dir(repo)
+        .current_dir(code_repo)
         .output()
         .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
     let base_commit = if output.status.success() {
@@ -27,22 +30,33 @@ pub(super) fn prepare(
     } else {
         let worktree = std::process::Command::new("git")
             .args(["rev-parse", "--is-inside-work-tree"])
-            .current_dir(repo)
+            .current_dir(code_repo)
             .output()
             .map_err(|error| ClaimError::CoordinationRejected(error.to_string()))?;
         if worktree.status.success() && worktree.stdout.trim_ascii() == b"true" {
-            "unborn".to_owned()
+            // Git's all-zero object ID represents an unborn base while keeping
+            // the shared claim payload in the same SHA format as committed bases.
+            "0000000000000000000000000000000000000000".to_owned()
         } else {
             return Err(ClaimError::CoordinationRejected(
                 "Cannot determine the base commit for a cross-clone task claim".into(),
             ));
         }
     };
+    let scope = match planning_store.mode {
+        StoreMode::ManagedShared => ClaimScope::SharedRequired,
+        StoreMode::ManagedLocal => ClaimScope::LocalOnly,
+        StoreMode::LegacyEmbedded => ClaimScope::SharedOptional,
+    };
     Ok(ClaimRequest::new(
-        repo.to_owned(),
+        planning_store.git_root(),
+        code_repo.to_owned(),
+        planning_store.project_id,
         task_uid,
+        code_repository_id.to_owned(),
         base_commit,
         stale_session.map(str::to_owned),
+        scope,
         allow_offline,
     ))
 }
