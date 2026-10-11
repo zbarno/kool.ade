@@ -54,12 +54,8 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
     for (id, body) in &state.active_features {
         let metadata = crate::domain::ChangeMetadata::require_markdown(body)
             .expect("loaded active changes always have validated structured status");
-        let contract = crate::core::workflow::feature_contract(body);
-        let approved = state
-            .workflow
-            .approved_features
-            .get(id)
-            .is_some_and(|saved| *saved == contract);
+        let approved =
+            crate::core::workflow::feature_approved(&state.planning_store, &state.workflow, id);
         let status = match metadata.status {
             crate::domain::ChangeStatus::Draft | crate::domain::ChangeStatus::Ready if approved => {
                 WorkStatus::Done

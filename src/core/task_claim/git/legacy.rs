@@ -68,6 +68,7 @@ pub(in crate::core::task_claim) fn remove_expired_legacy_claim(
         repo,
         &[
             "push",
+            "--no-verify",
             "--porcelain",
             &lease,
             &claim.remote,

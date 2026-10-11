@@ -1,15 +1,14 @@
 use super::*;
 
 fn git(repo: &Path, args: &[&str]) -> anyhow::Result<String> {
-    let output = std::process::Command::new("git")
+    let output = crate::core::planning_sync::validated_git_command(repo)?
         .args(args)
-        .current_dir(repo)
         .output()?;
     anyhow::ensure!(
         output.status.success(),
         "git {} failed: {}",
         args.join(" "),
-        String::from_utf8_lossy(&output.stderr)
+        crate::error::redact_secrets(&String::from_utf8_lossy(&output.stderr))
     );
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
@@ -44,12 +43,18 @@ pub(super) fn implementation_evidence(
         )?;
         let paths = git(
             &repository,
-            &["diff", "--name-only", &task.base_commit, merged],
+            &[
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--name-only",
+                &task.base_commit,
+                merged,
+            ],
         )?;
         text.push_str(&format!(
-            "\nTask: {}\nTarget checkout: {}\nBase: {}\nMerged: {}\nChanged paths:\n{}\n",
+            "\nTask: {}\nBase: {}\nMerged: {}\nChanged paths:\n{}\n",
             task.ticket,
-            repository.display(),
             task.base_commit,
             merged,
             paths.lines().take(150).collect::<Vec<_>>().join("\n")

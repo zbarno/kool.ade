@@ -1,5 +1,7 @@
 use serde_json::{Map, Value};
 
+const MAX_RECORD_BYTES: usize = 4 * 1024 * 1024;
+
 pub(super) fn semantic_fields(value: &Value) -> Value {
     let mut fields = value.clone();
     if let Some(object) = fields.as_object_mut() {
@@ -10,6 +12,10 @@ pub(super) fn semantic_fields(value: &Value) -> Value {
 }
 
 pub(super) fn decode_record(bytes: &[u8], path: &str, expected_uid: &str) -> anyhow::Result<Value> {
+    anyhow::ensure!(
+        bytes.len() <= MAX_RECORD_BYTES,
+        "record {path} exceeds the 4 MiB planning record limit"
+    );
     let value: Value = serde_json::from_slice(bytes)
         .map_err(|error| anyhow::anyhow!("record {path} is malformed: {error}"))?;
     let object = value

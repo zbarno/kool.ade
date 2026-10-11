@@ -27,7 +27,14 @@ pub fn acquire(
     validate_remote(repo, &remote)?;
     let pushed = run(
         repo,
-        &["push", "--porcelain", &lease, &remote, &refspec],
+        &[
+            "push",
+            "--no-verify",
+            "--porcelain",
+            &lease,
+            &remote,
+            &refspec,
+        ],
         None,
     )?;
     if pushed.status.success() {
@@ -175,7 +182,14 @@ fn take_over_stale_inner(
     validate_remote(repo, &remote)?;
     let pushed = run(
         repo,
-        &["push", "--porcelain", &lease, &remote, &refspec],
+        &[
+            "push",
+            "--no-verify",
+            "--porcelain",
+            &lease,
+            &remote,
+            &refspec,
+        ],
         None,
     )?;
     if pushed.status.success() {

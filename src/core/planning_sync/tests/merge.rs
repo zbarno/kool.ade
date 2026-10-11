@@ -61,6 +61,16 @@ fn malformed_record_is_rejected_before_a_merge_fast_path() {
 }
 
 #[test]
+fn oversized_remote_record_is_rejected_before_json_parsing() {
+    let uid = uuid::Uuid::new_v4();
+    let path = work_path(uid);
+    let oversized = vec![b' '; 4 * 1024 * 1024 + 1];
+    assert!(
+        crate::core::planning_sync::merge::validate_record_file(&path, Some(&oversized)).is_err()
+    );
+}
+
+#[test]
 fn noncanonical_uid_path_cannot_bypass_record_validation() {
     let mutation = RecordMutation {
         path: "state/work/not-a-uuid.json".into(),

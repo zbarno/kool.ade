@@ -17,6 +17,7 @@ pub(crate) use creation::CreationFailurePoint;
 pub use manager::{
     CodeRepositoryRegistration, LocalWorkspaceSummary, ManagedWorkspace, WorkspaceManager,
 };
+pub(crate) use manifest::MAX_MANIFEST_BYTES;
 pub use manifest::WorkspaceManifest;
 pub use migration::{MigrationConflictPreview, MigrationPreview, MigrationReport, RollbackOutcome};
 

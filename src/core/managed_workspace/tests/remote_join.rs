@@ -2,6 +2,57 @@ use super::support::{TestDirectory, code_checkout, git_ok, registration};
 use std::{fs, path::Path};
 
 #[test]
+fn remote_join_rejects_an_oversized_workspace_manifest_before_deserializing_it() {
+    let temp = TestDirectory::new("remote-oversized-manifest");
+    let manager = temp.manager("joiner");
+    let remote = temp.path.join("remotes/oversized.git");
+    let seed = temp.path.join("seed");
+    fs::create_dir_all(&seed).unwrap();
+    git_ok(
+        None,
+        &[
+            "init",
+            "--quiet",
+            "--initial-branch=main",
+            "--",
+            path_str(&seed),
+        ],
+    );
+    fs::write(
+        seed.join("manifest.json"),
+        vec![b'x'; super::super::manifest::MAX_MANIFEST_BYTES + 1],
+    )
+    .unwrap();
+    git_ok(Some(&seed), &["add", "manifest.json"]);
+    git_ok(
+        Some(&seed),
+        &[
+            "-c",
+            "user.name=Koolade Test",
+            "-c",
+            "user.email=koolade@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "oversized manifest fixture",
+        ],
+    );
+    fs::create_dir_all(remote.parent().unwrap()).unwrap();
+    git_ok(
+        None,
+        &["init", "--bare", "--quiet", "--", path_str(&remote)],
+    );
+    git_ok(Some(&seed), &["remote", "add", "origin", path_str(&remote)]);
+    git_ok(Some(&seed), &["push", "--quiet", "origin", "main"]);
+    git_ok(Some(&remote), &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+    let error = manager.join_remote(&remote.to_string_lossy()).unwrap_err();
+
+    assert!(format!("{error:#}").contains("manifest exceeds the 64 KiB size limit"));
+    assert!(manager.list_local().unwrap().is_empty());
+}
+
+#[test]
 fn remote_join_rejects_an_invalid_project_manifest_before_creating_local_state() {
     let _shield = crate::core::gitops::test_support::shield_with_synthetic_identity(
         "remote-join-invalid-project-manifest",
@@ -81,16 +132,42 @@ fn two_operators_join_a_published_workspace_from_remote_without_shared_local_pat
     owner
         .register_code_repository(workspace.id, registration("application", checkout, None))
         .unwrap();
+    let mut manifest = workspace.manifest.clone();
+    manifest.canonical_ref = "refs/heads/planning".into();
+    fs::write(
+        workspace.planning_repo.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    git_ok(Some(&workspace.planning_repo), &["add", "manifest.json"]);
+    git_ok(
+        Some(&workspace.planning_repo),
+        &[
+            "-c",
+            "user.name=Koolade Test",
+            "-c",
+            "user.email=koolade@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "use non-default canonical branch",
+        ],
+    );
+    git_ok(Some(&workspace.planning_repo), &["branch", "planning"]);
+    git_ok(Some(&workspace.planning_repo), &["checkout", "planning"]);
     let remote = temp.path.join("remotes/planning.git");
     init_main_bare_remote(&remote);
     let remote_url = remote.to_string_lossy().into_owned();
     owner
         .set_planning_remote(workspace.id, &remote_url)
         .unwrap();
-    let first_sync = owner.sync_planning(workspace.id).unwrap();
-    assert_eq!(
-        first_sync.state,
-        crate::core::planning_sync::PlanningSyncState::Synced
+    git_ok(
+        Some(&workspace.planning_repo),
+        &["push", "--quiet", "origin", "main"],
+    );
+    git_ok(
+        Some(&workspace.planning_repo),
+        &["push", "--quiet", "origin", "planning"],
     );
 
     let joined = joiner

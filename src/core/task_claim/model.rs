@@ -140,10 +140,18 @@ impl std::fmt::Display for ClaimError {
                 )
             }
             Self::RemoteUnavailable(detail) => {
-                write!(f, "Cross-clone claim check failed: {detail}")
+                write!(
+                    f,
+                    "Cross-clone claim check failed: {}",
+                    crate::error::redact_secrets(detail)
+                )
             }
             Self::CoordinationRejected(detail) => {
-                write!(f, "Cross-clone claim was not acquired safely: {detail}")
+                write!(
+                    f,
+                    "Cross-clone claim was not acquired safely: {}",
+                    crate::error::redact_secrets(detail)
+                )
             }
         }
     }

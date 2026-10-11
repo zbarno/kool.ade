@@ -178,12 +178,9 @@ pub fn workflow_context_for_turn(
         .saturating_sub(selected_features.len());
     let mut feature_status = selected_features
         .iter()
-        .map(|(id, body)| {
-            let approved = state
-                .workflow
-                .approved_features
-                .get(id)
-                .is_some_and(|saved| *saved == crate::core::workflow::feature_contract(body));
+        .map(|(id, _body)| {
+            let approved =
+                crate::core::workflow::feature_approved(&state.planning_store, &state.workflow, id);
             format!(
                 "{id}: {}",
                 if approved {

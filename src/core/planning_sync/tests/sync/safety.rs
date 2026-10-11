@@ -51,6 +51,17 @@ fn git_snapshot_reader_distinguishes_missing_files_from_invalid_commits() {
 }
 
 #[test]
+fn git_snapshot_reader_rejects_oversized_remote_blobs_before_loading_them() {
+    let fixture = Fixture::new();
+    let record = work_path(fixture.work_id);
+    let path = fixture.first.join(&record);
+    fs::write(&path, vec![b'x'; 8 * 1024 * 1024 + 1]).unwrap();
+    super::super::support::commit_all(&fixture.first, "oversized planning record");
+    let head = crate::core::planning_sync::git::head(&fixture.first).unwrap();
+    assert!(crate::core::planning_sync::git::read_path(&fixture.first, &head, &record).is_err());
+}
+
+#[test]
 fn local_planning_mode_does_not_create_shared_operations() {
     let fixture = Fixture::new();
     super::super::support::git(Some(&fixture.first), &["remote", "remove", "origin"]);

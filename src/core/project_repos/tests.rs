@@ -6,13 +6,13 @@ fn manifest_rejects_ambiguous_or_machine_specific_entries() {
             Repository {
                 id: "api".into(),
                 role: "Backend".into(),
-                remote: "git@example/api".into(),
+                remote: "git@example.test:team/api.git".into(),
                 display_name: None,
             },
             Repository {
                 id: "api".into(),
                 role: "Duplicate".into(),
-                remote: "git@example/other".into(),
+                remote: "git@example.test:team/other.git".into(),
                 display_name: None,
             },
         ],
@@ -25,6 +25,34 @@ fn manifest_rejects_ambiguous_or_machine_specific_entries() {
         display_name: None,
     };
     assert!(!valid_id(&path.id));
+}
+
+#[test]
+fn manifest_rejects_git_remote_helpers_and_option_injection() {
+    for remote in [
+        "ext::echo injected",
+        "custom-transport::payload",
+        "custom-transport://payload",
+        "--upload-pack=echo injected",
+        " --upload-pack=echo injected",
+        " /tmp/outside.git",
+        "https://example.test/repo.git ",
+        "../outside.git",
+        "repo.git",
+        "owner/repo.git",
+    ] {
+        let manifest = ProjectManifest {
+            repositories: vec![Repository {
+                id: "api".into(),
+                role: "Backend".into(),
+                remote: remote.into(),
+                display_name: None,
+            }],
+        };
+        assert!(manifest.validate().is_err(), "accepted {remote:?}");
+    }
+    assert!(portable_remote("git@example.test:team/repo.git"));
+    assert!(portable_remote("ssh://git@example.test/team/repo.git"));
 }
 
 #[test]
@@ -135,13 +163,13 @@ fn display_names_trim_and_duplicate_names_are_allowed() {
             Repository {
                 id: "api".into(),
                 role: "Backend".into(),
-                remote: "git@example/api".into(),
+                remote: "git@example.test:team/api.git".into(),
                 display_name: Some("  Shared label  ".into()),
             },
             Repository {
                 id: "web".into(),
                 role: "Frontend".into(),
-                remote: "git@example/web".into(),
+                remote: "git@example.test:team/web.git".into(),
                 display_name: Some("Shared label".into()),
             },
         ],

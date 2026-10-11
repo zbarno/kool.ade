@@ -1,6 +1,6 @@
 use std::{
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::Output,
 };
 
 pub(super) fn run(root: Option<&Path>, args: &[&str]) -> anyhow::Result<Output> {
@@ -15,16 +15,11 @@ pub(super) fn run(root: Option<&Path>, args: &[&str]) -> anyhow::Result<Output> 
 }
 
 pub(super) fn output(root: Option<&Path>, args: &[&str]) -> anyhow::Result<Output> {
-    let mut command = Command::new("git");
-    command.args(args);
-    if let Some(root) = root {
-        command.current_dir(root);
-    }
-    Ok(command
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .output()?)
+    let mut command = match root {
+        Some(root) => crate::core::planning_sync::validated_git_command(root)?,
+        None => crate::core::planning_sync::standalone_git_command(),
+    };
+    Ok(command.args(args).output()?)
 }
 
 pub(super) fn init_planning_repo(path: &Path) -> anyhow::Result<()> {
@@ -75,23 +70,12 @@ pub(super) fn status_paths(path: &Path) -> anyhow::Result<Vec<String>> {
 }
 
 pub(super) fn has_commit(path: &Path) -> anyhow::Result<bool> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--verify", "HEAD"])
-        .current_dir(path)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .output()?;
+    let output = output(Some(path), &["rev-parse", "--verify", "HEAD"])?;
     Ok(output.status.success())
 }
 
 pub(super) fn origin(path: &Path) -> Option<String> {
-    let output = Command::new("git")
-        .args(["config", "--get", "remote.origin.url"])
-        .current_dir(path)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .output()
-        .ok()?;
+    let output = output(Some(path), &["config", "--get", "remote.origin.url"]).ok()?;
     output
         .status
         .success()

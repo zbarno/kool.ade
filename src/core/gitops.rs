@@ -8,7 +8,7 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::error::AppError;
 
@@ -38,16 +38,19 @@ pub struct GitSnapshot {
 }
 
 fn run(cwd: &Path, args: &[&str]) -> Result<(i32, String, String), AppError> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
+    let mut guarded_args = args.to_vec();
+    if guarded_args.first() == Some(&"diff") {
+        guarded_args.splice(1..1, ["--no-ext-diff", "--no-textconv"]);
+    }
+    let out = crate::core::planning_sync::validated_git_command(cwd)
+        .map_err(|error| AppError::Git {
+            cmd: crate::error::redact_secrets(&format!("git {}", guarded_args.join(" "))),
+            detail: crate::error::redact_secrets(&error.to_string()),
+        })?
+        .args(&guarded_args)
         .output()
         .map_err(|e| AppError::Git {
-            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
+            cmd: crate::error::redact_secrets(&format!("git {}", guarded_args.join(" "))),
             detail: format!("git binary could not be launched: {e}"),
         })?;
     Ok((
@@ -62,13 +65,12 @@ pub(super) fn run_with_input(
     args: &[&str],
     input: &[u8],
 ) -> Result<(i32, String, String), AppError> {
-    let mut child = Command::new("git")
-        .arg("-C")
-        .arg(cwd)
+    let mut child = crate::core::planning_sync::validated_git_command(cwd)
+        .map_err(|error| AppError::Git {
+            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
+            detail: crate::error::redact_secrets(&error.to_string()),
+        })?
         .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -205,11 +207,23 @@ pub fn read_config(cwd: &Path, key: &str) -> Option<String> {
     if !is_work_tree(cwd) {
         return None;
     }
-    let (code, out, _) = run(cwd, &["config", key]).ok()?;
-    if code != 0 {
+    // Identity is intentionally resolved using the operator's standard Git
+    // config hierarchy. This read-only query cannot invoke hooks or helpers;
+    // preserve GIT_CONFIG_GLOBAL/SYSTEM so callers can isolate that hierarchy.
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["config", key])
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .output()
+        .ok()?;
+    if !output.status.success() {
         return None;
     }
-    let value = out.trim();
+    let value = String::from_utf8_lossy(&output.stdout);
+    let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
 }
 

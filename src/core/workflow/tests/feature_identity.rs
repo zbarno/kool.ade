@@ -82,6 +82,13 @@ fn legacy_store_routes_spec_edit_approval_and_task_generation_to_embedded_paths(
         );
     }
     let mut workflow = crate::artifacts::task_docs::load_workflow(&store).unwrap();
+    workflow.approved_features.insert(
+        "CHG-097".into(),
+        crate::core::workflow::feature_contract(&feature),
+    );
+    assert!(!crate::core::workflow::feature_approved(
+        &store, &workflow, "CHG-097"
+    ));
     crate::core::workflow::approve_feature(&store, &mut workflow, "CHG-097").unwrap();
     assert!(crate::core::workflow::feature_approved(
         &store, &workflow, "CHG-097"
@@ -165,6 +172,12 @@ fn brief_targeting_an_inactive_feature_cannot_generate_that_batch() {
     s.workflow
         .approved_features
         .insert("CHG-097".into(), feature_contract(&active));
+    crate::persistence::feature_approvals::record(
+        &s.repo_root,
+        "CHG-097",
+        &feature_contract(&active),
+    )
+    .unwrap();
     let mut b = brief();
     b.feature_name = "Other feature (CHG-098)".into();
     s.workflow.brief = Some(b);

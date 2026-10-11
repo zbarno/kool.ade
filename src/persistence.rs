@@ -13,6 +13,7 @@ pub mod archived_tasks;
 pub mod cancelled_work;
 pub mod chat_store;
 pub mod dependency_authorization;
+pub(crate) mod feature_approvals;
 pub mod harness_settings;
 pub mod persona;
 pub mod task_chats;

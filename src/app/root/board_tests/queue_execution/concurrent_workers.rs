@@ -77,6 +77,7 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "baseline"]);
     git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
+    git(&remote, &["config", "uploadpack.allowFilter", "true"]);
     let ssh = root.join("ssh-fixture");
     std::fs::write(
         &ssh,

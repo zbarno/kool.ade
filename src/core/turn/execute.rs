@@ -119,12 +119,13 @@ pub(super) fn run_turn(
             // Validate against the PRE-mutation snapshot.
             let user_replied_item_ids =
                 super::controller::user_replied_human_item_ids(&inputs.state, task);
-            match validation::validate_for_turn_with_resolutions(
+            match validation::validate_for_turn_with_user_message(
                 &env,
                 &inputs.state,
                 &user,
                 inputs.purpose,
                 &user_replied_item_ids,
+                &inputs.user_message,
             ) {
                 Err(problems) => TurnOutcome::Rejected {
                     problems,

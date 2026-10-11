@@ -11,6 +11,7 @@ use scope::{
 };
 
 const RECORD_SCHEMA_VERSION: u32 = 1;
+const MAX_WORKFLOW_RECORD_BYTES: usize = 4 * 1024 * 1024;
 
 #[cfg(test)]
 #[path = "record_files/tests.rs"]
@@ -53,7 +54,12 @@ pub(super) fn load_unlocked<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Resul
             .hyphenated()
             .to_string();
         let path = format!("{}/{uid}.json", paths::WORKFLOW_RECORDS);
-        let record: WorkflowRecord = serde_json::from_slice(&store.read(&path)?)?;
+        let bytes = store.read(&path)?;
+        anyhow::ensure!(
+            bytes.len() <= MAX_WORKFLOW_RECORD_BYTES,
+            "workflow record exceeds the 4 MiB size limit: {path}"
+        );
+        let record: WorkflowRecord = serde_json::from_slice(&bytes)?;
         anyhow::ensure!(
             record.schema_version == RECORD_SCHEMA_VERSION,
             "Unsupported workflow record schema version {} in {path}",
@@ -93,6 +99,10 @@ pub(super) fn load_unlocked<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Resul
 fn load_legacy<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Workflow> {
     match repo.read_planning(paths::WORKFLOW) {
         Ok(bytes) => {
+            anyhow::ensure!(
+                bytes.len() <= MAX_WORKFLOW_RECORD_BYTES,
+                "legacy workflow record exceeds the 4 MiB size limit"
+            );
             let text = String::from_utf8(bytes)?;
             let mut workflow: Workflow = serde_json::from_str(&text)?;
             normalize_legacy_batch_order(&mut workflow);

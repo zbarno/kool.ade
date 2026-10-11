@@ -114,7 +114,13 @@ fn fenced_push_inner(
     let candidate = format!("{commit}:{destination_ref}");
     let pushed = run(
         code_repo,
-        &["push", "--porcelain", &code_remote, &candidate],
+        &[
+            "push",
+            "--no-verify",
+            "--porcelain",
+            &code_remote,
+            &candidate,
+        ],
         None,
     )?;
     if pushed.status.success() {
@@ -166,6 +172,7 @@ fn fenced_push_same_remote(
         code_repo,
         &[
             "push",
+            "--no-verify",
             "--atomic",
             "--porcelain",
             &lease,

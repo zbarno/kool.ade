@@ -155,10 +155,14 @@ impl KooladeApp {
                         id,
                     )
                 {
-                    let reason = if project.state.workflow.approved_features.contains_key(id) {
+                    let reason = if crate::core::workflow::feature_approval_lapsed(
+                        &project.state.planning_store,
+                        &project.state.workflow,
+                        id,
+                    ) {
                         "approval lapsed after the feature document changed — re-run Approve feature for implementation"
                     } else {
-                        "no recorded approval — run Approve feature for implementation"
+                        "no recorded local approval receipt for the current feature contract — run Approve feature for implementation"
                     };
                     excluded.insert(doc.path.clone());
                     approval_notes.insert(format!("{0} (feature {id}): {reason}", doc.path));

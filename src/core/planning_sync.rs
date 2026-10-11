@@ -25,3 +25,17 @@ pub(crate) use runner::{
 };
 
 pub(crate) use runner::status_at as sync_status_at;
+
+pub(crate) fn validate_repository_config(repo: &std::path::Path) -> anyhow::Result<()> {
+    git::validate_repository_config(repo)
+}
+
+pub(crate) fn validated_git_command(
+    repo: &std::path::Path,
+) -> anyhow::Result<std::process::Command> {
+    git::validated_command(repo)
+}
+
+pub(crate) fn standalone_git_command() -> std::process::Command {
+    git::standalone_command()
+}

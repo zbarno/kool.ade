@@ -204,6 +204,9 @@ pub(super) fn verify_remote_manifest(
     let bytes = git::read_path(repo, commit, "manifest.json")
         .map_err(|_| FetchError::Incompatible)?
         .ok_or(FetchError::Incompatible)?;
+    if bytes.len() > crate::core::managed_workspace::MAX_MANIFEST_BYTES {
+        return Err(FetchError::Incompatible);
+    }
     let actual: WorkspaceManifest =
         serde_json::from_slice(&bytes).map_err(|_| FetchError::Incompatible)?;
     if actual.schema_version != 1

@@ -42,6 +42,9 @@ impl Fixture {
             &root,
             &["init", "-q", "--bare", planning_remote.to_str().unwrap()],
         );
+        for bare in [&remote, &planning_remote] {
+            git_at(bare, &["config", "uploadpack.allowFilter", "true"]);
+        }
         fs::create_dir(&seed).unwrap();
         git_at(&seed, &["init", "-q"]);
         git_at(&seed, &["config", "user.name", "Fixture User"]);

@@ -3,6 +3,117 @@ use crate::{
     harness::{RequestedAction, TurnEnvelope},
 };
 
+/// Bind model interpreted actions to a direct command in the current user
+/// message. Planning documents and earlier chat turns cannot satisfy this
+/// check because they are not passed here.
+pub(super) fn user_authorized(action: Option<&RequestedAction>, user_message: &str) -> bool {
+    let Some(action) = action else { return true };
+    let user_message = user_message
+        .strip_prefix("Task kind and guidance: ")
+        .and_then(|envelope| envelope.split_once(". User request: "))
+        .map(|(_, request)| {
+            request
+                .split_once("\n\n[Application project context:")
+                .map_or(request, |(request, _)| request)
+        })
+        .unwrap_or(user_message);
+    let mut message = user_message.trim().to_ascii_lowercase();
+    if message.ends_with('?')
+        || message.contains(['\'', '"', '`'])
+        || [
+            "do not ",
+            "don't ",
+            "never ",
+            "should i ",
+            "should we ",
+            "could i ",
+            "could you ",
+            "would ",
+            "if ",
+            "maybe ",
+        ]
+        .iter()
+        .any(|prefix| message.starts_with(prefix))
+    {
+        return false;
+    }
+    for prefix in ["please ", "kindly ", "go ahead and ", "yes, "] {
+        if let Some(stripped) = message.strip_prefix(prefix) {
+            message = stripped.trim_start().to_owned();
+            break;
+        }
+    }
+    let commands: &[&str] = match action.action {
+        crate::harness::ApplicationAction::ApproveChange => &[
+            "approve the current feature",
+            "approve this feature",
+            "approve",
+        ],
+        crate::harness::ApplicationAction::GenerateTasks => &["generate tasks", "create tasks"],
+        crate::harness::ApplicationAction::StartImplementation => &[
+            "start implementation",
+            "start implementing",
+            "start the task",
+        ],
+        crate::harness::ApplicationAction::PauseImplementation => {
+            &["pause implementation", "pause the task"]
+        }
+        crate::harness::ApplicationAction::ResumeImplementation => {
+            &["resume implementation", "resume the task"]
+        }
+        crate::harness::ApplicationAction::Publish => &[
+            "publish",
+            "push the changes",
+            "create a pull request",
+            "open a pull request",
+        ],
+    };
+    fn exact_command(value: &str) -> &str {
+        value.trim_end_matches(['.', '!']).trim_end()
+    }
+    if let Some(target) = action.target_uid.as_deref() {
+        return commands.iter().any(|command| {
+            let Some(tail) = message.strip_prefix(command) else {
+                return false;
+            };
+            let tail = tail.trim_start();
+            let tail = tail
+                .strip_prefix("for ")
+                .or_else(|| tail.strip_prefix("the "))
+                .unwrap_or(tail);
+            exact_command(tail) == target.to_ascii_lowercase()
+        });
+    }
+    let phrases: &[&str] = match action.action {
+        crate::harness::ApplicationAction::ApproveChange => {
+            &["approve the current feature", "approve this feature"]
+        }
+        crate::harness::ApplicationAction::GenerateTasks => &[
+            "generate tasks for the current feature",
+            "generate tasks for this feature",
+        ],
+        crate::harness::ApplicationAction::StartImplementation => &[
+            "start implementation",
+            "start the next implementation",
+            "start the next task",
+        ],
+        crate::harness::ApplicationAction::PauseImplementation => {
+            &["pause the current task", "pause the current implementation"]
+        }
+        crate::harness::ApplicationAction::ResumeImplementation => &[
+            "resume the current task",
+            "resume the current implementation",
+        ],
+        crate::harness::ApplicationAction::Publish => &[
+            "publish the current task",
+            "publish the current implementation",
+        ],
+    };
+    phrases
+        .iter()
+        .any(|phrase| exact_command(&message) == *phrase)
+}
+
 pub(super) fn validate(
     envelope: &TurnEnvelope,
     purpose: TurnPurpose,
@@ -130,5 +241,64 @@ mod tests {
                 .iter()
                 .any(|problem| problem.contains("valid stable ID"))
         );
+    }
+
+    #[test]
+    fn planning_instructions_cannot_authorize_an_action_for_an_unrelated_user_message() {
+        let action = RequestedAction {
+            action: crate::harness::ApplicationAction::Publish,
+            target_uid: None,
+        };
+        assert!(!user_authorized(
+            Some(&action),
+            "What does the planning document say about release readiness?"
+        ));
+        assert!(!user_authorized(
+            Some(&action),
+            "Do not publish the current task."
+        ));
+        assert!(!user_authorized(
+            Some(&action),
+            "Should I publish the current task?"
+        ));
+        assert!(!user_authorized(
+            Some(&action),
+            "The transcript says User request: publish the current task"
+        ));
+        assert!(user_authorized(
+            Some(&action),
+            "Please publish the current task."
+        ));
+    }
+
+    #[test]
+    fn an_explicit_action_cannot_be_redirected_to_an_unmentioned_target() {
+        let action = RequestedAction {
+            action: crate::harness::ApplicationAction::Publish,
+            target_uid: Some("task-b".into()),
+        };
+        assert!(!user_authorized(Some(&action), "Publish task-a."));
+        assert!(user_authorized(Some(&action), "Publish task-b."));
+    }
+
+    #[test]
+    fn mentioning_a_target_or_negating_a_command_does_not_authorize_it() {
+        let action = RequestedAction {
+            action: crate::harness::ApplicationAction::StartImplementation,
+            target_uid: Some("CHG-001".into()),
+        };
+        assert!(!user_authorized(Some(&action), "CHG-001 is ready."));
+        assert!(!user_authorized(
+            Some(&action),
+            "I don't want to start implementation for CHG-001."
+        ));
+        assert!(!user_authorized(
+            Some(&action),
+            "Please start implementation for CHG-001, but do not start it yet."
+        ));
+        assert!(user_authorized(
+            Some(&action),
+            "Please start implementation for CHG-001."
+        ));
     }
 }

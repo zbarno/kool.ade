@@ -118,9 +118,31 @@ pub fn validate_for_turn_with_resolutions(
     purpose: crate::core::workflow::TurnPurpose,
     user_replied_item_ids: &[String],
 ) -> Result<NormalizedTurn, Vec<String>> {
+    validate_for_turn_with_user_message(envelope, state, user, purpose, user_replied_item_ids, "")
+}
+
+pub fn validate_for_turn_with_user_message(
+    envelope: &TurnEnvelope,
+    state: &PlannerState,
+    user: &CurrentUser,
+    purpose: crate::core::workflow::TurnPurpose,
+    user_replied_item_ids: &[String],
+    user_message: &str,
+) -> Result<NormalizedTurn, Vec<String>> {
     let mut fatals: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    let action_was_requested = envelope.requested_action.is_some();
+    let explicitly_requested =
+        crate::core::validation::requested_action_validation::user_authorized(
+            envelope.requested_action.as_ref(),
+            user_message,
+        );
     let requested_action = match requested_action_validation::validate(envelope, purpose) {
+        Ok(action) if action_was_requested && !explicitly_requested => {
+            warnings.push("Ignored the suggested project action because the current user message did not explicitly request it.".into());
+            let _ = action;
+            None
+        }
         Ok(action) => action,
         Err(problems) => {
             fatals.extend(problems);

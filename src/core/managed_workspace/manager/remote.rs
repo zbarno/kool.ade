@@ -65,9 +65,7 @@ fn join_cloned(
     staging: &Path,
     checkout: &Path,
 ) -> anyhow::Result<ManagedWorkspace> {
-    let manifest_bytes = fs::read(checkout.join("manifest.json"))?;
-    let manifest: super::super::manifest::WorkspaceManifest =
-        serde_json::from_slice(&manifest_bytes)?;
+    let manifest = super::super::manifest::WorkspaceManifest::read_unvalidated(checkout)?;
     let canonical = manifest.canonical_ref.as_str();
     let valid = super::super::git::output(Some(checkout), &["check-ref-format", canonical])?;
     anyhow::ensure!(

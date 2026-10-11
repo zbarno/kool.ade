@@ -1,5 +1,5 @@
 use super::{ClaimError, ClaimHistoryEntry, ClaimRecord};
-use std::process::{Command, Output};
+use std::process::Output;
 
 mod acquisition;
 mod lease;
@@ -20,14 +20,22 @@ pub(super) use publication::fenced_push;
 pub(super) use publication::fenced_push_after_prepare;
 
 pub(super) const LEASE_SECONDS: i64 = 15 * 60;
+const MAX_REMOTE_CLAIM_BYTES: usize = 64 * 1024;
 
 pub(super) fn run(
     repo: &std::path::Path,
     args: &[&str],
     input: Option<&[u8]>,
 ) -> Result<Output, ClaimError> {
-    let mut command = Command::new("git");
-    command.args(args).current_dir(repo);
+    let mut command = crate::core::planning_sync::validated_git_command(repo).map_err(|error| {
+        let detail = format!("Git repository configuration failed security validation: {error}");
+        if detail.contains("multiple origin URLs or push URLs") {
+            ClaimError::CoordinationRejected(detail)
+        } else {
+            ClaimError::RemoteUnavailable(detail)
+        }
+    })?;
+    command.args(args);
     if input.is_some() {
         command.stdin(std::process::Stdio::piped());
     }
@@ -119,12 +127,34 @@ pub(super) fn inspect(
     else {
         return Ok(None);
     };
+    let filter_args = [
+        "fetch",
+        "--dry-run",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--filter=tree:0",
+        "--depth=1",
+        remote,
+        reference,
+    ];
+    let preflight = run(repo, &filter_args, None)?;
+    if !preflight.status.success()
+        || String::from_utf8_lossy(&preflight.stderr)
+            .to_ascii_lowercase()
+            .contains("filtering not recognized")
+    {
+        return Err(ClaimError::CoordinationRejected(
+            "Planning remote does not support bounded task-claim fetches".into(),
+        ));
+    }
     let fetched = run(
         repo,
         &[
             "fetch",
             "--no-tags",
             "--no-write-fetch-head",
+            "--filter=tree:0",
+            "--depth=1",
             remote,
             reference,
         ],
@@ -135,14 +165,65 @@ pub(super) fn inspect(
             String::from_utf8_lossy(&fetched.stderr).trim().to_owned(),
         ));
     }
+    if !matches!(object.len(), 40 | 64) || !object.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ClaimError::CoordinationRejected(
+            "Planning remote claim object ID is invalid".into(),
+        ));
+    }
+    let size = git(repo, &["cat-file", "-s", &object], None)?
+        .parse::<usize>()
+        .map_err(|_| ClaimError::CoordinationRejected("Planning claim size is invalid".into()))?;
+    if size > MAX_REMOTE_CLAIM_BYTES {
+        return Err(ClaimError::CoordinationRejected(
+            "Planning remote claim exceeds the 64 KiB size limit".into(),
+        ));
+    }
     let body = git(repo, &["show", "-s", "--format=%B", &object], None)?;
-    serde_json::from_str(&body)
-        .map(|record| Some((record, object)))
-        .map_err(|error| {
-            ClaimError::CoordinationRejected(format!(
-                "Planning remote claim metadata is invalid: {error}"
-            ))
+    if body.len() > MAX_REMOTE_CLAIM_BYTES {
+        return Err(ClaimError::CoordinationRejected(
+            "Planning remote claim metadata exceeds the 64 KiB size limit".into(),
+        ));
+    }
+    let record: ClaimRecord = serde_json::from_str(&body).map_err(|error| {
+        ClaimError::CoordinationRejected(format!(
+            "Planning remote claim metadata is invalid: {error}"
+        ))
+    })?;
+    validate_remote_record(&record)?;
+    Ok(Some((record, object)))
+}
+
+pub(super) fn validate_remote_record(record: &ClaimRecord) -> Result<(), ClaimError> {
+    let text_fields = [
+        ("owner", record.owner.as_str(), 128),
+        ("operator ID", record.operator_id.as_str(), 128),
+        ("session ID", record.session_id.as_str(), 128),
+        (
+            "code repository ID",
+            record.code_repository_id.as_str(),
+            128,
+        ),
+        ("base commit", record.base_commit.as_str(), 64),
+    ];
+    if !matches!(record.schema_version, 2 | 3)
+        || record.takeover_history.len() > 32
+        || text_fields.iter().any(|(_, value, limit)| {
+            value.chars().count() > *limit || value.chars().any(char::is_control)
         })
+        || record.owner.trim().is_empty()
+        || record.session_id.trim().is_empty()
+        || (!record.base_commit.is_empty()
+            && (!matches!(record.base_commit.len(), 40 | 64)
+                || !record
+                    .base_commit
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())))
+    {
+        return Err(ClaimError::CoordinationRejected(
+            "Planning remote claim metadata contains invalid or oversized fields".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn now() -> Result<i64, ClaimError> {

@@ -20,17 +20,17 @@ pub(super) fn prepare(
         .and_then(|document| document.identity.as_ref())
         .map(|identity| identity.uid.clone())
         .unwrap_or_else(|| legacy_path_identity(ticket));
-    let output = std::process::Command::new("git")
+    let output = crate::core::planning_sync::validated_git_command(code_repo)
+        .map_err(|error| ClaimError::CoordinationRejected(error.to_string()))?
         .args(["rev-parse", "HEAD"])
-        .current_dir(code_repo)
         .output()
         .map_err(|error| ClaimError::RemoteUnavailable(error.to_string()))?;
     let base_commit = if output.status.success() {
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
     } else {
-        let worktree = std::process::Command::new("git")
+        let worktree = crate::core::planning_sync::validated_git_command(code_repo)
+            .map_err(|error| ClaimError::CoordinationRejected(error.to_string()))?
             .args(["rev-parse", "--is-inside-work-tree"])
-            .current_dir(code_repo)
             .output()
             .map_err(|error| ClaimError::CoordinationRejected(error.to_string()))?;
         if worktree.status.success() && worktree.stdout.trim_ascii() == b"true" {

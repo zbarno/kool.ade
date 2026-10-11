@@ -152,6 +152,7 @@ fn restart_finishes_checkpoint_after_files_and_manifest_are_written() {
     assert!(scoped_pending_path(&root).exists());
 
     fs::remove_file(hook).unwrap();
+    git_ok(&root, &["config", "--unset", "core.hooksPath"]);
     run(&root).unwrap();
     assert!(!scoped_pending_path(&root).exists());
     let committed = git_ok(
