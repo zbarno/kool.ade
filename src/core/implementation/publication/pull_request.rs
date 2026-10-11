@@ -142,7 +142,8 @@ pub(in crate::core::implementation) fn create_pull_request(
         )?;
     }
     // The planning and code remotes cannot commit atomically. Recheck the
-    // planning lease after the code ref push and before publishing a PR.
+    // planning lease after the code ref push and before asking GitHub to create
+    // a PR; the remote API request itself cannot be transactionally fenced.
     verify_claim(claim_lease)?;
     if let Some(pr) = existing.first() {
         anyhow::ensure!(

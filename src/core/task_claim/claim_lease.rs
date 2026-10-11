@@ -76,7 +76,13 @@ impl ClaimLease {
             commit,
             destination_ref,
         )?;
-        self.verify()
+        // Publication validates the claim at its commit point: on a shared
+        // remote the claim and branch update are atomic; across remotes the
+        // publication helper verifies and compensates before returning. A
+        // second read here could observe a later takeover and report failure
+        // after publication has already succeeded, without enough context to
+        // safely retract it.
+        Ok(())
     }
 }
 
