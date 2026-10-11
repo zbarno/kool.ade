@@ -38,6 +38,7 @@
       <nav aria-label="Main navigation">
         <a href="#why">Why</a>
         <a href="#manager">Man.ager</a>
+        <a href="#roadmap">Roadmap</a>
         <a href="#inside">What's inside</a>
         <a class="nav-cta" href="https://github.com/zbarno/kool.ade" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
       </nav>
@@ -56,7 +57,8 @@
             <a class="button button-red" href="https://github.com/zbarno/kool.ade" target="_blank" rel="noreferrer">Drink the source <span aria-hidden="true">↗</span></a>
             <a class="button button-ghost" href="#why">See the dangerous middle <span aria-hidden="true">↓</span></a>
           </div>
-          <p class="hero-aside">Linux x86_64 · Rust · Git-native · Agent-powered · <strong>0g sugar</strong></p>
+          <p class="hero-aside">Linux x86_64 today · Rust · Git-native · Agent-powered · <strong>0g sugar</strong></p>
+          <p class="hero-direction"><strong>Next batch:</strong> shared planning repos, Docker-backed execution and remote workers. <a href="#roadmap">See the recipe ↓</a></p>
         </div>
 
         <div class="hero-art" aria-label="Kool.ad/e application preview">
@@ -176,6 +178,43 @@
         <p class="screenshot-note">Screenshots use an example workspace. Select an image to see it at full size.</p>
       </section>
 
+      <section class="roadmap shell" id="roadmap" aria-labelledby="roadmap-title">
+        <div class="roadmap-intro">
+          <p class="section-label">THE NEXT BATCH IS ALREADY ON THE BOARD</p>
+          <h2 id="roadmap-title">Started on one machine.<br><span>Planning for a whole crew.</span></h2>
+          <p>Today, Kool.ad/e helps one developer plan and coordinate isolated agents. The work underway takes it toward shared planning, reproducible Docker execution, trusted remote workers, and agents that can actually test what they build.</p>
+          <p class="roadmap-caveat">The labels mean something. Built is built. Queued is queued. We're not adding imaginary features to the ingredients list.</p>
+        </div>
+
+        <div class="roadmap-steps" aria-label="Product development roadmap">
+          <article class="roadmap-step is-current">
+            <div class="roadmap-step-heading"><span class="roadmap-step-number">01 / NOW</span><span class="roadmap-state">IN THE GLASS</span></div>
+            <h3>One developer.<br>Many agents.</h3>
+            <p>Git-backed specifications, Kanban tasks, independent clones, parallel local workers, verification and six CLI adapters.</p>
+            <div class="roadmap-step-detail">Linux + Bubblewrap today</div>
+          </article>
+          <article class="roadmap-step is-underway">
+            <div class="roadmap-step-heading"><span class="roadmap-step-number">02 / IN FLIGHT</span><span class="roadmap-state">MIXING NOW</span></div>
+            <h3>One plan.<br>Multiple people.</h3>
+            <p>A separate planning Git repository per workspace, per-record storage, shared sync, task claims and branch-safe coordination.</p>
+            <div class="roadmap-step-detail"><a href="https://github.com/zbarno/kool.ade/issues/116" target="_blank" rel="noreferrer">Planning cutover ↗</a></div>
+          </article>
+          <article class="roadmap-step is-queued">
+            <div class="roadmap-step-heading"><span class="roadmap-step-number">03 / QUEUED</span><span class="roadmap-state">THE BIG REBUILD</span></div>
+            <h3>One policy.<br>Any trusted worker.</h3>
+            <p>Docker-only execution, consistent CLI capabilities, crash-proof discovery and authenticated remote Linux workers.</p>
+            <div class="roadmap-step-detail"><a href="https://github.com/zbarno/kool.ade/issues/133" target="_blank" rel="noreferrer">Docker migration ↗</a></div>
+          </article>
+          <article class="roadmap-step is-horizon">
+            <div class="roadmap-step-heading"><span class="roadmap-step-number">04 / FUTURE</span><span class="roadmap-state">ON THE MENU</span></div>
+            <h3>Agents that<br>check the work.</h3>
+            <p>Interactive visual and functional QA, Linux desktop and web drivers, then macOS and Windows host support.</p>
+            <div class="roadmap-step-detail">Plus alerts and smarter context</div>
+          </article>
+        </div>
+        <p class="roadmap-note"><strong>Reality check:</strong> Docker, remote workers, multi-operator cutover and autonomous runtime QA are not shipping features yet. <a href="https://github.com/zbarno/kool.ade#roadmap-from-one-machine-to-a-whole-crew" target="_blank" rel="noreferrer">Read the full roadmap ↗</a></p>
+      </section>
+
       <section class="inside shell" id="inside">
         <div class="nutrition">
           <div class="nutrition-title">Kool.ad/e Facts</div>
@@ -185,7 +224,8 @@
           <div class="nutrition-rule"></div>
           <div class="nutrition-line"><span>Human-gated plans</span><b>100%</b></div>
           <div class="nutrition-line"><span>Isolated task repositories</span><b>100%</b></div>
-          <div class="nutrition-line"><span>Bubblewrap sandboxing</span><b>Linux</b></div>
+          <div class="nutrition-line"><span>Current sandbox</span><b>Bubblewrap</b></div>
+          <div class="nutrition-line"><span>Docker + remote workers</span><b>Queued</b></div>
           <div class="nutrition-line"><span>Verification before publish</span><b>Required</b></div>
           <div class="nutrition-line"><span>Telepathic requirements gathering</span><b>0%</b></div>
           <div class="nutrition-line"><span>Sugar</span><b>0g</b></div>
@@ -200,7 +240,7 @@
           <div class="principle-lines">
             <div><span>01</span><p><strong>Git keeps the history.</strong><br>The specification keeps the truth.</p></div>
             <div><span>02</span><p><strong>The agent saying “it works” is not a test strategy.</strong><br>Failed verification blocks publication.</p></div>
-            <div><span>03</span><p><strong>No bubble, no trouble.</strong><br>If the Linux sandbox cannot be established, autonomous execution fails closed.</p></div>
+            <div><span>03</span><p><strong>No boundary, no build.</strong><br>Today's Bubblewrap sandbox fails closed. Docker is the planned replacement, not a shipped feature.</p></div>
           </div>
         </div>
       </section>
@@ -212,9 +252,10 @@
             <h2>Useful. Opinionated. Still being invented.</h2>
           </div>
           <div class="status-list">
-            <div><span class="status-dot live"></span><strong>Today</strong><p>Linux x86_64 · Pi CLI · private/local OpenAI-compatible providers</p></div>
-            <div><span class="status-dot next"></span><strong>Next-ish</strong><p>macOS · Windows · better alerts · smarter context · token optimization</p></div>
-            <div><span class="status-dot more"></span><strong>All the codes™</strong><p>Codex CLI · OpenCode · Claude Code · whatever launches next Tuesday</p></div>
+            <div><span class="status-dot live"></span><strong>Today</strong><p>Linux x86_64, Git-backed planning, independent task clones, six CLI adapters.</p></div>
+            <div><span class="status-dot next"></span><strong>In flight</strong><p>Separate planning repositories, multi-user sync, task claims and safer coordination.</p></div>
+            <div><span class="status-dot more"></span><strong>Queued</strong><p>Docker-only sandboxing, CLI parity, reliable scanning and remote Linux workers.</p></div>
+            <div><span class="status-dot future"></span><strong>On the menu</strong><p>Interactive runtime QA, more platforms, better alerts and leaner context.</p></div>
           </div>
         </div>
       </section>
