@@ -12,6 +12,7 @@ mod parser;
 mod records;
 pub use parser::parse;
 pub(crate) use records::load_store_unlocked;
+pub(crate) use records::validate_content_uid;
 pub use records::{load_store, record_changes};
 
 const HEADER: &str =

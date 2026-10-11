@@ -12,6 +12,7 @@ use crate::{
 use super::{association::WorkspaceAssociation, creation, git, manifest::WorkspaceManifest};
 
 mod operations;
+mod sync;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedWorkspace {
@@ -125,7 +126,12 @@ impl WorkspaceManager {
         // A status read proves Git can safely inspect this checkout. Dirty
         // planning work is valid and remains available to the operator.
         git::status_paths(&planning_repo)?;
-        let store = PlanningStore::new(id, &planning_repo, StoreMode::ManagedLocal);
+        let mode = if git::origin(&planning_repo).is_some() {
+            StoreMode::ManagedShared
+        } else {
+            StoreMode::ManagedLocal
+        };
+        let store = PlanningStore::new(id, &planning_repo, mode);
         anyhow::ensure!(
             store.root == planning_repo,
             "planning store root differs from the associated checkout"
