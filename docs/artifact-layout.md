@@ -1,16 +1,11 @@
 # Repository artifact layout
 
-Reviewed against the checked-out implementation on 2026-10-09. A connected
-repository uses `.koolade-packet/` as the only live shared Kool.ad/e
-project-artifact root.
-Connection runs the restartable migration before loading planning state.
-
-> **Transition:** the runtime described below still uses the embedded
-> `.koolade-packet/` layout. [Planning repository v1](planning-repository-v1.md)
-> defines the target contract for a separate managed planning Git repository;
-> this documentation change does not implement that storage or migrate
-> existing workspaces. Existing projects remain on the current layout until
-> the explicit cutover is implemented and completed.
+Reviewed against the checked-out implementation on 2026-10-11. New managed
+workspaces keep shared planning artifacts in one external planning Git
+repository, separate from code checkouts. The table below documents the
+embedded `.koolade-packet/` layout used by legacy workspaces and retained as a
+migration source. Managed workspaces use the direct-root layout described in
+[Planning repository v1](planning-repository-v1.md).
 
 | Location | Purpose and ownership |
 | --- | --- |
@@ -34,8 +29,9 @@ Connection runs the restartable migration before loading planning state.
 | Origin branches `refs/heads/koolade/claims/<task-uid>` | Temporary cross-clone implementation claims. Atomic creation prevents two clones with a reachable writable origin from starting the same task. Claims identify a Kool.ad/e session, claim time, and base commit; active workers refresh them and remove them on exit. |
 | `docs/` and `SPECIFICATION.md` | Maintainer guidance and historical references. These are project files, not Kool.ad/e's live planning store. |
 
-The old `planning/` and `.planner/` trees and `adr/` are migration inputs, not
-live runtime locations. The migration maps legacy product modules into the six
+For legacy embedded workspaces, the old `planning/` and `.planner/` trees and
+`adr/` are migration inputs, not live runtime locations. The migration maps
+legacy product modules into the six
 required concepts while retaining project-specific modules, relocates feature
 specifications, task stories, imports, open/resolved items, and archives, and
 converts configuration and workflow state. Legacy `adr/implement-*.md` files
@@ -44,6 +40,15 @@ implementation archive; actual approved decisions move to
 `.koolade-packet/planning/decisions/`. The root `SPECIFICATION.md` is retained
 as historical input. After migration, normal reads and writes use only the
 canonical paths above.
+
+Managed workspaces use normalized per-record planning files and do not create
+`.koolade-packet/` in either the planning repository or code checkouts. The
+legacy source remains available after migration as recovery evidence; the
+migration does not delete it. Shared Git sync is explicit and may be offline,
+permission-blocked, schema-incompatible, or conflicted. It reports those
+states and keeps pending local operations for retry or resolution. Git remote
+access controls apply to the repository as a whole; Kool.ad/e does not provide
+per-field Git permissions or automatic real-time updates.
 
 Markdown artifacts are for people to read and edit. Versioned metadata and
 structured workflow state determine feature lifecycle, approval, queue, and

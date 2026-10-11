@@ -1,13 +1,11 @@
 # Planning repository v1
 
-This is the normative on-disk contract for the managed planning repository
-introduced by the staged planning-repository cutover. All new workspaces use
-this external planning repository once the corresponding runtime support is
-available. It defines where shared planning truth lives and how an operator
-joins a workspace. The current application still reads and writes the
-embedded `.koolade-packet/` tree; this document does not claim that the
-runtime has already changed. Existing workspaces remain readable in that
-layout until an explicit migration is completed.
+This is the normative on-disk contract for managed planning repositories.
+New workspaces use one external planning repository, independently of their
+zero or more code repositories. Operators join an existing workspace through
+that repository and bind their own local code checkout paths. Existing
+embedded `.koolade-packet/` artifacts remain migration and recovery inputs;
+the migration preserves the source data.
 
 ## Workspace identity and ownership
 
@@ -139,8 +137,9 @@ as records are added, without placeholder records. `planning/imports/**` and
 Legacy `planning/open-items.md`, `planning/resolved-items.json`,
 `state/workflow.json`, and `state/work.json` are compatibility and migration
 inputs only. They are never authoritative shared files in a new managed
-planning repository. The current runtime has not yet adopted this normalized
-tree; runtime normalization is a later implementation step.
+planning repository. Managed workspaces read and write planning through the
+injected `PlanningStore`; legacy embedded workspaces retain compatibility
+readers and migration support.
 
 ### Per-record authority and revisions
 

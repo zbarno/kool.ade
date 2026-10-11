@@ -142,6 +142,10 @@ fn remote_join_shows_code_repo_tasks_and_checkout_setup_without_cloning_code() {
         panic!("the joiner should see the shared planning workspace")
     };
     assert_eq!(joined.state.planning_store.project_id, workspace.id);
+    assert_eq!(
+        joined.state.planning_store.project_id,
+        workspace.manifest.workspace_id
+    );
     assert!(
         joined
             .state
@@ -158,6 +162,29 @@ fn remote_join_shows_code_repo_tasks_and_checkout_setup_without_cloning_code() {
             .iter()
             .any(|document| document.path == ticket)
     );
+    let owner_workflow = crate::artifacts::task_docs::load_workflow(&workspace.store).unwrap();
+    let owner_documents =
+        crate::artifacts::task_docs::load_board(&workspace.store, &owner_workflow);
+    let owner_task_ids: Vec<_> = owner_documents
+        .iter()
+        .filter_map(|document| {
+            document
+                .identity
+                .as_ref()
+                .map(|identity| identity.uid.clone())
+        })
+        .collect();
+    let joiner_task_ids: Vec<_> = joined
+        .task_documents
+        .iter()
+        .filter_map(|document| {
+            document
+                .identity
+                .as_ref()
+                .map(|identity| identity.uid.clone())
+        })
+        .collect();
+    assert_eq!(joiner_task_ids, owner_task_ids);
     let local = crate::core::managed_workspace::WorkspaceManager::from_state_root()
         .open(workspace.id)
         .unwrap();
