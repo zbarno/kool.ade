@@ -487,9 +487,9 @@ For the current release you'll need:
 - Linux x86_64
 - Git
 - Rust / Cargo
-- Bubblewrap for autonomous planning and implementation
-- Pi CLI
-- a private or local HTTP model provider that supports Pi's OpenAI-compatible API
+- Bubblewrap for **current** autonomous planning and implementation (the Docker cutover has not shipped yet)
+- at least one supported coding CLI: Pi, Codex, Claude Code, OpenCode, GitHub Copilot CLI, or Antigravity, configured for its supported work modes
+- if using **Pi with a local model**, a private/local HTTP OpenAI-compatible provider configured for Pi
 
 Clone the repository:
 
@@ -510,7 +510,7 @@ Or install somewhere else:
 ./scripts/install.sh --prefix /absolute/path
 ```
 
-Then launch Kool.ad/e and configure Pi from **Workspace → Settings**.
+Then launch Kool.ad/e and configure your preferred coding CLI from **Workspace → Settings → Coding Tools**. The upcoming Docker and universal-role work will simplify setup further.
 
 ### Run from source
 
