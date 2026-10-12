@@ -1,3 +1,5 @@
+#[path = "tests/identity.rs"]
+mod identity;
 #[path = "tests/initialization.rs"]
 mod initialization;
 #[path = "tests/joining.rs"]
