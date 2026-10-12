@@ -465,7 +465,7 @@ Planning-only workspaces are supported. Code branches belong to their selected c
 
 Move all repository tooling to a single Docker-backed execution policy; remove Bubblewrap after the replacement is verified. Give **all six CLIs** the same approved capabilities for every role, fix fragile CLI scanning and host-code-mode failures, provision dependencies through controlled brokers, then add authenticated **remote Linux Docker workers over SSH**. Workspaces and evidence travel via verified transfers; provider secrets and Git publication authority do not.
 
-This is the [Docker migration series, #133–#146](https://github.com/zbarno/kool.ade/issues/133), with dedicated [remote worker transport](https://github.com/zbarno/kool.ade/issues/139) and [verified workspace synchronization](https://github.com/zbarno/kool.ade/issues/140) issues.
+The initial shared request/policy/event contract is documented in [Execution architecture v1](docs/execution-architecture-v1.md). The Docker migration series is tracked in [#133–#146](https://github.com/zbarno/kool.ade/issues/133), with dedicated [remote worker transport](https://github.com/zbarno/kool.ade/issues/139) and [verified workspace synchronization](https://github.com/zbarno/kool.ade/issues/140) issues.
 
 **Docker is the destination, not a current installation requirement.** Remote workers are queued, not shipping.
 

@@ -15,6 +15,7 @@ pub mod artifacts;
 pub mod core;
 pub mod domain;
 pub mod error;
+pub mod execution;
 pub mod harness;
 pub mod persistence;
 pub mod ui;
