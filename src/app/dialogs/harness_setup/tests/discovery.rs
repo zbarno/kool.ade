@@ -72,9 +72,13 @@ fn runtime_probe_updates_only_the_current_provider_capability_snapshot() {
 
 #[test]
 fn setup_selection_requires_a_valid_current_capability_snapshot() {
-    let now = crate::persistence::harness_settings::current_unix_ms();
+    let generation = crate::persistence::harness_settings::current_unix_ms();
     let mut settings = HarnessSettings::default();
-    super::super::discovery::apply_probe_results(&mut settings, &[report(true)], None, now);
+    super::super::discovery::apply_probe_results(&mut settings, &[report(true)], None, generation);
+    // Probe results stamp their own clock value. Sample afterward so a
+    // millisecond rollover cannot make the supposedly current snapshot look
+    // like a future result during this assertion.
+    let now = crate::persistence::harness_settings::current_unix_ms();
     let entry = &settings.discovered["pi"];
     assert!(super::super::has_current_provider_capabilities(
         "pi", entry, now
