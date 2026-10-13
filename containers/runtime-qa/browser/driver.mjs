@@ -152,6 +152,7 @@ async function main() {
         case 'browser_select': await target.selectOption(action.value); break;
         case 'browser_wait_for_visible': await target.waitFor({ state: 'visible' }); break;
         case 'browser_assert_text': {
+          await target.getByText(action.expected_text, { exact: false }).waitFor({ state: 'visible', timeout: ACTION_TIMEOUT_MS });
           const actual = await target.innerText();
           if (!actual.includes(action.expected_text)) fail(`assertion failed: expected text was not present for action ${index}`);
           break;
