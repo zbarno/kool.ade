@@ -251,7 +251,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 continue;
             }
         };
-        if let Some(reason) = unavailable_reason(project, request) {
+        if let Some(reason) = unavailable_reason(project, &task, request) {
             let event_uid = event_uid(
                 &task.task_uid,
                 task.revision,

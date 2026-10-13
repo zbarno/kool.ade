@@ -84,6 +84,7 @@ pub fn discover_manifest(
             .map(|target| target.capability_state.clone())
             .collect(),
         candidate_targets,
+        selected_target_id: None,
         recipes: Vec::<ExecutionRecipeV1>::new(),
         readiness_probes: Default::default(),
         artifact_specs: Default::default(),

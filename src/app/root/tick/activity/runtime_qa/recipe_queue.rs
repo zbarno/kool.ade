@@ -11,7 +11,6 @@ use crate::{
     core::lifecycle::{GateDecision, TaskPhase, TaskRecord},
     execution::{
         contract::{ExecutionModeV1, ResourceBudgetV1, WorkspaceRef},
-        docker::images::RuntimeProfile,
         session::ExecutionSession,
     },
     project_runtime::{
@@ -23,20 +22,15 @@ use crate::{
 mod candidate;
 use candidate::{approved_candidate, latest_receipt, now_unix_ms, receipt_allows_next};
 
-type RecipeCandidate = (
-    String,
-    RuntimeOperation,
-    PathBuf,
-    WorkspaceRef,
-    RuntimeProfile,
-);
+type RecipeCandidate = (String, RuntimeOperation, PathBuf, WorkspaceRef, Vec<String>);
 
 pub(crate) fn start(
     project: &Project,
     task: &TaskRecord,
 ) -> Result<crate::runtime_qa::RuntimeRecipeWorkerHandle, String> {
-    let (target_id, operation, clone_path, workspace, profile) = candidate(project, task)?
-        .ok_or_else(|| "no approved runtime recipe operation is ready".to_owned())?;
+    let (target_id, operation, clone_path, workspace, required_tools) =
+        candidate(project, task)?
+            .ok_or_else(|| "no approved runtime recipe operation is ready".to_owned())?;
     let planning_store = project.state.planning_store.clone();
     let store = ProjectRuntimeStore::new(&planning_store);
     let manifest = store
@@ -104,11 +98,11 @@ pub(crate) fn start(
                     output_bytes: 64 * 1024 * 1024,
                 };
                 let session = Arc::new(
-                    ExecutionSession::connect_local(
+                    ExecutionSession::connect_local_with_tools(
                         workspace,
                         &clone_path,
                         ExecutionModeV1::Verification,
-                        profile,
+                        &required_tools,
                         limits,
                     )
                     .map_err(|error| {
@@ -211,6 +205,7 @@ fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandid
     let Some(target) = manifest.candidate_targets.iter().find(|target| {
         target.owning_task_id == item_uid
             && target.repository_id == manifest.repository_id
+            && manifest.is_active_target(item_uid, &target.target_id)
             && matches!(
                 target.app_surface,
                 AppSurface::Web | AppSurface::LinuxDesktop

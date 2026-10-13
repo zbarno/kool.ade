@@ -185,6 +185,10 @@ fn validate_manifest_candidate(
         "runtime target belongs to a different repository"
     );
     anyhow::ensure!(
+        manifest.is_active_target(&workspace.task_id, target_id),
+        "runtime target is not explicitly selected for this task"
+    );
+    anyhow::ensure!(
         target.app_surface != AppSurface::UnsupportedTarget,
         "runtime target is unsupported on this platform"
     );

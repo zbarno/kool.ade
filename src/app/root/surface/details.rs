@@ -1,6 +1,7 @@
 use super::*;
 mod lifecycle_pr;
 mod lifecycle_spec;
+mod runtime_capability;
 mod target_choices;
 mod telemetry;
 
@@ -105,6 +106,10 @@ impl KooladeApp {
             Screen::Connected(project) => lifecycle_spec::for_ticket(project, ticket),
             Screen::Welcome => None,
         };
+        let runtime_capability = match &self.screen {
+            Screen::Connected(project) => runtime_capability::for_ticket(project, ticket),
+            Screen::Welcome => None,
+        };
         let failure = queued_failure.or_else(|| {
             (!implementation_active)
                 .then(|| {
@@ -176,6 +181,7 @@ impl KooladeApp {
             lifecycle_pr_status,
             lifecycle_pr_error,
             lifecycle_spec_proposal,
+            runtime_capability,
         })
     }
     pub(super) fn planning_board_for_surface(&self) -> crate::ui::planning_board::ViewModel {

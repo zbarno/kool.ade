@@ -70,6 +70,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         .iter()
         .find(|target| {
             target.owning_task_id == planning_item_uid
+                && manifest.is_active_target(planning_item_uid, &target.target_id)
                 && matches!(
                     target.app_surface,
                     AppSurface::Web | AppSurface::LinuxDesktop

@@ -182,6 +182,37 @@ impl KooladeApp {
                             .warning(format!("Could not save task execution target: {error}")),
                     }
                 }
+                TaskDetailCommand::DiscoverRuntimeTargets { ticket } => {
+                    self.discover_runtime_targets(&ticket)
+                }
+                TaskDetailCommand::SelectRuntimeTarget {
+                    ticket,
+                    target_id,
+                    expected_manifest_revision,
+                } => self.select_runtime_target(
+                    &ticket,
+                    &target_id,
+                    expected_manifest_revision,
+                ),
+                TaskDetailCommand::ApproveRuntimeRecipe {
+                    ticket,
+                    target_id,
+                    operation,
+                    executable_id,
+                    argv_lines,
+                    readiness_port,
+                    readiness_path,
+                    expected_manifest_revision,
+                } => self.approve_runtime_recipe(
+                    &ticket,
+                    &target_id,
+                    operation,
+                    &executable_id,
+                    &argv_lines,
+                    &readiness_port,
+                    &readiness_path,
+                    expected_manifest_revision,
+                ),
             },
         }
     }

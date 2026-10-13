@@ -5,6 +5,7 @@ mod cancellation;
 mod dispatch;
 mod intent;
 mod pr_publication;
+mod runtime_capability;
 
 impl KooladeApp {
     pub(crate) fn prepare_task_chat(&mut self, key: &str) {

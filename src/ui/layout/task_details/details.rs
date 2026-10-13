@@ -2,6 +2,7 @@ use super::*;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
+mod runtime_capability;
 mod target;
 
 pub(super) fn paint(
@@ -182,6 +183,7 @@ pub(super) fn paint(
     // and narrow displays.
     state::paint(ui, s, presentation);
     target::paint(ui, s, presentation.ticket, presentation.view);
+    runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
     linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
