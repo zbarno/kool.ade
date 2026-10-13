@@ -94,6 +94,7 @@ impl SshdFixture {
             format!(
                 "ListenAddress 127.0.0.1\n\
                  Port {port}\n\
+                 LogLevel VERBOSE\n\
                  HostKey {}\n\
                  PidFile {}\n\
                  AuthorizedKeysFile {}\n\
@@ -181,6 +182,22 @@ impl SshdFixture {
             .args(&argv[1..])
             .output()
             .expect("real SSH client should start")
+    }
+
+    pub(super) fn verify_client_authentication(&self) -> std::io::Result<()> {
+        let output = Command::new(&self.ssh_wrapper)
+            .args(["fixture-host", "true"])
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let daemon_log = fs::read_to_string(self.root.join("sshd.log"))
+            .unwrap_or_else(|error| format!("could not read sshd log: {error}"));
+        Err(std::io::Error::other(format!(
+            "fixture SSH authentication failed: client_stderr={:?}; server_log={:?}",
+            String::from_utf8_lossy(&output.stderr),
+            daemon_log.lines().rev().take(20).collect::<Vec<_>>()
+        )))
     }
 
     pub(super) fn write_wrong_known_host(&self, worker_id: &str) -> std::io::Result<()> {

@@ -32,6 +32,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
     let worker_id = format!("worker-{}", uuid::Uuid::new_v4().simple());
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for remote execution E2E");
+    sshd.verify_client_authentication().unwrap();
     sshd.restore_known_host(&worker_id).unwrap();
     let worker = sshd.worker_config(&worker_id);
     crate::persistence::remote_workers::register(
