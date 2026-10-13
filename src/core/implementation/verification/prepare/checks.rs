@@ -17,7 +17,9 @@ pub(super) fn run(
             if report_check_clone.is_none() {
                 report_check_clone = Some(ReportCheckClone::create(state, dir, runner)?);
             }
-            runner.verify(report_check_clone.as_ref().unwrap().path(), command)
+            let verification_path = report_check_clone.as_ref().unwrap().path();
+            let workspace = runner.workspace_ref_for(state)?;
+            runner.verify(verification_path, command, &workspace)
         };
         evidence.push(serde_json::json!({
             "command": command,

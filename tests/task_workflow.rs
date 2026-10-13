@@ -295,7 +295,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 ..
             } = outcome
             else {
-                panic!("task generation failed")
+                panic!("task generation failed: {outcome:#?}")
             };
             assert!(commit_result.is_ok());
             assert_eq!(state.workflow.task_batches[0].count, 2);

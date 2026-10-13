@@ -1,6 +1,10 @@
 use super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
 
+#[path = "task_repositories/concurrent.rs"]
+mod concurrent;
+#[path = "task_repositories/identity.rs"]
+mod identity;
 #[path = "task_repositories/legacy_migration.rs"]
 mod legacy_migration;
 #[path = "task_repositories/push_safety.rs"]
@@ -82,8 +86,16 @@ fn dirty_user_checkout_on_another_branch_starts_from_the_exact_local_commit() {
         "human/working"
     );
     assert_eq!(
-        sandbox.git(&sandbox.repo, &["status", "--porcelain"]),
-        user_status
+        sandbox
+            .git(&sandbox.repo, &["status", "--porcelain"])
+            .lines()
+            .filter(|line| {
+                let path = line.get(2..).unwrap_or_default().trim_start();
+                !path.starts_with(".koolade-packet/state/lifecycle_")
+            })
+            .map(str::trim_start)
+            .collect::<Vec<_>>(),
+        user_status.lines().collect::<Vec<_>>()
     );
     assert_eq!(
         fs::read_to_string(sandbox.repo.join("tracked.txt")).unwrap(),
@@ -153,6 +165,8 @@ fn clone_reconciliation_plan_resumes_before_task_state_was_saved() {
         deadline: Instant::now() + Duration::from_secs(60),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     execution::persist_source_plan_before_task_state(
         &sandbox.repo,
@@ -199,51 +213,6 @@ fn clone_reconciliation_plan_resumes_before_task_state_was_saved() {
 }
 
 #[test]
-fn concurrent_tasks_get_independent_clones_and_branches() {
-    let sandbox = Sandbox::new();
-    let second_ticket = ".koolade-packet/planning/tasks/feature/002-independent-task.md";
-    fs::write(
-        sandbox.repo.join(second_ticket),
-        "# Independent task\n\n## Acceptance criteria\n\n- File contains implemented.\n",
-    )
-    .unwrap();
-    sandbox.git(&sandbox.repo, &["add", second_ticket]);
-    sandbox.git(&sandbox.repo, &["commit", "-qm", "add independent task"]);
-
-    let (first, second) = std::thread::scope(|scope| {
-        let first = scope.spawn(|| run_on_worker(&sandbox, &sandbox.ticket));
-        let second = scope.spawn(|| run_on_worker(&sandbox, second_ticket));
-        (first.join().unwrap(), second.join().unwrap())
-    });
-    let first = first.unwrap();
-    let second = second.unwrap();
-
-    assert_ne!(first.task_repository, second.task_repository);
-    assert_ne!(first.branch, second.branch);
-    assert_ne!(
-        common(&first.task_repository).unwrap(),
-        common(&second.task_repository).unwrap()
-    );
-    assert!(first.task_repository.join(".git").is_dir());
-    assert!(second.task_repository.join(".git").is_dir());
-    assert_eq!(
-        first
-            .task_repository_commits
-            .get(&first.task_repository.to_string_lossy().into_owned()),
-        first.verified_head.as_ref()
-    );
-
-    fs::write(first.task_repository.join("isolated.txt"), "first clone\n").unwrap();
-    sandbox.git(&first.task_repository, &["add", "isolated.txt"]);
-    sandbox.git(
-        &first.task_repository,
-        &["commit", "-qm", "change first task clone"],
-    );
-    assert!(!second.task_repository.join("isolated.txt").exists());
-    assert!(!sandbox.repo.join("isolated.txt").exists());
-}
-
-#[test]
 fn repository_caches_are_isolated_by_the_effective_push_endpoint() {
     let sandbox = Sandbox::new();
     let first = run_on_worker(&sandbox, &sandbox.ticket).unwrap();
@@ -261,11 +230,15 @@ fn repository_caches_are_isolated_by_the_effective_push_endpoint() {
         ],
     );
     let second_ticket = ".koolade-packet/planning/tasks/feature/002-distinct-push-endpoint.md";
-    fs::write(
-        sandbox.repo.join(second_ticket),
-        "# Distinct push endpoint\n\n## Acceptance criteria\n\n- File contains implemented.\n",
+    let second_ticket_text = "# Distinct push endpoint\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
+    let second_ticket_document = crate::domain::ArtifactIdentity::preserve_markdown(
+        second_ticket_text,
+        None,
+        "TASK-003",
+        "Distinct push endpoint",
     )
     .unwrap();
+    fs::write(sandbox.repo.join(second_ticket), second_ticket_document).unwrap();
     sandbox.git(&sandbox.repo, &["add", second_ticket]);
     sandbox.git(
         &sandbox.repo,

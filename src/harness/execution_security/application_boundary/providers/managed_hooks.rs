@@ -20,12 +20,12 @@ pub(super) fn ensure_no_toml_host_execution<'a>(
             })?;
         anyhow::ensure!(
             document.get("hooks").is_none(),
-            "{provider} has local administrator-managed hooks in {}; these hooks run on the host outside Kool.ad/e's Bubblewrap boundary",
+            "{provider} has local administrator-managed hooks in {}; these hooks run on the host outside Kool.ad/e's Docker execution boundary",
             path.display()
         );
         anyhow::ensure!(
             document.get("notify").is_none(),
-            "{provider} has a local administrator-managed notify command in {}; it runs on the host outside Kool.ad/e's Bubblewrap boundary",
+            "{provider} has a local administrator-managed notify command in {}; it runs on the host outside Kool.ad/e's Docker execution boundary",
             path.display()
         );
         for key in ["mcp_servers", "plugins"] {
@@ -33,7 +33,7 @@ pub(super) fn ensure_no_toml_host_execution<'a>(
                 anyhow::ensure!(
                     item.as_table_like()
                         .is_some_and(toml_edit::TableLike::is_empty),
-                    "{provider} has local administrator-managed {key} in {}; these tools can run on the host outside Kool.ad/e's Bubblewrap boundary",
+                    "{provider} has local administrator-managed {key} in {}; these tools can run on the host outside Kool.ad/e's Docker execution boundary",
                     path.display()
                 );
             }
@@ -48,7 +48,7 @@ pub(super) fn ensure_no_toml_host_execution<'a>(
             for (feature, enabled) in features.iter() {
                 anyhow::ensure!(
                     enabled.as_bool() == Some(false),
-                    "{provider} has a local administrator-managed feature setting in {}; the enabled or invalid `{feature}` feature could run outside Kool.ad/e's Bubblewrap boundary",
+                    "{provider} has a local administrator-managed feature setting in {}; the enabled or invalid `{feature}` feature could run outside Kool.ad/e's Docker execution boundary",
                     path.display()
                 );
             }
@@ -60,7 +60,7 @@ pub(super) fn ensure_no_toml_host_execution<'a>(
 pub(super) fn ensure_no_hook_file(path: &Path, provider: &str) -> anyhow::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(_) => anyhow::bail!(
-            "{provider} has a local hook file in {}; its hooks can run on the host outside Kool.ad/e's Bubblewrap boundary",
+            "{provider} has a local hook file in {}; its hooks can run on the host outside Kool.ad/e's Docker execution boundary",
             path.display()
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -86,7 +86,7 @@ pub(super) fn ensure_no_json_mcp_servers(path: &Path, provider: &str) -> anyhow:
     if let Some(servers) = settings.get("mcpServers") {
         anyhow::ensure!(
             servers.as_object().is_some_and(serde_json::Map::is_empty),
-            "{provider} has local managed MCP servers in {}; those servers can run tools on the host outside Kool.ad/e's Bubblewrap boundary",
+            "{provider} has local managed MCP servers in {}; those servers can run tools on the host outside Kool.ad/e's Docker execution boundary",
             path.display()
         );
     }

@@ -224,6 +224,29 @@ pub(super) fn with_planning_path_identity<R: PlanningRoot + ?Sized>(
     )
 }
 
+pub(super) fn replace_uid(markdown: &str, uid: &str) -> anyhow::Result<String> {
+    let mut identity = ArtifactIdentity::from_markdown(markdown)?
+        .ok_or_else(|| anyhow::anyhow!("Generated task has no Koolade identity"))?;
+    let parsed = uuid::Uuid::parse_str(uid)?;
+    anyhow::ensure!(
+        parsed.hyphenated().to_string() == uid,
+        "Task graph UID must be a canonical UUID"
+    );
+    identity.uid = uid.to_owned();
+    let previous = format!(
+        "<!-- koolade-artifact-id:v1 {} -->",
+        serde_json::to_string(&identity)?
+    );
+    let visible = ArtifactIdentity::visible_markdown(markdown);
+    ArtifactIdentity::preserve_markdown_with_parent(
+        &visible,
+        Some(&previous),
+        &identity.display_id,
+        &identity.title,
+        identity.parent_uid.as_deref(),
+    )
+}
+
 pub(crate) fn visible_content(markdown: &str) -> String {
     super::metadata::visible_content(markdown)
 }

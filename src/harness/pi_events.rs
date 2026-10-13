@@ -43,6 +43,7 @@ impl EventFold {
         let current_text = strip_checklist_marker(&self.block_text("text"));
         let (response, specification) = super::live_preview::project(&current_text);
         LiveProgress {
+            prompt_manifest: None,
             telemetry: Default::default(),
             selected_route: None,
             posts: self

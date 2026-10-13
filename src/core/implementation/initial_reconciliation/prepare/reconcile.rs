@@ -41,8 +41,18 @@ pub(super) fn run(
         let unmerged = unmerged_paths(runner, &state.task_repository)?;
         let diff = runner.git(&state.task_repository, &["diff", "--cc"])?;
         let request = PlanningRequest {
+            prompt_manifest: None,
             mode: crate::harness::ExecutionMode::Implementation,
             task_id: state.task_uid.clone().or_else(|| Some(state.ticket.clone())),
+            execution_workspace: state
+                .workspace_uid
+                .as_ref()
+                .zip(state.task_uid.as_ref())
+                .map(|(project_id, task_id)| crate::execution::contract::WorkspaceRef {
+                    project_id: project_id.clone(),
+                    task_id: task_id.clone(),
+                    source_sha: state.base_commit.clone(),
+                }),
             reasoning_level: "medium".into(),
             telemetry_phase: Some("reconciliation".into()),
             repo_root: state.task_repository.clone(),
@@ -60,7 +70,10 @@ pub(super) fn run(
             timeout: runner.remaining()?,
             progress_tx: runner.progress.clone(),
             cancel: runner.cancel.clone(),
-        };
+
+            authorization_verifier: runner.authorization_verifier.clone(),
+        review_identity: None,
+};
         if automatically_verified {
             runner.update("Checking the clean merge of disjoint branch changes…");
         } else {

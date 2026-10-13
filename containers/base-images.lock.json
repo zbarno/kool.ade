@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "general": [
+      {
+        "platform": "linux/amd64",
+        "reference": "docker.io/library/debian@sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91"
+      },
+      {
+        "platform": "linux/arm64",
+        "reference": "docker.io/library/debian@sha256:a1b86db52ce3daef089e45aabe36dfec4091f82464c25c1fdcf03de197cbe82a"
+      }
+    ],
+    "rust": [
+      {
+        "platform": "linux/amd64",
+        "reference": "docker.io/library/rust@sha256:c49256cbe5ea0188bc658a689500d70c41eb51f009a7a7be209caf60a944f3ec"
+      },
+      {
+        "platform": "linux/arm64",
+        "reference": "docker.io/library/rust@sha256:5b993f23fb69746405496e76f91e511d96c82b5b23304fd5d20b4a80a8b223ea"
+      }
+    ],
+    "node": [
+      {
+        "platform": "linux/amd64",
+        "reference": "docker.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd"
+      },
+      {
+        "platform": "linux/arm64",
+        "reference": "docker.io/library/node@sha256:ba6b7d0ee561d9d49deb99e2b93c98632cc287b6cca1a6b18d66127054efa4dc"
+      }
+    ],
+    "python": [
+      {
+        "platform": "linux/amd64",
+        "reference": "docker.io/library/python@sha256:998acd06f485adfd6890e3e15a4b542543e0cf22ff904310095da328a5e3e561"
+      },
+      {
+        "platform": "linux/arm64",
+        "reference": "docker.io/library/python@sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f"
+      }
+    ],
+    "go": [
+      {
+        "platform": "linux/amd64",
+        "reference": "docker.io/library/golang@sha256:26de5cf8eac40c12a1ff8de1a634971b4654fd881225eed7ace643b8c769f2f5"
+      },
+      {
+        "platform": "linux/arm64",
+        "reference": "docker.io/library/golang@sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1"
+      }
+    ],
+    "browser_qa": [
+      {
+        "platform": "linux/amd64",
+        "reference": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
+      }
+    ],
+    "desktop_qa": [
+      {
+        "platform": "linux/amd64",
+        "reference": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
+      }
+    ]
+  }
+}

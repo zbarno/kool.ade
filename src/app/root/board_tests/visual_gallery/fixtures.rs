@@ -22,8 +22,11 @@ pub(super) fn settings(ctx: &egui::Context) {
                 ready,
                 models: vec!["project-default".into()],
                 default_model: Some("project-default".into()),
+                model_catalog_fresh: true,
                 configuration_required: false,
                 implementation_available: id == "pi" && ready,
+                checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+                capability_snapshot: None,
             },
         );
     }

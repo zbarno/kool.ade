@@ -83,6 +83,36 @@ fn spawn_can_remove_an_environment_value_even_when_explicitly_added() {
 }
 
 #[test]
+fn provider_launch_denies_inherited_startup_and_configuration_injection_variables() {
+    let excluded = crate::harness::execution_security::UNSAFE_PROVIDER_LAUNCH_ENV;
+    let args = sh(
+        "test -z \"${BASH_ENV+x}\" && test -z \"${PYTHONPATH+x}\" && test -z \"${GIT_CONFIG_GLOBAL+x}\" && test -z \"${CLAUDE_CODE_SHELL_PREFIX+x}\" && test \"$OPENAI_API_KEY\" = synthetic-auth-value && printf clean",
+    );
+    let env = [
+        ("BASH_ENV".into(), "/tmp/ambient-startup.sh".into()),
+        ("PYTHONPATH".into(), "/tmp/ambient-python".into()),
+        ("GIT_CONFIG_GLOBAL".into(), "/tmp/ambient-gitconfig".into()),
+        ("CLAUDE_CODE_SHELL_PREFIX".into(), "ambient-wrapper".into()),
+        ("OPENAI_API_KEY".into(), "synthetic-auth-value".into()),
+    ];
+    let task = spawn_with_input_env_excluding(&args, Path::new("/"), None, &env, excluded).unwrap();
+    let mut lines = Vec::new();
+    loop {
+        match task.poll_next(Duration::from_secs(3)).unwrap() {
+            StreamEvt::Stdout(line) => lines.push(line),
+            StreamEvt::Exited(ok) => {
+                assert!(ok);
+                break;
+            }
+            StreamEvt::Stderr(line) => panic!("clean provider launch failed: {line}"),
+        }
+    }
+    assert_eq!(lines, ["clean"]);
+    // Authentication remains inheritable; it is never part of the denylist.
+    assert!(!excluded.contains(&"OPENAI_API_KEY"));
+}
+
+#[test]
 fn exit_follows_all_buffered_output() {
     let task = spawn(
         &sh("i=0; while [ $i -lt 12000 ]; do echo final-payload; i=$((i+1)); done"),

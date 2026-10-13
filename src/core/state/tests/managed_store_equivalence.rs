@@ -157,37 +157,44 @@ fn equivalent_record_bytes(path: &str, left: Option<&[u8]>, right: Option<&[u8]>
     let (Some(left), Some(right)) = (left, right) else {
         return left == right;
     };
+    let confirmation_path = path.starts_with("state/lifecycle_plan_confirmations/");
     let record_path = path.starts_with("state/work/")
         || path.starts_with("state/workflow/")
         || path.starts_with("state/items/")
-        || path.starts_with("state/tasks/");
+        || path.starts_with("state/tasks/")
+        || path.starts_with("state/lifecycle_plans/")
+        || confirmation_path;
     if !record_path {
         return left == right;
     }
-    fn without_timestamps(bytes: &[u8]) -> Option<serde_json::Value> {
+    fn without_timestamps(bytes: &[u8], confirmation_path: bool) -> Option<serde_json::Value> {
         let mut value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
-        fn strip(value: &mut serde_json::Value) {
+        fn strip(value: &mut serde_json::Value, confirmation_path: bool) {
             match value {
                 serde_json::Value::Object(object) => {
                     object.remove("createdAtMs");
                     object.remove("updatedAtMs");
+                    if confirmation_path {
+                        object.remove("receipt_uid");
+                        object.remove("recorded_at_unix_ms");
+                    }
                     for nested in object.values_mut() {
-                        strip(nested);
+                        strip(nested, confirmation_path);
                     }
                 }
                 serde_json::Value::Array(values) => {
                     for nested in values {
-                        strip(nested);
+                        strip(nested, confirmation_path);
                     }
                 }
                 _ => {}
             }
         }
-        strip(&mut value);
+        strip(&mut value, confirmation_path);
         Some(value)
     }
-    without_timestamps(left)
-        .zip(without_timestamps(right))
+    without_timestamps(left, confirmation_path)
+        .zip(without_timestamps(right, confirmation_path))
         .is_some_and(|(left, right)| left == right)
 }
 

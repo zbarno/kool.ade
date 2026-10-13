@@ -1,0 +1,1 @@
+Return TaskGraphV1 JSON. Inputs: role, feature_uid, optional task_uid, original_goal, approved_spec_ref/hash, decision_refs, evidence_manifest, execution_policy_ref, output_schema_version, approved_plan_hash and approved_scope. Decompose only the approved plan; express prerequisites and safe parallelism.

@@ -22,6 +22,8 @@ fn independent_check_gate_pushes_only_the_candidate_and_records_the_exact_result
             deadline: Instant::now() + Duration::from_secs(60),
             cancel: Arc::new(AtomicBool::new(false)),
             progress,
+
+            authorization_verifier: None,
         };
         let outcome = checks_gate::wait_with_provider(
             checks_gate::CheckRequest {
@@ -86,6 +88,8 @@ fn disabling_auto_publish_during_successful_checks_keeps_default_branch_unchange
         deadline: Instant::now() + Duration::from_secs(60),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     let gate = Arc::new(AtomicBool::new(true));
     checks_gate::wait_with_provider(

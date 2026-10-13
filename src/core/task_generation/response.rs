@@ -137,6 +137,12 @@ pub(super) fn story_response(
     story.scope_items = planned.scope_items.clone();
     story.success_criteria = planned.success_criteria.clone();
     story.dependencies = planned.dependencies.clone();
+    if story.parent_task_index.is_some() && story.parent_task_index != planned.parent_task_index {
+        return Err(vec![
+            "parent_task_index changed the approved task hierarchy".into(),
+        ]);
+    }
+    story.parent_task_index = planned.parent_task_index;
     let serialized_chars = serde_json::to_string(&story)
         .map_err(|error| vec![format!("Could not measure task story JSON: {error}")])?
         .chars()

@@ -25,10 +25,31 @@ jobs:
         run: cargo +1.98.1 fmt --all --check
 
   tests:
-    name: tests and sandbox runtime
+    name: tests and Docker runtime
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Require rootless Linux container support
+        run: |
+          set -euo pipefail
+          command -v ssh-keygen >/dev/null
+          command -v ssh-keyscan >/dev/null
+          command -v ssh >/dev/null
+          test "$(docker info --format '{{.OSType}}')" = linux
+          test "$(docker info --format '{{.ServerVersion}}')" = 29.9.0
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+      - name: Install loopback SSH server for authenticated remote E2E
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes openssh-server
+          command -v /usr/sbin/sshd
       - name: Install pinned Node.js and npm for the offline restore E2E
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -39,60 +60,63 @@ jobs:
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1-tests
+          shared-key: rust-1.98.1
+          cache-workspace-crates: true
+      - name: Build the worker executable for loopback SSH integration
+        run: time -p cargo +1.98.1 build --locked --bin koolade
       - name: Install cargo-nextest
         uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           tool: nextest@0.9.148
-      - name: Install Linux sandbox dependency
+      - name: Run all tests in parallel and report timing
+        env:
+          KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
+          KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION: "1"
+          KOOLADE_REQUIRE_SSHD_E2E: "1"
+          KOOLADE_TEST_WORKER_BINARY: target/debug/koolade
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes bubblewrap
-      - name: Enable Bubblewrap namespaces on the disposable runner
-        run: |
-          # GitHub-hosted Ubuntu VMs are discarded after the job. Ubuntu's
-          # AppArmor user-namespace restriction otherwise prevents bwrap from
-          # bringing up loopback inside the isolated network namespace.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net --unshare-ipc --unshare-uts --ro-bind / / -- /bin/true
-      - name: Run all tests in parallel
-        run: cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
-      - name: Run documentation tests
-        run: cargo +1.98.1 test --locked --doc
-      - name: Verify sandbox runtime layout on Fedora 44
-        run: |
-          test_binary="$(cargo +1.98.1 test --locked --lib --no-run --message-format=json | python3 -c '
-          import json
+          set +e
+          /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
+            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
+          test_status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/nextest-time.txt"
+          parallel_seconds="$(awk '$1 == "real" { print $2 }' "$RUNNER_TEMP/nextest-time.txt")"
+          python3 - "$parallel_seconds" >> "$GITHUB_STEP_SUMMARY" <<'PY'
           import sys
 
-          executables = []
-          for line in sys.stdin:
-              try:
-                  artifact = json.loads(line)
-              except json.JSONDecodeError:
-                  continue
-              target = artifact.get("target", {})
-              profile = artifact.get("profile", {})
-              if (
-                  artifact.get("reason") == "compiler-artifact"
-                  and target.get("name") == "koolade"
-                  and "lib" in target.get("kind", [])
-                  and profile.get("test")
-                  and artifact.get("executable")
-              ):
-                  executables.append(artifact["executable"])
-          if len(executables) != 1:
-              raise SystemExit(f"expected one koolade library test executable, got {executables!r}")
-          print(executables[0])
-          ')"
-          test_output="$(docker run --rm \
-            --volume "$GITHUB_WORKSPACE:$GITHUB_WORKSPACE" \
-            --workdir "$GITHUB_WORKSPACE" \
-            fedora:44 \
-            "$test_binary" \
-            harness::pi_sandbox::mounts::system_runtime)"
-          printf '%s\n' "$test_output"
-          printf '%s\n' "$test_output" | grep -Eq '^test result: ok\. [1-9][0-9]* passed;'
+          baseline_seconds = 1732.0
+          parallel_seconds = float(sys.argv[1])
+          saved_percent = 100 * (baseline_seconds - parallel_seconds) / baseline_seconds
+          speedup = baseline_seconds / parallel_seconds
+          print("## Rust test suite timing")
+          print()
+          print("| Run | Wall time |")
+          print("| --- | ---: |")
+          print(f"| Recorded serial baseline | {baseline_seconds:.1f}s |")
+          print(f"| Parallel nextest suite | {parallel_seconds:.1f}s |")
+          print()
+          print(f"Parallel run: {speedup:.2f}x speedup ({saved_percent:.1f}% less wall time).")
+          print("Measured with `/usr/bin/time -p`; both values cover the all-target test command.")
+          print("The serial baseline is from an earlier revision (1,441 tests); the current suite may contain additional tests, so this is an indicative cross-revision comparison.")
+          PY
+          exit "$test_status"
+
+  docs:
+    name: documentation tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1
+          cache-workspace-crates: true
+      - name: Run documentation tests
+        run: time -p cargo +1.98.1 test --locked --doc
 
   clippy:
     name: clippy
@@ -104,24 +128,41 @@ jobs:
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1-clippy
+          shared-key: rust-1.98.1
+          cache-workspace-crates: true
       - name: Reject all clippy warnings
-        run: cargo +1.98.1 clippy --locked --all-targets -- -D warnings
+        run: time -p cargo +1.98.1 clippy --locked --all-targets -- -D warnings
+
+  # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
+  # now comes from the pinned executor image, exercised by rootless Docker E2E.
+  docker-only-check:
+    name: Docker-only runtime
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify Docker-only execution policy
+        run: bash scripts/assert-docker-only.sh
 
   quality:
     name: format, tests, and clippy
     if: always()
-    needs: [format, tests, clippy]
+    needs: [format, tests, docs, clippy, docker-only-check]
     runs-on: ubuntu-latest
     steps:
       - name: Require every quality gate
         env:
           FORMAT_RESULT: ${{ needs.format.result }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
+          DOCKER_ONLY_RESULT: ${{ needs.docker-only-check.result }}
         run: |
           printf 'format: %s\ntests: %s\nclippy: %s\n' \
             "$FORMAT_RESULT" "$TESTS_RESULT" "$CLIPPY_RESULT"
+          printf 'documentation tests: %s\n' "$DOCS_RESULT"
+          printf 'Docker-only runtime: %s\n' "$DOCKER_ONLY_RESULT"
           test "$FORMAT_RESULT" = success
           test "$TESTS_RESULT" = success
+          test "$DOCS_RESULT" = success
           test "$CLIPPY_RESULT" = success
+          test "$DOCKER_ONLY_RESULT" = success

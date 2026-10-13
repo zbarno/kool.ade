@@ -63,13 +63,22 @@ pub(super) fn record_id_for_path(path: &str) -> Option<String> {
     let (collection, file) = path.rsplit_once('/')?;
     if !matches!(
         collection,
-        "state/work" | "state/workflow" | "state/items" | "state/tasks" | "planning/items"
+        "state/work"
+            | "state/workflow"
+            | "state/items"
+            | "state/tasks"
+            | "planning/items"
+            | "state/questions"
+            | "state/readiness"
+            | "planning/questions"
     ) {
         return None;
     }
     let uid = file.rsplit_once('.')?.0;
-    let valid_extension = (collection == "planning/items" && file.ends_with(".md"))
-        || (collection != "planning/items" && file.ends_with(".json"));
+    let valid_extension = (matches!(collection, "planning/items" | "planning/questions")
+        && file.ends_with(".md"))
+        || (!matches!(collection, "planning/items" | "planning/questions")
+            && file.ends_with(".json"));
     let parsed = uuid::Uuid::parse_str(uid).ok()?;
     (valid_extension && parsed.hyphenated().to_string() == uid).then(|| uid.to_owned())
 }

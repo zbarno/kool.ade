@@ -104,7 +104,12 @@ fn queued_running_attention_review_and_completed_tasks_cancel_safely() {
     if let Screen::Connected(project) = &mut app.screen {
         project.active_implementations.remove(&queued);
     }
-    let available = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
+    // Docker discovery launches through PATH; a queue integration fixture
+    // temporarily prepends its fake provider tools to that process-wide value.
+    let available = {
+        let _environment = crate::test_support::lock_process_environment();
+        crate::harness::runtime_capabilities::RuntimeCapabilities::detect()
+    };
     app.start_implementation_with_capabilities(queued.clone(), true, available);
     let Screen::Connected(project) = &app.screen else {
         panic!("disconnected");

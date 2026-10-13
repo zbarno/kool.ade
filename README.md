@@ -266,30 +266,19 @@ The robots have boundaries.
 
 ---
 
-## Sandboxed agent execution
+## Docker-isolated agent execution
 
-On Linux, autonomous repository access runs through **Bubblewrap**.
+Repository commands run through Kool.ad/e's application-owned Docker
+`ExecutionSession`. The application selects the workspace, image digest,
+resource limits, and mode policy; provider CLIs receive only the app-owned MCP
+tools. Containers run without provider credentials or ambient network access,
+and the controller retains Git publication authority.
 
-Planning and implementation sandboxes:
-
-- scrub inherited environment variables
-- hide host home and credential directories
-- restrict repository access
-- isolate network access
-- prevent the agent from casually rummaging around the rest of your machine
-
-Implementation happens in dedicated task clones rather than your active checkout.
-
-Kool.ad/e also uses locks around task execution and publication so multiple processes cannot casually race each other toward increasingly creative Git history.
-
-If the required sandbox cannot be established, autonomous execution fails closed.
-
-The [filesystem boundary](docs/sandbox-filesystem.md) documents the runtime
-allowlist, explicit project/toolchain mounts, and remaining security scope.
-
-This describes **today's implementation**, not the target architecture. The [Docker-only execution migration](https://github.com/zbarno/kool.ade/issues/133) will replace Bubblewrap, preserve the existing authorization and Git safeguards, and prepare local and remote workers to execute under one policy. [Complete Bubblewrap removal](https://github.com/zbarno/kool.ade/issues/143) is an explicit cutover requirement, not a fallback option.
-
-In technical terms: **the current bubble stays until the replacement passes its tests.**
+Implementation uses a task clone. Missing or unsupported Docker prerequisites
+fail closed, while context-only planning can still use context already supplied
+by Kool.ad/e without repository tools. The [Docker security matrix](docs/docker-security-matrix.md)
+records the target policy, platform support, and validation still required
+before release.
 
 ---
 
@@ -402,7 +391,7 @@ Current capabilities include:
 | Optional automatic publication | ✅ |
 | Pull request state tracking | ✅ |
 | Multi-repository projects | ✅ |
-| Bubblewrap sandboxing | ✅ |
+| Docker-isolated repository tools | 🛠️ Candidate implementation |
 | Pi CLI | ✅ |
 | Codex CLI | ✅ |
 | Claude Code CLI | ✅ |
@@ -411,9 +400,9 @@ Current capabilities include:
 | GitHub Copilot CLI | ✅ |
 | Linux x86_64 | ✅ Current host |
 | External managed planning repository | ✅ One planning repository per workspace; shared Git sync and per-record conflicts |
-| Consistent CLI role support + resilient discovery | 🛠️ Queued migration |
-| Docker-only local execution | 🛠️ Queued migration |
-| Remote Docker workers | 🛠️ Queued migration |
+| Consistent CLI role support + resilient discovery | 🛠️ In progress |
+| Docker-only local execution | 🛠️ In progress |
+| Remote Docker workers | 🛠️ In progress |
 | Interactive UI / runtime QA | 🥤 Proposed direction |
 | macOS | 🥤 Planned through Docker Desktop |
 | Windows | 🥤 Planned through Docker Desktop |
@@ -426,9 +415,9 @@ Right now Kool.ad/e is deliberately opinionated:
 
 - **Linux x86_64 only**
 - shared planning is coordinated through an explicitly configured Git remote and manual sync; it does not provide live notifications or per-field access control
-- supported agent CLIs use an application-managed Bubblewrap boundary for repository commands
-- autonomous repository access currently requires **Bubblewrap**; **Docker is planned, not required for this release**
-- Pi's provider bridge currently targets **private/local HTTP OpenAI-compatible endpoints**
+- supported agent CLIs use the application-managed Docker MCP session for repository commands
+- repository tool availability requires an approved Docker target; context-only planning remains separate
+- Pi keeps provider authentication and model transport on the controller process
 - a CLI adapter being integrated does not guarantee every role works with every version yet
 - authenticated remote execution and interactive runtime QA are not yet shipped
 
@@ -453,7 +442,7 @@ flowchart LR
 
 ### 01. In the glass today
 
-Kanban planning, task-specific conversations, living specifications, six CLI integrations, independent Git clones, concurrent local execution, verification, and human-controlled publication. **Linux x86_64 with Bubblewrap remains the current execution environment.** Useful, but experimental.
+Kanban planning, task-specific conversations, living specifications, six CLI integrations, independent Git clones, concurrent local execution, verification, and human-controlled publication. Docker-backed repository tools are in the integrated candidate; platform and release readiness remain under validation.
 
 ### 02. Shared planning across multiple operators
 
@@ -463,11 +452,11 @@ Planning-only workspaces are supported. Code branches belong to their selected c
 
 ### 03. Next major architectural upgrade: Docker everywhere work executes
 
-Move all repository tooling to a single Docker-backed execution policy; remove Bubblewrap after the replacement is verified. Give **all six CLIs** the same approved capabilities for every role, fix fragile CLI scanning and host-code-mode failures, provision dependencies through controlled brokers, then add authenticated **remote Linux Docker workers over SSH**. Workspaces and evidence travel via verified transfers; provider secrets and Git publication authority do not.
+Route all repository tooling through one Docker execution policy. Give **all six CLIs** the same approved capabilities for every role, make discovery crash-proof, resolve host code-mode blockers, provision dependencies through controlled brokers, and support authenticated **remote Linux Docker workers over SSH**. Workspaces and evidence travel via verified transfers; provider secrets and Git publication authority do not.
 
-The initial shared request/policy/event contract is documented in [Execution architecture v1](docs/execution-architecture-v1.md). The Docker migration series is tracked in [#133–#146](https://github.com/zbarno/kool.ade/issues/133), with dedicated [remote worker transport](https://github.com/zbarno/kool.ade/issues/139) and [verified workspace synchronization](https://github.com/zbarno/kool.ade/issues/140) issues.
+The shared request/policy/event contract is documented in [Execution architecture v1](docs/execution-architecture-v1.md); [Docker Engine prerequisites](docs/docker-engine-prerequisites.md) covers trusted local discovery and pinned images. The Docker migration series is tracked in [#133–#146](https://github.com/zbarno/kool.ade/issues/133), with dedicated [remote worker transport](https://github.com/zbarno/kool.ade/issues/139) and [verified workspace synchronization](https://github.com/zbarno/kool.ade/issues/140) issues.
 
-**Docker is the destination, not a current installation requirement.** Remote workers are queued, not shipping.
+**Docker is required for repository tools on the current supported Linux path.** Remote worker readiness and cross-platform support remain subject to the release checks in the security matrix.
 
 ### 04. After the foundation: agents that check their own homework
 
@@ -487,7 +476,7 @@ For the current release you'll need:
 - Linux x86_64
 - Git
 - Rust / Cargo
-- Bubblewrap for **current** autonomous planning and implementation (the Docker cutover has not shipped yet)
+- a supported rootless Docker Engine and the approved Kool.ad/e runtime images for repository tools
 - at least one supported coding CLI: Pi, Codex, Claude Code, OpenCode, GitHub Copilot CLI, or Antigravity, configured for its supported work modes
 - if using **Pi with a local model**, a private/local HTTP OpenAI-compatible provider configured for Pi
 
@@ -568,9 +557,9 @@ Kool.ad/e is a native Rust application using:
 - **Git** as the durable history substrate
 - **Markdown** for human-readable planning artifacts
 - external coding-agent CLIs through the `AiHarness` boundary
-- **Bubblewrap** for current Linux execution isolation
+- **Docker ExecutionSession** for application-managed repository tools
 
-**Target architecture (queued, not yet shipped):** the same Rust planning and harness layers backed by a Docker-only local/remote execution service, authenticated SSH workers, bounded dependency and evidence flows, and independent shared planning Git repositories. Bubblewrap will be removed after the Docker security and migration gates pass.
+**Execution architecture:** Rust planning and harness layers use Docker-backed local and remote execution sessions, authenticated SSH workers, bounded dependency and evidence flows, and independent shared planning Git repositories. Platform and release support are limited to the states recorded in the Docker security matrix.
 
 There is no embedded LLM.
 

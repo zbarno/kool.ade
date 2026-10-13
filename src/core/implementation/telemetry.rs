@@ -1,10 +1,12 @@
-use std::{path::PathBuf, sync::mpsc, time::Instant};
+use std::{path::PathBuf, time::Instant};
 
 use crate::{
     artifacts::task_docs::TaskMetadata,
     harness::{AiHarness, HarnessOutcome, LiveProgress, PlanningRequest, RetrievalPlan},
     persistence::{project_slug, telemetry::InvocationRecord},
 };
+
+mod capture_execute;
 
 /// Captures one task's implementation-related harness invocations while
 /// preserving the ordinary harness and progress contracts.
@@ -16,7 +18,9 @@ pub(super) struct CaptureHarness<'a> {
     feature: Option<String>,
     batch: Option<String>,
     task: Option<String>,
+    run: String,
     pub(super) session: String,
+    telemetry_complete: std::sync::atomic::AtomicBool,
 }
 
 impl<'a> CaptureHarness<'a> {
@@ -44,7 +48,9 @@ impl<'a> CaptureHarness<'a> {
             feature,
             batch: metadata.map(|metadata| metadata.batch_uid.clone()),
             task: task_uid.map(str::to_owned),
-            session: format!("session-{}", uuid::Uuid::new_v4()),
+            run: uuid::Uuid::new_v4().hyphenated().to_string(),
+            session: uuid::Uuid::new_v4().hyphenated().to_string(),
+            telemetry_complete: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
@@ -54,6 +60,7 @@ impl<'a> CaptureHarness<'a> {
         start: Instant,
         progress: Option<LiveProgress>,
         outcome: &str,
+        identity: Option<&crate::harness::ReviewExecutionIdentity>,
     ) -> Option<String> {
         let project = self
             .project_root
@@ -84,7 +91,16 @@ impl<'a> CaptureHarness<'a> {
         let mut errors = Vec::new();
         for call in calls {
             let mut record = InvocationRecord::new(&slug, name);
-            record.session = Some(self.session.clone());
+            record.session = Some(
+                identity
+                    .map(|identity| identity.session_id.clone())
+                    .unwrap_or_else(|| self.session.clone()),
+            );
+            record.execution_id = Some(
+                identity
+                    .map(|identity| identity.execution_id.clone())
+                    .unwrap_or_else(|| self.run.clone()),
+            );
             record.repository = self.repository.clone();
             record.feature = self.feature.clone();
             record.batch = self.batch.clone();
@@ -205,6 +221,14 @@ impl AiHarness for CaptureHarness<'_> {
     fn check_available(&self) -> Result<String, crate::error::AppError> {
         self.inner.check_available()
     }
+    fn current_execution_identity(&self) -> Option<crate::harness::ReviewExecutionIdentity> {
+        self.telemetry_complete
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .then(|| crate::harness::ReviewExecutionIdentity {
+                execution_id: self.run.clone(),
+                session_id: self.session.clone(),
+            })
+    }
     fn plan_retrieval(
         &self,
         request: &PlanningRequest,
@@ -213,48 +237,21 @@ impl AiHarness for CaptureHarness<'_> {
     }
 
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {
-        let start = Instant::now();
-        let (tx, rx) = mpsc::channel();
-        let mut captured = request.clone();
-        captured.progress_tx = tx;
-        if captured.mode == crate::harness::ExecutionMode::Implementation {
-            captured.runtime_config_source = Some(self.runtime_config_source.clone());
-        }
-        let (execution, latest) = std::thread::scope(|scope| {
-            let target = request.progress_tx.clone();
-            let reader = scope.spawn(move || {
-                let mut aggregate = LiveProgress::default();
-                let mut saw_progress = false;
-                while let Ok(progress) = rx.recv() {
-                    let _ = target.send(progress.clone());
-                    aggregate.update(progress);
-                    saw_progress = true;
-                }
-                saw_progress.then_some(aggregate)
-            });
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.inner.execute(&captured)
-            }));
-            drop(captured);
-            (result, reader.join().ok().flatten())
-        });
-        let outcome = match &execution {
-            Ok(result) => invocation_outcome(result),
-            Err(_) => "interrupted",
-        };
-        if let Some(error) = self.persist(request, start, latest.clone(), outcome) {
-            let mut progress = latest.unwrap_or_default();
-            progress.activity = Some(format!(
-                "Implementation telemetry could not be saved: {error}. Work continues; metrics may be incomplete."
-            ));
-            let _ = request.progress_tx.send(progress);
-        }
-        match execution {
-            Ok(result) => result,
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
+        capture_execute::execute(self, request, None)
+    }
+
+    fn execute_review(
+        &self,
+        request: &PlanningRequest,
+        identity: &crate::harness::ReviewExecutionIdentity,
+    ) -> Result<HarnessOutcome, crate::error::AppError> {
+        capture_execute::execute(self, request, Some(identity))
     }
 }
+
+#[cfg(test)]
+#[path = "telemetry/identity_tests.rs"]
+mod identity_tests;
 
 fn invocation_outcome(result: &Result<HarnessOutcome, crate::error::AppError>) -> &'static str {
     match result {

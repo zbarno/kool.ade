@@ -1,4 +1,5 @@
 mod automation;
+mod execution_environments;
 mod planning_repository;
 use super::*;
 use crate::app::dialogs::HarnessSettingsSection;
@@ -12,18 +13,20 @@ pub(super) enum Page {
     PlanningRepository,
     CodingTools,
     ModelsRouting,
+    ExecutionEnvironments,
     Automation,
     People,
 }
 
 impl Page {
-    const ALL: [(Self, &'static str); 8] = [
+    const ALL: [(Self, &'static str); 9] = [
         (Self::General, "General"),
         (Self::Appearance, "Appearance"),
         (Self::ProjectGit, "Project & Git"),
         (Self::PlanningRepository, "Planning Repository"),
         (Self::CodingTools, "Coding Tools"),
         (Self::ModelsRouting, "Models & Routing"),
+        (Self::ExecutionEnvironments, "Execution Environments"),
         (Self::Automation, "Automation"),
         (Self::People, "People & Stakeholders"),
     ];
@@ -38,8 +41,8 @@ impl Page {
 pub(super) fn paint_navigation(ui: &mut egui::Ui, selected: &mut Page) {
     for (group, pages) in [
         ("APPLICATION", &Page::ALL[..2]),
-        ("WORK & TOOLS", &Page::ALL[4..7]),
-        ("PROJECT", &[Page::ALL[2], Page::ALL[3], Page::ALL[7]][..]),
+        ("WORK & TOOLS", &Page::ALL[4..8]),
+        ("PROJECT", &[Page::ALL[2], Page::ALL[3], Page::ALL[8]][..]),
     ] {
         ui.label(theme::metadata_text(group));
         ui.add_space(4.0);
@@ -93,10 +96,15 @@ pub(super) fn paint_page(
         Page::PlanningRepository => planning_repository::paint(ui, surface),
         Page::CodingTools => paint_harness(ui, HarnessSettingsSection::Tools),
         Page::ModelsRouting => paint_harness(ui, HarnessSettingsSection::Routing),
+        Page::ExecutionEnvironments => execution_environments::paint(ui),
         Page::Automation => automation::paint(ui, surface, board),
         Page::People => paint_people(ui, surface),
     }
 }
+
+#[cfg(test)]
+#[path = "pages/tests.rs"]
+mod tests;
 
 fn paint_appearance(ui: &mut egui::Ui) -> Option<String> {
     ui.label(theme::page_title("Appearance"));

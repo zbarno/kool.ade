@@ -152,30 +152,19 @@ fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
     let argv = std::iter::once(binary.to_string_lossy().into_owned())
         .chain(args.iter().map(|arg| (*arg).to_owned()))
         .collect::<Vec<_>>();
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let output = crate::harness::discovery::run(
         &argv,
-        Path::new("."),
-        None,
-        &[],
+        Duration::from_secs(10),
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::execution_security::CliProvider::Copilot.excluded_child_environment(),
     )
-    .map_err(|error| format!("Could not start GitHub Copilot CLI: {error}"))?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    let mut output = Vec::new();
-    let mut status = None;
-    loop {
-        if std::time::Instant::now() >= deadline {
-            task.kill();
-            let _ = task.settle(Duration::from_secs(2));
-            return Err("GitHub Copilot CLI readiness command timed out".into());
-        }
-        match task.poll_next(Duration::from_millis(100)) {
-            Ok(crate::harness::pi_proc::StreamEvt::Stdout(line)) => output.push(line),
-            Ok(crate::harness::pi_proc::StreamEvt::Stderr(_)) => {}
-            Ok(crate::harness::pi_proc::StreamEvt::Exited(success)) => status = Some(success),
-            Err(crate::harness::pi_proc::PollState::Closed) => break,
-            Err(crate::harness::pi_proc::PollState::Pending) => {}
-        }
+    .map_err(|error| format!("GitHub Copilot CLI readiness check failed: {error}"))?;
+    if output.stdout_truncated || output.stderr_truncated {
+        return Err("GitHub Copilot CLI readiness output exceeded the size limit".into());
     }
-    Ok((output.join("\n"), status == Some(true)))
+    Ok((
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        output.success,
+    ))
 }

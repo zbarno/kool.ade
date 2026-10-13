@@ -51,6 +51,38 @@ impl KooladeApp {
                 self.request_publication_changes(&ticket)
             }
             ApplicationCommand::ApproveReviewItem { id } => self.approve_review_item(&id),
+            ApplicationCommand::AnswerClarification {
+                uid,
+                expected_revision,
+                answer,
+                selected_option,
+            } => {
+                self.answer_clarification(
+                    &uid,
+                    expected_revision,
+                    &answer,
+                    selected_option.as_deref(),
+                );
+            }
+            ApplicationCommand::DecideOpportunity {
+                uid,
+                expected_revision,
+                choice,
+                explanation,
+            } => self.decide_opportunity(&uid, expected_revision, choice, explanation),
+            ApplicationCommand::RetryOpportunityPlanning {
+                uid,
+                expected_revision,
+            } => self.retry_opportunity_planning(&uid, expected_revision),
+            ApplicationCommand::SetOpportunityDiscoverySettings {
+                settings,
+                expected_revision,
+            } => self.save_opportunity_discovery_settings(settings, expected_revision),
+            ApplicationCommand::SnoozeOpportunity {
+                uid,
+                expected_revision,
+                days,
+            } => self.snooze_opportunity(&uid, expected_revision, days),
             ApplicationCommand::ApproveFeature { id } => self.approve_and_prepare_feature(&id),
             ApplicationCommand::ApproveFeatureForBoard { id } => {
                 self.approve_feature_from_board(&id)
@@ -94,6 +126,33 @@ impl KooladeApp {
                 TaskDetailCommand::StartOrResume { ticket } => {
                     self.start_implementation(ticket, true)
                 }
+                TaskDetailCommand::PublishLifecyclePr { ticket } => {
+                    self.publish_lifecycle_pr(&ticket)
+                }
+                TaskDetailCommand::ApproveSpecReconciliation {
+                    ticket,
+                    expected_revision,
+                    proposal_sha256,
+                    base_spec_sha256,
+                } => match &mut self.screen {
+                    Screen::Connected(project) => {
+                        match crate::app::root::spec_reconciliation::apply_approved_delta(
+                            project,
+                            &ticket,
+                            expected_revision,
+                            &proposal_sha256,
+                            &base_spec_sha256,
+                        ) {
+                            Ok(()) => self.toasts.success(
+                                "Applied the approved specification changes; reconciliation will verify the updated specification.",
+                            ),
+                            Err(error) => self.toasts.warning(error),
+                        }
+                    }
+                    Screen::Welcome => self.toasts.warning(
+                        "Connect a project before approving specification changes.",
+                    ),
+                },
                 TaskDetailCommand::RunWithoutSharedCoordination { ticket } => {
                     self.start_without_shared_coordination(ticket)
                 }
@@ -104,6 +163,24 @@ impl KooladeApp {
                 } => self.authorize_dependency_request(&ticket, &request_id, scope),
                 TaskDetailCommand::DenyDependency { ticket, request_id } => {
                     self.deny_dependency_request(&ticket, &request_id)
+                }
+                TaskDetailCommand::SetExecutionTarget { ticket, preference } => {
+                    let task_key = match &self.screen {
+                        Screen::Connected(project) => {
+                            super::super::task_target::key(project, &ticket)
+                        }
+                        Screen::Welcome => ticket.clone(),
+                    };
+                    match crate::persistence::execution_environment_settings::save_task_target(
+                        &task_key, preference,
+                    ) {
+                        Ok(()) => self
+                            .toasts
+                            .success("Saved task execution target preference"),
+                        Err(error) => self
+                            .toasts
+                            .warning(format!("Could not save task execution target: {error}")),
+                    }
                 }
             },
         }

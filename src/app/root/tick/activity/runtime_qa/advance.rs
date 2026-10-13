@@ -1,0 +1,282 @@
+use super::*;
+
+mod dispatch;
+mod recipe;
+mod worker_completion;
+
+pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
+    project: &mut Project,
+    task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+) {
+    recipe::record_recipe_worker_completion(project);
+    let completed_worker = worker_completion::completed_worker_state(project);
+    let completed_worker_identity = completed_worker.identity;
+    let worker_result = completed_worker.result;
+    let lifecycle = LifecycleStore::new(&project.state.planning_store);
+    let candidates = match lifecycle.runtime_qa_candidates() {
+        Ok(candidates) => candidates,
+        Err(error) => {
+            project
+                .activity
+                .pending
+                .push(format!("Runtime QA queue could not be read: {error}"));
+            return;
+        }
+    };
+    let mut notices = Vec::new();
+    let mut launch = None;
+    for task in candidates {
+        if project.activity.runtime_recipe_worker.is_some() {
+            break;
+        }
+        let qa_state = task.qa_execution.as_ref();
+        let request = qa_state.and_then(|state| state.request.as_ref());
+        if request.is_none() {
+            match recipe_queue::ready(project, &task) {
+                Ok(true) => match recipe_queue::start(project, &task) {
+                    Ok(worker) => {
+                        notices.push(format!(
+                            "Approved runtime build/test recipe for task {} dispatched to the isolated task workspace.",
+                            task.task_uid
+                        ));
+                        project.activity.runtime_recipe_worker = Some(worker);
+                        break;
+                    }
+                    Err(reason) => notices.push(format!(
+                        "Approved runtime recipe for task {} could not start: {reason}",
+                        task.task_uid
+                    )),
+                },
+                Ok(false) => {}
+                Err(reason) => {
+                    if qa_state.and_then(|state| state.blocked_reason.as_deref())
+                        == Some(reason.as_str())
+                    {
+                        continue;
+                    }
+                    let event_uid = event_uid(
+                        &task.task_uid,
+                        task.revision,
+                        "runtime-recipe-attempt-blocked-v1",
+                    );
+                    match lifecycle.block_runtime_qa_unavailable(
+                        &task.task_uid, task.revision, &event_uid, reason.clone(),
+                    ) {
+                        Ok(_) => notices.push(format!(
+                            "Runtime QA for task {} is blocked by its runtime recipe attempt: {reason}",
+                            task.task_uid
+                        )),
+                        Err(error) => project.activity.pending.push(format!(
+                            "Runtime recipe blocker for task {} could not be persisted: {error}", task.task_uid
+                        )),
+                    }
+                    continue;
+                }
+            }
+            match request::prepare(project, &task) {
+                Ok(prepared) => {
+                    let event_uid =
+                        event_uid(&task.task_uid, task.revision, "runtime-qa-request-v1");
+                    match lifecycle.queue_runtime_qa(
+                        &task.task_uid,
+                        task.revision,
+                        &event_uid,
+                        prepared.request.clone(),
+                    ) {
+                        Ok(_) => {
+                            if qa_state.is_some_and(|state| {
+                                state.status == crate::core::lifecycle::QaExecutionStatusV1::Blocked
+                            }) {
+                                notices.push(format!(
+                                    "Runtime QA for task {} has a fresh request persisted; dispatch is eligible on the next tick.",
+                                    task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                                ));
+                            } else {
+                                launch = Some((prepared, task.task_uid.clone()));
+                            }
+                        }
+                        Err(error) => project.activity.pending.push(format!(
+                            "Runtime QA request for task {} could not be persisted: {error}",
+                            task.task_uid
+                        )),
+                    }
+                }
+                Err(reason) => {
+                    if qa_state.and_then(|state| state.blocked_reason.as_deref())
+                        == Some(reason.as_str())
+                    {
+                        continue;
+                    }
+                    let event_uid =
+                        event_uid(&task.task_uid, task.revision, "runtime-qa-unavailable-v1");
+                    match lifecycle.block_runtime_qa_unavailable(
+                        &task.task_uid,
+                        task.revision,
+                        &event_uid,
+                        reason.clone(),
+                    ) {
+                        Ok(_) => notices.push(format!(
+                            "Runtime QA for task {} is blocked before request creation: {reason} No runtime execution or result was produced.",
+                            task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                        )),
+                        Err(error) => project.activity.pending.push(format!(
+                            "Runtime QA for task {} could not persist its request blocker: {error}",
+                            task.task_uid
+                        )),
+                    }
+                }
+            }
+            continue;
+        }
+        let request = request.expect("checked above");
+        if qa_state.is_some_and(|state| {
+            state.status == crate::core::lifecycle::QaExecutionStatusV1::Blocked
+        }) {
+            // This exact run has already ended in a durable block. Retrying it
+            // would reuse reviewer/session identity and evidence bindings.
+            continue;
+        }
+        if project.activity.runtime_qa_worker.is_some() {
+            continue;
+        }
+        let qa_store = crate::runtime_qa::RuntimeQaStore::new(
+            project.state.planning_store.root.join("state/runtime-qa"),
+        );
+        if completed_worker_identity
+            .as_ref()
+            .is_some_and(|(run_id, uid)| run_id == &request.qa_run_id && uid == &task.task_uid)
+            && let Some(Err(reason)) = worker_result.as_ref()
+            && project.activity.runtime_qa_worker.is_none()
+        {
+            let event_uid = event_uid(&task.task_uid, task.revision, "runtime-qa-worker-failed-v1");
+            match lifecycle.block_runtime_qa(
+                &task.task_uid,
+                task.revision,
+                &event_uid,
+                &request.qa_run_id,
+                reason.clone(),
+            ) {
+                Ok(_) => notices.push(format!(
+                    "Runtime QA for task {} is blocked: {reason}",
+                    task.task_uid
+                )),
+                Err(error) => project.activity.pending.push(format!(
+                    "Runtime QA worker failure could not be persisted: {error}"
+                )),
+            }
+            continue;
+        }
+        match reports::record_persisted_report(
+            &project.state.planning_store,
+            &lifecycle,
+            &qa_store,
+            &task,
+        ) {
+            Ok(Some(notice)) => {
+                notices.push(notice);
+                continue;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                let reason = format!(
+                    "a persisted QA report could not be safely accepted ({error}); inspect the exact run evidence and create a fresh reviewed request before retrying."
+                );
+                let event_uid = event_uid(
+                    &task.task_uid,
+                    task.revision,
+                    "runtime-qa-report-rejected-v1",
+                );
+                match lifecycle.block_runtime_qa(
+                    &task.task_uid,
+                    task.revision,
+                    &event_uid,
+                    &request.qa_run_id,
+                    reason.clone(),
+                ) {
+                    Ok(_) => notices.push(format!(
+                        "Runtime QA report for task {} was rejected and blocked: {reason}",
+                        task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                    )),
+                    Err(block_error) => project.activity.pending.push(format!(
+                        "Runtime QA report for task {} could not be recorded or blocked: {block_error}",
+                        task.task_uid
+                    )),
+                }
+                continue;
+            }
+        }
+        if let Err(error) = qa_store.load_approved_scenarios(request) {
+            notices.push(format!(
+                "Runtime QA for task {} is waiting for an explicit user approval of its exact scenario set ({error}). No scenarios have been inferred or executed.",
+                task.planning_item_uid.as_deref().unwrap_or(task.task_uid.as_str())
+            ));
+            continue;
+        }
+        let prepared = match request::prepare(project, &task) {
+            Ok(prepared) if prepared.request == *request => prepared,
+            Ok(_) => {
+                let reason = "queued Runtime QA request no longer matches the exact reviewed task, target, recipe, or build receipt; issue a fresh reviewed request.";
+                let event_uid =
+                    event_uid(&task.task_uid, task.revision, "runtime-qa-request-stale-v1");
+                match lifecycle.block_runtime_qa(&task.task_uid, task.revision, &event_uid, &request.qa_run_id, reason.into()) {
+                    Ok(_) => notices.push(format!("Runtime QA for task {} was blocked because its queued request is stale; issue a fresh reviewed request.", task.task_uid)),
+                    Err(error) => project.activity.pending.push(format!("Stale Runtime QA request could not be blocked: {error}")),
+                }
+                continue;
+            }
+            Err(reason) => {
+                let reason = format!(
+                    "queued Runtime QA request inputs cannot be reconstructed: {reason}; issue a fresh reviewed request."
+                );
+                let event_uid = event_uid(
+                    &task.task_uid,
+                    task.revision,
+                    "runtime-qa-inputs-missing-v1",
+                );
+                match lifecycle.block_runtime_qa(
+                    &task.task_uid,
+                    task.revision,
+                    &event_uid,
+                    &request.qa_run_id,
+                    reason.clone(),
+                ) {
+                    Ok(_) => notices.push(format!(
+                        "Runtime QA for task {} was blocked: {reason}",
+                        task.task_uid
+                    )),
+                    Err(error) => project.activity.pending.push(format!(
+                        "Runtime QA input blocker could not be persisted: {error}"
+                    )),
+                }
+                continue;
+            }
+        };
+        if let Some(reason) = unavailable_reason(project, request) {
+            let event_uid = event_uid(
+                &task.task_uid,
+                task.revision,
+                "runtime-qa-infrastructure-blocked-v1",
+            );
+            match lifecycle.block_runtime_qa(
+                &task.task_uid,
+                task.revision,
+                &event_uid,
+                &request.qa_run_id,
+                reason.clone(),
+            ) {
+                Ok(_) => notices.push(format!(
+                    "Runtime QA for task {} is infrastructure-blocked: {reason}",
+                    task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                )),
+                Err(error) => project.activity.pending.push(format!(
+                    "Runtime QA blocker could not be persisted: {error}"
+                )),
+            }
+            continue;
+        }
+        launch = Some((prepared, task.task_uid.clone()));
+        break;
+    }
+    dispatch::dispatch_queued_worker(project, task_harness, launch, &mut notices);
+    dispatch::flush_notices(project, notices);
+}

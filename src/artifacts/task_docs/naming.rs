@@ -158,6 +158,12 @@ pub(super) fn render(
             b.success_criteria[r - 1]
         ));
     }
+    if !story.approved_requirement_ids.is_empty() {
+        out.push_str("\nApproved requirement IDs:\n");
+        for requirement in &story.approved_requirement_ids {
+            out.push_str(&format!("\n- {requirement}\n"));
+        }
+    }
     out.push_str("\n## Dependencies\n\n");
     if story.dependencies.is_empty() {
         out.push_str("None. This task can start independently.\n");
@@ -181,6 +187,11 @@ pub(super) fn render(
         "Affected files and components",
         &story.affected_files,
         false,
+    );
+    optional_list(
+        &mut out,
+        "Estimated concurrency risks",
+        &story.concurrency_risks,
     );
     list(
         &mut out,

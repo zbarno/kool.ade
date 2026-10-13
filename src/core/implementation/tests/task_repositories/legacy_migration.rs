@@ -24,26 +24,28 @@ impl AiHarness for MigrationAwareFixture {
         &self,
         request: &PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, AppError> {
-        let index = std::process::Command::new("git")
-            .args(["show", ":tracked.txt"])
-            .current_dir(&request.repo_root)
-            .output()
-            .unwrap();
-        assert!(index.status.success());
-        assert_eq!(String::from_utf8(index.stdout).unwrap(), "staged change\n");
-        assert_eq!(
-            fs::read_to_string(request.repo_root.join("legacy-commit.txt")).unwrap(),
-            "branch-local commit\n"
-        );
-        assert_eq!(
-            fs::read_to_string(request.repo_root.join("tracked.txt")).unwrap(),
-            "unstaged change\n"
-        );
-        assert!(request.repo_root.join("untracked\nname.txt").is_file());
-        assert_eq!(
-            fs::read_link(request.repo_root.join("untracked-link")).unwrap(),
-            Path::new("untracked\nname.txt")
-        );
+        if self.calls.load(Ordering::SeqCst) == 0 {
+            let index = std::process::Command::new("git")
+                .args(["show", ":tracked.txt"])
+                .current_dir(&request.repo_root)
+                .output()
+                .unwrap();
+            assert!(index.status.success());
+            assert_eq!(String::from_utf8(index.stdout).unwrap(), "staged change\n");
+            assert_eq!(
+                fs::read_to_string(request.repo_root.join("legacy-commit.txt")).unwrap(),
+                "branch-local commit\n"
+            );
+            assert_eq!(
+                fs::read_to_string(request.repo_root.join("tracked.txt")).unwrap(),
+                "unstaged change\n"
+            );
+            assert!(request.repo_root.join("untracked\nname.txt").is_file());
+            assert_eq!(
+                fs::read_link(request.repo_root.join("untracked-link")).unwrap(),
+                Path::new("untracked\nname.txt")
+            );
+        }
         Fixture {
             mode: "complete",
             calls: self.calls.clone(),
@@ -230,9 +232,15 @@ fn setup_legacy_workspace(sandbox: &Sandbox) -> (Implementation, PathBuf, String
     #[cfg(unix)]
     std::os::unix::fs::symlink("untracked\nname.txt", worktree.join("untracked-link")).unwrap();
     let original_status = sandbox.git(&worktree, &["status", "--porcelain"]);
+    let raw_ticket = fs::read_to_string(sandbox.repo.join(&sandbox.ticket)).unwrap();
+    let task_uid = crate::domain::ArtifactIdentity::from_markdown(&raw_ticket)
+        .unwrap()
+        .map(|identity| identity.uid);
+    let ticket_text = crate::artifacts::task_docs::visible_content(&raw_ticket);
     let state: Implementation = serde_json::from_value(serde_json::json!({
         "ticket": sandbox.ticket,
-        "ticket_text": fs::read_to_string(sandbox.repo.join(&sandbox.ticket)).unwrap(),
+        "task_uid": task_uid,
+        "ticket_text": ticket_text,
         "branch": branch,
         "base": "main",
         "base_commit": base,

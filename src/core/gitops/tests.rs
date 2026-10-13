@@ -188,6 +188,13 @@ fn read_config_reads_email_only_under_shielded_ambient() {
 }
 
 #[test]
+fn git_shield_clears_command_line_config_injections() {
+    let _shield = test_support::shield("config-injection");
+    assert!(std::env::var_os("GIT_CONFIG_COUNT").is_none());
+    assert!(std::env::var_os("GIT_CONFIG_PARAMETERS").is_none());
+}
+
+#[test]
 fn read_config_swallows_non_repo_and_blank_value_failures() {
     let plain = plain_dir("cfgplain");
     assert_eq!(read_config(&plain, "user.name"), None);

@@ -107,8 +107,8 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
     let home_b = base.join("operator-b");
     std::fs::create_dir_all(&home_a).unwrap();
     std::fs::create_dir_all(&home_b).unwrap();
-    let _restore = StateHome::new();
-    StateHome::set(&home_a);
+    let mut state_home = StateHome::new();
+    state_home.set(&home_a);
     let manager_a = WorkspaceManager::new(&home_a);
     let workspace_a = manager_a.create("Shared branch workspace").unwrap();
     let mut work = Work::new(
@@ -189,14 +189,14 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
     manager_a
         .register_code_repository(workspace_a.id, registration(&code_a))
         .unwrap();
-    StateHome::set(&home_b);
+    state_home.set(&home_b);
     manager_b
         .register_code_repository(workspace_b.id, registration(&code_b))
         .unwrap();
 
-    StateHome::set(&home_a);
+    state_home.set(&home_a);
     let mut app_a = connected_app(&code_a, manager_a.open(workspace_a.id).unwrap().store);
-    StateHome::set(&home_b);
+    state_home.set(&home_b);
     let mut app_b = connected_app(&code_b, manager_b.open(workspace_b.id).unwrap().store);
     assert!(crate::ui::Surface::is_git_repo(&app_a));
     assert!(crate::ui::Surface::is_git_repo(&app_b));
@@ -233,7 +233,7 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
     );
 
     git(Some(&code_a), &["checkout", "-q", "feature/auth"]);
-    StateHome::set(&home_a);
+    state_home.set(&home_a);
     let manager_a_store = manager_a.open(workspace_a.id).unwrap().store;
     app_a = connected_app(&code_a, manager_a_store);
     assert_eq!(crate::ui::Surface::git_branch(&app_a), "feature/auth");

@@ -86,8 +86,17 @@ impl KooladeApp {
             let slot = std::mem::replace(&mut self.screen, Screen::Welcome);
             if let Screen::Connected(mut project) = slot {
                 let requested_action = self.adopt_turn(&mut project, o);
+                let pending_planner = if applied {
+                    project.activity.pending_clarification_planner.take()
+                } else {
+                    project.activity.pending_clarification_planner = None;
+                    None
+                };
                 self.screen = Screen::Connected(project);
                 self.continue_feature_generation(applied);
+                if let Some((feature_uid, plan_revision)) = pending_planner {
+                    self.start_clarification_planner(&feature_uid, plan_revision);
+                }
                 if let Some(action) = requested_action {
                     requested_action::dispatch(self, action);
                 }

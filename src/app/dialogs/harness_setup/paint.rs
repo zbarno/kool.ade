@@ -63,8 +63,11 @@ fn route_available(
     id: &str,
     harness: &crate::persistence::harness_settings::DetectedHarness,
 ) -> bool {
-    harness.ready
-        && harness.implementation_available
+    super::has_current_provider_capabilities(
+        id,
+        harness,
+        crate::persistence::harness_settings::current_unix_ms(),
+    ) && harness.implementation_available
         && crate::harness::implementation_route_available(id)
 }
 
@@ -76,7 +79,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .color(theme::TEXT),
     );
     ui.label(RichText::new("Choose the coding tool and model for each kind of work. Settings are saved on this device. Unchanged categories use your default tool.").size(11.0).weak());
-    ui.label(RichText::new("Repository commands run through Kool.ad/e's application-managed Bubblewrap boundary. Supported provider CLIs keep their own model connection; their native repository tools are disabled.").size(10.5).weak());
+    ui.label(RichText::new("Repository commands run through Kool.ad/e's application-owned Docker ExecutionSession. Supported provider CLIs keep their model connection; their native repository tools are disabled.").size(10.5).weak());
     let categories = [
         (
             crate::persistence::harness_settings::IMPLEMENTATION,
@@ -138,13 +141,17 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .get(id)
                 .is_some_and(|harness| route_available(id, harness))
         {
-            let detail = if dialog
+            let detail = if dialog.settings.discovered.get(id).is_some_and(|harness| {
+                !harness.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
+            }) {
+                "has stale provider discovery; refresh Coding tools"
+            } else if dialog
                 .settings
                 .discovered
                 .get(id)
                 .is_some_and(|harness| harness.ready)
             {
-                "does not support repository work inside Kool.ad/e's application-owned sandbox"
+                "does not support repository work through Kool.ad/e's Docker ExecutionSession"
             } else {
                 "is currently unavailable"
             };
@@ -157,17 +164,26 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
         if let Some(route) = dialog.settings.work_routes.get(key) {
             let id = route.harness.clone();
             let current_model = route.model.clone();
-            let models = dialog
-                .settings
-                .discovered
-                .get(&id)
-                .map(|detected| detected.models.clone())
-                .unwrap_or_default();
-            let default_model = dialog
-                .settings
-                .discovered
-                .get(&id)
-                .and_then(|detected| detected.default_model.as_deref());
+            let detected = dialog.settings.discovered.get(&id);
+            let fresh = detected.is_some_and(|entry| {
+                super::has_current_model_catalog(
+                    &id,
+                    entry,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                )
+            });
+            let models = if fresh {
+                detected
+                    .map(|entry| entry.models.clone())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let default_model = if fresh {
+                detected.and_then(|entry| entry.default_model.as_deref())
+            } else {
+                None
+            };
             let default_label = default_model
                 .map(|model| format!("CLI default (last discovered: {model})"))
                 .unwrap_or_else(|| "CLI default (model not reported)".into());

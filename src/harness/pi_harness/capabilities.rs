@@ -4,10 +4,10 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
 
-use crate::{error::AppError, harness::pi_proc::StreamEvt};
+use crate::error::AppError;
 
 use super::super::{ExecutionMode, ToolAccess};
 
@@ -15,20 +15,6 @@ type HelpResult = Result<String, String>;
 type HelpCache = HashMap<PathBuf, (Option<SystemTime>, HelpResult)>;
 
 static HELP_CACHE: OnceLock<Mutex<HelpCache>> = OnceLock::new();
-
-/// Refuse execution if the selected mode needs flags the installed CLI lacks.
-pub(super) fn validate(exe: &Path, mode: ExecutionMode) -> Result<(), AppError> {
-    let help = help_output(exe).map_err(AppError::Other)?;
-    let missing = missing_capabilities(&help, mode);
-    if missing.is_empty() {
-        Ok(())
-    } else {
-        Err(AppError::Other(format!(
-            "Pi is missing Koolade-required capabilities: {}",
-            missing.join(", ")
-        )))
-    }
-}
 
 /// The settings/setup probe checks the complete interface Koolade uses.
 pub(super) fn validate_all(exe: &Path) -> Result<(), AppError> {
@@ -64,37 +50,21 @@ fn help_output(exe: &Path) -> Result<String, String> {
 }
 
 fn read_help(exe: &Path) -> Result<String, String> {
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let output = crate::harness::discovery::run(
         &[exe.to_string_lossy().into_owned(), "--help".into()],
-        Path::new("."),
-        None,
-        &[],
+        Duration::from_secs(10),
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         &["NODE_OPTIONS"],
     )
     .map_err(|error| format!("could not inspect Pi capabilities: {error}"))?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut output = String::new();
-    loop {
-        if Instant::now() >= deadline {
-            task.kill();
-            let _ = task.settle(Duration::from_secs(1));
-            return Err("Pi capability probe timed out while reading --help".into());
-        }
-        match task.poll_next(Duration::from_millis(100)) {
-            Ok(StreamEvt::Stdout(line) | StreamEvt::Stderr(line)) => {
-                output.push_str(&line);
-                output.push('\n');
-            }
-            Ok(StreamEvt::Exited(true)) => return Ok(output),
-            Ok(StreamEvt::Exited(false)) => {
-                return Err("Pi --help exited unsuccessfully".into());
-            }
-            Err(crate::harness::pi_proc::PollState::Pending) => {}
-            Err(crate::harness::pi_proc::PollState::Closed) => {
-                return Err("Pi capability probe ended before --help completed".into());
-            }
-        }
+    if !output.success {
+        return Err("Pi --help exited unsuccessfully".into());
     }
+    let mut combined = output.stdout;
+    combined.push(b'\n');
+    combined.extend_from_slice(&output.stderr);
+    String::from_utf8(combined).map_err(|_| "Pi --help returned non-UTF-8 output".into())
 }
 
 fn missing_capabilities(help: &str, mode: ExecutionMode) -> Vec<String> {
@@ -105,16 +75,19 @@ fn missing_capabilities(help: &str, mode: ExecutionMode) -> Vec<String> {
         "--no-approve",
         "--append-system-prompt",
         "--thinking",
+        "--provider",
+        "--model",
         "--no-extensions",
         "--no-skills",
         "--no-prompt-templates",
+        "--no-themes",
+        "--no-context-files",
     ];
-    if mode != ExecutionMode::Implementation {
-        required.push("--no-context-files");
-    }
     match mode.tool_access() {
         ToolAccess::None => required.push("--no-tools"),
-        ToolAccess::ReadOnly => required.push("--tools"),
+        ToolAccess::ReadOnly => {
+            required.extend(["--no-builtin-tools", "--tools", "--extension"]);
+        }
         ToolAccess::BoundedImplementation => {
             required.extend(["--no-builtin-tools", "--tools", "--extension"]);
         }

@@ -9,6 +9,8 @@ fn publication_runner(sandbox: &Sandbox) -> Runner {
         deadline: Instant::now() + Duration::from_secs(60),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     }
 }
 

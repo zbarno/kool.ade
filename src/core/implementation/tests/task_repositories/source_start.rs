@@ -37,6 +37,8 @@ fn divergent_task_clone_starts_at_the_persisted_local_source_commit() {
         deadline: Instant::now() + Duration::from_secs(60),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     execution::persist_source_plan_before_task_state(
         &sandbox.repo,

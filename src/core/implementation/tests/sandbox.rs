@@ -1,5 +1,19 @@
 use super::*;
 
+#[path = "sandbox/cleanup.rs"]
+mod cleanup;
+#[path = "sandbox/lifecycle.rs"]
+mod lifecycle;
+#[path = "sandbox/verification.rs"]
+mod verification;
+pub(super) use cleanup::completed_cleanup_fixture;
+pub(super) use verification::install_verification_executor;
+pub(super) fn seed_lifecycle_task(repo: &Path, ticket: &str, ticket_text: &str) {
+    lifecycle::seed_task(repo, ticket, ticket_text);
+}
+pub(super) fn refresh_task_spec(repo: &Path, ticket: &str) {
+    lifecycle::refresh_unstarted_task_spec(repo, ticket);
+}
 struct RestoreSshCommand(Option<std::ffi::OsString>);
 
 impl RestoreSshCommand {
@@ -18,7 +32,7 @@ impl RestoreKooladeHome {
 
 impl Drop for RestoreKooladeHome {
     fn drop(&mut self) {
-        // SAFETY: sandbox tests run serially, so restoring this value cannot race a test.
+        // SAFETY: this fixture holds the shared cross-process environment lock.
         unsafe {
             if let Some(home) = self.0.as_ref() {
                 std::env::set_var("KOOLADE_HOME", home);
@@ -31,7 +45,7 @@ impl Drop for RestoreKooladeHome {
 
 impl Drop for RestoreSshCommand {
     fn drop(&mut self) {
-        // SAFETY: repository tests run serially, so restoring the prior value cannot race a test.
+        // SAFETY: this fixture holds the shared cross-process environment lock.
         unsafe {
             if let Some(command) = self.0.as_ref() {
                 std::env::set_var("GIT_SSH_COMMAND", command);
@@ -47,12 +61,25 @@ pub(super) struct Sandbox {
     pub(super) repo: PathBuf,
     pub(super) gh: PathBuf,
     pub(super) ticket: String,
+    latest_peer: std::sync::Mutex<Option<PathBuf>>,
     _koolade_home_restore: RestoreKooladeHome,
     _ssh_command_restore: RestoreSshCommand,
+    _environment_lock: crate::test_support::ProcessEnvironmentLock,
+    _verification_executor: Option<super::super::runner::TestVerificationExecutorGuard>,
 }
 impl Sandbox {
+    pub(super) fn use_production_verification(&mut self) {
+        self._verification_executor.take();
+    }
+
     pub(super) fn git(&self, cwd: &Path, args: &[&str]) -> String {
         let output = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+            ])
             .args(args)
             .current_dir(cwd)
             .output()
@@ -66,7 +93,10 @@ impl Sandbox {
         String::from_utf8(output.stdout).unwrap().trim().into()
     }
     pub(super) fn advance_remote(&self) -> String {
-        let peer = self.root.join("peer");
+        // Each remote advance uses its own clone. Some recovery scenarios
+        // advance the same fixture more than once, and parallel test runs
+        // must never contend over a fixed peer checkout path.
+        let peer = self.root.join(format!("peer-{}", uuid::Uuid::new_v4()));
         self.git(
             &self.root,
             &[
@@ -80,21 +110,39 @@ impl Sandbox {
         );
         self.git(&peer, &["config", "user.name", "Fixture"]);
         self.git(&peer, &["config", "user.email", "fixture@example.test"]);
-        fs::write(peer.join("upstream.txt"), "latest upstream\n").unwrap();
+        let upstream = peer.join("upstream.txt");
+        let contents = fs::read_to_string(&upstream).unwrap_or_default();
+        let next_contents = if contents.is_empty() {
+            "latest upstream\n".to_owned()
+        } else {
+            format!("{contents}remote advance\n")
+        };
+        fs::write(upstream, next_contents).unwrap();
         self.git(&peer, &["add", "."]);
         self.git(&peer, &["commit", "-qm", "upstream update"]);
         self.git(&peer, &["push", "-q", "origin", "main"]);
-        self.git(&peer, &["rev-parse", "HEAD"])
+        let head = self.git(&peer, &["rev-parse", "HEAD"]);
+        *self.latest_peer.lock().unwrap() = Some(peer);
+        head
+    }
+    pub(super) fn latest_peer(&self) -> PathBuf {
+        self.latest_peer
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("advance_remote must create a peer before it is used")
     }
     pub(super) fn new() -> Self {
+        let environment_lock = crate::test_support::lock_process_environment();
+        let verification_executor = install_verification_executor();
         let root = std::env::temp_dir().join(format!(
             "koolade-implementation-{}-{}",
             std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+            uuid::Uuid::new_v4().hyphenated()
         ));
         fs::create_dir_all(&root).unwrap();
         let koolade_home_restore = RestoreKooladeHome::capture();
-        // SAFETY: sandbox tests run serially and this guard restores the prior value on drop.
+        // SAFETY: this fixture holds the shared cross-process environment lock and restores the prior value.
         unsafe {
             std::env::set_var("KOOLADE_HOME", root.join("koolade-home"));
         }
@@ -119,7 +167,20 @@ impl Sandbox {
         let ticket =
             ".koolade-packet/planning/tasks/feature/001-implement-ticket-behavior.md".to_owned();
         fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/feature")).unwrap();
-        fs::write(repo.join(&ticket), "# Implement ticket behavior\n\n## Acceptance criteria\n\n- File contains implemented.\n").unwrap();
+        let ticket_text = "# Implement ticket behavior\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
+        let identity = crate::domain::ArtifactIdentity::preserve_markdown(
+            ticket_text,
+            None,
+            "TASK-001",
+            "Implement ticket behavior",
+        )
+        .unwrap();
+        fs::write(repo.join(&ticket), &identity).unwrap();
+        fs::write(
+            repo.join(".koolade-packet/planning/tasks/feature/specification.md"),
+            "# F1: Implement ticket behavior\n\n- File contains implemented.\n",
+        )
+        .unwrap();
         git(&["add", "."]);
         git(&["commit", "-qm", "baseline"]);
         git(&[
@@ -140,7 +201,7 @@ impl Sandbox {
             fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
         }
         let ssh_command_restore = RestoreSshCommand::capture();
-        // SAFETY: repository tests run serially, and the RAII guard restores this value on drop.
+        // SAFETY: this fixture holds the shared cross-process environment lock and restores the prior value.
         unsafe {
             std::env::set_var("GIT_SSH_COMMAND", &ssh);
         }
@@ -163,8 +224,11 @@ impl Sandbox {
             repo,
             gh,
             ticket,
+            latest_peer: std::sync::Mutex::new(None),
             _koolade_home_restore: koolade_home_restore,
             _ssh_command_restore: ssh_command_restore,
+            _environment_lock: environment_lock,
+            _verification_executor: Some(verification_executor),
         }
     }
     pub(super) fn run(
@@ -172,6 +236,7 @@ impl Sandbox {
         mode: &'static str,
         calls: Arc<AtomicUsize>,
     ) -> anyhow::Result<Implementation> {
+        refresh_task_spec(&self.repo, &self.ticket);
         let (tx, _rx) = mpsc::channel();
         run_with_gh(
             &self.repo,
@@ -190,6 +255,7 @@ impl Sandbox {
         auto_publish_gate: Option<Arc<AtomicBool>>,
         require_independent_checks: bool,
     ) -> anyhow::Result<Implementation> {
+        refresh_task_spec(&self.repo, &self.ticket);
         let (tx, _rx) = mpsc::channel();
         run_with_project_options(
             &self.repo,
@@ -212,40 +278,19 @@ impl Sandbox {
         )
     }
     pub(super) fn make_evidence_only(&self) {
-        fs::write(
-            self.repo.join(&self.ticket),
-            "# Conduct audit\n\nThis ticket lands zero planner code.\n\nAll source files are explicitly unchanged.\n\nNo product-repo file may be created or modified by this ticket.\n\n## Acceptance criteria\n\n- Repository remains unchanged.\n",
+        let path = self.repo.join(&self.ticket);
+        let previous = fs::read_to_string(&path).unwrap();
+        let ticket_text = "# Conduct audit\n\nFeature: F1\n\nThis ticket lands zero planner code.\n\nAll source files are explicitly unchanged.\n\nNo product-repo file may be created or modified by this ticket.\n\n## Acceptance criteria\n\n- Repository remains unchanged.\n";
+        let updated = crate::domain::ArtifactIdentity::preserve_markdown(
+            ticket_text,
+            Some(&previous),
+            "TASK-001",
+            "Conduct audit",
         )
         .unwrap();
+        fs::write(path, &updated).unwrap();
         self.git(&self.repo, &["add", &self.ticket]);
         self.git(&self.repo, &["commit", "-qm", "define evidence-only audit"]);
         self.git(&self.repo, &["push", "-q", "origin", "main"]);
     }
-}
-impl Drop for Sandbox {
-    fn drop(&mut self) {
-        if let Ok(repo) = self.repo.canonicalize() {
-            let project_id = crate::persistence::project_slug(&repo);
-            let _ = fs::remove_dir_all(crate::persistence::project_dir(&project_id));
-        }
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
-pub(super) fn completed_cleanup_fixture(s: &Sandbox) -> Implementation {
-    let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
-    let head = state.verified_head.as_deref().unwrap();
-    s.git(
-        &state.task_repository,
-        &[
-            "push",
-            s.root.join("remote.git").to_str().unwrap(),
-            &format!("{head}:refs/heads/main"),
-        ],
-    );
-    state.status = ImplementationStatus::Completed;
-    state.pr_state = Some(PullRequestState::Merged);
-    state.merged_commit = state.verified_head.clone();
-    save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
-    state
 }

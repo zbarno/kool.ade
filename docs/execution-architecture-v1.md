@@ -1,9 +1,13 @@
 # Execution architecture v1
 
 This document and the `src/execution` types define the shared contract for
-future local and remote Docker execution. This issue adds interfaces and
-validation only. Existing Bubblewrap execution remains the active runtime;
-no new container path is enabled.
+local and remote Docker execution. The migration now includes trusted local
+Engine discovery, digest-locked image selection, a hardened local backend,
+durable execution records, and an SSH worker protocol/backend adapter.
+The application-owned provider MCP path now connects to the shared Docker
+`ExecutionSession` for repository commands. Native Linux rootless Engine
+execution is the supported local path; remote scheduling and cross-platform
+readiness remain subject to the release checks in the Docker security matrix.
 
 ```mermaid
 flowchart LR
@@ -42,12 +46,17 @@ strings.
 
 `ExecutionTarget::Local` and `ExecutionTarget::Remote { worker_id }` select
 where work runs. They do not select different security policies. The local
-backend alone resolves `WorkspaceRef` to an operator-local path. A remote
-backend receives staged workspace content identified by the reference, never
-the controller's bind path. The authoritative task clone remains the source
-of truth: uncommitted task changes are staged for execution, and returned
-patches/evidence are verified and applied by the controller. The worker does
-not commit, push, or merge them.
+backend resolves `WorkspaceRef` to an operator-local path. The remote SSH
+client negotiates worker protocol, version, capabilities, and policy identity;
+`WorkspaceManifestV1` now validates the pinned Git `HEAD`, hashes each
+included file, preserves executable bits and confined symlink targets, records
+private-path exclusions, and enforces entry, depth, and byte limits. The worker
+still denies workspace preparation because chunk transport, verified staging,
+and result application are not complete. The target architecture stages
+content identified by the reference, never the controller's bind path. The
+authoritative task clone remains the source of truth: uncommitted task changes
+are staged for execution, and returned patches/evidence are verified and
+applied by the controller. The worker does not commit, push, or merge them.
 
 ## Policy
 
@@ -94,7 +103,8 @@ stderr chunks are capped at 64 KiB; event pages are capped at 256 entries.
 Replayed events with the same sequence and identical content are deduplicated.
 Reusing a sequence with different data, skipping a sequence, changing
 execution ID, moving timestamps backward, or violating the lifecycle is a
-protocol error. The caller resumes from its last accepted sequence.
+protocol error. The remote caller resumes from its last accepted sequence;
+the worker journals events on disk for reconnect recovery.
 
 `ExecutionResultV1` carries exit status or signal, timeout/cancellation,
 resource metrics, bounded artifact manifests, and a structured failure:
@@ -102,8 +112,36 @@ resource metrics, bounded artifact manifests, and a structured failure:
 `ImageUnavailable`, `WorkerDisconnected`, `WorkerIncompatible`, or
 `ExecutionFailed` (plus explicit cancellation and deadline outcomes).
 Artifact paths are relative, digests are checked, and artifact size is
-bounded. Versioned wire envelopes reserve a compatibility point for later
-SSH transport; this issue adds no listener, SSH implementation, or server.
+bounded. SSH transport uses length-prefixed versioned envelopes over a fixed
+host-key-verified worker command. The worker exposes only the typed execution
+backend; it does not expose Docker Engine directly. Workspace and result
+transfer primitives now provide bounded chunks, source-bound manifests, and
+durable resume state. A controller receives a `VerifiedWorkspaceResult` only
+after the complete worker manifest, task identity, source SHA, snapshot
+generation, chunks, and file digests have passed validation. The remote backend
+stages owned task clones, verifies returned workspace state, and applies
+results through the task-claim publication fence. Automatic target selection
+uses current worker health, image and policy compatibility, resource capacity,
+dependency readiness, and explicit remote approval; users can still select a
+specific worker or local execution.
+
+Before execution, the controller binds the configured worker ID to a locally
+enrolled SSH principal, host alias, and pinned host-key fingerprint. Health
+negotiation checks protocol version, application version, compatibility, and
+the execution-policy fingerprint. Each controller RPC is durably recorded
+with its exact request envelope before transmission. Reconnect may resend only
+that same request ID and payload; the worker's append-only journal replays a
+completed response or rejects an uncertain/conflicting request without
+dispatching it again. Pending outcomes remain available for reconciliation
+after a controller restart.
+
+The worker acknowledges an accepted `Exec` request before waiting for command
+completion. It runs the backend operation concurrently with the stdio request
+loop so the controller can subscribe to journaled events or cancel the same
+execution while it is running. The SSH response reader has a finite deadline;
+an unresponsive worker is reported as disconnected. Reconnect retries the
+original durable request envelope only; the client never creates a new request
+to repeat an uncertain command.
 
 ## Ownership
 
@@ -116,6 +154,21 @@ SSH transport; this issue adds no listener, SSH implementation, or server.
 | Ephemeral processes, containers, bounded staging | Worker |
 | Result/artifact verification and applying changes to task clone | Controller |
 
-This is a contract, not a claim that Docker execution, SSH workers, or
-cross-platform host support has shipped. Those are implemented and validated
-by the later migration issues.
+This document records the execution contract and current implementation status.
+The integrated candidate routes provider MCP repository tools through Docker.
+Remote scheduling, platform support, setup UX, and production release evidence
+remain gated by the Docker security matrix.
+# Remote dependency broker relay status
+
+Remote dependency relay values are identity-bound and size-limited, and their
+responses contain status only. The controller `ResourceBridge` now exposes an
+internal execution-bound command capability that routes requests through the
+ordinary dependency broker socket, preserving triage, Manager approval,
+cancellation, and cache preparation policy. In the current architecture, the
+provider CLI and MCP server run on the controller, so dependency tool requests
+already reach this broker locally while code execution may run in a remote
+Docker session. The worker is not given the broker socket. There is no worker-
+initiated dependency RPC in the SSH protocol; adding one would require an
+explicit worker-hosted request channel and container capability before any
+remote package operation can be enabled. The worker cannot grant itself access
+or receive credentials/cache bytes through the current contract.

@@ -3,6 +3,17 @@ use crate::execution::{errors::ExecutionErrorKind, policy::ExecutionPolicyV1};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+mod argv;
+mod cache_ref;
+mod validation;
+pub use argv::MAX_SCRIPT_BYTES;
+use argv::validate_argv;
+pub use cache_ref::{DependencyCacheEcosystemV1, DependencyCacheRefV1};
+use validation::{is_digest, validate_environment_names, validate_working_directory};
+
+/// Hard ceiling that keeps task deadlines and recovery leases bounded.
+pub const MAX_EXECUTION_DURATION_MS: u64 = 24 * 60 * 60 * 1_000;
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionModeV1 {
@@ -27,6 +38,18 @@ pub struct ResourceBudgetV1 {
     pub process_count: u32,
     pub temporary_disk_bytes: u64,
     pub output_bytes: u64,
+}
+
+impl Default for ResourceBudgetV1 {
+    fn default() -> Self {
+        Self {
+            cpu_millis: 4_000,
+            memory_bytes: 4 * 1024 * 1024 * 1024,
+            process_count: 256,
+            temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
+            output_bytes: 8 * 1024 * 1024,
+        }
+    }
 }
 
 impl ResourceBudgetV1 {
@@ -70,19 +93,36 @@ impl ResourceBudgetV1 {
 pub struct ExecutionRequestV1 {
     pub schema_version: u16,
     pub execution_id: String,
+    /// App-owned authorization generation captured when this session starts.
+    /// It is persisted with the request and checked again before result apply.
+    pub authorization_generation: String,
     pub project_id: String,
     pub task_id: String,
     pub target: ExecutionTarget,
+    /// Controller-selected target retained across a remote worker's local
+    /// transport target. This is audit metadata only and grants no authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller_target_id: Option<String>,
     pub workspace: WorkspaceRef,
     pub mode: ExecutionModeV1,
     pub image_digest: String,
     pub argv: Vec<String>,
+    /// Relative directory inside the isolated task workspace for this command.
+    #[serde(default = "workspace_root")]
+    pub working_directory_relative: String,
+    /// Optional bounded script sent over container stdin (never embedded in argv).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
     /// Names only: values are resolved from target-local, non-secret defaults.
     pub environment_allowlist: BTreeSet<String>,
     pub resource_budget: ResourceBudgetV1,
     pub deadline_unix_ms: u64,
     pub allowed_service_ports: BTreeSet<u16>,
     pub broker_capability_ids: BTreeSet<String>,
+    /// Exact app-authorized cache snapshots staged by the controller. Bytes
+    /// are transferred separately; the execution request contains refs only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_cache_refs: Vec<DependencyCacheRefV1>,
     pub cancellation_generation: u64,
     pub request_sequence: u64,
     pub policy: ExecutionPolicyV1,
@@ -95,10 +135,18 @@ impl ExecutionRequestV1 {
             "unsupported execution request schema"
         );
         super::ids::validate_identifier(&self.execution_id)?;
+        super::ids::validate_identifier(&self.authorization_generation)?;
         super::ids::validate_identifier(&self.project_id)?;
         super::ids::validate_identifier(&self.task_id)?;
         self.target.validate()?;
+        anyhow::ensure!(
+            self.controller_target_id.as_deref().is_none_or(|target| {
+                target == "local" || super::ids::validate_identifier(target).is_ok()
+            }),
+            "controller target identity is invalid"
+        );
         self.workspace.validate()?;
+        validate_working_directory(&self.working_directory_relative)?;
         anyhow::ensure!(
             self.workspace.project_id == self.project_id,
             "workspace project ID mismatch"
@@ -112,10 +160,20 @@ impl ExecutionRequestV1 {
             "execution image must use a sha256 digest"
         );
         anyhow::ensure!(!self.argv.is_empty(), "execution argv cannot be empty");
+        anyhow::ensure!(
+            self.stdin.as_ref().is_none_or(|script| {
+                script.len() <= MAX_SCRIPT_BYTES && !script.contains('\0')
+            }),
+            "execution script exceeds limits"
+        );
         self.resource_budget.validate()?;
         anyhow::ensure!(
             self.deadline_unix_ms > now_unix_ms,
             "execution request deadline has expired"
+        );
+        anyhow::ensure!(
+            self.deadline_unix_ms <= now_unix_ms.saturating_add(MAX_EXECUTION_DURATION_MS),
+            "execution request deadline exceeds the maximum duration"
         );
         anyhow::ensure!(
             self.request_sequence > 0,
@@ -132,7 +190,37 @@ impl ExecutionRequestV1 {
             "broker capability ID is invalid"
         );
         validate_environment_names(&self.environment_allowlist)?;
-        validate_argv(&self.argv, &self.policy)?;
+        anyhow::ensure!(
+            self.dependency_cache_refs.len() <= 8,
+            "too many dependency cache references"
+        );
+        let mut cache_refs = BTreeSet::new();
+        let mut cache_bytes = 0_u64;
+        for cache_ref in &self.dependency_cache_refs {
+            cache_ref.validate()?;
+            anyhow::ensure!(
+                cache_ref.task_id == self.task_id && cache_ref.project_id == self.project_id,
+                "dependency cache scope does not match execution task"
+            );
+            anyhow::ensure!(
+                cache_ref.target_id
+                    == self
+                        .controller_target_id
+                        .as_deref()
+                        .unwrap_or(&self.target.target_id),
+                "dependency cache target does not match execution target"
+            );
+            anyhow::ensure!(
+                cache_refs.insert(cache_ref.clone()),
+                "duplicate dependency cache reference"
+            );
+            cache_bytes = cache_bytes.saturating_add(cache_ref.size_bytes);
+        }
+        anyhow::ensure!(
+            cache_bytes <= 128 * 1024 * 1024,
+            "dependency cache transfer exceeds the session limit"
+        );
+        validate_argv(&self.argv, self.stdin.is_some(), &self.policy)?;
         self.policy.validate_request(self)?;
         Ok(())
     }
@@ -169,6 +257,10 @@ impl ExecutionRequestV1 {
     }
 }
 
+fn workspace_root() -> String {
+    ".".into()
+}
+
 pub fn ensure_wire_compatible(version: u16) -> Result<(), ExecutionErrorKind> {
     if version == super::EXECUTION_WIRE_VERSION_V1 {
         Ok(())
@@ -190,105 +282,4 @@ impl ExecutionWireMessageV1 {
             .map_err(|kind| anyhow::anyhow!("unsupported execution wire version: {kind:?}"))?;
         self.request.validate_at(now_unix_ms)
     }
-}
-
-fn is_digest(value: &str) -> bool {
-    value
-        .strip_prefix("sha256:")
-        .is_some_and(|hash| hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
-}
-
-fn validate_environment_names(names: &BTreeSet<String>) -> anyhow::Result<()> {
-    for name in names {
-        anyhow::ensure!(
-            !name.is_empty()
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
-                && !name.as_bytes()[0].is_ascii_digit(),
-            "environment allowlist contains an invalid variable name"
-        );
-        let upper = name.to_ascii_uppercase();
-        anyhow::ensure!(
-            ![
-                "TOKEN",
-                "SECRET",
-                "PASSWORD",
-                "PRIVATE_KEY",
-                "CREDENTIAL",
-                "SSH_",
-                "AWS_",
-                "GITHUB_"
-            ]
-            .iter()
-            .any(|sensitive| upper.contains(sensitive)),
-            "credential environment variables cannot be granted to an execution"
-        );
-    }
-    Ok(())
-}
-
-fn validate_argv(argv: &[String], policy: &ExecutionPolicyV1) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        argv.iter().all(|arg| !arg.contains('\0')),
-        "argv contains a NUL byte"
-    );
-    let executable = argv[0].rsplit(['/', '\\']).next().unwrap_or(&argv[0]);
-    anyhow::ensure!(
-        policy.command_capabilities().contains(executable),
-        "executable is outside the policy command capabilities"
-    );
-    anyhow::ensure!(
-        !argv
-            .iter()
-            .skip(1)
-            .any(|argument| is_shell_command_flag(executable, argument)),
-        "shell command strings are not valid execution argv"
-    );
-    anyhow::ensure!(
-        argv[0] == executable,
-        "execution binary must be selected by its image command name"
-    );
-    for argument in argv {
-        anyhow::ensure!(
-            !contains_host_path(argument),
-            "argv cannot contain controller host paths"
-        );
-    }
-    Ok(())
-}
-
-fn is_shell_command_flag(executable: &str, argument: &str) -> bool {
-    match executable {
-        "sh" | "bash" => {
-            argument == "-c"
-                || argument == "--command"
-                || argument.starts_with("--command=")
-                || (argument.starts_with('-')
-                    && !argument.starts_with("--")
-                    && argument.as_bytes()[1..].contains(&b'c'))
-        }
-        "pwsh" | "powershell" => {
-            let flag = argument.to_ascii_lowercase();
-            matches!(flag.as_str(), "-c" | "-command" | "-encodedcommand" | "-e")
-                || flag.starts_with("-command:")
-                || flag.starts_with("-encodedcommand:")
-        }
-        _ => false,
-    }
-}
-
-fn contains_host_path(value: &str) -> bool {
-    let lower = value.to_ascii_lowercase();
-    lower.starts_with('/')
-        || lower.starts_with("~/")
-        || lower.starts_with("~\\")
-        || lower.contains("=/")
-        || lower.contains("/home/")
-        || lower.contains("/users/")
-        || lower.contains("\\users\\")
-        || (lower.len() >= 3
-            && lower.as_bytes()[0].is_ascii_alphabetic()
-            && lower.as_bytes()[1] == b':'
-            && matches!(lower.as_bytes()[2], b'/' | b'\\'))
 }

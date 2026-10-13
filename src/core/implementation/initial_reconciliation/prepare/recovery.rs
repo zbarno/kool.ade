@@ -48,7 +48,7 @@ pub(super) fn recover_unexpected_merge(
         history::archive(&snapshot_path, state, runner, plan)?;
     }
 
-    let config = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+    let config = crate::harness::runtime_config::paths_with_source(
         &state.task_repository,
         runner.runtime_config_source.as_deref(),
     )?;

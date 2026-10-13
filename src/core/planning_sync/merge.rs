@@ -4,7 +4,7 @@ use super::journal::RecordMutation;
 mod item;
 mod semantic;
 pub(super) use item::record_markdown_uid;
-use item::validate_item_content;
+use item::{validate_item_content, validate_question_content};
 use semantic::{
     decode_record, merge_value, optional_u64, revision, semantic_fields, validate_immutable_fields,
 };
@@ -117,7 +117,11 @@ pub(super) fn validate_mutation(mutation: &RecordMutation) -> anyhow::Result<()>
             .into_iter()
             .flatten()
         {
-            validate_item_content(content.as_bytes(), uid)?;
+            if mutation.path.starts_with("planning/questions/") {
+                validate_question_content(content.as_bytes(), uid)?;
+            } else {
+                validate_item_content(content.as_bytes(), uid)?;
+            }
         }
         return Ok(());
     }
@@ -194,9 +198,12 @@ pub(super) fn is_record_collection_path(path: &str) -> bool {
         "state/work",
         "state/workflow",
         "state/items",
+        "state/questions",
+        "state/readiness",
         "state/tasks",
         "state/planning_sync/resolutions",
         "planning/items",
+        "planning/questions",
     ]
     .iter()
     .any(|collection| path.starts_with(&format!("{collection}/")))
@@ -208,7 +215,11 @@ pub(super) fn validate_record_file(path: &str, bytes: Option<&[u8]>) -> anyhow::
     }
     if let Some(uid) = record_markdown_uid(path) {
         if let Some(bytes) = bytes {
-            validate_item_content(bytes, uid)?;
+            if path.starts_with("planning/questions/") {
+                validate_question_content(bytes, uid)?;
+            } else {
+                validate_item_content(bytes, uid)?;
+            }
         }
         return Ok(());
     }
@@ -228,8 +239,11 @@ pub(super) fn record_json_uid(path: &str) -> Option<(&str, &str)> {
         "state/work"
             | "state/workflow"
             | "state/items"
+            | "state/questions"
+            | "state/readiness"
             | "state/tasks"
             | "state/planning_sync/resolutions"
+            | "planning/questions"
     );
     let uid = filename.strip_suffix(".json")?;
     let parsed = uuid::Uuid::parse_str(uid).ok()?;

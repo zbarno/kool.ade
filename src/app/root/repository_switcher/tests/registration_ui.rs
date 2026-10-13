@@ -105,10 +105,8 @@ fn managed_workspace_menu_registers_a_code_repository_and_local_checkout() {
     ));
     std::fs::create_dir_all(&base).unwrap();
     let koolade_home = base.join("koolade-home");
-    let previous = std::env::var_os("KOOLADE_HOME");
-    // SAFETY: the Git test shield serializes KOOLADE_HOME changes.
-    unsafe { std::env::set_var("KOOLADE_HOME", &koolade_home) };
-    let _restore = KooladeHome(previous);
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", &koolade_home);
 
     let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
     let workspace = manager.create("Registration UI project").unwrap();
@@ -224,6 +222,6 @@ fn managed_workspace_menu_registers_a_code_repository_and_local_checkout() {
     assert!(!project.state.repo_root.join(".koolade-packet").exists());
     assert_eq!(manager.list_local().unwrap().len(), 1);
 
-    drop(_restore);
+    drop(environment);
     let _ = std::fs::remove_dir_all(base);
 }

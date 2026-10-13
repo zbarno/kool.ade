@@ -4,6 +4,48 @@ use crate::harness::ToolAccess;
 use serde_json::Value;
 
 #[test]
+fn launch_profiles_carry_the_discoverable_version_and_capability_gates() {
+    let claude = CliProvider::Claude.profile_requirements();
+    assert_eq!(claude.minimum_version, Some((2, 1, 268)));
+    assert!(!claude.supports_version((2, 1, 267)));
+    assert!(claude.supports_version((2, 1, 268)));
+    assert!(claude.supports_version((2, 2, 0)));
+
+    let codex = CliProvider::Codex.profile_requirements();
+    assert_eq!(codex.minimum_version, None);
+    let missing = codex.missing_capabilities(&[
+        "--json",
+        "--cd",
+        "--sandbox",
+        "--ephemeral",
+        "--model",
+        "--config",
+        "--disable",
+        "--ignore-user-config",
+    ]);
+    assert_eq!(missing, ["--skip-git-repo-check"]);
+
+    let pi = CliProvider::Pi.profile_requirements();
+    assert!(pi.capabilities.contains(&"--no-builtin-tools"));
+    assert!(pi.capabilities.contains(&"xhigh"));
+    let antigravity = CliProvider::Antigravity.profile_requirements();
+    assert!(antigravity.requires_launch_token("--input-format"));
+    assert!(antigravity.requires_environment_key("HOME"));
+    assert!(
+        CliProvider::OpenCode
+            .profile_requirements()
+            .capabilities
+            .is_empty()
+    );
+    assert!(
+        CliProvider::Copilot
+            .profile_requirements()
+            .capabilities
+            .is_empty()
+    );
+}
+
+#[test]
 fn codex_receives_only_the_private_application_mcp_server() {
     let boundary = test_boundary(ToolAccess::BoundedImplementation);
     let mut args = Vec::new();
@@ -17,7 +59,7 @@ fn codex_receives_only_the_private_application_mcp_server() {
             .any(|pair| { pair == ["--cd", boundary.working_directory().to_str().unwrap()] })
     );
     assert!(args.iter().any(|arg| arg == "--ignore-user-config"));
-    assert!(args.iter().any(|arg| arg == "--ignore-rules"));
+    assert!(!args.iter().any(|arg| arg == "--ignore-rules"));
     assert!(args.iter().any(|arg| arg == "--skip-git-repo-check"));
     for disabled in [
         "shell_tool",
@@ -70,6 +112,7 @@ fn no_access_mode_disables_native_repository_tools_for_every_supported_provider(
         CliProvider::Antigravity,
         CliProvider::OpenCode,
         CliProvider::Copilot,
+        CliProvider::Pi,
     ] {
         let mut args = Vec::new();
         let mut env = Vec::new();
@@ -91,6 +134,7 @@ fn no_access_mode_disables_native_repository_tools_for_every_supported_provider(
                         .windows(2)
                         .any(|pair| pair == ["--available-tools", ""])
             ),
+            CliProvider::Pi => assert_eq!(args, ["--no-tools"]),
         }
     }
     let claude: Value = read_json(&boundary.scratch.path.join("claude-mcp.json"));
@@ -116,6 +160,7 @@ fn every_host_provider_drops_node_startup_options() {
         CliProvider::Antigravity,
         CliProvider::OpenCode,
         CliProvider::Copilot,
+        CliProvider::Pi,
     ] {
         assert!(
             provider
@@ -123,10 +168,36 @@ fn every_host_provider_drops_node_startup_options() {
                 .contains(&"NODE_OPTIONS"),
             "{provider:?}"
         );
+        assert_eq!(
+            provider.excluded_child_environment(),
+            crate::harness::execution_security::UNSAFE_PROVIDER_LAUNCH_ENV,
+            "all provider launchers must use the same inherited-environment policy"
+        );
     }
-    assert!(
-        CliProvider::Claude
-            .excluded_child_environment()
-            .contains(&"CLAUDE_CODE_SHELL_PREFIX")
-    );
+    for name in [
+        "BUN_OPTIONS",
+        "BASH_ENV",
+        "PYTHONPATH",
+        "LD_PRELOAD",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_ASKPASS",
+        "VSCODE_GIT_ASKPASS_MAIN",
+        "VSCODE_IPC_HOOK_CLI",
+        "CLAUDE_CODE_SHELL_PREFIX",
+    ] {
+        assert!(
+            CliProvider::Claude
+                .excluded_child_environment()
+                .contains(&name),
+            "{name}"
+        );
+    }
+    for credential in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"] {
+        assert!(
+            !CliProvider::Claude
+                .excluded_child_environment()
+                .contains(&credential),
+            "authentication transport {credential} must remain available"
+        );
+    }
 }

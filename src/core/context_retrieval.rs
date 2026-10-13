@@ -61,6 +61,7 @@ pub fn select(
         return Ok(None);
     }
     let request = PlanningRequest {
+        prompt_manifest: None,
         mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -72,6 +73,10 @@ pub fn select(
         timeout: remaining,
         progress_tx,
         cancel,
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
     harness
         .plan_retrieval(&request)

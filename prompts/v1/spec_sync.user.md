@@ -1,0 +1,1 @@
+Return SpecDeltaV1 JSON. Inputs: role, feature_uid, optional task_uid, original_goal, approved_spec_ref/hash, decision_refs, evidence_manifest, execution_policy_ref, output_schema_version, approved_requirements and verified_implementation_refs. Separate current truth from future target and preserve user-approved intent.

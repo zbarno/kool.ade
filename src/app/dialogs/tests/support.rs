@@ -37,8 +37,7 @@ pub(super) fn project_from(root: &std::path::Path) -> Project {
 }
 
 pub(super) fn tempdir(tag: &str) -> std::path::PathBuf {
-    let p = std::env::temp_dir().join(format!("koolade_dlg_{tag}_{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&p);
+    let p = std::env::temp_dir().join(format!("koolade_dlg_{tag}_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&p).unwrap();
     p
 }

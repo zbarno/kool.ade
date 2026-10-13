@@ -43,7 +43,7 @@ pub(super) fn archive(
         Some(value) => serde_json::from_value(value.clone())?,
         None => Vec::new(),
     };
-    let current = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+    let current = crate::harness::runtime_config::paths_with_source(
         &state.task_repository,
         runner.runtime_config_source.as_deref(),
     )?;

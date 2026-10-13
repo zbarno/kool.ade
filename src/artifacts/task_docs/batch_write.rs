@@ -171,13 +171,16 @@ pub fn write_batch_expected_with_revision<R: PlanningRoot + ?Sized>(
         for (i, story) in batch.stories.iter().enumerate() {
             let path = stage.join(&names[i]);
             let base = render(batch, i, story, &names);
-            let identified_text = identity::with_path_identity(
+            let mut identified_text = identity::with_path_identity(
                 &path,
                 &base,
                 names[i].trim_end_matches(".md"),
                 &story.title,
                 Some(&batch_identity.uid),
             )?;
+            if let Some(graph_uid) = story.graph_uid.as_deref() {
+                identified_text = identity::replace_uid(&identified_text, graph_uid)?;
+            }
             let task_identity =
                 crate::domain::ArtifactIdentity::from_markdown(&identified_text)?
                     .ok_or_else(|| anyhow::anyhow!("Generated task has no Koolade identity"))?;
@@ -207,6 +210,8 @@ pub fn write_batch_expected_with_revision<R: PlanningRoot + ?Sized>(
                 dependency_uids,
             )?
             .with_branch_targets(batch.branch_targets.as_ref())?
+            .with_source_sha(story.source_sha.as_deref())?
+            .with_parallelizable(story.parallelizable)?
             .with_task_routing(
                 &batch.task_routing.overrides,
                 batch.task_routing.source_work_uid.as_deref(),

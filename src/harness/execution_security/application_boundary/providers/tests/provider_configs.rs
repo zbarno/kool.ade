@@ -44,6 +44,9 @@ fn antigravity_uses_private_home_and_only_app_mcp_permissions() {
             .path
             .join("cli-home/.gemini/antigravity-cli/settings.json"),
     );
+    assert_eq!(settings["modelProvider"], "gemini");
+    assert_eq!(settings["toolPermission"], "strict");
+    assert_eq!(settings["enableTerminalSandbox"], true);
     assert_eq!(
         settings["permissions"]["allow"][0],
         format!("mcp({}/*)", boundary.server_name)

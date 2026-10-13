@@ -37,10 +37,14 @@ impl Runner {
         &self,
         cwd: &Path,
         command: &str,
+        workspace: &crate::execution::contract::WorkspaceRef,
     ) -> anyhow::Result<String> {
         verification_command::validate(command)?;
         self.check_storage(cwd)?;
-        match self.verify_once(cwd, command) {
+        workspace.validate().map_err(|_| {
+            anyhow::anyhow!("Verification workspace identity is invalid; refusing host execution")
+        })?;
+        match self.verify_once(cwd, command, workspace) {
             Ok(output) => Ok(output),
             Err(error) if is_nuget_audit_failure(&error) => {
                 self.update(
@@ -48,40 +52,120 @@ impl Runner {
                 );
                 let timeout = self.remaining()?.min(Duration::from_secs(90));
                 crate::harness::refresh_nuget_audit_cache(timeout).map_err(|refresh_error| {
-                    anyhow::anyhow!(
-                        "{error}\nKool.ad/e could not refresh the public NuGet audit cache: {refresh_error:#}"
-                    )
+                    anyhow::anyhow!("{error}\nKool.ad/e could not refresh the public NuGet audit cache: {refresh_error:#}")
                 })?;
-                self.verify_once(cwd, command).map_err(|retry_error| {
-                    anyhow::anyhow!(
-                        "{retry_error}\nKool.ad/e refreshed the public NuGet audit cache and retried verification, but the feed error remains."
-                    )
+                self.verify_once(cwd, command, workspace).map_err(|retry_error| {
+                    anyhow::anyhow!("{retry_error}\nKool.ad/e refreshed the public NuGet audit cache and retried verification, but the feed error remains.")
                 })
             }
             Err(error) => Err(error),
         }
     }
 
-    fn verify_once(&self, cwd: &Path, command: &str) -> anyhow::Result<String> {
-        cwd.to_str()
-            .ok_or_else(|| anyhow::anyhow!("Non-UTF8 task repository path"))?;
-        let mut sandbox = if let Some(source) = &self.runtime_config_source {
-            crate::harness::pi_sandbox::Sandbox::new_for_task_repository(cwd, source)?
+    fn verify_once(
+        &self,
+        cwd: &Path,
+        command: &str,
+        workspace: &crate::execution::contract::WorkspaceRef,
+    ) -> anyhow::Result<String> {
+        let remaining = self.remaining()?;
+        #[cfg(test)]
+        if let Some(executor) = super::test_verification_executor() {
+            return executor(cwd, command, workspace);
+        }
+        let profile = if cwd.join("Cargo.toml").is_file() {
+            crate::execution::docker::images::RuntimeProfile::Rust
+        } else if cwd.join("package.json").is_file() {
+            crate::execution::docker::images::RuntimeProfile::Node
+        } else if cwd.join("pyproject.toml").is_file() || cwd.join("requirements.txt").is_file() {
+            crate::execution::docker::images::RuntimeProfile::Python
+        } else if cwd.join("go.mod").is_file() {
+            crate::execution::docker::images::RuntimeProfile::Go
         } else {
-            crate::harness::pi_sandbox::Sandbox::new(cwd)?
+            crate::execution::docker::images::RuntimeProfile::General
         };
-        sandbox.mount_npm_cache(&crate::harness::prepared_npm_cache_path(cwd)?)?;
-        sandbox.mount_cargo_cache(&crate::harness::prepared_cargo_cache_path()?)?;
-        let args = sandbox.command_args("/bin/sh", command);
-        let args = args.iter().map(String::as_str).collect::<Vec<_>>();
-        self.command_clean_env(
-            cwd,
-            sandbox
-                .bwrap
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Non-UTF8 bubblewrap path"))?,
-            &args,
-        )
+        let session =
+            crate::execution::session::ExecutionSession::connect_local_with_authorization(
+                workspace.clone(),
+                cwd,
+                crate::execution::contract::ExecutionModeV1::Verification,
+                profile,
+                crate::execution::contract::ResourceBudgetV1 {
+                    cpu_millis: 4_000,
+                    memory_bytes: 4 * 1024 * 1024 * 1024,
+                    process_count: 256,
+                    temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
+                    output_bytes: 8 * 1024 * 1024,
+                },
+                self.authorization_verifier.clone(),
+            )
+            .map_err(|error| {
+                anyhow::anyhow!("Docker verification is unavailable: {}", error.message)
+            })?;
+        let output = session
+            .run_tool_command(command, remaining.min(Duration::from_secs(1200)))
+            .map_err(|error| anyhow::anyhow!("Docker verification failed: {}", error.message))?;
+        let mut text = output.stdout;
+        if !output.stderr.is_empty() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&output.stderr);
+        }
+        anyhow::ensure!(
+            output.result.exit_code == Some(0)
+                && output.result.failure.is_none()
+                && !output.result.timed_out
+                && !output.result.cancelled,
+            "Docker verification command failed: {command}\n{text}"
+        );
+        Ok(text)
+    }
+
+    pub(in crate::core::implementation) fn workspace_ref_for(
+        &self,
+        state: &super::super::Implementation,
+    ) -> anyhow::Result<crate::execution::contract::WorkspaceRef> {
+        let project_id = state
+            .workspace_uid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Verification project identity is missing"))?;
+        let task_id = state
+            .task_uid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Verification task identity is missing"))?;
+        crate::execution::contract::validate_identifier(project_id)
+            .map_err(|_| anyhow::anyhow!("Verification project identity is invalid"))?;
+        crate::execution::contract::validate_identifier(task_id)
+            .map_err(|_| anyhow::anyhow!("Verification task identity is invalid"))?;
+        let source_sha = state
+            .source_commit
+            .as_deref()
+            .filter(|sha| crate::execution::contract::is_valid_sha(sha))
+            .or_else(|| {
+                crate::execution::contract::is_valid_sha(&state.base_commit)
+                    .then_some(state.base_commit.as_str())
+            })
+            .ok_or_else(|| anyhow::anyhow!("Saved verification source snapshot is missing"))?
+            .to_owned();
+        Ok(crate::execution::contract::WorkspaceRef {
+            project_id: project_id.to_owned(),
+            task_id: task_id.to_owned(),
+            source_sha,
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::core::implementation) fn verify_with_executor(
+        &self,
+        cwd: &Path,
+        command: &str,
+        execute: impl FnOnce(&str) -> anyhow::Result<String>,
+    ) -> anyhow::Result<String> {
+        verification_command::validate(command)?;
+        self.check_storage(cwd)?;
+        self.remaining()?;
+        execute(command)
     }
 }
 

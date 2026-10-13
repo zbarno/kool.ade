@@ -131,6 +131,7 @@ fn implementation(
     crate::core::implementation::Implementation {
         ticket: "TASK-001".into(),
         task_uid: None,
+        workspace_uid: None,
         ticket_text: String::new(),
         approved_specification: None,
         approved_product_context: None,

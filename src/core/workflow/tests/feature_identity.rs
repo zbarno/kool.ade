@@ -89,7 +89,13 @@ fn legacy_store_routes_spec_edit_approval_and_task_generation_to_embedded_paths(
     assert!(!crate::core::workflow::feature_approved(
         &store, &workflow, "CHG-097"
     ));
-    crate::core::workflow::approve_feature(&store, &mut workflow, "CHG-097").unwrap();
+    crate::core::lifecycle::test_support::approve_and_review_feature(
+        &store,
+        &mut workflow,
+        "CHG-097",
+        &feature,
+    )
+    .unwrap();
     assert!(crate::core::workflow::feature_approved(
         &store, &workflow, "CHG-097"
     ));

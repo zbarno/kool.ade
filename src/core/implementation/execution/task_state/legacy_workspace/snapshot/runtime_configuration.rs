@@ -11,7 +11,7 @@ pub(super) fn capture(source: &Path, snapshot: &Path) -> anyhow::Result<()> {
     capture_paths(
         source,
         snapshot,
-        crate::harness::pi_sandbox::runtime_config::paths(source)?,
+        crate::harness::runtime_config::paths(source)?,
     )
 }
 
@@ -90,7 +90,7 @@ pub(super) fn matches(source: &Path, snapshot: &Path) -> anyhow::Result<bool> {
     let metadata = match fs::symlink_metadata(&list) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(crate::harness::pi_sandbox::runtime_config::paths(source)?.is_empty());
+            return Ok(crate::harness::runtime_config::paths(source)?.is_empty());
         }
         Err(error) => return Err(error.into()),
     };
@@ -99,7 +99,7 @@ pub(super) fn matches(source: &Path, snapshot: &Path) -> anyhow::Result<bool> {
         "Migration runtime configuration list is not a regular file"
     );
     let mut expected = Vec::new();
-    for path in crate::harness::pi_sandbox::runtime_config::paths(source)? {
+    for path in crate::harness::runtime_config::paths(source)? {
         expected.extend_from_slice(path.as_bytes());
         expected.push(0);
     }

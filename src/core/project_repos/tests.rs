@@ -57,6 +57,7 @@ fn manifest_rejects_git_remote_helpers_and_option_injection() {
 
 #[test]
 fn portable_manifest_resolves_private_checkout_without_committing_paths() {
+    let _environment = crate::test_support::lock_process_environment();
     let root = std::env::temp_dir().join(format!(
         "koolade-repos-{}-{}",
         std::process::id(),

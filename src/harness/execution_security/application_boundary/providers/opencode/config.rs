@@ -43,7 +43,14 @@ pub(super) fn provider_settings() -> anyhow::Result<Value> {
 pub(super) fn copy_auth(
     boundary: &super::super::super::ApplicationBoundary,
     home: &Path,
+    model: Option<&str>,
 ) -> anyhow::Result<()> {
+    let Some(provider) = model
+        .and_then(|model| model.split_once('/').map(|(provider, _)| provider))
+        .filter(|provider| !provider.is_empty())
+    else {
+        return Ok(());
+    };
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(Into::into)
         .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/share")));
@@ -54,6 +61,9 @@ pub(super) fn copy_auth(
         return Ok(());
     }
     let value = read_config(&source)?;
+    let Some(value) = selected_auth(&value, provider) else {
+        return Ok(());
+    };
     let destination = home.join(".local/share/opencode/auth.json");
     let relative = destination.strip_prefix(&boundary.scratch.path)?;
     boundary.scratch.write_json(
@@ -63,6 +73,11 @@ pub(super) fn copy_auth(
         &value,
     )?;
     Ok(())
+}
+
+fn selected_auth(auth: &Value, provider: &str) -> Option<Value> {
+    let credential = auth.as_object()?.get(provider)?.clone();
+    Some(json!({ provider: credential }))
 }
 
 fn read_config(path: &Path) -> anyhow::Result<Value> {
@@ -210,6 +225,19 @@ fn strip_jsonc(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auth_profile_contains_only_the_selected_model_provider() {
+        let auth = json!({
+            "anthropic": { "type": "api", "key": "selected-synthetic-token" },
+            "openai": { "type": "api", "key": "unselected-synthetic-token" },
+        });
+        let profile = selected_auth(&auth, "anthropic").unwrap();
+        assert_eq!(profile["anthropic"]["key"], "selected-synthetic-token");
+        assert!(profile.get("openai").is_none());
+        assert_eq!(profile.as_object().unwrap().len(), 1);
+        assert!(selected_auth(&auth, "missing-provider").is_none());
+    }
 
     #[test]
     fn jsonc_parser_preserves_comment_markers_in_strings_and_strips_trailing_commas() {

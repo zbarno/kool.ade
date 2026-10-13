@@ -1,19 +1,25 @@
-use super::support::{
-    bwrap_available, commit, create_task_clone, initialize_project, npm_available, task_home,
-    with_npm_cache_index_staging,
-};
+use super::support::{commit, create_task_clone, initialize_project, npm_available, task_home};
 use super::*;
+use crate::execution::{
+    contract::{ExecutionModeV1, ResourceBudgetV1, WorkspaceRef},
+    docker::images::RuntimeProfile,
+    session::ExecutionSession,
+};
 use crate::harness::{
     DependencyAuthorizationSource, DependencyPreparationStatus, DependencyRetryResult,
 };
-use std::{fs, os::unix::net::UnixStream, process::Command, time::Duration};
+use std::{fs, io::Write, os::unix::net::UnixStream, process::Command, time::Duration};
+
+mod assertions;
 
 #[test]
 fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     if !cfg!(target_os = "linux") {
         return;
     }
-    assert!(bwrap_available(), "Linux E2E requires bubblewrap");
+    if std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1") {
+        return;
+    }
     assert!(npm_available(), "Linux E2E requires Node.js and npm");
 
     let workspace =
@@ -32,6 +38,32 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     let task_home_path = workspace.join("task-home");
     let _home = task_home(&task_home_path);
     let task_repository = create_task_clone(&repository, &task_home_path, "npm-addition-e2e");
+    let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let source_sha = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&task_repository)
+        .output()
+        .unwrap();
+    assert!(source_sha.status.success());
+    let session = ExecutionSession::connect_local(
+        WorkspaceRef {
+            project_id: project_id.clone(),
+            task_id: task_id.clone(),
+            source_sha: String::from_utf8(source_sha.stdout).unwrap().trim().into(),
+        },
+        &task_repository,
+        ExecutionModeV1::Implementation,
+        RuntimeProfile::Node,
+        ResourceBudgetV1 {
+            cpu_millis: 4_000,
+            memory_bytes: 4 * 1024 * 1024 * 1024,
+            process_count: 256,
+            temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
+            output_bytes: 8 * 1024 * 1024,
+        },
+    )
+    .unwrap();
 
     fs::write(
         fixture.join("package.json"),
@@ -84,17 +116,13 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
     let bridge = super::super::super::broker::start_with_state_root_and_npm_operations(
         &task_repository,
         None,
-        Some("synthetic-npm-addition-e2e"),
+        Some(&task_id),
         progress,
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         &state_root,
         operations,
     )
     .unwrap();
-    let mut sandbox = crate::harness::pi_sandbox::Sandbox::new(&task_repository).unwrap();
-    sandbox
-        .mount_npm_cache_with_snapshot(bridge.npm_cache_path(), bridge.npm_index_snapshot_path())
-        .unwrap();
     let mut client = UnixStream::connect(bridge.socket_path()).unwrap();
     serde_json::to_writer(
         &mut client,
@@ -165,40 +193,35 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
             .contains("1 lockfile-pinned packages retrieved")
     );
 
-    let command = with_npm_cache_index_staging(
-        "npm install --save-exact archive-helper@1.0.0 --offline --no-audit --no-fund",
-    );
-    let output = Command::new(&sandbox.bwrap)
-        .args(sandbox.command_args("/bin/bash", &command))
-        .current_dir(&sandbox.root)
-        .env_clear()
-        .output()
+    let arch = session.cache_target_arch().unwrap();
+    let snapshot = bridge
+        .cache_snapshot(
+            &task_id,
+            crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+            &project_id,
+            prepared
+                .need
+                .lockfile_identity
+                .as_deref()
+                .unwrap_or("sha256:fixture-lock"),
+            &arch,
+            session.target_id(),
+        )
+        .unwrap();
+    session.stage_dependency_cache(snapshot).unwrap();
+    let output = session
+        .run_tool_command(
+            "npm install --save-exact archive-helper@1.0.0 --offline --no-audit --no-fund",
+            Duration::from_secs(300),
+        )
         .unwrap();
     assert!(
-        output.status.success(),
+        output.result.exit_code == Some(0),
         "offline npm addition failed: {}; {}",
-        String::from_utf8_lossy(&output.stderr),
-        String::from_utf8_lossy(&output.stdout)
+        output.stderr,
+        output.stdout
     );
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&fs::read(task_repository.join("package.json")).unwrap()).unwrap();
-    assert_eq!(manifest["dependencies"]["archive-helper"], "1.0.0");
-    let lockfile: serde_json::Value =
-        serde_json::from_slice(&fs::read(task_repository.join("package-lock.json")).unwrap())
-            .unwrap();
-    assert_eq!(
-        lockfile["packages"]["node_modules/archive-helper"]["version"],
-        "1.0.0"
-    );
-    assert!(
-        task_repository
-            .join("node_modules/archive-helper/package.json")
-            .is_file()
-    );
-    assert_eq!(
-        fs::read_to_string(task_repository.join("node_modules/archive-helper/index.js")).unwrap(),
-        "module.exports = 'ready';\n"
-    );
+    assertions::assert_installed(&task_repository);
 
     let mut retry_client = UnixStream::connect(bridge.socket_path()).unwrap();
     serde_json::to_writer(
@@ -249,7 +272,7 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
         Some(DependencyRetryResult::Succeeded)
     );
 
-    drop(sandbox);
+    drop(session);
     drop(bridge);
     fs::remove_dir_all(workspace).unwrap();
 }

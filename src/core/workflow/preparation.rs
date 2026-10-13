@@ -55,11 +55,6 @@ pub fn prepare(
             }
         }
         let feature_id = state.active_feature.as_ref().map(|(id, _)| id.clone());
-        if let Some(id) = &feature_id
-            && !feature_approved(&state.planning_store, &workflow, id)
-        {
-            return Err(vec![format!("{id} needs explicit implementation approval")]);
-        }
         // Identity guard: a batch may only be generated for the feature the
         // interview is actually about. Drift between the brief's subject and
         // the active feature once slipped a batch stamped with one identity
@@ -79,6 +74,11 @@ pub fn prepare(
             &state.planning_store,
         ) {
             return Err(vec![problem]);
+        }
+        if let Some(id) = &feature_id
+            && !feature_approved(&state.planning_store, &workflow, id)
+        {
+            return Err(vec![format!("{id} needs explicit implementation approval")]);
         }
         nt.task_batch = Some(TaskBatch {
             brief,

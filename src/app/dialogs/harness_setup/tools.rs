@@ -10,9 +10,23 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     if matches!(dialog.probe_view, ProbeView::Pending) {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label("Checking installed tools…");
+            ui.label("Checking installed tools; completed provider results appear below.");
         });
-        return;
+        let waiting = super::probes::PROVIDERS
+            .iter()
+            .filter(|id| {
+                dialog.settings.discovered.get(**id).is_none_or(|entry| {
+                    !entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
+                })
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        if !waiting.is_empty() {
+            ui.label(theme::metadata_text(format!(
+                "Still checking: {}",
+                waiting.join(", ")
+            )));
+        }
     }
     let entries = dialog
         .settings
@@ -21,6 +35,12 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
         .map(|(id, harness)| (id.clone(), harness.clone()))
         .collect::<Vec<_>>();
     if entries.is_empty() {
+        if matches!(dialog.probe_view, ProbeView::Pending) {
+            for id in super::probes::PROVIDERS {
+                ui.label(format!("{id}: checking…"));
+            }
+            return;
+        }
         ui.label("No supported coding tools were detected.");
         return;
     }
@@ -71,7 +91,15 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
                         {
                             selected = Some(id.clone());
                         }
-                        if !harness.ready {
+                        let fresh = harness
+                            .is_fresh_at(crate::persistence::harness_settings::current_unix_ms());
+                        if !fresh {
+                            ui.label(theme::metadata_text("Stale; refresh"));
+                        } else if !super::has_current_provider_capabilities(
+                            id,
+                            harness,
+                            crate::persistence::harness_settings::current_unix_ms(),
+                        ) {
                             ui.label(theme::metadata_text("Unavailable"));
                         }
                     }
@@ -94,14 +122,17 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     });
     if dialog.settings.default_harness.as_ref().is_some_and(|id| {
         !dialog.settings.discovered.get(id).is_some_and(|harness| {
-            harness.ready
-                && harness.implementation_available
+            super::has_current_provider_capabilities(
+                id,
+                harness,
+                crate::persistence::harness_settings::current_unix_ms(),
+            ) && harness.implementation_available
                 && crate::harness::implementation_route_available(id)
         })
     }) {
         ui.colored_label(
             theme::DANGER,
-            "Your saved default cannot run repository work inside Kool.ad/e's Bubblewrap sandbox. Select a supported tool before starting work.",
+            "Your saved default has no current supported repository execution capability. Refresh Coding tools and select an available tool before starting work.",
         );
     }
     if ui.button("Rediscover tools").clicked() {
@@ -118,33 +149,79 @@ fn paint_tool_details(
     if id == "pi" {
         super::pi_guide::paint(ui, dialog);
     }
+    let fresh = harness.is_fresh_at(crate::persistence::harness_settings::current_unix_ms());
     ui.label(theme::page_title(id));
-    let availability = if harness.configuration_required {
+    let capability_ready = super::has_current_provider_capabilities(
+        id,
+        harness,
+        crate::persistence::harness_settings::current_unix_ms(),
+    );
+    let availability = if !fresh {
+        if matches!(dialog.probe_view, ProbeView::Pending) {
+            "Checking this tool"
+        } else {
+            "Discovery expired; refresh required"
+        }
+    } else if harness.capability_snapshot.is_none() {
+        "Capability snapshot unavailable; refresh required"
+    } else if harness.configuration_required {
         "Configuration required"
-    } else if harness.ready {
+    } else if capability_ready {
         "Available"
     } else {
         "Unavailable"
     };
-    ui.label(RichText::new(availability).color(if harness.ready {
+    ui.label(RichText::new(availability).color(if capability_ready {
         theme::SUCCESS
     } else {
         theme::DANGER
     }));
-    ui.label(theme::helper_text(format!("Status: {}", harness.status)));
+    if fresh && let Some(snapshot) = harness.capability_snapshot.as_ref() {
+        use crate::execution::contract::ReadinessState;
+        let state_label = |state| match state {
+            ReadinessState::Ready => "ready",
+            ReadinessState::Unavailable => "unavailable",
+            ReadinessState::Unknown => "not checked",
+        };
+        ui.label(theme::metadata_text(format!(
+            "Capabilities: CLI {}, authentication {}, model catalog {}, scriptable invocation {}",
+            state_label(snapshot.cli_binary),
+            state_label(snapshot.authentication),
+            state_label(snapshot.model_catalog),
+            state_label(snapshot.scriptable_invocation),
+        )));
+        ui.label(theme::metadata_text(format!(
+            "Execution: Docker bridge {}, target {}",
+            state_label(snapshot.docker_mcp_bridge),
+            state_label(snapshot.execution_target),
+        )));
+    }
+    ui.label(theme::helper_text(if fresh {
+        format!("Status: {}", harness.status)
+    } else {
+        format!(
+            "Last result: {}. Rediscover to refresh provider and model status.",
+            harness.status
+        )
+    }));
     ui.label(theme::helper_text(format!(
         "Security boundary: {}",
         crate::harness::execution_security::summary_for_harness(id)
     )));
-    if harness.ready && !harness.implementation_available {
+    if fresh && harness.ready && !harness.implementation_available {
         ui.label(theme::helper_text(
-            "Implementation is unavailable until Kool.ad/e has an application-managed repository boundary for this tool. Supported tools require Linux and Bubblewrap.",
+            "Implementation is unavailable until Kool.ad/e has a ready Docker execution session for this tool. The approved runtime image must be available.",
         ));
     }
     if let Some(version) = &harness.version {
         ui.label(theme::helper_text(format!("Version: {version}")));
     }
-    if !harness.models.is_empty() {
+    if super::has_current_model_catalog(
+        id,
+        harness,
+        crate::persistence::harness_settings::current_unix_ms(),
+    ) && !harness.models.is_empty()
+    {
         ui.label(RichText::new("Models reported by this CLI").strong());
         ui.label(harness.models.join(", "));
         if let Some(model) = &harness.default_model {
@@ -152,7 +229,7 @@ fn paint_tool_details(
         }
     } else {
         ui.label(theme::metadata_text(
-            "This CLI did not report a model catalog.",
+            "This CLI model catalog is unavailable or stale; refresh discovery before selecting a model.",
         ));
     }
     let configured = dialog.settings.manual_executable_paths.get(id).cloned();
@@ -171,7 +248,7 @@ fn paint_tool_details(
     });
     if ui
         .add_enabled(
-            harness.ready
+            capability_ready
                 && harness.implementation_available
                 && crate::harness::implementation_route_available(id),
             egui::RadioButton::new(
@@ -204,6 +281,9 @@ fn paint_tool_details(
         .manual_path_drafts
         .insert(id.to_owned(), draft.clone());
     ui.horizontal_wrapped(|ui| {
+        if ui.button(format!("Retry {id} discovery")).clicked() {
+            dialog.retry_provider(id);
+        }
         if ui.button("Use Path").clicked() {
             dialog.set_manual_path(id, draft.clone());
         }

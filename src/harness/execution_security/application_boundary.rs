@@ -1,13 +1,24 @@
 use super::mcp_server::ServerConfig;
+use super::session_bridge::SessionBridge;
+use crate::execution::{
+    contract::{ExecutionModeV1, ResourceBudgetV1},
+    docker::images::RuntimeProfile,
+    session::ExecutionSession,
+};
 use crate::harness::{PlanningRequest, ToolAccess};
 use std::{
-    fs,
-    io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
+mod private_directory;
 mod providers;
-pub(crate) use providers::CliProvider;
+mod target;
+#[cfg(test)]
+#[path = "application_boundary/tests.rs"]
+mod tests;
+pub(crate) use private_directory::PrivateDirectory;
+pub(crate) use providers::{CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch};
 
 pub(crate) struct ApplicationBoundary {
     scratch: PrivateDirectory,
@@ -15,64 +26,99 @@ pub(crate) struct ApplicationBoundary {
     app_binary: Option<PathBuf>,
     server_config: Option<PathBuf>,
     access: ToolAccess,
-    _resource_bridge: Option<crate::harness::resource_bridge::ResourceBridge>,
-    _sandbox: Option<crate::harness::pi_sandbox::Sandbox>,
-    _planning_sandbox: Option<crate::harness::pi_sandbox::PlanningSandbox>,
+    _session_bridge: Option<SessionBridge>,
+    _resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
 }
 
 impl ApplicationBoundary {
     pub(crate) fn new(request: &PlanningRequest) -> anyhow::Result<Self> {
+        crate::harness::validate_review_invocation(request)
+            .map_err(|error| anyhow::anyhow!(error.detail()))?;
         #[cfg(test)]
         if crate::harness::uncontained_provider_test_execution_enabled() {
             return Self::new_for_uncontained_test(request);
         }
-        anyhow::ensure!(
-            cfg!(target_os = "linux"),
-            "Kool.ad/e requires Bubblewrap to run supported CLI tools safely"
-        );
         let scratch = PrivateDirectory::create("koolade-cli-session")?;
-        let access = request.mode.tool_access();
-        let app_binary = (access != ToolAccess::None)
+        let requested_access = request.mode.tool_access();
+        let app_binary = (requested_access != ToolAccess::None)
             .then(std::env::current_exe)
             .transpose()?
             .map(|path| path.canonicalize())
             .transpose()?;
         let mut resource_bridge = None;
-        let mut sandbox = None;
-        let mut planning_sandbox = None;
-        let server_config = if access == ToolAccess::BoundedImplementation {
-            let bridge =
+        let mut session_bridge = None;
+        let mut access = ToolAccess::None;
+        let server_config = if requested_access == ToolAccess::BoundedImplementation {
+            anyhow::ensure!(
+                cfg!(target_os = "linux"),
+                "Docker repository tools are supported only on Linux"
+            );
+            let workspace = request.execution_workspace.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Docker implementation requires an application-selected task workspace"
+                )
+            })?;
+            let bridge = Arc::new(
                 crate::harness::resource_bridge::ResourceBridge::start_for_task_repository(
                     &request.repo_root,
                     request.runtime_config_source.as_deref(),
                     request.task_id.as_deref(),
                     request.progress_tx.clone(),
                     request.cancel.clone(),
-                )?;
-            let mut implementation = crate::harness::pi_sandbox::Sandbox::new_for_task_repository(
-                &request.repo_root,
-                request
-                    .runtime_config_source
-                    .as_deref()
-                    .unwrap_or(&request.repo_root),
+                )?,
+            );
+            let session = Arc::new(target::connect(
+                request,
+                workspace.clone(),
+                runtime_profile(&request.repo_root),
+                default_resource_budget(),
+            )?);
+            let ipc = SessionBridge::start(
+                &scratch.path,
+                session,
+                workspace.task_id.clone(),
+                "implementation".into(),
+                request.cancel.clone(),
+                Some(bridge.clone()),
             )?;
-            implementation.mount_resource_cache(bridge.cache_path())?;
-            implementation.mount_npm_cache_with_snapshot(
-                bridge.npm_cache_path(),
-                bridge.npm_index_snapshot_path(),
-            )?;
-            implementation.mount_cargo_cache(bridge.cargo_cache_path())?;
-            let config = ServerConfig::implementation(&implementation, &bridge);
-            sandbox = Some(implementation);
+            let config = ServerConfig::implementation(&ipc.binding, &bridge);
+            session_bridge = Some(ipc);
             resource_bridge = Some(bridge);
+            access = ToolAccess::BoundedImplementation;
             Some(config)
-        } else if access == ToolAccess::ReadOnly {
-            let reads = crate::harness::pi_sandbox::PlanningSandbox::new_for_application(
-                &request.repo_root,
-            )?;
-            let config = ServerConfig::read_only(&reads);
-            planning_sandbox = Some(reads);
-            Some(config)
+        } else if requested_access == ToolAccess::ReadOnly {
+            if let Some(workspace) = request.execution_workspace.clone() {
+                anyhow::ensure!(
+                    cfg!(target_os = "linux"),
+                    "Docker planning tools are supported only on Linux"
+                );
+                let session = ExecutionSession::connect_read_only_local(
+                    workspace.clone(),
+                    &request.repo_root,
+                    ExecutionModeV1::PlanningReadOnly,
+                    runtime_profile(&request.repo_root),
+                    default_resource_budget(),
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "Could not establish the requested read-only Docker planning session for the selected task workspace; verify the local Docker Engine and workspace source revision: {error}"
+                    )
+                })?;
+                let ipc = SessionBridge::start(
+                    &scratch.path,
+                    Arc::new(session),
+                    workspace.task_id.clone(),
+                    "read_only".into(),
+                    request.cancel.clone(),
+                    None,
+                )?;
+                let config = ServerConfig::read_only(&ipc.binding);
+                session_bridge = Some(ipc);
+                access = ToolAccess::ReadOnly;
+                Some(config)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -85,28 +131,36 @@ impl ApplicationBoundary {
             app_binary,
             server_config,
             access,
+            _session_bridge: session_bridge,
             _resource_bridge: resource_bridge,
-            _sandbox: sandbox,
-            _planning_sandbox: planning_sandbox,
         })
     }
 
     #[cfg(test)]
-    fn new_for_uncontained_test(request: &PlanningRequest) -> anyhow::Result<Self> {
+    fn new_for_uncontained_test(_request: &PlanningRequest) -> anyhow::Result<Self> {
         Ok(Self {
             scratch: PrivateDirectory::create("koolade-cli-test")?,
             server_name: format!("koolade_{}", uuid::Uuid::new_v4().simple()),
             app_binary: None,
             server_config: None,
-            access: request.mode.tool_access(),
+            access: ToolAccess::None,
+            _session_bridge: None,
             _resource_bridge: None,
-            _sandbox: None,
-            _planning_sandbox: None,
         })
     }
 
     pub(crate) fn working_directory(&self) -> &Path {
         &self.scratch.path
+    }
+
+    pub(crate) fn access(&self) -> ToolAccess {
+        self.access
+    }
+
+    pub(crate) fn resource_bridge(
+        &self,
+    ) -> Option<&crate::harness::resource_bridge::ResourceBridge> {
+        self._resource_bridge.as_deref()
     }
 
     pub(crate) fn system_policy(&self) -> &'static str {
@@ -115,10 +169,10 @@ impl ApplicationBoundary {
                 "This turn has no repository tools. Work only from the context supplied by Kool.ad/e."
             }
             ToolAccess::ReadOnly => {
-                "Repository reads are available only through Kool.ad/e's read-only MCP tool. The CLI has no direct repository tools. Its reads run in Bubblewrap with host home directories, credentials, writes, and network unavailable."
+                "Repository reads are available only through Kool.ad/e's read-only MCP tool. The CLI has no direct repository tools. Reads run in an application-owned Docker session with the selected repository mounted read-only, no ambient network, and no host credentials."
             }
             ToolAccess::BoundedImplementation => {
-                "Repository access is available only through Kool.ad/e MCP tools. Use koolade_bash for commands, koolade_dependency before package changes or restores, and koolade_resource only for public non-package HTTPS resources. The CLI has no direct repository tools. Commands run in Bubblewrap with the assigned clone as the only persistent writable location, no ambient network, hidden host credentials, and app-mediated dependency and resource access. Kool.ad/e alone commits, pushes, integrates, and publishes."
+                "Repository access is available only through Kool.ad/e MCP tools. Use koolade_bash for commands, koolade_dependency before package changes or restores, and koolade_resource only for public non-package HTTPS resources. The CLI has no direct repository tools. Commands run in an application-owned Docker session with the assigned clone as the only writable workspace, no ambient network, hidden host credentials, and app-mediated dependency and resource access. Kool.ad/e alone commits, pushes, integrates, and publishes."
             }
         }
     }
@@ -166,85 +220,20 @@ impl ApplicationBoundary {
     }
 }
 
-struct PrivateDirectory {
-    path: PathBuf,
-}
-
-impl PrivateDirectory {
-    fn create(prefix: &str) -> anyhow::Result<Self> {
-        let path = std::env::temp_dir().join(format!(
-            "{prefix}-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        create_private_directory(&path)?;
-        Ok(Self { path })
-    }
-
-    fn write_json<T: serde::Serialize>(&self, name: &str, value: &T) -> anyhow::Result<PathBuf> {
-        self.write_file(name, &serde_json::to_vec(value)?)
-    }
-
-    fn write_file(&self, name: &str, contents: &[u8]) -> anyhow::Result<PathBuf> {
-        let path = self.path.join(name);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-            set_mode(parent, 0o700)?;
-        }
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        set_private_file_mode(&mut options);
-        let mut file = options.open(&path)?;
-        file.write_all(contents)?;
-        set_mode(&path, 0o600)?;
-        Ok(path)
-    }
-
-    fn create_directory(&self, name: &str) -> anyhow::Result<PathBuf> {
-        let path = self.path.join(name);
-        fs::create_dir_all(&path)?;
-        set_mode(&path, 0o700)?;
-        Ok(path)
+fn runtime_profile(root: &Path) -> RuntimeProfile {
+    if root.join("Cargo.toml").is_file() {
+        RuntimeProfile::Rust
+    } else if root.join("package.json").is_file() {
+        RuntimeProfile::Node
+    } else if root.join("pyproject.toml").is_file() || root.join("requirements.txt").is_file() {
+        RuntimeProfile::Python
+    } else if root.join("go.mod").is_file() {
+        RuntimeProfile::Go
+    } else {
+        RuntimeProfile::General
     }
 }
 
-impl Drop for PrivateDirectory {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
-
-#[cfg(unix)]
-fn create_private_directory(path: &Path) -> anyhow::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    let mut builder = fs::DirBuilder::new();
-    builder.mode(0o700).create(path)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn create_private_directory(path: &Path) -> anyhow::Result<()> {
-    fs::create_dir(path)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn set_private_file_mode(options: &mut fs::OpenOptions) {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.mode(0o600);
-}
-
-#[cfg(not(unix))]
-fn set_private_file_mode(_options: &mut fs::OpenOptions) {}
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: u32) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn set_mode(_path: &Path, _mode: u32) -> anyhow::Result<()> {
-    Ok(())
+fn default_resource_budget() -> ResourceBudgetV1 {
+    ResourceBudgetV1::default()
 }

@@ -3,7 +3,22 @@
 fn main() -> eframe::Result {
     let mut args = std::env::args_os();
     let _binary = args.next();
-    if args.next().as_deref() == Some(std::ffi::OsStr::new("--internal-mcp-server")) {
+    let command = args.next();
+    if command.as_deref() == Some(std::ffi::OsStr::new("worker")) {
+        if args.next().as_deref() != Some(std::ffi::OsStr::new("serve"))
+            || args.next().as_deref() != Some(std::ffi::OsStr::new("--stdio"))
+            || args.next().is_some()
+        {
+            eprintln!("Usage: koolade worker serve --stdio");
+            std::process::exit(2);
+        }
+        if let Err(error) = koolade::execution::remote::worker::serve_stdio_worker() {
+            eprintln!("Kool.ad/e worker stopped: {error}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+    if command.as_deref() == Some(std::ffi::OsStr::new("--internal-mcp-server")) {
         let Some(config) = args.next() else {
             eprintln!("Kool.ad/e MCP server configuration path is missing.");
             std::process::exit(2);

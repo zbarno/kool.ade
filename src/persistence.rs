@@ -13,9 +13,14 @@ pub mod archived_tasks;
 pub mod cancelled_work;
 pub mod chat_store;
 pub mod dependency_authorization;
+pub mod discovery_log;
+pub mod execution_environment_settings;
+pub mod execution_records;
 pub(crate) mod feature_approvals;
 pub mod harness_settings;
 pub mod persona;
+pub mod remote_requests;
+pub mod remote_workers;
 pub mod task_chats;
 pub mod telemetry;
 

@@ -179,7 +179,9 @@ pub(super) fn prepare_integration(
                             runner,
                         )?);
                     }
-                    runner.verify(report_check_clone.as_ref().unwrap().path(), command)
+                    let verification_path = report_check_clone.as_ref().unwrap().path();
+                    let workspace = runner.workspace_ref_for(&integration)?;
+                    runner.verify(verification_path, command, &workspace)
                 };
                 evidence.push(serde_json::json!({
                     "command": command,

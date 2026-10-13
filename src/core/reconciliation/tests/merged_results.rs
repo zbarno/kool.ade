@@ -37,7 +37,7 @@ fn merged_commit_is_inspected_before_product_truth_is_checkpointed() {
         .unwrap()
         .contains(merged)
     );
-    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "3");
+    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "6");
     let _ = std::fs::remove_dir_all(repo);
 }
 
@@ -109,7 +109,7 @@ fn drifting_project_is_deferred_not_clobbered() {
         "expected a benign deferral, got: {message}"
     );
     // Reconciliation must not have checkpointed or applied anything.
-    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "2");
+    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "5");
     assert!(
         !std::fs::read_to_string(
             repo.join(".koolade-packet/planning/product/current-capabilities.md")

@@ -28,6 +28,8 @@ fn null_identity_is_recaptured_and_inherited_by_integration_state() {
         deadline: Instant::now() + Duration::from_secs(30),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     runner
         .git(&repository, &["config", "--local", "user.name", "Fixture"])

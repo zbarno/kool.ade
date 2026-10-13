@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
+    let _environment = crate::test_support::lock_process_environment();
     // Incident regression: one save hiccups and queues the final agent reply
     // as pending; unpainted-panel retry paths may never run, and a later
     // TaskChats replacement (relaunch-style) must not drop the reply. The

@@ -23,6 +23,7 @@ fn rejects_incomplete_uncovered_or_misordered_tasks_without_writes() {
 #[test]
 fn stale_spec_cannot_write_tasks_and_revisions_preserve_previous_batches() {
     let mut s = state("revision");
+    install_approved_feature(&mut s);
     mark_ready(&mut s);
     let nt = generation(&s, vec![story()]).unwrap();
     let spec_path = s.repo_root.join(crate::artifacts::SPEC_FILE);
@@ -37,21 +38,23 @@ fn stale_spec_cannot_write_tasks_and_revisions_preserve_previous_batches() {
             .ready(Some("# External change"))
     );
     std::fs::write(&spec_path, original_spec).unwrap();
-    apply::apply(&mut s, &nt).unwrap();
-    let first = s
-        .repo_root
-        .join(".koolade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md");
+    let first_receipt = apply::apply(&mut s, &nt).unwrap();
+    let first = s.repo_root.join(
+        first_receipt
+            .repo_relative_paths
+            .iter()
+            .find(|path| path.ends_with("TASK-persist-named-search-filters.md"))
+            .expect("generated task path is recorded"),
+    );
     let original = std::fs::read(&first).unwrap();
     mark_ready(&mut s);
     let mut task = story();
     task.title = "Persist the revised search record".into();
     let nt = generation(&s, vec![task]).unwrap();
-    apply::apply(&mut s, &nt).unwrap();
+    assert!(apply::apply(&mut s, &nt).is_err());
     assert!(
-        s.repo_root
-            .join(
-                ".koolade-packet/planning/tasks/saved-searches-02/001-persist-the-revised-search-record.md"
-            )
+        !s.repo_root
+            .join(".koolade-packet/planning/tasks/saved-searches-02")
             .exists()
     );
     assert_eq!(std::fs::read(first).unwrap(), original);

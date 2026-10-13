@@ -57,7 +57,7 @@ pub(super) fn inspect_disjoint_merge(
         ],
     )?;
     let generated = generated::trusted(runner, state, dir)?;
-    let runtime_configuration = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+    let runtime_configuration = crate::harness::runtime_config::paths_with_source(
         task_repository,
         runner.runtime_config_source.as_deref(),
     )?;

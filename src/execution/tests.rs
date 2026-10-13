@@ -27,6 +27,7 @@ fn request() -> ExecutionRequestV1 {
         project_id: project_id.clone(),
         task_id: task_id.clone(),
         target: ExecutionTarget::local(),
+        controller_target_id: None,
         workspace: WorkspaceRef {
             project_id,
             task_id,
@@ -34,12 +35,16 @@ fn request() -> ExecutionRequestV1 {
         },
         mode: ExecutionModeV1::Implementation,
         image_digest: format!("sha256:{}", "b".repeat(64)),
+        authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
         argv: vec!["git".into(), "status".into(), "--short".into()],
+        working_directory_relative: ".".into(),
+        stdin: None,
         environment_allowlist: BTreeSet::from(["CI".into()]),
         resource_budget: budget(1024 * 1024 * 1024, 2000),
         deadline_unix_ms: 10_000,
         allowed_service_ports: BTreeSet::new(),
         broker_capability_ids: BTreeSet::from([uuid::Uuid::new_v4().hyphenated().to_string()]),
+        dependency_cache_refs: Vec::new(),
         cancellation_generation: 1,
         request_sequence: 1,
         policy: ExecutionPolicyV1::for_mode(
@@ -57,53 +62,146 @@ mod events;
 #[path = "tests/readiness_results.rs"]
 mod readiness_results;
 
+#[path = "tests/wire_contract.rs"]
+mod wire_contract;
+
 #[test]
-fn versioned_request_round_trips_without_controller_paths_or_environment_values() {
-    let request = request();
+fn request_deadline_cannot_extend_beyond_the_bounded_execution_lease() {
+    let now = 1_000;
+    let mut request = request();
+    request.deadline_unix_ms = now + super::contract::MAX_EXECUTION_DURATION_MS;
+    request.validate_at(now).unwrap();
+
+    request.deadline_unix_ms += 1;
+    assert!(request.validate_at(now).is_err());
+}
+
+#[test]
+fn request_working_directory_cannot_escape_the_task_workspace() {
+    let mut request = request();
+    request.working_directory_relative = "packages/web".into();
     request.validate_at(1).unwrap();
-    let message = ExecutionWireMessageV1 {
-        wire_version: 1,
-        request,
-    };
-    let bytes = serde_json::to_vec(&message).unwrap();
-    let decoded: ExecutionWireMessageV1 = serde_json::from_slice(&bytes).unwrap();
-    decoded.validate_at(1).unwrap();
-    assert_eq!(decoded, message);
-    assert!(ensure_wire_compatible(1).is_ok());
+    request.working_directory_relative = "packages/../../outside".into();
+    assert!(request.validate_at(1).is_err());
+    request.working_directory_relative = "/etc".into();
+    assert!(request.validate_at(1).is_err());
+}
+
+#[test]
+fn scoped_write_grant_is_typed_relative_and_default_denied() {
+    let valid = ExecutionPolicyV1::for_scoped_workspace_write(
+        ExecutionModeV1::Verification,
+        budget(1024 * 1024 * 1024, 2000),
+        "apps/web".into(),
+    )
+    .unwrap();
     assert_eq!(
-        ensure_wire_compatible(2),
-        Err(ExecutionErrorKind::WorkerIncompatible)
+        valid.workspace_write_scope().unwrap().root_relative,
+        "apps/web"
     );
-    let json = String::from_utf8(bytes).unwrap();
-    assert!(!json.contains("/home/"));
-    assert!(!json.contains("github_token"));
+    assert!(valid.validate().is_ok());
+    for invalid in [".", "", "../outside", "apps/../outside", "/tmp/outside"] {
+        assert!(
+            ExecutionPolicyV1::for_scoped_workspace_write(
+                ExecutionModeV1::Verification,
+                budget(1024 * 1024 * 1024, 2000),
+                invalid.into(),
+            )
+            .is_err(),
+            "unexpectedly accepted {invalid:?}"
+        );
+    }
+    assert!(
+        ExecutionPolicyV1::for_mode(
+            ExecutionModeV1::Verification,
+            budget(1024 * 1024 * 1024, 2000),
+            BTreeSet::new(),
+        )
+        .unwrap()
+        .workspace_write_scope()
+        .is_none()
+    );
+}
+
+#[test]
+fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
+    let mut request = request();
+    request.mode = ExecutionModeV1::Verification;
+    request.working_directory_relative = ".".into();
+    request.argv = vec!["odin".into(), "build".into(), "src".into()];
+    request.environment_allowlist.clear();
+    request.policy = ExecutionPolicyV1::for_approved_recipe(
+        budget(1024 * 1024 * 1024, 2000),
+        "apps/odin".into(),
+        "user-approval:decision-1".into(),
+        "odin".into(),
+        vec!["build".into(), "src".into()],
+        ".".into(),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    request.validate_at(1).unwrap();
+
+    let ceiling = ExecutionPolicyV1::for_mode(
+        ExecutionModeV1::Verification,
+        budget(2 * 1024 * 1024 * 1024, 4000),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    request.validate_under_policy(1, &ceiling).unwrap();
+
+    request.argv[2] = "../sibling".into();
+    assert!(request.validate_at(1).is_err());
+}
+
+#[test]
+fn controller_target_audit_binding_is_separate_from_worker_transport_target() {
+    let mut request = request();
+    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    request.controller_target_id = Some(worker_id.clone());
+    assert_eq!(request.target, ExecutionTarget::local());
+    request.validate_at(1).unwrap();
+
+    request.controller_target_id = Some("../../untrusted".into());
+    assert!(request.validate_at(1).is_err());
 }
 
 #[test]
 fn role_selection_maps_to_security_modes_without_provider_authority() {
     assert_eq!(
-        HarnessRole::Implementation.execution_mode(),
+        HarnessRole::Implementer.execution_mode(),
         ExecutionModeV1::Implementation
     );
     assert_eq!(
-        HarnessRole::QualityAssurance.execution_mode(),
+        HarnessRole::RuntimeQaReviewer.execution_mode(),
         ExecutionModeV1::RuntimeQa
     );
     assert_eq!(
-        HarnessRole::QualityAssurance.harness_mode(),
+        HarnessRole::RuntimeQaReviewer.harness_mode(),
         crate::harness::ExecutionMode::ReadOnlyAnalysis
     );
     for role in [
         HarnessRole::Manager,
-        HarnessRole::Specification,
-        HarnessRole::TaskGeneration,
-        HarnessRole::Investigation,
-        HarnessRole::Documentation,
-        HarnessRole::Reconciliation,
-        HarnessRole::DecisionExplanation,
+        HarnessRole::PlanningAnalyst,
+        HarnessRole::PlanReviewer,
+        HarnessRole::TaskDecomposer,
+        HarnessRole::CodeReviewer,
+        HarnessRole::SpecReconciler,
     ] {
         assert_eq!(role.execution_mode(), ExecutionModeV1::PlanningReadOnly);
     }
+    assert_eq!(
+        HarnessRole::PRPreparer.execution_mode(),
+        ExecutionModeV1::Implementation
+    );
+    assert_eq!(
+        HarnessRole::PRPreparer.harness_mode(),
+        crate::harness::ExecutionMode::Implementation
+    );
+    assert_eq!(
+        HarnessRole::RepairWorker.execution_mode(),
+        ExecutionModeV1::Implementation
+    );
 }
 
 #[test]
@@ -157,34 +255,8 @@ fn policy_intersection_never_widens_capabilities_or_resource_limits() {
     assert!(request.validate_under_policy(1, &low_ceiling).is_err());
 }
 
-#[test]
-fn request_validation_rejects_invalid_ids_host_paths_and_shell_command_strings() {
-    let mut invalid_id = request();
-    invalid_id.execution_id = "exec-1".into();
-    assert!(invalid_id.validate_at(1).is_err());
-
-    let mut host_path = request();
-    host_path.argv.push("/home/operator-a/project".into());
-    assert!(host_path.validate_at(1).is_err());
-
-    let mut shell = request();
-    shell.argv = vec!["bash".into(), "-c".into(), "git status".into()];
-    assert!(shell.validate_at(1).is_err());
-
-    let mut combined_shell = request();
-    combined_shell.argv = vec!["bash".into(), "-lc".into(), "git status".into()];
-    assert!(combined_shell.validate_at(1).is_err());
-
-    let mut unicode_shell = request();
-    unicode_shell.argv = vec!["bash".into(), "-éclair".into()];
-    assert!(unicode_shell.validate_at(1).is_err());
-
-    let mut secret_name = request();
-    secret_name
-        .environment_allowlist
-        .insert("GITHUB_TOKEN".into());
-    assert!(secret_name.validate_at(1).is_err());
-}
+#[path = "tests/request_edges.rs"]
+mod request_edges;
 
 #[test]
 fn target_and_qa_ports_are_separate_from_workspace_paths() {
@@ -213,18 +285,4 @@ fn target_and_qa_ports_are_separate_from_workspace_paths() {
     );
     qa.allowed_service_ports.insert(3001);
     assert!(qa.validate_at(1).is_err());
-}
-
-#[test]
-fn cancelled_and_expired_requests_are_reported_without_starting() {
-    let request = request();
-    assert_eq!(
-        request.validate_control(2, 2, false),
-        Err(ExecutionErrorKind::Cancelled)
-    );
-    assert_eq!(
-        request.validate_control(10_000, 1, false),
-        Err(ExecutionErrorKind::DeadlineExceeded)
-    );
-    assert!(request.validate_control(2, 1, false).is_ok());
 }

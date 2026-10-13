@@ -26,6 +26,7 @@ mod harness_selection;
 mod adoption;
 mod agent_updates;
 mod attention;
+mod clarification;
 mod clipboard;
 mod connection;
 mod dependency_authorization;
@@ -33,6 +34,11 @@ mod desktop_app;
 mod dialogs;
 mod implementation_controller;
 mod implementation_decision;
+mod opportunity_actions;
+pub(crate) mod plan_review;
+pub(crate) mod spec_reconciliation;
+pub(crate) use spec_reconciliation::SpecReconciliation;
+pub(crate) mod planner_pass;
 mod planning_repository;
 mod planning_repository_surface;
 mod planning_work;
@@ -44,6 +50,7 @@ mod task_batch;
 #[cfg(test)]
 #[path = "root/task_detail_tests.rs"]
 mod task_detail_tests;
+mod task_target;
 mod tick;
 mod ui_actions;
 mod workspace;

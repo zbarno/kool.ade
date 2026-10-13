@@ -1,30 +1,21 @@
 use super::*;
 use crate::artifacts::planning_store::StoreMode;
-use std::{
-    ffi::OsString,
-    path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
-};
-
-static TEST_HOME_LOCK: Mutex<()> = Mutex::new(());
+use std::path::{Path, PathBuf};
 
 struct TempDir {
     root: PathBuf,
-    previous_home: Option<OsString>,
-    _home_lock: MutexGuard<'static, ()>,
+    _environment: crate::test_support::ProcessEnvironmentGuard,
 }
 
 impl TempDir {
     fn new() -> Self {
-        let lock = TEST_HOME_LOCK.lock().unwrap();
+        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
         let root = std::env::temp_dir().join(format!("koolade-store-tx-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let previous = std::env::var_os("KOOLADE_HOME");
-        unsafe { std::env::set_var("KOOLADE_HOME", root.join("koolade-home")) };
+        environment.set("KOOLADE_HOME", root.join("koolade-home"));
         Self {
             root,
-            previous_home: previous,
-            _home_lock: lock,
+            _environment: environment,
         }
     }
 }
@@ -32,10 +23,6 @@ impl TempDir {
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
-        match self.previous_home.take() {
-            Some(home) => unsafe { std::env::set_var("KOOLADE_HOME", home) },
-            None => unsafe { std::env::remove_var("KOOLADE_HOME") },
-        }
     }
 }
 

@@ -205,6 +205,8 @@ mod tests {
             deadline: Instant::now() + Duration::from_secs(30),
             cancel: Arc::new(AtomicBool::new(false)),
             progress,
+
+            authorization_verifier: None,
         }
     }
 

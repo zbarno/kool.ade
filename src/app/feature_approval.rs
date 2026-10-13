@@ -1,8 +1,12 @@
 use super::*;
 use crate::core::workflow::{self, TurnPurpose};
 use crate::ui::feature_approval::Action;
+#[path = "feature_approval/actions.rs"]
+mod actions;
 #[path = "feature_approval/board.rs"]
 mod board;
+#[path = "feature_approval/readiness.rs"]
+pub(super) mod readiness;
 #[path = "feature_approval/selection.rs"]
 mod selection;
 
@@ -57,13 +61,14 @@ impl KooladeApp {
                     && comparison.is_none();
                 let approved =
                     workflow::feature_approved(&p.state.planning_store, &p.state.workflow, id);
+                let reviewing = p.activity.plan_review_feature.as_deref() == Some(id.as_str());
                 let prepare_tasks = p
                     .state
                     .active_feature
                     .as_ref()
                     .is_some_and(|(active, _)| active == id)
                     && !has_current_task_batch(p);
-                (!approved || prepare_tasks).then(|| Action {
+                ((!approved || prepare_tasks) && !reviewing).then(|| Action {
                     id: id.clone(),
                     specification: body.clone(),
                     approved,
@@ -75,15 +80,7 @@ impl KooladeApp {
             .collect()
     }
 
-    pub(super) fn approve_and_prepare_feature(&mut self, id: &str) {
-        self.approve_feature_action(id, true);
-    }
-
-    pub(super) fn approve_feature_only(&mut self, id: &str) {
-        self.approve_feature_action(id, false);
-    }
-
-    fn approve_feature_action(&mut self, id: &str, prepare_tasks: bool) {
+    fn approve_feature_action(&mut self, id: &str, _prepare_tasks: bool) {
         let Some(action) = self
             .available_feature_actions(None)
             .into_iter()
@@ -123,12 +120,39 @@ impl KooladeApp {
             return;
         }
         let contract = workflow::feature_contract(&action.specification);
+        let Some(identity) = crate::domain::ArtifactIdentity::from_markdown(&action.specification)
+            .ok()
+            .flatten()
+        else {
+            self.toasts
+                .danger(format!("Cannot approve {id}: feature identity is missing."));
+            return;
+        };
+        let snapshot = match crate::core::lifecycle::PlanSnapshotV1::from_feature(
+            id,
+            &identity,
+            &action.specification,
+            &contract,
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.toasts.danger(format!("Cannot snapshot {id}: {error}"));
+                return;
+            }
+        };
+        if let Err(reason) = readiness::current(&p.state.planning_store, &snapshot) {
+            let message = format!("Cannot confirm {id}: {reason}");
+            p.remember_chat(vec![ChatMessage::new(ChatRole::System, &message, None)]);
+            self.toasts.warning(message);
+            return;
+        }
         let mut approved_workflow = p.state.workflow.clone();
-        let receipt = match workflow::approve_feature_if_current_with_revision(
+        let receipt = match workflow::approve_feature_if_current_with_snapshot_with_revision(
             &p.state.planning_store,
             &mut approved_workflow,
             id,
             Some(&contract),
+            Some(&snapshot.content_hash),
             &p.state.baseline_planning_revision,
         ) {
             Ok(receipt) => receipt,
@@ -150,8 +174,39 @@ impl KooladeApp {
             ));
             return;
         }
-        let message =
-            format!("Approved {id} for implementation against the reviewed feature contract.");
+        #[cfg(test)]
+        let review_start: Result<_, String> =
+            Err("test-only reviewer outcomes must be supplied explicitly".into());
+        #[cfg(not(test))]
+        let review_start = {
+            let harness = super::configured_harness_for(
+                &mut self.task_harness,
+                Some(crate::persistence::harness_settings::PLAN_REVIEW),
+            );
+            crate::app::root::plan_review::PlanReview::start(p, id.to_owned(), harness)
+        };
+        match review_start {
+            Ok(review) => {
+                p.activity.plan_review = Some(review);
+                p.activity.plan_review_feature = Some(id.to_owned());
+                p.activity.plan_review_revision = Some(p.state.baseline_planning_revision.clone());
+                p.live_progress = crate::harness::LiveProgress {
+                    activity: Some(format!("Independent PlanReviewer is reviewing {id}…")),
+                    ..Default::default()
+                };
+            }
+            Err(error) => {
+                p.activity
+                    .pending
+                    .push(format!("Plan review for {id} could not start: {error}"));
+                self.toasts.warning(format!(
+                    "Plan confirmation saved, but independent review could not start: {error}"
+                ));
+            }
+        }
+        let message = format!(
+            "Plan confirmation recorded for {id}. Task generation remains blocked until a separate PlanReviewer approves this exact snapshot."
+        );
         p.activity.pending.push(message.clone());
         p.remember_chat(vec![ChatMessage::new(ChatRole::System, &message, None)]);
         // Put the application receipt beside requests in resolved conversations too.
@@ -176,29 +231,7 @@ impl KooladeApp {
                 );
             }
         }
-        self.toasts.success(&message);
-        if !prepare_tasks || !action.prepare_tasks {
-            return;
-        }
-        if p.state.workflow.ready(p.state.planning_contract()) {
-            self.start_turn_with_purpose(
-                &format!("Generate task stories for approved feature {id}."),
-                TurnPurpose::GenerateTasks,
-            );
-        } else {
-            self.pending_feature_generation = Some((
-                p.state.repo_root.clone(),
-                id.into(),
-                contract,
-                String::new(),
-            ));
-            self.start_turn_with_purpose(&format!(
-                "Prepare the task-generation review for approved feature {id}. Its current specification is approved; do not ask for approval again or change its contract. Read the current feature and settled decisions, and return a complete interview brief naming {id}, ready_for_tasks=true when no blocking questions remain. Do not generate stories in this review turn. The application will generate them after a successful current review. If blocked, record the concrete blocking item."
-            ), TurnPurpose::ReviewForGeneration);
-            if !matches!(&self.screen, Screen::Connected(p) if p.active_turn.is_some()) {
-                self.pending_feature_generation = None;
-            }
-        }
+        self.toasts.warning(&message);
     }
 
     /// Only the completion of our Main Chat review can consume this continuation.
@@ -259,4 +292,4 @@ impl KooladeApp {
 
 #[cfg(test)]
 #[path = "root/feature_approval/tests.rs"]
-mod tests;
+pub(crate) mod tests;

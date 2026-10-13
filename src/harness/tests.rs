@@ -8,6 +8,7 @@ fn temp_dir() -> std::path::PathBuf {
 fn planning_request(mode: ExecutionMode) -> PlanningRequest {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     PlanningRequest {
+        prompt_manifest: None,
         mode,
         task_id: Some("synthetic-task".into()),
         reasoning_level: "medium".into(),
@@ -19,7 +20,40 @@ fn planning_request(mode: ExecutionMode) -> PlanningRequest {
         timeout: std::time::Duration::from_secs(1),
         progress_tx,
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     }
+}
+
+#[test]
+fn reviewer_dispatch_requires_distinct_controller_identity_and_read_only_prompt() {
+    let mut request = planning_request(ExecutionMode::ReadOnlyAnalysis);
+    request.telemetry_phase = Some("independent_code_review".into());
+    request.prompt_manifest = Some(crate::harness::prompt_catalog::PromptManifest {
+        role_version: "code_review/v1".into(),
+        system_template_sha256: "0".repeat(64),
+        policy_template_sha256: "0".repeat(64),
+        user_template_sha256: "0".repeat(64),
+        output_schema_version: "1".into(),
+        privilege_profile: "read_only; isolated_fresh_review_context".into(),
+    });
+    request.review_identity = Some(crate::harness::ReviewExecutionIdentity {
+        execution_id: "00000000-0000-4000-8000-000000000001".into(),
+        session_id: "00000000-0000-4000-8000-000000000002".into(),
+    });
+    request.prompt_body = "reviewer execution 00000000-0000-4000-8000-000000000001 session 00000000-0000-4000-8000-000000000002".into();
+    assert!(super::validate_review_invocation(&request).is_ok());
+
+    let execution_id = request
+        .review_identity
+        .as_ref()
+        .unwrap()
+        .execution_id
+        .clone();
+    request.review_identity.as_mut().unwrap().session_id = execution_id;
+    assert!(super::validate_review_invocation(&request).is_err());
 }
 
 #[test]
@@ -39,7 +73,10 @@ fn application_boundary_accepts_supported_clis_and_rejects_unknown_providers() {
         let error = require_application_implementation_boundary("unsupported", &request)
             .unwrap_err()
             .detail();
-        assert!(error.contains("application-owned Linux sandbox"), "{error}");
+        assert!(
+            error.contains("no configured application-owned Docker execution policy"),
+            "{error}"
+        );
         assert!(error.contains("No CLI was started"), "{error}");
     }
 }
@@ -84,7 +121,7 @@ fn manual_path_accepts_spaces_and_symlinks_but_rejects_non_executables() {
     };
     assert_eq!(
         manual_executable_path_from(&settings, "codex").unwrap(),
-        Some(alias)
+        Some(binary.canonicalize().unwrap())
     );
 
     let non_executable = root.join("plain file");

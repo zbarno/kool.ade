@@ -10,8 +10,6 @@ use std::{
     time::Duration,
 };
 
-static HOME_LOCK: Mutex<()> = Mutex::new(());
-
 struct RestoreHome(Option<std::ffi::OsString>);
 impl Drop for RestoreHome {
     fn drop(&mut self) {
@@ -78,6 +76,7 @@ impl AiHarness for UsageHarness {
 
 fn request(progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -89,14 +88,16 @@ fn request(progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
         timeout: Duration::from_secs(3),
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     }
 }
 
 #[test]
 fn failed_attempt_usage_is_retained_and_retry_appends_a_distinct_record() {
-    let _lock = HOME_LOCK
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let _lock = crate::test_support::lock_process_environment();
     let home = env::temp_dir().join(format!("koolade_impl_telemetry_{}", uuid::Uuid::new_v4()));
     let _restore = RestoreHome(env::var_os("KOOLADE_HOME"));
     unsafe { env::set_var("KOOLADE_HOME", &home) };
@@ -148,9 +149,7 @@ fn failed_attempt_usage_is_retained_and_retry_appends_a_distinct_record() {
 
 #[test]
 fn telemetry_write_failure_is_visible_but_does_not_abort_the_harness_result() {
-    let _lock = HOME_LOCK
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let _lock = crate::test_support::lock_process_environment();
     let home = env::temp_dir().join(format!(
         "koolade_impl_telemetry_blocked_{}",
         uuid::Uuid::new_v4()
@@ -188,9 +187,7 @@ fn telemetry_write_failure_is_visible_but_does_not_abort_the_harness_result() {
 
 #[test]
 fn concurrent_tasks_in_one_repository_keep_separate_attributed_histories() {
-    let _lock = HOME_LOCK
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
+    let _lock = crate::test_support::lock_process_environment();
     let home = env::temp_dir().join(format!("koolade_impl_parallel_{}", uuid::Uuid::new_v4()));
     let _restore = RestoreHome(env::var_os("KOOLADE_HOME"));
     unsafe { env::set_var("KOOLADE_HOME", &home) };

@@ -1,0 +1,287 @@
+//! Container configuration built only from validated application policy.
+
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
+
+use bollard::models::{ContainerCreateBody, HostConfig, Mount, MountBindOptions, MountType};
+
+use super::images::{ImageLock, SelectedImage};
+use crate::execution::{
+    contract::{ExecutionModeV1, ExecutionRequestV1},
+    errors::{ExecutionError, ExecutionErrorKind},
+    policy::FilesystemGrantV1,
+};
+
+pub(crate) mod staging;
+pub(crate) use staging::WorkspaceSnapshot;
+mod workspace_identity;
+
+pub const WORKSPACE_TARGET: &str = "/workspace";
+pub const OWNER_LABEL: &str = "com.koolade.owner";
+pub const EXECUTION_LABEL: &str = "com.koolade.execution";
+pub const TASK_LABEL: &str = "com.koolade.task";
+pub const WORKSPACE_LABEL: &str = "com.koolade.workspace";
+pub const POLICY_LABEL: &str = "com.koolade.policy";
+pub const LEASE_LABEL: &str = "com.koolade.lease-unix-ms";
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValidatedWorkspace {
+    root: PathBuf,
+    git_metadata: PathBuf,
+    root_identity: workspace_identity::WorkspaceObjectId,
+    git_identity: workspace_identity::WorkspaceObjectId,
+}
+
+impl ValidatedWorkspace {
+    /// Resolve and revalidate an application-owned task clone immediately before mount creation.
+    /// Callers must obtain the root from the task-clone registry, never from request data.
+    pub fn inspect(root: &Path) -> Result<Self, ExecutionError> {
+        let canonical = root
+            .canonicalize()
+            .map_err(|_| denied("Task clone is unavailable"))?;
+        let metadata = std::fs::symlink_metadata(&canonical)
+            .map_err(|_| denied("Task clone metadata could not be verified"))?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(denied("Task clone root is not a real directory"));
+        }
+        let root_identity = workspace_identity::from_metadata(&metadata)
+            .ok_or_else(|| denied("Task clone identity cannot be verified on this platform"))?;
+        let git_path = canonical.join(".git");
+        let git_meta = std::fs::symlink_metadata(&git_path)
+            .map_err(|_| denied("Task clone Git metadata is unavailable"))?;
+        if !git_meta.is_dir() || git_meta.file_type().is_symlink() {
+            return Err(denied("Task clone must contain a real .git directory"));
+        }
+        let git_identity = workspace_identity::from_metadata(&git_meta)
+            .ok_or_else(|| denied("Task clone Git metadata identity cannot be verified"))?;
+        Ok(Self {
+            root: canonical,
+            git_metadata: git_path,
+            root_identity,
+            git_identity,
+        })
+    }
+
+    pub fn revalidate(&self) -> Result<(), ExecutionError> {
+        let current = Self::inspect(&self.root)?;
+        if current != *self {
+            return Err(denied("Task clone path changed before container launch"));
+        }
+        Ok(())
+    }
+
+    pub(super) fn root(&self) -> &Path {
+        &self.root
+    }
+
+    #[cfg(test)]
+    pub(super) fn git_metadata(&self) -> &Path {
+        &self.git_metadata
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SandboxIdentity {
+    pub owner_instance_id: String,
+    pub policy_version: String,
+    pub lease_expires_unix_ms: u64,
+}
+
+impl SandboxIdentity {
+    pub fn validate(&self) -> Result<(), ExecutionError> {
+        for value in [&self.owner_instance_id, &self.policy_version] {
+            if value.is_empty() || value.len() > 128 || value.bytes().any(|b| b.is_ascii_control())
+            {
+                return Err(denied("Sandbox identity metadata is invalid"));
+            }
+        }
+        if self.lease_expires_unix_ms == 0 {
+            return Err(denied("Sandbox lease is invalid"));
+        }
+        Ok(())
+    }
+}
+
+/// Fixed Docker create body. There are deliberately no user-supplied mount, namespace, or security fields.
+pub fn create_body(
+    request: &ExecutionRequestV1,
+    workspace: &ValidatedWorkspace,
+    identity: &SandboxIdentity,
+    image: &SelectedImage,
+) -> Result<ContainerCreateBody, ExecutionError> {
+    request
+        .validate_at(now_unix_ms())
+        .map_err(|_| denied("Execution request or policy is invalid"))?;
+    identity.validate()?;
+    workspace.revalidate()?;
+    let lock =
+        ImageLock::bundled().map_err(|_| denied("Approved executor image manifest is invalid"))?;
+    let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
+    let approved = lock
+        .select(image.profile, architecture)
+        .map_err(|_| denied("Sandbox image profile is not approved"))?;
+    if approved != *image || image.digest != request.image_digest {
+        return Err(denied(
+            "Sandbox image does not match the approved request digest",
+        ));
+    }
+    let writable = request.mode != ExecutionModeV1::PlanningReadOnly
+        && (request
+            .policy
+            .filesystem_grants()
+            .contains(&FilesystemGrantV1::WorkspaceWrite)
+            || request
+                .policy
+                .filesystem_grants()
+                .contains(&FilesystemGrantV1::WorkspaceScopedWrite));
+    let labels = HashMap::from([
+        (OWNER_LABEL.into(), identity.owner_instance_id.clone()),
+        (EXECUTION_LABEL.into(), request.execution_id.clone()),
+        (TASK_LABEL.into(), request.task_id.clone()),
+        (
+            WORKSPACE_LABEL.into(),
+            format!(
+                "{}:{}",
+                request.workspace.project_id, request.workspace.task_id
+            ),
+        ),
+        (POLICY_LABEL.into(), identity.policy_version.clone()),
+        (
+            LEASE_LABEL.into(),
+            identity.lease_expires_unix_ms.to_string(),
+        ),
+    ]);
+    let mut mounts = vec![tmpfs_mount(
+        WORKSPACE_TARGET,
+        request.resource_budget.temporary_disk_bytes / 4,
+        if writable { 0o1777 } else { 0o555 },
+    )?];
+    if request.policy.workspace_write_scope().is_none() {
+        mounts.push(bind_mount(
+            &workspace.git_metadata,
+            "/workspace/.git",
+            true,
+        )?);
+    }
+    let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
+    let mut tmpfs = HashMap::new();
+    for target in ["/tmp", "/run", "/home/executor"] {
+        tmpfs.insert(
+            target.to_owned(),
+            format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+        );
+    }
+    // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
+    mounts.shrink_to_fit();
+    Ok(ContainerCreateBody {
+        user: Some("10001:10001".into()),
+        env: Some(vec![
+            "HOME=/home/executor".into(),
+            "CI=true".into(),
+            "LANG=C".into(),
+            "TZ=UTC".into(),
+        ]),
+        attach_stdin: Some(false),
+        attach_stdout: Some(false),
+        attach_stderr: Some(false),
+        tty: Some(false),
+        open_stdin: Some(false),
+        stdin_once: Some(false),
+        image: Some(image.reference.clone()),
+        working_dir: Some(WORKSPACE_TARGET.into()),
+        entrypoint: Some(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            "mkdir -p /home/executor/.npm /home/executor/.cargo && while :; do sleep 3600; done"
+                .into(),
+        ]),
+        labels: Some(labels),
+        host_config: Some(HostConfig {
+            privileged: Some(false),
+            readonly_rootfs: Some(true),
+            network_mode: Some("none".into()),
+            pid_mode: Some("private".into()),
+            ipc_mode: Some("private".into()),
+            // Omit UsernsMode: Docker's default is private. The API accepts
+            // only the empty default or the explicit `host` value.
+            userns_mode: None,
+            cap_drop: Some(vec!["ALL".into()]),
+            cap_add: Some(Vec::new()),
+            security_opt: Some(vec!["no-new-privileges:true".into()]),
+            memory: Some(
+                i64::try_from(request.resource_budget.memory_bytes)
+                    .map_err(|_| denied("Memory limit is out of range"))?,
+            ),
+            memory_swap: Some(
+                i64::try_from(request.resource_budget.memory_bytes)
+                    .map_err(|_| denied("Memory limit is out of range"))?,
+            ),
+            cpu_period: Some(100_000),
+            cpu_quota: Some(i64::from(request.resource_budget.cpu_millis) * 100),
+            pids_limit: Some(i64::from(request.resource_budget.process_count)),
+            init: Some(true),
+            auto_remove: Some(false),
+            mounts: Some(mounts),
+            tmpfs: Some(tmpfs),
+            storage_opt: Some(HashMap::from([(
+                "size".into(),
+                format!("{}", request.resource_budget.temporary_disk_bytes),
+            )])),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+fn bind_mount(source: &Path, target: &str, read_only: bool) -> Result<Mount, ExecutionError> {
+    let source = source
+        .to_str()
+        .ok_or_else(|| denied("Task clone path is not valid UTF-8"))?;
+    Ok(Mount {
+        target: Some(target.into()),
+        source: Some(source.into()),
+        typ: Some(MountType::BIND),
+        read_only: Some(read_only),
+        bind_options: Some(MountBindOptions {
+            propagation: Some(bollard::models::MountBindOptionsPropagationEnum::RPRIVATE),
+            non_recursive: Some(true),
+            create_mountpoint: Some(false),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+}
+
+fn tmpfs_mount(target: &str, size_bytes: u64, mode: u32) -> Result<Mount, ExecutionError> {
+    Ok(Mount {
+        target: Some(target.into()),
+        typ: Some(MountType::TMPFS),
+        read_only: Some(false),
+        tmpfs_options: Some(bollard::models::MountTmpfsOptions {
+            size_bytes: Some(
+                i64::try_from(size_bytes)
+                    .map_err(|_| denied("Temporary disk limit is out of range"))?,
+            ),
+            mode: Some(i64::from(mode)),
+            options: Some(vec![vec!["nosuid".into()], vec!["nodev".into()]]),
+        }),
+        ..Default::default()
+    })
+}
+
+fn denied(message: &str) -> ExecutionError {
+    ExecutionError::new(ExecutionErrorKind::PolicyDenied, message, false)
+}
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
+}
+
+#[cfg(test)]
+#[path = "sandbox/tests.rs"]
+mod tests;

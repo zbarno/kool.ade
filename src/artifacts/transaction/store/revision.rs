@@ -87,8 +87,11 @@ fn is_independent_record_path(relative: &Path) -> bool {
         Path::new("state/work"),
         Path::new("state/workflow"),
         Path::new("state/items"),
+        Path::new("state/questions"),
+        Path::new("state/readiness"),
         Path::new("state/tasks"),
         Path::new("planning/items"),
+        Path::new("planning/questions"),
     ]
     .iter()
     .any(|collection| relative == *collection || relative.starts_with(collection))

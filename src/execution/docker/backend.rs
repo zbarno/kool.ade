@@ -1,0 +1,251 @@
+//! Local execution backend. Repository paths enter only through trusted resolvers.
+
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+
+use crate::execution::{
+    backend::ExecutionHandleV1,
+    contract::WorkspaceRef,
+    docker::{
+        engine::{DockerEndpoint, EngineDiscovery},
+        images::SelectedImage,
+        sandbox::{SandboxIdentity, ValidatedWorkspace},
+    },
+    errors::{ExecutionError, ExecutionErrorKind},
+    session::AuthorizationGenerationVerifier,
+};
+use bollard::Docker;
+
+mod lifecycle;
+mod qa;
+#[cfg(test)]
+#[path = "backend/tests.rs"]
+mod tests;
+mod workspace_resolver;
+use lifecycle::RuntimeExecution;
+pub use workspace_resolver::{OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspaceResolver};
+
+/// Resolves a `WorkspaceRef` only to an app-owned task clone and provides a verified staging root.
+pub trait TaskWorkspaceResolver: Send + Sync {
+    fn resolve_owned_clone(&self, workspace: &WorkspaceRef) -> Result<PathBuf, ExecutionError>;
+    fn staging_root(&self) -> PathBuf;
+}
+
+pub struct DockerExecutionBackend {
+    pub(super) docker: Docker,
+    engine: Arc<EngineDiscovery>,
+    resolver: Arc<dyn TaskWorkspaceResolver>,
+    identity: SandboxIdentity,
+    authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+    workspaces: Mutex<HashMap<String, Arc<Mutex<PreparedWorkspace>>>>,
+    executions: Mutex<HashMap<String, Arc<Mutex<RuntimeExecution>>>>,
+    starting: Mutex<HashSet<String>>,
+    dependency_caches: Mutex<
+        HashMap<
+            crate::execution::contract::DependencyCacheRefV1,
+            crate::harness::resource_bridge::CacheSnapshot,
+        >,
+    >,
+}
+
+impl DockerExecutionBackend {
+    pub fn connect(
+        endpoint: DockerEndpoint,
+        resolver: Arc<dyn TaskWorkspaceResolver>,
+        owner_instance_id: String,
+    ) -> Result<Self, ExecutionError> {
+        Self::connect_with_authorization(endpoint, resolver, owner_instance_id, None)
+    }
+
+    pub fn connect_with_authorization(
+        endpoint: DockerEndpoint,
+        resolver: Arc<dyn TaskWorkspaceResolver>,
+        owner_instance_id: String,
+        authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+    ) -> Result<Self, ExecutionError> {
+        let docker = endpoint.connect().map_err(prerequisite_error)?;
+        let engine = EngineDiscovery::connect(endpoint.clone()).map_err(prerequisite_error)?;
+        Ok(Self {
+            docker,
+            engine: Arc::new(engine),
+            resolver,
+            identity: SandboxIdentity {
+                owner_instance_id,
+                policy_version: "docker-sandbox-v1".into(),
+                lease_expires_unix_ms: now_unix_ms().saturating_add(30 * 60 * 1000),
+            },
+            authorization_verifier,
+            workspaces: Mutex::new(HashMap::new()),
+            executions: Mutex::new(HashMap::new()),
+            starting: Mutex::new(HashSet::new()),
+            dependency_caches: Mutex::new(HashMap::new()),
+        })
+    }
+
+    pub(super) fn verify_authorization(&self, generation: &str) -> Result<(), ExecutionError> {
+        if let Some(verifier) = &self.authorization_verifier {
+            if verifier.generation() != generation {
+                return Err(ExecutionError::new(
+                    ExecutionErrorKind::PolicyDenied,
+                    "Execution authorization generation does not match its app-owned claim",
+                    false,
+                ));
+            }
+            verifier.verify(generation)?;
+        }
+        Ok(())
+    }
+
+    fn lookup_execution(
+        &self,
+        handle: &ExecutionHandleV1,
+    ) -> Result<Arc<Mutex<RuntimeExecution>>, ExecutionError> {
+        let execution = self
+            .executions
+            .lock()
+            .map_err(|_| internal_error())?
+            .get(&handle.execution_id)
+            .cloned()
+            .ok_or_else(|| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerDisconnected,
+                    "Execution is no longer owned by this application instance",
+                    false,
+                )
+            })?;
+        let state = execution.lock().map_err(|_| internal_error())?;
+        if !handle_matches(
+            handle,
+            &state.request.execution_id,
+            &state.request.task_id,
+            &state.request.target,
+            state.request.request_sequence,
+        ) {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::PolicyDenied,
+                "Execution handle does not match its task, target, and request sequence",
+                false,
+            ));
+        }
+        drop(state);
+        Ok(execution)
+    }
+
+    pub(super) fn reserve_start(
+        &self,
+        execution_id: &str,
+    ) -> Result<StartingGuard<'_>, ExecutionError> {
+        let mut starting = self.starting.lock().map_err(|_| internal_error())?;
+        if self
+            .executions
+            .lock()
+            .map_err(|_| internal_error())?
+            .contains_key(execution_id)
+            || !starting.insert(execution_id.to_owned())
+        {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::PolicyDenied,
+                "Execution ID is already active",
+                false,
+            ));
+        }
+        Ok(StartingGuard {
+            starting: &self.starting,
+            execution_id: execution_id.to_owned(),
+        })
+    }
+}
+
+fn handle_matches(
+    handle: &ExecutionHandleV1,
+    execution_id: &str,
+    task_id: &str,
+    target: &crate::execution::contract::ExecutionTarget,
+    request_sequence: u64,
+) -> bool {
+    handle.execution_id == execution_id
+        && handle.task_id == task_id
+        && &handle.target == target
+        && handle.request_sequence == request_sequence
+}
+
+pub(super) struct PreparedWorkspace {
+    pub workspace: WorkspaceRef,
+    pub expires_unix_ms: u64,
+    pub verified: ValidatedWorkspace,
+    pub starting: bool,
+    pub active_execution_id: Option<String>,
+}
+
+pub(super) struct StartingGuard<'a> {
+    starting: &'a Mutex<HashSet<String>>,
+    execution_id: String,
+}
+
+impl Drop for StartingGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut starting) = self.starting.lock() {
+            starting.remove(&self.execution_id);
+        }
+    }
+}
+
+fn prerequisite_error(
+    failure: crate::execution::docker::discovery::PrerequisiteFailure,
+) -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorKind::EnvironmentUnavailable,
+        failure.message,
+        failure.retryable,
+    )
+}
+
+fn internal_error() -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        "Execution state could not be accessed",
+        true,
+    )
+}
+
+fn invalid_request() -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorKind::PolicyDenied,
+        "Execution request failed policy validation",
+        false,
+    )
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
+}
+
+fn selected_image(digest: &str, architecture: &str) -> Result<SelectedImage, ExecutionError> {
+    let lock = super::images::ImageLock::bundled().map_err(prerequisite_error)?;
+    for profile in [
+        super::images::RuntimeProfile::General,
+        super::images::RuntimeProfile::Rust,
+        super::images::RuntimeProfile::Node,
+        super::images::RuntimeProfile::Python,
+        super::images::RuntimeProfile::Go,
+    ] {
+        let candidate = lock
+            .select(profile, architecture)
+            .map_err(prerequisite_error)?;
+        if candidate.digest == digest {
+            return Ok(candidate);
+        }
+    }
+    Err(ExecutionError::new(
+        ExecutionErrorKind::ImageUnavailable,
+        "Requested image digest is not in the approved executor manifest",
+        false,
+    ))
+}

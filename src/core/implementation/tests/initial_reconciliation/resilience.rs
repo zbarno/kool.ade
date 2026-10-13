@@ -18,7 +18,7 @@ impl AiHarness for StopAfterVerification {
 }
 
 fn interrupted() -> Sandbox {
-    interrupted_with_configuration(false)
+    interrupted_with_build_ignore()
 }
 
 pub(super) fn interrupted_with_configuration(granted: bool) -> Sandbox {
@@ -33,7 +33,7 @@ fn interrupted_with_configuration_and_build_ignore(granted: bool, build_ignore: 
     let s = Sandbox::new();
     fs::write(s.repo.join("AGENTS.md"), "# Instructions\n\n- Required quality gates: `mkdir -p .cache; if test -f .cache/ready; then test -f build/cache.txt; else mkdir -p build; printf cache > build/cache.txt; printf ready > .cache/ready; exit 1; fi`.\n").unwrap();
     if build_ignore {
-        fs::write(s.repo.join(".gitignore"), "build/\n").unwrap();
+        fs::write(s.repo.join(".gitignore"), "build/\n.cache/\n").unwrap();
         s.git(&s.repo, &["add", ".gitignore"]);
     }
     s.git(&s.repo, &["add", "AGENTS.md"]);
@@ -252,7 +252,7 @@ fn inherited_eof_whitespace_in_either_history_is_preserved() {
         let s = Sandbox::new();
         let remote = s.advance_remote();
         if !local_side {
-            let peer = s.root.join("peer");
+            let peer = s.latest_peer();
             fs::write(peer.join("upstream.txt"), "latest upstream\n\n").unwrap();
             s.git(&peer, &["add", "upstream.txt"]);
             s.git(&peer, &["commit", "-qm", "preserve inherited whitespace"]);

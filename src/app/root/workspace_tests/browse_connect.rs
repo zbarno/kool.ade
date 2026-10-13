@@ -5,7 +5,9 @@ fn sw_browse_choice_writes_conn_path_only_then_existing_submit_connects() {
     // Serialize ambient-environment mutations (git hierarchy + per-user
     // state root) behind the house lock while this test runs a REAL
     // connect inside a sandbox.
+    let _environment = crate::test_support::lock_process_environment();
     let _guard = crate::core::gitops::test_support::shield("sw-browse-glue");
+    let _restore_home = RestoreKooladeHome::capture();
 
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -219,9 +221,5 @@ fn sw_browse_choice_writes_conn_path_only_then_existing_submit_connects() {
         "Escape leaves the typed path untouched"
     );
 
-    // SAFETY: restore ambient state before teardown.
-    unsafe {
-        std::env::remove_var("KOOLADE_HOME");
-    }
     let _ = std::fs::remove_dir_all(&root);
 }

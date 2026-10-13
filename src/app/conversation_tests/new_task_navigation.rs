@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
@@ -34,6 +35,7 @@ fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() 
 
 #[test]
 fn question_opening_uses_current_context_and_resolved_items_offer_help() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = "CLR-001";
     let Screen::Connected(p) = &mut app.screen else {
@@ -90,6 +92,7 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
 
 #[test]
 fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let ctx = egui::Context::default();
     let first = ".koolade-packet/planning/tasks/fixture/001-task.md";

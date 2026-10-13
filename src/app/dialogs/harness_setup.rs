@@ -1,7 +1,8 @@
 //! Operator-local coding harness discovery and default selection.
 
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::Receiver;
 
+mod discovery;
 mod paint;
 mod pi_guide;
 #[cfg(test)]
@@ -12,7 +13,6 @@ mod review_fixture;
 #[cfg(test)]
 mod tests;
 mod tools;
-use probes::discover_harnesses;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeView {
@@ -30,6 +30,7 @@ pub struct HarnessProbe {
     pub ready: bool,
     pub models: Vec<String>,
     pub default_model: Option<String>,
+    pub model_catalog_fresh: bool,
     pub configuration_required: bool,
     pub implementation_available: bool,
 }
@@ -41,7 +42,11 @@ pub struct DlgHarnessSetup {
     pub feedback: Option<(bool, String)>,
     pub section: HarnessSettingsSection,
     pub manual_path_drafts: std::collections::BTreeMap<String, String>,
-    probe_rx: Option<std::sync::Arc<std::sync::Mutex<Receiver<Vec<HarnessProbe>>>>>,
+    probe_rx: Option<std::sync::Arc<std::sync::Mutex<Receiver<discovery::ProbeMessage>>>>,
+    scan_generation: u64,
+    scan_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    runtime_available: Option<bool>,
+    scan_results: Vec<HarnessProbe>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -49,6 +54,83 @@ pub enum HarnessSettingsSection {
     #[default]
     Tools,
     Routing,
+}
+
+fn is_executable_file(path: &std::path::Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(windows)]
+    {
+        path.extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|extension| {
+                ["exe", "com", "cmd", "bat"]
+                    .iter()
+                    .any(|allowed| extension.eq_ignore_ascii_case(allowed))
+            })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        true
+    }
+}
+
+pub(super) fn invalidate_discovery(
+    settings: &mut crate::persistence::harness_settings::HarnessSettings,
+    provider: Option<&str>,
+) {
+    for (id, entry) in &mut settings.discovered {
+        if provider.is_none_or(|provider| provider == id) {
+            entry.checked_at_unix_ms = 0;
+            entry.implementation_available = false;
+            entry.capability_snapshot = None;
+        }
+    }
+}
+
+pub(super) fn has_current_provider_capabilities(
+    id: &str,
+    detected: &crate::persistence::harness_settings::DetectedHarness,
+    now_unix_ms: u64,
+) -> bool {
+    use crate::execution::contract::ReadinessState;
+
+    if !detected.is_fresh_at(now_unix_ms) || !detected.ready {
+        return false;
+    }
+    let Some(snapshot) = detected.capability_snapshot.as_ref() else {
+        return false;
+    };
+    snapshot.provider_id == id
+        && snapshot.validate().is_ok()
+        && snapshot.cli_binary == ReadinessState::Ready
+        && snapshot.authentication == ReadinessState::Ready
+}
+
+pub(super) fn has_current_model_catalog(
+    id: &str,
+    detected: &crate::persistence::harness_settings::DetectedHarness,
+    now_unix_ms: u64,
+) -> bool {
+    detected.is_fresh_at(now_unix_ms)
+        && detected.model_catalog_fresh
+        && detected
+            .capability_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                snapshot.provider_id == id
+                    && snapshot.validate().is_ok()
+                    && snapshot.model_catalog == crate::execution::contract::ReadinessState::Ready
+            })
 }
 
 impl DlgHarnessSetup {
@@ -61,73 +143,36 @@ impl DlgHarnessSetup {
             section: HarnessSettingsSection::Tools,
             manual_path_drafts: std::collections::BTreeMap::new(),
             probe_rx: None,
+            scan_generation: 0,
+            scan_cancel: None,
+            runtime_available: None,
+            scan_results: Vec::new(),
         };
         dialog.refresh();
         dialog
     }
 
-    pub fn refresh(&mut self) {
-        let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = tx.send(discover_harnesses());
-        });
-        self.probe_rx = Some(std::sync::Arc::new(std::sync::Mutex::new(rx)));
-        self.probe_view = ProbeView::Pending;
-        self.feedback = None;
-    }
-
-    pub fn drain_probe(&mut self) {
-        let Some(rx) = self.probe_rx.as_ref().cloned() else {
-            return;
-        };
-        let result = match rx.lock() {
-            Ok(rx) => rx.try_recv(),
-            Err(_) => Err(mpsc::TryRecvError::Disconnected),
-        };
-        match result {
-            Ok(reports) => {
-                self.probe_rx = None;
-                self.record_probes(reports);
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.probe_rx = None;
-                self.feedback = Some((false, "Harness discovery stopped unexpectedly.".into()));
-            }
-            Err(mpsc::TryRecvError::Empty) => {}
-        }
-    }
-
-    fn record_probes(&mut self, reports: Vec<HarnessProbe>) {
-        apply_probe_results(
-            &mut self.settings,
-            &reports,
-            std::env::var(crate::harness::CODEX_HARNESS_ENV)
-                .ok()
-                .as_deref(),
-        );
-        self.probe_view = ProbeView::Complete;
-        self.persist();
-    }
-
     pub fn select_default(&mut self, id: &str) {
-        if self
-            .settings
-            .discovered
-            .get(id)
-            .is_some_and(|harness| harness.ready)
-        {
+        if self.settings.discovered.get(id).is_some_and(|harness| {
+            has_current_provider_capabilities(
+                id,
+                harness,
+                crate::persistence::harness_settings::current_unix_ms(),
+            )
+        }) {
             self.settings.default_harness = Some(id.to_owned());
             self.persist();
         }
     }
 
     pub fn select_work_route(&mut self, work_type: &str, harness: &str) {
-        if self
-            .settings
-            .discovered
-            .get(harness)
-            .is_some_and(|entry| entry.ready)
-        {
+        if self.settings.discovered.get(harness).is_some_and(|entry| {
+            has_current_provider_capabilities(
+                harness,
+                entry,
+                crate::persistence::harness_settings::current_unix_ms(),
+            )
+        }) {
             let model = self
                 .settings
                 .work_routes
@@ -153,6 +198,10 @@ impl DlgHarnessSetup {
 
     pub fn set_manual_path(&mut self, id: &str, value: String) {
         let value = value.trim().to_owned();
+        if !probes::PROVIDERS.contains(&id) {
+            self.feedback = Some((false, format!("Unsupported provider: {id}")));
+            return;
+        }
         if value.is_empty() {
             self.feedback = Some((
                 false,
@@ -160,17 +209,27 @@ impl DlgHarnessSetup {
             ));
             return;
         }
-        if !std::path::Path::new(&value).is_file() {
+        let path = std::path::Path::new(&value);
+        let canonical = path.canonicalize().ok();
+        if canonical
+            .as_deref()
+            .is_none_or(|path| !is_executable_file(path))
+        {
             self.feedback = Some((
                 false,
-                "That path is not an existing executable file. Choose a valid tool path or return to automatic detection.".into(),
+                "That path is not an executable file. Choose a valid tool path or return to automatic detection.".into(),
             ));
             return;
         }
+        let value = canonical
+            .expect("validated canonical executable path")
+            .display()
+            .to_string();
         let previous = self.settings.clone();
         self.settings
             .manual_executable_paths
             .insert(id.into(), value);
+        invalidate_discovery(&mut self.settings, Some(id));
         if self.persist_saved() {
             self.refresh();
         } else {
@@ -235,64 +294,6 @@ pub fn paint_harness_setup_page(
             message,
         );
     }
-}
-
-fn apply_probe_results(
-    settings: &mut crate::persistence::harness_settings::HarnessSettings,
-    reports: &[HarnessProbe],
-    preferred: Option<&str>,
-) {
-    for report in reports {
-        update_settings_from_probe(settings, report);
-    }
-    if settings.default_harness.is_none() {
-        settings.default_harness = preferred
-            .filter(|id| {
-                settings
-                    .discovered
-                    .get(*id)
-                    .is_some_and(|entry| entry.ready)
-            })
-            .map(str::to_owned)
-            .or_else(|| {
-                [
-                    "pi",
-                    "codex",
-                    "claude",
-                    "opencode",
-                    "copilot",
-                    "antigravity",
-                ]
-                .into_iter()
-                .find_map(|id| {
-                    settings
-                        .discovered
-                        .get(id)
-                        .is_some_and(|entry| entry.ready)
-                        .then(|| id.to_owned())
-                })
-            });
-    }
-}
-
-fn update_settings_from_probe(
-    settings: &mut crate::persistence::harness_settings::HarnessSettings,
-    report: &HarnessProbe,
-) {
-    settings.discovered.insert(
-        report.id.clone(),
-        crate::persistence::harness_settings::DetectedHarness {
-            status: report.status.clone(),
-            version: report.version.clone(),
-            executable: report.executable.clone(),
-            diagnostic: report.diagnostic.clone(),
-            ready: report.ready,
-            models: report.models.clone(),
-            default_model: report.default_model.clone(),
-            configuration_required: report.configuration_required,
-            implementation_available: report.implementation_available,
-        },
-    );
 }
 
 impl Default for DlgHarnessSetup {

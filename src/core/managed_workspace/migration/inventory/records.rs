@@ -10,7 +10,14 @@ fn stable_record_id(path: &str) -> Option<String> {
         .or_else(|| file.strip_suffix(".md"))?;
     matches!(
         collection,
-        "state/work" | "state/workflow" | "state/items" | "state/tasks" | "planning/items"
+        "state/work"
+            | "state/workflow"
+            | "state/items"
+            | "state/tasks"
+            | "planning/items"
+            | "state/questions"
+            | "state/readiness"
+            | "planning/questions"
     )
     .then(|| uid.to_owned())
 }

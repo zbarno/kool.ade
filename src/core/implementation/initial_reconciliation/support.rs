@@ -181,7 +181,8 @@ pub(super) fn run_verification(
     generated::quarantine_untrusted_ignored(runner, state, dir)?;
     for command in commands {
         let before = generated::before(runner, state, dir)?;
-        let result = runner.verify(&state.task_repository, command);
+        let workspace = runner.workspace_ref_for(state)?;
+        let result = runner.verify(&state.task_repository, command, &workspace);
         let artifacts = generated::after(runner, state, dir, before);
         let (output, error) = match result {
             Ok(output) => (Some(crate::error::redact_secrets(&output)), None),

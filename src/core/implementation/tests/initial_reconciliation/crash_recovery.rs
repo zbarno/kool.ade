@@ -13,7 +13,7 @@ fn failed_required_baseline_check_prevents_reconciliation_commit_and_task_agent(
     s.git(&s.repo, &["push", "-q", "origin", "main"]);
     let local_tip_before = s.git(&s.repo, &["rev-parse", "HEAD"]);
     s.advance_remote();
-    let peer = s.root.join("peer");
+    let peer = s.latest_peer();
     s.git(&peer, &["rm", "AGENTS.md"]);
     s.git(
         &peer,

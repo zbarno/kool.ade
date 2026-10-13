@@ -49,8 +49,7 @@ pub(super) fn scratch_home(tag: &str) -> PathBuf {
 
 pub(super) struct EnvSandbox {
     _shield: crate::core::gitops::test_support::Guard,
-    prev_home: Option<std::ffi::OsString>,
-    prev_koolade_home: Option<std::ffi::OsString>,
+    _environment: crate::test_support::ProcessEnvironmentGuard,
     pub(super) home: PathBuf,
 }
 
@@ -63,42 +62,17 @@ impl EnvSandbox {
         std::fs::create_dir_all(&home).unwrap();
         let koolade_home = home.join("koolade-state");
         std::fs::create_dir_all(&koolade_home).unwrap();
-        let prev_home = std::env::var_os("HOME");
-        let prev_koolade_home = std::env::var_os("KOOLADE_HOME");
-        // SAFETY: the house shield is held for this whole body; no
-        // sibling test mutates or depends on HOME/KOOLADE_HOME while it
-        // is held.
-        unsafe {
-            if drop_home {
-                std::env::remove_var("HOME");
-            } else {
-                std::env::set_var("HOME", &home);
-            }
-            std::env::set_var("KOOLADE_HOME", &koolade_home);
+        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+        if drop_home {
+            environment.remove("HOME");
+        } else {
+            environment.set("HOME", &home);
         }
+        environment.set("KOOLADE_HOME", &koolade_home);
         Self {
             _shield,
-            prev_home,
-            prev_koolade_home,
+            _environment: environment,
             home,
         }
-    }
-}
-
-impl Drop for EnvSandbox {
-    fn drop(&mut self) {
-        // SAFETY: the shield still guards (its field drops after this
-        // body), so the restore cannot interleave with any sibling.
-        unsafe {
-            match &self.prev_home {
-                Some(value) => std::env::set_var("HOME", value),
-                None => std::env::remove_var("HOME"),
-            }
-            match &self.prev_koolade_home {
-                Some(value) => std::env::set_var("KOOLADE_HOME", value),
-                None => std::env::remove_var("KOOLADE_HOME"),
-            }
-        }
-        let _ = std::fs::remove_dir_all(&self.home);
     }
 }

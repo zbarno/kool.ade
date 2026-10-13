@@ -79,7 +79,7 @@ fn ensure_no_local_managed_settings(
 fn reject_managed_settings_path(path: &std::path::Path) -> anyhow::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(_) => anyhow::bail!(
-            "Claude Code cannot run while local managed settings are present at {}; restricted mode still loads this policy, which can execute host commands outside Kool.ad/e's Bubblewrap boundary",
+            "Claude Code cannot run while local managed settings are present at {}; restricted mode still loads this policy, which can execute host commands outside Kool.ad/e's Docker execution boundary",
             path.display()
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -90,7 +90,7 @@ fn reject_managed_settings_path(path: &std::path::Path) -> anyhow::Result<()> {
 fn ensure_no_windows_managed_policy_inheritance(is_wsl: bool) -> anyhow::Result<()> {
     anyhow::ensure!(
         !is_wsl,
-        "Claude Code is unavailable under WSL because it can inherit Windows-managed settings that Kool.ad/e cannot inspect; those settings may launch host commands outside Bubblewrap."
+        "Claude Code is unavailable under WSL because it can inherit Windows-managed settings that Kool.ad/e cannot inspect; those settings may launch host commands outside Kool.ad/e execution containers."
     );
     Ok(())
 }

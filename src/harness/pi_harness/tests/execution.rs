@@ -1,123 +1,53 @@
 use super::super::*;
 
 #[cfg(unix)]
-#[test]
-fn tool_harness_receives_supervisor_identity_and_process_ownership_rules() {
-    use std::os::unix::fs::PermissionsExt;
-    use std::{
-        fs,
-        sync::{Arc, atomic::AtomicBool, mpsc},
-    };
-    let _shield = crate::core::gitops::test_support::shield("process-ownership-prompt");
-    let root = std::env::temp_dir().join(format!(
-        "koolade-ownership-prompt-{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap()
-    ));
-    fs::create_dir_all(&root).unwrap();
-    let script = root.join("pi");
-    fs::write(&script, r#"#!/bin/sh
-if [ "$1" = --help ]; then
-    printf '%s\n' '--print' '--mode <mode> json' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
-    exit 0
-fi
-args="$*"
-system=''
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = --append-system-prompt ]; then
-        shift
-        system=$1
-    fi
-    shift
-done
-cat >/dev/null
-case "$system" in *"Custom persona remains intact"*) persona=yes ;; *) persona=no ;; esac
-case "$system" in *"PID "*) supervisor=yes ;; *) supervisor=no ;; esac
-case "$system" in *"Do not use pkill/killall"*) ownership=yes ;; *) ownership=no ;; esac
-case "$system" in *"unique inherited run marker"*) marker=yes ;; *) marker=no ;; esac
-case "$system" in *"Planning reads are restricted by an operating-system sandbox"*) policy=yes ;; *) policy=no ;; esac
-case "$args" in *"read,grep,find,ls"*) readonly_tools=yes ;; *) readonly_tools=no ;; esac
-printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"text","text":"fixture completed|%s|%s|%s|%s|%s|%s"}]}]}\n' "$persona" "$supervisor" "$ownership" "$marker" "$policy" "$readonly_tools"
-"#).unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
-    let previous = std::env::var_os(PI_BINARY_ENV);
-    unsafe {
-        std::env::set_var(PI_BINARY_ENV, &script);
-    }
-    let outcomes = [
-        crate::harness::ExecutionMode::Planning,
-        crate::harness::ExecutionMode::TaskGeneration,
-        crate::harness::ExecutionMode::Investigation,
-    ]
-    .into_iter()
-    .map(|mode| {
-        let (progress_tx, _rx) = mpsc::channel();
-        PiHarness.execute(&PlanningRequest {
-            mode,
-            task_id: None,
-            reasoning_level: "low".into(),
-            telemetry_phase: None,
-            repo_root: root.clone(),
-            runtime_config_source: None,
-            prompt_body: "test".into(),
-            system_instructions: "Custom persona remains intact".into(),
-            timeout: Duration::from_secs(5),
-            progress_tx,
-            cancel: Arc::new(AtomicBool::new(false)),
-        })
-    })
-    .collect::<Result<Vec<_>, _>>();
-    unsafe {
-        match previous {
-            Some(value) => std::env::set_var(PI_BINARY_ENV, value),
-            None => std::env::remove_var(PI_BINARY_ENV),
-        }
-    }
-    let outcomes = outcomes.unwrap();
-    assert_eq!(outcomes.len(), 3);
-    assert!(
-        outcomes
-            .iter()
-            .all(|outcome| outcome.final_text == "fixture completed|yes|yes|yes|yes|yes|yes")
-    );
-    fs::remove_dir_all(root).unwrap();
-}
+mod supervisor;
 
 #[cfg(unix)]
 #[test]
-fn implementation_harness_exposes_only_the_bounded_shell_extension() {
-    struct RestoreHome(Option<std::ffi::OsString>);
-    impl Drop for RestoreHome {
-        fn drop(&mut self) {
-            unsafe {
-                match self.0.take() {
-                    Some(home) => std::env::set_var("KOOLADE_HOME", home),
-                    None => std::env::remove_var("KOOLADE_HOME"),
-                }
-            }
-        }
-    }
-
+fn implementation_harness_without_an_application_session_has_no_repository_tools() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, atomic::AtomicBool, mpsc};
     if !cfg!(target_os = "linux")
-        || std::process::Command::new("bwrap")
-            .arg("--version")
-            .output()
-            .is_err()
+        || std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION")
+            .ok()
+            .as_deref()
+            != Some("1")
     {
+        eprintln!(
+            "skipping Docker-backed provider integration; set KOOLADE_DOCKER_BACKEND_INTEGRATION=1 to opt in"
+        );
         return;
     }
+    let _shield =
+        crate::core::gitops::test_support::shield_with_synthetic_identity("docker-harness-argv");
     let root = std::env::temp_dir().join(format!(
-        "koolade-sandbox-harness-{}-{}",
+        "koolade-docker-harness-{}-{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     fs::create_dir_all(&root).unwrap();
-    let previous_home = std::env::var_os("KOOLADE_HOME");
-    unsafe { std::env::set_var("KOOLADE_HOME", root.join("koolade-home")) };
-    let _restore_home = RestoreHome(previous_home);
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", root.join("koolade-home"));
+    let pi_directory = root.join("pi-agent-source");
+    fs::create_dir_all(&pi_directory).unwrap();
+    fs::write(
+        pi_directory.join("settings.json"),
+        r#"{"defaultProvider":"fixture","defaultModel":"fixture-model"}"#,
+    )
+    .unwrap();
+    fs::write(
+        pi_directory.join("models.json"),
+        r#"{"providers":{"fixture":{"api":"openai-completions","baseUrl":"https://api.example.invalid/v1","models":[{"id":"fixture-model","name":"Fixture Model"}]}}}"#,
+    )
+    .unwrap();
+    fs::write(
+        pi_directory.join("auth.json"),
+        r#"{"fixture":{"key":"synthetic-auth"}}"#,
+    )
+    .unwrap();
+    environment.set("PI_CODING_AGENT_DIR", &pi_directory);
     let (progress_tx, _rx) = mpsc::channel();
     let repository = root.join("repository");
     fs::create_dir(&repository).unwrap();
@@ -193,23 +123,41 @@ fn implementation_harness_exposes_only_the_bounded_shell_extension() {
     }
     assert!(
         std::process::Command::new("git")
-            .args(["switch", "--quiet", "-c", "koolade-sandbox-harness"])
+            .args(["switch", "--quiet", "-c", "koolade-docker-harness"])
             .current_dir(&repo)
             .status()
             .unwrap()
             .success()
     );
+    fs::create_dir_all(repo.join(".pi/extensions")).unwrap();
+    fs::write(
+        repo.join("AGENTS.md"),
+        "malicious project startup instructions must not reach the controller\n",
+    )
+    .unwrap();
+    fs::write(
+        repo.join(".pi/extensions/startup.ts"),
+        "throw new Error('project startup hook executed on the host');\n",
+    )
+    .unwrap();
     let script = root.join("pi");
     fs::write(
             &script,
             r##"#!/bin/sh
 if [ "$1" = --help ]; then
-    printf '%s\n' '--print' '--mode <mode> json' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
+    printf '%s\n' '--print' '--mode <mode> json' '--provider' '--model' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-themes' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
     exit 0
 fi
 dir=$(dirname "$0")
+pwd > "$dir/controller-cwd.txt"
+printf '%s' "$PI_CODING_AGENT_DIR" > "$dir/pi-agent-dir.txt"
+printf '%s\n%s' "$PI_CODING_AGENT_SESSION_DIR" "$PI_PACKAGE_DIR" > "$dir/pi-isolated-dirs.txt"
+printf '%s' "$PI_OFFLINE:$PI_SKIP_VERSION_CHECK" > "$dir/startup-network-flags.txt"
+cp "$PI_CODING_AGENT_DIR/settings.json" "$dir/isolated-settings.json"
 printf '%s\n' "$@" > "$dir/received-args.txt"
-printf '%s' "$KOOLADE_SANDBOX_CONFIG" > "$dir/sandbox.json"
+if [ -f AGENTS.md ] || [ -f .pi/extensions/startup.ts ]; then
+    printf '%s\n' 'project startup input was visible from the controller cwd' > "$dir/project-startup-input-visible.txt"
+fi
 previous=''
 for arg in "$@"; do
     if [ "$previous" = --extension ]; then cp "$arg" "$dir/extension.ts"; fi
@@ -221,10 +169,9 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
         )
         .unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
-    let previous = std::env::var_os(PI_BINARY_ENV);
-    unsafe { std::env::set_var(PI_BINARY_ENV, &script) };
-    let _shield = crate::core::gitops::test_support::shield("sandbox-harness-argv");
+    environment.set(PI_BINARY_ENV, &script);
     let outcome = PiHarness.execute(&PlanningRequest {
+        prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "low".into(),
@@ -236,48 +183,60 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
         timeout: Duration::from_secs(5),
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     });
-    unsafe {
-        match previous {
-            Some(value) => std::env::set_var(PI_BINARY_ENV, value),
-            None => std::env::remove_var(PI_BINARY_ENV),
-        }
-    }
     assert_eq!(outcome.unwrap().final_text, "bounded fixture completed");
+    let controller_cwd = fs::read_to_string(root.join("controller-cwd.txt")).unwrap();
+    let controller_cwd = std::path::Path::new(controller_cwd.trim());
+    assert!(!controller_cwd.starts_with(&repo));
+    assert!(controller_cwd.starts_with(std::env::temp_dir()));
+    assert!(
+        controller_cwd
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("koolade-cli-session-")
+    );
+    assert!(
+        !root.join("project-startup-input-visible.txt").exists(),
+        "project instructions and extension hooks must not be visible from Pi's controller working directory"
+    );
     let received_args = fs::read_to_string(root.join("received-args.txt")).unwrap();
-    assert!(received_args.contains("--no-builtin-tools"));
-    assert!(received_args.contains("--tools\nkoolade_bash,koolade_resource,koolade_dependency\n"));
-    assert!(received_args.contains("--extension\n"));
+    assert!(received_args.contains("--no-tools"));
+    assert!(!received_args.contains("--no-builtin-tools"));
+    assert!(!received_args.contains("--extension\n"));
     assert!(!received_args.contains("--tools\nread,grep,find,ls\n"));
-    assert!(!received_args.contains("--no-tools"));
-    let extension = fs::read_to_string(root.join("extension.ts")).unwrap();
-    assert!(extension.contains("name: \"koolade_bash\""));
-    assert!(extension.contains("name: \"koolade_resource\""));
-    assert!(extension.contains("name: \"koolade_dependency\""));
-    assert!(extension.contains("KOOLADE_RESOURCE_SOCKET"));
-    assert!(extension.contains("prepare_nuget_audit"));
-    assert!(extension.contains("could not refresh the public NuGet audit feed"));
-    assert!(extension.contains("child.kill(\"SIGKILL\")"));
-    let config: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(root.join("sandbox.json")).unwrap()).unwrap();
-    let sandbox_args = config["args"].as_array().unwrap();
-    assert!(sandbox_args.iter().any(|arg| arg == "--unshare-net"));
-    assert!(
-        !sandbox_args
-            .windows(3)
-            .any(|args| { args[0] == "--ro-bind" && args[1] == "/" && args[2] == "/" }),
-        "implementation must not expose the host filesystem root"
+    assert!(!received_args.contains("--tools\nkoolade_bash"));
+    assert!(received_args.contains("--no-context-files"));
+    assert!(received_args.contains("--no-extensions"));
+    assert!(received_args.contains("--no-skills"));
+    assert!(received_args.contains("--no-prompt-templates"));
+    assert!(received_args.contains("--no-themes"));
+    assert!(received_args.contains("--provider\nfixture\n--model\nfixture-model\n"));
+    assert_eq!(
+        fs::read_to_string(root.join("pi-agent-dir.txt")).unwrap(),
+        controller_cwd.join("pi-agent").to_string_lossy()
     );
-    assert!(
-        sandbox_args
-            .windows(3)
-            .any(|args| { args[0] == "--ro-bind" && args[2] == "/usr/bin" }),
-        "implementation must expose only the approved system runtime"
+    assert_eq!(
+        fs::read_to_string(root.join("pi-isolated-dirs.txt")).unwrap(),
+        format!(
+            "{}\n{}",
+            controller_cwd.join("pi-sessions").display(),
+            controller_cwd.join("pi-packages").display()
+        )
     );
-    assert!(
-        !sandbox_args
-            .windows(3)
-            .any(|args| { args[0] == "--ro-bind" && (args[1] == "/usr" || args[2] == "/usr") })
+    assert_eq!(
+        fs::read_to_string(root.join("startup-network-flags.txt")).unwrap(),
+        "1:1"
     );
+    let isolated_settings: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("isolated-settings.json")).unwrap()).unwrap();
+    assert!(isolated_settings["extensions"].is_null());
+    assert!(isolated_settings["mcpServers"].is_null());
+    assert!(!root.join("extension.ts").exists());
+    assert!(!root.join("sandbox.json").exists());
     fs::remove_dir_all(root).unwrap();
 }

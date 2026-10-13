@@ -44,8 +44,11 @@ pub(super) fn configure_harness_settings(root: &Path) -> RestoreEnvironmentVaria
                     ready: true,
                     models: Vec::new(),
                     default_model: None,
+                    model_catalog_fresh: false,
                     configuration_required: false,
                     implementation_available: true,
+                    checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+                    capability_snapshot: None,
                 },
             )]),
             ..Default::default()
@@ -60,7 +63,7 @@ pub(super) fn create(root: &Path) -> PathBuf {
     std::fs::write(
         &pi,
         r#"#!/usr/bin/python3
-import json, pathlib, sys, time
+import json, os, pathlib, subprocess, sys, time
 if '--help' in sys.argv:
     print('''--print
 --mode <mode> text, json, rpc
@@ -81,11 +84,13 @@ if '--version' in sys.argv:
     print('pi fixture 1.0')
     sys.exit(0)
 prompt = sys.stdin.read()
+ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
 if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
-if 'TICKET PATH: ' not in prompt:
+tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
+if ticket_line is None or 'koolade_bash' not in tool_args.split(','):
     root = pathlib.Path(__file__).parent
     deadline = time.time() + 45
     while not (root / '004-task.started').exists() and time.time() < deadline:
@@ -95,7 +100,7 @@ if 'TICKET PATH: ' not in prompt:
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
 time.sleep(0.3)
-ticket = prompt.split('TICKET PATH: ', 1)[1].splitlines()[0]
+ticket = ticket_line.removeprefix('TICKET PATH: ')
 name = pathlib.Path(ticket).stem + '.txt'
 root = pathlib.Path(__file__).parent
 if name in ('001-task.txt', '002-task.txt'):
@@ -104,8 +109,24 @@ elif name == '004-task.txt':
     (root / '004-task.started').touch()
 elif name == '003-task.txt':
     assert pathlib.Path('001-task.txt').exists() and pathlib.Path('002-task.txt').exists(), 'Dependencies were not merged before starting'
-pathlib.Path(name).write_text('implemented')
-report = {'status':'complete','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':'File exists.','evidence':'File exists and was verified'}],'verification':['test -f '+name],'remaining':[]}
+server_command = os.environ['KOOLADE_MCP_COMMAND']
+server_args = json.loads(os.environ['KOOLADE_MCP_ARGS'])
+server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+def request(identifier, method, params=None):
+    server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
+    server.stdin.flush()
+    return json.loads(server.stdout.readline())
+request(1, 'initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'fake-pi','version':'1'}})
+server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
+server.stdin.flush()
+response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':"printf implemented > '" + name + "'",'timeout_seconds':60}})
+server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
+server.stdin.flush()
+server.wait(timeout=3)
+if 'error' in response or response.get('result', {}).get('isError'):
+    print(json.dumps(response), file=sys.stderr)
+    sys.exit(1)
+report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':'File exists.','evidence':'File exists and was verified'}],'verification':['test -f '+name],'remaining':[],'human_choices':[]}
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
 "#,
     )

@@ -31,9 +31,15 @@ pub(in crate::core::implementation::tests) fn save_legacy_reconciliation_state(
             ],
         );
     }
+    let raw_ticket_text = fs::read_to_string(sandbox.repo.join(ticket)).unwrap();
+    let ticket_text = crate::artifacts::task_docs::visible_content(&raw_ticket_text);
+    let task_uid = crate::domain::ArtifactIdentity::from_markdown(&raw_ticket_text)
+        .unwrap()
+        .map(|identity| identity.uid);
     let state: Implementation = serde_json::from_value(serde_json::json!({
         "ticket": ticket,
-        "ticket_text": fs::read_to_string(sandbox.repo.join(ticket)).unwrap(),
+        "ticket_text": ticket_text,
+        "task_uid": task_uid,
         "branch": format!("koolade/{task_key}"),
         "source_branch": null,
         "destination_branch": null,

@@ -1,10 +1,9 @@
 //! OpenCode CLI adapter and bounded local readiness probe.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::AppError;
-use crate::harness::pi_proc::{PollState, StreamEvt};
 
 pub const OPENCODE_BINARY_ENV: &str = "KOOLADE_OPENCODE_BIN";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
@@ -172,39 +171,39 @@ fn probe(path: &Path) -> Result<(String, Vec<String>), (OpenCodeReadiness, Strin
 }
 
 fn run(binary: &Path, args: &[&str]) -> Result<String, String> {
-    let mut argv = vec![binary.to_string_lossy().into_owned()];
-    argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let argv = std::iter::once(binary.to_string_lossy().into_owned())
+        .chain(args.iter().map(|arg| (*arg).to_owned()))
+        .collect::<Vec<_>>();
+    let output = crate::harness::discovery::run(
         &argv,
-        Path::new("."),
-        None,
-        &[],
+        PROBE_TIMEOUT,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::execution_security::CliProvider::OpenCode.excluded_child_environment(),
     )
-    .map_err(|error| format!("OpenCode could not start: {error}"))?;
-    let deadline = Instant::now() + PROBE_TIMEOUT;
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    let mut exit = None;
-    while Instant::now() < deadline {
-        match task.poll_next(Duration::from_millis(100)) {
-            Ok(StreamEvt::Stdout(line)) => append_limited(&mut stdout, &line),
-            Ok(StreamEvt::Stderr(line)) => append_limited(&mut stderr, &line),
-            Ok(StreamEvt::Exited(success)) => exit = Some(success),
-            Err(PollState::Closed) => break,
-            Err(PollState::Pending) => {}
-        }
+    .map_err(|error| format!("OpenCode readiness command failed: {error}"))?;
+    if output.stdout_truncated || output.stderr_truncated {
+        return Err("OpenCode readiness output exceeded the size limit".into());
     }
-    if exit == Some(true) {
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    if output.success {
         Ok(stdout)
     } else {
-        task.kill();
-        let _ = task.settle(Duration::from_secs(1));
-        let detail = stderr.trim();
-        Err(if detail.is_empty() {
-            "OpenCode readiness command failed or timed out".into()
+        let diagnostic = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+        let authentication_required = [
+            "authentication",
+            "not authenticated",
+            "api key",
+            "unauthorized",
+        ]
+        .iter()
+        .any(|marker| diagnostic.contains(marker));
+        Err(if authentication_required {
+            "OpenCode authentication is required. Run `opencode auth login` and retry.".into()
+        } else if args.contains(&"models") {
+            "OpenCode model discovery failed. Check provider configuration and retry.".into()
         } else {
-            format!("OpenCode readiness command failed: {detail}")
+            "OpenCode version check failed. Verify the installation and retry.".into()
         })
     }
 }
@@ -220,17 +219,6 @@ fn parse_version(text: &str) -> Option<String> {
         parts.next()?.parse::<u64>().ok()?;
     }
     Some(version.to_owned())
-}
-
-fn append_limited(target: &mut String, line: &str) {
-    const LIMIT: usize = 32_000;
-    let current_len = target.chars().count();
-    if current_len >= LIMIT {
-        return;
-    }
-    let remaining = LIMIT - current_len;
-    target.push_str(&line.chars().take(remaining).collect::<String>());
-    target.push('\n');
 }
 
 fn executable(path: &Path) -> bool {

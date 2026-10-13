@@ -1,0 +1,291 @@
+use bollard::exec::StartExecOptions;
+use tokio::io::AsyncWriteExt;
+
+mod cleanup;
+mod initial;
+mod state;
+mod stream;
+mod sync;
+pub(super) use sync::sync_workspace;
+pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_write_enabled;
+
+use crate::execution::{
+    backend::ExecutionHandleV1,
+    contract::{ExecutionLifecycleV1, ExecutionRequestV1},
+    docker::backend::{DockerExecutionBackend, internal_error},
+    errors::{ExecutionError, ExecutionErrorKind},
+};
+
+pub(super) async fn run(
+    backend: &DockerExecutionBackend,
+    handle: &ExecutionHandleV1,
+    request: &ExecutionRequestV1,
+) -> Result<(), ExecutionError> {
+    let (execution, container_id, budget, deadline, saved_attempt, workspace, snapshot) =
+        initial::begin(backend, handle, request)?;
+    if let Err(error) = saved_attempt {
+        let _ = cleanup::stop_owned(backend, &container_id, &handle.execution_id).await;
+        let _ = state::interrupted(&execution);
+        return Err(error);
+    }
+    let rpc_deadline = tokio::time::Instant::now() + cleanup::remaining(deadline);
+    let ownership = tokio::time::timeout_at(
+        rpc_deadline,
+        super::control::verify_owned(backend, &container_id, &handle.execution_id),
+    )
+    .await;
+    if !matches!(ownership, Ok(Ok(()))) {
+        if cleanup::remaining(deadline).is_zero() {
+            return cleanup::deadline_failure(
+                backend,
+                &execution,
+                &container_id,
+                &handle.execution_id,
+            )
+            .await;
+        }
+        return state::interrupted(&execution);
+    }
+    let config = initial::command_config(request);
+    let exec = match tokio::time::timeout_at(
+        rpc_deadline,
+        backend.docker.create_exec(&container_id, config),
+    )
+    .await
+    {
+        Ok(Ok(exec)) => exec,
+        Ok(Err(_)) => return state::interrupted(&execution),
+        Err(_) => {
+            return cleanup::deadline_failure(
+                backend,
+                &execution,
+                &container_id,
+                &handle.execution_id,
+            )
+            .await;
+        }
+    };
+    {
+        let mut state = execution.lock().map_err(|_| internal_error())?;
+        state.command_id = Some(exec.id.clone());
+        state.persist()?;
+    }
+    let stream = match tokio::time::timeout_at(
+        rpc_deadline,
+        backend.docker.start_exec(
+            &exec.id,
+            Some(StartExecOptions {
+                detach: false,
+                tty: false,
+                output_capacity: Some(64 * 1024),
+            }),
+        ),
+    )
+    .await
+    {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(_)) => return state::interrupted(&execution),
+        Err(_) => {
+            return cleanup::deadline_failure(
+                backend,
+                &execution,
+                &container_id,
+                &handle.execution_id,
+            )
+            .await;
+        }
+    };
+    let stream_budget = cleanup::remaining(deadline);
+    let collect = async {
+        match stream {
+            bollard::exec::StartExecResults::Attached { output, mut input } => {
+                let script = request
+                    .stdin
+                    .as_deref()
+                    .unwrap_or_default()
+                    .as_bytes()
+                    .to_vec();
+                let write_input = async move {
+                    if !script.is_empty() {
+                        input.write_all(&script).await.map_err(|_| {
+                            ExecutionError::new(
+                                ExecutionErrorKind::ExecutionFailed,
+                                "Container command input could not be sent",
+                                false,
+                            )
+                        })?;
+                    }
+                    input.shutdown().await.map_err(|_| {
+                        ExecutionError::new(
+                            ExecutionErrorKind::ExecutionFailed,
+                            "Container command input could not be closed",
+                            false,
+                        )
+                    })
+                };
+                futures_util::try_join!(
+                    write_input,
+                    stream::collect_output(output, execution.clone(), budget)
+                )?;
+                Ok(())
+            }
+            bollard::exec::StartExecResults::Detached => Err(ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                "Docker did not attach the bounded command stream",
+                true,
+            )),
+        }
+    };
+    match tokio::time::timeout(stream_budget, collect).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            let cleanup = cleanup::stop_owned(backend, &container_id, &handle.execution_id).await;
+            let mut failure = cleanup
+                .as_ref()
+                .err()
+                .cloned()
+                .unwrap_or_else(|| error.clone());
+            if cleanup.is_ok()
+                && let Err(sync_error) = sync::sync_workspace(
+                    backend,
+                    &container_id,
+                    &workspace,
+                    snapshot.as_ref(),
+                    request.resource_budget.temporary_disk_bytes,
+                    sync::workspace_write_enabled(request),
+                    &request.authorization_generation,
+                )
+                .await
+            {
+                failure = sync_error;
+            }
+            state::finish(
+                &execution,
+                if cleanup.is_ok() {
+                    ExecutionLifecycleV1::Failed
+                } else {
+                    ExecutionLifecycleV1::Interrupted
+                },
+                Some(failure.clone()),
+                None,
+                false,
+                false,
+            )?;
+            return Err(failure);
+        }
+        Err(_) => {
+            let cleanup = cleanup::stop_owned(backend, &container_id, &handle.execution_id).await;
+            let mut failure = cleanup.as_ref().err().cloned().unwrap_or_else(|| {
+                ExecutionError::new(
+                    ExecutionErrorKind::DeadlineExceeded,
+                    "Execution exceeded its deadline",
+                    false,
+                )
+            });
+            if cleanup.is_ok()
+                && let Err(sync_error) = sync::sync_workspace(
+                    backend,
+                    &container_id,
+                    &workspace,
+                    snapshot.as_ref(),
+                    request.resource_budget.temporary_disk_bytes,
+                    sync::workspace_write_enabled(request),
+                    &request.authorization_generation,
+                )
+                .await
+            {
+                failure = sync_error;
+            }
+            state::finish(
+                &execution,
+                if cleanup.is_ok() {
+                    ExecutionLifecycleV1::Failed
+                } else {
+                    ExecutionLifecycleV1::Interrupted
+                },
+                Some(failure),
+                None,
+                true,
+                false,
+            )?;
+            return Ok(());
+        }
+    }
+    let inspected = match tokio::time::timeout_at(
+        tokio::time::Instant::now() + cleanup::remaining(deadline),
+        backend.docker.inspect_exec(&exec.id),
+    )
+    .await
+    {
+        Ok(Ok(inspected)) => inspected,
+        Ok(Err(_)) => return state::interrupted(&execution),
+        Err(_) => {
+            return cleanup::deadline_failure(
+                backend,
+                &execution,
+                &container_id,
+                &handle.execution_id,
+            )
+            .await;
+        }
+    };
+    let code = inspected
+        .exit_code
+        .and_then(|code| i32::try_from(code).ok());
+    let Some(code) = code else {
+        state::finish(
+            &execution,
+            ExecutionLifecycleV1::Interrupted,
+            Some(ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                "Docker returned no command exit status",
+                true,
+            )),
+            None,
+            false,
+            false,
+        )?;
+        return Ok(());
+    };
+    let failure = (code != 0).then(|| {
+        ExecutionError::new(
+            ExecutionErrorKind::ExecutionFailed,
+            "Command exited unsuccessfully",
+            false,
+        )
+    });
+    if let Err(error) = sync::sync_workspace(
+        backend,
+        &container_id,
+        &workspace,
+        snapshot.as_ref(),
+        request.resource_budget.temporary_disk_bytes,
+        sync::workspace_write_enabled(request),
+        &request.authorization_generation,
+    )
+    .await
+    {
+        state::finish(
+            &execution,
+            ExecutionLifecycleV1::Failed,
+            Some(error.clone()),
+            Some(code),
+            false,
+            false,
+        )?;
+        return Err(error);
+    }
+    state::finish(
+        &execution,
+        if failure.is_some() {
+            ExecutionLifecycleV1::Failed
+        } else {
+            ExecutionLifecycleV1::Succeeded
+        },
+        failure,
+        Some(code),
+        false,
+        false,
+    )?;
+    Ok(())
+}

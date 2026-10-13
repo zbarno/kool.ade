@@ -33,6 +33,14 @@ pub fn validate_outline(
                 "Outline task {n}: dependencies must refer to earlier tasks."
             ));
         }
+        if task
+            .parent_task_index
+            .is_some_and(|parent| parent == 0 || parent >= n)
+        {
+            errors.push(format!(
+                "Outline task {n}: parent_task_index must refer to an earlier task."
+            ));
+        }
         if task.scope_items.is_empty() {
             errors.push(format!(
                 "Outline task {n}: at least one scope reference is required."
@@ -57,6 +65,19 @@ pub fn validate_outline(
             } else {
                 criteria.insert(*r);
             }
+        }
+    }
+    for (i, task) in outline.iter().enumerate() {
+        if task
+            .parent_task_index
+            .and_then(|parent| parent.checked_sub(1))
+            .and_then(|parent| outline.get(parent))
+            .is_some_and(|parent| parent.parent_task_index.is_some())
+        {
+            errors.push(format!(
+                "Outline task {}: a subtask cannot itself own subtasks.",
+                i + 1
+            ));
         }
     }
     let missing_scope = (1..=brief.in_scope.len())
@@ -122,6 +143,81 @@ mod tests {
         assert!(errors.contains("scope index 2 is invalid; use an index from 1 through 1"));
         assert!(
             errors.contains("success-criterion index 2 is invalid; use an index from 1 through 1")
+        );
+    }
+
+    #[test]
+    fn parent_with_independent_children_is_a_valid_parallel_subtask_dag() {
+        let brief = InterviewBrief {
+            in_scope: vec!["Deliver the approved behavior".into()],
+            success_criteria: vec!["The behavior is verified".into()],
+            ..Default::default()
+        };
+        let outline = vec![
+            TaskOutline {
+                title: "Coordinate the implementation".into(),
+                purpose: "Own the integrated result and combine the child changes.".into(),
+                scope_items: vec![1],
+                success_criteria: vec![1],
+                ..Default::default()
+            },
+            TaskOutline {
+                title: "Implement the first independent slice".into(),
+                purpose: "Complete one bounded part of the approved behavior.".into(),
+                scope_items: vec![1],
+                success_criteria: vec![1],
+                parent_task_index: Some(1),
+                ..Default::default()
+            },
+            TaskOutline {
+                title: "Implement the second independent slice".into(),
+                purpose: "Complete a separate bounded part of the approved behavior.".into(),
+                scope_items: vec![1],
+                success_criteria: vec![1],
+                parent_task_index: Some(1),
+                ..Default::default()
+            },
+        ];
+        assert!(validate_outline(&brief, &outline).is_ok());
+    }
+
+    #[test]
+    fn rejects_nested_subtask_ownership() {
+        let brief = InterviewBrief {
+            in_scope: vec!["Deliver the approved behavior".into()],
+            success_criteria: vec!["The behavior is verified".into()],
+            ..Default::default()
+        };
+        let outline = vec![
+            TaskOutline {
+                title: "Coordinate the implementation".into(),
+                purpose: "Own the integrated result and combine child changes.".into(),
+                scope_items: vec![1],
+                success_criteria: vec![1],
+                ..Default::default()
+            },
+            TaskOutline {
+                title: "Own an implementation slice".into(),
+                purpose: "Coordinate the implementation of one bounded slice.".into(),
+                scope_items: vec![1],
+                success_criteria: vec![1],
+                parent_task_index: Some(1),
+                ..Default::default()
+            },
+            TaskOutline {
+                title: "Implement a nested detail".into(),
+                purpose: "Complete one detail within the bounded slice.".into(),
+                scope_items: vec![1],
+                success_criteria: vec![1],
+                parent_task_index: Some(2),
+                ..Default::default()
+            },
+        ];
+        assert!(
+            validate_outline(&brief, &outline)
+                .unwrap_err()
+                .iter()
+                .any(|error| error.contains("cannot itself own subtasks"))
         );
     }
 }

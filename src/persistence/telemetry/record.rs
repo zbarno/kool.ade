@@ -39,6 +39,9 @@ pub struct InvocationRecord {
     pub project: String,
     #[serde(default)]
     pub session: Option<String>,
+    /// Controller invocation identity, when the caller owns a durable run ID.
+    #[serde(default)]
+    pub execution_id: Option<String>,
     #[serde(default)]
     pub repository: Option<String>,
     #[serde(default)]
@@ -135,6 +138,7 @@ mod tests {
     fn fully_populated() -> InvocationRecord {
         let mut r = InvocationRecord::new("acct-project", "pi");
         r.session = Some("sess-7".into());
+        r.execution_id = Some("00000000-0000-4000-8000-000000000007".into());
         r.repository = Some("zbarno/kool.ade".into());
         r.feature = Some("F11".into());
         r.batch = Some("F11-02".into());
@@ -170,6 +174,7 @@ mod tests {
         assert!(line.contains("\"schemaVersion\":1"));
         assert!(line.contains("\"cacheReadTokens\":691440"));
         assert!(line.contains("\"durationMillis\":711000"));
+        assert!(line.contains("\"executionId\":\"00000000-0000-4000-8000-000000000007\""));
         assert!(line.contains("\"priceTableVersion\":\"price_table_v1_2025Q3\""));
         let decoded: InvocationRecord = serde_json::from_str(&line).unwrap();
         assert_eq!(decoded, original);

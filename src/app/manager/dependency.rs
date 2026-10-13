@@ -106,6 +106,7 @@ fn run_review(
 ) -> Result<DependencyTriage, String> {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+            prompt_manifest: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(dependency.task_id.clone()),
         reasoning_level: "medium".into(),
@@ -117,7 +118,11 @@ fn run_review(
         timeout: crate::core::turn::configured_turn_timeout(),
         progress_tx,
         cancel: cancel.clone(),
-    };
+            execution_workspace: None,
+
+       authorization_verifier: None,
+        review_identity: None,
+};
     let outcome = harness.execute(&request).map_err(|error| error.detail())?;
     let object = crate::harness::pi_extract::extract_json_object(&outcome.final_text)
         .ok_or_else(|| "Man.ager returned no structured dependency decision".to_owned())?;

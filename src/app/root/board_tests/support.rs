@@ -56,6 +56,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
         let record = crate::core::implementation::Implementation {
             ticket: docs[i].path.clone(),
             task_uid: None,
+            workspace_uid: None,
             ticket_text: docs[i].text.clone(),
             approved_specification: None,
             approved_product_context: None,

@@ -6,13 +6,17 @@ mod fake_pi;
 
 #[test]
 fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
+    // Capability detection resolves Docker through PATH, which this fixture
+    // replaces later. Keep the initial host observation outside concurrent
+    // PATH and provider override windows too.
+    let _environment = crate::test_support::lock_process_environment();
+    let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
     if !fake_pi::sandbox_available() {
         eprintln!(
-            "Skipping queue execution integration: application Bubblewrap capabilities are unavailable"
+            "Skipping queue execution integration: application Docker execution capabilities are unavailable"
         );
         return;
     }
-    let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
     let _restore_pi = fake_pi::restore_environment_variable("KOOLADE_PI_BIN");
     let _restore_path = fake_pi::restore_environment_variable("PATH");
     let _restore_ssh = fake_pi::restore_environment_variable("GIT_SSH_COMMAND");
@@ -85,7 +89,7 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     )
     .unwrap();
     std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
-    // SAFETY: this integration test runs under the repository's serial test gate and restores the value above.
+    // SAFETY: the cross-process environment lock is held and the value is restored above.
     unsafe { std::env::set_var("GIT_SSH_COMMAND", &ssh) };
     git(
         &repo,
@@ -154,7 +158,13 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     }
     // Feature approval is a separate explicit action in Specifications;
     // implementation then starts from the selected task's board details.
+    crate::app::root::feature_approval::tests::record_test_plan_author(&mut app, "CHG-001");
     app.approve_feature_only("CHG-001");
+    crate::app::root::feature_approval::tests::record_test_plan_review(
+        &mut app,
+        "CHG-001",
+        crate::core::lifecycle::GateDecision::Approved,
+    );
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "Task 1");
@@ -223,7 +233,12 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         assert_eq!(max_workers, 2, "Independent implementations must overlap");
         assert_eq!(project.queue.recovery_attempts.get(&docs[1].path), Some(&1));
         for doc in &docs[..2] {
-            assert!(!project.queue.blocked.contains_key(&doc.path));
+            assert!(
+                !project.queue.blocked.contains_key(&doc.path),
+                "task {} remained blocked: {:?}",
+                doc.path,
+                project.queue.blocked.get(&doc.path)
+            );
             assert_eq!(
                 project.implementation_states.get(&doc.path).unwrap().status,
                 ImplementationStatus::AwaitingApproval

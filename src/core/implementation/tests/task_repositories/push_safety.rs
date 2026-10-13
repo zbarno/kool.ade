@@ -13,6 +13,8 @@ fn stale_destination_rejects_a_non_fast_forward_task_push() {
         deadline: Instant::now() + Duration::from_secs(60),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     let cache = RepositoryCache::from_saved_state(&state, &runner).unwrap();
 

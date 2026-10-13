@@ -49,6 +49,7 @@ fn implementation_repairs_after_verification_failure_use_the_independent_qa_harn
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -60,6 +61,10 @@ fn implementation_repairs_after_verification_failure_use_the_independent_qa_harn
         timeout: std::time::Duration::from_secs(1),
         progress_tx,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
     harness.execute(&request).unwrap();
     assert_eq!(implementation_calls.load(Ordering::SeqCst), 0);

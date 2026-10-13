@@ -239,6 +239,7 @@ pub(super) fn prepare(
         prompt_body.push_str(prompt::TASK_OUTLINE_STEP);
     }
     let request = PlanningRequest {
+        prompt_manifest: None,
         mode: if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
             crate::harness::ExecutionMode::TaskGeneration
         } else {
@@ -258,6 +259,10 @@ pub(super) fn prepare(
         timeout,
         progress_tx,
         cancel: Arc::clone(cancel),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
 
     Ok(PreparedTurn {

@@ -42,7 +42,7 @@ pub(super) fn ensure_pinned_path_scope(
     }
 
     let generated = generated::trusted(runner, state, dir)?;
-    let runtime_configuration = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+    let runtime_configuration = crate::harness::runtime_config::paths_with_source(
         worktree,
         runner.runtime_config_source.as_deref(),
     )?;

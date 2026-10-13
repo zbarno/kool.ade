@@ -2,166 +2,176 @@ use super::super::{KooladeApp, Screen};
 
 impl KooladeApp {
     pub(crate) fn start_task_generation(&mut self, work_key: &str, feature_id: &str) {
-        let Screen::Connected(project) = &mut self.screen else {
-            return;
-        };
-        let Some(index) = project.planning_work.iter().position(|work| {
-            work.key == work_key
-                && work.kind == crate::core::planning_work::WorkKind::TaskGeneration
-                && work.feature_id.as_deref() == Some(feature_id)
-        }) else {
-            return;
-        };
-        if project.has_selected_code_repository() {
-            let default_branch = if !project.git.default_branch.is_empty() {
-                project.git.default_branch.as_str()
-            } else if !project.git.branch.is_empty() {
-                project.git.branch.as_str()
-            } else {
-                "main"
+        let (contract, repo_root, ready, work_key) = {
+            let Screen::Connected(project) = &mut self.screen else {
+                return;
             };
-            let targets = feature_branch_targets(
-                &project.planning_work,
+            let Some(index) = project.planning_work.iter().position(|work| {
+                work.key == work_key
+                    && work.kind == crate::core::planning_work::WorkKind::TaskGeneration
+                    && work.feature_id.as_deref() == Some(feature_id)
+            }) else {
+                return;
+            };
+            if !crate::core::workflow::feature_approved(
+                &project.state.planning_store,
+                &project.state.workflow,
                 feature_id,
-                project.planning_work[index].feature_uid.as_deref(),
-                default_branch,
-            );
-            let destination_branches = if !project.git.has_origin {
-                &project.git.branches
-            } else {
-                &project.git.remote_branches
-            };
-            let source_available = project.git.branches.contains(&targets.source)
-                || (!project.git.has_origin
-                    && project.git.branches.is_empty()
-                    && targets.source == default_branch);
-            let destination_available = destination_branches.contains(&targets.destination)
-                || (!project.git.has_origin
-                    && destination_branches.is_empty()
-                    && targets.destination.as_str() == default_branch);
-            if !source_available || !destination_available {
+            ) {
                 project.planning_work[index].status =
                     crate::core::planning_work::WorkStatus::NeedsAttention;
-                project.planning_work[index].detail = format!(
-                    "The saved source or destination branch is no longer available. Select an existing branch before generating tasks. Source: {}; destination: {}.",
-                    targets.source, targets.destination
-                );
+                project.planning_work[index].detail = "Blocked: an independent PlanReviewer must approve the exact current plan snapshot before task generation.".into();
                 if let Err(error) = project.save_planning_work() {
+                    self.toasts.danger(format!(
+                    "Independent plan review is required, but the blocked task status could not be saved: {error}"
+                ));
+                } else {
                     self.toasts
-                        .danger(format!("Could not save branch attention state: {error}"));
+                        .warning(project.planning_work[index].detail.clone());
                 }
                 return;
             }
-            let mut workflow = project.state.workflow.clone();
-            workflow
-                .feature_branch_targets
-                .insert(feature_id.to_owned(), targets);
-            let planning_store = project.state.planning_store.clone();
-            let (changes, checks, _) = match crate::artifacts::task_docs::workflow_record_changes(
-                &planning_store,
-                &workflow,
-            ) {
-                Ok(changes) => changes,
-                Err(error) => {
-                    self.toasts.danger(format!(
-                        "Cannot save the feature branch selection before task generation: {error}"
-                    ));
+            if project.has_selected_code_repository() {
+                let default_branch = if !project.git.default_branch.is_empty() {
+                    project.git.default_branch.as_str()
+                } else if !project.git.branch.is_empty() {
+                    project.git.branch.as_str()
+                } else {
+                    "main"
+                };
+                let targets = feature_branch_targets(
+                    &project.planning_work,
+                    feature_id,
+                    project.planning_work[index].feature_uid.as_deref(),
+                    default_branch,
+                );
+                let destination_branches = if !project.git.has_origin {
+                    &project.git.branches
+                } else {
+                    &project.git.remote_branches
+                };
+                let source_available = project.git.branches.contains(&targets.source)
+                    || (!project.git.has_origin
+                        && project.git.branches.is_empty()
+                        && targets.source == default_branch);
+                let destination_available = destination_branches.contains(&targets.destination)
+                    || (!project.git.has_origin
+                        && destination_branches.is_empty()
+                        && targets.destination.as_str() == default_branch);
+                if !source_available || !destination_available {
+                    project.planning_work[index].status =
+                        crate::core::planning_work::WorkStatus::NeedsAttention;
+                    project.planning_work[index].detail = format!(
+                        "The saved source or destination branch is no longer available. Select an existing branch before generating tasks. Source: {}; destination: {}.",
+                        targets.source, targets.destination
+                    );
+                    if let Err(error) = project.save_planning_work() {
+                        self.toasts
+                            .danger(format!("Could not save branch attention state: {error}"));
+                    }
                     return;
                 }
-            };
-            match planning_store.transaction_with_revision_and_record_revisions(
-                &changes,
-                Some(&project.state.baseline_planning_revision),
-                &checks,
-            ) {
-                Ok((_, revision)) => {
-                    project.state.baseline_planning_revision = revision;
-                    project.state.workflow =
-                        match crate::artifacts::task_docs::load_workflow(&planning_store) {
-                            Ok(workflow) => workflow,
-                            Err(error) => {
-                                self.toasts.danger(format!(
+                let mut workflow = project.state.workflow.clone();
+                workflow
+                    .feature_branch_targets
+                    .insert(feature_id.to_owned(), targets);
+                let planning_store = project.state.planning_store.clone();
+                let (changes, checks, _) =
+                    match crate::artifacts::task_docs::workflow_record_changes(
+                        &planning_store,
+                        &workflow,
+                    ) {
+                        Ok(changes) => changes,
+                        Err(error) => {
+                            self.toasts.danger(format!(
+                        "Cannot save the feature branch selection before task generation: {error}"
+                    ));
+                            return;
+                        }
+                    };
+                match planning_store.transaction_with_revision_and_record_revisions(
+                    &changes,
+                    Some(&project.state.baseline_planning_revision),
+                    &checks,
+                ) {
+                    Ok((_, revision)) => {
+                        project.state.baseline_planning_revision = revision;
+                        project.state.workflow =
+                            match crate::artifacts::task_docs::load_workflow(&planning_store) {
+                                Ok(workflow) => workflow,
+                                Err(error) => {
+                                    self.toasts.danger(format!(
                                     "Branch selection was saved but workflow reload failed: {error}"
                                 ));
-                                return;
-                            }
-                        };
-                }
-                Err(error) => {
-                    self.toasts.danger(format!(
+                                    return;
+                                }
+                            };
+                    }
+                    Err(error) => {
+                        self.toasts.danger(format!(
                         "Cannot save the feature branch selection before task generation: {error}"
                     ));
-                    return;
+                        return;
+                    }
                 }
             }
-        }
-        if project.active_turn.is_some() {
-            self.toasts
-                .warning("Wait for the current planning turn before generating tasks.");
-            return;
-        }
-        let Some((_, specification)) = project
-            .state
-            .active_features
-            .iter()
-            .find(|(id, _)| id == feature_id)
-            .cloned()
-        else {
-            project.planning_work[index].status =
-                crate::core::planning_work::WorkStatus::NeedsAttention;
-            project.planning_work[index].detail = "The approved specification is no longer available. Reopen planning and review the feature.".into();
-            if let Err(error) = project.save_planning_work() {
+            if project.active_turn.is_some() {
                 self.toasts
-                    .danger(format!("Could not save task generation status: {error}"));
+                    .warning("Wait for the current planning turn before generating tasks.");
+                return;
             }
-            return;
+            if !project
+                .state
+                .active_features
+                .iter()
+                .any(|(id, _)| id == feature_id)
+            {
+                project.planning_work[index].status =
+                    crate::core::planning_work::WorkStatus::NeedsAttention;
+                project.planning_work[index].detail = "The approved specification is no longer available. Reopen planning and review the feature.".into();
+                if let Err(error) = project.save_planning_work() {
+                    self.toasts
+                        .danger(format!("Could not save task generation status: {error}"));
+                }
+                return;
+            };
+            let (_, feature_markdown) = project
+                .state
+                .active_features
+                .iter()
+                .find(|(id, _)| id == feature_id)
+                .expect("active feature checked above");
+            let feature_markdown = feature_markdown.clone();
+            project.state.active_feature = Some((feature_id.to_owned(), feature_markdown.clone()));
+            let contract = crate::core::workflow::feature_contract(&feature_markdown);
+            let repo_root = project.state.repo_root.clone();
+            let ready = project.state.workflow.ready(Some(&feature_markdown));
+            let work_key = project.planning_work[index].key.clone();
+            (contract, repo_root, ready, work_key)
         };
-        if !crate::core::workflow::feature_approved(
-            &project.state.planning_store,
-            &project.state.workflow,
-            feature_id,
-        ) {
-            self.toasts
-                .warning("This specification needs approval before tasks can be generated.");
-            return;
-        }
-        project.state.active_feature = Some((feature_id.to_owned(), specification.clone()));
-        if super::super::has_current_task_batch(project) {
-            project.planning_work[index].status = crate::core::planning_work::WorkStatus::Done;
-            project.planning_work[index].detail =
-                "Implementation tasks already exist for this approved specification.".into();
-            if let Err(error) = project.save_planning_work() {
-                self.toasts
-                    .danger(format!("Could not save task generation status: {error}"));
+        if ready {
+            self.start_turn_for_work(
+                &format!("Generate task stories for approved feature {feature_id}."),
+                crate::core::workflow::TurnPurpose::GenerateTasks,
+                None,
+                Some(work_key),
+            );
+        } else {
+            self.pending_feature_generation =
+                Some((repo_root, feature_id.to_owned(), contract, work_key.clone()));
+            self.start_turn_for_work(
+                &format!(
+                    "Prepare task generation for approved feature {feature_id}. Read the current feature and settled decisions, and return a complete interview brief naming {feature_id}, ready_for_tasks=true only when no blocking questions remain. Do not generate stories in this turn. If blocked, record the concrete blocking item."
+                ),
+                crate::core::workflow::TurnPurpose::ReviewForGeneration,
+                None,
+                Some(work_key),
+            );
+            if !matches!(&self.screen, Screen::Connected(project) if project.active_turn.is_some())
+            {
+                self.pending_feature_generation = None;
             }
-            return;
         }
-        project.planning_work[index].status = crate::core::planning_work::WorkStatus::InProgress;
-        project.planning_work[index].detail =
-            "Checking that the approved specification is ready for task generation.".into();
-        let repo = project.state.repo_root.clone();
-        let contract = crate::core::workflow::feature_contract(&specification);
-        if let Err(error) = project.save_planning_work() {
-            project.planning_work[index].status =
-                crate::core::planning_work::WorkStatus::NeedsAttention;
-            project.planning_work[index].detail =
-                format!("Could not save task generation progress: {error}");
-            project.activity.pending_planning_work = true;
-            self.toasts
-                .danger(project.planning_work[index].detail.clone());
-            return;
-        }
-        self.pending_feature_generation =
-            Some((repo, feature_id.to_owned(), contract, work_key.to_owned()));
-        let prompt = format!(
-            "Prepare the task-generation review for approved feature {feature_id}. Its current specification is approved; do not ask for approval again or change its contract. Read the current feature and settled decisions, and return a complete interview brief naming {feature_id}, ready_for_tasks=true when no blocking questions remain. Do not generate stories in this review turn. The application will generate them after a successful current review. If blocked, record the concrete blocking item."
-        );
-        self.start_turn_for_work(
-            &prompt,
-            crate::core::workflow::TurnPurpose::ReviewForGeneration,
-            None,
-            Some(work_key.to_owned()),
-        );
     }
 }
 

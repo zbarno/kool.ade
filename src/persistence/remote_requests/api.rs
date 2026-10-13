@@ -1,0 +1,142 @@
+use super::*;
+
+pub fn save_pending(
+    worker_id: &str,
+    envelope: &crate::execution::remote::protocol::EnvelopeV1,
+) -> anyhow::Result<()> {
+    save_pending_at(&crate::persistence::state_root(), worker_id, envelope)
+}
+
+pub(super) fn save_pending_at(
+    root: &Path,
+    worker_id: &str,
+    envelope: &crate::execution::remote::protocol::EnvelopeV1,
+) -> anyhow::Result<()> {
+    envelope.validate()?;
+    let directory = worker_directory(root, worker_id, true)?;
+    let existing = pending_path(&directory, &envelope.request_id);
+    let pending = PendingRemoteRequestV1 {
+        schema_version: 1,
+        worker_id: worker_id.to_owned(),
+        created_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        envelope: envelope.clone(),
+    };
+    let bytes = serde_json::to_vec(&pending)?;
+    match crate::artifacts::atomic_create_bytes(&existing, &bytes) {
+        Ok(()) => {
+            set_private_file(&existing)?;
+            Ok(())
+        }
+        Err(_) => {
+            let prior = read_pending(&existing)?;
+            anyhow::ensure!(
+                prior.worker_id == worker_id && prior.envelope == *envelope,
+                "remote request ID is already bound to different pending work"
+            );
+            Ok(())
+        }
+    }
+}
+
+pub fn pending(worker_id: &str) -> anyhow::Result<Vec<PendingRemoteRequestV1>> {
+    pending_at(&crate::persistence::state_root(), worker_id)
+}
+
+pub(super) fn pending_at(
+    root: &Path,
+    worker_id: &str,
+) -> anyhow::Result<Vec<PendingRemoteRequestV1>> {
+    let directory = worker_directory(root, worker_id, false)?;
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    load_pending_dir(&directory, worker_id)
+}
+
+pub fn record_completion(
+    worker_id: &str,
+    request_id: &str,
+    response: &crate::execution::remote::protocol::EnvelopeV1,
+) -> anyhow::Result<()> {
+    record_completion_at(
+        &crate::persistence::state_root(),
+        worker_id,
+        request_id,
+        response,
+    )
+}
+
+pub(super) fn record_completion_at(
+    root: &Path,
+    worker_id: &str,
+    request_id: &str,
+    response: &crate::execution::remote::protocol::EnvelopeV1,
+) -> anyhow::Result<()> {
+    response.validate()?;
+    anyhow::ensure!(
+        response.request_id == request_id,
+        "remote response request ID mismatch"
+    );
+    let directory = worker_directory(root, worker_id, true)?;
+    let completed = CompletedRemoteRequestV1 {
+        schema_version: 1,
+        worker_id: worker_id.to_owned(),
+        request_id: request_id.to_owned(),
+        completed_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        response: response.clone(),
+    };
+    let path = completed_path(&directory, request_id);
+    let bytes = serde_json::to_vec(&completed)?;
+    match crate::artifacts::atomic_create_bytes(&path, &bytes) {
+        Ok(()) => set_private_file(&path)?,
+        Err(_) => {
+            let prior = read_completed(&path)?;
+            anyhow::ensure!(
+                prior.response == *response,
+                "remote request completion conflicts"
+            );
+        }
+    }
+    let pending = pending_path(&directory, request_id);
+    match fs::remove_file(pending) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+/// Retrieve and remove a completion reconciled after a controller restart.
+pub fn take_completion(
+    worker_id: &str,
+    request_id: &str,
+) -> anyhow::Result<Option<CompletedRemoteRequestV1>> {
+    take_completion_at(&crate::persistence::state_root(), worker_id, request_id)
+}
+
+pub(super) fn take_completion_at(
+    root: &Path,
+    worker_id: &str,
+    request_id: &str,
+) -> anyhow::Result<Option<CompletedRemoteRequestV1>> {
+    anyhow::ensure!(valid_request_id(request_id), "remote request ID is invalid");
+    let directory = worker_directory(root, worker_id, false)?;
+    let path = completed_path(&directory, request_id);
+    let completion = match read_completed(&path) {
+        Ok(completion) => completion,
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    anyhow::ensure!(
+        completion.worker_id == worker_id,
+        "remote completion worker mismatch"
+    );
+    fs::remove_file(path)?;
+    Ok(Some(completion))
+}

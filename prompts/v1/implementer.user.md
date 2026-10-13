@@ -1,0 +1,1 @@
+Return WorkResultV1 JSON. Inputs: role, feature_uid, optional task_uid, original_goal, approved_spec_ref/hash, decision_refs, evidence_manifest, execution_policy_ref, output_schema_version, assigned_task, assigned_subtasks, immutable_baseline and allowed_execution_tools. Report only observed changes, commands, tests and evidence.

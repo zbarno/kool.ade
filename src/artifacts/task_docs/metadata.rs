@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 mod routing;
 
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -28,6 +28,10 @@ pub struct TaskMetadata {
         skip_serializing_if = "Option::is_none"
     )]
     pub destination_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parallelizable: Option<bool>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub routing_overrides:
         std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
@@ -54,6 +58,8 @@ impl TaskMetadata {
             dependency_uids,
             source_branch: None,
             destination_branch: None,
+            source_sha: None,
+            parallelizable: None,
             routing_overrides: Default::default(),
             routing_source_uid: None,
             routing_inherited_from: None,
@@ -84,6 +90,18 @@ impl TaskMetadata {
         self.routing_overrides = routes.clone();
         self.routing_source_uid = source_uid.map(str::to_owned);
         self.routing_inherited_from = inherited_from.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_source_sha(mut self, source_sha: Option<&str>) -> anyhow::Result<Self> {
+        self.source_sha = source_sha.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_parallelizable(mut self, parallelizable: Option<bool>) -> anyhow::Result<Self> {
+        self.parallelizable = parallelizable;
         self.validate(None)?;
         Ok(self)
     }
@@ -135,6 +153,12 @@ impl TaskMetadata {
             anyhow::ensure!(
                 valid_branch(branch),
                 "Task metadata has an invalid branch name"
+            );
+        }
+        if let Some(sha) = self.source_sha.as_deref() {
+            anyhow::ensure!(
+                matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "Task metadata has an invalid source SHA"
             );
         }
         let mut dependencies = BTreeSet::new();

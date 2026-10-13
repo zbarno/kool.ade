@@ -40,14 +40,13 @@ fn sw_clone_ticket_one_unsettled_worker_rides_back_next_tick() {
 fn sw_clone_ticket_two_success_flows_into_submit_connect_and_connected() {
     // Serialise the ambient-env mutations (git hierarchy + per-user
     // state root) behind the house lock while a REAL connect runs.
+    let _environment = crate::test_support::lock_process_environment();
     let _shield = crate::core::gitops::test_support::shield("sw-clone-ok");
     let state_home = std::env::temp_dir().join(format!("swcl_state_ok_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&state_home);
     std::fs::create_dir_all(&state_home).unwrap();
-    // SAFETY: GIT_HIERARCHY_LOCK is held; only this test touches the
-    // per-user state root during the body. The prior value (if any)
-    // is restored at the end of the body.
-    let prev_state_home = std::env::var_os("KOOLADE_HOME");
+    // SAFETY: the shared Git test shield serializes this test's override.
+    let _restore_home = RestoreKooladeHome::capture();
     unsafe {
         std::env::set_var("KOOLADE_HOME", &state_home);
     }
@@ -96,13 +95,6 @@ fn sw_clone_ticket_two_success_flows_into_submit_connect_and_connected() {
         "the connect pipeline bootstrapped + migrated the cloned repo"
     );
 
-    // Restore the ambient state root (prior value, or absence).
-    unsafe {
-        match prev_state_home {
-            Some(prev) => std::env::set_var("KOOLADE_HOME", prev),
-            None => std::env::remove_var("KOOLADE_HOME"),
-        }
-    }
     let _ = std::fs::remove_dir_all(&dest);
     let _ = std::fs::remove_dir_all(&state_home);
 }

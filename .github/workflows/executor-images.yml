@@ -1,0 +1,726 @@
+name: Trusted executor images
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: executor-images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Build and verify ${{ matrix.profile }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: general
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: general
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: rust
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: rust
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: node
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: node
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: python
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: python
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: go
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: go
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Require rootless Linux container support
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+      - name: Select the architecture-specific locked base
+        id: image
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          base_image="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .reference' \
+            containers/base-images.lock.json)"
+          [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
+      - name: Build the trusted recipe from its fixed context
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+        run: |
+          set -euo pipefail
+          metadata_file="$RUNNER_TEMP/executor-candidate-metadata.json"
+          docker buildx build \
+            --platform "$PLATFORM" \
+            --network=none \
+            --provenance=false \
+            --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH=0 \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --build-arg "EXECUTOR_PROFILE=$PROFILE" \
+            --tag koolade-executor:candidate \
+            --load \
+            --metadata-file "$metadata_file" \
+            containers/executor
+          image_digest="$(jq -er '."containerimage.digest"' "$metadata_file")"
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+      - name: Check architecture, identity, tools, and forbidden services
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          architecture="${PLATFORM#linux/}"
+          image_identity="$(docker image inspect koolade-executor:candidate \
+            --format '{{.Os}} {{.Architecture}} {{.Config.User}}')"
+          test "$image_identity" = "linux $architecture 10001:10001"
+          expected_rustc="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .tool_versions.rustc // empty' \
+            containers/images.lock.json)" || true
+          expected_cargo="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .tool_versions.cargo // empty' \
+            containers/images.lock.json)" || true
+          expected_node="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .tool_versions.node // empty' \
+            containers/images.lock.json)" || true
+          expected_npm="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .tool_versions.npm // empty' \
+            containers/images.lock.json)" || true
+          expected_python="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .tool_versions.python // empty' \
+            containers/images.lock.json)" || true
+          expected_go="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .tool_versions.go // empty' \
+            containers/images.lock.json)" || true
+          cat > "$RUNNER_TEMP/executor-smoke.sh" <<'SMOKE'
+          set -eu
+          test "$(id -u):$(id -g)" = "10001:10001"
+          test -x /bin/sh
+          if [ -n "$EXPECTED_RUSTC" ]; then
+            test "$(rustc --version | awk '{print $2}')" = "$EXPECTED_RUSTC"
+            test "$(cargo --version | awk '{print $2}')" = "$EXPECTED_CARGO"
+          fi
+          if [ -n "$EXPECTED_NODE" ]; then
+            test "$(node --version)" = "v$EXPECTED_NODE"
+            test "$(npm --version)" = "$EXPECTED_NPM"
+          fi
+          if [ -n "$EXPECTED_PYTHON" ]; then
+            test "$(python3 --version | awk '{print $2}')" = "$EXPECTED_PYTHON"
+          fi
+          if [ -n "$EXPECTED_GO" ]; then
+            test "$(go version | awk '{print $3}' | sed 's/^go//')" = "$EXPECTED_GO"
+          fi
+          for forbidden in curl wget git docker dockerd sshd sudo; do
+            if command -v "$forbidden" >/dev/null 2>&1; then
+              echo "unexpected executable in executor image: $forbidden" >&2
+              exit 1
+            fi
+          done
+          for credential_path in /root/.ssh /root/.aws /root/.config/gcloud \
+            /home/executor/.ssh /home/executor/.aws /home/executor/.config/gcloud; do
+            test ! -e "$credential_path"
+          done
+          if env | cut -d= -f1 | grep -Eiq '(API_KEY|TOKEN|SECRET|CREDENTIAL)'; then
+            echo "unexpected credential environment variable in executor image" >&2
+            exit 1
+          fi
+          test ! -e /var/run/docker.sock
+          if touch /executor-root-write 2>/dev/null; then
+            echo "executor root filesystem is writable" >&2
+            exit 1
+          fi
+          SMOKE
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 \
+            --memory 1g --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
+            --interactive \
+            --env EXPECTED_RUSTC="$expected_rustc" \
+            --env EXPECTED_CARGO="$expected_cargo" \
+            --env EXPECTED_NODE="$expected_node" \
+            --env EXPECTED_NPM="$expected_npm" \
+            --env EXPECTED_PYTHON="$expected_python" \
+            --env EXPECTED_GO="$expected_go" \
+            --entrypoint /bin/sh koolade-executor:candidate -eu -s \
+            < "$RUNNER_TEMP/executor-smoke.sh"
+          recipe_sha256="sha256:$(sha256sum containers/executor/Dockerfile containers/executor/README.md | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
+          jq -n \
+            --arg profile "$PROFILE" \
+            --arg platform "$PLATFORM" \
+            --arg digest "$image_digest" \
+            --arg base_image "$BASE_IMAGE" \
+            --arg source_revision "$GITHUB_SHA" \
+            --arg recipe "$recipe_sha256" \
+            --argjson tools "$(jq -ce --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+              '.profiles[$profile][] | select(.platform == $platform) | .tool_versions' containers/images.lock.json)" \
+            '{profile:$profile,platform:$platform,digest:$digest,base_image:$base_image,source_revision:$source_revision,build_recipe_sha256:$recipe,tool_versions:$tools}' \
+            > "$RUNNER_TEMP/executor-image.json"
+      - name: Download pinned Syft for candidate SBOM
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          syft-version: v1.54.1
+      - name: Record the candidate SBOM and digest reference
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          "$SYFT" docker:koolade-executor:candidate -o spdx-json="$RUNNER_TEMP/executor-sbom.spdx.json"
+          sbom_sha256="sha256:$(sha256sum "$RUNNER_TEMP/executor-sbom.spdx.json" | awk '{print $1}')"
+          image_digest="$(jq -er '.digest' "$RUNNER_TEMP/executor-image.json")"
+          image_repository="ghcr.io/zbarno/koolade-executor"
+          jq --arg reference "$image_repository@$image_digest" --arg sbom "$sbom_sha256" \
+            '. + {reference:$reference,sbom_sha256:$sbom}' \
+            "$RUNNER_TEMP/executor-image.json" > "$RUNNER_TEMP/executor-image.tmp.json"
+          mv "$RUNNER_TEMP/executor-image.tmp.json" "$RUNNER_TEMP/executor-image.json"
+          jq -n --slurpfile candidate "$RUNNER_TEMP/executor-image.json" \
+            --arg profile "$PROFILE" --arg platform "$PLATFORM" --arg digest "$image_digest" \
+            --arg reference "$image_repository@$image_digest" --arg source_revision "$GITHUB_SHA" \
+            --arg sbom_sha256 "$sbom_sha256" \
+            '{subject:{profile:$profile,platform:$platform,reference:$reference,digest:$digest},source_revision:$source_revision,sbom_sha256:$sbom_sha256,base_image:$candidate[0].base_image,build_recipe_sha256:$candidate[0].build_recipe_sha256}' \
+            > "$RUNNER_TEMP/executor-provenance.json"
+          provenance_sha256="sha256:$(sha256sum "$RUNNER_TEMP/executor-provenance.json" | awk '{print $1}')"
+          jq --arg provenance "$provenance_sha256" '. + {provenance_sha256:$provenance}' \
+            "$RUNNER_TEMP/executor-image.json" > "$RUNNER_TEMP/executor-image.tmp.json"
+          mv "$RUNNER_TEMP/executor-image.tmp.json" "$RUNNER_TEMP/executor-image.json"
+      - name: Retain the candidate image evidence for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: executor-image-candidate-${{ matrix.profile }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/executor-image.json
+            ${{ runner.temp }}/executor-sbom.spdx.json
+            ${{ runner.temp }}/executor-provenance.json
+          if-no-files-found: error
+          retention-days: 90
+
+  build-and-verify-qa-images:
+    name: Build and verify ${{ matrix.profile }} (linux/amd64)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: browser_qa
+          - profile: desktop_qa
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Select the architecture-specific pinned QA base
+        id: image
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          base_image="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' \
+            containers/base-images.lock.json)"
+          [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
+      - name: Download pinned Syft for candidate SBOM
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          syft-version: v1.54.1
+      - name: Install the pinned Rust toolchain for the desktop driver
+        if: matrix.profile == 'desktop_qa'
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Cache Rust desktop-driver build artifacts
+        if: matrix.profile == 'desktop_qa'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-desktop-qa
+          cache-workspace-crates: true
+      - name: Build rootless candidate and retain image evidence
+        env:
+          PROFILE: ${{ matrix.profile }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$BASE_IMAGE"
+      - name: Verify candidate record and report its immutable digest
+        env:
+          PROFILE: ${{ matrix.profile }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+        run: |
+          set -euo pipefail
+          record="$RUNNER_TEMP/executor-image-candidate-${PROFILE}-amd64/executor-image.json"
+          jq -e --arg profile "$PROFILE" --arg base "$BASE_IMAGE" --arg revision "$GITHUB_SHA" '
+            .profile == $profile and
+            .platform == "linux/amd64" and
+            .base_image == $base and
+            .source_revision == $revision and
+            (.digest | test("^sha256:[0-9a-f]{64}$")) and
+            .reference == ("ghcr.io/zbarno/koolade-runtime-qa-" + (if $profile == "browser_qa" then "browser" else "desktop" end) + "@" + .digest) and
+            (.build_recipe_sha256 | test("^sha256:[0-9a-f]{64}$")) and
+            (.sbom_sha256 | test("^sha256:[0-9a-f]{64}$")) and
+            (.provenance_sha256 | test("^sha256:[0-9a-f]{64}$"))
+          ' "$record" >/dev/null
+          {
+            printf '### Rootless QA image candidate: %s\n\n' "$PROFILE"
+            printf -- '- Platform: linux/amd64\n- Candidate digest: `%s`\n' "$(jq -er '.digest' "$record")"
+            printf -- '- Candidate reference: `%s`\n' "$(jq -er '.reference' "$record")"
+            printf -- '- Base, recipe, SBOM, and provenance digests are recorded in the retained artifact.\n'
+            printf -- '- Candidate is not published or enabled for runtime use by this PR workflow.\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain QA candidate evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: executor-image-candidate-${{ matrix.profile }}-amd64
+          path: ${{ runner.temp }}/executor-image-candidate-${{ matrix.profile }}-amd64/*
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-executor-image-lock:
+    name: Verify reviewed image digests
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: [build-and-verify, build-and-verify-qa-images]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download rootless-built executor evidence
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: executor-image-candidate-*
+          path: ${{ runner.temp }}/executor-image-candidates
+      - name: Combine evidence and require exact manifest digests
+        run: |
+          set -euo pipefail
+          mapfile -t evidence < <(find "$RUNNER_TEMP/executor-image-candidates" -name executor-image.json -type f | sort)
+          test "${#evidence[@]}" -eq 12
+          for image_record in "${evidence[@]}"; do
+            artifact_dir="$(dirname "$image_record")"
+            actual_sbom="sha256:$(sha256sum "$artifact_dir/executor-sbom.spdx.json" | awk '{print $1}')"
+            actual_provenance="sha256:$(sha256sum "$artifact_dir/executor-provenance.json" | awk '{print $1}')"
+            test "$actual_sbom" = "$(jq -er '.sbom_sha256' "$image_record")"
+            test "$actual_provenance" = "$(jq -er '.provenance_sha256' "$image_record")"
+          done
+          jq -s '{schema_version:1,images:.}' "${evidence[@]}" > "$RUNNER_TEMP/executor-image-candidates.json"
+          common_args=(--source-revision "$GITHUB_SHA" --require-profiles general rust node python go browser_qa desktop_qa)
+          python3 scripts/promote-image-digests.py \
+            "$RUNNER_TEMP/executor-image-candidates.json" \
+            --evidence-root "$RUNNER_TEMP/executor-image-candidates" "${common_args[@]}"
+          if jq -e '
+            all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
+              (.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")))
+          ' containers/images.lock.json >/dev/null; then
+            jq '{schema_version:1,images:[.images[] | select(.profile == "general" or .profile == "rust" or .profile == "node" or .profile == "python" or .profile == "go")]}' \
+              "$RUNNER_TEMP/executor-image-candidates.json" > "$RUNNER_TEMP/executor-only-candidates.json"
+            python3 scripts/promote-image-digests.py \
+              "$RUNNER_TEMP/executor-only-candidates.json" \
+              --evidence-root "$RUNNER_TEMP/executor-image-candidates" \
+              --source-revision "$GITHUB_SHA" --require-profiles general rust node python go --check-lock
+          else
+            printf 'Derived image candidates are validated and retained for review. Promote their digests in a lock-update pull request.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if jq -e '
+            all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
+              . as $image |
+              ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
+              ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
+              ($image.reference | endswith($image.digest)))
+          ' containers/images.lock.json >/dev/null; then
+            jq '{schema_version:1,images:[.images[] | select(.profile == "browser_qa" or .profile == "desktop_qa")]}' \
+              "$RUNNER_TEMP/executor-image-candidates.json" > "$RUNNER_TEMP/qa-only-candidates.json"
+            python3 scripts/promote-image-digests.py \
+              "$RUNNER_TEMP/qa-only-candidates.json" \
+              --evidence-root "$RUNNER_TEMP/executor-image-candidates" \
+              --source-revision "$GITHUB_SHA" --require-profiles browser_qa desktop_qa --check-lock
+          fi
+      - name: Retain combined candidate manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: executor-image-evidence-manifest
+          path: ${{ runner.temp }}/executor-image-candidates.json
+          if-no-files-found: error
+          retention-days: 90
+
+  check-reviewed-lock:
+    name: Check whether trusted publication is unlocked
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-and-verify, build-and-verify-qa-images]
+    runs-on: ubuntu-24.04
+    outputs:
+      executor_ready: ${{ steps.lock.outputs.executor_ready }}
+      qa_ready: ${{ steps.lock.outputs.qa_ready }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: lock
+        name: Gate publication on reviewed derived-image digests
+        run: |
+          set -euo pipefail
+          executor_ready=false
+          qa_ready=false
+          if jq -e '
+            all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
+              . as $image |
+              ($image.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")) and
+              ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
+              ($image.reference | endswith($image.digest)))
+          ' containers/images.lock.json >/dev/null; then executor_ready=true; fi
+          if jq -e '
+            all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
+              . as $image |
+              ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
+              ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
+              ($image.reference | endswith($image.digest)) and
+              ($image.platform == "linux/amd64") and
+              ($image.build_recipe_sha256 | test("^sha256:[0-9a-f]{64}$"))) and
+            ([.profiles.browser_qa[].platform] == ["linux/amd64"]) and
+            ([.profiles.desktop_qa[].platform] == ["linux/amd64"])
+          ' containers/images.lock.json >/dev/null; then qa_ready=true; fi
+          printf 'executor_ready=%s\n' "$executor_ready" >> "$GITHUB_OUTPUT"
+          printf 'qa_ready=%s\n' "$qa_ready" >> "$GITHUB_OUTPUT"
+          if [[ "$executor_ready" != true ]]; then
+            printf 'Trusted publication skipped: candidate digests must first be promoted in a reviewed lock-file pull request.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$qa_ready" != true ]]; then
+            printf 'QA image publication skipped: both amd64 QA image digests must first be produced by rootless candidate CI and promoted in a reviewed lock-file pull request.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish-reviewed-qa-main:
+    name: Publish and attest ${{ matrix.profile }}
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-reviewed-lock.outputs.qa_ready == 'true'
+    needs: [build-and-verify-qa-images, check-reviewed-lock]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [browser_qa, desktop_qa]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Require rootless Docker for trusted QA publication
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+      - name: Authenticate to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
+      - name: Download pinned Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          syft-version: v1.54.1
+      - name: Install the pinned Rust toolchain for the desktop driver
+        if: matrix.profile == 'desktop_qa'
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Cache Rust desktop-driver build artifacts
+        if: matrix.profile == 'desktop_qa'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-desktop-qa
+          cache-workspace-crates: true
+      - name: Rebuild and publish the reviewed QA image recipe
+        id: publish
+        env:
+          PROFILE: ${{ matrix.profile }}
+          SYFT: ${{ steps.syft.outputs.cmd }}
+        run: |
+          set -euo pipefail
+          BASE_IMAGE="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' \
+            containers/base-images.lock.json)"
+          export BASE_IMAGE
+          scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$BASE_IMAGE" publish
+          candidate="$RUNNER_TEMP/executor-image-candidate-${PROFILE}-amd64/executor-image.json"
+          expected="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
+          actual="$(jq -er '.digest' "$candidate")"
+          test "$actual" = "$expected"
+          printf 'digest=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$actual" > "$RUNNER_TEMP/qa-image-digest.txt"
+          printf 'Published reviewed QA digest %s for %s.\n' "$actual" "$PROFILE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Attest published QA image provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/zbarno/koolade-runtime-qa-${{ matrix.profile == 'browser_qa' && 'browser' || 'desktop' }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          github-token: ${{ github.token }}
+      - name: Attest published QA image SBOM
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/zbarno/koolade-runtime-qa-${{ matrix.profile == 'browser_qa' && 'browser' || 'desktop' }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/executor-image-candidate-${{ matrix.profile }}-amd64/executor-sbom.spdx.json
+          push-to-registry: true
+          github-token: ${{ github.token }}
+      - name: Retain the reviewed QA publication record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reviewed-${{ matrix.profile }}-${{ github.sha }}
+          path: ${{ runner.temp }}/executor-image-candidate-${{ matrix.profile }}-amd64/*
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-reviewed-main:
+    name: Publish and attest ${{ matrix.profile }} (${{ matrix.arch }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-reviewed-lock.outputs.executor_ready == 'true'
+    needs: [build-and-verify, check-reviewed-lock]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: general
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: general
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: rust
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: rust
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: node
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: node
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: python
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: python
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - profile: go
+            platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - profile: go
+            platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Require rootless Docker for trusted publication
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+      - name: Select the architecture-specific locked base
+        id: image
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          base_image="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .reference' \
+            containers/base-images.lock.json)"
+          [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
+      - name: Authenticate to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io \
+            --username "$GHCR_ACTOR" --password-stdin
+      - name: Build and publish the exact reviewed image digest
+        id: publish
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+        run: |
+          set -euo pipefail
+          image_repository="ghcr.io/zbarno/koolade-executor"
+          image_tag="$image_repository:$PROFILE-$GITHUB_SHA-$ARCH"
+          metadata_file="$RUNNER_TEMP/build-metadata.json"
+          docker buildx build \
+            --platform "$PLATFORM" \
+            --network=none \
+            --push \
+            --provenance=false \
+            --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH=0 \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --build-arg "EXECUTOR_PROFILE=$PROFILE" \
+            --metadata-file "$metadata_file" \
+            --tag "$image_tag" \
+            containers/executor
+          image_digest="$(jq -er '.["containerimage.digest"]' "$metadata_file")"
+          [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          image_reference="$image_repository@$image_digest"
+          printf 'digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
+          expected_digest="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .digest' containers/images.lock.json)"
+          test "$image_digest" = "$expected_digest"
+          recipe_sha256="sha256:$(sha256sum containers/executor/Dockerfile containers/executor/README.md | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
+          docker pull --platform "$PLATFORM" "$image_reference"
+          observed="$(docker image inspect "$image_reference" --format '{{.Os}} {{.Architecture}} {{.Config.User}}')"
+          test "$observed" = "linux $ARCH 10001:10001"
+          jq -n \
+            --arg profile "$PROFILE" \
+            --arg platform "$PLATFORM" \
+            --arg base_image "$BASE_IMAGE" \
+            --arg reference "$image_reference" \
+            --arg digest "$image_digest" \
+            --arg revision "$GITHUB_SHA" \
+            --arg recipe "$recipe_sha256" \
+            --argjson tools "$(jq -ce --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+              '.profiles[$profile][] | select(.platform == $platform) | .tool_versions' containers/images.lock.json)" \
+            '{profile:$profile, platform:$platform, base_image:$base_image, reference:$reference, digest:$digest, source_revision:$revision, build_recipe_sha256:$recipe, tool_versions:$tools}' \
+            > "$RUNNER_TEMP/executor-image.json"
+          {
+            printf '### Published executor candidate\n\n'
+            printf -- '- Profile: %s\n- Platform: %s\n- Digest reference: %s\n' \
+              "$PROFILE" "$PLATFORM" "$image_reference"
+            printf -- '- Rootless candidate digest: matched the reviewed lock\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Download pinned Syft and create the published image SBOM
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
+        with:
+          syft-version: v1.54.1
+      - name: Scan the exact published digest
+        env:
+          SYFT: ${{ steps.syft.outputs.cmd }}
+          IMAGE_REFERENCE: ghcr.io/zbarno/koolade-executor@${{ steps.publish.outputs.digest }}
+        run: |
+          set -euo pipefail
+          "$SYFT" "$IMAGE_REFERENCE" -o spdx-json="$RUNNER_TEMP/executor-sbom.spdx.json"
+          jq -e '.spdxVersion | startswith("SPDX-2.")' "$RUNNER_TEMP/executor-sbom.spdx.json" >/dev/null
+      - name: Attest published image provenance
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/zbarno/koolade-executor
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          github-token: ${{ github.token }}
+      - name: Attest published image SBOM
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ghcr.io/zbarno/koolade-executor
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/executor-sbom.spdx.json
+          push-to-registry: true
+          github-token: ${{ github.token }}
+      - name: Retain attestation bundles and update the evidence record
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$PROVENANCE_BUNDLE" "$RUNNER_TEMP/executor-provenance.bundle.json"
+          cp "$SBOM_BUNDLE" "$RUNNER_TEMP/executor-sbom.bundle.json"
+          sbom_sha256="sha256:$(sha256sum "$RUNNER_TEMP/executor-sbom.spdx.json" | awk '{print $1}')"
+          provenance_sha256="sha256:$(sha256sum "$RUNNER_TEMP/executor-provenance.bundle.json" | awk '{print $1}')"
+          jq --arg sbom "$sbom_sha256" --arg provenance "$provenance_sha256" \
+            '. + {sbom_sha256:$sbom,provenance_sha256:$provenance}' \
+            "$RUNNER_TEMP/executor-image.json" > "$RUNNER_TEMP/executor-image.tmp.json"
+          mv "$RUNNER_TEMP/executor-image.tmp.json" "$RUNNER_TEMP/executor-image.json"
+      - name: Retain the reviewed digest record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: executor-image-${{ matrix.profile }}-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/executor-image.json
+            ${{ runner.temp }}/executor-sbom.spdx.json
+            ${{ runner.temp }}/executor-provenance.bundle.json
+            ${{ runner.temp }}/executor-sbom.bundle.json
+          if-no-files-found: error
+          retention-days: 90

@@ -11,6 +11,10 @@ impl DlgHarnessSetup {
             section: HarnessSettingsSection::Tools,
             manual_path_drafts: Default::default(),
             probe_rx: None,
+            scan_generation: 0,
+            scan_cancel: None,
+            scan_results: Vec::new(),
+            runtime_available: None,
         }
     }
 }

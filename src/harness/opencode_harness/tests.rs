@@ -71,10 +71,10 @@ fn probe_distinguishes_ready_invalid_and_unconfigured() {
         &root,
         "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi; echo 'Authentication required' >&2; exit 1",
     );
-    assert_eq!(
-        probe(&auth).unwrap_err().0,
-        OpenCodeReadiness::AuthenticationRequired
-    );
+    let (readiness, diagnostic) = probe(&auth).unwrap_err();
+    assert_eq!(readiness, OpenCodeReadiness::AuthenticationRequired);
+    assert!(diagnostic.contains("auth login"));
+    assert!(!diagnostic.contains("Authentication required"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -82,7 +82,7 @@ fn probe_distinguishes_ready_invalid_and_unconfigured() {
 #[test]
 fn executes_structured_result_with_model_and_telemetry() {
     let root = temp_dir("execute");
-    let binary = fake_cli(
+    let binary = fake_execution_cli(
         &root,
         &format!(
             "if [ \"$1\" = \"--pure\" ]; then cat > '{}'; test -s '{}' || exit 10; echo \"$OPENCODE_CONFIG_CONTENT\" | grep -F '\"*\":\"deny\"' >/dev/null; if [ $? -ne 0 ]; then echo missing-config-deny >&2; exit 11; fi; printf '%s\\n' \"$*\" | grep -F -- '--agent koolade_' >/dev/null; if [ $? -ne 0 ]; then echo missing-isolated-agent >&2; exit 12; fi; printf '%s\\n' \"$*\" | grep -F -- '--model openai/gpt-test' >/dev/null; if [ $? -ne 0 ]; then echo missing-model >&2; exit 13; fi; printf '%s\\n' '{{\"type\":\"tool_use\",\"part\":{{\"tool\":\"read\"}}}}' '{{\"type\":\"text\",\"part\":{{\"text\":\"{{\\\"ok\\\":true}}\"}}}}' '{{\"type\":\"step_finish\",\"part\":{{\"reason\":\"stop\",\"cost\":0.02,\"tokens\":{{\"input\":12,\"output\":4}}}}}}'; exit 0; fi\nif [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi\nif [ \"$1\" = \"--pure\" ] && [ \"$2\" = \"models\" ]; then echo 'openai/gpt-test'; exit 0; fi\nexit 1",
@@ -122,7 +122,7 @@ fn executes_structured_result_with_model_and_telemetry() {
 #[test]
 fn sequential_steps_use_non_overlapping_model_call_intervals() {
     let root = temp_dir("step-timing");
-    let binary = fake_cli(
+    let binary = fake_execution_cli(
         &root,
         r#"if [ "$1" = "--pure" ]; then
 cat >/dev/null
@@ -156,8 +156,8 @@ exit 1"#,
 #[test]
 fn malformed_output_fails_and_cancellation_stops_the_child() {
     let root = temp_dir("cancel");
-    let binary = fake_cli(&root, "cat >/dev/null; echo malformed; exit 0");
-    let _env = EnvOverride::set(&binary);
+    let binary = fake_execution_cli(&root, "cat >/dev/null; echo malformed; exit 0");
+    let mut _env = EnvOverride::set(&binary);
     let (tx, _) = mpsc::channel();
     assert!(crate::harness::with_uncontained_provider_test_execution(
         || {
@@ -170,7 +170,7 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
     ));
 
     let ready = root.join("started");
-    let binary = fake_cli(&root, &format!("touch '{}'; sleep 30", ready.display()));
+    let binary = fake_execution_cli(&root, &format!("touch '{}'; sleep 30", ready.display()));
     _env.set_value(&binary);
     let cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = cancel.clone();
@@ -178,6 +178,7 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
     let worker = std::thread::spawn(move || {
         crate::harness::with_uncontained_provider_test_execution(|| {
             OpenCodeHarness.execute(&PlanningRequest {
+                prompt_manifest: None,
                 cancel: worker_cancel,
                 ..request(worker_root, mpsc::channel().0)
             })
@@ -202,6 +203,7 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
 
 fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "high".into(),
@@ -213,6 +215,10 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
         timeout: Duration::from_secs(5),
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     }
 }
 
@@ -234,27 +240,29 @@ fn fake_cli(root: &std::path::Path, body: &str) -> std::path::PathBuf {
 }
 
 #[cfg(unix)]
-struct EnvOverride(Option<std::ffi::OsString>);
+fn fake_execution_cli(root: &std::path::Path, body: &str) -> std::path::PathBuf {
+    fake_cli(
+        root,
+        &format!(
+            "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi\nif [ \"$1\" = \"--pure\" ] && [ \"$2\" = \"models\" ]; then echo 'openai/gpt-test'; exit 0; fi\n{body}"
+        ),
+    )
+}
+
+#[cfg(unix)]
+struct EnvOverride {
+    environment: crate::test_support::ProcessEnvironmentGuard,
+}
 
 #[cfg(unix)]
 impl EnvOverride {
     fn set(path: &std::path::Path) -> Self {
-        let prior = std::env::var_os(OPENCODE_BINARY_ENV);
-        unsafe { std::env::set_var(OPENCODE_BINARY_ENV, path) };
-        Self(prior)
+        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+        environment.set(OPENCODE_BINARY_ENV, path.as_os_str());
+        Self { environment }
     }
 
-    fn set_value(&self, path: &std::path::Path) {
-        unsafe { std::env::set_var(OPENCODE_BINARY_ENV, path) };
-    }
-}
-
-#[cfg(unix)]
-impl Drop for EnvOverride {
-    fn drop(&mut self) {
-        match self.0.take() {
-            Some(value) => unsafe { std::env::set_var(OPENCODE_BINARY_ENV, value) },
-            None => unsafe { std::env::remove_var(OPENCODE_BINARY_ENV) },
-        }
+    fn set_value(&mut self, path: &std::path::Path) {
+        self.environment.set(OPENCODE_BINARY_ENV, path.as_os_str());
     }
 }

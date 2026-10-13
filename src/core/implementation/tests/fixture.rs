@@ -12,6 +12,44 @@ impl AiHarness for Fixture {
         Ok("fixture".into())
     }
     fn execute(&self, req: &PlanningRequest) -> Result<crate::harness::HarnessOutcome, AppError> {
+        if req.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+            let typed = req
+                .prompt_body
+                .split("TYPED TASK REQUEST (JSON DATA)\n")
+                .nth(1)
+                .and_then(|body| body.split("\n\nQUOTED EVIDENCE").next())
+                .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+                .expect("review fixture receives the typed review request");
+            let review = typed
+                .get("payload")
+                .and_then(|payload| payload.get("request"))
+                .expect("typed review request has a request payload");
+            let subject_hash = review
+                .get("subject_hash")
+                .and_then(serde_json::Value::as_str)
+                .expect("review request binds a subject hash");
+            let requirements = review
+                .get("requirements_matrix")
+                .and_then(serde_json::Value::as_array)
+                .expect("review request has a requirement matrix");
+            let final_text = serde_json::json!({
+                "subject_hash": subject_hash,
+                "pass": true,
+                "coverage": requirements.iter().map(|requirement| serde_json::json!({
+                    "requirement": requirement,
+                    "status": "pass",
+                    "evidence": ["verified-test-report-0"]
+                })).collect::<Vec<_>>(),
+                "findings": [],
+                "untested": []
+            })
+            .to_string();
+            return Ok(crate::harness::HarnessOutcome {
+                final_text,
+                envelope: None,
+                stderr_tail: String::new(),
+            });
+        }
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
         assert_eq!(req.mode, crate::harness::ExecutionMode::Implementation);
         assert!(req.prompt_body.contains("RESUME"));
@@ -121,7 +159,7 @@ impl AiHarness for Fixture {
         } else {
             "none"
         };
-        let mut report = serde_json::json!({"schemaVersion":1,"status":status,"blocker_disposition":blocker_disposition,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":criterion,"evidence":"Created the required evidence and checked its exact contents."}],"verification":[verification],"remaining":[]});
+        let mut report = serde_json::json!({"schemaVersion":2,"status":status,"blocker_disposition":blocker_disposition,"summary":"Implemented the ticket behavior.","acceptance_criteria":[{"criterion":criterion,"evidence":"Created the required evidence and checked its exact contents."}],"verification":[verification],"remaining":[],"human_choices":[]});
         if status == "blocked" {
             report["remaining"] = if self.mode == "external_blocked" {
                 serde_json::json!(["Adjudicator: approve the revised contract before resuming."])
@@ -146,6 +184,13 @@ impl AiHarness for Fixture {
             final_text,
             envelope: None,
             stderr_tail: String::new(),
+        })
+    }
+
+    fn current_execution_identity(&self) -> Option<crate::harness::ReviewExecutionIdentity> {
+        Some(crate::harness::ReviewExecutionIdentity {
+            execution_id: uuid::Uuid::new_v4().to_string(),
+            session_id: uuid::Uuid::new_v4().to_string(),
         })
     }
 }

@@ -72,6 +72,8 @@ fn assert_untracked_source_is_rejected(file_name: &str, ignored: bool) {
         deadline: Instant::now() + Duration::from_secs(30),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     let policy = ExecutionPolicy {
         user_context: None,

@@ -34,6 +34,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -45,6 +46,10 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
         timeout: std::time::Duration::from_secs(1),
         progress_tx,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
 
     harness.execute(&request).unwrap();
@@ -59,6 +64,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
 fn supported_provider_clis_pass_implementation_requests_through_the_shared_policy() {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -70,6 +76,10 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
         timeout: std::time::Duration::from_secs(1),
         progress_tx,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
 
     for provider in ["codex", "claude", "antigravity", "opencode", "copilot"] {
@@ -92,26 +102,44 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
         default_model_hint: None,
     };
     let error = unsupported.execute(&request).unwrap_err();
-    assert!(error.detail().contains("application-owned Linux sandbox"));
+    assert!(!error.detail().is_empty());
+    assert!(error.detail().contains("unsupported"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 #[test]
-fn configured_alternate_implementation_route_reports_broker_requirement() {
+fn configured_alternate_implementation_route_fails_closed_without_repository_access() {
+    let now = crate::persistence::harness_settings::current_unix_ms();
     let settings = crate::persistence::harness_settings::HarnessSettings {
         default_harness: Some("codex".into()),
+        discovered: std::collections::BTreeMap::from([(
+            "codex".into(),
+            crate::persistence::harness_settings::DetectedHarness {
+                status: "codex ready".into(),
+                version: Some("1.0.0".into()),
+                executable: Some("/synthetic/bin/codex".into()),
+                diagnostic: None,
+                ready: true,
+                models: Vec::new(),
+                default_model: None,
+                model_catalog_fresh: false,
+                configuration_required: false,
+                implementation_available: false,
+                checked_at_unix_ms: now,
+                capability_snapshot: None,
+            },
+        )]),
         ..Default::default()
     };
 
-    let error = routed_harness(
-        &settings,
-        Some(crate::persistence::harness_settings::IMPLEMENTATION),
-        None,
-        None,
-    )
-    .check_available()
-    .unwrap_err();
+    let routes = std::collections::BTreeMap::from([(
+        crate::persistence::harness_settings::IMPLEMENTATION.into(),
+        crate::persistence::harness_settings::WorkRoute {
+            harness: "codex".into(),
+            model: None,
+        },
+    )]);
+    let error = super::super::validate_task_routes(&settings, &routes).unwrap_err();
 
-    assert!(error.detail().contains("application-owned Linux sandbox"));
-    assert!(error.detail().contains("no fallback"));
+    assert!(error.contains("application-owned Docker execution session"));
 }

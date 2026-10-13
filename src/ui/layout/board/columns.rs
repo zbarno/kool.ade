@@ -73,6 +73,11 @@ pub(super) fn paint(
                             displayed == column
                         })
                         .collect::<Vec<_>>();
+                    let clarifications = if column == 3 {
+                        &board.clarification_questions[..]
+                    } else {
+                        &[]
+                    };
                     egui::Frame::NONE
                         .fill(theme::COLUMN)
                         .stroke(egui::Stroke::new(1.0, theme::BORDER))
@@ -86,6 +91,8 @@ pub(super) fn paint(
                                     let count = cards.len()
                                         + questions.len()
                                         + planning.len()
+                                        + clarifications.iter().filter(|question| matches!(question.status,
+                                            crate::core::planning::QuestionStatus::Draft | crate::core::planning::QuestionStatus::Open | crate::core::planning::QuestionStatus::Declined)).count()
                                         + usize::from(column == 3) * feature_approvals.len()
                                         + usize::from(
                                             column == 3 && board.setup_attention.is_some(),
@@ -147,6 +154,8 @@ pub(super) fn paint(
                                 let visible_count = cards.len()
                                     + questions.len()
                                     + planning.len()
+                                    + clarifications.iter().filter(|question| matches!(question.status,
+                                        crate::core::planning::QuestionStatus::Draft | crate::core::planning::QuestionStatus::Open | crate::core::planning::QuestionStatus::Declined)).count()
                                     + usize::from(column == 3) * feature_approvals.len()
                                     + usize::from(column == 3 && board.setup_attention.is_some());
                                 if visible_count == 0 {
@@ -188,6 +197,8 @@ pub(super) fn paint(
                                                     issue: board.setup_attention.as_ref(),
                                                     items: &questions,
                                                     tasks: &cards,
+                                                    clarifications,
+                                                    clarification_error: board.clarification_error.as_deref(),
                                                 },
                                                 selected_path,
                                                 planning_selection,

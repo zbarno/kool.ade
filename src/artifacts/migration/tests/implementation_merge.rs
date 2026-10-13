@@ -53,6 +53,7 @@ fn setup(tag: &str, conflicting_report: bool) -> Paths {
     let state = crate::core::implementation::Implementation {
         ticket: ticket.clone(),
         task_uid: None,
+        workspace_uid: None,
         ticket_text: text.to_owned(),
         approved_specification: None,
         approved_product_context: None,
@@ -106,6 +107,7 @@ fn setup(tag: &str, conflicting_report: bool) -> Paths {
 
 fn progress(updated_ms: i64, activity: &str) -> crate::harness::LiveProgress {
     crate::harness::LiveProgress {
+        prompt_manifest: None,
         telemetry: crate::harness::ActivityTelemetry {
             started_ms: Some(updated_ms),
             updated_ms: Some(updated_ms),

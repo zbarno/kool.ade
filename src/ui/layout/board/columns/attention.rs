@@ -25,6 +25,7 @@ enum Entry<'a> {
     Setup(&'a crate::app::setup_attention::SetupIssue),
     Item(&'a crate::domain::item::OpenItem),
     Task(&'a crate::artifacts::task_docs::TaskDocument),
+    Clarification(&'a crate::core::planning::QuestionV1),
 }
 
 pub(super) struct Lane<'a> {
@@ -32,6 +33,8 @@ pub(super) struct Lane<'a> {
     pub issue: Option<&'a crate::app::setup_attention::SetupIssue>,
     pub items: &'a [&'a crate::domain::item::OpenItem],
     pub tasks: &'a [&'a crate::artifacts::task_docs::TaskDocument],
+    pub clarifications: &'a [crate::core::planning::QuestionV1],
+    pub clarification_error: Option<&'a str>,
 }
 
 pub(super) fn badge(ui: &mut egui::Ui, kind: Kind) {
@@ -141,6 +144,17 @@ pub(super) fn paint(
         ));
         fallback_order += 1;
     }
+    for question in lane.clarifications {
+        if matches!(
+            question.status,
+            crate::core::planning::QuestionStatus::Draft
+                | crate::core::planning::QuestionStatus::Open
+                | crate::core::planning::QuestionStatus::Declined
+        ) {
+            entries.push((Entry::Clarification(question), None, fallback_order));
+            fallback_order += 1;
+        }
+    }
     sort_recency(&mut entries);
     for (entry, _, _) in entries {
         match entry {
@@ -150,7 +164,16 @@ pub(super) fn paint(
             Entry::Setup(issue) => super::cards::setup(ui, s, board, issue, planning_selection),
             Entry::Item(item) => super::cards::item(ui, s, board, item, 3, planning_selection),
             Entry::Task(task) => super::cards::task(ui, s, board, task, 3, selected_path),
+            Entry::Clarification(question) => {
+                super::cards::clarification(ui, question, planning_selection)
+            }
         }
+    }
+    if let Some(error) = lane.clarification_error {
+        ui.colored_label(
+            theme::WARNING,
+            format!("Clarification records could not be loaded: {error}"),
+        );
     }
 }
 

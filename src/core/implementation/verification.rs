@@ -2,6 +2,7 @@ use super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
 use std::collections::BTreeSet;
 
+mod catalog;
 mod commit;
 mod prompt;
 mod request;

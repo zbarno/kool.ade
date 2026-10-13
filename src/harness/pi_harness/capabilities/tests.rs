@@ -1,7 +1,7 @@
 use super::*;
 
 fn supported_help() -> &'static str {
-    "--print\n--mode <mode> text, json, rpc\n--no-session\n--no-approve\n--append-system-prompt\n--thinking <level> xhigh\n--no-extensions\n--no-skills\n--no-prompt-templates\n--no-context-files\n--no-tools\n--tools\n--no-builtin-tools\n--extension"
+    "--print\n--mode <mode> text, json, rpc\n--no-session\n--no-approve\n--append-system-prompt\n--thinking <level> xhigh\n--provider <name>\n--model <pattern>\n--no-extensions\n--no-skills\n--no-prompt-templates\n--no-themes\n--no-context-files\n--no-tools\n--tools\n--no-builtin-tools\n--extension"
 }
 
 #[test]

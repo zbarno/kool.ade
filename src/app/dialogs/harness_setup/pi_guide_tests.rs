@@ -117,6 +117,10 @@ fn pi_guide_tracks_tool_discovery_from_pending_to_live_report() {
         section: HarnessSettingsSection::Tools,
         manual_path_drafts: std::collections::BTreeMap::new(),
         probe_rx: None,
+        scan_generation: 0,
+        scan_cancel: None,
+        runtime_available: None,
+        scan_results: Vec::new(),
     };
     assert!(matches!(
         super::pi_guide::pi_guide_view(&dialog),
@@ -132,8 +136,11 @@ fn pi_guide_tracks_tool_discovery_from_pending_to_live_report() {
             ready: true,
             models: vec![],
             default_model: None,
+            model_catalog_fresh: false,
             configuration_required: false,
             implementation_available: true,
+            checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+            capability_snapshot: None,
         },
     );
     dialog.probe_view = ProbeView::Complete;

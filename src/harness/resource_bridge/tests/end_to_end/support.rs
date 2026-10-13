@@ -1,37 +1,17 @@
 use std::{
-    ffi::OsString,
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::{Mutex, MutexGuard},
 };
 
-static HOME_LOCK: Mutex<()> = Mutex::new(());
-
 pub(super) struct TaskHome {
-    previous: Option<OsString>,
-    _lock: MutexGuard<'static, ()>,
+    _environment: crate::test_support::ProcessEnvironmentGuard,
 }
 
 pub(super) fn task_home(path: &Path) -> TaskHome {
-    let lock = HOME_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let previous = std::env::var_os("KOOLADE_HOME");
-    unsafe { std::env::set_var("KOOLADE_HOME", path) };
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", path);
     TaskHome {
-        previous,
-        _lock: lock,
-    }
-}
-
-impl Drop for TaskHome {
-    fn drop(&mut self) {
-        unsafe {
-            match self.previous.take() {
-                Some(home) => std::env::set_var("KOOLADE_HOME", home),
-                None => std::env::remove_var("KOOLADE_HOME"),
-            }
-        }
+        _environment: environment,
     }
 }
 
@@ -111,25 +91,6 @@ pub(super) fn commit(root: &Path) {
     );
 }
 
-pub(super) fn with_npm_cache_index_staging(command: &str) -> String {
-    let helper =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/harness/pi_sandbox/dependency_retry.mjs");
-    let module = url::Url::from_file_path(helper).unwrap().to_string();
-    let script = format!(
-        "import {{ withPreparedNpmCacheIndex }} from {module:?}; process.stdout.write(withPreparedNpmCacheIndex({command:?}));"
-    );
-    let output = Command::new("node")
-        .args(["--input-type=module", "--eval", &script])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "could not prepare the npm offline command: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap()
-}
-
 pub(super) fn run_git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
         .arg("-C")
@@ -147,13 +108,6 @@ pub(super) fn run_git(root: &Path, args: &[&str]) {
 
 pub(super) fn npm_available() -> bool {
     Command::new("npm")
-        .arg("--version")
-        .output()
-        .is_ok_and(|output| output.status.success())
-}
-
-pub(super) fn bwrap_available() -> bool {
-    Command::new("bwrap")
         .arg("--version")
         .output()
         .is_ok_and(|output| output.status.success())

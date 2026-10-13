@@ -15,6 +15,13 @@ impl AiHarness for BareNestedCheckAgent {
         &self,
         request: &PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, AppError> {
+        if request.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+            return Fixture {
+                mode: "complete",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+            .execute(request);
+        }
         assert_eq!(request.mode, crate::harness::ExecutionMode::Implementation);
         fs::write(request.repo_root.join("implemented.txt"), "implemented\n").unwrap();
         Ok(outcome(serde_json::json!({
@@ -24,7 +31,8 @@ impl AiHarness for BareNestedCheckAgent {
             "summary":"Implemented the requested behavior.",
             "acceptance_criteria":[{"criterion":"File contains implemented.","evidence":"implemented.txt contains the expected content."}],
             "verification":["test -f marker"],
-            "remaining":[]
+            "remaining":[],
+            "human_choices":[]
         })))
     }
 }
@@ -34,7 +42,7 @@ fn bare_nested_check_report_uses_the_scoped_command_after_baseline_verification(
     let s = Sandbox::new();
     let local = s.git(&s.repo, &["rev-parse", "HEAD"]);
     s.advance_remote();
-    let peer = s.root.join("peer");
+    let peer = s.latest_peer();
     fs::create_dir_all(peer.join("Source")).unwrap();
     fs::write(
         peer.join("Source/AGENTS.md"),
@@ -79,9 +87,13 @@ fn bare_nested_check_report_uses_the_scoped_command_after_baseline_verification(
 #[test]
 fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
     let s = Sandbox::new();
+    let ticket_text = crate::artifacts::task_docs::visible_content(
+        &fs::read_to_string(s.repo.join(&s.ticket)).unwrap(),
+    );
+    super::super::sandbox::seed_lifecycle_task(&s.repo, &s.ticket, &ticket_text);
     let local = s.git(&s.repo, &["rev-parse", "HEAD"]);
     s.advance_remote();
-    let peer = s.root.join("peer");
+    let peer = s.latest_peer();
     fs::create_dir_all(peer.join("Source")).unwrap();
     fs::write(
         peer.join("Source/AGENTS.md"),
@@ -142,6 +154,7 @@ fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
         "preserve me\n",
     )
     .unwrap();
+    request_repair_before_preserving_later_task_edits(&s, &state);
     set_saved_plan_legacy_verification(&dir, &remote);
 
     let resume_agent = ReconcilingAgent {
@@ -164,6 +177,53 @@ fn verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits() {
     assert_eq!(
         plan.required_verification,
         ["cd -- 'Source' && test -f marker"]
+    );
+}
+
+fn request_repair_before_preserving_later_task_edits(
+    sandbox: &Sandbox,
+    state: &crate::core::implementation::Implementation,
+) {
+    use crate::core::lifecycle::{GateDecision, LifecycleStore, TaskEvent, TaskPhase};
+
+    let task_uid = state.task_uid.as_deref().expect("stable task identity");
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::nil(),
+        &sandbox.repo,
+    );
+    let lifecycle = LifecycleStore::new(&planning);
+    let task = lifecycle.load_task(task_uid).unwrap();
+    assert_eq!(task.phase, TaskPhase::AwaitingRuntimeQa);
+    let mut receipt = task
+        .code_review
+        .clone()
+        .expect("the prior implementation has an approved review");
+    receipt.receipt_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    receipt.reviewer_run_id = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    receipt.reviewer_session_id = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    receipt.decision = GateDecision::ChangesRequested;
+    let event_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    lifecycle
+        .apply_task_event(
+            task_uid,
+            task.revision,
+            &event_uid,
+            TaskEvent::CodeReview {
+                receipt,
+                reviewed_head_sha: task
+                    .reviewed_code_head_sha
+                    .clone()
+                    .expect("reviewed head is persisted"),
+                review_subject_sha256: task
+                    .reviewed_code_subject_sha256
+                    .clone()
+                    .expect("review subject is persisted"),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        lifecycle.load_task(task_uid).unwrap().phase,
+        TaskPhase::Repairing
     );
 }
 

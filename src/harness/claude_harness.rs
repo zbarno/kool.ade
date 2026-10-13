@@ -1,10 +1,9 @@
 //! Restricted, headless Claude Code adapter for isolated Kool.ad/e task work.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::AppError;
-use crate::harness::pi_proc::{PollState, StreamEvt};
 
 pub const CLAUDE_BINARY_ENV: &str = "KOOLADE_CLAUDE_BIN";
 pub const CLAUDE_MODEL_ENV: &str = "KOOLADE_CLAUDE_MODEL";
@@ -178,41 +177,23 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
 }
 
 fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
-    let mut argv = vec![binary.to_string_lossy().into_owned()];
-    argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let argv = std::iter::once(binary.to_string_lossy().into_owned())
+        .chain(args.iter().map(|arg| (*arg).to_owned()))
+        .collect::<Vec<_>>();
+    let output = crate::harness::discovery::run(
         &argv,
-        Path::new("."),
-        None,
-        &[],
+        PROBE_TIMEOUT,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::execution_security::CliProvider::Claude.excluded_child_environment(),
     )
-    .map_err(|error| format!("Claude Code could not start: {error}"))?;
-    let deadline = Instant::now() + PROBE_TIMEOUT;
-    let mut stdout = String::new();
-    let mut exit = None;
-    while Instant::now() < deadline {
-        match task.poll_next(Duration::from_millis(100)) {
-            Ok(StreamEvt::Stdout(line)) => {
-                stdout.push_str(&line);
-                stdout.push('\n');
-            }
-            Ok(StreamEvt::Stderr(_)) => {}
-            Ok(StreamEvt::Exited(success)) => {
-                exit = Some(success);
-            }
-            Err(PollState::Closed) => break,
-            Err(PollState::Pending) => {}
-        }
+    .map_err(|error| format!("Claude Code readiness command failed: {error}"))?;
+    if output.stdout_truncated || output.stderr_truncated {
+        return Err("Claude Code readiness output exceeded the size limit".into());
     }
-    match exit {
-        Some(success) => Ok((stdout, success)),
-        None => {
-            task.kill();
-            let _ = task.settle(Duration::from_secs(1));
-            Err("Claude Code readiness command timed out".into())
-        }
-    }
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok((format!("{stdout}\n{stderr}"), output.success))
 }
 
 fn is_supported_auth_method(method: String) -> bool {

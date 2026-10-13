@@ -10,6 +10,15 @@ mod reply;
 mod review;
 mod state;
 
+pub(super) fn paint_clarification(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    question: &crate::core::planning::QuestionV1,
+    height: f32,
+) {
+    planning::paint_clarification(ui, surface, question, height);
+}
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,

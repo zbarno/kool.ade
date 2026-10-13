@@ -42,16 +42,40 @@ fn save_branch_intent(sandbox: &Sandbox, source: &str, destination: &str) {
         .unwrap();
     let identity_marker = serde_json::to_string(&identity).unwrap();
     let metadata_json = serde_json::to_string(&metadata).unwrap();
+    let task_body =
+        "# Branch task\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
     let document = format!(
-        "---\nkoolade-task: {metadata_json}\n---\n\n<!-- koolade-artifact-id:v1 {identity_marker} -->\n\n# Branch task\n\n## Acceptance criteria\n\n- File contains implemented.\n"
+        "---\nkoolade-task: {metadata_json}\n---\n\n<!-- koolade-artifact-id:v1 {identity_marker} -->\n\n{task_body}"
     );
-    fs::write(sandbox.repo.join(&sandbox.ticket), document).unwrap();
+    fs::write(sandbox.repo.join(&sandbox.ticket), &document).unwrap();
+    // These tests cover branch-intent routing for a legacy task. Keep the
+    // stable Markdown identity, but omit a lifecycle record so the lifecycle
+    // publication gate does not mistake this routing fixture for an approved
+    // task with completed QA and specification reconciliation.
     sandbox.git(&sandbox.repo, &["add", &sandbox.ticket]);
     sandbox.git(
         &sandbox.repo,
         &["commit", "-qm", "save selected branch intent"],
     );
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
+}
+
+fn use_legacy_lifecycle_path(sandbox: &Sandbox) {
+    let uid = crate::domain::ArtifactIdentity::from_markdown(
+        &fs::read_to_string(sandbox.repo.join(&sandbox.ticket)).unwrap(),
+    )
+    .unwrap()
+    .unwrap()
+    .uid;
+    let store = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::nil(),
+        &sandbox.repo,
+    );
+    match fs::remove_file(store.root.join(format!("state/lifecycle_tasks/{uid}.json"))) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("could not remove legacy lifecycle task: {error}"),
+    }
 }
 
 #[test]
@@ -200,6 +224,7 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
 #[test]
 fn default_destination_pr_reconciles_remote_changes_before_publication() {
     let sandbox = Sandbox::new();
+    use_legacy_lifecycle_path(&sandbox);
     let calls = Arc::new(AtomicUsize::new(0));
     let harness = AdvanceDestination {
         sandbox: &sandbox,
@@ -235,7 +260,7 @@ fn default_destination_pr_reconciles_remote_changes_before_publication() {
             &remote,
             &["show", &format!("refs/heads/{}:upstream.txt", state.branch),],
         ),
-        "latest upstream"
+        "latest upstream\nremote advance"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
