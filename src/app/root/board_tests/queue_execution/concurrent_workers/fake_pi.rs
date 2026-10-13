@@ -70,7 +70,10 @@ if '--help' in sys.argv:
 --no-session
 --no-approve
 --append-system-prompt
+--provider <name>
+--model <pattern>
 --thinking <level> xhigh
+--no-themes
 --no-extensions
 --no-skills
 --no-prompt-templates

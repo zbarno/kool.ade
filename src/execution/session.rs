@@ -193,9 +193,9 @@ impl ExecutionSession {
             request_sequence,
             policy,
         };
-        request
-            .validate_at(now_unix_ms())
-            .map_err(|_| policy_error("Execution request failed validation"))?;
+        request.validate_at(now_unix_ms()).map_err(|error| {
+            policy_error(&format!("Execution request failed validation: {error:#}"))
+        })?;
         Ok(request)
     }
 

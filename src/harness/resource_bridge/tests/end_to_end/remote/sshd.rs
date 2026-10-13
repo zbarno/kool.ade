@@ -1,5 +1,7 @@
+use fs2::FileExt;
 use std::{
     fs,
+    fs::OpenOptions,
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
@@ -30,6 +32,15 @@ impl SshdFixture {
             std::io::Error::new(std::io::ErrorKind::NotFound, "sshd was not found")
         })?;
         let username = command_text("id", &["-un"])?;
+        // nextest runs these integration tests in separate processes. Hold a
+        // process-shared lock until sshd has bound the selected ephemeral port.
+        let port_lock_path = std::env::temp_dir().join("koolade-sshd-fixture-port.lock");
+        let port_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(port_lock_path)?;
+        port_lock.lock_exclusive()?;
         let port_listener = TcpListener::bind(("127.0.0.1", 0))?;
         let port = port_listener.local_addr()?.port();
         drop(port_listener);
@@ -139,6 +150,7 @@ impl SshdFixture {
             host_fingerprint,
         };
         fixture.wait_ready()?;
+        FileExt::unlock(&port_lock)?;
         Ok(fixture)
     }
 

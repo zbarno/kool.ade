@@ -17,7 +17,15 @@ pub fn verify_image_observation(
     {
         return Err(failure(
             PrerequisiteCode::ImageDigestMismatch,
-            "The local image does not have the exact approved repository digest",
+            &format!(
+                "The local image does not have the exact approved repository digest; expected {}, observed {}",
+                selected.reference,
+                if observed_repo_digests.is_empty() {
+                    "no repository digests".to_owned()
+                } else {
+                    observed_repo_digests.join(", ")
+                }
+            ),
             false,
         ));
     }
