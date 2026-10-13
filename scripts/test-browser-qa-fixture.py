@@ -168,7 +168,10 @@ def main() -> None:
             assert report["actions"][-1]["status"] == "failed"
             assert_screenshots(report, 1)
 
-            escape = request([action("browser_open", url="http://qa-service/?defect=metadata")])
+            escape = request([
+                action("browser_open", url="http://qa-service/?defect=metadata"),
+                action("browser_assert_text", locator={"locator": "test_id", "test_id": "status"}, expected_text="Request blocked"),
+            ])
             code, report = execute(image, browser_network, escape, directory)
             assert code == 1 and report["outcome"] == "failed"
             assert "169.254.169.254" in report["policy_violation"]
