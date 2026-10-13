@@ -208,8 +208,20 @@ impl RemoteWorkerClient {
     ) -> Result<EnvelopeV1, ExecutionError> {
         if response.kind == Kind::Error {
             let error: ExecutionError =
-                serde_json::from_value(response.payload.clone()).map_err(|_| incompatible())?;
-            error.validate().map_err(|_| incompatible())?;
+                serde_json::from_value(response.payload.clone()).map_err(|parse_error| {
+                    ExecutionError::new(
+                        ExecutionErrorKind::WorkerIncompatible,
+                        format!("Remote worker returned an invalid error response: {parse_error}"),
+                        false,
+                    )
+                })?;
+            error.validate().map_err(|validation_error| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerIncompatible,
+                    format!("Remote worker returned an invalid error response: {validation_error}"),
+                    false,
+                )
+            })?;
             if error.kind != ExecutionErrorKind::WorkerDisconnected {
                 remote_requests::record_completion(&self.worker_id, &request.request_id, &response)
                     .map_err(|_| unavailable())?;

@@ -4,6 +4,7 @@ use std::time::Duration;
 use bollard::query_parameters::CreateContainerOptionsBuilder;
 
 use super::super::runtime::{RuntimeExecution, RuntimeExecutionContext};
+use super::extract_archive;
 use crate::execution::{
     backend::{ExecutionHandleV1, WorkspaceLeaseV1},
     contract::{ExecutionEventKindV1, ExecutionLifecycleV1, ExecutionRequestV1, ExecutionTarget},
@@ -70,7 +71,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     let mut reservation = WorkspaceStartReservation::new(prepared);
     workspace.revalidate()?;
     let writable = super::super::execute::workspace_write_enabled(request);
-    let mut snapshot = if let Some(scope) = request.policy.workspace_write_scope() {
+    let snapshot = if let Some(scope) = request.policy.workspace_write_scope() {
         staging::capture_scoped(
             &workspace,
             &scope.root_relative,
@@ -186,23 +187,14 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     }
     let upload = tokio::time::timeout_at(
         deadline,
-        backend.docker.upload_to_container(
-            &created.id,
-            Some(
-                bollard::query_parameters::UploadToContainerOptionsBuilder::default()
-                    .path("/workspace")
-                    .copy_uidgid("1")
-                    .build(),
-            ),
-            bollard::body_full(std::mem::take(&mut snapshot.archive).into()),
-        ),
+        extract_archive(backend, &created.id, "/workspace", &snapshot.archive),
     )
     .await;
     match upload {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
-            return Err(engine_operation_error("upload workspace", error));
+            return Err(error);
         }
         Err(_) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
