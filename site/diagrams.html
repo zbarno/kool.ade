@@ -1,0 +1,702 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#17191c"><title>The Architecture Atlas | Kool.ad/e</title><link rel="stylesheet" href="/styles.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>
+.atlas{width:min(1200px,calc(100% - 40px));margin:auto;padding:72px 0}.atlas h1{font:900 clamp(42px,6vw,78px)/.95 var(--display);letter-spacing:-.07em;text-transform:uppercase}.atlas h2{font:900 24px var(--display);letter-spacing:-.04em;text-transform:uppercase}.atlas p{color:#bfb9ae;line-height:1.7}.atlas .eyebrow{font:800 11px var(--mono);letter-spacing:.16em;color:var(--blue)}.atlas-filter{display:flex;flex-wrap:wrap;gap:8px;margin:32px 0}.atlas-filter button{padding:12px 16px;background:#292d31;border:1px solid #51565a;color:var(--ink);font:800 11px var(--mono);cursor:pointer}.atlas-filter button[aria-pressed=true]{background:#a33441;border-color:#c04b58}.atlas-item{margin:0 0 28px;border:1px solid #4d5254;background:#202327;padding:25px}.atlas-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.atlas-head a{font:800 11px var(--mono);color:var(--blue)}.atlas-pair{display:grid;grid-template-columns:1fr 1fr;gap:18px}.atlas-view{min-width:0;background:#17191c;border:1px solid #3f494e;padding:17px;overflow-x:auto}.atlas-view h3{font:900 12px var(--mono);color:var(--lime);letter-spacing:.12em}.atlas-view.future h3{color:var(--blue)}.atlas-view .mermaid{min-width:410px;display:flex;justify-content:center}.atlas-view svg{max-width:100%;height:auto}.atlas-view details{margin-top:12px;color:#b8b4aa;font:11px var(--mono)}.atlas-view pre{overflow:auto;white-space:pre;font-size:11px}.atlas-foot{font:11px var(--mono);color:#99948b;padding:35px 0}.atlas-link{color:var(--blue);text-decoration:underline}.atlas-nav{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:25px 0}@media(max-width:860px){.atlas-pair{grid-template-columns:1fr}.atlas{padding-top:40px}.atlas-view .mermaid{min-width:0}}
+</style></head><body><div class="ticker"><div class="ticker-track"><span>DIAGRAMS. WITH RECEIPTS.</span><i>✦</i><span>FUTURE IS NOT THE PRESENT</span><i>✦</i><span>NO FICTITIOUS ARCHITECTURE</span><i>✦</i><span>DIAGRAMS. WITH RECEIPTS.</span><i>✦</i><span>FUTURE IS NOT THE PRESENT</span><i>✦</i><span>NO FICTITIOUS ARCHITECTURE</span><i>✦</i></div></div><div class="atlas"><div class="atlas-nav"><a class="brand" href="/"><img src="/assets/mark.svg" width="34" height="34" alt="">Kool.ad/e</a><a class="atlas-link" href="/architecture">← Architecture tour</a></div><p class="eyebrow">THE WHOLE PACKET · TECHNICAL CUT</p><h1>36 diagrams.<br><span style="color:var(--red)">Zero mystery meat.</span></h1><p>18 architecture topics, each with an <strong>implemented foundation</strong> and a <strong>target design</strong>. Click the issue links to see what is actually queued. Detailed engineering contracts are in the repository, not hidden behind a mascot.</p><div class="atlas-filter" role="group" aria-label="Diagram view"><button data-mode="both" aria-pressed="true">Side by side</button><button data-mode="current" aria-pressed="false">Current only</button><button data-mode="future" aria-pressed="false">Future only</button></div><div id="atlas-list"><article class="atlas-item"><div class="atlas-head"><h2>01 / System context</h2><a href="https://github.com/zbarno/kool.ade/issues/172" target="_blank" rel="noreferrer">ISSUE #172 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["User"]
+    c1["Kool.ad/e desktop"]
+    c2["Planning Git repository"]
+    c3["Code repositories"]
+    c4["Coding CLIs"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["User"]
+    c1["Kool.ad/e desktop"]
+    c2["Planning Git repository"]
+    c3["Code repositories"]
+    c4["Coding CLIs"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["User"]
+    f1["Kool.ad/e Man.ager"]
+    f2["Shared planning remote"]
+    f3["Docker execution targets"]
+    f4["External providers"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["User"]
+    f1["Kool.ad/e Man.ager"]
+    f2["Shared planning remote"]
+    f3["Docker execution targets"]
+    f4["External providers"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>02 / Controller components</h2><a href="https://github.com/zbarno/kool.ade/issues/157" target="_blank" rel="noreferrer">ISSUE #157 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Board + Task Details"]
+    c1["Planning core"]
+    c2["Git controller"]
+    c3["CLI adapters"]
+    c4["MCP security bridge"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Board + Task Details"]
+    c1["Planning core"]
+    c2["Git controller"]
+    c3["CLI adapters"]
+    c4["MCP security bridge"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Board + Task Details"]
+    f1["Event-driven lifecycle"]
+    f2["Policy dispatcher"]
+    f3["Docker backend"]
+    f4["QA evidence pipeline"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Board + Task Details"]
+    f1["Event-driven lifecycle"]
+    f2["Policy dispatcher"]
+    f3["Docker backend"]
+    f4["QA evidence pipeline"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>03 / Agent roles and orchestration</h2><a href="https://github.com/zbarno/kool.ade/issues/158" target="_blank" rel="noreferrer">ISSUE #158 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Manager"]
+    c1["Planner"]
+    c2["Coding harness"]
+    c3["Verification"]
+    c4["User gate"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Manager"]
+    c1["Planner"]
+    c2["Coding harness"]
+    c3["Verification"]
+    c4["User gate"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Man.ager"]
+    f1["Planner"]
+    f2["Independent plan reviewer"]
+    f3["Decomposer"]
+    f4["Implementer"]
+    f5["Code reviewer"]
+    f6["Runtime QA"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5
+    f5 --> f6</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Man.ager"]
+    f1["Planner"]
+    f2["Independent plan reviewer"]
+    f3["Decomposer"]
+    f4["Implementer"]
+    f5["Code reviewer"]
+    f6["Runtime QA"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5
+    f5 --> f6</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>04 / Feature and task lifecycle</h2><a href="https://github.com/zbarno/kool.ade/issues/157" target="_blank" rel="noreferrer">ISSUE #157 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Idea"]
+    c1["Planning conversation"]
+    c2["Task documents"]
+    c3["Implementation"]
+    c4["Verification"]
+    c5["PR decision"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4
+    c4 --> c5</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Idea"]
+    c1["Planning conversation"]
+    c2["Task documents"]
+    c3["Implementation"]
+    c4["Verification"]
+    c5["PR decision"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4
+    c4 --> c5</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Idea"]
+    f1["Async clarification"]
+    f2["Plan approval"]
+    f3["Independent review"]
+    f4["Task DAG"]
+    f5["Implementation"]
+    f6["Independent QA"]
+    f7["PR"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5
+    f5 --> f6
+    f6 --> f7</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Idea"]
+    f1["Async clarification"]
+    f2["Plan approval"]
+    f3["Independent review"]
+    f4["Task DAG"]
+    f5["Implementation"]
+    f6["Independent QA"]
+    f7["PR"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5
+    f5 --> f6
+    f6 --> f7</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>05 / Planning ambiguity and approval</h2><a href="https://github.com/zbarno/kool.ade/issues/159" target="_blank" rel="noreferrer">ISSUE #159 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["User goal"]
+    c1["Planning dialog"]
+    c2["Open items"]
+    c3["Spec update"]
+    c4["Human decision"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["User goal"]
+    c1["Planning dialog"]
+    c2["Open items"]
+    c3["Spec update"]
+    c4["Human decision"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Goal"]
+    f1["Deduplicated question cards"]
+    f2["Readiness gate"]
+    f3["Approved snapshot"]
+    f4["Adversarial plan review"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Goal"]
+    f1["Deduplicated question cards"]
+    f2["Readiness gate"]
+    f3["Approved snapshot"]
+    f4["Adversarial plan review"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>06 / Living specification and traceability</h2><a href="https://github.com/zbarno/kool.ade/issues/161" target="_blank" rel="noreferrer">ISSUE #161 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Product specs"]
+    c1["Change specs"]
+    c2["Task specs"]
+    c3["Implementation evidence"]
+    c4["Git links"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Product specs"]
+    c1["Change specs"]
+    c2["Task specs"]
+    c3["Implementation evidence"]
+    c4["Git links"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Approved intent"]
+    f1["Spec delta queue"]
+    f2["Verified current behavior"]
+    f3["Findings"]
+    f4["Merge/deploy evidence"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Approved intent"]
+    f1["Spec delta queue"]
+    f2["Verified current behavior"]
+    f3["Findings"]
+    f4["Merge/deploy evidence"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>07 / Shared planning and multi-user</h2><a href="https://github.com/zbarno/kool.ade/issues/121" target="_blank" rel="noreferrer">ISSUE #121 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Shared Git planning"]
+    c1["Per-record state"]
+    c2["Operator local runtime"]
+    c3["Code clones"]
+    c4["Remote Git claims"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Shared Git planning"]
+    c1["Per-record state"]
+    c2["Operator local runtime"]
+    c3["Code clones"]
+    c4["Remote Git claims"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Planning remote"]
+    f1["Optimistic revision checks"]
+    f2["User A"]
+    f3["User B"]
+    f4["Global lease"]
+    f5["Independent code repos"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Planning remote"]
+    f1["Optimistic revision checks"]
+    f2["User A"]
+    f3["User B"]
+    f4["Global lease"]
+    f5["Independent code repos"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>08 / Task DAG and clones</h2><a href="https://github.com/zbarno/kool.ade/issues/162" target="_blank" rel="noreferrer">ISSUE #162 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Board work item"]
+    c1["Task clone"]
+    c2["CLI work"]
+    c3["Git claim"]
+    c4["Review/PR"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Board work item"]
+    c1["Task clone"]
+    c2["CLI work"]
+    c3["Git claim"]
+    c4["Review/PR"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Approved TaskGraph"]
+    f1["Runnable DAG nodes"]
+    f2["Isolated subtask sessions"]
+    f3["Parent clone integration"]
+    f4["One PR"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Approved TaskGraph"]
+    f1["Runnable DAG nodes"]
+    f2["Isolated subtask sessions"]
+    f3["Parent clone integration"]
+    f4["One PR"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>09 / Local execution and sandbox</h2><a href="https://github.com/zbarno/kool.ade/issues/136" target="_blank" rel="noreferrer">ISSUE #136 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["CLI provider"]
+    c1["Private MCP server"]
+    c2["Bubblewrap"]
+    c3["Bounded repository commands"]
+    c4["Dependency broker"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["CLI provider"]
+    c1["Private MCP server"]
+    c2["Bubblewrap"]
+    c3["Bounded repository commands"]
+    c4["Dependency broker"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Controller policy"]
+    f1["ExecutionRequestV1"]
+    f2["Local Docker backend"]
+    f3["Non-root container"]
+    f4["Evidence return"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Controller policy"]
+    f1["ExecutionRequestV1"]
+    f2["Local Docker backend"]
+    f3["Non-root container"]
+    f4["Evidence return"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>10 / Remote execution parity</h2><a href="https://github.com/zbarno/kool.ade/issues/139" target="_blank" rel="noreferrer">ISSUE #139 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Local CLI controller"]
+    c1["Local clone"]
+    c2["Local Bubblewrap sandbox"]
+    c3["Local evidence"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Local CLI controller"]
+    c1["Local clone"]
+    c2["Local Bubblewrap sandbox"]
+    c3["Local evidence"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Controller"]
+    f1["SSH authenticated worker"]
+    f2["Version negotiation"]
+    f3["Remote Docker container"]
+    f4["Evidence synchronization"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Controller"]
+    f1["SSH authenticated worker"]
+    f2["Version negotiation"]
+    f3["Remote Docker container"]
+    f4["Evidence synchronization"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>11 / MCP and security boundaries</h2><a href="https://github.com/zbarno/kool.ade/issues/156" target="_blank" rel="noreferrer">ISSUE #156 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["CLI tool"]
+    c1["Private MCP bridge"]
+    c2["Scoped tool access"]
+    c3["Bubblewrap"]
+    c4["Application Git publisher"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["CLI tool"]
+    c1["Private MCP bridge"]
+    c2["Scoped tool access"]
+    c3["Bubblewrap"]
+    c4["Application Git publisher"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["CLI tool"]
+    f1["Application policy boundary"]
+    f2["Docker command bridge"]
+    f3["Brokered resources"]
+    f4["Controller Git publisher"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["CLI tool"]
+    f1["Application policy boundary"]
+    f2["Docker command bridge"]
+    f3["Brokered resources"]
+    f4["Controller Git publisher"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>12 / Independent review and QA</h2><a href="https://github.com/zbarno/kool.ade/issues/166" target="_blank" rel="noreferrer">ISSUE #166 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Implementation diff"]
+    c1["Unit tests"]
+    c2["Validation report"]
+    c3["Human PR approval"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Implementation diff"]
+    c1["Unit tests"]
+    c2["Validation report"]
+    c3["Human PR approval"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Implementation diff"]
+    f1["Independent code review"]
+    f2["Desktop/browser QA"]
+    f3["Finding"]
+    f4["Repair"]
+    f5["Fresh review"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Implementation diff"]
+    f1["Independent code review"]
+    f2["Desktop/browser QA"]
+    f3["Finding"]
+    f4["Repair"]
+    f5["Fresh review"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>13 / PR, merge and delivery truth</h2><a href="https://github.com/zbarno/kool.ade/issues/164" target="_blank" rel="noreferrer">ISSUE #164 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Task clone"]
+    c1["Verification"]
+    c2["PR preparation"]
+    c3["Git remote"]
+    c4["Board state"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Task clone"]
+    c1["Verification"]
+    c2["PR preparation"]
+    c3["Git remote"]
+    c4["Board state"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Verified parent diff"]
+    f1["Controlled PR"]
+    f2["Merged code"]
+    f3["Spec reconciliation"]
+    f4["Deployment evidence"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Verified parent diff"]
+    f1["Controlled PR"]
+    f2["Merged code"]
+    f3["Spec reconciliation"]
+    f4["Deployment evidence"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>14 / Persistence and telemetry</h2><a href="https://github.com/zbarno/kool.ade/issues/161" target="_blank" rel="noreferrer">ISSUE #161 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Git planning"]
+    c1["Operator conversations"]
+    c2["Implementation records"]
+    c3["Token ledger"]
+    c4["Task report"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Git planning"]
+    c1["Operator conversations"]
+    c2["Implementation records"]
+    c3["Token ledger"]
+    c4["Task report"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Planning remote"]
+    f1["Immutable approvals"]
+    f2["Local event ledger"]
+    f3["Evidence manifest"]
+    f4["Cost report"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Planning remote"]
+    f1["Immutable approvals"]
+    f2["Local event ledger"]
+    f3["Evidence manifest"]
+    f4["Cost report"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>15 / UI conversations and attention</h2><a href="https://github.com/zbarno/kool.ade/issues/165" target="_blank" rel="noreferrer">ISSUE #165 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Board"]
+    c1["Task Details"]
+    c2["Task thread"]
+    c3["Needs Attention"]
+    c4["Specification chat"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Board"]
+    c1["Task Details"]
+    c2["Task thread"]
+    c3["Needs Attention"]
+    c4["Specification chat"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Board projections"]
+    f1["Question card"]
+    f2["Approval card"]
+    f3["QA review"]
+    f4["PR card"]
+    f5["Spec status"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Board projections"]
+    f1["Question card"]
+    f2["Approval card"]
+    f3["QA review"]
+    f4["PR card"]
+    f5["Spec status"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>16 / Evolve and self-improvement</h2><a href="https://github.com/zbarno/kool.ade/issues/174" target="_blank" rel="noreferrer">ISSUE #174 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["Observed friction"]
+    c1["Manual enhancement idea"]
+    c2["User task"]
+    c3["Implementation"]
+    c4["PR"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["Observed friction"]
+    c1["Manual enhancement idea"]
+    c2["User task"]
+    c3["Implementation"]
+    c4["PR"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Event observations"]
+    f1["Opportunity proposal"]
+    f2["Explicit opt-in"]
+    f3["Isolated implementation"]
+    f4["QA"]
+    f5["Reviewed PR"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Event observations"]
+    f1["Opportunity proposal"]
+    f2["Explicit opt-in"]
+    f3["Isolated implementation"]
+    f4["QA"]
+    f5["Reviewed PR"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>17 / Stack-neutral extensibility</h2><a href="https://github.com/zbarno/kool.ade/issues/173" target="_blank" rel="noreferrer">ISSUE #173 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["User repo"]
+    c1["Detected project metadata"]
+    c2["Configured CLI"]
+    c3["Explicit tests"]
+    c4["Verification"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["User repo"]
+    c1["Detected project metadata"]
+    c2["Configured CLI"]
+    c3["Explicit tests"]
+    c4["Verification"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Capability detection"]
+    f1["Unknown technology"]
+    f2["Approval request"]
+    f3["Extension implementation"]
+    f4["Build/test/start recipes"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Capability detection"]
+    f1["Unknown technology"]
+    f2["Approval request"]
+    f3["Extension implementation"]
+    f4["Build/test/start recipes"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>18 / Integrated happy path</h2><a href="https://github.com/zbarno/kool.ade/issues/172" target="_blank" rel="noreferrer">ISSUE #172 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
+    c0["User input"]
+    c1["Planning"]
+    c2["Task clone"]
+    c3["Agent implementation"]
+    c4["Verification"]
+    c5["PR"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4
+    c4 --> c5</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    c0["User input"]
+    c1["Planning"]
+    c2["Task clone"]
+    c3["Agent implementation"]
+    c4["Verification"]
+    c5["PR"]
+    c0 --> c1
+    c1 --> c2
+    c2 --> c3
+    c3 --> c4
+    c4 --> c5</pre></details></div><div class="atlas-view future"><h3>○ FUTURE / ISSUE-BACKED</h3><pre class="mermaid">flowchart LR
+    f0["Goal"]
+    f1["Questions"]
+    f2["Approval"]
+    f3["Plan review"]
+    f4["Task DAG"]
+    f5["Docker workers"]
+    f6["Review and runtime QA"]
+    f7["PR and spec sync"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5
+    f5 --> f6
+    f6 --> f7</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
+    f0["Goal"]
+    f1["Questions"]
+    f2["Approval"]
+    f3["Plan review"]
+    f4["Task DAG"]
+    f5["Docker workers"]
+    f6["Review and runtime QA"]
+    f7["PR and spec sync"]
+    f0 --> f1
+    f1 --> f2
+    f2 --> f3
+    f3 --> f4
+    f4 --> f5
+    f5 --> f6
+    f6 --> f7</pre></details></div></div></article></div><p class="atlas-foot">Mermaid is loaded from a public CDN. If external scripts are blocked, each diagram remains available as source code. <a class="atlas-link" href="https://github.com/zbarno/kool.ade/blob/main/docs/architecture/architecture-atlas.md">Full Markdown source ↗</a></p></div><script type="module">
+const buttons=document.querySelectorAll("[data-mode]");buttons.forEach(b=>b.addEventListener("click",()=>{let m=b.dataset.mode;buttons.forEach(x=>x.setAttribute("aria-pressed",String(x===b)));document.querySelectorAll(".atlas-pair").forEach(p=>{p.style.gridTemplateColumns=m==="both"?"": "1fr";p.querySelector(".current").hidden=m==="future";p.querySelector(".future").hidden=m==="current";});}));
+try{const {default:mermaid}=await import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs");mermaid.initialize({startOnLoad:false,securityLevel:"strict",theme:"dark",flowchart:{htmlLabels:false,useMaxWidth:true}});await mermaid.run({querySelector:".mermaid"});}catch(error){console.warn("Mermaid unavailable, showing source",error);}
+</script></body></html>
