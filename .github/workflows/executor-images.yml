@@ -65,6 +65,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
@@ -172,6 +174,8 @@ jobs:
             exit 1
           fi
           test ! -e /var/run/docker.sock
+          test "$(cat /sys/fs/cgroup/memory.max)" = 1073741824
+          test "$(cat /sys/fs/cgroup/pids.max)" = 64
           if touch /executor-root-write 2>/dev/null; then
             echo "executor root filesystem is writable" >&2
             exit 1
@@ -255,6 +259,8 @@ jobs:
           - profile: desktop_qa
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
@@ -449,6 +455,8 @@ jobs:
         profile: [browser_qa, desktop_qa]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
@@ -584,6 +592,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
