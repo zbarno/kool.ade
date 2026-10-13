@@ -1,5 +1,6 @@
 use super::HarnessProbe;
 
+mod bounds;
 mod catalog;
 mod codex_models;
 mod providers;
