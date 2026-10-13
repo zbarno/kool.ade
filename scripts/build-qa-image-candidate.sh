@@ -89,7 +89,7 @@ SMOKE
       --mount "type=bind,src=$smoke,dst=/opt/koolade-runtime-qa/qa-smoke.mjs,readonly" \
       --entrypoint node "$tag" /opt/koolade-runtime-qa/qa-smoke.mjs)"
     tool_versions="$(jq -c . <<< "$tool_versions")"
-    scripts/test-browser-qa-fixture.py "$tag"
+    python3 scripts/test-browser-qa-fixture.py "$tag"
     ;;
   desktop_qa)
     repository=ghcr.io/zbarno/koolade-runtime-qa-desktop
