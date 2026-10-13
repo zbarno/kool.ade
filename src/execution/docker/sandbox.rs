@@ -204,10 +204,9 @@ pub fn create_body(
             privileged: Some(false),
             readonly_rootfs: Some(true),
             network_mode: Some("none".into()),
-            pid_mode: Some("private".into()),
             ipc_mode: Some("private".into()),
-            // Omit UsernsMode: Docker's default is private. The API accepts
-            // only the empty default or the explicit `host` value.
+            // Docker's default PID and user namespaces are isolated. Omit
+            // explicit mode strings because rootless Engine rejects `private`.
             userns_mode: None,
             cap_drop: Some(vec!["ALL".into()]),
             cap_add: Some(Vec::new()),

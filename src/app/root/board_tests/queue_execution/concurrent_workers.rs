@@ -185,7 +185,8 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         ));
     }
     let ctx = egui::Context::default();
-    let deadline = Instant::now() + Duration::from_secs(80);
+    // Hosted nextest runs this UI loop alongside CPU and Docker-heavy tests.
+    let deadline = Instant::now() + Duration::from_secs(180);
     let mut concurrent_chat = false;
     let mut planning_and_queued_task_overlap = false;
     let mut saw_capacity_wait = false;
