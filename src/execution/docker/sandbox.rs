@@ -9,9 +9,8 @@ use bollard::models::{ContainerCreateBody, HostConfig, Mount, MountBindOptions, 
 
 use super::images::{ImageLock, SelectedImage};
 use crate::execution::{
-    contract::{ExecutionModeV1, ExecutionRequestV1},
+    contract::ExecutionRequestV1,
     errors::{ExecutionError, ExecutionErrorKind},
-    policy::FilesystemGrantV1,
 };
 
 pub(crate) mod staging;
@@ -127,15 +126,6 @@ pub fn create_body(
             "Sandbox image does not match the approved request digest",
         ));
     }
-    let writable = request.mode != ExecutionModeV1::PlanningReadOnly
-        && (request
-            .policy
-            .filesystem_grants()
-            .contains(&FilesystemGrantV1::WorkspaceWrite)
-            || request
-                .policy
-                .filesystem_grants()
-                .contains(&FilesystemGrantV1::WorkspaceScopedWrite));
     let labels = HashMap::from([
         (OWNER_LABEL.into(), identity.owner_instance_id.clone()),
         (EXECUTION_LABEL.into(), request.execution_id.clone()),
@@ -164,8 +154,11 @@ pub fn create_body(
     };
     let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
     let mut tmpfs = HashMap::new();
-    let workspace_mode = if writable { "1777" } else { "555" };
-    let workspace_access = if writable { "rw" } else { "ro" };
+    // The staged snapshot is materialized after container start. Planning mode
+    // is sealed before any user command runs, while the image rootfs and .git
+    // mount remain read-only throughout setup.
+    let workspace_mode = "1777";
+    let workspace_access = "rw";
     tmpfs.insert(
         WORKSPACE_TARGET.into(),
         format!("{workspace_access},nosuid,nodev,size={temporary_bytes},mode={workspace_mode}"),

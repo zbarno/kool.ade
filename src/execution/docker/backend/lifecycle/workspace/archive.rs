@@ -12,6 +12,46 @@ pub async fn extract_archive(
     container_id: &str,
     destination: &str,
     archive: &[u8],
+    seal_workspace: bool,
+) -> Result<(), ExecutionError> {
+    run_exec(
+        backend,
+        container_id,
+        vec![
+            "tar".into(),
+            "--extract".into(),
+            "--file=-".into(),
+            "--directory".into(),
+            destination.into(),
+            "--no-same-owner".into(),
+        ],
+        if seal_workspace { "0:0" } else { "10001:10001" },
+        archive,
+    )
+    .await?;
+    if seal_workspace {
+        run_exec(
+            backend,
+            container_id,
+            vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "find /workspace -path /workspace/.git -prune -o -exec chmod a+rX,a-w {} +".into(),
+            ],
+            "0:0",
+            &[],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn run_exec(
+    backend: &DockerExecutionBackend,
+    container_id: &str,
+    command: Vec<String>,
+    user: &str,
+    input_bytes: &[u8],
 ) -> Result<(), ExecutionError> {
     let exec = backend
         .docker
@@ -19,22 +59,16 @@ pub async fn extract_archive(
             container_id,
             CreateExecOptions::<String> {
                 attach_stdin: Some(true),
-                cmd: Some(vec![
-                    "tar".into(),
-                    "--extract".into(),
-                    "--file=-".into(),
-                    "--directory".into(),
-                    destination.into(),
-                    "--no-same-owner".into(),
-                ]),
-                user: Some("10001:10001".into()),
+                attach_stdout: Some(false),
+                attach_stderr: Some(false),
+                cmd: Some(command),
+                user: Some(user.into()),
                 privileged: Some(false),
                 ..Default::default()
             },
         )
         .await
         .map_err(|_| archive_error())?;
-
     let StartExecResults::Attached {
         mut input,
         mut output,
@@ -54,7 +88,7 @@ pub async fn extract_archive(
         return Err(archive_error());
     };
     input
-        .write_all(archive)
+        .write_all(input_bytes)
         .await
         .map_err(|_| archive_error())?;
     input.shutdown().await.map_err(|_| archive_error())?;
@@ -64,7 +98,6 @@ pub async fn extract_archive(
         .map_err(|_| archive_error())?
         .is_some()
     {}
-
     let result = backend
         .docker
         .inspect_exec(&exec.id)

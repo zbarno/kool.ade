@@ -187,7 +187,13 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     }
     let upload = tokio::time::timeout_at(
         deadline,
-        extract_archive(backend, &created.id, "/workspace", &snapshot.archive),
+        extract_archive(
+            backend,
+            &created.id,
+            "/workspace",
+            &snapshot.archive,
+            !writable,
+        ),
     )
     .await;
     match upload {

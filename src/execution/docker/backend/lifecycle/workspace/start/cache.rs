@@ -39,9 +39,15 @@ pub(super) async fn install_dependency_caches(
             DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
             DependencyCacheEcosystemV1::Cargo => "/home/executor/.cargo",
         };
-        if super::super::extract_archive(backend, container_id, destination, &snapshot.archive)
-            .await
-            .is_err()
+        if super::super::extract_archive(
+            backend,
+            container_id,
+            destination,
+            &snapshot.archive,
+            false,
+        )
+        .await
+        .is_err()
         {
             return false;
         }
