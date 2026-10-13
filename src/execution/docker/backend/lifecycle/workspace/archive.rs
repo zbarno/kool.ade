@@ -1,5 +1,6 @@
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use futures_util::TryStreamExt;
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
 use crate::execution::{
@@ -98,15 +99,20 @@ async fn run_exec(
         .map_err(|_| archive_error())?
         .is_some()
     {}
-    let result = backend
-        .docker
-        .inspect_exec(&exec.id)
-        .await
-        .map_err(|_| archive_error())?;
-    if result.exit_code != Some(0) {
-        return Err(archive_error());
+    loop {
+        let result = backend
+            .docker
+            .inspect_exec(&exec.id)
+            .await
+            .map_err(|_| archive_error())?;
+        if result.running == Some(false) || result.exit_code.is_some() {
+            if result.exit_code == Some(0) {
+                return Ok(());
+            }
+            return Err(archive_error());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    Ok(())
 }
 
 fn archive_error() -> ExecutionError {
