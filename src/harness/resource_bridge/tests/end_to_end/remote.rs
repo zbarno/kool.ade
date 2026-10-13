@@ -18,6 +18,8 @@ use std::{
 mod authorization;
 mod sshd;
 mod task_roundtrip;
+mod two_controllers;
+mod worker_restart;
 
 #[test]
 fn remote_docker_worker_restores_authorized_npm_cache_without_container_network() {

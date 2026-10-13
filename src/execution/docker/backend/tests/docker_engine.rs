@@ -5,6 +5,8 @@ use crate::execution::{
     contract::{EventPageRequestV1, ExecutionEventKindV1, ExecutionLifecycleV1},
 };
 
+#[path = "docker_engine/recovery.rs"]
+mod recovery;
 #[path = "docker_engine/stack_recipes.rs"]
 mod stack_recipes;
 #[path = "docker_engine/support.rs"]

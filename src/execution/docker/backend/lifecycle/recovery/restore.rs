@@ -59,6 +59,15 @@ pub(super) async fn restore_record(
             .and_then(|config| config.labels.clone())
             .unwrap_or_default(),
     )?;
+    // A restarted worker has no reader attached to an already-started Docker
+    // exec. Reopening that record as Running would leave event subscribers
+    // waiting forever and could expose a partial, unobserved result. Reconcile
+    // it to Interrupted and remove only the container whose complete ownership
+    // labels were just verified.
+    if record.command_started && !is_terminal(record.state) {
+        super::reconcile_record(backend, record).await?;
+        return Ok(());
+    }
     let request = record
         .request
         .clone()

@@ -59,3 +59,29 @@ fn pending_request_ids_cannot_be_rebound_and_symlink_roots_are_rejected() {
         assert!(pending_at(symlink_root.path(), "worker-west").is_err());
     }
 }
+
+#[test]
+fn expired_pending_request_is_completed_as_incompatible_and_never_replayed() {
+    let root = tempfile::tempdir().unwrap();
+    let request = envelope();
+    save_pending_at(root.path(), "worker-east", &request).unwrap();
+    let path = worker_directory(root.path(), "worker-east", false)
+        .unwrap()
+        .join(format!("{}.pending", request.request_id));
+    let mut record: PendingRemoteRequestV1 =
+        serde_json::from_slice(&read_private(&path).unwrap()).unwrap();
+    record.created_at_unix_ms = 1;
+    crate::artifacts::atomic_write_bytes(&path, &serde_json::to_vec(&record).unwrap()).unwrap();
+
+    assert!(pending_at(root.path(), "worker-east").unwrap().is_empty());
+    let completion = take_completion_at(root.path(), "worker-east", &request.request_id)
+        .unwrap()
+        .expect("expired envelope must become a durable completion");
+    assert_eq!(completion.response.kind, EnvelopeKindV1::Error);
+    let error: crate::execution::errors::ExecutionError =
+        serde_json::from_value(completion.response.payload).unwrap();
+    assert_eq!(
+        error.kind,
+        crate::execution::errors::ExecutionErrorKind::WorkerIncompatible
+    );
+}

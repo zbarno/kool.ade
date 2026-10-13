@@ -39,6 +39,11 @@ pub struct RemoteWorkerClient {
 }
 
 impl RemoteWorkerClient {
+    #[cfg(test)]
+    pub fn terminate_transport_for_test(&mut self) {
+        let _ = self.transport.terminate();
+    }
+
     pub fn connect(config: &SshWorkerConfig) -> Result<Self, ExecutionError> {
         Self::connect_inner(config, true)
     }
