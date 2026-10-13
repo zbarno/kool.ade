@@ -1,7 +1,9 @@
 use std::path::Path;
 
+use std::collections::BTreeSet;
+
 use crate::{
-    execution::{contract::WorkspaceRef, docker::images::RuntimeProfile},
+    execution::contract::WorkspaceRef,
     project_runtime::{
         AppTargetV1, ProjectCapabilityManifestV1, RuntimeOperation, RuntimeReceiptState,
         RuntimeReceiptV1,
@@ -13,7 +15,7 @@ pub(super) type ApprovedCandidate = (
     RuntimeOperation,
     std::path::PathBuf,
     WorkspaceRef,
-    RuntimeProfile,
+    Vec<String>,
 );
 
 pub(super) fn approved_candidate(
@@ -44,32 +46,22 @@ pub(super) fn approved_candidate(
     }) {
         return Ok(None);
     }
-    let profile = if recipes
+    let required_tools = recipes
         .iter()
-        .any(|recipe| matches!(recipe.executable_id.as_str(), "cargo" | "rustc"))
-    {
-        RuntimeProfile::Rust
-    } else if recipes
-        .iter()
-        .any(|recipe| matches!(recipe.executable_id.as_str(), "node" | "npm" | "npx"))
-    {
-        RuntimeProfile::Node
-    } else if recipes
-        .iter()
-        .any(|recipe| matches!(recipe.executable_id.as_str(), "python" | "python3"))
-    {
-        RuntimeProfile::Python
-    } else if recipes.iter().any(|recipe| recipe.executable_id == "go") {
-        RuntimeProfile::Go
-    } else {
-        RuntimeProfile::General
-    };
+        .flat_map(|recipe| {
+            std::iter::once(recipe.executable_id.as_str())
+                .chain(recipe.prerequisite_tool_ids.iter().map(String::as_str))
+        })
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     Ok(Some((
         target.target_id.clone(),
         operation,
         clone_path.to_owned(),
         workspace,
-        profile,
+        required_tools,
     )))
 }
 

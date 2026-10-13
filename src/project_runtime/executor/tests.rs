@@ -55,6 +55,7 @@ fn approved_manifest() -> (ProjectCapabilityManifestV1, WorkspaceRef) {
         detected_languages: vec!["JavaScript".into()],
         frameworks: vec![],
         candidate_targets: vec![target],
+        selected_target_id: None,
         target_capabilities: vec![TargetCapabilityState::ReadyButUntested],
         recipes: vec![recipe],
         readiness_probes: Default::default(),

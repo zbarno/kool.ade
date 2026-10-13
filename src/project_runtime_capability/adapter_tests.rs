@@ -55,6 +55,7 @@ fn manifest(
         detected_languages: vec![language.into()],
         frameworks: vec![framework.into()],
         candidate_targets: vec![target],
+        selected_target_id: None,
         target_capabilities: vec![TargetCapabilityState::Ready],
         recipes: vec![
             recipe(&build, "node"),

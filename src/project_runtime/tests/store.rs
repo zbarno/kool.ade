@@ -31,6 +31,7 @@ fn manifest_saves_with_revision_fence_and_loads_from_the_planning_store() {
         detected_languages: vec!["Python".into()],
         frameworks: Vec::new(),
         candidate_targets: Vec::new(),
+        selected_target_id: None,
         target_capabilities: Vec::new(),
         recipes: Vec::new(),
         readiness_probes: Default::default(),
@@ -103,6 +104,120 @@ fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
         ),
         Err(StoreError::StaleRecordRevision { .. })
     ));
+}
+
+#[test]
+fn multiple_discovered_targets_require_explicit_selection() {
+    let fixture = Fixture::new();
+    let project = fixture.0.join("polyglot");
+    std::fs::create_dir_all(project.join("apps/web")).unwrap();
+    std::fs::create_dir_all(project.join("services/api")).unwrap();
+    std::fs::write(project.join("apps/web/package.json"), r#"{"name":"web"}"#).unwrap();
+    std::fs::write(
+        project.join("services/api/pyproject.toml"),
+        "[project]\nname='api'\n",
+    )
+    .unwrap();
+    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let context = DiscoveryContext {
+        workspace_id: "workspace-polyglot".into(),
+        repository_id: "repo-polyglot".into(),
+        owning_task_id: "task-polyglot".into(),
+        source_sha: "d".repeat(40),
+    };
+    let manifest = runtime.discover_and_save(&project, &context, 0).unwrap();
+    assert_eq!(manifest.candidate_targets.len(), 2);
+    assert!(manifest.selected_target_id.is_none());
+    assert!(
+        manifest
+            .candidate_targets
+            .iter()
+            .all(|target| !manifest.is_active_target(&context.owning_task_id, &target.target_id))
+    );
+
+    let selected = manifest.candidate_targets[0].target_id.clone();
+    let manifest = runtime
+        .select_target_and_save(&context.owning_task_id, &selected, manifest.revision)
+        .unwrap();
+    assert_eq!(
+        manifest.selected_target_id.as_deref(),
+        Some(selected.as_str())
+    );
+    assert!(manifest.is_active_target(&context.owning_task_id, &selected));
+    assert!(
+        manifest
+            .candidate_targets
+            .iter()
+            .filter(|target| target.target_id != selected)
+            .all(|target| !manifest.is_active_target(&context.owning_task_id, &target.target_id))
+    );
+    assert!(matches!(
+        runtime.select_target_and_save(&context.owning_task_id, &selected, 1),
+        Err(StoreError::StaleRecordRevision { .. })
+    ));
+}
+
+#[test]
+fn approved_start_recipe_and_readiness_probe_commit_together() {
+    let fixture = Fixture::new();
+    let project = fixture.0.join("web");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join("package.json"),
+        r#"{"name":"web","dependencies":{"vite":"1"}}"#,
+    )
+    .unwrap();
+    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let context = DiscoveryContext {
+        workspace_id: "workspace-web".into(),
+        repository_id: "repo-web".into(),
+        owning_task_id: "task-web".into(),
+        source_sha: "e".repeat(40),
+    };
+    let manifest = runtime.discover_and_save(&project, &context, 0).unwrap();
+    let target_id = manifest.candidate_targets[0].target_id.clone();
+    let recipe = ExecutionRecipeV1 {
+        schema_version: 1,
+        recipe_id: "web-start".into(),
+        source: RecipeSource::UserApproved,
+        working_directory_relative: ".".into(),
+        executable_id: "node".into(),
+        argv: vec!["server.js".into()],
+        allowed_env_keys: Vec::new(),
+        allowed_output_paths: Vec::new(),
+        timeout_seconds: 60,
+        expected_exit_codes: vec![0],
+        expected_artifacts: Vec::new(),
+        cache_scope: None,
+        prerequisite_tool_ids: vec!["node".into()],
+        network_requirement: NetworkRequirement::Denied,
+        evidence_refs: vec!["user-approval:approved-start".into()],
+    };
+    let saved = runtime
+        .approve_recipe_with_readiness_and_save(
+            &target_id,
+            RuntimeOperation::Start,
+            recipe,
+            Some(ReadinessProbeV1::HttpOnApprovedPort {
+                port: 3000,
+                path: "/health".into(),
+                expected_status: 200,
+            }),
+            manifest.revision,
+        )
+        .unwrap();
+    let target = &saved.candidate_targets[0];
+    assert_eq!(target.start_recipe_ref.as_deref(), Some("web-start"));
+    assert_eq!(target.port_needs, [3000]);
+    let probe_id = target.readiness_probe_ref.as_ref().unwrap();
+    assert_eq!(
+        saved.readiness_probes.get(probe_id),
+        Some(&ReadinessProbeV1::HttpOnApprovedPort {
+            port: 3000,
+            path: "/health".into(),
+            expected_status: 200,
+        })
+    );
 }
 
 #[test]

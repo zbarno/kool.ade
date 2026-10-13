@@ -37,59 +37,42 @@ impl ExecutionSession {
         resources: ResourceBudgetV1,
         authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     ) -> Result<Self, ExecutionError> {
-        let endpoint =
-            DockerEndpoint::from_process_environment(current_platform()).map_err(prerequisite)?;
-        let resolver = Arc::new(OwnedTaskWorkspaceResolver::for_current_user(
-            workspace.clone(),
-            task_clone,
-        )?);
-        let owner_instance_id = crate::persistence::execution_records::owner_instance_id()
-            .map_err(|_| prerequisite_message())?;
-        let backend = Arc::new(DockerExecutionBackend::connect_with_authorization(
-            endpoint,
-            resolver,
-            owner_instance_id,
-            authorization_verifier.clone(),
-        )?);
-        let probe = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|_| prerequisite_message())?
-            .block_on(backend.probe(&ExecutionTarget::local()))?;
-        if !probe.available || !probe.compatible {
-            return Err(ExecutionError::new(
-                ExecutionErrorKind::EnvironmentUnavailable,
-                "Docker Engine does not meet the local execution requirements",
-                true,
-            ));
-        }
-        let architecture = probe.architecture.ok_or_else(prerequisite_message)?;
-        let image = ImageLock::bundled()
-            .map_err(|error| {
-                ExecutionError::new(
-                    ExecutionErrorKind::ImageUnavailable,
-                    error.message,
-                    error.retryable,
-                )
-            })?
-            .select(profile, &architecture)
-            .map_err(|error| {
-                ExecutionError::new(
-                    ExecutionErrorKind::ImageUnavailable,
-                    error.message,
-                    error.retryable,
-                )
-            })?;
-        Self::new_with_authorization(
-            backend,
+        connect_local_with_image_selection(
             workspace,
-            ExecutionTarget::local(),
+            task_clone,
             mode,
-            image.digest,
+            &[profile],
+            &[],
             resources,
             authorization_verifier,
         )
-        .map_err(|_| prerequisite_message())
+    }
+
+    /// Creates a local task session using the first pinned runtime image that
+    /// provides every logical tool required by an approved recipe.
+    pub fn connect_local_with_tools(
+        workspace: WorkspaceRef,
+        task_clone: &Path,
+        mode: ExecutionModeV1,
+        required_tools: &[String],
+        resources: ResourceBudgetV1,
+    ) -> Result<Self, ExecutionError> {
+        const PROFILES: &[RuntimeProfile] = &[
+            RuntimeProfile::General,
+            RuntimeProfile::Rust,
+            RuntimeProfile::Node,
+            RuntimeProfile::Python,
+            RuntimeProfile::Go,
+        ];
+        connect_local_with_image_selection(
+            workspace,
+            task_clone,
+            mode,
+            PROFILES,
+            required_tools,
+            resources,
+            None,
+        )
     }
 
     /// Creates a read-only Docker session for the repository selected by the
@@ -125,6 +108,70 @@ impl ExecutionSession {
             endpoint, resolver, workspace, mode, profile, resources, None,
         )
     }
+}
+
+fn connect_local_with_image_selection(
+    workspace: WorkspaceRef,
+    task_clone: &Path,
+    mode: ExecutionModeV1,
+    profiles: &[RuntimeProfile],
+    required_tools: &[String],
+    resources: ResourceBudgetV1,
+    authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+) -> Result<ExecutionSession, ExecutionError> {
+    let endpoint =
+        DockerEndpoint::from_process_environment(current_platform()).map_err(prerequisite)?;
+    let resolver = Arc::new(OwnedTaskWorkspaceResolver::for_current_user(
+        workspace.clone(),
+        task_clone,
+    )?);
+    let owner_instance_id = crate::persistence::execution_records::owner_instance_id()
+        .map_err(|_| prerequisite_message())?;
+    let backend = Arc::new(DockerExecutionBackend::connect_with_authorization(
+        endpoint,
+        resolver,
+        owner_instance_id,
+        authorization_verifier.clone(),
+    )?);
+    let probe = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| prerequisite_message())?
+        .block_on(backend.probe(&ExecutionTarget::local()))?;
+    if !probe.available || !probe.compatible {
+        return Err(ExecutionError::new(
+            ExecutionErrorKind::EnvironmentUnavailable,
+            "Docker Engine does not meet the local execution requirements",
+            true,
+        ));
+    }
+    let architecture = probe.architecture.ok_or_else(prerequisite_message)?;
+    let lock = ImageLock::bundled().map_err(|error| {
+        ExecutionError::new(
+            ExecutionErrorKind::ImageUnavailable,
+            error.message,
+            error.retryable,
+        )
+    })?;
+    let image = lock
+        .select_with_tools(profiles, &architecture, required_tools)
+        .map_err(|error| {
+            ExecutionError::new(
+                ExecutionErrorKind::ImageUnavailable,
+                error.message,
+                error.retryable,
+            )
+        })?;
+    ExecutionSession::new_with_authorization(
+        backend,
+        workspace,
+        ExecutionTarget::local(),
+        mode,
+        image.digest,
+        resources,
+        authorization_verifier,
+    )
+    .map_err(|_| prerequisite_message())
 }
 
 fn connect_with_resolver(

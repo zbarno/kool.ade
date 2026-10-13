@@ -28,6 +28,34 @@ pub struct ViewModel {
     pub lifecycle_pr_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub lifecycle_pr_error: Option<String>,
     pub lifecycle_spec_proposal: Option<LifecycleSpecProposal>,
+    pub runtime_capability: Option<RuntimeCapabilityView>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeCapabilityView {
+    pub source_sha: Option<String>,
+    pub languages: Vec<String>,
+    pub frameworks: Vec<String>,
+    pub manifest_revision: Option<u64>,
+    pub selected_target_id: Option<String>,
+    pub targets: Vec<RuntimeTargetChoice>,
+    pub message: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeTargetChoice {
+    pub target_id: String,
+    pub label: String,
+    pub selected: bool,
+    pub state: String,
+    pub recipes: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeRecipeOperation {
+    Build,
+    Test,
+    Start,
 }
 
 #[derive(Clone)]
@@ -92,5 +120,23 @@ pub enum Command {
     SetExecutionTarget {
         ticket: String,
         preference: crate::execution::contract::TargetPreference,
+    },
+    DiscoverRuntimeTargets {
+        ticket: String,
+    },
+    SelectRuntimeTarget {
+        ticket: String,
+        target_id: String,
+        expected_manifest_revision: u64,
+    },
+    ApproveRuntimeRecipe {
+        ticket: String,
+        target_id: String,
+        operation: RuntimeRecipeOperation,
+        executable_id: String,
+        argv_lines: String,
+        readiness_port: String,
+        readiness_path: String,
+        expected_manifest_revision: u64,
     },
 }
