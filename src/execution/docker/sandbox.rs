@@ -153,20 +153,23 @@ pub fn create_body(
             identity.lease_expires_unix_ms.to_string(),
         ),
     ]);
-    let mut mounts = vec![tmpfs_mount(
-        WORKSPACE_TARGET,
-        request.resource_budget.temporary_disk_bytes / 4,
-        if writable { 0o1777 } else { 0o555 },
-    )?];
-    if request.policy.workspace_write_scope().is_none() {
-        mounts.push(bind_mount(
+    let mounts = if request.policy.workspace_write_scope().is_none() {
+        vec![bind_mount(
             &workspace.git_metadata,
             "/workspace/.git",
             true,
-        )?);
-    }
+        )?]
+    } else {
+        Vec::new()
+    };
     let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
     let mut tmpfs = HashMap::new();
+    let workspace_mode = if writable { "1777" } else { "555" };
+    let workspace_access = if writable { "rw" } else { "ro" };
+    tmpfs.insert(
+        WORKSPACE_TARGET.into(),
+        format!("{workspace_access},nosuid,nodev,size={temporary_bytes},mode={workspace_mode}"),
+    );
     for target in ["/tmp", "/run", "/home/executor"] {
         tmpfs.insert(
             target.to_owned(),
@@ -174,7 +177,6 @@ pub fn create_body(
         );
     }
     // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
-    mounts.shrink_to_fit();
     Ok(ContainerCreateBody {
         user: Some("10001:10001".into()),
         env: Some(vec![
@@ -249,23 +251,6 @@ fn bind_mount(source: &Path, target: &str, read_only: bool) -> Result<Mount, Exe
             non_recursive: Some(true),
             create_mountpoint: Some(false),
             ..Default::default()
-        }),
-        ..Default::default()
-    })
-}
-
-fn tmpfs_mount(target: &str, size_bytes: u64, mode: u32) -> Result<Mount, ExecutionError> {
-    Ok(Mount {
-        target: Some(target.into()),
-        typ: Some(MountType::TMPFS),
-        read_only: Some(false),
-        tmpfs_options: Some(bollard::models::MountTmpfsOptions {
-            size_bytes: Some(
-                i64::try_from(size_bytes)
-                    .map_err(|_| denied("Temporary disk limit is out of range"))?,
-            ),
-            mode: Some(i64::from(mode)),
-            options: Some(vec![vec!["nosuid".into()], vec!["nodev".into()]]),
         }),
         ..Default::default()
     })

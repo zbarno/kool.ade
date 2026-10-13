@@ -140,7 +140,7 @@ fn container_mounts_only_the_git_metadata_and_bounded_private_tmpfs() {
         .filter(|mount| mount.typ == Some(MountType::BIND))
         .collect();
 
-    assert_eq!(mounts.len(), 2);
+    assert_eq!(mounts.len(), 1);
     assert_eq!(binds.len(), 1);
     assert_eq!(
         binds[0].source.as_deref(),
@@ -154,7 +154,7 @@ fn container_mounts_only_the_git_metadata_and_bounded_private_tmpfs() {
             .keys()
             .map(String::as_str)
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["/home/executor", "/run", "/tmp"])
+        BTreeSet::from(["/home/executor", "/run", "/tmp", "/workspace"])
     );
 }
 
@@ -185,16 +185,10 @@ fn planning_workspace_and_git_are_read_only() {
         &selected_image(),
     )
     .unwrap();
-    let mounts = body.host_config.unwrap().mounts.unwrap();
-    assert!(mounts.iter().any(|mount| {
-        mount.target.as_deref() == Some("/workspace")
-            && mount.typ == Some(MountType::TMPFS)
-            && mount
-                .tmpfs_options
-                .as_ref()
-                .and_then(|options| options.mode)
-                == Some(0o555)
-    }));
+    let host = body.host_config.unwrap();
+    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("ro,"));
+    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("mode=555"));
+    let mounts = host.mounts.unwrap();
     assert!(mounts.iter().any(|mount| {
         mount.target.as_deref() == Some("/workspace/.git") && mount.read_only == Some(true)
     }));
@@ -213,11 +207,8 @@ fn writable_workspace_uses_bounded_tmpfs_and_keeps_git_read_only() {
     .unwrap();
     let host = body.host_config.unwrap();
     let mounts = host.mounts.unwrap();
-    assert!(mounts.iter().any(|mount| {
-        mount.target.as_deref() == Some("/workspace")
-            && mount.typ == Some(MountType::TMPFS)
-            && mount.read_only == Some(false)
-    }));
+    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("rw,"));
+    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("mode=1777"));
     assert!(mounts.iter().any(|mount| {
         mount.target.as_deref() == Some("/workspace/.git") && mount.read_only == Some(true)
     }));
