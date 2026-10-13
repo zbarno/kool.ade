@@ -77,11 +77,8 @@ impl AiHarness for OpenCodeHarness {
                 ))
             })?;
         let provider = crate::harness::execution_security::CliProvider::OpenCode;
-        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
-            provider,
-            &binary,
-            version,
-            &[],
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
+            provider, &binary, version,
         )
         .map_err(|error| AppError::Other(format!("OpenCode profile probe failed: {error}")))?;
         let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
@@ -91,6 +88,12 @@ impl AiHarness for OpenCodeHarness {
             env,
         )
         .map_err(|error| AppError::Other(format!("OpenCode launch profile is invalid: {error}")))?;
+        let launch_profile = launch.telemetry(
+            request
+                .prompt_manifest
+                .as_ref()
+                .map(|manifest| manifest.role_version.as_str()),
+        );
         let task = launch.spawn_with_input(boundary.working_directory(), Some(prompt))?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();
@@ -103,6 +106,7 @@ impl AiHarness for OpenCodeHarness {
         let mut step_started = Instant::now();
         let mut telemetry = crate::harness::ActivityTelemetry {
             started_ms: Some(started_at.timestamp_millis()),
+            launch_profile: Some(launch_profile),
             ..Default::default()
         };
 

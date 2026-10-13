@@ -107,6 +107,15 @@ jobs:
         uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           tool: nextest@0.9.148
+      - name: Run clean provider launch release gate
+        run: >-
+          cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
+          -E 'test(exact_cli_help_capabilities_gate_each_provider_profile) |
+          test(fake_provider_invocations_cover_all_modes_and_launch_profiles) |
+          test(every_provider_launch_profile_binds_its_required_arguments_and_environment) |
+          test(evidence_enforces_discoverable_version_and_capability_requirements) |
+          test(launch_telemetry_records_only_redacted_profile_identity) |
+          test(redacted_launch_profile_survives_later_progress_updates)'
       - name: Run all tests in parallel and report timing
         env:
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"

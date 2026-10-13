@@ -192,6 +192,12 @@ impl PiHarness {
     fn check_binary(exe: &Path) -> Result<String, AppError> {
         let version = Self::probe_version(exe)?;
         capabilities::validate_all(exe)?;
+        crate::harness::execution_security::ProfileProbeEvidence::probe(
+            crate::harness::execution_security::CliProvider::Pi,
+            exe,
+            version.clone(),
+        )
+        .map_err(|error| AppError::Other(error.to_string()))?;
         Ok(version)
     }
 }

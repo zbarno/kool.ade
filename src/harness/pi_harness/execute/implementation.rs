@@ -103,11 +103,8 @@ impl AiHarness for PiHarness {
             })?;
         let diagnostics = diagnostics::open(boundary.working_directory(), req.mode)?;
         let provider = crate::harness::execution_security::CliProvider::Pi;
-        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
-            provider,
-            &exe,
-            version,
-            provider.profile_requirements().capabilities,
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
+            provider, &exe, version,
         )
         .map_err(|error| AppError::Other(format!("Pi profile probe failed: {error}")))?;
         let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
@@ -117,6 +114,11 @@ impl AiHarness for PiHarness {
             child_env,
         )
         .map_err(|error| AppError::Other(format!("Pi launch profile is invalid: {error}")))?;
+        let launch_profile = launch.telemetry(
+            req.prompt_manifest
+                .as_ref()
+                .map(|manifest| manifest.role_version.as_str()),
+        );
         let task =
             launch.spawn_with_input(boundary.working_directory(), Some(req.prompt_body.clone()))?;
         stream::run(
@@ -125,6 +127,7 @@ impl AiHarness for PiHarness {
             diagnostics,
             boundary.resource_bridge(),
             planning_reads,
+            launch_profile,
         )
     }
 

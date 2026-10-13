@@ -121,11 +121,8 @@ impl AiHarness for CopilotHarness {
                 AppError::Other(format!("Cannot configure Copilot sandbox tools: {error:#}"))
             })?;
         let provider = crate::harness::execution_security::CliProvider::Copilot;
-        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
-            provider,
-            &binary,
-            version,
-            &[],
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
+            provider, &binary, version,
         )
         .map_err(|error| AppError::Other(format!("Copilot profile probe failed: {error}")))?;
         let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
@@ -135,6 +132,12 @@ impl AiHarness for CopilotHarness {
             child_env,
         )
         .map_err(|error| AppError::Other(format!("Copilot launch profile is invalid: {error}")))?;
+        let launch_profile = launch.telemetry(
+            request
+                .prompt_manifest
+                .as_ref()
+                .map(|manifest| manifest.role_version.as_str()),
+        );
         let mut developer = String::from(
             "Kool.ad/e owns task lifecycle, branches, approvals, Git operations, and pull request publication. Never switch branches, commit, push, open a pull request, or publish. Work only inside the current task repository and return the requested structured result.\n\n",
         );
@@ -167,6 +170,10 @@ impl AiHarness for CopilotHarness {
         let usage = usage_file.as_ref().map(UsageFile::read).unwrap_or_default();
         let now = chrono::Utc::now();
         let _ = request.progress_tx.send(LiveProgress {
+            telemetry: crate::harness::ActivityTelemetry {
+                launch_profile: Some(launch_profile),
+                ..Default::default()
+            },
             response: response.clone(),
             model_calls: vec![ModelCallUsage {
                 call_id: "copilot:call-0".into(),
@@ -277,12 +284,19 @@ pub(super) fn checked_binary(path: &std::path::Path) -> Result<String, AppError>
             "GitHub Copilot CLI version command failed".into(),
         ));
     }
-    super::copilot_version(&output).ok_or_else(|| {
+    let version = super::copilot_version(&output).ok_or_else(|| {
         AppError::Other(
             "Executable did not identify itself as GitHub Copilot CLI with a version from --version"
                 .into(),
         )
-    })
+    })?;
+    crate::harness::execution_security::ProfileProbeEvidence::probe(
+        crate::harness::execution_security::CliProvider::Copilot,
+        path,
+        version.clone(),
+    )
+    .map_err(|error| AppError::Other(error.to_string()))?;
+    Ok(version)
 }
 
 fn configured_model() -> Option<String> {

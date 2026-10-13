@@ -133,6 +133,12 @@ fn probe(path: &Path) -> Result<(String, Vec<String>), (OpenCodeReadiness, Strin
             "OpenCode did not report a parseable version".to_owned(),
         )
     })?;
+    crate::harness::execution_security::ProfileProbeEvidence::probe(
+        crate::harness::execution_security::CliProvider::OpenCode,
+        path,
+        version.clone(),
+    )
+    .map_err(|error| (OpenCodeReadiness::InvalidInstallation, error.to_string()))?;
     let model_output = run(path, &["--pure", "models"]).map_err(|detail| {
         let lowered = detail.to_ascii_lowercase();
         let readiness = if [
