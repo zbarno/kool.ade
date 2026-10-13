@@ -177,7 +177,7 @@ def main() -> None:
         network_probe = r'''const net=require('node:net'), dgram=require('node:dgram');
 const [task,hostTcp,hostUdp]=process.argv.slice(1);
 async function denied(host,port){await new Promise((resolve,reject)=>{const s=net.createConnection({host,port});const timer=setTimeout(()=>{s.destroy();resolve()},800);s.once('connect',()=>{clearTimeout(timer);s.destroy();reject(new Error(`TCP escape ${host}:${port}`))});s.once('error',()=>{clearTimeout(timer);resolve()})})}
-function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.createSocket('udp4');s.once('error',reject);s.send(Buffer.from('qa-network-boundary-probe'),port,host,e=>{s.close();e?reject(e):resolve()})})}
+function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.createSocket('udp4');let settled=false;const finish=e=>{if(settled)return;settled=true;s.close();if(!e||['ENETUNREACH','EHOSTUNREACH','EACCES','EPERM'].includes(e.code))resolve();else reject(e)};s.once('error',finish);s.send(Buffer.from('qa-network-boundary-probe'),port,host,finish)})}
 (async()=>{await denied(task,4173);await denied('host.docker.internal',Number(hostTcp));await send(task,4174);await send('host.docker.internal',Number(hostUdp));await new Promise(r=>setTimeout(r,700))})().catch(e=>{console.error(e);process.exit(1)})'''
         probe = docker(
             "run", "--rm", "--network", browser_network, "--add-host", "host.docker.internal:host-gateway",
