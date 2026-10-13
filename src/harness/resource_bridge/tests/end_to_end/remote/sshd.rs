@@ -114,7 +114,7 @@ impl SshdFixture {
             .arg(&config)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::from(fs::File::create(root.join("sshd.log"))?));
         let child = command.spawn()?;
 
         let ssh_config = root.join("ssh_config");
@@ -195,8 +195,10 @@ impl SshdFixture {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             if let Some(status) = self.child.try_wait()? {
+                let diagnostics = fs::read_to_string(self.root.join("sshd.log"))
+                    .unwrap_or_else(|error| format!("could not read sshd log: {error}"));
                 return Err(std::io::Error::other(format!(
-                    "sshd exited before readiness with {status}; executable={} port={} host_key={} root={}",
+                    "sshd exited before readiness with {status}; executable={} port={} host_key={} root={}; stderr={diagnostics:?}",
                     self.sshd.display(),
                     self.port,
                     self.host_key.display(),

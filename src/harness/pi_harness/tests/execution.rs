@@ -5,7 +5,7 @@ mod supervisor;
 
 #[cfg(unix)]
 #[test]
-fn implementation_harness_without_an_application_session_has_no_repository_tools() {
+fn implementation_harness_without_an_application_session_fails_before_provider_launch() {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Arc, atomic::AtomicBool, mpsc};
@@ -188,55 +188,15 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
         authorization_verifier: None,
         review_identity: None,
     });
-    assert_eq!(outcome.unwrap().final_text, "bounded fixture completed");
-    let controller_cwd = fs::read_to_string(root.join("controller-cwd.txt")).unwrap();
-    let controller_cwd = std::path::Path::new(controller_cwd.trim());
-    assert!(!controller_cwd.starts_with(&repo));
-    assert!(controller_cwd.starts_with(std::env::temp_dir()));
+    let error = outcome.expect_err("an implementation without an app-owned workspace fails closed");
     assert!(
-        controller_cwd
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .starts_with("koolade-cli-session-")
+        error
+            .to_string()
+            .contains("application-selected task workspace")
     );
     assert!(
-        !root.join("project-startup-input-visible.txt").exists(),
-        "project instructions and extension hooks must not be visible from Pi's controller working directory"
+        !root.join("received-args.txt").exists(),
+        "Pi must not launch when Kool.ad/e has not selected an owned task workspace"
     );
-    let received_args = fs::read_to_string(root.join("received-args.txt")).unwrap();
-    assert!(received_args.contains("--no-tools"));
-    assert!(!received_args.contains("--no-builtin-tools"));
-    assert!(!received_args.contains("--extension\n"));
-    assert!(!received_args.contains("--tools\nread,grep,find,ls\n"));
-    assert!(!received_args.contains("--tools\nkoolade_bash"));
-    assert!(received_args.contains("--no-context-files"));
-    assert!(received_args.contains("--no-extensions"));
-    assert!(received_args.contains("--no-skills"));
-    assert!(received_args.contains("--no-prompt-templates"));
-    assert!(received_args.contains("--no-themes"));
-    assert!(received_args.contains("--provider\nfixture\n--model\nfixture-model\n"));
-    assert_eq!(
-        fs::read_to_string(root.join("pi-agent-dir.txt")).unwrap(),
-        controller_cwd.join("pi-agent").to_string_lossy()
-    );
-    assert_eq!(
-        fs::read_to_string(root.join("pi-isolated-dirs.txt")).unwrap(),
-        format!(
-            "{}\n{}",
-            controller_cwd.join("pi-sessions").display(),
-            controller_cwd.join("pi-packages").display()
-        )
-    );
-    assert_eq!(
-        fs::read_to_string(root.join("startup-network-flags.txt")).unwrap(),
-        "1:1"
-    );
-    let isolated_settings: serde_json::Value =
-        serde_json::from_slice(&fs::read(root.join("isolated-settings.json")).unwrap()).unwrap();
-    assert!(isolated_settings["extensions"].is_null());
-    assert!(isolated_settings["mcpServers"].is_null());
-    assert!(!root.join("extension.ts").exists());
-    assert!(!root.join("sandbox.json").exists());
     fs::remove_dir_all(root).unwrap();
 }

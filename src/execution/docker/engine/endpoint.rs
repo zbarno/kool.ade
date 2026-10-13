@@ -31,13 +31,20 @@ impl DockerEndpoint {
         let uid = Some(unsafe { libc::geteuid() });
         #[cfg(not(target_os = "linux"))]
         let uid = None;
-        Self::from_environment(
+        // CI provisions a private, per-job rootless Engine socket outside the
+        // operating system's standard Docker locations. Permit that endpoint
+        // only in opted-in test binaries; production builds keep the fixed
+        // local socket allowlist below.
+        let allow_private_test_socket =
+            cfg!(test) && std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() == Ok("1");
+        Self::from_environment_with_test_socket(
             docker_host.as_deref(),
             docker_context.as_deref(),
             runtime_dir.as_deref(),
             home_dir.as_deref(),
             uid,
             platform,
+            allow_private_test_socket,
         )
     }
 
@@ -48,6 +55,26 @@ impl DockerEndpoint {
         home_dir: Option<&Path>,
         uid: Option<u32>,
         platform: HostPlatform,
+    ) -> Result<Self, PrerequisiteFailure> {
+        Self::from_environment_with_test_socket(
+            docker_host,
+            docker_context,
+            runtime_dir,
+            home_dir,
+            uid,
+            platform,
+            false,
+        )
+    }
+
+    fn from_environment_with_test_socket(
+        docker_host: Option<&str>,
+        docker_context: Option<&str>,
+        runtime_dir: Option<&Path>,
+        home_dir: Option<&Path>,
+        uid: Option<u32>,
+        platform: HostPlatform,
+        allow_private_test_socket: bool,
     ) -> Result<Self, PrerequisiteFailure> {
         if let Some(context) = docker_context.filter(|value| !value.trim().is_empty()) {
             if context == "desktop-linux" {
@@ -62,7 +89,7 @@ impl DockerEndpoint {
             }
         }
         if let Some(host) = docker_host.filter(|value| !value.trim().is_empty()) {
-            return Self::parse_local_host_for_uid(host, home_dir, uid);
+            return Self::parse_local_host_for_uid(host, home_dir, uid, allow_private_test_socket);
         }
         match platform {
             HostPlatform::Linux => {
@@ -129,13 +156,14 @@ impl DockerEndpoint {
         let uid = Some(unsafe { libc::geteuid() });
         #[cfg(not(target_os = "linux"))]
         let uid = None;
-        Self::parse_local_host_for_uid(host, home_dir, uid)
+        Self::parse_local_host_for_uid(host, home_dir, uid, false)
     }
 
     fn parse_local_host_for_uid(
         host: &str,
         home_dir: Option<&Path>,
         uid: Option<u32>,
+        allow_private_test_socket: bool,
     ) -> Result<Self, PrerequisiteFailure> {
         if let Some(path) = host.strip_prefix("unix://") {
             let path = PathBuf::from(path);
@@ -170,7 +198,9 @@ impl DockerEndpoint {
                     path == home.join(".docker/desktop/docker.sock")
                         || path == home.join(".docker/run/docker.sock")
                 });
-            if !standard_socket {
+            if !standard_socket
+                && !(allow_private_test_socket && is_private_test_socket(&path, uid))
+            {
                 return Err(failure(
                     PrerequisiteCode::UntrustedEndpoint,
                     "Docker Unix socket is outside the supported local Engine locations",
@@ -238,6 +268,35 @@ impl DockerEndpoint {
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
+fn is_private_test_socket(path: &Path, uid: Option<u32>) -> bool {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let Some(uid) = uid else {
+        return false;
+    };
+    let Ok(socket) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let Ok(directory) = std::fs::symlink_metadata(parent) else {
+        return false;
+    };
+    socket.file_type().is_socket()
+        && socket.uid() == uid
+        && directory.is_dir()
+        && !directory.file_type().is_symlink()
+        && directory.uid() == uid
+        && directory.mode() & 0o077 == 0
+}
+
+#[cfg(not(all(test, target_os = "linux")))]
+fn is_private_test_socket(_path: &Path, _uid: Option<u32>) -> bool {
+    false
+}
+
 #[cfg(unix)]
 mod socket;
 
@@ -270,5 +329,49 @@ mod tests {
                 PrerequisiteCode::UntrustedEndpoint
             );
         }
+    }
+
+    #[test]
+    fn opted_in_tests_accept_only_owned_sockets_in_private_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let socket_path = directory.path().join("docker.sock");
+        let _listener = UnixListener::bind(&socket_path).unwrap();
+        let uid = unsafe { libc::geteuid() };
+        let endpoint = DockerEndpoint::from_environment_with_test_socket(
+            Some(&format!("unix://{}", socket_path.display())),
+            None,
+            None,
+            None,
+            Some(uid),
+            HostPlatform::Linux,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            endpoint,
+            DockerEndpoint::Unix {
+                path: socket_path.clone(),
+                desktop: false,
+            }
+        );
+
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            DockerEndpoint::from_environment_with_test_socket(
+                Some(&format!("unix://{}", socket_path.display())),
+                None,
+                None,
+                None,
+                Some(uid),
+                HostPlatform::Linux,
+                true,
+            )
+            .unwrap_err()
+            .code,
+            PrerequisiteCode::UntrustedEndpoint
+        );
     }
 }
