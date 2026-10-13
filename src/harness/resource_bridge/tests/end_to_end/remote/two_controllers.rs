@@ -104,6 +104,22 @@ pub(super) fn connect_session(
     worker: &crate::execution::remote::ssh::SshWorkerConfig,
     authorization_verifier: Arc<dyn AuthorizationGenerationVerifier>,
 ) -> ExecutionSession {
+    connect_session_with_ids(
+        task_clone,
+        worker,
+        authorization_verifier,
+        &uuid::Uuid::new_v4().hyphenated().to_string(),
+        &uuid::Uuid::new_v4().hyphenated().to_string(),
+    )
+}
+
+pub(super) fn connect_session_with_ids(
+    task_clone: &std::path::Path,
+    worker: &crate::execution::remote::ssh::SshWorkerConfig,
+    authorization_verifier: Arc<dyn AuthorizationGenerationVerifier>,
+    project_id: &str,
+    task_id: &str,
+) -> ExecutionSession {
     let source_sha = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(task_clone)
@@ -111,8 +127,8 @@ pub(super) fn connect_session(
         .unwrap();
     assert!(source_sha.status.success());
     let workspace = WorkspaceRef {
-        project_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        task_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        project_id: project_id.to_owned(),
+        task_id: task_id.to_owned(),
         source_sha: String::from_utf8(source_sha.stdout)
             .unwrap()
             .trim()

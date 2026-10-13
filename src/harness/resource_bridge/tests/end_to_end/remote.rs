@@ -16,6 +16,7 @@ use std::{
 };
 
 mod authorization;
+mod claim_takeover;
 mod sshd;
 mod task_roundtrip;
 mod two_controllers;
@@ -154,27 +155,29 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
     };
     let generation = uuid::Uuid::new_v4().hyphenated().to_string();
     let target = crate::execution::contract::ExecutionTarget::remote(worker_id.clone());
-    let session = ExecutionSession::connect_remote_with_task_clone(
-        workspace_ref.clone(),
-        crate::execution::session::RemoteSessionOptions {
-            target,
-            worker: &worker,
-            mode: ExecutionModeV1::Implementation,
-            profile: RuntimeProfile::Node,
-            resources: ResourceBudgetV1 {
-                cpu_millis: 4_000,
-                memory_bytes: 4 * 1024 * 1024 * 1024,
-                process_count: 256,
-                temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
-                output_bytes: 8 * 1024 * 1024,
+    let session = Arc::new(
+        ExecutionSession::connect_remote_with_task_clone(
+            workspace_ref.clone(),
+            crate::execution::session::RemoteSessionOptions {
+                target,
+                worker: &worker,
+                mode: ExecutionModeV1::Implementation,
+                profile: RuntimeProfile::Node,
+                resources: ResourceBudgetV1 {
+                    cpu_millis: 4_000,
+                    memory_bytes: 4 * 1024 * 1024 * 1024,
+                    process_count: 256,
+                    temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
+                    output_bytes: 8 * 1024 * 1024,
+                },
+                authorization_verifier: Some(Arc::new(authorization::TestAuthorization(
+                    generation.clone(),
+                ))),
+                task_clone: Some(&task_repository),
             },
-            authorization_verifier: Some(Arc::new(authorization::TestAuthorization(
-                generation.clone(),
-            ))),
-            task_clone: Some(&task_repository),
-        },
-    )
-    .unwrap();
+        )
+        .unwrap(),
+    );
 
     let state_root = workspace.join("app-state");
     fs::create_dir_all(&state_root).unwrap();
@@ -183,21 +186,25 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
         registry_url.into(),
     );
     let (progress, updates) = std::sync::mpsc::channel();
-    let bridge = super::super::super::broker::start_with_state_root_and_npm_operations(
-        &task_repository,
-        None,
-        Some(&task_id),
-        progress,
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        &state_root,
-        operations,
-    )
-    .unwrap();
+    let bridge = Arc::new(
+        super::super::super::broker::start_with_state_root_and_npm_operations(
+            &task_repository,
+            None,
+            Some(&task_id),
+            progress,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            &state_root,
+            operations,
+        )
+        .unwrap(),
+    );
     let response = std::thread::scope(|scope| {
         let relay_thread = scope.spawn(|| {
-            crate::harness::execution_security::prepare_remote_dependency(
-                &session,
-                Some(&bridge),
+            crate::harness::execution_security::request_remote_dependency_over_application_bridge(
+                &state_root,
+                session.clone(),
+                task_id.clone(),
+                Some(bridge.clone()),
                 DependencyNeed {
                     ecosystem: PackageEcosystem::Npm,
                     package: None,
@@ -220,6 +227,10 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
         );
         relay_thread.join().unwrap().unwrap()
     });
+    assert_eq!(response.request.worker_id, worker_id);
+    assert_eq!(response.request.task_id, task_id);
+    assert_eq!(response.request.workspace, workspace_ref);
+    assert_eq!(response.request.authorization_generation, generation);
     assert_eq!(response.broker_response["status"], "prepared");
     let dependency_request_id = response.broker_response["dependency_request"]["id"]
         .as_str()

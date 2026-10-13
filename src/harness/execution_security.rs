@@ -4,7 +4,24 @@ mod application_boundary;
 mod mcp_server;
 mod session_bridge;
 #[cfg(test)]
-pub(crate) use session_bridge::prepare_remote_dependency;
+pub(crate) fn request_remote_dependency_over_application_bridge(
+    scratch: &std::path::Path,
+    session: std::sync::Arc<crate::execution::session::ExecutionSession>,
+    task_id: String,
+    resource_bridge: Option<std::sync::Arc<crate::harness::resource_bridge::ResourceBridge>>,
+    need: crate::harness::DependencyNeed,
+) -> anyhow::Result<session_bridge::DependencyRelayStartResponse> {
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let bridge = session_bridge::SessionBridge::start(
+        scratch,
+        session,
+        task_id,
+        "implementation".into(),
+        cancel,
+        resource_bridge,
+    )?;
+    session_bridge::request_dependency(&scratch.join("mcp-config.json"), &bridge.binding, need)
+}
 
 /// Inherited variables that can inject startup code, choose arbitrary Git
 /// configuration, or redirect developer shells and IDE integrations into a CLI.
