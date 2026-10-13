@@ -27,11 +27,30 @@ pub(super) fn restore_environment_variable(name: &'static str) -> RestoreEnviron
     }
 }
 
-pub(super) fn configure_harness_settings(root: &Path) -> RestoreEnvironmentVariable {
+pub(super) struct HarnessEnvironment {
+    _home: RestoreEnvironmentVariable,
+    _pi_config: RestoreEnvironmentVariable,
+}
+
+pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
     let restore = restore_environment_variable("KOOLADE_HOME");
+    let restore_pi_config = restore_environment_variable("PI_CODING_AGENT_DIR");
     let home = root.join("app-home");
     std::fs::create_dir_all(&home).unwrap();
     unsafe { std::env::set_var("KOOLADE_HOME", &home) };
+    let pi_config = root.join("pi-agent-config");
+    std::fs::create_dir_all(&pi_config).unwrap();
+    std::fs::write(
+        pi_config.join("settings.json"),
+        r#"{"defaultProvider":"fixture","defaultModel":"fixture-model"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        pi_config.join("models.json"),
+        r#"{"providers":{"fixture":{"models":[{"id":"fixture-model","name":"Fixture Model"}]}}}"#,
+    )
+    .unwrap();
+    unsafe { std::env::set_var("PI_CODING_AGENT_DIR", &pi_config) };
     crate::persistence::harness_settings::save(
         &crate::persistence::harness_settings::HarnessSettings {
             discovered: std::collections::BTreeMap::from([(
@@ -55,7 +74,10 @@ pub(super) fn configure_harness_settings(root: &Path) -> RestoreEnvironmentVaria
         },
     )
     .unwrap();
-    restore
+    HarnessEnvironment {
+        _home: restore,
+        _pi_config: restore_pi_config,
+    }
 }
 
 pub(super) fn create(root: &Path) -> PathBuf {
