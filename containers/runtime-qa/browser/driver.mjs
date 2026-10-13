@@ -17,6 +17,14 @@ function fail(message) {
   throw new Error(message);
 }
 
+function browserVersion(browser) {
+  try {
+    return typeof browser?.version === 'function' ? browser.version() : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 function readRequest() {
   const input = readFileSync('/run/koolade-runtime-qa/request.json');
   if (input.length === 0 || input.length > MAX_REQUEST_BYTES) fail('request size is outside bounds');
@@ -173,7 +181,7 @@ async function main() {
       activeBefore = null;
       if (policyViolation) fail(policyViolation);
     }
-    const result = { schema_version: 1, qa_run_id: request.qa_run_id, scenario_id: request.scenario_id, task_uid: request.task_uid, code_sha: request.code_sha, build_sha256: request.build_sha256, approved_spec_hash: request.approved_spec_hash, driver_profile_version: request.driver_profile_version, outcome: 'completed', origin: request.origin, viewport: page.viewportSize(), driver_version: `playwright-${(await browser.version())}`, actions: actionTrace, screenshots, console_errors: consoleMessages, failed_requests: failedRequests, policy_violation: policyViolation };
+    const result = { schema_version: 1, qa_run_id: request.qa_run_id, scenario_id: request.scenario_id, task_uid: request.task_uid, code_sha: request.code_sha, build_sha256: request.build_sha256, approved_spec_hash: request.approved_spec_hash, driver_profile_version: request.driver_profile_version, outcome: 'completed', origin: request.origin, viewport: page.viewportSize(), driver_version: `playwright-${browserVersion(browser)}`, actions: actionTrace, screenshots, console_errors: consoleMessages, failed_requests: failedRequests, policy_violation: policyViolation };
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     let failureScreenshotId = null;
@@ -191,7 +199,7 @@ async function main() {
       const { action, index } = activeAction;
       actionTrace.push({ index, action: action.action, args_redacted: action.action === 'browser_fill' ? { locator: action.locator, value: '[redacted]' } : { locator: action.locator }, pre_state: activeBefore, post_state: { url: page.url(), title: await page.title().catch(() => '') }, screenshot_ids: failureScreenshotId ? [failureScreenshotId] : [], status: 'failed' });
     }
-    const result = { schema_version: 1, qa_run_id: request.qa_run_id, scenario_id: request.scenario_id, task_uid: request.task_uid, code_sha: request.code_sha, build_sha256: request.build_sha256, approved_spec_hash: request.approved_spec_hash, driver_profile_version: request.driver_profile_version, outcome: 'failed', origin: request.origin, viewport: page.viewportSize(), driver_version: `playwright-${(await browser.version().catch(() => 'unknown'))}`, actions: actionTrace, screenshots, console_errors: consoleMessages, failed_requests: failedRequests, policy_violation: policyViolation, error: String(error?.message ?? error).slice(0, 4096) };
+    const result = { schema_version: 1, qa_run_id: request.qa_run_id, scenario_id: request.scenario_id, task_uid: request.task_uid, code_sha: request.code_sha, build_sha256: request.build_sha256, approved_spec_hash: request.approved_spec_hash, driver_profile_version: request.driver_profile_version, outcome: 'failed', origin: request.origin, viewport: page.viewportSize(), driver_version: `playwright-${browserVersion(browser)}`, actions: actionTrace, screenshots, console_errors: consoleMessages, failed_requests: failedRequests, policy_violation: policyViolation, error: String(error?.message ?? error).slice(0, 4096) };
     process.stdout.write(`${JSON.stringify(result)}\n`);
     process.exitCode = 1;
   } finally {
