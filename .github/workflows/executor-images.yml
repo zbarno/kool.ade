@@ -120,6 +120,7 @@ jobs:
           PROFILE: ${{ matrix.profile }}
           PLATFORM: ${{ matrix.platform }}
           IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
         run: |
           set -euo pipefail
           architecture="${PLATFORM#linux/}"
