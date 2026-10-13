@@ -7,11 +7,13 @@ import base64
 import hashlib
 import json
 import re
+import socket
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -81,6 +83,47 @@ def assert_screenshots(report: dict, minimum: int) -> None:
         assert payload.startswith(b"\x89PNG\r\n\x1a\n")
 
 
+class HostSentinel:
+    def __init__(self) -> None:
+        self.seen = threading.Event()
+        self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.tcp.bind(("0.0.0.0", 0))
+        self.tcp.listen()
+        self.tcp.settimeout(0.2)
+        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp.bind(("0.0.0.0", 0))
+        self.udp.settimeout(0.2)
+        self.threads = [threading.Thread(target=self._accept, daemon=True), threading.Thread(target=self._receive, daemon=True)]
+        for thread in self.threads:
+            thread.start()
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                connection, _ = self.tcp.accept()
+                self.seen.set()
+                connection.close()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+
+    def _receive(self) -> None:
+        while True:
+            try:
+                self.udp.recvfrom(1024)
+                self.seen.set()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+
+    def close(self) -> None:
+        self.tcp.close()
+        self.udp.close()
+
+
 def main() -> None:
     image = sys.argv[1] if len(sys.argv) == 2 else ""
     if not image:
@@ -90,9 +133,10 @@ def main() -> None:
     browser_network = f"koolade-qa-fixture-browser-{suffix}"
     task = f"koolade-qa-fixture-service-{suffix}"
     relay = f"koolade-qa-fixture-relay-{suffix}"
-    docker("network", "create", "--internal", task_network)
-    docker("network", "create", "--internal", browser_network)
+    host_sentinel = HostSentinel()
     try:
+        docker("network", "create", "--internal", task_network)
+        docker("network", "create", "--internal", browser_network)
         fixture = ROOT / "tests/fixtures/runtime_qa/browser/server.py"
         docker(
             "run", "--detach", "--name", task, "--network", task_network,
@@ -101,7 +145,7 @@ def main() -> None:
             "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=16m",
             "--tmpfs", "/workspace:rw,nosuid,nodev,noexec,size=16m",
             "--mount", f"type=bind,src={fixture},dst=/workspace/server.py,readonly",
-            "--env", "QA_FIXTURE_HOST=0.0.0.0", "--env", "QA_FIXTURE_PORT=4173",
+            "--env", "QA_FIXTURE_HOST=0.0.0.0", "--env", "QA_FIXTURE_PORT=4173", "--env", "QA_FIXTURE_UDP_PORT=4174",
             "--entrypoint", "python3", image, "/workspace/server.py",
         )
         docker(
@@ -113,6 +157,8 @@ def main() -> None:
             "--entrypoint", "node", image, RELAY,
         )
         docker("network", "connect", "--alias", "qa-preview", browser_network, relay)
+        inspected = json.loads(docker("inspect", task).stdout)[0]
+        task_ip = next(iter(inspected["NetworkSettings"]["Networks"].values()))["IPAddress"]
         deadline = time.monotonic() + 60
         while True:
             probe = docker(
@@ -127,6 +173,32 @@ def main() -> None:
             if time.monotonic() >= deadline:
                 raise RuntimeError("isolated Python preview relay did not become ready")
             time.sleep(0.25)
+
+        network_probe = r'''const net=require('node:net'), dgram=require('node:dgram');
+const [task,hostTcp,hostUdp]=process.argv.slice(1);
+async function denied(host,port){await new Promise((resolve,reject)=>{const s=net.createConnection({host,port});const timer=setTimeout(()=>{s.destroy();resolve()},800);s.once('connect',()=>{clearTimeout(timer);s.destroy();reject(new Error(`TCP escape ${host}:${port}`))});s.once('error',()=>{clearTimeout(timer);resolve()})})}
+function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.createSocket('udp4');s.once('error',reject);s.send(Buffer.from('qa-network-boundary-probe'),port,host,e=>{s.close();e?reject(e):resolve()})})}
+(async()=>{await denied(task,4173);await denied('host.docker.internal',Number(hostTcp));await send(task,4174);await send('host.docker.internal',Number(hostUdp));await new Promise(r=>setTimeout(r,700))})().catch(e=>{console.error(e);process.exit(1)})'''
+        probe = docker(
+            "run", "--rm", "--network", browser_network, "--add-host", "host.docker.internal:host-gateway",
+            "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "--entrypoint", "node", image, "-e", network_probe, task_ip,
+            str(host_sentinel.tcp.getsockname()[1]), str(host_sentinel.udp.getsockname()[1]), check=False,
+        )
+        assert probe.returncode == 0, f"browser network reached a private or host TCP endpoint: {probe.stderr}"
+        webrtc_probe = docker(
+            "run", "--rm", "--network", browser_network, "--add-host", "host.docker.internal:host-gateway",
+            "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "--pids-limit", "128", "--memory", "1g", "--cpus", "2",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=64m", "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=1m",
+            "--entrypoint", "node", image, "-e",
+            "const {chromium}=require('playwright');(async()=>{const b=await chromium.launch({headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-background-networking']});const p=await b.newPage();await p.evaluate(async port=>{const pc=new RTCPeerConnection({iceServers:[{urls:`stun:host.docker.internal:${port}`}]});pc.createDataChannel('qa');await pc.setLocalDescription(await pc.createOffer());await new Promise(r=>setTimeout(r,1800));pc.close()},Number(process.argv[1]));await b.close()})().catch(e=>{console.error(e);process.exit(1)})",
+            str(host_sentinel.udp.getsockname()[1]), check=False,
+        )
+        assert webrtc_probe.returncode == 0, f"rootless Chromium WebRTC probe failed: {webrtc_probe.stderr}"
+        udp_probe = docker("run", "--rm", "--network", browser_network, "--entrypoint", "node", image, "-e",
+            "fetch('http://qa-preview:8080/__udp_seen').then(async r=>{if((await r.text())!=='no')process.exit(1)}).catch(()=>process.exit(1))", check=False)
+        assert udp_probe.returncode == 0 and not host_sentinel.seen.is_set(), "browser network delivered a UDP probe to a private or host endpoint"
 
         with tempfile.TemporaryDirectory(prefix="koolade-browser-qa-") as temporary:
             directory = Path(temporary)
@@ -207,11 +279,12 @@ def main() -> None:
                 code, report = execute(image, browser_network, rejected, directory)
                 assert code == 2 and "action is not allowed by browser QA policy" in report["driver_error"], report
     finally:
+        host_sentinel.close()
         docker("rm", "--force", relay, check=False)
         docker("rm", "--force", task, check=False)
         docker("network", "rm", browser_network, check=False)
         docker("network", "rm", task_network, check=False)
-    print("browser QA fixture passed: Python preview, real Playwright actions, screenshots, page error evidence, assertion failure, and origin escape denials")
+    print("browser QA fixture passed: Playwright evidence and origin policy, plus rootless host/private TCP, UDP, and WebRTC escape probes")
 
 
 if __name__ == "__main__":

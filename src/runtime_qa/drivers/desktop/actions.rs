@@ -1,13 +1,16 @@
+use std::collections::BTreeSet;
 use std::{thread, time::Duration};
 
 use x11rb::protocol::{
-    xproto::{ConfigureWindowAux, ConnectionExt as _, InputFocus, Window},
+    xproto::{ConfigureWindowAux, ConnectionExt as _, InputFocus},
     xtest::ConnectionExt as _,
 };
 
 use crate::runtime_qa::{QaDriverActionV1, QaScenarioStepV1};
 
 use super::display::{DesktopDisplay, WindowInfo};
+
+pub(super) mod window;
 
 pub(super) enum ActionResult {
     State(String),
@@ -19,15 +22,16 @@ pub(super) fn execute(
     display: &DesktopDisplay,
     step: &QaScenarioStepV1,
     wait_limit: Duration,
+    owner_pids: &BTreeSet<u32>,
 ) -> Result<ActionResult, String> {
     match &step.driver_action {
         QaDriverActionV1::LaunchValidatedTarget => Ok(ActionResult::Neutral),
         QaDriverActionV1::WaitForWindow => {
             let deadline = std::time::Instant::now() + wait_limit.min(Duration::from_secs(10));
             loop {
-                let windows = display.windows()?;
+                let windows = display.windows(owner_pids)?;
                 if !windows.is_empty() {
-                    return Ok(ActionResult::State(describe_windows(&windows)));
+                    return Ok(ActionResult::State(window::describe(&windows)));
                 }
                 if std::time::Instant::now() >= deadline {
                     return Err("timed out waiting for a visible application window".into());
@@ -35,11 +39,29 @@ pub(super) fn execute(
                 thread::sleep(Duration::from_millis(50));
             }
         }
-        QaDriverActionV1::ListWindows => {
-            Ok(ActionResult::State(describe_windows(&display.windows()?)))
+        QaDriverActionV1::ListWindows => Ok(ActionResult::State(window::describe(
+            &display.windows(owner_pids)?,
+        ))),
+        QaDriverActionV1::AssertRegionVisible {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            let id = window::require(display, window_id, owner_pids)?;
+            let visible = display.region_has_visible_content(id, *x, *y, *width, *height)?;
+            Ok(ActionResult::State(
+                if visible {
+                    "region visible"
+                } else {
+                    "region not visible"
+                }
+                .into(),
+            ))
         }
         QaDriverActionV1::FocusWindow { window_id } => {
-            let window = require_window(display, window_id)?;
+            let window = window::require(display, window_id, owner_pids)?;
             display
                 .connection
                 .set_input_focus(InputFocus::PARENT, window, x11rb::CURRENT_TIME)
@@ -53,7 +75,7 @@ pub(super) fn execute(
             width,
             height,
         } => {
-            let window = require_window(display, window_id)?;
+            let window = window::require(display, window_id, owner_pids)?;
             if !(320..=super::display::DISPLAY_WIDTH).contains(width)
                 || !(240..=super::display::DISPLAY_HEIGHT).contains(height)
             {
@@ -74,9 +96,11 @@ pub(super) fn execute(
                 "resized window {window_id} to {width}x{height}"
             )))
         }
-        QaDriverActionV1::Click { window_id, x, y } => click(display, window_id, *x, *y, false),
+        QaDriverActionV1::Click { window_id, x, y } => {
+            click(display, window_id, *x, *y, false, owner_pids)
+        }
         QaDriverActionV1::DoubleClick { window_id, x, y } => {
-            click(display, window_id, *x, *y, true)
+            click(display, window_id, *x, *y, true, owner_pids)
         }
         QaDriverActionV1::Drag {
             window_id,
@@ -85,8 +109,8 @@ pub(super) fn execute(
             end_x,
             end_y,
         } => {
-            let window = require_window(display, window_id)?;
-            let rect = display.window(window)?;
+            let window = window::require(display, window_id, owner_pids)?;
+            let rect = display.window(window, owner_pids)?;
             let start = absolute_point(&rect, *start_x, *start_y)?;
             let end = absolute_point(&rect, *end_x, *end_y)?;
             input(display, 4, 1, start)?;
@@ -121,8 +145,8 @@ pub(super) fn execute(
             if *delta_x != 0 {
                 return Err("horizontal scrolling is not supported by this X11 driver".into());
             }
-            let window = require_window(display, window_id)?;
-            let rect = display.window(window)?;
+            let window = window::require(display, window_id, owner_pids)?;
+            let rect = display.window(window, owner_pids)?;
             let point = absolute_point(&rect, rect.width / 2, rect.height / 2)?;
             let button = if *delta_y < 0 { 4 } else { 5 };
             for _ in 0..delta_y.unsigned_abs().min(40) {
@@ -138,7 +162,7 @@ pub(super) fn execute(
             Ok(ActionResult::State("application logs requested".into()))
         }
         QaDriverActionV1::CloseWindow { window_id } => {
-            let window = require_window(display, window_id)?;
+            let window = window::require(display, window_id, owner_pids)?;
             display
                 .connection
                 .destroy_window(window)
@@ -151,31 +175,16 @@ pub(super) fn execute(
     }
 }
 
-pub(super) fn describe_windows(windows: &[WindowInfo]) -> String {
-    if windows.is_empty() {
-        return "no visible windows".into();
-    }
-    windows
-        .iter()
-        .map(|window| {
-            format!(
-                "{}:{}:{}x{}@{},{}",
-                window.id, window.title, window.width, window.height, window.x, window.y
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(" | ")
-}
-
 fn click(
     display: &DesktopDisplay,
     window_id: &str,
     x: u16,
     y: u16,
     double: bool,
+    owner_pids: &BTreeSet<u32>,
 ) -> Result<ActionResult, String> {
-    let window = require_window(display, window_id)?;
-    let rect = display.window(window)?;
+    let window = window::require(display, window_id, owner_pids)?;
+    let rect = display.window(window, owner_pids)?;
     let point = absolute_point(&rect, x, y)?;
     let count = if double { 2 } else { 1 };
     for _ in 0..count {
@@ -189,17 +198,6 @@ fn click(
         "{}clicked window {window_id} at {x},{y}",
         if double { "double-" } else { "" }
     )))
-}
-
-fn require_window(display: &DesktopDisplay, raw: &str) -> Result<Window, String> {
-    let id = raw
-        .parse::<Window>()
-        .map_err(|_| "window ID is invalid".to_owned())?;
-    if display.windows()?.iter().any(|window| window.id == id) {
-        Ok(id)
-    } else {
-        Err("window ID is not a currently visible application window".into())
-    }
 }
 
 fn input(display: &DesktopDisplay, event: u8, detail: u8, point: (i16, i16)) -> Result<(), String> {
