@@ -1,30 +1,80 @@
-# CLI clean-launch matrix (current candidate)
+# Clean CLI launch profiles
 
-The launcher removes the same inherited startup-code, shell-init, Git-config,
-loader, and IDE-connection variables from all six provider processes and their
-capability probes. It leaves provider authentication and model-transport values
-(such as API keys and endpoint variables) available to the controller-side CLI;
-none are added to the Docker worker environment. The denylist is centralized in
-`UNSAFE_PROVIDER_LAUNCH_ENV` and tested for the shared spawn path.
+Kool.ad/e starts providers from a private controller working directory, passes
+argv as discrete values, and keeps task filesystem/process access behind the
+application execution boundary. The launch profile binds the selected
+executable, version evidence, generated argv, working directory, and filtered
+environment before the process is created. The child environment retains only
+runtime lookup/locale values, provider-specific API authentication variables,
+and values generated for the current run.
 
-This is a bounded hardening increment, not proof that every installed provider
-version meets issue #156. Except for Pi's runtime help-capability check, current
-provider versions and several vendor-managed configuration surfaces are not
-version-gated. A provider must remain unavailable when those surfaces can enable
-host execution outside the application boundary.
+## Provider matrix
 
-| Provider | Current clean-launch controls | Authentication and model transport | Remaining ambient-policy limit |
+The application probes each installed CLI's bounded `--help` output in a
+temporary HOME/XDG tree before declaring it ready. It rejects a provider whose
+help output is missing a required option. Probed options are cached only for
+the executable path, reported version, and executable modification time. The
+probe proves that the installed binary advertises the arguments used by the
+profile; mocked tests prove the application passes them. It does not prove
+every behavior of a provider binary, so real-provider smoke tests remain a
+release follow-up.
+
+| Provider | Runtime-checked profile controls | App-owned setup | Authentication and remaining limits |
 | --- | --- | --- | --- |
-| Pi | JSON print mode; no session, context files, extensions, skills, prompt templates, or themes. A private per-run Pi agent, session, and package directory is used. Implementation disables built-in tools and enables only the app extension. Required flags are checked against installed `--help`. | A private profile copies only the selected provider/model settings and that provider's auth entry; provider/model are passed explicitly. The profile files are created with owner-only permissions. `PI_OFFLINE=1` and `PI_SKIP_VERSION_CHECK=1` limit startup behavior. | Pi planning reads and implementation use the common Docker MCP bridge and typed execution session. Real installed-version coverage remains required for every supported flag and capability. Pi capability checks verify option presence, not behavioral support by a vendor version; trust and package-discovery behavior still needs real installed-version coverage. |
-| Codex | Private controller cwd; `--ignore-user-config`; read-only native sandbox; native shell, hooks, plugins, memories, skills, code mode and other listed features disabled; system and user hook files inspected. Readiness now requires the `--disable`, `--ignore-user-config`, and `--skip-git-repo-check` controls in addition to base exec options. | Only `OPENAI_API_KEY` and explicit model transport survive the clean child environment. Host `CODEX_HOME` and `~/.codex/auth.json` are not imported; the current readiness probe checks host login state, so subscription/file-auth readiness does not prove isolated-task authentication. | Version detection checks required option presence, not behavioral support for every feature name. Host OAuth/auth-file and OS-keyring compatibility needs a dedicated controller-side auth strategy; account-managed policies cannot be inspected. |
-| Claude Code | Private controller cwd; restricted mode, no native tools or permission prompts, strict app-only MCP config, no session persistence; local managed hooks/MCP rejected. | `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` remain on the host controller process. Host `~/.claude` credentials are not imported; `auth status` currently probes the host profile, so OAuth readiness does not prove isolated-task authentication. | User-level configuration and cloud-managed policy are not fully isolated; WSL is rejected because Windows-managed settings cannot be inspected. |
-| OpenCode | `--pure`; private controller cwd and generated config; native tools denied; generated MCP only; auto-update, default plugins, LSP downloads and Claude integration disabled. | Imports selected provider/model settings and auth into private controller state. | Imported model/provider data is a compatibility bridge; no vendor-version floor is currently enforced. |
-| GitHub Copilot CLI | Private `COPILOT_HOME` and cache; `--no-custom-instructions`; built-in MCPs, remote access and export disabled; available tools restricted to app MCP. | Imports a supported saved GitHub token into private controller state; token environment variables remain available. | Plugin/skill/hook/custom-agent discovery and enterprise policy are not fully version-gated. |
-| Antigravity (`agy`) | Stream-JSON headless mode; private HOME/XDG and generated strict settings; native file, command, URL and unsandboxed tools denied; app MCP is the only allowed tool. | Only `GEMINI_API_KEY` is retained as a supported API-key variable; `GOOGLE_API_KEY` is dropped because the CLI documents that it is ignored. The CLI requires explicit `modelProvider: "gemini"` alongside the key, which the current profile does not select. | API-key mode cannot be inferred safely from key presence because that could silently change billing. Private HOME/keyring OAuth behavior and vendor-managed settings need installed-version smoke coverage; no compatible-version gate exists yet. |
+| Pi | print/JSON mode, no session, no context files, no extension/skill/template/theme discovery, no built-in tools, explicit tool list/extension, selected provider/model/thinking level | `PI_CODING_AGENT_DIR`, package/session directories, explicit Kool.ad/e extension, offline mode | API auth variables remain controller-side. A real installed Pi smoke test is not part of mandatory CI. |
+| Codex | JSON exec, read-only sandbox, ephemeral session, explicit model/config, ignored user config, skipped Git repository check, explicit feature disables | Private MCP config and only the application-owned tool server | Only `OPENAI_API_KEY` is passed as an API credential. Subscription OAuth behavior and project-instruction suppression need real CLI verification. |
+| Claude Code | prompt/stream JSON, no session persistence, restricted mode, no native tools, no permission prompts, explicit permission mode and strict generated MCP config | Private MCP config and explicit app bridge allowlist | API key/auth token variables remain controller-side. Machine-managed settings that can run host code are rejected. Subscription authentication and project instruction suppression need real CLI verification. |
+| OpenCode | pure mode, JSON event output, automatic tool mode, explicit directory/agent/model | Generated config, private OpenCode HOME/config/cache, no default plugins, explicit deny-by-default permissions and MCP | Known API-key variables remain controller-side; saved OpenCode auth is copied only into the private home. Real provider startup is not part of mandatory CI. |
+| GitHub Copilot CLI | silent prompt mode, no ask-user, no auto-update, explicit tool allowlist and MCP config, built-in MCPs/custom instructions/remote access/export disabled | Private `COPILOT_HOME` and cache, generated MCP config | Only Copilot GitHub token variables are passed, with saved token import limited to supported token formats. Host machine policy hooks are rejected. |
+| Antigravity (`agy`) | headless input/output stream JSON, explicit model/effort support, terminal sandbox | Private HOME/XDG and generated strict settings/MCP config | Only `GEMINI_API_KEY` is passed as an API credential. Subscription login and the provider's full project-discovery behavior need real CLI verification. |
 
-The CLI references used for the controls include [Pi usage](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/docs/usage.md), [OpenAI Codex CLI](https://developers.openai.com/codex/cli/reference), [Claude Code CLI](https://code.claude.com/docs/en/cli-reference), [OpenCode CLI](https://docs.opencode.ai/docs/cli/), [GitHub Copilot CLI](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference), and [Antigravity headless mode](https://www.antigravity.google/docs/cli/headless/). Confirm flag behavior against the installed version before expanding these profiles.
+Exact tokens and environment keys are defined in
+`src/harness/execution_security/application_boundary/providers.rs`. Runtime
+configuration is in the matching provider modules under
+`src/harness/execution_security/application_boundary/providers/`.
 
-The launch process runs from a private bootstrap directory; repo tools are provided
-through the existing application bridge. Task clones remain unchanged. Provider
-API traffic remains controller-side and is outside the repository-command
-sandbox; disabling native repo tools does not make provider inference offline.
+## Role and CI coverage
+
+`fake_provider_invocations_cover_all_modes_and_launch_profiles` launches all
+six mocked provider executables in every `ExecutionMode`. It checks the
+filtered environment, generated values, isolated controller working
+directory, and that MCP authority matches the mode's `ToolAccess`. The
+application-boundary tests also verify no-access behavior for each provider,
+profile argv/environment binding, and rejection of missing capabilities or
+post-validation drift.
+
+The hosted `tests and Docker runtime` job runs these tests in parallel with the
+complete all-target nextest suite. A focused profile test step runs the
+capability, binding, and role-matrix tests first so the clean-launch release
+gate is visible independently in CI. No paid provider credentials or installed
+vendor CLIs are required by this gate.
+
+## Telemetry and security boundary
+
+Task activity stores the provider name, normalized CLI version, selected prompt
+role version when available, a SHA-256 profile identity, and the capability
+names accepted by the probe. The record omits argv, environment values, paths,
+prompts, and credentials. It is compatibility evidence, not an attestation from
+the provider or a replacement for the Docker execution boundary. API
+credentials are only available to the controller-side CLI process; they are
+never added to the Docker worker environment.
+
+## Upstream provider documentation
+
+- [Pi coding agent usage and CLI options](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/usage.md)
+- [Codex CLI reference](https://developers.openai.com/codex/cli/reference)
+- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference)
+- [OpenCode CLI](https://opencode.ai/docs/cli/)
+- [GitHub Copilot CLI command reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)
+- [Antigravity headless CLI](https://www.antigravity.google/docs/cli/headless/)
+
+## Required follow-up before claiming full provider equivalence
+
+- Run opt-in smoke jobs with supported real CLI versions and test authentication,
+  startup, stream completion, model selection, and bridge calls.
+- Verify that each provider's supported flags actually suppress all user and
+  project customization sources; help output alone cannot establish semantics.
+- Add provider-specific auth-strategy and role/task identifiers to telemetry
+  only when those values can be obtained without recording secrets.
+- Test concurrent same-provider task cancellation and private-state cleanup
+  against installed provider processes.

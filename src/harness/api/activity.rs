@@ -64,6 +64,21 @@ pub struct ActivityTelemetry {
     pub updates: u64,
     /// Ten-second buckets: UTC bucket number and received update count.
     pub samples: Vec<(i64, u64)>,
+    /// Versioned clean-launch evidence. Contains no argv, paths, prompts, or credentials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<CleanLaunchTelemetry>,
+}
+
+/// Redacted evidence for the provider profile validated before process launch.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CleanLaunchTelemetry {
+    pub provider: String,
+    pub cli_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_role_version: Option<String>,
+    pub profile_hash: String,
+    pub verified_capabilities: Vec<String>,
 }
 
 /// A stable, chronologically placed block of external agent output.
@@ -134,6 +149,9 @@ impl LiveProgress {
             telemetry.samples.push((bucket, 1));
         }
         telemetry.samples.retain(|(time, _)| *time >= bucket - 59);
+        telemetry.launch_profile = telemetry
+            .launch_profile
+            .or_else(|| next.telemetry.launch_profile.clone());
         next.telemetry = telemetry;
         next.selected_route = next.selected_route.or_else(|| self.selected_route.clone());
         *self = next;
@@ -182,5 +200,31 @@ mod tests {
             Some("codex / gpt-configured")
         );
         assert_eq!(progress.activity.as_deref(), Some("Reading the task"));
+    }
+
+    #[test]
+    fn redacted_launch_profile_survives_later_progress_updates() {
+        let profile = CleanLaunchTelemetry {
+            provider: "codex".into(),
+            cli_version: "codex 1.2.3".into(),
+            prompt_role_version: None,
+            profile_hash: "sha256:synthetic".into(),
+            verified_capabilities: vec!["--ignore-user-config".into()],
+        };
+        let mut progress = LiveProgress {
+            telemetry: ActivityTelemetry {
+                launch_profile: Some(profile.clone()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        progress.update(LiveProgress {
+            activity: Some("Reading the task".into()),
+            ..Default::default()
+        });
+        assert_eq!(progress.telemetry.launch_profile, Some(profile));
+        let serialized = serde_json::to_string(&progress).unwrap();
+        assert!(!serialized.contains("argv"));
+        assert!(!serialized.contains("credential"));
     }
 }

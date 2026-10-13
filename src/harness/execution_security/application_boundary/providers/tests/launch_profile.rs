@@ -1,16 +1,36 @@
 use super::super::{CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch};
 use std::path::Path;
 
+fn complete_evidence(provider: CliProvider, version: &str) -> ProfileProbeEvidence {
+    ProfileProbeEvidence::validated(
+        provider,
+        Path::new("/bin/true"),
+        version.to_owned(),
+        provider.profile_requirements().capabilities,
+    )
+    .unwrap()
+}
+
 #[test]
 fn evidence_enforces_discoverable_version_and_capability_requirements() {
     let binary = Path::new("/bin/true");
     assert!(
-        ProfileProbeEvidence::validated(CliProvider::Claude, binary, "2.1.267".into(), &[],)
-            .is_err()
+        ProfileProbeEvidence::validated(
+            CliProvider::Claude,
+            binary,
+            "2.1.267".into(),
+            CliProvider::Claude.profile_requirements().capabilities,
+        )
+        .is_err()
     );
     assert!(
-        ProfileProbeEvidence::validated(CliProvider::Claude, binary, "2.1.268".into(), &[],)
-            .is_ok()
+        ProfileProbeEvidence::validated(
+            CliProvider::Claude,
+            binary,
+            "2.1.268".into(),
+            CliProvider::Claude.profile_requirements().capabilities,
+        )
+        .is_ok()
     );
     assert!(
         ProfileProbeEvidence::validated(
@@ -64,9 +84,7 @@ fn every_provider_launch_profile_binds_its_required_arguments_and_environment() 
 #[test]
 fn profile_drift_fails_before_process_creation() {
     let provider = CliProvider::Claude;
-    let evidence =
-        ProfileProbeEvidence::validated(provider, Path::new("/bin/true"), "2.1.268".into(), &[])
-            .unwrap();
+    let evidence = complete_evidence(provider, "2.1.268");
     let mut launch = ValidatedProviderLaunch::bind(
         evidence,
         vec![
@@ -84,9 +102,7 @@ fn profile_drift_fails_before_process_creation() {
     launch.add_test_argv_drift();
     assert!(launch.spawn_with_input(Path::new("/tmp"), None).is_err());
 
-    let evidence =
-        ProfileProbeEvidence::validated(provider, Path::new("/bin/true"), "2.1.268".into(), &[])
-            .unwrap();
+    let evidence = complete_evidence(provider, "2.1.268");
     let mut launch = ValidatedProviderLaunch::bind(
         evidence,
         vec![
@@ -108,9 +124,7 @@ fn profile_drift_fails_before_process_creation() {
 #[test]
 fn launch_rejects_working_directory_drift() {
     let provider = CliProvider::Claude;
-    let evidence =
-        ProfileProbeEvidence::validated(provider, Path::new("/bin/true"), "2.1.268".into(), &[])
-            .unwrap();
+    let evidence = complete_evidence(provider, "2.1.268");
     let launch = ValidatedProviderLaunch::bind(
         evidence,
         vec![
@@ -132,9 +146,7 @@ fn launch_rejects_working_directory_drift() {
 #[test]
 fn launch_binding_rejects_a_different_executable_and_missing_profile_parts() {
     let provider = CliProvider::Antigravity;
-    let evidence =
-        ProfileProbeEvidence::validated(provider, Path::new("/bin/true"), "1.0.0".into(), &[])
-            .unwrap();
+    let evidence = complete_evidence(provider, "1.0.0");
     assert!(
         ValidatedProviderLaunch::bind(
             evidence.clone(),
@@ -156,9 +168,7 @@ fn launch_binding_rejects_a_different_executable_and_missing_profile_parts() {
         )
         .is_err()
     );
-    let evidence =
-        ProfileProbeEvidence::validated(provider, Path::new("/bin/true"), "1.0.0".into(), &[])
-            .unwrap();
+    let evidence = complete_evidence(provider, "1.0.0");
     assert!(
         ValidatedProviderLaunch::bind(
             evidence,
@@ -178,4 +188,40 @@ fn launch_binding_rejects_a_different_executable_and_missing_profile_parts() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn launch_telemetry_records_only_redacted_profile_identity() {
+    let provider = CliProvider::Claude;
+    let launch = ValidatedProviderLaunch::bind(
+        complete_evidence(provider, "2.1.268"),
+        vec![
+            "/bin/true".into(),
+            "--tools".into(),
+            "--restricted".into(),
+            "--strict-mcp-config".into(),
+            "--permission-mode".into(),
+            "dontAsk".into(),
+        ],
+        Path::new("/tmp"),
+        vec![("ANTHROPIC_API_KEY".into(), "synthetic-secret".into())],
+    )
+    .unwrap();
+
+    let telemetry = launch.telemetry(Some("implementer/v1"));
+    assert_eq!(telemetry.provider, "Claude Code");
+    assert_eq!(telemetry.cli_version, "2.1.268");
+    assert_eq!(
+        telemetry.prompt_role_version.as_deref(),
+        Some("implementer/v1")
+    );
+    assert_eq!(
+        telemetry.verified_capabilities.len(),
+        provider.profile_requirements().capabilities.len()
+    );
+    assert_eq!(telemetry.profile_hash.len(), 64);
+    let serialized = serde_json::to_string(&telemetry).unwrap();
+    assert!(!serialized.contains("synthetic-secret"));
+    assert!(!serialized.contains("ANTHROPIC_API_KEY"));
+    assert!(!serialized.contains("/tmp"));
 }

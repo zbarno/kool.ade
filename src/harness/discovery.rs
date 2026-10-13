@@ -91,6 +91,28 @@ pub(crate) fn run(
         stderr_limit,
         excluded_environment,
         &[],
+        false,
+    )
+}
+
+/// Runs a provider capability probe with a task-local, empty HOME and XDG
+/// directories. This prevents `--help` startup hooks and plugin discovery
+/// from consulting the operator's profile.
+pub(crate) fn run_isolated(
+    argv: &[String],
+    timeout: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+    excluded_environment: &[&str],
+) -> anyhow::Result<ProbeOutput> {
+    run_inner(
+        argv,
+        timeout,
+        stdout_limit,
+        stderr_limit,
+        excluded_environment,
+        &[],
+        true,
     )
 }
 
@@ -101,6 +123,7 @@ fn run_inner(
     stderr_limit: usize,
     excluded_environment: &[&str],
     environment_overrides: &[(&str, &str)],
+    isolate_home: bool,
 ) -> anyhow::Result<ProbeOutput> {
     anyhow::ensure!(
         !argv.is_empty() && !argv[0].is_empty(),
@@ -124,6 +147,22 @@ fn run_inner(
     // lookup variables. Do not inherit arbitrary tokens, cloud credentials,
     // shell startup configuration, or project-specific process settings.
     sanitize_probe_environment(&mut command);
+    if isolate_home {
+        for child in ["config", "data", "cache", "appdata", "localdata"] {
+            std::fs::create_dir_all(directory.path.join(child))?;
+        }
+        let home = directory.path.to_string_lossy();
+        command
+            .env("HOME", home.as_ref())
+            .env("USERPROFILE", home.as_ref())
+            .env("XDG_CONFIG_HOME", directory.path.join("config"))
+            .env("XDG_DATA_HOME", directory.path.join("data"))
+            .env("XDG_CACHE_HOME", directory.path.join("cache"))
+            .env("APPDATA", directory.path.join("appdata"))
+            .env("LOCALAPPDATA", directory.path.join("localdata"))
+            .env("NO_COLOR", "1")
+            .env("TERM", "dumb");
+    }
     // Applying overrides before the denylist lets tests prove that even a
     // deliberately injected hostile parent value cannot reach a probe.
     command.envs(environment_overrides.iter().copied());

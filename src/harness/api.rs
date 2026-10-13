@@ -17,7 +17,9 @@ use crate::error::AppError;
 mod activity;
 mod dependency;
 mod execution;
-pub use activity::{ActivityTelemetry, LivePost, LiveProgress, ModelCallUsage};
+pub use activity::{
+    ActivityTelemetry, CleanLaunchTelemetry, LivePost, LiveProgress, ModelCallUsage,
+};
 pub use dependency::{
     DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,
     DependencyFailureCategory, DependencyKind, DependencyNeed, DependencyPackageIdentity,

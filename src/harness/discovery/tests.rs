@@ -165,6 +165,7 @@ fn startup_code_environment_is_removed_before_provider_probe() {
         1024,
         &[],
         &[("NODE_OPTIONS", "--require=/tmp/host-injected.js")],
+        false,
     )
     .unwrap();
     assert_eq!(String::from_utf8_lossy(&output.stdout), "unset");
@@ -185,6 +186,7 @@ fn provider_and_project_injection_variables_are_removed_before_every_probe() {
         64 * 1024,
         &[],
         &hostile_environment,
+        false,
     )
     .unwrap();
     assert!(!output.stdout_truncated);
@@ -217,6 +219,7 @@ fn probe_inherits_only_the_small_nonsecret_environment_allowlist() {
         1024,
         &[],
         &[("PATH", "/synthetic/test-path")],
+        false,
     )
     .unwrap();
     assert_eq!(
@@ -224,5 +227,28 @@ fn probe_inherits_only_the_small_nonsecret_environment_allowlist() {
         "unset|unset|/synthetic/test-path"
     );
     drop(environment);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn isolated_provider_help_probe_uses_private_home_and_xdg_roots() {
+    let (root, path) = script(
+        "printf '%s|%s|%s|%s' \"$HOME\" \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$XDG_CACHE_HOME\"",
+    );
+    let output = run_isolated(
+        &[path.to_string_lossy().into_owned()],
+        Duration::from_secs(2),
+        1024,
+        1024,
+        &[],
+    )
+    .unwrap();
+    let roots = String::from_utf8_lossy(&output.stdout);
+    let mut roots = roots.split('|');
+    let home = std::path::PathBuf::from(roots.next().unwrap());
+    assert!(home.starts_with(std::env::temp_dir()));
+    assert!(roots.next().unwrap().starts_with(home.to_str().unwrap()));
+    assert!(roots.next().unwrap().starts_with(home.to_str().unwrap()));
+    assert!(roots.next().unwrap().starts_with(home.to_str().unwrap()));
     fs::remove_dir_all(root).unwrap();
 }

@@ -41,7 +41,21 @@ impl CliProvider {
         match self {
             Self::Claude => ProfileRequirements {
                 minimum_version: Some((2, 1, 268)),
-                capabilities: &[],
+                help_commands: &[&["--help"]],
+                capabilities: &[
+                    "-p",
+                    "--output-format",
+                    "--input-format",
+                    "--verbose",
+                    "--no-session-persistence",
+                    "--restricted",
+                    "--permission-prompts",
+                    "--tools",
+                    "--permission-mode",
+                    "--strict-mcp-config",
+                    "--mcp-config",
+                    "--allowedTools",
+                ],
                 launch_tokens: &[
                     "--tools",
                     "--restricted",
@@ -53,6 +67,7 @@ impl CliProvider {
             },
             Self::Codex => ProfileRequirements {
                 minimum_version: None,
+                help_commands: &[&["exec", "--help"]],
                 capabilities: &[
                     "--json",
                     "--cd",
@@ -69,6 +84,7 @@ impl CliProvider {
             },
             Self::Pi => ProfileRequirements {
                 minimum_version: None,
+                help_commands: &[&["--help"]],
                 capabilities: &[
                     "--print",
                     "--mode",
@@ -103,7 +119,14 @@ impl CliProvider {
             },
             Self::Antigravity => ProfileRequirements {
                 minimum_version: None,
-                capabilities: &[],
+                help_commands: &[&["--help"]],
+                capabilities: &[
+                    "--input-format",
+                    "--output-format",
+                    "--model",
+                    "--effort",
+                    "--sandbox",
+                ],
                 launch_tokens: &[
                     "--input-format",
                     "stream-json",
@@ -115,13 +138,28 @@ impl CliProvider {
             },
             Self::OpenCode => ProfileRequirements {
                 minimum_version: None,
-                capabilities: &[],
+                help_commands: &[&["--help"], &["run", "--help"]],
+                capabilities: &[
+                    "--pure", "run", "--format", "--auto", "--dir", "--agent", "--model",
+                ],
                 launch_tokens: &["--pure", "run", "--format", "json", "--auto", "--dir"],
                 environment_keys: &["HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT"],
             },
             Self::Copilot => ProfileRequirements {
                 minimum_version: None,
-                capabilities: &[],
+                help_commands: &[&["--help"]],
+                capabilities: &[
+                    "--silent",
+                    "--no-ask-user",
+                    "--no-auto-update",
+                    "--available-tools",
+                    "--additional-mcp-config",
+                    "--disable-builtin-mcps",
+                    "--no-custom-instructions",
+                    "--no-remote",
+                    "--no-remote-export",
+                    "--allow-tool",
+                ],
                 launch_tokens: &[
                     "--silent",
                     "--no-ask-user",
