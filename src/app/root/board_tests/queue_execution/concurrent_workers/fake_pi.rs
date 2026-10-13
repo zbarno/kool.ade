@@ -106,7 +106,7 @@ if '--help' in sys.argv:
 --extension''')
     sys.exit(0)
 if '--version' in sys.argv:
-    print('pi fixture 1.0')
+    print('pi fixture 1.0.0')
     sys.exit(0)
 prompt = sys.stdin.read()
 ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
