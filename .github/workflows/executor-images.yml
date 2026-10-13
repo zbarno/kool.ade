@@ -92,6 +92,7 @@ jobs:
           [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
           printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
       - name: Build the trusted recipe from its fixed context
+        id: build
         env:
           PROFILE: ${{ matrix.profile }}
           PLATFORM: ${{ matrix.platform }}
@@ -113,10 +114,12 @@ jobs:
             containers/executor
           image_digest="$(jq -er '."containerimage.digest"' "$metadata_file")"
           [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'image_digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
       - name: Check architecture, identity, tools, and forbidden services
         env:
           PROFILE: ${{ matrix.profile }}
           PLATFORM: ${{ matrix.platform }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
         run: |
           set -euo pipefail
           architecture="${PLATFORM#linux/}"
@@ -197,7 +200,7 @@ jobs:
           jq -n \
             --arg profile "$PROFILE" \
             --arg platform "$PLATFORM" \
-            --arg digest "$image_digest" \
+            --arg digest "$IMAGE_DIGEST" \
             --arg base_image "$BASE_IMAGE" \
             --arg source_revision "$GITHUB_SHA" \
             --arg recipe "$recipe_sha256" \

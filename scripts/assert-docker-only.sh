@@ -6,12 +6,10 @@ matches_file="$(mktemp)"
 trap 'rm -f "$matches_file"' EXIT
 
 set +e
-rg -n -i \
-  --glob '!assert-docker-only.sh' \
-  '(bubblewrap|bwrap|KOOLADE_BWRAP_BIN|pi_sandbox)' \
-  "$root/src" "$root/docs" "$root/README.md" "$root/SECURITY.md" \
-  "$root/.github" "$root/containers" "$root/site" "$root/tests" \
-  "$root/Cargo.toml" "$root/Cargo.lock" \
+git -C "$root" grep -n -i -E \
+  -e '(bubblewrap|bwrap|KOOLADE_BWRAP_BIN|pi_sandbox)' -- \
+  src docs README.md SECURITY.md .github containers site tests Cargo.toml Cargo.lock \
+  ':!scripts/assert-docker-only.sh' \
   >"$matches_file"
 scan_status=$?
 set -e
