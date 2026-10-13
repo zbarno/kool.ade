@@ -182,7 +182,10 @@ def main() -> None:
             redirect = request([action("browser_open", url="http://qa-service/redirect")])
             code, report = execute(image, browser_network, redirect, directory)
             assert code == 1 and report["outcome"] == "failed"
-            assert "169.254.169.254" in report["policy_violation"]
+            assert "169.254.169.254" in (report.get("policy_violation") or ""), {
+                key: report.get(key)
+                for key in ("error", "policy_violation", "console_errors", "failed_requests")
+            }
 
             for defect, expected in [
                 ("iframe", "169.254.169.254"),
