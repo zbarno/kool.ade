@@ -1,3 +1,4 @@
+use bollard::container::LogOutput;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use futures_util::TryStreamExt;
 use std::time::Duration;
@@ -18,6 +19,7 @@ pub async fn extract_archive(
     run_exec(
         backend,
         container_id,
+        "extract the isolated workspace archive",
         vec![
             "tar".into(),
             "--extract".into(),
@@ -34,6 +36,7 @@ pub async fn extract_archive(
         run_exec(
             backend,
             container_id,
+            "seal the planning workspace",
             vec![
                 "/bin/sh".into(),
                 "-c".into(),
@@ -50,6 +53,7 @@ pub async fn extract_archive(
 async fn run_exec(
     backend: &DockerExecutionBackend,
     container_id: &str,
+    action: &'static str,
     command: Vec<String>,
     user: &str,
     input_bytes: &[u8],
@@ -69,7 +73,7 @@ async fn run_exec(
             },
         )
         .await
-        .map_err(|_| archive_error())?;
+        .map_err(|_| archive_error(action, "Docker rejected the staging command"))?;
     let StartExecResults::Attached {
         mut input,
         mut output,
@@ -84,41 +88,94 @@ async fn run_exec(
             }),
         )
         .await
-        .map_err(|_| archive_error())?
+        .map_err(|_| archive_error(action, "Docker could not start the staging command"))?
     else {
-        return Err(archive_error());
+        return Err(archive_error(
+            action,
+            "Docker did not attach the staging command",
+        ));
     };
     input
         .write_all(input_bytes)
         .await
-        .map_err(|_| archive_error())?;
-    input.shutdown().await.map_err(|_| archive_error())?;
-    while output
+        .map_err(|_| archive_error(action, "Docker closed the staging input"))?;
+    input
+        .shutdown()
+        .await
+        .map_err(|_| archive_error(action, "Docker could not close the staging input"))?;
+    let mut stderr_tail = Vec::new();
+    while let Some(output) = output
         .try_next()
         .await
-        .map_err(|_| archive_error())?
-        .is_some()
-    {}
+        .map_err(|_| archive_error(action, "Docker closed the staging output"))?
+    {
+        if let LogOutput::StdErr { message } = output {
+            stderr_tail.extend_from_slice(&message);
+            if stderr_tail.len() > 512 {
+                stderr_tail.drain(..stderr_tail.len() - 512);
+            }
+        }
+    }
     loop {
-        let result = backend
-            .docker
-            .inspect_exec(&exec.id)
-            .await
-            .map_err(|_| archive_error())?;
+        let result =
+            backend.docker.inspect_exec(&exec.id).await.map_err(|_| {
+                archive_error(action, "Docker could not inspect the staging command")
+            })?;
         if result.running == Some(false) || result.exit_code.is_some() {
             if result.exit_code == Some(0) {
                 return Ok(());
             }
-            return Err(archive_error());
+            let detail = format!(
+                "staging command exited with status {:?}; {}",
+                result.exit_code,
+                stderr_summary(&stderr_tail)
+            );
+            return Err(archive_error(action, &detail));
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
-fn archive_error() -> ExecutionError {
+fn stderr_summary(stderr: &[u8]) -> &'static str {
+    let stderr = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    if stderr.contains("permission denied") {
+        "the staging process lacked file permissions"
+    } else if stderr.contains("no space left") {
+        "container storage is full"
+    } else if stderr.contains("invalid tar") || stderr.contains("unexpected eof") {
+        "the workspace archive is invalid or incomplete"
+    } else if stderr.trim().is_empty() {
+        "the staging command produced no diagnostic output"
+    } else {
+        "the staging tool reported an error"
+    }
+}
+
+fn archive_error(action: &str, detail: &str) -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::WorkerDisconnected,
-        "Docker Engine could not materialize the isolated workspace",
+        format!("Docker Engine could not {action}: {detail}"),
         true,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stderr_summary;
+
+    #[test]
+    fn archive_diagnostic_classifies_permission_failures_without_echoing_paths() {
+        let summary = stderr_summary(b"tar: /workspace/customer-name/file: Permission denied");
+
+        assert_eq!(summary, "the staging process lacked file permissions");
+        assert!(!summary.contains("customer-name"));
+    }
+
+    #[test]
+    fn archive_diagnostic_classifies_invalid_input_without_echoing_archive_names() {
+        let summary = stderr_summary(b"tar: private-project.tar: Unexpected EOF");
+
+        assert_eq!(summary, "the workspace archive is invalid or incomplete");
+        assert!(!summary.contains("private-project"));
+    }
 }

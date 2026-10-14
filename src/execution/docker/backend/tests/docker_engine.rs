@@ -85,8 +85,8 @@ async fn docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded() {
     assert_eq!(host.privileged, Some(false));
     assert_eq!(host.readonly_rootfs, Some(true));
     assert_eq!(host.network_mode.as_deref(), Some("none"));
-    assert_eq!(
-        host.pid_mode, None,
+    assert!(
+        host.pid_mode.as_deref().unwrap_or_default().is_empty(),
         "Docker defaults to a private PID namespace"
     );
     assert_eq!(host.ipc_mode.as_deref(), Some("private"));
