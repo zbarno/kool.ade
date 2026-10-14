@@ -54,43 +54,56 @@ impl WorkerStager {
         let TransferPayloadV1::Workspace(workspace) = &receiver.manifest().payload else {
             anyhow::bail!("worker transfer is not a workspace snapshot");
         };
+        // An exact retry may coexist with its own lease. Never reselect an
+        // older generation merely because its directory still exists.
+        {
+            let _shared = self.lock_registry(&workspace.workspace, false)?;
+            if self
+                .selected_workspace(&workspace.workspace)?
+                .is_some_and(|selected| selected == *workspace)
+            {
+                receiver.finalize()?;
+                anyhow::ensure!(
+                    self.workspace_path(workspace)?.is_dir(),
+                    "selected workspace directory is missing"
+                );
+                return Ok(());
+            }
+        }
+        let _exclusive = self.lock_registry(&workspace.workspace, true)?;
+        self.ensure_no_unfinished_execution(&workspace.workspace)?;
+        let mut workspaces = self
+            .workspaces
+            .lock()
+            .map_err(|_| anyhow::anyhow!("worker workspace registry is unavailable"))?;
         let materialized = receiver.finalize()?;
         let destination = self.workspace_path(workspace)?;
         if destination.exists() {
-            let workspaces = self
-                .workspaces
-                .lock()
-                .map_err(|_| anyhow::anyhow!("worker workspace registry is unavailable"))?;
-            if workspaces
-                .get(&workspace.workspace)
-                .is_some_and(|staged| staged.path == destination)
-            {
-                return Ok(());
-            }
             anyhow::bail!("worker workspace snapshot already exists");
         }
+        anyhow::ensure!(
+            workspaces.get(&workspace.workspace).is_none_or(|staged| {
+                staged.reservations == 0 && staged.leases.is_empty() && staged.executions.is_empty()
+            }),
+            "worker workspace generation is reserved by an execution lease"
+        );
         create_private_dir(destination.parent().expect("workspace has parent"))?;
         copy_workspace_snapshot(workspace, &materialized, &destination)?;
         if let Err(error) = initialize_isolated_git(&destination, &self.staging_root) {
             let _ = fs::remove_dir_all(&destination);
             return Err(error);
         }
-        let mut workspaces = self
-            .workspaces
-            .lock()
-            .map_err(|_| anyhow::anyhow!("worker workspace registry is unavailable"))?;
-        if workspaces
-            .insert(
-                workspace.workspace.clone(),
-                StagedWorkspace {
-                    path: destination,
-                    snapshot_generation: workspace.snapshot_generation.clone(),
-                },
-            )
-            .is_some()
-        {
-            anyhow::bail!("worker workspace identity is already staged");
-        }
+        self.select_workspace(workspace)?;
+        workspaces.insert(
+            workspace.workspace.clone(),
+            StagedWorkspace {
+                path: destination,
+                snapshot_generation: workspace.snapshot_generation.clone(),
+                reservations: 0,
+                leases: Default::default(),
+                executions: Default::default(),
+            },
+        );
         Ok(())
     }
 }

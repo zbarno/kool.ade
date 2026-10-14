@@ -14,9 +14,7 @@ use crate::execution::{
 };
 
 mod cancellation;
-pub(super) use cancellation::{
-    WorkspaceSyncRequest, sync_workspace_if_active, terminate_if_active,
-};
+pub(super) use cancellation::{WorkspaceSyncRequest, sync_workspace_if_active};
 
 pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
     backend: &DockerExecutionBackend,
@@ -38,7 +36,12 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
             false,
         ));
     };
-    let archive = download_workspace(backend, container_id, budget).await?;
+    let archive = tokio::time::timeout(
+        Duration::from_secs(60),
+        download_workspace(backend, container_id, budget),
+    )
+    .await
+    .map_err(|_| super::super::control::operation_timeout())??;
     backend.verify_authorization(authorization_generation)?;
     staging::synchronize(workspace, snapshot, &archive, budget)
 }
@@ -195,7 +198,7 @@ pub(super) async fn download_workspace(
         let detail = stderr_summary(&stderr_tail);
         return Err(ExecutionError::new(
             ExecutionErrorKind::WorkerDisconnected,
-            format!("Docker workspace archive command failed: {detail}"),
+            format!("Docker workspace archive command exited with status {exit_code:?}: {detail}"),
             true,
         ));
     }

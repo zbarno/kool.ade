@@ -5,6 +5,8 @@ use crate::execution::{
     contract::{EventPageRequestV1, ExecutionEventKindV1, ExecutionLifecycleV1},
 };
 
+#[path = "docker_engine/deadlines.rs"]
+mod deadlines;
 #[path = "docker_engine/planning_read_only.rs"]
 mod planning_read_only;
 #[path = "docker_engine/stack_recipes.rs"]
@@ -179,10 +181,12 @@ async fn docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded() {
             .await
     });
     wait_for_stdout(&execution_backend, &second_handle, "cancel-ready").await;
-    execution_backend
-        .cancel(&second_handle, second_request.cancellation_generation)
-        .await
-        .expect("cancel only the owned container");
+    let (first_cancel, repeated_cancel) = tokio::join!(
+        execution_backend.cancel(&second_handle, second_request.cancellation_generation),
+        execution_backend.cancel(&second_handle, second_request.cancellation_generation),
+    );
+    first_cancel.expect("cancel only the owned container");
+    repeated_cancel.expect("concurrent cancellation is idempotent");
     let execution_result = tokio::time::timeout(Duration::from_secs(15), running)
         .await
         .expect("exec stream did not end after cancellation")

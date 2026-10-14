@@ -11,6 +11,7 @@ use super::super::protocol::{EnvelopeKindV1 as Kind, EnvelopeV1};
 
 mod cache_transfer;
 mod support;
+mod workspace;
 pub(super) use cache_transfer::CacheTransfers;
 pub(super) type PendingDependencyRelays =
     HashMap<String, crate::execution::remote::dependency::DependencyRelayRequestV1>;
@@ -42,6 +43,16 @@ pub(super) fn dispatch(
         capacity_leases,
         runtime,
     } = context;
+    if matches!(
+        envelope.kind,
+        Kind::PrepareWorkspace
+            | Kind::BeginWorkspaceTransfer
+            | Kind::WorkspaceTransferChunk
+            | Kind::FinalizeWorkspaceTransfer
+            | Kind::ReleaseWorkspace
+    ) {
+        return workspace::dispatch(backend, stager, runtime, envelope);
+    }
     let result = match envelope.kind {
         Kind::DependencyRequest => Err(super::incompatible(
             "worker dependency requests are emitted only as relay responses",
@@ -55,44 +66,7 @@ pub(super) fn dispatch(
             }
             json_value(probe).map(|value| (Kind::ProbeResult, value))
         }
-        Kind::PrepareWorkspace => {
-            require_control_id(envelope)?;
-            let request: PrepareRequest = decode(&envelope.payload)?;
-            json_value(
-                runtime.block_on(backend.prepare_workspace(&request.workspace, &request.target))?,
-            )
-            .map(|value| (Kind::Acknowledge, value))
-        }
-        Kind::BeginWorkspaceTransfer => {
-            require_control_id(envelope)?;
-            let request: BeginWorkspaceTransferRequest = decode(&envelope.payload)?;
-            stager
-                .as_ref()
-                .ok_or_else(|| super::incompatible("worker workspace staging is unavailable"))?
-                .begin(request.manifest)
-                .map_err(|_| super::incompatible("workspace transfer manifest was rejected"))?;
-            Ok((Kind::Acknowledge, json!({"accepted": true})))
-        }
-        Kind::WorkspaceTransferChunk => {
-            require_control_id(envelope)?;
-            let request: WorkspaceTransferChunkRequest = decode(&envelope.payload)?;
-            stager
-                .as_ref()
-                .ok_or_else(|| super::incompatible("worker workspace staging is unavailable"))?
-                .accept_chunk(&request.chunk)
-                .map_err(|_| super::incompatible("workspace transfer chunk was rejected"))?;
-            Ok((Kind::Acknowledge, json!({"accepted": true})))
-        }
-        Kind::FinalizeWorkspaceTransfer => {
-            require_control_id(envelope)?;
-            let request: FinalizeWorkspaceTransferRequest = decode(&envelope.payload)?;
-            stager
-                .as_ref()
-                .ok_or_else(|| super::incompatible("worker workspace staging is unavailable"))?
-                .finalize(&request.transfer_id)
-                .map_err(|_| super::incompatible("workspace transfer could not be finalized"))?;
-            Ok((Kind::Acknowledge, json!({"accepted": true})))
-        }
+
         Kind::BeginCacheTransfer => {
             cache_transfer::begin(&envelope.payload, cache_transfers, envelope)
         }
@@ -216,6 +190,13 @@ pub(super) fn dispatch(
                 })
                 .transpose()?;
             let handle = runtime.block_on(backend.start(&request.lease, &request.request))?;
+            if let Some(stager) = &stager {
+                stager
+                    .bind_execution(&request.lease.lease_id, &handle.execution_id)
+                    .map_err(|_| {
+                        super::incompatible("execution workspace generation could not be reserved")
+                    })?;
+            }
             if let Some(reservation) = reservation {
                 capacity_leases.insert(request.request.execution_id.clone(), reservation);
             }
@@ -254,14 +235,16 @@ pub(super) fn dispatch(
             require_execution_id(envelope, &request.handle.execution_id)?;
             runtime.block_on(backend.release(&request.handle))?;
             capacity_leases.remove(&request.handle.execution_id);
+            if let Some(stager) = &stager {
+                stager
+                    .release_execution(&request.handle.execution_id)
+                    .map_err(|_| {
+                        super::incompatible("execution generation could not be released")
+                    })?;
+            }
             Ok((Kind::Acknowledge, json!({"released": true})))
         }
-        Kind::ReleaseWorkspace => {
-            require_control_id(envelope)?;
-            let request: ReleaseWorkspaceRequest = decode(&envelope.payload)?;
-            runtime.block_on(backend.release_workspace(&request.lease))?;
-            Ok((Kind::Acknowledge, json!({"released": true})))
-        }
+
         Kind::Health => {
             require_control_id(envelope)?;
             let request: HealthRequest = decode(&envelope.payload)?;
@@ -288,6 +271,11 @@ pub(super) fn dispatch(
             }
             json_value(request).map(|value| (Kind::Acknowledge, value))
         }
+        Kind::PrepareWorkspace
+        | Kind::BeginWorkspaceTransfer
+        | Kind::WorkspaceTransferChunk
+        | Kind::FinalizeWorkspaceTransfer
+        | Kind::ReleaseWorkspace => unreachable!(),
         Kind::ProbeResult | Kind::Event | Kind::Acknowledge | Kind::Error => {
             return Err(super::incompatible(
                 "remote worker received a response as a request",

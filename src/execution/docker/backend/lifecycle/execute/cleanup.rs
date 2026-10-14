@@ -5,12 +5,11 @@ use std::{
 
 use super::super::runtime::RuntimeExecution;
 use crate::execution::{
-    contract::ExecutionLifecycleV1,
     docker::backend::{DockerExecutionBackend, now_unix_ms},
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
-use super::state::{disconnected, finish};
+use super::state::disconnected;
 
 const CLEANUP_RPC_TIMEOUT: Duration = Duration::from_secs(1);
 const STOP_RPC_TIMEOUT: Duration = Duration::from_secs(2);
@@ -18,30 +17,18 @@ const STOP_RPC_TIMEOUT: Duration = Duration::from_secs(2);
 pub(super) async fn deadline_failure(
     backend: &DockerExecutionBackend,
     execution: &Arc<Mutex<RuntimeExecution>>,
-    container_id: &str,
-    execution_id: &str,
 ) -> Result<(), ExecutionError> {
-    let cleanup = stop_owned(backend, container_id, execution_id).await;
-    let failure = cleanup.as_ref().err().cloned().unwrap_or_else(|| {
+    super::failure::finalize_failure(
+        backend,
+        execution,
         ExecutionError::new(
             ExecutionErrorKind::DeadlineExceeded,
             "Execution exceeded its deadline",
             false,
-        )
-    });
-    finish(
-        execution,
-        if cleanup.is_ok() {
-            ExecutionLifecycleV1::Failed
-        } else {
-            ExecutionLifecycleV1::Interrupted
-        },
-        Some(failure),
-        None,
+        ),
         true,
-        false,
-    )?;
-    Ok(())
+    )
+    .await
 }
 
 pub(super) fn remaining(deadline_unix_ms: u64) -> Duration {

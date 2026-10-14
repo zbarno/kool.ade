@@ -115,6 +115,27 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
+typed_marker = 'TYPED TASK REQUEST (JSON DATA)\n'
+if typed_marker in prompt:
+    typed = json.JSONDecoder().raw_decode(prompt.split(typed_marker, 1)[1].lstrip())[0]
+    if typed['role'] == 'code_reviewer':
+        payload = typed['payload']['request']
+        evidence = typed['evidence_manifest']
+        ids = [item['id'] for item in evidence]
+        assert 'approved-task-spec' in ids
+        reports = [item for item in evidence if item['id'].startswith('verified-test-report-')]
+        diffs = [item for item in evidence if item['id'].startswith('diff-')]
+        assert reports and diffs
+        assert (payload['requirements_matrix'] == ['approved-task-scope:' + typed['task_uid']] or
+                all('File exists.' in requirement for requirement in payload['requirements_matrix']))
+        assert 'implemented' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
+        assert 'complete' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
+        verdict = {'subject_hash': payload['subject_hash'], 'pass': True,
+                   'coverage': [{'requirement': requirement, 'status': 'pass', 'evidence': ids}
+                                for requirement in payload['requirements_matrix']],
+                   'findings': [], 'untested': []}
+        print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(verdict)}]}]}))
+        sys.exit(0)
 tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
 tool_names = {name.strip() for name in tool_args.split(',')}
 server_command = os.environ.get('KOOLADE_MCP_COMMAND')
@@ -132,7 +153,7 @@ if ticket_line is None and not implementation_call:
     while not (root / '004-task.started').exists() and time.time() < deadline:
         time.sleep(0.05)
     time.sleep(0.25)
-    report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Planning fixture while independent workers run.','acceptance_criteria':[{'criterion':'The task remains available during planning.','evidence':'Independent workers remain active.'}],'verification':['Observed active workers.'],'remaining':[],'human_choices':[]}
+    report = {'schema_version':2,'assistant_message':'Planning fixture: I can discuss this while the worker runs.','document_updates':[],'open_items_added':[],'open_items_updated':[],'open_items_resolved':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
 assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; tools=' + repr(tool_args)
@@ -168,7 +189,9 @@ request(1, 'initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clie
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
 server.stdin.flush()
 if output_path is None:
-    lookup = "ticket=$(rg -l --fixed-strings '" + task_uid + "' .koolade-packet/planning/tasks/fixture/*.md) && rg -o '^- src/[^[:space:]]+' \"$ticket\""
+    # The reviewed general image contains grep/sed, and no ripgrep. Return
+    # the affected filename itself, so recovery prompts need no ticket prose.
+    lookup = "for ticket in .koolade-packet/planning/tasks/fixture/*.md; do if grep -q -F '" + task_uid + "' \"$ticket\"; then sed -n 's/^- //p' \"$ticket\" | grep '^src/'; break; fi; done"
     response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':lookup,'timeout_seconds':60}})
     if 'error' in response or response.get('result', {}).get('isError'):
         print(json.dumps(response), file=sys.stderr)
@@ -206,3 +229,7 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
     std::fs::set_permissions(&pi, std::fs::Permissions::from_mode(0o700)).unwrap();
     pi
 }
+
+#[cfg(test)]
+#[path = "fake_pi/tests.rs"]
+mod tests;

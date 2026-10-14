@@ -103,7 +103,7 @@ pub struct ClaimRequest {
     pub(super) allow_offline: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ClaimError {
     AlreadyClaimed {
         record: Box<ClaimRecord>,

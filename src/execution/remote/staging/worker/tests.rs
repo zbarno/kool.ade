@@ -129,6 +129,57 @@ fn materialized_workspace_uses_fresh_git_metadata_not_controller_configuration()
             )
             .is_ok()
     );
+    // Repeated preparation preserves retries and rejects replacement while
+    // resolution, a lease, or an execution still owns the old generation.
+    stager.finalize(&transfer.transfer_id).unwrap();
+    fs::write(source.join("README.md"), b"fresh controller input\n").unwrap();
+    let next_snapshot =
+        crate::execution::remote::WorkspaceManifestV1::capture(workspace.clone(), &source).unwrap();
+    let next = TransferManifestV1::workspace("controller:fixture", "worker:fixture", next_snapshot)
+        .unwrap();
+    let peer = WorkerStager::new(root.path(), "fixture".into()).unwrap();
+    stager.begin(next.clone()).unwrap();
+    peer.begin(next.clone()).unwrap();
+    for file in next.files() {
+        super::super::sender::stream_file_chunks(&next, &source, file.path, |chunk| {
+            stager.accept_chunk(chunk)?;
+            peer.accept_chunk(chunk)
+        })
+        .unwrap();
+    }
+    let reservation = stager.reserve_workspace(&workspace).unwrap();
+    assert!(stager.finalize(&next.transfer_id).is_err());
+    reservation.bind_lease("fixture-lease").unwrap();
+    assert!(peer.finalize(&next.transfer_id).is_err());
+    assert!(stager.finalize(&next.transfer_id).is_err());
+    stager
+        .bind_execution("fixture-lease", "fixture-execution")
+        .unwrap();
+    stager.release_workspace("fixture-lease").unwrap();
+    assert!(peer.finalize(&next.transfer_id).is_err());
+    assert!(stager.finalize(&next.transfer_id).is_err());
+    assert_eq!(stager.resolve_owned_clone(&workspace).unwrap(), staged);
+    stager.release_execution("fixture-execution").unwrap();
+    stager.finalize(&next.transfer_id).unwrap();
+    stager.finalize(&next.transfer_id).unwrap();
+    let updated = stager.resolve_owned_clone(&workspace).unwrap();
+    assert_ne!(updated, staged);
+    assert_eq!(
+        fs::read(updated.join("README.md")).unwrap(),
+        b"fresh controller input\n"
+    );
+    assert_eq!(fs::read(staged.join("README.md")).unwrap(), b"safe input\n");
+    let restarted = WorkerStager::new(root.path(), "fixture".into()).unwrap();
+    assert_eq!(restarted.resolve_owned_clone(&workspace).unwrap(), updated);
+    restarted.begin(transfer.clone()).unwrap();
+    assert!(restarted.finalize(&transfer.transfer_id).is_err());
+    // A previously created worker refreshes its cached generation under the
+    // shared registry lock before issuing another lease.
+    peer.begin(transfer.clone()).unwrap();
+    assert!(peer.finalize(&transfer.transfer_id).is_err());
+    let refreshed = peer.reserve_workspace(&workspace).unwrap();
+    assert_eq!(peer.resolve_owned_clone(&workspace).unwrap(), updated);
+    drop(refreshed);
 }
 
 fn git_command(root: &Path, global: &Path) -> std::process::Command {

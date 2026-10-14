@@ -252,3 +252,21 @@ fn mutable_or_unapproved_image_references_are_refused() {
     image.digest = format!("sha256:{}", "c".repeat(64));
     assert!(create_body(&request, &workspace, &identity(), &image).is_err());
 }
+
+#[test]
+fn go_verification_uses_executable_temporary_binaries_without_relaxing_tmp() {
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let image = ImageLock::bundled()
+        .unwrap()
+        .select(RuntimeProfile::Go, "amd64")
+        .unwrap();
+    let mut request = request(ExecutionModeV1::Verification);
+    request.policy = request.policy.without_scoped_workspace_write();
+    request.image_digest = image.digest.clone();
+    let body = create_body(&request, &workspace, &identity(), &image).unwrap();
+    assert!(body.env.unwrap().contains(&"GOTMPDIR=/workspace".into()));
+    let mounts = body.host_config.unwrap().tmpfs.unwrap();
+    assert!(mounts["/tmp"].contains("noexec"));
+    assert!(!mounts["/workspace"].contains("noexec"));
+}

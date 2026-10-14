@@ -10,6 +10,7 @@ use std::{
 mod claim_compatibility;
 #[path = "tests/claim_state.rs"]
 mod claim_state;
+mod concurrent_verification;
 #[path = "tests/core_claims.rs"]
 mod core_claims;
 #[path = "tests/legacy_cutover.rs"]

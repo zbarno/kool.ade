@@ -56,7 +56,7 @@ pub(super) fn negotiated_probe(
     Ok(ack.probe)
 }
 
-pub(super) fn matches_response(request: &Kind, response: &Kind) -> bool {
+pub(in crate::execution::remote) fn matches_response(request: &Kind, response: &Kind) -> bool {
     matches!(
         (request, response),
         (Kind::Probe, Kind::ProbeResult)

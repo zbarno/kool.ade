@@ -26,9 +26,11 @@ fn remote_cache_transfer_validates_chunks_before_staging_snapshot() {
     let backend_calls = Arc::new(AtomicUsize::new(0));
     let mut input = Vec::new();
     let mut sequence = 0;
+    let mut request_kinds = Vec::new();
     {
-        let mut send = |kind, payload| {
+        let mut send = |kind: EnvelopeKindV1, payload| {
             sequence += 1;
+            request_kinds.push(kind.clone());
             let envelope = EnvelopeV1 {
                 version: protocol::PROTOCOL_VERSION_V1,
                 request_id: format!("00000000-0000-4000-8000-{:012}", sequence),
@@ -80,6 +82,13 @@ fn remote_cache_transfer_validates_chunks_before_staging_snapshot() {
             EnvelopeKindV1::Acknowledge,
             "{:?}",
             response.payload
+        );
+        assert!(
+            crate::execution::remote::client::matches_response(
+                &request_kinds[acknowledgements],
+                &response.kind,
+            ),
+            "controller must accept the authenticated cache-transfer response",
         );
         acknowledgements += 1;
     }

@@ -90,7 +90,7 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
                 path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"),
                 title,
                 text: format!(
-                    "# Task {number}\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
+                    "# Task {number}\n\nFeature: CHG-001\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
                 ),
                 identity: Some(identity),
                 metadata: Some(metadata),
@@ -114,6 +114,13 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/changes/CHG-001-fixture")).unwrap();
     std::fs::write(
         repo.join(".koolade-packet/planning/changes/CHG-001-fixture/specification.md"),
+        feature,
+    )
+    .unwrap();
+    // Implementation loads the immutable approved specification beside the
+    // generated task batch, as real task generation does.
+    std::fs::write(
+        repo.join(".koolade-packet/planning/tasks/fixture/specification.md"),
         feature,
     )
     .unwrap();
