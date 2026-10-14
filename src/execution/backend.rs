@@ -28,6 +28,9 @@ pub type BackendFuture<'a, T> =
 /// Shared lifecycle API for local and remote Docker workers.
 /// Implementations resolve local paths internally; request messages never carry them.
 pub trait ExecutionBackend: Send + Sync {
+    #[cfg(test)]
+    fn terminate_remote_connection_for_test(&self) {}
+
     /// Launch a policy-validated disposable Runtime QA driver on this backend's
     /// already-selected engine. Backends without a local Docker control plane
     /// fail closed by default.
