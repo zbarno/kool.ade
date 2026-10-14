@@ -65,6 +65,7 @@ fn authorized_npm_restore_blocks_malicious_install_egress_and_host_secrets() {
                     "version": "1.0.0",
                     "resolved": registry_url,
                     "integrity": integrity,
+                    "hasInstallScript": true,
                 },
             },
         }))
