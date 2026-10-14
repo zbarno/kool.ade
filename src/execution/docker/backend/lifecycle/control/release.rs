@@ -61,12 +61,19 @@ pub(super) async fn release_persisted(
                 )
                 .await
                 .map_err(|_| super::operation_timeout())?
-                .map_err(|_| super::disconnected())?;
+                .map_err(|error| {
+                    super::operation_disconnected("remove the execution container", &error)
+                })?;
             }
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..
             }) => {}
-            Err(_) => return Err(super::disconnected()),
+            Err(error) => {
+                return Err(super::operation_disconnected(
+                    "inspect the execution container for release",
+                    &error,
+                ));
+            }
         }
         record.cleanup = ExecutionCleanupStateV1::Complete;
         record.updated_at_unix_ms =

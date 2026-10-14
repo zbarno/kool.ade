@@ -62,7 +62,9 @@ async fn download_workspace(
         .download_from_container(container_id, Some(options));
     let mut archive = Vec::new();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| super::state::disconnected())?;
+        let chunk = chunk.map_err(|error| {
+            super::state::operation_disconnected("download the workspace archive", &error)
+        })?;
         if (archive.len() as u64).saturating_add(chunk.len() as u64) > limit {
             return Err(ExecutionError::new(
                 ExecutionErrorKind::ExecutionFailed,

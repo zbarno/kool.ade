@@ -17,7 +17,9 @@ mod helpers;
 mod release;
 pub(super) use cancel::cancel_persisted;
 pub(super) use events::events;
-pub(super) use helpers::{disconnected, operation_timeout, result, terminal, verify_owned};
+pub(super) use helpers::{
+    disconnected, operation_disconnected, operation_timeout, result, terminal, verify_owned,
+};
 use release::release_persisted;
 
 fn load_record(
