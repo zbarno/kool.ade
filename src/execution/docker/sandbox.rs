@@ -159,9 +159,15 @@ pub fn create_body(
     // mount remain read-only throughout setup.
     let workspace_mode = "1777";
     let workspace_access = "rw";
+    let workspace_exec =
+        if request.mode == crate::execution::contract::ExecutionModeV1::PlanningReadOnly {
+            "noexec"
+        } else {
+            "exec"
+        };
     tmpfs.insert(
         WORKSPACE_TARGET.into(),
-        format!("{workspace_access},nosuid,nodev,size={temporary_bytes},mode={workspace_mode}"),
+        format!("{workspace_access},{workspace_exec},nosuid,nodev,size={temporary_bytes},mode={workspace_mode}"),
     );
     for target in ["/tmp", "/run", "/home/executor"] {
         tmpfs.insert(
