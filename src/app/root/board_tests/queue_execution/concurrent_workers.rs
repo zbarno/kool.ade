@@ -117,6 +117,13 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         feature,
     )
     .unwrap();
+    // Implementation loads the immutable approved specification beside the
+    // generated task batch, as real task generation does.
+    std::fs::write(
+        repo.join(".koolade-packet/planning/tasks/fixture/specification.md"),
+        feature,
+    )
+    .unwrap();
     std::fs::write(repo.join(".koolade-packet/state/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":".koolade-packet/planning/tasks/fixture","count":4}]}).to_string()).unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "baseline"]);

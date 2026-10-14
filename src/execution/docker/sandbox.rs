@@ -203,6 +203,7 @@ pub fn create_body(
             "-c".into(),
             "mkdir -p /home/executor/.npm /home/executor/.cargo && while :; do sleep 3600; done"
                 .into(),
+            format!("koolade-keeper-{}", request.execution_id),
         ]),
         labels: Some(labels),
         host_config: Some(HostConfig {

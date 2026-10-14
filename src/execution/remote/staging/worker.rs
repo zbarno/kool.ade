@@ -18,6 +18,7 @@ use super::{StagingReceiver, TransferChunkV1, TransferManifestV1, TransferPayloa
 mod input;
 mod leases;
 mod materialize;
+mod registry;
 mod restore;
 mod results;
 
@@ -33,8 +34,8 @@ struct StagedWorkspace {
     path: PathBuf,
     snapshot_generation: String,
     reservations: usize,
-    leases: std::collections::HashSet<String>,
-    executions: std::collections::HashSet<String>,
+    leases: HashMap<String, fs::File>,
+    executions: HashMap<String, fs::File>,
 }
 
 impl WorkerStager {

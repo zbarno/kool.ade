@@ -54,6 +54,24 @@ impl WorkerStager {
         let TransferPayloadV1::Workspace(workspace) = &receiver.manifest().payload else {
             anyhow::bail!("worker transfer is not a workspace snapshot");
         };
+        // An exact retry may coexist with its own lease. Never reselect an
+        // older generation merely because its directory still exists.
+        {
+            let _shared = self.lock_registry(&workspace.workspace, false)?;
+            if self
+                .selected_workspace(&workspace.workspace)?
+                .is_some_and(|selected| selected == *workspace)
+            {
+                receiver.finalize()?;
+                anyhow::ensure!(
+                    self.workspace_path(workspace)?.is_dir(),
+                    "selected workspace directory is missing"
+                );
+                return Ok(());
+            }
+        }
+        let _exclusive = self.lock_registry(&workspace.workspace, true)?;
+        self.ensure_no_unfinished_execution(&workspace.workspace)?;
         let mut workspaces = self
             .workspaces
             .lock()
@@ -81,6 +99,7 @@ impl WorkerStager {
             let _ = fs::remove_dir_all(&destination);
             return Err(error);
         }
+        self.select_workspace(workspace)?;
         workspaces.insert(
             workspace.workspace.clone(),
             StagedWorkspace {
