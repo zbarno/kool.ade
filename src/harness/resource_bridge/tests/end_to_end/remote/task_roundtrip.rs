@@ -29,7 +29,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
     fs::create_dir_all(&task_home_path).unwrap();
     let _home = support::task_home(&task_home_path);
     let task_clone = support::create_task_clone(&repository, &task_home_path, "remote-roundtrip");
-    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for remote execution E2E");
     sshd.verify_client_authentication().unwrap();

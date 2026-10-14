@@ -223,7 +223,7 @@ pub(super) async fn release(
     )
     .await
     .map_err(|_| operation_timeout())?
-    .map_err(|_| disconnected())?;
+    .map_err(|error| operation_disconnected("remove the execution container", &error))?;
     {
         let mut state = execution.lock().map_err(|_| internal_error())?;
         state.cleanup_complete = true;
