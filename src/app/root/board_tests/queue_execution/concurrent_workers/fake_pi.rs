@@ -115,9 +115,12 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
-if ticket_line is None:
+tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
+tool_names = {name.strip() for name in tool_args.split(',')}
+implementation_call = 'koolade_dependency' in tool_names
+if ticket_line is None and not implementation_call:
     with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
-        trace_file.write(json.dumps({'role':'planning','tools':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
+        trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'prompt_prefix':prompt[:160]}) + '\n')
     deadline = time.time() + 45
     while not (root / '004-task.started').exists() and time.time() < deadline:
         time.sleep(0.05)
@@ -125,25 +128,24 @@ if ticket_line is None:
     report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Planning fixture while independent workers run.','acceptance_criteria':[{'criterion':'The task remains available during planning.','evidence':'Independent workers remain active.'}],'verification':['Observed active workers.'],'remaining':[],'human_choices':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
-tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
-tool_names = {name.strip() for name in tool_args.split(',')}
-assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; argv=' + repr(sys.argv)
+assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; tools=' + repr(tool_args)
 time.sleep(0.3)
-ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
-affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
-output_path = next(line.strip().removeprefix('- ') for line in affected_section.splitlines() if line.strip().startswith('- '))
+server_command = os.environ['KOOLADE_MCP_COMMAND']
+server_args = json.loads(os.environ['KOOLADE_MCP_ARGS'])
+task_uid = None
+if ticket_line is not None:
+    ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
+    affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
+    output_path = next(line.strip().removeprefix('- ') for line in affected_section.splitlines() if line.strip().startswith('- '))
+else:
+    assert implementation_call, 'A ticketless prompt did not receive implementation tools'
+    config = json.loads(pathlib.Path(server_args[-1]).read_text())
+    assert config['access'] == 'implementation'
+    task_uid = config['task_id']
+    output_path = None
 # This fixture models the ticket's literal acceptance criterion. Keep this
 # independent of prompt formatting so it exercises report validation itself.
 criteria = ['File exists.']
-output = pathlib.Path(output_path)
-if output.name in ('task-1.rs', 'task-2.rs'):
-    (root / (output.name + '.started')).touch()
-elif output.name == 'task-4.rs':
-    (root / '004-task.started').touch()
-elif output.name == 'task-3.rs':
-    assert pathlib.Path('src/task-1.rs').exists() and pathlib.Path('src/task-2.rs').exists(), 'Dependencies were not merged before starting'
-server_command = os.environ['KOOLADE_MCP_COMMAND']
-server_args = json.loads(os.environ['KOOLADE_MCP_ARGS'])
 server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 def request(identifier, method, params=None):
     server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
@@ -152,16 +154,37 @@ def request(identifier, method, params=None):
 request(1, 'initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'fake-pi','version':'1'}})
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
 server.stdin.flush()
-response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':"mkdir -p '" + str(output.parent) + "' && printf implemented > '" + output_path + "'",'timeout_seconds':60}})
+if output_path is None:
+    lookup = "ticket=$(rg -l --fixed-strings '" + task_uid + "' .koolade-packet/planning/tasks/fixture/*.md) && rg -o '^- src/[^[:space:]]+' \"$ticket\""
+    response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':lookup,'timeout_seconds':60}})
+    if 'error' in response or response.get('result', {}).get('isError'):
+        print(json.dumps(response), file=sys.stderr)
+        sys.exit(1)
+    output_path = response['result']['content'][0]['text'].splitlines()[0]
+output = pathlib.Path(output_path)
+if output.name in ('task-1.rs', 'task-2.rs'):
+    (root / (output.name + '.started')).touch()
+elif output.name == 'task-4.rs':
+    (root / '004-task.started').touch()
+if output.name == 'task-3.rs':
+    dependency_check = "test -f src/task-1.rs && test -f src/task-2.rs"
+    response = request(3, 'tools/call', {'name':'koolade_bash','arguments':{'command':dependency_check,'timeout_seconds':60}})
+    if 'error' in response or response.get('result', {}).get('isError'):
+        print(json.dumps(response), file=sys.stderr)
+        sys.exit(1)
+write_command = "mkdir -p '" + str(output.parent) + "' && printf implemented > '" + output_path + "' && printf '%s\\n' '" + output_path + "'"
+response = request(4 if task_uid is not None else 2, 'tools/call', {'name':'koolade_bash','arguments':{'command':write_command,'timeout_seconds':60}})
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
 server.stdin.flush()
 server.wait(timeout=3)
 if 'error' in response or response.get('result', {}).get('isError'):
     print(json.dumps(response), file=sys.stderr)
     sys.exit(1)
+if output_path is None:
+    output_path = response['result']['content'][0]['text'].splitlines()[0]
 report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':criterion,'evidence':output_path+' exists and contains implemented; verified criterion: '+criterion} for criterion in criteria],'verification':['test -f '+output_path+' && grep -q implemented '+output_path],'remaining':[],'human_choices':[]}
 with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
-    trace_file.write(json.dumps({'ticket':ticket_line,'tools':sys.argv,'criteria':criteria,'report':report}) + '\n')
+    trace_file.write(json.dumps({'role':'implementation','task_uid':task_uid,'ticket':ticket_line,'tool_names':sorted(tool_names),'criteria':criteria,'report':report}) + '\n')
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
 "#,
     )

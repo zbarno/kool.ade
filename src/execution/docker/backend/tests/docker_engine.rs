@@ -167,7 +167,7 @@ async fn docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded() {
     let (second_backend, second_clone) = backend(&fixture, second_workspace.clone());
     let second_request = request(
         second_workspace,
-        "printf 'cancel-ready\\n'; printf 'preserved\\n' > cancelled-output.txt; sleep 300",
+        "printf 'preserved\\n' > cancelled-output.txt; printf 'cancel-ready\\n'; sleep 300",
     );
     let _second_cleanup = container_cleanup(&second_request);
     let (_second_lease, second_handle) = prepare_and_start(&second_backend, &second_request).await;

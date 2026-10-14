@@ -77,6 +77,17 @@ fn request_deadline_cannot_extend_beyond_the_bounded_execution_lease() {
 }
 
 #[test]
+fn verification_policy_allows_the_python_stack_recipe() {
+    let policy = ExecutionPolicyV1::for_mode(
+        ExecutionModeV1::Verification,
+        budget(1024 * 1024 * 1024, 2000),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    assert!(policy.command_capabilities().contains("python"));
+}
+
+#[test]
 fn request_working_directory_cannot_escape_the_task_workspace() {
     let mut request = request();
     request.working_directory_relative = "packages/web".into();
