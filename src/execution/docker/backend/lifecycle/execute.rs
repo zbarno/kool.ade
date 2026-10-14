@@ -221,45 +221,54 @@ pub(super) async fn run(
             return Ok(());
         }
     }
-    let inspected = match tokio::time::timeout_at(
-        tokio::time::Instant::now() + cleanup::remaining(deadline),
-        backend.docker.inspect_exec(&exec.id),
-    )
-    .await
-    {
-        Ok(Ok(inspected)) => inspected,
-        Ok(Err(error)) => {
-            return state::interrupted_with(
-                &execution,
-                state::operation_disconnected("inspect the workspace command", &error),
-            );
+    let missing_exit_status_deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let inspected = loop {
+        let inspected = match tokio::time::timeout_at(
+            tokio::time::Instant::now() + cleanup::remaining(deadline),
+            backend.docker.inspect_exec(&exec.id),
+        )
+        .await
+        {
+            Ok(Ok(inspected)) => inspected,
+            Ok(Err(error)) => {
+                return state::interrupted_with(
+                    &execution,
+                    state::operation_disconnected("inspect the workspace command", &error),
+                );
+            }
+            Err(_) => {
+                return cleanup::deadline_failure(
+                    backend,
+                    &execution,
+                    &container_id,
+                    &handle.execution_id,
+                )
+                .await;
+            }
+        };
+        if inspected.exit_code.is_some() {
+            break inspected;
         }
-        Err(_) => {
-            return cleanup::deadline_failure(
-                backend,
+        if inspected.running == Some(false)
+            && tokio::time::Instant::now() >= missing_exit_status_deadline
+        {
+            state::interrupted_with(
                 &execution,
-                &container_id,
-                &handle.execution_id,
-            )
-            .await;
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerDisconnected,
+                    "Docker stopped the command without recording its exit status",
+                    true,
+                ),
+            )?;
+            return Ok(());
         }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     };
     let code = inspected
         .exit_code
         .and_then(|code| i32::try_from(code).ok());
     let Some(code) = code else {
-        state::finish(
-            &execution,
-            ExecutionLifecycleV1::Interrupted,
-            Some(ExecutionError::new(
-                ExecutionErrorKind::WorkerDisconnected,
-                "Docker returned no command exit status",
-                true,
-            )),
-            None,
-            false,
-            false,
-        )?;
         return Ok(());
     };
     let failure = (code != 0).then(|| {
