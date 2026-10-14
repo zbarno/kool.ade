@@ -40,7 +40,7 @@ fn new_resolution_whitespace_is_rejected_before_baseline_commit() {
 #[test]
 fn moved_whitespace_inherited_from_both_sources_is_preserved() {
     let s = conflict_sandbox();
-    let peer = s.root.join("peer");
+    let peer = s.latest_peer();
     fs::write(peer.join("shared.txt"), "shared implementation \n").unwrap();
     s.git(&peer, &["add", "shared.txt"]);
     s.git(&peer, &["commit", "-qm", "retain shared whitespace"]);
@@ -60,7 +60,7 @@ fn moved_whitespace_inherited_from_both_sources_is_preserved() {
 #[test]
 fn inherited_defect_counts_cannot_exempt_extra_resolution_duplicates() {
     let s = conflict_sandbox();
-    let peer = s.root.join("peer");
+    let peer = s.latest_peer();
     fs::write(peer.join("shared.txt"), "line \nremote\n").unwrap();
     s.git(&peer, &["add", "shared.txt"]);
     s.git(&peer, &["commit", "-qm", "one inherited defect"]);

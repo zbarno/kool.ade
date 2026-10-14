@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::Path};
 
 const FILE: &str = "harness-settings.json";
+pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -28,6 +29,7 @@ pub struct WorkRoute {
 
 pub const IMPLEMENTATION: &str = "implementation";
 pub const MANAGER: &str = "manager";
+pub const PLAN_REVIEW: &str = "plan_review";
 pub const QA: &str = "qa_verification";
 pub const DOCUMENTATION: &str = "documentation";
 
@@ -44,9 +46,46 @@ pub struct DetectedHarness {
     #[serde(default)]
     pub default_model: Option<String>,
     #[serde(default)]
+    pub model_catalog_fresh: bool,
+    #[serde(default)]
     pub configuration_required: bool,
     #[serde(default)]
     pub implementation_available: bool,
+    /// Detailed per-mode and per-role evidence. Older settings omit this field;
+    /// consumers requiring mode evidence must treat that as unknown.
+    #[serde(default)]
+    pub capability_snapshot: Option<crate::execution::contract::HarnessCapabilitySnapshotV1>,
+    /// Unix time when this provider result and model catalog were last refreshed.
+    #[serde(default)]
+    pub checked_at_unix_ms: u64,
+}
+
+impl DetectedHarness {
+    pub fn is_fresh_at(&self, now_unix_ms: u64) -> bool {
+        self.checked_at_unix_ms > 0
+            && self.checked_at_unix_ms <= now_unix_ms
+            && now_unix_ms.saturating_sub(self.checked_at_unix_ms) <= DISCOVERY_FRESHNESS_MS
+    }
+
+    pub fn supports_role_at(
+        &self,
+        role: crate::execution::contract::HarnessRole,
+        now_unix_ms: u64,
+    ) -> bool {
+        self.is_fresh_at(now_unix_ms)
+            && self
+                .capability_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.supports_role(role))
+    }
+}
+
+pub fn current_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
 }
 
 pub fn settings_path() -> std::path::PathBuf {
@@ -60,8 +99,8 @@ pub fn load() -> (HarnessSettings, Option<String>) {
 fn load_from(path: &Path) -> (HarnessSettings, Option<String>) {
     match std::fs::read(path) {
         Ok(bytes) => match serde_json::from_slice::<HarnessSettings>(&bytes) {
-            Ok(mut settings) if (1..=2).contains(&settings.schema_version) => {
-                settings.schema_version = 2;
+            Ok(mut settings) if (1..=3).contains(&settings.schema_version) => {
+                settings.schema_version = 3;
                 (settings, None)
             }
             Ok(settings) => (
@@ -93,7 +132,7 @@ pub fn save(settings: &HarnessSettings) -> anyhow::Result<()> {
 
 fn save_to(path: &Path, settings: &HarnessSettings) -> anyhow::Result<()> {
     let mut next = settings.clone();
-    next.schema_version = 2;
+    next.schema_version = 3;
     let json = serde_json::to_string_pretty(&next)?;
     crate::artifacts::atomic_write(path, &json)
 }

@@ -252,6 +252,8 @@ mod tests {
             deadline: std::time::Instant::now() + Duration::from_secs(10),
             cancel: Arc::new(AtomicBool::new(false)),
             progress,
+
+            authorization_verifier: None,
         }
     }
 

@@ -142,16 +142,12 @@ mod tests {
 
     // KOOLADE_HOME is process-global: whoever flips it holds this for the
     // WHOLE test body (same discipline as chat_store).
-    static ENV_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn use_tmp_home(tag: &str) -> (PathBuf, std::sync::MutexGuard<'static, ()>) {
-        let lock = ENV_HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    fn use_tmp_home(tag: &str) -> (PathBuf, crate::test_support::ProcessEnvironmentGuard) {
+        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
         let home = env::temp_dir().join(format!("koolade_tel_{tag}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
-        // SAFETY: guarded by ENV_HOME_LOCK; no other test mutates or depends
-        // on KOOLADE_HOME while the guard is held.
-        unsafe { env::set_var("KOOLADE_HOME", &home) };
-        (home, lock)
+        environment.set("KOOLADE_HOME", &home);
+        (home, environment)
     }
 
     fn rec(task: &str, feature: &str) -> InvocationRecord {

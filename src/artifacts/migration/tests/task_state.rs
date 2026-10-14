@@ -84,6 +84,7 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
     let record = crate::core::implementation::Implementation {
         ticket: old_ticket.into(),
         task_uid: None,
+        workspace_uid: None,
         ticket_text: task_text.into(),
         approved_specification: Some("frozen approved specification".into()),
         approved_product_context: Some("frozen product context".into()),

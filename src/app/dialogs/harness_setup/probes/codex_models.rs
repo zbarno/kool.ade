@@ -1,14 +1,20 @@
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    collections::BTreeSet,
+    io::{BufRead, BufReader, Read, Write},
     path::Path,
     process::{Child, Command, Stdio},
-    sync::mpsc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(8);
+const CATALOG_TIMEOUT: Duration = crate::harness::discovery::MODEL_PROBE_TIMEOUT;
+const MAX_FRAME_BYTES: usize = 64 * 1024;
+const MAX_CATALOG_BYTES: usize = crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES;
 const PAGE_SIZE: u64 = 100;
 const MAX_PAGES: usize = 10;
 
@@ -26,11 +32,45 @@ pub(super) fn discover(binary: &Path) -> anyhow::Result<(Vec<String>, Option<Str
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    let directory =
+        crate::harness::execution_security::PrivateDirectory::create("koolade-codex-models")?;
+    command.current_dir(&directory.path);
+    crate::harness::discovery::sanitize_probe_environment(&mut command);
     for name in crate::harness::execution_security::CliProvider::Codex.excluded_child_environment()
     {
         command.env_remove(name);
     }
+    for name in [
+        "NODE_OPTIONS",
+        "NODE_PATH",
+        "BASH_ENV",
+        "ENV",
+        "PYTHONPATH",
+        "PYTHONHOME",
+    ] {
+        command.env_remove(name);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = command.spawn()?;
+    #[cfg(windows)]
+    let process_tree =
+        match crate::harness::discovery::windows::WindowsProcessTree::attach(child.id()) {
+            Ok(tree) => Some(tree),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                anyhow::bail!("could not supervise Codex model discovery process tree: {error}");
+            }
+        };
     let mut input = child
         .stdin
         .take()
@@ -39,30 +79,76 @@ pub(super) fn discover(binary: &Path) -> anyhow::Result<(Vec<String>, Option<Str
         .stdout
         .take()
         .ok_or_else(|| anyhow::anyhow!("Codex app-server did not expose its output stream"))?;
-    let (messages_tx, messages_rx) = mpsc::channel();
+    let (messages_tx, messages_rx) = mpsc::sync_channel(256);
+    let bytes_read = std::sync::Arc::new(AtomicUsize::new(0));
+    let reader_bytes = bytes_read.clone();
+    let (reader_done_tx, reader_done_rx) = mpsc::channel();
     let reader = thread::spawn(move || {
-        for line in BufReader::new(output).lines() {
-            let Ok(line) = line else { break };
-            if let Ok(message) = serde_json::from_str::<Value>(&line)
-                && messages_tx.send(message).is_err()
+        let mut reader = BufReader::new(output);
+        loop {
+            let mut frame = Vec::new();
+            let mut limited = (&mut reader).take((MAX_FRAME_BYTES + 1) as u64);
+            let read = match limited.read_until(b'\n', &mut frame) {
+                Ok(read) => read,
+                Err(_) => break,
+            };
+            if read == 0 {
+                break;
+            }
+            if frame.len() > MAX_FRAME_BYTES {
+                let _ = messages_tx.send(Err(
+                    "Codex app-server frame exceeded the size limit".to_owned()
+                ));
+                break;
+            }
+            if reader_bytes
+                .fetch_add(read, Ordering::Relaxed)
+                .saturating_add(read)
+                > MAX_CATALOG_BYTES
             {
+                let _ = messages_tx.send(Err(
+                    "Codex app-server output exceeded the size limit".to_owned()
+                ));
+                break;
+            }
+            let frame = frame.strip_suffix(b"\n").unwrap_or(&frame);
+            let parsed = serde_json::from_slice::<Value>(frame)
+                .map_err(|_| "Codex app-server returned malformed JSON".to_owned());
+            if messages_tx.send(parsed).is_err() {
                 break;
             }
         }
+        let _ = reader_done_tx.send(());
     });
 
-    let result = query_catalog(&mut child, &mut input, &messages_rx);
+    let result = query_catalog(
+        &mut child,
+        &mut input,
+        &messages_rx,
+        Instant::now() + CATALOG_TIMEOUT,
+    );
     drop(input);
+    terminate_group(child.id());
     let _ = child.kill();
     let _ = child.wait();
-    let _ = reader.join();
+    #[cfg(windows)]
+    drop(process_tree);
+    if reader_done_rx
+        .recv_timeout(Duration::from_millis(500))
+        .is_ok()
+    {
+        let _ = reader.join();
+    } else {
+        drop(reader);
+    }
     result
 }
 
 fn query_catalog(
     child: &mut Child,
     input: &mut impl Write,
-    messages: &mpsc::Receiver<Value>,
+    messages: &mpsc::Receiver<Result<Value, String>>,
+    deadline: Instant,
 ) -> anyhow::Result<(Vec<String>, Option<String>)> {
     write_message(
         input,
@@ -75,12 +161,13 @@ fn query_catalog(
             }
         }),
     )?;
-    receive_response(child, messages, 1)?;
+    receive_response(child, messages, 1, deadline)?;
     write_message(input, &json!({"method":"initialized", "params":{}}))?;
 
     let mut all_models = Vec::new();
     let mut default_model = None;
     let mut cursor: Option<String> = None;
+    let mut seen_cursors = BTreeSet::new();
     for page_index in 0..MAX_PAGES {
         let request_id = (page_index + 2) as u64;
         let mut params = json!({"includeHidden":false, "limit":PAGE_SIZE});
@@ -91,7 +178,7 @@ fn query_catalog(
             input,
             &json!({"id":request_id, "method":"model/list", "params":params}),
         )?;
-        let response = receive_response(child, messages, request_id)?;
+        let response = receive_response(child, messages, request_id, deadline)?;
         let page = parse_model_page(&response["result"])?;
         for model in page.models {
             if !all_models.contains(&model) {
@@ -103,6 +190,15 @@ fn query_catalog(
         if cursor.is_none() {
             return Ok((all_models, default_model));
         }
+        let next_cursor = cursor.as_deref().unwrap_or_default();
+        anyhow::ensure!(
+            next_cursor.len() <= 1024,
+            "Codex model cursor exceeded the size limit"
+        );
+        anyhow::ensure!(
+            seen_cursors.insert(next_cursor.to_owned()),
+            "Codex model catalog repeated a cursor"
+        );
     }
     anyhow::bail!("Codex model catalog exceeded the supported pagination limit")
 }
@@ -116,25 +212,33 @@ fn write_message(input: &mut impl Write, message: &Value) -> anyhow::Result<()> 
 
 fn receive_response(
     child: &mut Child,
-    messages: &mpsc::Receiver<Value>,
+    messages: &mpsc::Receiver<Result<Value, String>>,
     request_id: u64,
+    deadline: Instant,
 ) -> anyhow::Result<Value> {
-    let deadline = Instant::now() + REQUEST_TIMEOUT;
     loop {
+        anyhow::ensure!(
+            !crate::harness::discovery::cancellation_requested(),
+            "Codex app-server discovery was cancelled"
+        );
         let remaining = deadline.saturating_duration_since(Instant::now());
         anyhow::ensure!(
             !remaining.is_zero(),
             "Codex app-server did not return a model discovery response in time"
         );
         match messages.recv_timeout(remaining.min(Duration::from_millis(200))) {
-            Ok(message) if message["id"].as_u64() == Some(request_id) => {
+            Ok(Err(error)) => anyhow::bail!("{error}"),
+            Ok(Ok(message)) if message["id"].as_u64() == Some(request_id) => {
                 anyhow::ensure!(
                     message.get("error").is_none(),
                     "Codex app-server rejected model discovery"
                 );
                 return Ok(message);
             }
-            Ok(_) => {}
+            Ok(Ok(message)) if message.get("id").is_some() => {
+                anyhow::bail!("Codex app-server returned an unexpected response ID")
+            }
+            Ok(Ok(_)) => {}
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 anyhow::ensure!(
                     child.try_wait()?.is_none(),
@@ -154,6 +258,10 @@ fn parse_model_page(value: &Value) -> anyhow::Result<ModelPage> {
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow::anyhow!("Codex returned an invalid model catalog"))?;
     let mut page = ModelPage::default();
+    anyhow::ensure!(
+        data.len() <= PAGE_SIZE as usize,
+        "Codex model page exceeded the size limit"
+    );
     for model in data {
         let Some(slug) = model
             .get("model")
@@ -163,6 +271,10 @@ fn parse_model_page(value: &Value) -> anyhow::Result<ModelPage> {
         else {
             continue;
         };
+        anyhow::ensure!(
+            slug.len() <= 256 && !slug.chars().any(char::is_control),
+            "Codex model identifier is invalid"
+        );
         page.models.push(slug.to_owned());
         if model.get("isDefault").and_then(Value::as_bool) == Some(true) {
             page.default_model = Some(slug.to_owned());
@@ -176,75 +288,9 @@ fn parse_model_page(value: &Value) -> anyhow::Result<ModelPage> {
     Ok(page)
 }
 
+mod terminate;
+use terminate::terminate_group;
+
 #[cfg(test)]
-mod tests {
-    use super::{parse_model_page, query_catalog};
-    use serde_json::json;
-
-    #[test]
-    fn model_catalog_uses_only_visible_model_slugs_and_server_default() {
-        let page = parse_model_page(&json!({
-            "data": [
-                {"model":"gpt-6.1-sol", "displayName":"GPT-6.1-Sol", "isDefault":true},
-                {"id":"legacy-model-id", "displayName":"Legacy", "isDefault":false},
-                {"displayName":"Invalid", "isDefault":false}
-            ],
-            "nextCursor":"next-page"
-        }))
-        .unwrap();
-        assert_eq!(page.models, ["gpt-6.1-sol", "legacy-model-id"]);
-        assert_eq!(page.default_model.as_deref(), Some("gpt-6.1-sol"));
-        assert_eq!(page.next_cursor.as_deref(), Some("next-page"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn app_server_catalog_follows_cursors_and_deduplicates_model_slugs() {
-        use std::{
-            io::{BufRead, BufReader},
-            process::{Command, Stdio},
-            sync::mpsc,
-            thread,
-        };
-
-        let script = r#"
-read -r initialize
-printf '%s\n' '{"id":1,"result":{}}'
-read -r initialized
-read -r first_page
-case "$first_page" in *'"includeHidden":false'*'"limit":100'*) ;; *) exit 11 ;; esac
-printf '%s\n' '{"id":2,"result":{"data":[{"model":"gpt-next","isDefault":true}],"nextCursor":"page-two"}}'
-read -r second_page
-case "$second_page" in *'"cursor":"page-two"'*) ;; *) exit 12 ;; esac
-printf '%s\n' '{"id":3,"result":{"data":[{"id":"gpt-pro"},{"model":"gpt-next"}]}}'
-"#;
-        let mut child = Command::new("sh")
-            .args(["-c", script])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut input = child.stdin.take().unwrap();
-        let output = child.stdout.take().unwrap();
-        let (sender, messages) = mpsc::channel();
-        let reader = thread::spawn(move || {
-            for line in BufReader::new(output).lines() {
-                let Ok(line) = line else { break };
-                let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
-                    continue;
-                };
-                if sender.send(message).is_err() {
-                    break;
-                }
-            }
-        });
-
-        let catalog = query_catalog(&mut child, &mut input, &messages).unwrap();
-
-        drop(input);
-        assert!(child.wait().unwrap().success());
-        reader.join().unwrap();
-        assert_eq!(catalog.0, ["gpt-next", "gpt-pro"]);
-        assert_eq!(catalog.1.as_deref(), Some("gpt-next"));
-    }
-}
+#[path = "codex_models/tests.rs"]
+mod tests;

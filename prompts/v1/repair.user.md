@@ -1,0 +1,1 @@
+Return WorkResultV1 JSON. Inputs: role, feature_uid, optional task_uid, original_goal, approved_spec_ref/hash, decision_refs, evidence_manifest, execution_policy_ref, output_schema_version, assigned_blocking_findings, approved_task_baseline and allowed_execution_tools. Address only assigned blockers and preserve finding-to-fix traceability.

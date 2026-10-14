@@ -8,6 +8,15 @@ pub struct ViewModel {
     pub task_documents: Vec<crate::artifacts::task_docs::TaskDocument>,
     pub planning_work: Vec<crate::core::planning_work::Work>,
     pub planning_items: Vec<crate::domain::item::OpenItem>,
+    pub clarification_questions: Vec<crate::core::planning::QuestionV1>,
+    pub clarification_error: Option<String>,
+    pub opportunities: Vec<(crate::core::opportunity::OpportunityV1, u64)>,
+    pub opportunity_decisions:
+        std::collections::BTreeMap<String, crate::core::opportunity::OpportunityDecisionV1>,
+    pub self_improvement_runs:
+        std::collections::BTreeMap<String, crate::core::self_improvement::SelfImprovementRunV1>,
+    pub opportunity_error: Option<String>,
+    pub opportunity_discovery_settings: crate::core::opportunity::OpportunityDiscoverySettingsV1,
     pub setup_attention: Option<crate::app::setup_attention::SetupIssue>,
     pub setup_checking: bool,
     pub eligible_item_ids: BTreeSet<String>,

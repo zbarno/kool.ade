@@ -1,5 +1,11 @@
 mod core;
+mod invocation_matrix;
+mod launch_profile;
+mod pi;
 mod provider_configs;
+#[cfg(unix)]
+mod provider_mcp_e2e;
+mod role_authority;
 
 use super::super::{ApplicationBoundary, PrivateDirectory};
 use crate::harness::ToolAccess;
@@ -14,9 +20,8 @@ fn test_boundary(access: ToolAccess) -> ApplicationBoundary {
         app_binary: Some(std::env::current_exe().unwrap()),
         server_config: (access != ToolAccess::None).then(|| PathBuf::from("/tmp/server.json")),
         access,
+        _session_bridge: None,
         _resource_bridge: None,
-        _sandbox: None,
-        _planning_sandbox: None,
     }
 }
 

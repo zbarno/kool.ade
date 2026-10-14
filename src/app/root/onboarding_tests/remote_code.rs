@@ -41,8 +41,8 @@ fn remote_join_shows_code_repo_tasks_and_checkout_setup_without_cloning_code() {
     let home_b = base.join("operator-b");
     std::fs::create_dir_all(&home_a).unwrap();
     std::fs::create_dir_all(&home_b).unwrap();
-    let _restore = StateHome::new();
-    StateHome::set(&home_a);
+    let mut state_home = StateHome::new();
+    state_home.set(&home_a);
 
     let manager_a = crate::core::managed_workspace::WorkspaceManager::from_state_root();
     let workspace = manager_a.create("Shared API workspace").unwrap();
@@ -124,7 +124,7 @@ fn remote_join_shows_code_repo_tasks_and_checkout_setup_without_cloning_code() {
         .set_planning_remote(workspace.id, &planning_remote.to_string_lossy())
         .unwrap();
 
-    StateHome::set(&home_b);
+    state_home.set(&home_b);
     let mut app = KooladeApp::default();
     let ctx = egui::Context::default();
     let join_url = url::Url::from_file_path(&planning_remote)

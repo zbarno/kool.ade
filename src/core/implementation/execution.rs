@@ -71,6 +71,10 @@ pub(super) fn run_with_planning_store_options(
         deadline: Instant::now() + crate::core::turn::configured_turn_timeout(),
         cancel,
         progress,
+        authorization_verifier: claim_lease.as_ref().map(|claim| {
+            Arc::new(claim.clone())
+                as Arc<dyn crate::execution::session::AuthorizationGenerationVerifier>
+        }),
     };
     let (text, task_uid, metadata) = read_ticket_and_identity(planning_store, ticket)?;
     let telemetry_harness = super::telemetry::CaptureHarness::new(
@@ -140,6 +144,7 @@ pub(super) fn run_with_planning_store_options(
         .and_then(|_| runner.check_storage(&state.task_repository))
         .and_then(|_| {
             lifecycle::execute(
+                planning_store,
                 &lifecycle_repository,
                 &dir,
                 &mut state,
@@ -204,6 +209,7 @@ pub(super) fn run_with_planning_store_options(
         deadline: Instant::now() + Duration::from_secs(120),
         cancel: runner.cancel.clone(),
         progress: runner.progress.clone(),
+        authorization_verifier: runner.authorization_verifier.clone(),
     };
     cleanup::run(&lifecycle_repository, &dir, &mut state, &cleanup_runner);
     if let Err(error) = save(&dir, &state) {

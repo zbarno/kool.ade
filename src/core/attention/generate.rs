@@ -178,6 +178,7 @@ pub(super) fn run(
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Explanation cancelled");
         let (progress_tx, _progress_rx) = mpsc::channel();
         let request = PlanningRequest {
+            prompt_manifest: None,
             mode: crate::harness::ExecutionMode::DecisionExplanation,
             task_id: None,
             // Blocked reports often combine detailed verification with
@@ -193,6 +194,10 @@ pub(super) fn run(
                 .min(std::time::Duration::from_secs(300)),
             progress_tx,
             cancel: cancel.clone(),
+            execution_workspace: None,
+
+            authorization_verifier: None,
+            review_identity: None,
         };
         let output = harness.execute(&request).map_err(anyhow::Error::new)?;
         let parsed = crate::harness::responses::decode_decision_brief(&output.final_text)

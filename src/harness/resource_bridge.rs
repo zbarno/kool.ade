@@ -4,12 +4,13 @@ use std::{
     fs,
     io::{self, Write},
     os::unix::net::UnixStream,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 mod adapter;
 mod broker;
 mod budget;
+mod cache_snapshot;
 mod cargo;
 pub(super) mod dependency;
 mod fetch;
@@ -25,24 +26,9 @@ const MAX_IN_FLIGHT_REQUESTS: usize = 16;
 const MAX_SESSION_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const SANDBOX_RESOURCE_DIR: &str = "/tmp/koolade-resource-files";
 
-pub(crate) fn prepared_npm_cache_path(worktree: &Path) -> anyhow::Result<PathBuf> {
-    npm::persistent_cache_at(&crate::persistence::state_root(), worktree)
-}
-
-pub(crate) fn prepared_cargo_cache_path() -> anyhow::Result<PathBuf> {
-    cargo::persistent_cache_at(&crate::persistence::state_root())
-}
-
-pub(crate) fn publish_npm_cache_index_snapshot(
-    cache_root: &Path,
-    snapshot_root: &Path,
-) -> anyhow::Result<()> {
-    npm::publish_index_snapshot(cache_root, snapshot_root)
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ResourceRequest {
+pub(crate) struct ResourceRequest {
     #[serde(default)]
     action: ResourceAction,
     #[serde(default)]
@@ -56,6 +42,33 @@ struct ResourceRequest {
     #[serde(default)]
     retry_succeeded: Option<bool>,
     purpose: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CacheSnapshotResponse {
+    pub status: String,
+    pub cache_ref: crate::execution::contract::DependencyCacheRefV1,
+    pub manifest: cache_snapshot::CacheSnapshotManifest,
+    pub archive_bytes: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CacheSnapshotRequest {
+    pub action: String,
+    pub dependency_request_id: String,
+    pub ecosystem: crate::execution::contract::DependencyCacheEcosystemV1,
+    pub project_id: String,
+    pub target_arch: String,
+    pub target_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum BrokerWireRequest {
+    CacheSnapshot(CacheSnapshotRequest),
+    Resource(ResourceRequest),
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -89,33 +102,9 @@ struct ResourceResponse {
 }
 
 pub(crate) use broker::ResourceBridge;
-
-#[cfg(test)]
-pub(crate) struct TestNpmPreparation<'a> {
-    pub(crate) worktree: &'a Path,
-    pub(crate) runtime_source: Option<&'a Path>,
-    pub(crate) task_id: Option<&'a str>,
-    pub(crate) progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
-    pub(crate) cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    pub(crate) state_root: &'a Path,
-    pub(crate) archive: PathBuf,
-    pub(crate) registry_url: String,
-}
-
-#[cfg(test)]
-pub(crate) fn start_with_test_npm_preparation(
-    request: TestNpmPreparation<'_>,
-) -> anyhow::Result<ResourceBridge> {
-    broker::start_with_state_root_and_npm_operations(
-        request.worktree,
-        request.runtime_source,
-        request.task_id,
-        request.progress,
-        request.cancel,
-        request.state_root,
-        npm::test_preparation_operations(request.archive, request.registry_url),
-    )
-}
+pub(crate) use cache_snapshot::CacheSnapshot;
+pub(crate) use cache_snapshot::CacheSnapshotManifest;
+pub(crate) use cache_snapshot::MAX_CACHE_SNAPSHOT_BYTES;
 
 impl ResourceResponse {
     fn needs_attention(summary: String) -> Self {

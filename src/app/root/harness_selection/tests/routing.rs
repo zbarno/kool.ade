@@ -135,7 +135,7 @@ fn task_route_overrides_each_category_and_remain_stable_when_app_defaults_change
 }
 
 #[test]
-fn unsupported_implementation_route_fails_closed_without_falling_back_to_pi() {
+fn provider_selection_is_not_blocked_before_the_request_mode_is_known() {
     use crate::persistence::harness_settings::{
         DetectedHarness, HarnessSettings, IMPLEMENTATION, WorkRoute,
     };
@@ -147,8 +147,11 @@ fn unsupported_implementation_route_fails_closed_without_falling_back_to_pi() {
         ready: true,
         models: vec![],
         default_model: None,
+        model_catalog_fresh: false,
         configuration_required: false,
         implementation_available,
+        checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        capability_snapshot: None,
     };
     let settings = HarnessSettings {
         default_harness: Some("pi".into()),
@@ -166,14 +169,16 @@ fn unsupported_implementation_route_fails_closed_without_falling_back_to_pi() {
         ..HarnessSettings::default()
     };
 
-    let error = routed_harness(&settings, Some(IMPLEMENTATION), None, None)
+    let harness = routed_harness(&settings, Some(IMPLEMENTATION), None, None);
+    assert!(harness.label().to_ascii_lowercase().contains("codex"));
+    let error = harness
         .check_available()
-        .unwrap_err()
-        .detail();
+        .err()
+        .map(|error| error.detail())
+        .unwrap_or_default();
 
-    assert!(error.contains("codex"));
-    assert!(error.contains("application-owned Linux sandbox"));
-    assert!(error.contains("no fallback"));
+    assert!(!error.contains("application-owned Docker execution session"));
+    assert!(!error.contains("no fallback"));
 }
 
 #[test]
@@ -192,8 +197,11 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
                 ready: true,
                 models: vec!["available".into()],
                 default_model: None,
+                model_catalog_fresh: true,
                 configuration_required: false,
                 implementation_available: false,
+                checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+                capability_snapshot: None,
             },
         )]),
         ..Default::default()
@@ -216,7 +224,7 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
             &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("removed")))])
         )
         .unwrap_err()
-        .contains("application-owned Linux sandbox")
+        .contains("application-owned Docker execution session")
     );
     assert!(
         validate_task_routes(
@@ -260,6 +268,6 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
             )])
         )
         .unwrap_err()
-        .contains("application-owned Linux sandbox")
+        .contains("application-owned Docker execution session")
     );
 }

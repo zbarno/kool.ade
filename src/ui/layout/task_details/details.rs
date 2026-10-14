@@ -1,6 +1,8 @@
 use super::*;
+mod lifecycle_spec;
 mod linkage;
 mod metrics;
+mod target;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -12,8 +14,6 @@ pub(super) fn paint(
     activity_path: &mut Option<String>,
 ) {
     ui.heading("Task details & state");
-    state::paint(ui, s, presentation);
-    linkage::paint(ui, doc);
     let view = presentation.view;
     let record = presentation.record;
     let ticket = presentation.ticket;
@@ -72,6 +72,34 @@ pub(super) fn paint(
                     "Review the published changes."
                 });
                 ui.hyperlink_to("Open PR", url);
+            } else if view.lifecycle_pr_status
+                == Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization)
+            {
+                ui.label("Implementation, independent review, runtime QA, and specification sync are complete. Authorize the single parent pull request when ready.");
+                if let Some(error) = view.lifecycle_pr_error.as_deref() {
+                    ui.colored_label(theme::DANGER, format!("PR preparation status unavailable: {error}"));
+                }
+                if ui
+                    .add_enabled(
+                        view.can_start
+                            && record.is_some_and(|record| matches!(
+                                record.status,
+                                crate::core::implementation::ImplementationStatus::ReadyToPublish
+                                    | crate::core::implementation::ImplementationStatus::AwaitingApproval
+                            )),
+                        egui::Button::new(RichText::new("Authorize and create pull request").strong().color(theme::TEXT))
+                            .fill(theme::ACTION)
+                            .min_size(egui::vec2(0.0, 36.0)),
+                    )
+                    .clicked()
+                {
+                    dispatch(
+                        s,
+                        crate::ui::task_detail::Command::PublishLifecyclePr {
+                            ticket: ticket.to_owned(),
+                        },
+                    );
+                }
             } else if column == 4 {
                 ui.label("No action needed.");
             } else if review::changes_requested(record) {
@@ -148,6 +176,14 @@ pub(super) fn paint(
                 });
             }
         });
+    // Keep the action panel directly below the task heading. The supporting
+    // state, target, specification, and linkage sections can be long, while
+    // the task's next action must remain reachable without scrolling on short
+    // and narrow displays.
+    state::paint(ui, s, presentation);
+    target::paint(ui, s, presentation.ticket, presentation.view);
+    lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
+    linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming_cancel = ui
         .ctx()

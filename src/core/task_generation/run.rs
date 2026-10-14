@@ -15,7 +15,7 @@ use std::{path::PathBuf, sync::atomic::Ordering, time::Instant};
 
 pub(super) const OUTLINE_ATTEMPTS: usize = 6;
 pub(super) const STORY_ATTEMPTS: usize = 6;
-const CONTRACT_VERSION: u32 = 20;
+const CONTRACT_VERSION: u32 = 21;
 
 use super::repair::{
     previous_response_for_repair, repair_execution_mode, repair_is_response_only,
@@ -47,7 +47,9 @@ impl Run {
         let identity = serde_json::json!({"contract":CONTRACT_VERSION, "workflow":state.workflow,
             "specification":state.planning_contract(), "head":crate::core::gitops::snapshot(&state.repo_root).head_short,
             "working_tree":delta, "system":SYSTEM, "configuration":crate::artifacts::config_io::serialize(&state.config),
-            "story_contract":STORY_CONTRACT, "batch_contract":batch_contract});
+            "story_contract":STORY_CONTRACT, "batch_contract":batch_contract,
+            "decomposer_role":"decomposer/v2", "decomposer_system":include_str!("../../../prompts/v2/decomposer.system.md"),
+            "decomposer_user":include_str!("../../../prompts/v2/decomposer.user.md"), "task_graph_schema":"TaskGraphV1"});
         let encoded = serde_json::to_vec(&identity).map_err(|e| AppError::Other(e.to_string()))?;
         let repo = state
             .repo_root
@@ -124,6 +126,7 @@ impl Run {
                     && same_refs(&story.scope_items, &cp.outline[i].scope_items)
                     && same_refs(&story.success_criteria, &cp.outline[i].success_criteria)
                     && same_refs(&story.dependencies, &cp.outline[i].dependencies)
+                    && story.parent_task_index == cp.outline[i].parent_task_index
             }) {
                 return Some(cp);
             }
@@ -159,7 +162,11 @@ impl Run {
             let mut request = req.clone();
             request.mode = repair_execution_mode(request.mode, &feedback);
             request.timeout = self.remaining(req)?;
-            request.system_instructions = SYSTEM.into();
+            request.system_instructions = if req.prompt_manifest.is_some() {
+                req.system_instructions.clone()
+            } else {
+                SYSTEM.into()
+            };
             request.prompt_body = prompt.clone();
             if !feedback.is_empty() {
                 let prior = previous_response_for_repair(&feedback, &previous);

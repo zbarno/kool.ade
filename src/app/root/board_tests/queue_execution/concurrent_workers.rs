@@ -6,13 +6,17 @@ mod fake_pi;
 
 #[test]
 fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
+    // Capability detection resolves Docker through PATH, which this fixture
+    // replaces later. Keep the initial host observation outside concurrent
+    // PATH and provider override windows too.
+    let _environment = crate::test_support::lock_process_environment();
+    let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
     if !fake_pi::sandbox_available() {
         eprintln!(
-            "Skipping queue execution integration: application Bubblewrap capabilities are unavailable"
+            "Skipping queue execution integration: application Docker execution capabilities are unavailable"
         );
         return;
     }
-    let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
     let _restore_pi = fake_pi::restore_environment_variable("KOOLADE_PI_BIN");
     let _restore_path = fake_pi::restore_environment_variable("PATH");
     let _restore_ssh = fake_pi::restore_environment_variable("GIT_SSH_COMMAND");
@@ -21,6 +25,18 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     let _restore_home = fake_pi::configure_harness_settings(&root);
+    let app_binary = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("test binary is in target/debug/deps")
+        .join("koolade");
+    assert!(
+        app_binary.is_file(),
+        "application binary must be built for the Docker CI suite"
+    );
+    let _app_binary_override =
+        crate::harness::execution_security::override_test_app_binary(app_binary);
     let repo = root.join("repo");
     let remote = root.join("remote.git");
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/fixture")).unwrap();
@@ -41,8 +57,30 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
+    let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let task_uids = (1..=4)
+        .map(|_| uuid::Uuid::new_v4().hyphenated().to_string())
+        .collect::<Vec<_>>();
     let docs = (1..=4)
         .map(|number| {
+            let title = format!("Task {number}");
+            let identity = crate::domain::ArtifactIdentity {
+                uid: task_uids[number - 1].clone(),
+                display_id: format!("TASK-{number:03}"),
+                title: title.clone(),
+                parent_uid: Some(batch_uid.clone()),
+            };
+            let dependency_uids = if number == 3 {
+                task_uids[..2].to_vec()
+            } else {
+                Vec::new()
+            };
+            let metadata = crate::artifacts::task_docs::TaskMetadata::new(
+                &identity,
+                "root",
+                dependency_uids,
+            )
+            .unwrap();
             let dependencies = if number == 3 {
                 "- [Task 001](001-task.md) must be complete.\n- [Task 002](002-task.md) must be complete."
             } else {
@@ -50,12 +88,12 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
             };
             crate::artifacts::task_docs::TaskDocument {
                 path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"),
-                title: format!("Task {number}"),
+                title,
                 text: format!(
-                    "# Task {number}\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
+                    "# Task {number}\n\nFeature: CHG-001\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
                 ),
-                identity: None,
-                metadata: None,
+                identity: Some(identity),
+                metadata: Some(metadata),
                 task_state: None,
 
                 metadata_error: None,
@@ -64,12 +102,25 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         .collect::<Vec<_>>();
     for doc in &docs {
         std::fs::create_dir_all(repo.join(&doc.path).parent().unwrap()).unwrap();
-        std::fs::write(repo.join(&doc.path), &doc.text).unwrap();
+        let metadata = serde_json::to_string(doc.metadata.as_ref().unwrap()).unwrap();
+        let identity = serde_json::to_string(doc.identity.as_ref().unwrap()).unwrap();
+        let stored = format!(
+            "---\nkoolade-task: {metadata}\n---\n\n{}\n<!-- koolade-artifact-id:v1 {identity} -->\n",
+            doc.text
+        );
+        std::fs::write(repo.join(&doc.path), stored).unwrap();
     }
     let feature = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/changes/CHG-001-fixture")).unwrap();
     std::fs::write(
         repo.join(".koolade-packet/planning/changes/CHG-001-fixture/specification.md"),
+        feature,
+    )
+    .unwrap();
+    // Implementation loads the immutable approved specification beside the
+    // generated task batch, as real task generation does.
+    std::fs::write(
+        repo.join(".koolade-packet/planning/tasks/fixture/specification.md"),
         feature,
     )
     .unwrap();
@@ -85,7 +136,7 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     )
     .unwrap();
     std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
-    // SAFETY: this integration test runs under the repository's serial test gate and restores the value above.
+    // SAFETY: the cross-process environment lock is held and the value is restored above.
     unsafe { std::env::set_var("GIT_SSH_COMMAND", &ssh) };
     git(
         &repo,
@@ -154,7 +205,13 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     }
     // Feature approval is a separate explicit action in Specifications;
     // implementation then starts from the selected task's board details.
+    crate::app::root::feature_approval::tests::record_test_plan_author(&mut app, "CHG-001");
     app.approve_feature_only("CHG-001");
+    crate::app::root::feature_approval::tests::record_test_plan_review(
+        &mut app,
+        "CHG-001",
+        crate::core::lifecycle::GateDecision::Approved,
+    );
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "Task 1");
@@ -175,7 +232,8 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         ));
     }
     let ctx = egui::Context::default();
-    let deadline = Instant::now() + Duration::from_secs(80);
+    // Hosted nextest runs this UI loop alongside CPU and Docker-heavy tests.
+    let deadline = Instant::now() + Duration::from_secs(180);
     let mut concurrent_chat = false;
     let mut planning_and_queued_task_overlap = false;
     let mut saw_capacity_wait = false;
@@ -212,18 +270,42 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         if finished {
             break;
         }
-        assert!(
-            Instant::now() < deadline,
-            "queue did not finish: {}",
-            app.queue_status()
-        );
+        if Instant::now() >= deadline {
+            let progress = match &app.screen {
+                Screen::Connected(project) => format!(
+                    "active={:?}, states={:?}, waiting={:?}, last_error={}",
+                    project.active_implementations.keys().collect::<Vec<_>>(),
+                    project
+                        .implementation_states
+                        .iter()
+                        .map(|(path, state)| (path, state.status, &state.detail))
+                        .collect::<Vec<_>>(),
+                    project.queue.waiting_for_capacity,
+                    project.queue.last_error,
+                ),
+                _ => "project disconnected".into(),
+            };
+            let provider_trace = std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
+                .unwrap_or_else(|error| format!("trace unavailable: {error}"));
+            panic!(
+                "queue did not finish: {}; {progress}; provider_trace={provider_trace}",
+                app.queue_status()
+            );
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
     if let Screen::Connected(project) = &app.screen {
         assert_eq!(max_workers, 2, "Independent implementations must overlap");
         assert_eq!(project.queue.recovery_attempts.get(&docs[1].path), Some(&1));
         for doc in &docs[..2] {
-            assert!(!project.queue.blocked.contains_key(&doc.path));
+            assert!(
+                !project.queue.blocked.contains_key(&doc.path),
+                "task {} remained blocked: {:?}; fake Pi trace={}",
+                doc.path,
+                project.queue.blocked.get(&doc.path),
+                std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
+                    .unwrap_or_else(|error| format!("trace unavailable: {error}"))
+            );
             assert_eq!(
                 project.implementation_states.get(&doc.path).unwrap().status,
                 ImplementationStatus::AwaitingApproval

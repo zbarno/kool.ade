@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let detail = "## Waiting for user action\n\nThe provider quota stopped this task.\n\n### Next action(s)\n\n- Account owner: choose whether to wait or request more capacity.";
@@ -101,6 +102,7 @@ fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() 
 
 #[test]
 fn approval_gate_opens_a_task_chat_with_the_matching_user_action() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/002-task.md";
     if let Screen::Connected(project) = &mut app.screen {
@@ -125,6 +127,7 @@ fn approval_gate_opens_a_task_chat_with_the_matching_user_action() {
 
 #[test]
 fn multiple_attention_events_open_one_conversation_after_another() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
@@ -184,6 +187,7 @@ fn multiple_attention_events_open_one_conversation_after_another() {
 
 #[test]
 fn newly_actionable_clarification_focuses_its_persistent_conversation() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let item = crate::domain::OpenItem::new(
         "CLR-030".into(),
@@ -222,6 +226,7 @@ fn newly_actionable_clarification_focuses_its_persistent_conversation() {
 
 #[test]
 fn planning_work_attention_opens_its_conversation_tab() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = "task-generation:fixture";
     let mut work = crate::core::planning_work::Work::new(

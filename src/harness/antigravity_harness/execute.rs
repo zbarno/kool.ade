@@ -80,6 +80,7 @@ impl AiHarness for AntigravityHarness {
         let binary = Self::locate_binary()?.canonicalize().map_err(|e| {
             AppError::Other(format!("Cannot resolve Antigravity CLI executable: {e}"))
         })?;
+        let version = Self::checked_binary(&binary)?;
         let requested_model = model.map(str::to_owned).or_else(|| {
             std::env::var(ANTIGRAVITY_MODEL_ENV)
                 .ok()
@@ -98,13 +99,25 @@ impl AiHarness for AntigravityHarness {
                     "Cannot configure Antigravity sandbox tools: {error:#}"
                 ))
             })?;
-        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
-            &argv,
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
+            crate::harness::execution_security::CliProvider::Antigravity,
+            &binary,
+            version,
+            &[],
+        )
+        .map_err(|error| AppError::Other(format!("Antigravity profile probe failed: {error}")))?;
+        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
+            evidence,
+            argv,
+            boundary.working_directory(),
+            child_env,
+        )
+        .map_err(|error| {
+            AppError::Other(format!("Antigravity launch profile is invalid: {error}"))
+        })?;
+        let task = launch.spawn_with_input(
             boundary.working_directory(),
             Some(prompt_input_with_policy(request, boundary.system_policy())),
-            &child_env,
-            crate::harness::execution_security::CliProvider::Antigravity
-                .excluded_child_environment(),
         )?;
         let started_at = chrono::Utc::now();
         let started = Instant::now();

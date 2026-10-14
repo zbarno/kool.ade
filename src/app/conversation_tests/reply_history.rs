@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() {
+    let _environment = crate::test_support::lock_process_environment();
     let root = std::env::temp_dir().join(format!("koolade_conversation_ui_{}", std::process::id()));
     let repo = root.join("repo");
     std::fs::create_dir_all(&repo).unwrap();

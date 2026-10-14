@@ -1,24 +1,12 @@
-//! Private Pi event logs live in Git metadata, outside project artifacts.
+//! Private Pi event logs live beside the isolated controller configuration.
 use crate::{error::AppError, harness::ExecutionMode};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{fs, path::PathBuf};
 
 pub(super) fn open(
-    repo_root: &Path,
+    controller_directory: &std::path::Path,
     mode: ExecutionMode,
-    implementation_common: Option<&Path>,
 ) -> Result<Option<(PathBuf, fs::File)>, AppError> {
-    let common = match implementation_common {
-        Some(common) => common.to_path_buf(),
-        None => match planning_common(repo_root) {
-            Some(common) => common,
-            None => return Ok(None),
-        },
-    };
-    let directory = common.join("koolade-harness");
+    let directory = controller_directory.join("koolade-harness");
     if let Err(error) = fs::create_dir_all(&directory) {
         if mode != ExecutionMode::Implementation {
             return Ok(None);
@@ -43,17 +31,4 @@ pub(super) fn open(
             "Cannot open harness diagnostics: {error}"
         ))),
     }
-}
-
-fn planning_common(root: &Path) -> Option<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(root)
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
-    path.is_dir().then_some(path)
 }

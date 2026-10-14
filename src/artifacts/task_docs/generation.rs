@@ -77,7 +77,7 @@ pub fn save_progress_expected<R: PlanningRoot + ?Sized>(
             "Refusing linked task story"
         );
         let base = render(batch, i, story, &names);
-        let expected = identity::with_planning_path_identity(
+        let mut expected = identity::with_planning_path_identity(
             repo,
             &path,
             &base,
@@ -85,6 +85,9 @@ pub fn save_progress_expected<R: PlanningRoot + ?Sized>(
             &story.title,
             Some(&batch_identity.uid),
         )?;
+        if let Some(graph_uid) = story.graph_uid.as_deref() {
+            expected = identity::replace_uid(&expected, graph_uid)?;
+        }
         let task_identity = crate::domain::ArtifactIdentity::from_markdown(&expected)?
             .ok_or_else(|| anyhow::anyhow!("Generated task has no Koolade identity"))?;
         task_uids.push(task_identity.uid.clone());
@@ -115,6 +118,8 @@ pub fn save_progress_expected<R: PlanningRoot + ?Sized>(
             dependency_uids,
         )?
         .with_branch_targets(batch.branch_targets.as_ref())?
+        .with_source_sha(story.source_sha.as_deref())?
+        .with_parallelizable(story.parallelizable)?
         .with_task_routing(
             &batch.task_routing.overrides,
             batch.task_routing.source_work_uid.as_deref(),

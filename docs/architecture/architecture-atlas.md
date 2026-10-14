@@ -300,7 +300,7 @@ Target specification: [GitHub issue #136](https://github.com/zbarno/kool.ade/iss
 flowchart LR
     c0["CLI provider"]
     c1["Private MCP server"]
-    c2["Bubblewrap"]
+    c2["Local Docker backend"]
     c3["Bounded repository commands"]
     c4["Dependency broker"]
     c0 --> c1
@@ -334,7 +334,7 @@ Target specification: [GitHub issue #139](https://github.com/zbarno/kool.ade/iss
 flowchart LR
     c0["Local CLI controller"]
     c1["Local clone"]
-    c2["Local Bubblewrap sandbox"]
+    c2["Local Docker container"]
     c3["Local evidence"]
     c0 --> c1
     c1 --> c2
@@ -367,7 +367,7 @@ flowchart LR
     c0["CLI tool"]
     c1["Private MCP bridge"]
     c2["Scoped tool access"]
-    c3["Bubblewrap"]
+    c3["Docker command bridge"]
     c4["Application Git publisher"]
     c0 --> c1
     c1 --> c2

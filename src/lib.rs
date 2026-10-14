@@ -18,7 +18,13 @@ pub mod error;
 pub mod execution;
 pub mod harness;
 pub mod persistence;
+pub mod project_runtime;
+pub mod project_runtime_capability;
+pub mod runtime_qa;
 pub mod ui;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use error::AppError;
 

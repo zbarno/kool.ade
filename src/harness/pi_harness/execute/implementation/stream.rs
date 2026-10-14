@@ -156,7 +156,9 @@ pub(super) fn run(
                 diagnostics
                     .as_ref()
                     .map(|(path, _)| path.display().to_string())
-                    .unwrap_or_else(|| "not recorded (no writable Git metadata)".into())
+                    .unwrap_or_else(
+                        || "not recorded (private controller diagnostics unavailable)".into()
+                    )
             ),
             stderr_tail: tail(&stderr_tail),
         });

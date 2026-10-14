@@ -1,7 +1,11 @@
 use super::*;
+use crate::execution::{
+    contract::{DependencyCacheEcosystemV1, ExecutionModeV1, ResourceBudgetV1, WorkspaceRef},
+    docker::images::RuntimeProfile,
+    session::ExecutionSession,
+};
 use crate::harness::{
     DependencyDecision, DependencyKind, DependencyNeed, DependencyRequestStatus, PackageEcosystem,
-    pi_sandbox::Sandbox,
 };
 use sha2::{Digest, Sha512};
 use std::{
@@ -17,7 +21,9 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     if !cfg!(target_os = "linux") {
         return;
     }
-    assert!(bwrap_available(), "Linux E2E requires bubblewrap");
+    if std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1") {
+        return;
+    }
     assert!(npm_available(), "Linux E2E requires Node.js and npm");
     let workspace =
         std::env::temp_dir().join(format!("koolade-npm-addition-e2e-{}", uuid::Uuid::new_v4()));
@@ -106,6 +112,33 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     let task_home = workspace.join("task-home");
     let _home = support::task_home(&task_home);
     let task_repository = support::create_task_clone(&repository, &task_home, "dependency-e2e");
+    let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let source_sha = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&task_repository)
+        .output()
+        .unwrap();
+    assert!(source_sha.status.success());
+    let workspace_ref = WorkspaceRef {
+        project_id: project_id.clone(),
+        task_id: task_id.clone(),
+        source_sha: String::from_utf8(source_sha.stdout).unwrap().trim().into(),
+    };
+    let session = ExecutionSession::connect_local(
+        workspace_ref,
+        &task_repository,
+        ExecutionModeV1::Implementation,
+        RuntimeProfile::Node,
+        ResourceBudgetV1 {
+            cpu_millis: 4_000,
+            memory_bytes: 4 * 1024 * 1024 * 1024,
+            process_count: 256,
+            temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
+            output_bytes: 8 * 1024 * 1024,
+        },
+    )
+    .unwrap();
 
     let operations = crate::harness::resource_bridge::npm::test_preparation_operations(
         archive,
@@ -115,17 +148,13 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     let bridge = super::super::broker::start_with_state_root_and_npm_operations(
         &task_repository,
         None,
-        Some("synthetic-npm-e2e"),
+        Some(&task_id),
         progress,
         std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         &state_root,
         operations,
     )
     .unwrap();
-    let mut sandbox = Sandbox::new(&task_repository).unwrap();
-    sandbox
-        .mount_npm_cache_with_snapshot(bridge.npm_cache_path(), bridge.npm_index_snapshot_path())
-        .unwrap();
     let mut client = UnixStream::connect(bridge.socket_path()).unwrap();
     serde_json::to_writer(
         &mut client,
@@ -193,21 +222,34 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
             .contains("1 lockfile-pinned packages retrieved")
     );
     assert!(!serde_json::to_string(&prepared).unwrap().contains("_auth"));
-    let command = with_npm_cache_index_staging(
-        "test \"$(npm config get globalconfig)\" = /tmp/koolade-home/.npm-globalrc && \
-         npm ci --offline --no-audit --no-fund",
-    );
-    let output = Command::new(&sandbox.bwrap)
-        .args(sandbox.command_args("/bin/bash", &command))
-        .current_dir(&sandbox.root)
-        .env_clear()
-        .output()
+    let arch = session.cache_target_arch().unwrap();
+    let snapshot = bridge
+        .cache_snapshot(
+            &task_id,
+            DependencyCacheEcosystemV1::Npm,
+            &project_id,
+            prepared
+                .need
+                .lockfile_identity
+                .as_deref()
+                .unwrap_or("sha256:fixture-lock"),
+            &arch,
+            session.target_id(),
+        )
         .unwrap();
-    assert!(
-        output.status.success(),
-        "offline npm restore failed: {}; {}",
-        String::from_utf8_lossy(&output.stderr),
-        String::from_utf8_lossy(&output.stdout)
+    session.stage_dependency_cache(snapshot).unwrap();
+    let output = session
+        .run_tool_command(
+            "npm ci --offline --no-audit --no-fund",
+            Duration::from_secs(300),
+        )
+        .unwrap();
+    assert_eq!(
+        output.result.exit_code,
+        Some(0),
+        "offline npm restore failed: {:?}; {}",
+        output.result,
+        output.stderr
     );
 
     let manifest: serde_json::Value =
@@ -229,14 +271,12 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
         fs::read_to_string(task_repository.join("node_modules/archive-helper/index.js")).unwrap(),
         "module.exports = 'ready';\n"
     );
-    drop(sandbox);
+    drop(session);
     drop(bridge);
     fs::remove_dir_all(workspace).unwrap();
 }
 
 mod addition;
+mod remote;
 mod support;
-use support::{
-    base64, bwrap_available, commit, initialize_project, npm_available,
-    with_npm_cache_index_staging,
-};
+use support::{base64, commit, initialize_project, npm_available};

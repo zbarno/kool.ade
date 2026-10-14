@@ -16,6 +16,12 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     frame(&mut app, &context, vec![]);
     click_text(&mut app, &context, "Review specification");
     click_text(&mut app, &context, "Approve CHG-004 and prepare tasks");
+    record_test_plan_review(
+        &mut app,
+        "CHG-004",
+        crate::core::lifecycle::GateDecision::Approved,
+    );
+    app.approve_feature_from_board("CHG-004");
     assert!(app.feature_approved("CHG-004"));
     let key = match &app.screen {
         Screen::Connected(project) => project
@@ -33,19 +39,9 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     );
     let reviewed = finish(&mut app);
     assert!(reviewed);
-    assert!(calls.lock().unwrap()[0].contains("do not ask for approval again"));
+    assert!(calls.lock().unwrap()[0].contains("Do not ask for approval again"));
 
-    let (story_harness, generated) = harness(vec![
-        include_str!("../../../../../../tests/fixtures/task-outline.json").into(),
-        compact_story(
-            include_str!("../../../../../../tests/fixtures/task-story-1.json"),
-            false,
-        ),
-        compact_story(
-            include_str!("../../../../../../tests/fixtures/task-story-2.json"),
-            true,
-        ),
-    ]);
+    let (story_harness, generated) = harness(vec![decomposer_graph(&app)]);
     app.task_harness = Some(story_harness);
     app.continue_feature_generation(reviewed);
     assert!(
@@ -53,11 +49,13 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
         "story generation must not wait for unrelated implementation work"
     );
     assert!(finish(&mut app));
-    assert_eq!(generated.lock().unwrap().len(), 3);
+    assert_eq!(generated.lock().unwrap().len(), 1);
     if let Screen::Connected(project) = &mut app.screen {
         project.active_implementations.clear();
     }
-    assert!(matches!(&app.screen, Screen::Connected(project) if has_current_task_batch(project)));
+    assert!(
+        matches!(&app.screen, Screen::Connected(project) if has_current_task_batch(project.as_ref()))
+    );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

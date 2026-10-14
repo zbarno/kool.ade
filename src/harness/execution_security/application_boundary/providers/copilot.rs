@@ -61,7 +61,7 @@ fn ensure_no_host_policy_hooks(directory: &Path) -> anyhow::Result<()> {
         let entry = entry?;
         if entry.path().extension() == Some(OsStr::new("json")) {
             anyhow::bail!(
-                "GitHub Copilot has machine-wide hook files in {}; these hooks execute on the host outside Kool.ad/e's Bubblewrap boundary",
+                "GitHub Copilot has machine-wide hook files in {}; these hooks execute on the host outside Kool.ad/e's Docker execution boundary",
                 directory.display()
             );
         }
@@ -199,7 +199,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("outside Kool.ad/e's Bubblewrap boundary")
+                .contains("outside Kool.ad/e's Docker execution boundary")
         );
     }
 
@@ -210,9 +210,8 @@ mod tests {
             app_binary: None,
             server_config: None,
             access: ToolAccess::None,
+            _session_bridge: None,
             _resource_bridge: None,
-            _sandbox: None,
-            _planning_sandbox: None,
         }
     }
 }

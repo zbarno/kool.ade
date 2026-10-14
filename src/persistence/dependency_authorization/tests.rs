@@ -269,13 +269,18 @@ fn request(task_id: &str, package: &str) -> DependencyRequest {
 
 struct StateRootOverride {
     previous: Option<std::ffi::OsString>,
+    _environment_lock: crate::test_support::ProcessEnvironmentLock,
 }
 
 impl StateRootOverride {
     fn set(path: &Path) -> Self {
+        let environment_lock = crate::test_support::lock_process_environment();
         let previous = std::env::var_os("KOOLADE_HOME");
         unsafe { std::env::set_var("KOOLADE_HOME", path) };
-        Self { previous }
+        Self {
+            previous,
+            _environment_lock: environment_lock,
+        }
     }
 }
 

@@ -38,6 +38,7 @@ impl AiHarness for OpenCodeHarness {
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve OpenCode executable: {error}"))
         })?;
+        let version = Self::checked_binary(&binary)?;
         let mut argv = vec![
             binary.to_string_lossy().into_owned(),
             "--pure".into(),
@@ -75,13 +76,22 @@ impl AiHarness for OpenCodeHarness {
                     "Cannot configure OpenCode sandbox tools: {error:#}"
                 ))
             })?;
-        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
-            &argv,
+        let provider = crate::harness::execution_security::CliProvider::OpenCode;
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
+            provider,
+            &binary,
+            version,
+            &[],
+        )
+        .map_err(|error| AppError::Other(format!("OpenCode profile probe failed: {error}")))?;
+        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
+            evidence,
+            argv,
             boundary.working_directory(),
-            Some(prompt),
-            &env,
-            crate::harness::execution_security::CliProvider::OpenCode.excluded_child_environment(),
-        )?;
+            env,
+        )
+        .map_err(|error| AppError::Other(format!("OpenCode launch profile is invalid: {error}")))?;
+        let task = launch.spawn_with_input(boundary.working_directory(), Some(prompt))?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();
         let mut exit_status = None;

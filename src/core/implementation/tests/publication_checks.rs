@@ -163,14 +163,34 @@ fn explicit_evidence_only_task_completes_without_commit_or_pr() {
     );
 }
 #[test]
-fn verification_contract_completes_without_product_changes() {
+fn ordinary_implementation_contract_without_product_changes_is_rejected() {
     let s = Sandbox::new();
-    fs::write(s.repo.join(&s.ticket), "# Verify regression\n\nThis ticket is pure verification, commits no bytes.\n\n## Acceptance criteria\n\n- Repository remains unchanged.\n\nThis ticket itself changed no repository file.\n").unwrap();
-    let result = s
-        .run("evidence_only", Arc::new(AtomicUsize::new(0)))
-        .unwrap();
-    assert_eq!(result.status, ImplementationStatus::Completed);
-    assert!(result.pr_url.is_none());
+    s.make_evidence_only();
+    let ticket_path = s.repo.join(&s.ticket);
+    let ticket = fs::read_to_string(&ticket_path).unwrap();
+    fs::write(
+        &ticket_path,
+        ticket.replace(
+            "This ticket lands zero planner code.",
+            "This ticket itself lands zero planner code.",
+        ),
+    )
+    .unwrap();
+    s.git(&s.repo, &["add", &s.ticket]);
+    s.git(&s.repo, &["commit", "-qm", "make no-op contract ordinary"]);
+    s.git(&s.repo, &["push", "-q", "origin", "main"]);
+    let base = s.git(&s.repo, &["rev-parse", "HEAD"]);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let error = s.run("evidence_only", calls.clone()).unwrap_err();
+    assert_eq!(
+        Failure::from_error(&error).kind,
+        FailureKind::NoImplementationChanges,
+        "{error:#}"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), base);
+    assert!(!s.root.join("pr-created").exists());
+    assert!(!s.repo.join("implemented.txt").exists());
     assert!(!permits_evidence_only_completion(
         "Implement a feature with pure verification."
     ));

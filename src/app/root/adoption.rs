@@ -1,29 +1,18 @@
 use super::*;
 
+mod activity;
+mod provenance;
+
 impl KooladeApp {
-    /// Derived caches read by other layers through `Surface`.
-    pub(super) fn refresh_derived(&mut self, project: &Project) {
-        (self.cached_user, self.synth) = Self::derive_caches(project);
-    }
-
-    /// Pure derivation of the display caches, kept separated from `&mut
-    /// self` so `tick` can compute them without double-borrowing.
-    ///
-    /// The cached routing identity is THE SEATED OPERATOR (FR-13), so the
-    /// panel highlight, the chat eligibility display, and the turn pipeline
-    /// all judge one and the same identity.
-    pub(super) fn derive_caches(project: &Project) -> (CurrentUser, Vec<OpenItem>) {
-        (
-            project.state.effective_user(),
-            crate::core::ownership::synthesize_for_state(&project.state),
-        )
-    }
-
     pub(super) fn adopt_turn(
         &mut self,
         project: &mut Project,
         outcome: TurnOutcome,
     ) -> Option<crate::harness::RequestedAction> {
+        let author_provenance = project
+            .active_turn
+            .as_ref()
+            .map(|turn| (turn.author_run_id.clone(), turn.author_session_id.clone()));
         if let TurnOutcome::HarnessFailed { error, .. } = &outcome
             && let Some(issue) = crate::app::setup_attention::from_harness_failure(&error.detail())
         {
@@ -150,24 +139,7 @@ impl KooladeApp {
                 }
             }
         }
-        project.activity.ensure_overall();
-        project
-            .activity
-            .overall
-            .as_mut()
-            .unwrap()
-            .update(Default::default());
-        let activity_key = project
-            .task_chats
-            .active
-            .clone()
-            .unwrap_or_else(|| "__main".into());
-        project
-            .activity
-            .conversations
-            .entry(activity_key)
-            .or_default()
-            .update(Default::default());
+        self.reset_turn_activity(project);
         project.active_turn = None;
         project.live_progress = crate::harness::LiveProgress::default();
         match outcome {
@@ -186,6 +158,11 @@ impl KooladeApp {
                     &state.planning_store,
                 )
                 .unwrap_or(*state);
+                self.record_plan_author_provenance(
+                    project,
+                    &normalized.document_updates,
+                    author_provenance,
+                );
                 project.task_documents = crate::artifacts::task_docs::load_board(
                     &project.state.planning_store,
                     &project.state.workflow,

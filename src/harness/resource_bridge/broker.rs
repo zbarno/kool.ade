@@ -3,6 +3,7 @@ mod cache_locks;
 mod context;
 mod dependency_flow;
 mod lifecycle;
+mod remote;
 mod server;
 #[cfg(test)]
 mod test_support;
@@ -27,12 +28,15 @@ use std::{
 
 pub(crate) struct ResourceBridge {
     socket: PathBuf,
+    task_id: Option<String>,
     cache_dir: PathBuf,
+    #[cfg(test)]
     npm_cache: PathBuf,
-    npm_snapshot: PathBuf,
+    #[cfg(test)]
     cargo_cache: PathBuf,
     pending_attention: Arc<Mutex<Option<String>>>,
     pending_dependency: Arc<Mutex<Vec<DependencyRequest>>>,
+    cancel: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
     requests: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
@@ -96,21 +100,6 @@ impl ResourceBridge {
         )
     }
 
-    #[cfg(test)]
-    pub(crate) fn start_with_runtime_source(
-        task_repository: &Path,
-        runtime_source: Option<&Path>,
-    ) -> anyhow::Result<Self> {
-        let (progress, _updates) = std::sync::mpsc::channel();
-        Self::start_for_task_repository(
-            task_repository,
-            runtime_source,
-            None,
-            progress,
-            Arc::new(AtomicBool::new(false)),
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn start_inner(
         worktree: &Path,
@@ -128,11 +117,8 @@ impl ResourceBridge {
             "Resource broker worktree is not a directory"
         );
         let private_configuration = worktree.join(".git").try_exists()?
-            && !crate::harness::pi_sandbox::runtime_config::paths_with_source(
-                &worktree,
-                runtime_source,
-            )?
-            .is_empty();
+            && !crate::harness::runtime_config::paths_with_source(&worktree, runtime_source)?
+                .is_empty();
         let baseline_commit = super::dependency::baseline_commit(&worktree);
         let temp = std::env::temp_dir().join(format!(
             "koolade-resources-{}-{}",
@@ -254,12 +240,15 @@ impl ResourceBridge {
         });
         let bridge = Self {
             socket,
+            task_id: task_id.map(str::to_owned),
             cache_dir,
+            #[cfg(test)]
             npm_cache,
-            npm_snapshot,
+            #[cfg(test)]
             cargo_cache,
             pending_attention: attention,
             pending_dependency,
+            cancel,
             stop,
             worker: Some(worker),
             requests: thread_requests,

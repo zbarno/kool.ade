@@ -1,14 +1,23 @@
 use super::*;
 
+fn create_follow_up_ticket(sandbox: &Sandbox, path: &str) {
+    let ticket_text = "# Follow-up implementation\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
+    let ticket = crate::domain::ArtifactIdentity::preserve_markdown(
+        ticket_text,
+        None,
+        "TASK-002",
+        "Follow-up implementation",
+    )
+    .unwrap();
+    fs::write(sandbox.repo.join(path), ticket).unwrap();
+    super::super::sandbox::seed_lifecycle_task(&sandbox.repo, path, ticket_text);
+}
+
 #[test]
 fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
     let sandbox = Sandbox::new();
     let second_ticket = ".koolade-packet/planning/tasks/feature/002-follow-up-ticket.md";
-    fs::write(
-        sandbox.repo.join(second_ticket),
-        "# Follow-up implementation\n\n## Acceptance criteria\n\n- File contains implemented.\n",
-    )
-    .unwrap();
+    create_follow_up_ticket(&sandbox, second_ticket);
     sandbox.git(&sandbox.repo, &["add", second_ticket]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
@@ -78,11 +87,7 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
 fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
     let sandbox = Sandbox::new();
     let second_ticket = ".koolade-packet/planning/tasks/feature/002-follow-up-ticket.md";
-    fs::write(
-        sandbox.repo.join(second_ticket),
-        "# Follow-up implementation\n\n## Acceptance criteria\n\n- File contains implemented.\n",
-    )
-    .unwrap();
+    create_follow_up_ticket(&sandbox, second_ticket);
     sandbox.git(&sandbox.repo, &["add", second_ticket]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);

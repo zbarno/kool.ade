@@ -5,14 +5,37 @@ use crate::execution::{
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+mod accessors;
+mod fingerprint;
+mod restrict;
 mod validation;
+pub use fingerprint::policy_hash;
+use validation::{validate_environment_allowlist, validate_service_ports, validate_write_scope};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum FilesystemGrantV1 {
     WorkspaceRead,
     WorkspaceWrite,
+    WorkspaceScopedWrite,
     ArtifactWrite,
+}
+
+/// Limits writable staging and synchronization to one task-clone directory.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceWriteScopeV1 {
+    pub root_relative: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovedRecipeCommandV1 {
+    pub approval_ref: String,
+    pub executable_id: String,
+    pub argv: Vec<String>,
+    pub working_directory_relative: String,
+    pub allowed_environment_names: BTreeSet<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -29,6 +52,10 @@ pub struct ExecutionPolicyV1 {
     authority: PolicyAuthorityV1,
     mode: ExecutionModeV1,
     filesystem: BTreeSet<FilesystemGrantV1>,
+    #[serde(default)]
+    workspace_write_scope: Option<WorkspaceWriteScopeV1>,
+    #[serde(default)]
+    approved_recipe_command: Option<ApprovedRecipeCommandV1>,
     network_access: NetworkAccessV1,
     network_service_ports: BTreeSet<u16>,
     environment_names: BTreeSet<String>,
@@ -63,6 +90,7 @@ impl ExecutionPolicyV1 {
             ExecutionModeV1::Verification => [
                 FilesystemGrantV1::WorkspaceRead,
                 FilesystemGrantV1::WorkspaceWrite,
+                FilesystemGrantV1::WorkspaceScopedWrite,
                 FilesystemGrantV1::ArtifactWrite,
             ]
             .into(),
@@ -73,10 +101,12 @@ impl ExecutionPolicyV1 {
             .into(),
         };
         let commands: &[&str] = match mode {
-            ExecutionModeV1::PlanningReadOnly => &["cat", "git", "rg"],
-            ExecutionModeV1::Implementation => &["bash", "git", "rg"],
-            ExecutionModeV1::Verification => &["bash", "cargo", "git", "node", "npm", "pytest"],
-            ExecutionModeV1::RuntimeQa => &["browser", "node", "playwright"],
+            ExecutionModeV1::PlanningReadOnly => &["cat", "git", "rg", "sh"],
+            ExecutionModeV1::Implementation => &["bash", "git", "rg", "sh"],
+            ExecutionModeV1::Verification => &[
+                "bash", "cargo", "git", "go", "node", "npm", "python", "pytest", "sh",
+            ],
+            ExecutionModeV1::RuntimeQa => &["browser", "node", "playwright", "sh"],
         };
         let command_capabilities = commands
             .iter()
@@ -103,6 +133,8 @@ impl ExecutionPolicyV1 {
             authority: PolicyAuthorityV1::Application,
             mode,
             filesystem,
+            workspace_write_scope: None,
+            approved_recipe_command: None,
             network_access: if allowed_ports.is_empty() {
                 NetworkAccessV1::Disabled
             } else {
@@ -119,161 +151,87 @@ impl ExecutionPolicyV1 {
         })
     }
 
-    pub fn mode(&self) -> ExecutionModeV1 {
-        self.mode
-    }
-
-    pub fn command_capabilities(&self) -> &BTreeSet<String> {
-        &self.command_capabilities
-    }
-
-    pub fn filesystem_grants(&self) -> &BTreeSet<FilesystemGrantV1> {
-        &self.filesystem
-    }
-
-    pub fn network_service_ports(&self) -> &BTreeSet<u16> {
-        &self.network_service_ports
-    }
-
-    pub fn tool_capabilities(&self) -> &BTreeSet<String> {
-        &self.tool_capabilities
-    }
-
-    pub fn resource_limits(&self) -> &ResourceBudgetV1 {
-        &self.resource_limits
-    }
-
-    pub fn validate(&self) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            self.schema_version == 1,
-            "unsupported execution policy schema"
-        );
-        anyhow::ensure!(
-            self.authority == PolicyAuthorityV1::Application,
-            "policy authority is invalid"
-        );
-        anyhow::ensure!(
-            self.run_as_non_root,
-            "execution policy must require a non-root user"
-        );
-        anyhow::ensure!(
-            !self.host_secrets,
-            "execution policy cannot grant host secrets"
-        );
-        anyhow::ensure!(!self.privileged, "privileged execution is prohibited");
-        self.resource_limits.validate()?;
-        anyhow::ensure!(
-            self.mode == ExecutionModeV1::RuntimeQa || self.network_service_ports.is_empty(),
-            "only runtime QA may allow service ports"
-        );
-        anyhow::ensure!(
-            match self.network_access {
-                NetworkAccessV1::Disabled => self.network_service_ports.is_empty(),
-                NetworkAccessV1::RuntimeQaServicePorts => {
-                    self.mode == ExecutionModeV1::RuntimeQa
-                        && !self.network_service_ports.is_empty()
-                }
-            },
-            "network access mode and service ports disagree"
-        );
-        anyhow::ensure!(
-            self.network_service_ports.iter().all(|port| *port != 0),
-            "network service port zero is invalid"
-        );
-        validate_service_ports(&self.network_service_ports)?;
-        let ceiling = Self::mode_ceiling(
-            self.mode,
-            &self.resource_limits,
-            &self.network_service_ports,
-        )?;
-        anyhow::ensure!(
-            self.filesystem.is_subset(&ceiling.filesystem)
-                && self.environment_names.is_subset(&ceiling.environment_names)
-                && self
-                    .command_capabilities
-                    .is_subset(&ceiling.command_capabilities)
-                && self.tool_capabilities.is_subset(&ceiling.tool_capabilities),
-            "policy grants exceed the mode ceiling"
-        );
-        Ok(())
-    }
-
-    fn mode_ceiling(
+    pub fn for_scoped_workspace_write(
         mode: ExecutionModeV1,
-        resource_limits: &ResourceBudgetV1,
-        ports: &BTreeSet<u16>,
+        resource_limits: ResourceBudgetV1,
+        root_relative: String,
     ) -> anyhow::Result<Self> {
-        match Self::for_mode(mode, resource_limits.clone(), ports.clone()) {
-            Ok(policy) => Ok(policy),
-            Err(error) if mode != ExecutionModeV1::RuntimeQa && !ports.is_empty() => Err(error),
-            Err(error) => Err(error),
-        }
+        anyhow::ensure!(
+            mode == ExecutionModeV1::Verification,
+            "scoped recipe writes require verification mode"
+        );
+        validate_write_scope(&root_relative)?;
+        let mut policy = Self::for_mode(mode, resource_limits, BTreeSet::new())?;
+        policy.filesystem.remove(&FilesystemGrantV1::WorkspaceWrite);
+        policy
+            .filesystem
+            .insert(FilesystemGrantV1::WorkspaceScopedWrite);
+        policy.workspace_write_scope = Some(WorkspaceWriteScopeV1 { root_relative });
+        Ok(policy)
+    }
+
+    pub(crate) fn without_scoped_workspace_write(mut self) -> Self {
+        self.filesystem
+            .remove(&FilesystemGrantV1::WorkspaceScopedWrite);
+        self
+    }
+
+    pub fn for_approved_recipe(
+        resource_limits: ResourceBudgetV1,
+        root_relative: String,
+        approval_ref: String,
+        executable_id: String,
+        argv: Vec<String>,
+        working_directory_relative: String,
+        allowed_environment_names: BTreeSet<String>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            approval_ref.starts_with("user-approval:") && approval_ref.len() <= 2048,
+            "recipe command requires an explicit user approval receipt"
+        );
+        anyhow::ensure!(
+            !matches!(
+                executable_id.as_str(),
+                "sh" | "bash" | "pwsh" | "powershell"
+            ),
+            "approved recipes cannot select a command interpreter"
+        );
+        anyhow::ensure!(
+            !executable_id.is_empty()
+                && executable_id.len() <= 128
+                && executable_id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')),
+            "approved recipe executable is invalid"
+        );
+        anyhow::ensure!(
+            !argv.is_empty()
+                && argv.len() <= 128
+                && argv
+                    .iter()
+                    .all(|arg| arg.len() <= 4096 && !arg.contains('\0')),
+            "approved recipe arguments are invalid"
+        );
+        let mut policy = Self::for_scoped_workspace_write(
+            ExecutionModeV1::Verification,
+            resource_limits,
+            root_relative,
+        )?;
+        policy.command_capabilities.insert(executable_id.clone());
+        policy.environment_names = allowed_environment_names.clone();
+        validate_environment_allowlist(&policy.environment_names)?;
+        policy.approved_recipe_command = Some(ApprovedRecipeCommandV1 {
+            approval_ref,
+            executable_id,
+            argv,
+            working_directory_relative,
+            allowed_environment_names,
+        });
+        Ok(policy)
     }
 
     /// Intersect grants and lower limits. The returned policy cannot widen either input.
-    pub fn restrict_to(&self, ceiling: &Self) -> anyhow::Result<Self> {
-        self.validate()?;
-        ceiling.validate()?;
-        anyhow::ensure!(
-            self.mode == ceiling.mode,
-            "cannot combine policies for different modes"
-        );
-        Ok(Self {
-            schema_version: 1,
-            authority: PolicyAuthorityV1::Application,
-            mode: self.mode,
-            filesystem: self
-                .filesystem
-                .intersection(&ceiling.filesystem)
-                .copied()
-                .collect(),
-            network_access: if self
-                .network_service_ports
-                .intersection(&ceiling.network_service_ports)
-                .next()
-                .is_some()
-            {
-                NetworkAccessV1::RuntimeQaServicePorts
-            } else {
-                NetworkAccessV1::Disabled
-            },
-            network_service_ports: self
-                .network_service_ports
-                .intersection(&ceiling.network_service_ports)
-                .copied()
-                .collect(),
-            environment_names: self
-                .environment_names
-                .intersection(&ceiling.environment_names)
-                .cloned()
-                .collect(),
-            command_capabilities: self
-                .command_capabilities
-                .intersection(&ceiling.command_capabilities)
-                .cloned()
-                .collect(),
-            tool_capabilities: self
-                .tool_capabilities
-                .intersection(&ceiling.tool_capabilities)
-                .cloned()
-                .collect(),
-            resource_limits: self.resource_limits.restricted_by(&ceiling.resource_limits),
-            run_as_non_root: true,
-            host_secrets: false,
-            privileged: false,
-        })
-    }
-
     pub fn failure_kind_for_invalid(&self) -> ExecutionErrorKind {
         ExecutionErrorKind::PolicyDenied
     }
-}
-
-fn validate_service_ports(ports: &BTreeSet<u16>) -> anyhow::Result<()> {
-    anyhow::ensure!(ports.len() <= 16, "too many QA service ports");
-    anyhow::ensure!(
-        ports.iter().all(|port| (1024..=u16::MAX).contains(port)),
-        "QA service ports must be unprivileged TCP ports"
-    );
-    Ok(())
 }

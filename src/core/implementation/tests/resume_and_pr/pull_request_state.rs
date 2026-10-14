@@ -16,6 +16,8 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
         deadline: Instant::now() + Duration::from_secs(20),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     let merge_commit = "0123456789abcdef0123456789abcdef01234567";
     for (value, column) in [("CLOSED", 3), ("OPEN", 2), ("MERGED", 4)] {
@@ -122,6 +124,8 @@ fn pr_refresh_does_not_overwrite_an_active_implementation() {
         deadline: Instant::now() + Duration::from_secs(5),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     let started = Instant::now();
     refresh_pr(&s.repo, &s.ticket, &runner).unwrap();

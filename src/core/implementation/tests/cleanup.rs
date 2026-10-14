@@ -62,18 +62,6 @@ fn cleanup_never_reclaims_an_unpublished_completion_commit() {
 #[test]
 fn cleanup_accepts_integration_evidence_after_task_ticket_rename() {
     let mut s = Sandbox::new();
-    let original = fs::read_to_string(s.repo.join(&s.ticket)).unwrap();
-    let identified = crate::domain::ArtifactIdentity::preserve_markdown(
-        &original,
-        None,
-        "TASK-001",
-        "Implement ticket behavior",
-    )
-    .unwrap();
-    fs::write(s.repo.join(&s.ticket), identified).unwrap();
-    s.git(&s.repo, &["add", &s.ticket]);
-    s.git(&s.repo, &["commit", "-qm", "identify task ticket"]);
-    s.git(&s.repo, &["push", "-q", "origin", "main"]);
 
     let state = completed_cleanup_fixture(&s);
     let dir = state_dir(&s.repo, &s.ticket).unwrap();

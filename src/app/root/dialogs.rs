@@ -100,6 +100,9 @@ impl KooladeApp {
                         *close_slot.borrow_mut() = close;
                     },
                 );
+                if closed || *close_slot.borrow() {
+                    d.cancel_discovery();
+                }
                 if !closed && !*close_slot.borrow() {
                     self.dialog = Some(Dialog::HarnessSetup(d));
                 }

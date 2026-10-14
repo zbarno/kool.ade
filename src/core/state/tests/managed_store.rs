@@ -162,7 +162,13 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
     let feature_path = crate::artifacts::product_docs::document_path(&store, "feature:F1").unwrap();
     let feature_text = String::from_utf8(store.read_planning_path(&feature_path).unwrap()).unwrap();
     let contract = crate::core::workflow::feature_contract(&feature_text);
-    crate::core::workflow::approve_feature(&store, &mut state.workflow, "F1").unwrap();
+    crate::core::lifecycle::test_support::approve_and_review_feature(
+        &store,
+        &mut state.workflow,
+        "F1",
+        &feature_text,
+    )
+    .unwrap();
     assert!(crate::core::workflow::feature_approved(
         &store,
         &state.workflow,

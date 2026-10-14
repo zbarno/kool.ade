@@ -187,7 +187,7 @@ fn cache_contains_audit_data(path: &Path) -> bool {
 }
 
 fn find_dotnet() -> anyhow::Result<PathBuf> {
-    if let Some(path) = crate::harness::pi_sandbox::host_dotnet_executable() {
+    if let Some(path) = crate::harness::host_tools::host_dotnet_executable() {
         return Ok(path);
     }
     env::split_paths(&env::var_os("PATH").unwrap_or_default())

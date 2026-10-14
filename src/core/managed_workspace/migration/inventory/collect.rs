@@ -167,6 +167,9 @@ fn is_normalized_input(path: &str) -> bool {
         || path.starts_with("state/workflow/")
         || path.starts_with("state/items/")
         || path.starts_with("planning/items/")
+        || path.starts_with("state/questions/")
+        || path.starts_with("state/readiness/")
+        || path.starts_with("planning/questions/")
 }
 
 fn normalized_target(path: &str) -> String {
@@ -180,6 +183,9 @@ fn normalized_target(path: &str) -> String {
         _ if path.starts_with("state/workflow/") => path.to_owned(),
         _ if path.starts_with("state/items/") => path.to_owned(),
         _ if path.starts_with("planning/items/") => path.to_owned(),
+        _ if path.starts_with("state/questions/") => path.to_owned(),
+        _ if path.starts_with("state/readiness/") => path.to_owned(),
+        _ if path.starts_with("planning/questions/") => path.to_owned(),
         _ => "state/work/<work-uid>.json".into(),
     }
 }

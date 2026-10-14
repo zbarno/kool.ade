@@ -2,10 +2,9 @@
 //! checks stay behind the shared [`AiHarness`] interface.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::AppError;
-use crate::harness::pi_proc::{PollState, StreamEvt};
 pub const CODEX_BINARY_ENV: &str = "KOOLADE_CODEX_BIN";
 pub const CODEX_MODEL_ENV: &str = "KOOLADE_CODEX_MODEL";
 mod execute;
@@ -177,6 +176,9 @@ fn check_supported_capabilities(path: &Path) -> Result<(), AppError> {
         "--ephemeral",
         "--model",
         "--config",
+        "--disable",
+        "--ignore-user-config",
+        "--skip-git-repo-check",
     ];
     let missing = required
         .into_iter()
@@ -204,44 +206,22 @@ fn run_probe(binary: &Path, args: &[&str]) -> Result<String, AppError> {
 fn run_probe_status(binary: &Path, args: &[&str]) -> Result<(String, bool), AppError> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let output = crate::harness::discovery::run(
         &argv,
-        Path::new("."),
-        None,
-        &[],
+        PROBE_TIMEOUT,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::execution_security::CliProvider::Codex.excluded_child_environment(),
-    )?;
-    let deadline = Instant::now() + PROBE_TIMEOUT;
-    let mut output = String::new();
-    let mut success = None;
-    while Instant::now() < deadline {
-        match task.poll_next(Duration::from_millis(100)) {
-            Ok(StreamEvt::Stdout(line)) => {
-                output.push_str(&line);
-                output.push('\n');
-            }
-            Ok(StreamEvt::Stderr(line)) => {
-                output.push_str(&line);
-                output.push('\n');
-            }
-            Ok(StreamEvt::Exited(ok)) => {
-                success = Some(ok);
-                break;
-            }
-            Err(PollState::Closed) => break,
-            Err(PollState::Pending) => {}
-        }
+    )
+    .map_err(|_| AppError::Other("Codex CLI readiness check failed or timed out".into()))?;
+    if output.stdout_truncated || output.stderr_truncated {
+        return Err(AppError::Other(
+            "Codex CLI readiness output exceeded the size limit".into(),
+        ));
     }
-    match success {
-        Some(success) => Ok((output, success)),
-        None => {
-            task.kill();
-            let _ = task.settle(Duration::from_secs(1));
-            Err(AppError::Other(
-                "Codex CLI readiness check timed out".into(),
-            ))
-        }
-    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok((format!("{stdout}\n{stderr}"), output.success))
 }
 
 fn executable(path: &Path) -> bool {

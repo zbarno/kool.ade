@@ -1,0 +1,1 @@
+Return ReviewVerdictV1 JSON. Inputs: role, feature_uid, optional task_uid, original_goal, approved_spec_ref/hash, decision_refs, evidence_manifest, execution_policy_ref, output_schema_version, subject_revision, requirements_matrix, explicit_exclusions. Review the exact immutable diff read-only, independently of the author.

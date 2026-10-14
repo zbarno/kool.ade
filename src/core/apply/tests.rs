@@ -57,7 +57,7 @@ fn task_batch() -> crate::core::workflow::TaskBatch {
             ..Default::default()
         },
         specification: "# Revision-fenced generation\n".into(),
-        feature_id: None,
+        feature_id: Some("CHG-004".into()),
         contract: None,
         branch_targets: None,
         task_routing: Default::default(),
@@ -67,6 +67,67 @@ fn task_batch() -> crate::core::workflow::TaskBatch {
             ..Default::default()
         }],
     }
+}
+
+fn approve_batch_feature(
+    state: &mut PlannerState,
+    root: &std::path::Path,
+    batch: &mut crate::core::workflow::TaskBatch,
+) {
+    let id = batch.feature_id.as_deref().unwrap();
+    let dir = root
+        .join(".koolade-packet/planning/changes")
+        .join(format!("{id}-revision-fenced-generation"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("specification.md");
+    let markdown = format!(
+        "# {id}: {}\n\n**Status:** Ready\n\n## Intent\n\nPublish one generated task batch safely.\n\n## Current Behavior\n\nTask generation has no lifecycle record.\n\n## Desired Behavior\n\nTask generation records approved stories.\n\n## Scope\n\nOne generated story.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- GEN-R1 (MUST). Record the approved task batch.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** The project operator approves the exact feature plan.\n\n## Acceptance Criteria\n\n1. The approved story has a lifecycle record.\n",
+        batch.brief.feature_name
+    );
+    let markdown =
+        crate::artifacts::product_docs::identity::preserve_feature_identity(&path, id, &markdown)
+            .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
+        .unwrap()
+        .unwrap();
+    let markdown = crate::domain::ChangeMetadata::write_markdown(
+        &markdown,
+        &identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    let relative = path
+        .strip_prefix(state.planning_store.root.as_path())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    state
+        .planning_store
+        .transaction(
+            &[(relative, markdown.as_bytes().to_vec())],
+            Some(&state.baseline_planning_revision),
+        )
+        .unwrap();
+    state.workflow.brief = Some(batch.brief.clone());
+    crate::artifacts::task_docs::save_workflow(root, &state.workflow).unwrap();
+    state.baseline_planning_revision = state.planning_store.revision().unwrap();
+    crate::core::gitops::commit(
+        root,
+        "fixture: create revision-fenced feature",
+        &[".koolade-packet/planning".into()],
+    )
+    .unwrap();
+    state.active_feature = Some((id.to_owned(), markdown.clone()));
+    state.active_features = vec![(id.to_owned(), markdown.clone())];
+    crate::core::lifecycle::test_support::approve_and_review_feature(
+        &state.planning_store,
+        &mut state.workflow,
+        id,
+        &markdown,
+    )
+    .unwrap();
+    state.baseline_planning_revision = state.planning_store.revision().unwrap();
+    batch.specification = markdown;
 }
 
 fn task_batch_turn(batch: crate::core::workflow::TaskBatch) -> NormalizedTurn {
@@ -79,7 +140,8 @@ fn task_batch_turn(batch: crate::core::workflow::TaskBatch) -> NormalizedTurn {
 fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
     let (mut state, root) = state_at("task_generation_revision");
     let store = state.planning_store.clone();
-    let batch = task_batch();
+    let mut batch = task_batch();
+    approve_batch_feature(&mut state, &root, &mut batch);
     let (_, revision) = crate::artifacts::task_docs::save_progress_expected(
         &store,
         "revision-fenced-run",
@@ -113,7 +175,8 @@ fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
 fn external_store_change_between_generation_and_apply_is_rejected_as_stale() {
     let (mut state, root) = state_at("task_generation_stale");
     let store = state.planning_store.clone();
-    let batch = task_batch();
+    let mut batch = task_batch();
+    approve_batch_feature(&mut state, &root, &mut batch);
     let (_, generation_revision) = crate::artifacts::task_docs::save_progress_expected(
         &store,
         "stale-generation-run",
@@ -221,80 +284,4 @@ fn refresh_discovery_tasks_are_committed_with_the_planning_transaction() {
 #[path = "tests/feature_workflow.rs"]
 mod feature_workflow;
 
-#[test]
-fn no_change_turn_touches_nothing() {
-    let (mut st, root) = state_at("noop");
-    let nt = make_norm(None, None);
-    let rc = apply(&mut st, &nt).unwrap();
-    assert!(!rc.spec_written && !rc.items_written);
-    assert!(rc.repo_relative_paths.is_empty());
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn unowned_used_category_spawns_single_ownership_item() {
-    let (mut st, root) = state_at("own");
-    st.config.user = Some(CurrentUser::new("Zach", vec!["Engineering".into()]));
-    st.items.push(crate::domain::OpenItem::new(
-        "CLR-001".into(),
-        Priority::Normal,
-        ItemKind::Question,
-        "Operations".into(),
-        Some("Ops lead".into()),
-        "who watches prod logs?".into(),
-        String::new(),
-    ));
-    st.baseline_items_md = items_io::serialize(&st.items);
-    let e = TurnEnvelope {
-        schema_version: Some(2),
-        assistant_message: Some("logged".into()),
-        change_summary: None,
-        document_updates: None,
-        planning_tasks: None,
-        updated_specification: None,
-        open_items_added: None,
-        open_items_updated: None,
-        open_items_resolved: None,
-        next_question_id: None,
-        requested_action: None,
-        follow_up_task: None,
-        interview: None,
-        task_stories: None,
-        task_outline: None,
-        plans: None,
-        recommendation: None,
-    };
-    let nt = validation::validate(&e, &st, &st.effective_user()).unwrap();
-    let rc = apply(&mut st, &nt).unwrap();
-    // Only the USED category (Operations) spawns an ownership item, and
-    // exactly one; a re-apply must not multiply them.
-    let n_own = st
-        .items
-        .iter()
-        .filter(|i| i.kind == ItemKind::Ownership)
-        .count();
-    assert_eq!(n_own, 1);
-    assert_eq!(rc.synthesized_open_items.len(), 1);
-    let nt2 = validation::validate(&e, &st, &st.effective_user()).unwrap();
-    let rc2 = apply(&mut st, &nt2).unwrap();
-    assert!(rc2.synthesized_open_items.is_empty());
-    assert_eq!(
-        st.items
-            .iter()
-            .filter(|i| i.kind == ItemKind::Ownership)
-            .count(),
-        1
-    );
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn commit_phrase_lowercases_agent_summary() {
-    let (st, root) = state_at("msg");
-    let nt = make_norm(Some("Establish initial specification"), None);
-    assert_eq!(
-        commit_message::compose(&nt, true, false, 0, 0, 0),
-        "planner: establish initial specification"
-    );
-    let _ = (st, std::fs::remove_dir_all(&root));
-}
+mod miscellaneous;

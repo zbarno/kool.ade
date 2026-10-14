@@ -61,14 +61,16 @@ impl KooladeApp {
         });
         let existing = project.planning_work.iter().any(|work| work.key == key);
         if !existing {
-            project
-                .planning_work
-                .push(crate::core::planning_work::Work::new(
-                    key.clone(),
-                    format!("Plan {}", crate::core::context_build::clip(text, 100)),
-                    text.into(),
-                    "Planning in progress".into(),
-                ));
+            let mut work = crate::core::planning_work::Work::new(
+                key.clone(),
+                format!("Plan {}", crate::core::context_build::clip(text, 100)),
+                text.into(),
+                "Planning in progress".into(),
+            );
+            if purpose == crate::core::workflow::TurnPurpose::Question {
+                work.kind = crate::core::planning_work::WorkKind::Question;
+            }
+            project.planning_work.push(work);
             if let Err(error) = project.save_planning_work() {
                 project.planning_work.pop();
                 self.toasts

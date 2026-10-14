@@ -31,6 +31,12 @@ pub(crate) fn validate_task_routes(
                 route.harness
             ));
         };
+        if !detected.is_fresh_at(crate::persistence::harness_settings::current_unix_ms()) {
+            return Err(format!(
+                "Harness '{}' discovery is stale; refresh Coding tools before task routing",
+                route.harness
+            ));
+        }
         if !detected.ready {
             return Err(format!(
                 "Harness '{}' is unavailable for task routing",
@@ -41,12 +47,13 @@ pub(crate) fn validate_task_routes(
             || !crate::harness::implementation_route_available(&route.harness)
         {
             return Err(format!(
-                "Harness '{}' cannot run inside Kool.ad/e's application-owned Linux sandbox. Select a supported tool before starting the task.",
+                "Harness '{}' cannot run inside Kool.ad/e's application-owned Docker execution session. Select a supported tool before starting the task.",
                 route.harness
             ));
         }
         if let Some(model) = route.model.as_deref()
-            && !detected.models.iter().any(|available| available == model)
+            && (!detected.model_catalog_fresh
+                || !detected.models.iter().any(|available| available == model))
         {
             return Err(format!(
                 "Model '{model}' is unavailable for harness '{}'",
@@ -121,25 +128,33 @@ fn routed_harness(
         .map(|route| route.harness.as_str())
         .or(selected)
         .unwrap_or("pi");
-    let repository_access_unavailable = !crate::harness::implementation_route_available(harness_id)
-        || (work_type.is_some()
-            && !settings
-                .discovered
-                .get(harness_id)
-                .is_some_and(|detected| detected.implementation_available));
-    if repository_access_unavailable {
+    let detected = settings.discovered.get(harness_id);
+    let discovery_fresh = detected.is_some_and(|entry| {
+        entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
+    });
+    if work_type.is_some() && !discovery_fresh {
         return Box::new(UnavailableHarness(format!(
-            "Repository access is unavailable for {harness_id} because it cannot run inside Kool.ad/e's application-owned Linux sandbox. Select a supported tool in Coding tools; no fallback will run this task."
+            "Discovery for {harness_id} is stale. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
+    if work_type.is_some() && !detected.is_some_and(|entry| entry.ready) {
+        return Box::new(UnavailableHarness(format!(
+            "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."
+        )));
+    }
+    // Route selection establishes provider and model identity. Whether this
+    // operation needs repository tools is determined by PlanningRequest.mode
+    // at execution time; a context-only role must remain usable without a
+    // repository execution target.
     let explicit_model = route
         .and_then(|route| route.model.as_deref())
         .filter(|model| !model.trim().is_empty());
     if let Some(model) = explicit_model
-        && !settings
-            .discovered
-            .get(harness_id)
-            .is_some_and(|detected| detected.models.iter().any(|available| available == model))
+        && !detected.is_some_and(|entry| {
+            entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
+                && entry.model_catalog_fresh
+                && entry.models.iter().any(|available| available == model)
+        })
     {
         return Box::new(UnavailableHarness(format!(
             "The selected model '{model}' is not in the refreshed {harness_id} CLI model catalog. Open Coding tools, refresh discovery, and choose an available model."
@@ -148,6 +163,10 @@ fn routed_harness(
     let default_model_hint = settings
         .discovered
         .get(harness_id)
+        .filter(|detected| {
+            detected.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
+                && detected.model_catalog_fresh
+        })
         .and_then(|detected| detected.default_model.clone());
     Box::new(RoutedHarness {
         inner: harness,

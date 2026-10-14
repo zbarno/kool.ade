@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state() {
+    let _environment = crate::test_support::lock_process_environment();
     for mode in ["rejected", "failed", "cancelled"] {
         let root = std::env::temp_dir().join(format!("koolade_chat_{mode}_{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();

@@ -24,6 +24,39 @@ mod support;
 mod whitespace;
 pub(super) use support::{complete_report, outcome, save_legacy_reconciliation_state};
 
+struct ReviewerAwareAgent<'a>(&'a dyn AiHarness);
+
+impl AiHarness for ReviewerAwareAgent<'_> {
+    fn label(&self) -> String {
+        self.0.label()
+    }
+
+    fn check_available(&self) -> Result<String, AppError> {
+        self.0.check_available()
+    }
+
+    fn current_execution_identity(&self) -> Option<crate::harness::ReviewExecutionIdentity> {
+        Some(crate::harness::ReviewExecutionIdentity {
+            execution_id: "00000000-0000-4000-8000-000000000001".into(),
+            session_id: "00000000-0000-4000-8000-000000000002".into(),
+        })
+    }
+
+    fn execute(
+        &self,
+        request: &PlanningRequest,
+    ) -> Result<crate::harness::HarnessOutcome, AppError> {
+        if request.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+            return Fixture {
+                mode: "complete",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+            .execute(request);
+        }
+        self.0.execute(request)
+    }
+}
+
 struct ReconcilingAgent {
     calls: Arc<AtomicUsize>,
     conflict: bool,
@@ -45,6 +78,13 @@ impl AiHarness for ReconcilingAgent {
         &self,
         request: &PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, AppError> {
+        if request.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+            return Fixture {
+                mode: "complete",
+                calls: self.calls.clone(),
+            }
+            .execute(request);
+        }
         assert_eq!(request.mode, crate::harness::ExecutionMode::Implementation);
         self.calls.fetch_add(1, Ordering::SeqCst);
         if request.prompt_body.contains("INITIAL BASE RECONCILIATION") {
@@ -224,7 +264,7 @@ fn conflict_sandbox() -> Sandbox {
     s.git(&s.repo, &["commit", "-qm", "add shared file"]);
     s.git(&s.repo, &["push", "-q", "origin", "main"]);
     s.advance_remote();
-    let peer = s.root.join("peer");
+    let peer = s.latest_peer();
     fs::write(peer.join("shared.txt"), "shared implementation\n").unwrap();
     s.git(&peer, &["add", "shared.txt"]);
     s.git(&peer, &["commit", "-qm", "shared implementation"]);
@@ -251,12 +291,13 @@ fn run_with_agent_for_ticket(
     user_context: Option<&str>,
     progress: Sender<LiveProgress>,
 ) -> anyhow::Result<Implementation> {
+    super::sandbox::refresh_task_spec(&sandbox.repo, ticket);
     run_with_project_options(
         &sandbox.repo,
         &sandbox.repo,
         ticket,
         RunOptions {
-            harness: agent,
+            harness: &ReviewerAwareAgent(agent),
             cancel: Arc::new(AtomicBool::new(false)),
             progress,
             gh: sandbox.gh.to_str().unwrap(),

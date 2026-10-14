@@ -5,6 +5,7 @@ mod board_states;
 mod checks;
 mod checks_gate;
 pub mod cleanup;
+mod code_review;
 mod controller;
 mod execution;
 mod initial_reconciliation;
@@ -125,6 +126,9 @@ pub struct Implementation {
     pub repository_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    /// Planning-store identity that owns this isolated task clone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_uid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_identity: Option<String>,
     /// Configured push repository identity captured before the worker starts.
@@ -213,89 +217,8 @@ struct ExecutionPolicy<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(test)]
-    fn run_with_gh(
-        repo: &Path,
-        ticket: &str,
-        harness: &dyn AiHarness,
-        cancel: Arc<AtomicBool>,
-        progress: Sender<LiveProgress>,
-        gh: &str,
-    ) -> anyhow::Result<Implementation> {
-        run_with_options(repo, ticket, harness, cancel, progress, gh, false)
-    }
-    #[cfg(test)]
-    fn run_with_options(
-        repo: &Path,
-        ticket: &str,
-        harness: &dyn AiHarness,
-        cancel: Arc<AtomicBool>,
-        progress: Sender<LiveProgress>,
-        gh: &str,
-        auto_merge: bool,
-    ) -> anyhow::Result<Implementation> {
-        let mode = if auto_merge {
-            PublicationMode::AutoPublish
-        } else {
-            PublicationMode::CreatePullRequest
-        };
-        run_with_project_options(
-            repo,
-            repo,
-            ticket,
-            RunOptions {
-                harness,
-                cancel,
-                progress,
-                gh,
-                publication_mode: mode,
-                require_independent_checks: false,
-                user_context: None,
-                auto_publish_gate: None,
-                claim_lease: None,
-            },
-        )
-    }
-
-    use crate::error::AppError;
-    use std::sync::atomic::AtomicUsize;
-
-    #[path = "cleanup_helpers.rs"]
-    mod cleanup_helpers;
-    #[path = "fixture.rs"]
-    mod fixture;
-    #[path = "providers.rs"]
-    mod providers;
-    #[path = "sandbox.rs"]
-    mod sandbox;
-    use cleanup_helpers::*;
-    use fixture::*;
-    use providers::*;
-    use sandbox::*;
-    #[path = "auto_mode_commit.rs"]
-    mod auto_mode_commit;
-    #[path = "auto_mode_conflicts.rs"]
-    mod auto_mode_conflicts;
-    #[path = "cleanup.rs"]
-    mod cleanup;
-    #[path = "initial_reconciliation.rs"]
-    mod initial_reconciliation;
-    #[path = "publication_checks.rs"]
-    mod publication_checks;
-    #[path = "recovery_corrections.rs"]
-    mod recovery_corrections;
-    #[path = "resume_and_pr.rs"]
-    mod resume_and_pr;
-    #[path = "task_repositories.rs"]
-    mod task_repositories;
-    #[path = "verification_harness.rs"]
-    mod verification_harness;
-    #[path = "worker_context.rs"]
-    mod worker_context;
-}
+#[path = "implementation/tests.rs"]
+mod tests;
 
 #[cfg(test)]
 #[path = "implementation/activity_persist_trims.rs"]

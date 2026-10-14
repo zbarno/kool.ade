@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 #[serde(default)]
 pub struct LiveProgress {
     pub telemetry: ActivityTelemetry,
+    /// Versioned prompt identity associated with this run's activity evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_manifest: Option<crate::harness::prompt_catalog::PromptManifest>,
     /// Selected local harness/model at the start of this unit of work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_route: Option<String>,
@@ -73,6 +76,9 @@ pub struct LivePost {
 
 impl LiveProgress {
     pub fn update(&mut self, mut next: Self) {
+        if next.prompt_manifest.is_none() {
+            next.prompt_manifest = self.prompt_manifest.clone();
+        }
         // Progress snapshots can be delayed behind a newer snapshot. Checklist
         // reports carry a worker-local revision so late snapshots cannot roll
         // the durable board state back.

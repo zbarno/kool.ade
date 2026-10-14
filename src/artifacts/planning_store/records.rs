@@ -2,41 +2,20 @@ use std::path::{Component, Path};
 
 use super::{PlanningStore, StoreError};
 
+#[path = "records/path.rs"]
+mod path;
+#[cfg(test)]
+#[path = "records/tests.rs"]
+mod tests;
+
+pub(crate) use path::{is_opportunity_quota_record, validate_record_path};
+
 /// Expected revision for one mutable record JSON file. Revision zero means the
 /// record is expected not to exist yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordRevisionCheck {
     pub path: String,
     pub expected_revision: u64,
-}
-
-pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
-    let components = Path::new(path).components().collect::<Vec<_>>();
-    let valid_collection = components.get(1).is_some_and(|component| {
-        matches!(
-            component,
-            Component::Normal(name)
-                if matches!(name.to_str(), Some("work" | "workflow" | "items" | "tasks"))
-        )
-    });
-    let valid_file = components.get(2).is_some_and(|component| {
-        let Component::Normal(name) = component else {
-            return false;
-        };
-        let Some(name) = name.to_str() else {
-            return false;
-        };
-        name.strip_suffix(".json")
-            .is_some_and(|uid| uuid::Uuid::parse_str(uid).is_ok())
-    });
-    if components.len() != 3
-        || !matches!(components.first(), Some(Component::Normal(name)) if name.to_str() == Some("state"))
-        || !valid_collection
-        || !valid_file
-    {
-        return Err(StoreError::InvalidPath(path.to_owned()));
-    }
-    Ok(())
 }
 
 pub(crate) fn record_revision(store: &PlanningStore, path: &str) -> Result<u64, StoreError> {
@@ -54,6 +33,29 @@ pub(crate) fn record_revision(store: &PlanningStore, path: &str) -> Result<u64, 
     let object = value.as_object().ok_or_else(|| {
         StoreError::MalformedState(format!("record {path} must contain a JSON object"))
     })?;
+    if path == "state/opportunity_discovery_settings.json" || is_opportunity_quota_record(path) {
+        if object
+            .get("schemaVersion")
+            .and_then(serde_json::Value::as_u64)
+            != Some(1)
+        {
+            return Err(StoreError::MalformedState(format!(
+                "record {path} has no valid schemaVersion"
+            )));
+        }
+        if is_opportunity_quota_record(path)
+            && object.get("dateUtc").and_then(serde_json::Value::as_str)
+                != Path::new(path).file_stem().and_then(|stem| stem.to_str())
+        {
+            return Err(StoreError::MalformedState(format!(
+                "record {path} dateUtc does not match its filename"
+            )));
+        }
+        return object
+            .get("revision")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| StoreError::MalformedState(format!("record {path} has no revision")));
+    }
     let uid = object.get("uid").and_then(serde_json::Value::as_str);
     let path_uid = Path::new(path)
         .file_stem()
@@ -82,10 +84,42 @@ pub(crate) fn record_revision(store: &PlanningStore, path: &str) -> Result<u64, 
 }
 
 pub(crate) fn validate_record_collection(path: &str) -> Result<(), StoreError> {
-    if matches!(
-        path,
-        "state/work" | "state/workflow" | "state/items" | "state/tasks"
-    ) {
+    let components = Path::new(path).components().collect::<Vec<_>>();
+    let nested_events = components.len() == 3
+        && matches!(components.first(), Some(Component::Normal(name)) if name.to_str() == Some("state"))
+        && matches!(components.get(1), Some(Component::Normal(name)) if name.to_str() == Some("self_improvement_events"))
+        && components
+            .get(2)
+            .and_then(|component| match component {
+                Component::Normal(name) => name.to_str(),
+                _ => None,
+            })
+            .is_some_and(|uid| uuid::Uuid::parse_str(uid).is_ok());
+    if nested_events
+        || matches!(
+            path,
+            "state/work"
+                | "state/workflow"
+                | "state/items"
+                | "state/questions"
+                | "state/readiness"
+                | "state/tasks"
+                | "state/lifecycle_features"
+                | "state/lifecycle_tasks"
+                | "state/lifecycle_events"
+                | "state/lifecycle_plans"
+                | "state/lifecycle_plan_reviews"
+                | "state/lifecycle_plan_authors"
+                | "state/lifecycle_plan_confirmations"
+                | "state/lifecycle_pr_work_items"
+                | "state/opportunities"
+                | "state/opportunity_decisions"
+                | "state/opportunity_dedup"
+                | "state/opportunity_quota"
+                | "state/self_improvements"
+                | "state/runtime-receipts"
+        )
+    {
         Ok(())
     } else {
         Err(StoreError::InvalidPath(path.to_owned()))
@@ -141,6 +175,32 @@ pub(crate) fn validate_record_revisions(
         let object = value.as_object().ok_or_else(|| {
             StoreError::MalformedState(format!("new record {} must be a JSON object", check.path))
         })?;
+        if check.path == "state/opportunity_discovery_settings.json"
+            || is_opportunity_quota_record(&check.path)
+        {
+            if object
+                .get("schemaVersion")
+                .and_then(serde_json::Value::as_u64)
+                != Some(1)
+            {
+                return Err(StoreError::MalformedState(format!(
+                    "new record {} has no valid schemaVersion",
+                    check.path
+                )));
+            }
+            if is_opportunity_quota_record(&check.path)
+                && object.get("dateUtc").and_then(serde_json::Value::as_str)
+                    != Path::new(&check.path)
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+            {
+                return Err(StoreError::MalformedState(format!(
+                    "new record {} dateUtc does not match its filename",
+                    check.path
+                )));
+            }
+            continue;
+        }
         let uid = object.get("uid").and_then(serde_json::Value::as_str);
         if uid
             != Path::new(&check.path)

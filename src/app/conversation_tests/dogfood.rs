@@ -56,7 +56,7 @@ fn scenario(code: &str) -> Option<Scenario> {
         "D" => Scenario {
             code: "D",
             kind: "Question",
-            request: "Why does Kool.ad/e use Bubblewrap?",
+            request: "How does Kool.ad/e isolate repository commands?",
         },
         "E" => Scenario {
             code: "E",

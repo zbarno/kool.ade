@@ -22,7 +22,7 @@ pub(in crate::core::implementation) fn trusted(
     dir: &Path,
 ) -> anyhow::Result<BTreeSet<String>> {
     let ledger = load(dir, state)?;
-    let mut trusted = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+    let mut trusted = crate::harness::runtime_config::paths_with_source(
         &state.task_repository,
         runner.runtime_config_source.as_deref(),
     )?;
@@ -85,7 +85,8 @@ pub(in crate::core::implementation) fn verify(
 ) -> anyhow::Result<String> {
     quarantine_untrusted_ignored(runner, state, dir)?;
     let before = before(runner, state, dir)?;
-    let result = runner.verify(&state.task_repository, command);
+    let workspace = runner.workspace_ref_for(state)?;
+    let result = runner.verify(&state.task_repository, command, &workspace);
     after(runner, state, dir, before)?;
     result
 }
@@ -99,7 +100,7 @@ pub(in crate::core::implementation) fn clean(
         if dir.join(FILE).exists() || super::super::integrated_candidate_matches(dir, state)? {
             trusted(runner, state, dir)?
         } else {
-            crate::harness::pi_sandbox::runtime_config::paths_with_source(
+            crate::harness::runtime_config::paths_with_source(
                 &state.task_repository,
                 runner.runtime_config_source.as_deref(),
             )?
@@ -136,7 +137,7 @@ pub(in crate::core::implementation) fn stage_task(
     state: &Implementation,
     dir: &Path,
 ) -> anyhow::Result<()> {
-    let mut protected = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+    let mut protected = crate::harness::runtime_config::paths_with_source(
         &state.task_repository,
         runner.runtime_config_source.as_deref(),
     )?;

@@ -57,6 +57,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
         source_commit: None,
         repository_id: None,
         project_id: None,
+        workspace_uid: None,
         repository_identity: None,
         push_repository: None,
         repository_cache: None,

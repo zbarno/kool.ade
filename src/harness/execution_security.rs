@@ -2,8 +2,53 @@ use super::ExecutionMode;
 
 mod application_boundary;
 mod mcp_server;
+mod session_bridge;
+#[cfg(test)]
+pub(crate) use session_bridge::prepare_remote_dependency;
 
-pub(crate) use application_boundary::{ApplicationBoundary, CliProvider};
+/// Inherited variables that can inject startup code, choose arbitrary Git
+/// configuration, or redirect developer shells and IDE integrations into a CLI.
+/// Provider authentication/model transport variables are intentionally retained.
+pub(crate) const UNSAFE_PROVIDER_LAUNCH_ENV: &[&str] = &[
+    "NODE_OPTIONS",
+    "NODE_PATH",
+    "BUN_OPTIONS",
+    "BUN_CONFIG",
+    "BASH_ENV",
+    "ENV",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYTHONSTARTUP",
+    "RUBYOPT",
+    "PERL5OPT",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "GIT_CONFIG",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_ASKPASS",
+    "SSH_ASKPASS",
+    "RUSTC_WRAPPER",
+    "RUSTC_WORKSPACE_WRAPPER",
+    "VSCODE_IPC_HOOK",
+    "VSCODE_IPC_HOOK_CLI",
+    "VSCODE_GIT_ASKPASS_MAIN",
+    "VSCODE_GIT_ASKPASS_NODE",
+    "VSCODE_GIT_IPC_HANDLE",
+    "ELECTRON_RUN_AS_NODE",
+    "CLAUDE_CODE_SHELL_PREFIX",
+];
+
+pub(crate) use application_boundary::PrivateDirectory;
+#[cfg(test)]
+pub(crate) use application_boundary::override_test_app_binary;
+pub(crate) use application_boundary::{
+    ApplicationBoundary, CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch,
+};
 pub(crate) use mcp_server::serve as serve_mcp_server;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +78,7 @@ pub(crate) enum CredentialPolicy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProcessIsolation {
-    BubblewrapForRepositoryCommands,
+    DockerExecutionSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,9 +114,9 @@ impl HarnessCapabilities {
                 tool_operations: ToolOperations::SandboxedShellAndBrokeredResources,
                 dependency_requests: DependencyPolicy::ApplicationAuthorizationBroker,
                 credentials: CredentialPolicy::ProviderManagedButUnavailableToRepositoryCommands,
-                process_isolation: ProcessIsolation::BubblewrapForRepositoryCommands,
+                process_isolation: ProcessIsolation::DockerExecutionSession,
             } => {
-                "Pi runs inside Bubblewrap. Other supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and have native repository tools disabled by Kool.ad/e. Repository commands run only through Kool.ad/e's per-run MCP bridge inside Bubblewrap, with explicit mounts, no ambient network or host credentials, and brokered resource and dependency requests. Host-side CLIs start without NODE_OPTIONS so Node startup code cannot run before restrictions apply. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex or Claude account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings; the app cannot preflight cloud-delivered policy. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
+                "Supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and have native repository tools disabled. Every repository operation runs through Kool.ad/e's application-owned MCP session and Docker ExecutionSession, bound to the selected workspace and execution mode. Docker mounts only the assigned clone writable for implementation or the selected repository read-only for planning; containers receive no provider credentials or ambient network. Dependency and public-resource access remains application-mediated. Provider launches and probes remove inherited startup-code, shell-init, loader, Git-config, and IDE-connection variables while retaining provider auth and model transport. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex or Claude account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings; the app cannot preflight cloud-delivered policy. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
             }
         }
     }
@@ -85,7 +130,7 @@ const APPLICATION_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
         tool_operations: ToolOperations::SandboxedShellAndBrokeredResources,
         dependency_requests: DependencyPolicy::ApplicationAuthorizationBroker,
         credentials: CredentialPolicy::ProviderManagedButUnavailableToRepositoryCommands,
-        process_isolation: ProcessIsolation::BubblewrapForRepositoryCommands,
+        process_isolation: ProcessIsolation::DockerExecutionSession,
     },
     modes: &SUPPORTED_MODES,
 };
@@ -142,7 +187,7 @@ mod tests {
             );
             assert_eq!(
                 capabilities.policy.process_isolation,
-                ProcessIsolation::BubblewrapForRepositoryCommands
+                ProcessIsolation::DockerExecutionSession
             );
             assert!(implementation_route_available(id), "{id}");
         }

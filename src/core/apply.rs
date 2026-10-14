@@ -5,6 +5,7 @@
 mod commit_message;
 mod comparison;
 mod identities;
+mod lifecycle_bridge;
 mod product_documents;
 mod store_transaction;
 
@@ -61,6 +62,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         )?;
         state.workflow = workflow;
         state.baseline_planning_revision = revision;
+        lifecycle_bridge::record_task_batch(state, batch)?;
         return Ok(ApplyReceipt {
             spec_written: false,
             items_written: false,

@@ -91,6 +91,31 @@ pub enum ApplicationCommand {
     ApproveReviewItem {
         id: String,
     },
+    AnswerClarification {
+        uid: String,
+        expected_revision: u64,
+        answer: String,
+        selected_option: Option<String>,
+    },
+    DecideOpportunity {
+        uid: String,
+        expected_revision: u64,
+        choice: crate::harness::prompt_catalog::OpportunityChoice,
+        explanation: Option<String>,
+    },
+    RetryOpportunityPlanning {
+        uid: String,
+        expected_revision: u64,
+    },
+    SetOpportunityDiscoverySettings {
+        settings: crate::core::opportunity::OpportunityDiscoverySettingsV1,
+        expected_revision: u64,
+    },
+    SnoozeOpportunity {
+        uid: String,
+        expected_revision: u64,
+        days: u8,
+    },
     ApproveFeature {
         id: String,
     },

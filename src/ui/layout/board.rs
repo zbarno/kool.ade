@@ -3,6 +3,7 @@ use super::*;
 mod cancellation;
 mod columns;
 mod empty_lane;
+mod opportunities;
 pub(super) mod presentation;
 mod relationships;
 
@@ -43,6 +44,7 @@ pub(super) fn paint(
             std::collections::HashSet::<String>::new(),
         );
     });
+    opportunities::paint(ui, s, board);
     columns::paint(ui, s, board, &mut selected_path, &mut planning_selection);
 
     // Opening or switching a task is an interaction, not a rendering side
@@ -64,6 +66,13 @@ pub(super) fn paint(
                         .iter()
                         .find(|work| work.key == selected)
                         .map(|work| work.key.clone())
+                })
+                .or_else(|| {
+                    board
+                        .clarification_questions
+                        .iter()
+                        .find(|question| selected == clarification_key(&question.uid))
+                        .map(|question| clarification_key(&question.uid))
                 })
         });
     let prepared_id = egui::Id::new("koolade_last_prepared_task_chat");
@@ -173,6 +182,28 @@ pub(super) fn paint(
             if closed {
                 planning_selection = None;
             }
+        } else if let Some(question) = planning_selection
+            .as_deref()
+            .and_then(|key| key.strip_prefix("clarification:"))
+            .and_then(|uid| {
+                board
+                    .clarification_questions
+                    .iter()
+                    .find(|question| question.uid == uid)
+            })
+        {
+            let key = clarification_key(&question.uid);
+            let closed = crate::ui::overlays::show_task_modal(ui, &key, panel_bounds, |ui| {
+                task_details::paint_clarification(
+                    ui,
+                    s,
+                    question,
+                    (panel_bounds.height() - 160.0).max(160.0),
+                );
+            });
+            if closed {
+                planning_selection = None;
+            }
         } else if let Some(action) = planning_selection
             .as_deref()
             .and_then(|key| key.strip_prefix("feature-approval:"))
@@ -270,4 +301,8 @@ pub(super) fn paint(
             d.remove::<String>(id);
         }
     });
+}
+
+fn clarification_key(uid: &str) -> String {
+    format!("clarification:{uid}")
 }

@@ -17,9 +17,16 @@ fn auto_mode_repairs_conflicts_and_keeps_verified_integration_for_review() {
             &self,
             req: &PlanningRequest,
         ) -> Result<crate::harness::HarnessOutcome, AppError> {
+            if req.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+                return Fixture {
+                    mode: "complete",
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }
+                .execute(req);
+            }
             if self.calls.load(Ordering::SeqCst) == 0 {
                 self.sandbox.advance_remote();
-                let peer = self.sandbox.root.join("peer");
+                let peer = self.sandbox.latest_peer();
                 fs::write(
                     peer.join("implemented.txt"),
                     "concurrent upstream implementation",

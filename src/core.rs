@@ -20,11 +20,13 @@ pub mod contract_snapshot;
 pub mod gitops;
 pub mod ids;
 pub mod investigation;
+pub mod opportunity;
 pub mod ownership;
 pub mod prompt;
 pub mod reconciliation;
 pub mod repo_overview;
 pub mod routing;
+pub mod self_improvement;
 pub mod state;
 pub mod turn;
 pub mod validation;
@@ -35,6 +37,8 @@ pub mod workflow;
 pub mod task_generation;
 
 pub mod implementation;
+pub mod lifecycle;
+pub mod planning;
 pub mod planning_sync;
 pub mod planning_work;
 

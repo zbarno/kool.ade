@@ -8,7 +8,19 @@ use std::sync::{
 pub(crate) struct ClaimLeaseHandle {
     lease: Arc<Mutex<Option<ClaimLease>>>,
     lost: Arc<AtomicBool>,
+    lost_reason: Arc<Mutex<Option<ClaimError>>>,
     publication_blocked: bool,
+    authorization_generation: String,
+}
+
+impl std::fmt::Debug for ClaimLeaseHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ClaimLeaseHandle")
+            .field("has_lease", &self.has_lease())
+            .field("authorization_generation", &self.authorization_generation)
+            .finish()
+    }
 }
 
 impl ClaimLeaseHandle {
@@ -16,7 +28,9 @@ impl ClaimLeaseHandle {
         Self {
             lease: Arc::new(Mutex::new(Some(lease))),
             lost: Arc::new(AtomicBool::new(false)),
+            lost_reason: Arc::new(Mutex::new(None)),
             publication_blocked: false,
+            authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
         }
     }
 
@@ -24,7 +38,9 @@ impl ClaimLeaseHandle {
         Self {
             lease: Arc::new(Mutex::new(None)),
             lost: Arc::new(AtomicBool::new(false)),
+            lost_reason: Arc::new(Mutex::new(None)),
             publication_blocked: true,
+            authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
         }
     }
 
@@ -44,9 +60,16 @@ impl ClaimLeaseHandle {
             ));
         }
         if self.is_lost() {
-            return Err(ClaimError::CoordinationRejected(
-                "The remote task claim was already lost".into(),
-            ));
+            return Err(self
+                .lost_reason
+                .lock()
+                .ok()
+                .and_then(|reason| reason.clone())
+                .unwrap_or_else(|| {
+                    ClaimError::CoordinationRejected(
+                        "The remote task claim was already lost".into(),
+                    )
+                }));
         }
         let result = self
             .lease
@@ -61,7 +84,10 @@ impl ClaimLeaseHandle {
                 )
             })?
             .verify();
-        if result.is_err() {
+        if let Err(error) = &result {
+            if let Ok(mut reason) = self.lost_reason.lock() {
+                reason.get_or_insert_with(|| error.clone());
+            }
             self.lost.store(true, Ordering::Release);
         }
         result
@@ -86,7 +112,10 @@ impl ClaimLeaseHandle {
                 )
             })?
             .refresh();
-        if result.is_err() {
+        if let Err(error) = &result {
+            if let Ok(mut reason) = self.lost_reason.lock() {
+                reason.get_or_insert_with(|| error.clone());
+            }
             self.lost.store(true, Ordering::Release);
         }
         result
@@ -105,9 +134,16 @@ impl ClaimLeaseHandle {
             ));
         }
         if self.is_lost() {
-            return Err(ClaimError::CoordinationRejected(
-                "The remote task claim was already lost".into(),
-            ));
+            return Err(self
+                .lost_reason
+                .lock()
+                .ok()
+                .and_then(|reason| reason.clone())
+                .unwrap_or_else(|| {
+                    ClaimError::CoordinationRejected(
+                        "The remote task claim was already lost".into(),
+                    )
+                }));
         }
         let result = self
             .lease
@@ -122,9 +158,35 @@ impl ClaimLeaseHandle {
                 )
             })?
             .fenced_push(source, commit, destination_ref);
-        if result.is_err() {
+        if let Err(error) = &result {
+            if let Ok(mut reason) = self.lost_reason.lock() {
+                reason.get_or_insert_with(|| error.clone());
+            }
             self.lost.store(true, Ordering::Release);
         }
         result
+    }
+}
+
+impl crate::execution::session::AuthorizationGenerationVerifier for ClaimLeaseHandle {
+    fn generation(&self) -> String {
+        self.authorization_generation.clone()
+    }
+
+    fn verify(&self, generation: &str) -> Result<(), crate::execution::errors::ExecutionError> {
+        if generation != self.authorization_generation {
+            return Err(crate::execution::errors::ExecutionError::new(
+                crate::execution::errors::ExecutionErrorKind::PolicyDenied,
+                "Execution authorization generation does not match the active task claim",
+                false,
+            ));
+        }
+        ClaimLeaseHandle::verify(self).map_err(|error| {
+            crate::execution::errors::ExecutionError::new(
+                crate::execution::errors::ExecutionErrorKind::PolicyDenied,
+                format!("The active task claim is no longer valid for execution: {error}"),
+                false,
+            )
+        })
     }
 }

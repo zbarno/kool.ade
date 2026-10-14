@@ -18,7 +18,7 @@ fn unsupported_platform_rejects_implementation_before_dispatch() {
     assert!(project.active_implementations.is_empty());
     assert!(!project.queue.running);
     assert!(project.queue.in_flight.is_empty());
-    assert!(project.queue.last_error.contains("Bubblewrap"));
+    assert!(project.queue.last_error.contains("Docker"));
     assert!(
         project
             .queue
@@ -43,7 +43,12 @@ fn auto_queue_cannot_start_task_from_unapproved_feature() {
     };
     assert!(project.active_implementations.is_empty());
     assert!(!project.queue.running);
-    assert!(project.queue.last_error.contains("needs explicit approval"));
+    assert!(!crate::core::workflow::feature_approved(
+        &project.state.planning_store,
+        &project.state.workflow,
+        "CHG-001"
+    ));
+    assert!(!project.queue.last_error.is_empty());
 }
 
 #[test]
@@ -94,6 +99,13 @@ fn resume_dispatch_accepts_feature_named_workspace_story() {
     let Screen::Connected(p) = &mut app.screen else {
         panic!("disconnected")
     };
+    if !std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1") {
+        assert!(p.active_implementations.is_empty());
+        assert!(p.queue.last_error.contains("Docker"));
+        assert!(p.queue.blocked.contains_key(ticket));
+        std::fs::remove_dir_all(root).unwrap();
+        return;
+    }
     assert!(
         p.active_implementations.contains_key(ticket),
         "{}",

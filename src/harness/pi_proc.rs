@@ -11,12 +11,15 @@
 //! `kill()` and the exit watcher coordinate through the same
 //! `Arc<Mutex<Option<Child>>>`, so SIGKILL-before-wait is race-free.
 
-use std::io::BufRead;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+mod launch_environment;
+mod pipe;
+pub(crate) use launch_environment::provider_environment;
 
 /// One piped line or lifecycle event from the child.
 #[derive(Debug, Clone)]
@@ -150,6 +153,23 @@ pub fn spawn_with_input_env_excluding(
     spawn_with_input_env_policy(argv, cwd, input, env, false, excluded_env)
 }
 
+/// Spawn a harness with a reviewed environment baseline and provider auth vars.
+#[cfg(test)]
+pub(crate) fn spawn_with_input_provider_env(
+    argv: &[String],
+    cwd: &Path,
+    input: Option<String>,
+    env: &[(String, String)],
+    provider: crate::harness::execution_security::CliProvider,
+) -> anyhow::Result<ChildTask> {
+    spawn_with_input_clear_env(
+        argv,
+        cwd,
+        input,
+        &launch_environment::provider_environment(provider, cwd, env),
+    )
+}
+
 /// Spawn with a clean environment, then add only the supplied values.
 pub fn spawn_with_input_clear_env(
     argv: &[String],
@@ -218,8 +238,8 @@ fn spawn_with_input_env_policy(
 
     let handle: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(child)));
     let exit_status = Arc::new(Mutex::new(None));
-    let stdout_reader = pipe_lines(stdout, tx.clone(), true);
-    let stderr_reader = pipe_lines(stderr, tx.clone(), false);
+    let stdout_reader = pipe::pipe_lines(stdout, tx.clone(), true);
+    let stderr_reader = pipe::pipe_lines(stderr, tx.clone(), false);
 
     #[cfg(unix)]
     let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -261,37 +281,6 @@ fn spawn_with_input_env_policy(
         exit_status,
         #[cfg(unix)]
         finished,
-    })
-}
-
-/// One reader thread per pipe: converts lines into channel events.
-fn pipe_lines<R: std::io::Read + Send + 'static>(
-    reader: R,
-    tx: std::sync::mpsc::Sender<StreamEvt>,
-    is_stdout: bool,
-) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let mut br = std::io::BufReader::new(reader);
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match br.read_line(&mut line) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    let text = line.trim_end().to_string();
-                    if tx
-                        .send(if is_stdout {
-                            StreamEvt::Stdout(text)
-                        } else {
-                            StreamEvt::Stderr(text)
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            }
-        }
     })
 }
 

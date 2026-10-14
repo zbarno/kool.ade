@@ -24,13 +24,31 @@ impl AiHarness for PausedMigrationHarness {
         &self,
         request: &PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, AppError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
+        let call = self.calls.fetch_add(1, Ordering::SeqCst);
         self.started.send(()).unwrap();
-        self.release.lock().unwrap().recv().unwrap();
-        MigrationAwareFixture {
+        if call > 0 {
+            return Err(AppError::HarnessFailed {
+                reason: "concurrent resume unexpectedly entered the harness again".into(),
+                stderr_tail: String::new(),
+            });
+        }
+        self.release
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(10))
+            .map_err(|error| AppError::HarnessFailed {
+                reason: format!("test release gate did not open: {error}"),
+                stderr_tail: String::new(),
+            })?;
+        let outcome = MigrationAwareFixture {
             calls: Arc::new(AtomicUsize::new(0)),
         }
-        .execute(request)
+        .execute(request)?;
+        // This regression covers migration serialization. Stop before the
+        // separate Docker verification stage so it is deterministic without
+        // requiring an integration daemon.
+        request.cancel.store(true, Ordering::SeqCst);
+        Ok(outcome)
     }
 }
 
@@ -60,7 +78,12 @@ fn concurrent_resume_cannot_enter_the_same_legacy_migration_twice() {
         let second_result = second.join().unwrap();
 
         assert!(!second_started, "a concurrent run entered the harness");
-        assert!(first_result.is_ok(), "{first_result:?}");
+        assert!(
+            first_result
+                .as_ref()
+                .is_err_and(|error| error.to_string().contains("Implementation cancelled")),
+            "expected cancellation after migration validation, got {first_result:?}"
+        );
         assert!(second_result.is_err(), "second run unexpectedly succeeded");
     });
     assert_eq!(calls.load(Ordering::SeqCst), 1);

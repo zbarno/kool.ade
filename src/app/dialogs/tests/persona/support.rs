@@ -16,8 +16,6 @@ use std::time::Duration;
 //      absorption instead of a red run;
 //   5. silent, exact pre-claim-value restoration on drop (a panic inside
 //      a destructor would non-unwind-abort the process — forbidden).
-static PERSONA_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 const CLAIM_SETTLE_WAITS_MS: [u64; 4] = [20, 50, 120, 240];
 const CLAIM_SAMPLE_GAP_MICROS: u64 = 100;
 pub(super) const JOURNEY_ATTEMPTS: u32 = 3;
@@ -34,15 +32,12 @@ pub(super) struct EnvClaim {
     prior: Option<std::ffi::OsString>,
     parent: std::path::PathBuf,
     last_home: std::path::PathBuf,
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _lock: crate::test_support::ProcessEnvironmentLock,
 }
 
 impl EnvClaim {
     pub(super) fn begin(tag: &str) -> Result<Self, Contested> {
-        let _lock = match PERSONA_ENV_LOCK.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let _lock = crate::test_support::lock_process_environment();
         let mut settled = false;
         for wait_ms in CLAIM_SETTLE_WAITS_MS {
             std::thread::sleep(Duration::from_millis(wait_ms));

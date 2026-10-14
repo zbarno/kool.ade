@@ -33,7 +33,17 @@ pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
-    result.map_err(|error| anyhow::anyhow!("cannot atomically write {}: {error}", path.display()))
+    result.map_err(|error| {
+        let kind = error
+            .chain()
+            .find_map(|cause| {
+                cause
+                    .downcast_ref::<std::io::Error>()
+                    .map(std::io::Error::kind)
+            })
+            .unwrap_or(std::io::ErrorKind::Other);
+        anyhow::anyhow!("cannot atomically write {}: {kind:?}", path.display())
+    })
 }
 
 /// Atomically install a new file without replacing a concurrent writer's

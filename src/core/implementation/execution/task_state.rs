@@ -31,17 +31,16 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         dir,
         runner,
     } = request;
-    let state = if dir.join("state.json").exists() {
+    let mut state = if dir.join("state.json").exists() {
         let mut state = read_state_file(&dir.join("state.json"))?;
+        let ticket_path_matches = state.ticket == ticket
+            || task_uid.is_some_and(|uid| state.task_uid.as_deref() == Some(uid));
+        let ticket_identity_matches =
+            task_uid.is_none_or(|uid| state.task_uid.as_deref() == Some(uid));
         anyhow::ensure!(
-            (state.ticket == ticket
-                || task_uid.is_some_and(|uid| state.task_uid.as_deref() == Some(uid)))
-                && state.ticket_text == text
-                && state
-                    .task_uid
-                    .as_deref()
-                    .is_none_or(|uid| task_uid == Some(uid)),
-            "Ticket changed since implementation started. Review the existing task repository before starting a revised ticket."
+            ticket_path_matches && state.ticket_text == text && ticket_identity_matches,
+            "Ticket changed since implementation started (path match: {ticket_path_matches}, text match: {}, identity match: {ticket_identity_matches}). Review the existing task repository before starting a revised ticket.",
+            state.ticket_text == text
         );
         if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree
             && state.status != ImplementationStatus::Completed
@@ -174,6 +173,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             source_commit,
             repository_id,
             project_id,
+            workspace_uid: Some(planning_store.project_id.hyphenated().to_string()),
             repository_identity,
             push_repository,
             repository_cache,
@@ -207,8 +207,40 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
     if state.task_repository_kind == TaskRepositoryKind::Clone {
         crate::core::implementation::repository_cache::load_task_git_identity(dir, repo, runner)?;
     }
+    let mut identity_updated = false;
+    let workspace_uid = planning_store.project_id.hyphenated().to_string();
+    if state
+        .workspace_uid
+        .as_deref()
+        .and_then(|value| uuid::Uuid::parse_str(value).ok())
+        != Some(planning_store.project_id)
+    {
+        state.workspace_uid = Some(workspace_uid.clone());
+        identity_updated = true;
+    }
+    if state
+        .task_uid
+        .as_deref()
+        .is_none_or(|value| crate::execution::contract::validate_identifier(value).is_err())
+    {
+        let allocation = state
+            .task_repository_allocation_key
+            .clone()
+            .unwrap_or_else(|| key(ticket));
+        state.task_uid = Some(stable_identity_uuid(planning_store.project_id, &allocation));
+        identity_updated = true;
+    }
+    if identity_updated {
+        save(dir, &state)?;
+    }
 
     Ok(state)
+}
+
+fn stable_identity_uuid(namespace: uuid::Uuid, allocation: &str) -> String {
+    uuid::Uuid::new_v5(&namespace, allocation.as_bytes())
+        .hyphenated()
+        .to_string()
 }
 
 fn read_approved_specification(store: &PlanningStore, ticket: &str) -> Option<String> {

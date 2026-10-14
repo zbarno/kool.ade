@@ -12,16 +12,20 @@ pub mod claude_harness;
 pub mod codex_harness;
 pub mod copilot_harness;
 pub(crate) mod dependency_authorization;
+pub(crate) mod discovery;
 pub(crate) mod execution_security;
+pub(crate) mod host_tools;
 pub mod live_preview;
 pub mod opencode_harness;
 pub mod pi_events;
 pub mod pi_extract;
 pub mod pi_harness;
 pub mod pi_proc;
-pub(crate) mod pi_sandbox;
+pub(crate) mod pi_provider_settings;
+pub mod prompt_catalog;
 pub mod responses;
 pub mod runtime_capabilities;
+pub(crate) mod runtime_config;
 
 pub const CODEX_HARNESS_ENV: &str = "KOOLADE_HARNESS";
 
@@ -39,6 +43,7 @@ pub(crate) fn require_application_implementation_boundary(
     harness: &str,
     request: &PlanningRequest,
 ) -> Result<(), crate::error::AppError> {
+    validate_review_invocation(request)?;
     #[cfg(test)]
     if provider_test_override::enabled() {
         return Ok(());
@@ -53,12 +58,53 @@ pub(crate) fn require_application_implementation_boundary(
     {
         return Err(crate::error::AppError::HarnessFailed {
             reason: format!(
-                "{harness} repository access is unavailable because it has no configured application-owned Linux sandbox policy. Select a supported CLI on a Linux host with Bubblewrap. No CLI was started."
+                "{harness} repository access is unavailable because it has no configured application-owned Docker execution policy. Select a supported CLI and configure an approved Docker execution target. No CLI was started."
             ),
             stderr_tail: String::new(),
         });
     }
     Ok(())
+}
+
+pub(crate) fn validate_review_invocation(
+    request: &PlanningRequest,
+) -> Result<(), crate::error::AppError> {
+    let Some(identity) = &request.review_identity else {
+        return Ok(());
+    };
+    let valid_uuid = |value: &str| {
+        uuid::Uuid::parse_str(value).is_ok_and(|parsed| parsed.hyphenated().to_string() == value)
+    };
+    let role_phase = request.prompt_manifest.as_ref().and_then(|manifest| {
+        match manifest.role_version.as_str() {
+            "code_review/v1" => Some("independent_code_review"),
+            "plan_reviewer/v1" => Some("independent_plan_review"),
+            _ => None,
+        }
+    });
+    let valid = request.mode == api::ExecutionMode::ReadOnlyAnalysis
+        && request.execution_workspace.is_none()
+        && request.telemetry_phase.as_deref() == role_phase
+        && request.prompt_manifest.as_ref().is_some_and(|manifest| {
+            matches!(
+                manifest.role_version.as_str(),
+                "code_review/v1" | "plan_reviewer/v1"
+            ) && manifest.privilege_profile == "read_only; isolated_fresh_review_context"
+        })
+        && valid_uuid(&identity.execution_id)
+        && valid_uuid(&identity.session_id)
+        && identity.execution_id != identity.session_id;
+    let valid = valid
+        && request.prompt_body.contains(&identity.execution_id)
+        && request.prompt_body.contains(&identity.session_id);
+    if valid {
+        Ok(())
+    } else {
+        Err(crate::error::AppError::HarnessFailed {
+            reason: "Independent review request lacks a valid fresh controller run/session identity, CodeReviewer prompt, or read-only boundary. No provider was started.".into(),
+            stderr_tail: String::new(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -113,7 +159,15 @@ pub(crate) fn manual_executable_path_from(
     let Some(value) = settings.manual_executable_paths.get(id) else {
         return Ok(None);
     };
-    let path = std::path::PathBuf::from(value);
+    let configured = std::path::PathBuf::from(value);
+    let path = configured
+        .canonicalize()
+        .map_err(|_| crate::error::AppError::HarnessNotFound {
+            detail: format!(
+                "Configured {id} executable path does not exist: {}",
+                configured.display()
+            ),
+        })?;
     let metadata =
         std::fs::metadata(&path).map_err(|_| crate::error::AppError::HarnessNotFound {
             detail: format!(
@@ -157,7 +211,8 @@ pub use api::{
     DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
     DependencyRetryResult, DocumentUpdate, ExecutionMode, HarnessOutcome, LivePost, LiveProgress,
     ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
-    RequestedAction, RetrievalPlan, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
+    RequestedAction, RetrievalPlan, ReviewExecutionIdentity, ToolAccess, TurnEnvelope, TurnItem,
+    TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;
@@ -167,31 +222,10 @@ pub use pi_harness::PiHarness;
 
 mod api;
 mod nuget_audit;
-mod resource_bridge;
-
-pub(crate) fn nuget_audit_cache_path() -> anyhow::Result<std::path::PathBuf> {
-    nuget_audit::cache_path()
-}
+pub(crate) mod resource_bridge;
 
 pub(crate) fn refresh_nuget_audit_cache(timeout: std::time::Duration) -> anyhow::Result<()> {
     nuget_audit::refresh(timeout)
-}
-
-pub(crate) fn prepared_npm_cache_path(
-    worktree: &std::path::Path,
-) -> anyhow::Result<std::path::PathBuf> {
-    resource_bridge::prepared_npm_cache_path(worktree)
-}
-
-pub(crate) fn prepared_cargo_cache_path() -> anyhow::Result<std::path::PathBuf> {
-    resource_bridge::prepared_cargo_cache_path()
-}
-
-pub(crate) fn publish_npm_cache_index_snapshot(
-    cache_root: &std::path::Path,
-    snapshot_root: &std::path::Path,
-) -> anyhow::Result<()> {
-    resource_bridge::publish_npm_cache_index_snapshot(cache_root, snapshot_root)
 }
 
 pub(crate) fn dependency_decision_allowed(

@@ -5,6 +5,9 @@ use std::time::Duration;
 
 use crate::harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest};
 
+#[path = "tests/capabilities.rs"]
+mod capabilities;
+
 #[test]
 fn parses_completed_message_activity_and_usage_events() {
     assert_eq!(
@@ -53,6 +56,7 @@ fn live_progress_retains_harness_usage_metadata() {
 fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
     let (tx, _rx) = mpsc::channel();
     let request = PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "high".into(),
@@ -64,6 +68,10 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
         timeout: Duration::from_secs(2),
         progress_tx: tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
     let (argv, prompt) = command(Path::new("codex"), &request, Some("selected-model".into()));
     assert!(
@@ -86,6 +94,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
     assert!(argv.iter().any(|value| value == "--ephemeral"));
 
     let read_only = PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: None,
         ..request
@@ -131,7 +140,7 @@ fn installed_codex_without_authentication_is_reported_as_setup_required() {
     let binary = root.join("codex");
     std::fs::write(
         &binary,
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 1.2.3'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config'; else echo 'Not logged in'; exit 1; fi\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 1.2.3'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; else echo 'Not logged in'; exit 1; fi\n",
     ).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -155,7 +164,7 @@ fn installed_codex_is_ready_when_login_confirmation_is_on_stderr() {
     let binary = root.join("codex");
     std::fs::write(
         &binary,
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.160.1'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config'; else echo 'Logged in' >&2; fi\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.160.1'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; else echo 'Logged in' >&2; fi\n",
     )
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
@@ -204,7 +213,7 @@ fn codex_login_status_execution_failure_is_not_mislabeled_as_authentication() {
     let binary = root.join("codex");
     std::fs::write(
         &binary,
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 1.2.3'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config'; else exit 2; fi\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 1.2.3'; elif [ \"$1\" = \"exec\" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; else exit 2; fi\n",
     )
     .unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -255,7 +264,7 @@ fn failure_and_malformed_completion_are_reported_as_harness_failures() {
         &root,
         "printf '%s\\n' '{\"type\":\"turn.failed\",\"error\":{\"message\":\"approval required\"}}'\nexit 0",
     );
-    let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
+    let mut _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
     let (tx, _) = mpsc::channel();
     let error = crate::harness::with_uncontained_provider_test_execution(|| {
         CodexHarness.execute(&request(root.clone(), tx))
@@ -289,6 +298,7 @@ fn cancellation_terminates_the_active_codex_process() {
         let (tx, _) = mpsc::channel();
         crate::harness::with_uncontained_provider_test_execution(|| {
             CodexHarness.execute(&PlanningRequest {
+                prompt_manifest: None,
                 cancel: worker_cancel,
                 ..request(worker_root, tx)
             })
@@ -308,6 +318,7 @@ fn cancellation_terminates_the_active_codex_process() {
 #[cfg(unix)]
 fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -319,6 +330,10 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
         timeout: Duration::from_secs(5),
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     }
 }
 
@@ -326,7 +341,13 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
 fn fake_cli(root: &std::path::Path, body: &str) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = root.join(format!("codex-{}.sh", uuid::Uuid::new_v4()));
-    std::fs::write(&path, format!("#!/bin/sh\ncat >/dev/null\n{body}\n")).unwrap();
+    std::fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 1.2.3'; exit 0; fi\nif [ \"$1\" = \"exec\" ] && [ \"$2\" = \"--help\" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi\nif [ \"$1\" = \"login\" ] && [ \"$2\" = \"status\" ]; then echo 'Logged in'; exit 0; fi\ncat >/dev/null\n{body}\n"
+        ),
+    )
+    .unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
 }
@@ -334,32 +355,18 @@ fn fake_cli(root: &std::path::Path, body: &str) -> std::path::PathBuf {
 #[cfg(unix)]
 struct EnvOverride {
     name: &'static str,
-    prior: Option<std::ffi::OsString>,
+    environment: crate::test_support::ProcessEnvironmentGuard,
 }
 
 #[cfg(unix)]
 impl EnvOverride {
     fn set(name: &'static str, value: &std::path::Path) -> Self {
-        let prior = std::env::var_os(name);
-        unsafe {
-            std::env::set_var(name, value);
-        }
-        Self { name, prior }
+        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+        environment.set(name, value.as_os_str());
+        Self { name, environment }
     }
 
-    fn set_value(&self, value: &std::path::Path) {
-        unsafe {
-            std::env::set_var(self.name, value);
-        }
-    }
-}
-
-#[cfg(unix)]
-impl Drop for EnvOverride {
-    fn drop(&mut self) {
-        match self.prior.take() {
-            Some(value) => unsafe { std::env::set_var(self.name, value) },
-            None => unsafe { std::env::remove_var(self.name) },
-        }
+    fn set_value(&mut self, value: &std::path::Path) {
+        self.environment.set(self.name, value.as_os_str());
     }
 }

@@ -135,9 +135,13 @@ pub(in crate::core::implementation) fn prepare_verified(
             }
             runner.remaining()?;
             runner.remaining()?;
-            let final_is_report =
-                crate::harness::pi_extract::extract_json_object(&outcome.final_text)
-                    .is_some_and(|json| parse_report(&json).is_ok());
+            let final_is_report = crate::harness::pi_extract::extract_json_object(
+                &outcome.final_text,
+            )
+            .is_some_and(|json| {
+                super::catalog::parse_catalog_report(&json, request.prompt_manifest.as_ref())
+                    .is_ok()
+            });
             let report_text = if final_is_report {
                 outcome.final_text.clone()
             } else {
@@ -157,7 +161,12 @@ pub(in crate::core::implementation) fn prepare_verified(
             }
             let parsed = crate::harness::pi_extract::extract_json_object(&report_text)
                 .ok_or_else(|| anyhow::anyhow!("No complete JSON implementation report. Return JSON with status, blocker_disposition, summary, acceptance_criteria, verification, and remaining."))
-                .and_then(|json| parse_report(&json));
+                .and_then(|json| {
+                    super::catalog::parse_catalog_report(
+                        &json,
+                        request.prompt_manifest.as_ref(),
+                    )
+                });
             // A blocked report is a recovery checkpoint, not an immediate
             // terminal state. Feed its evidence and remaining work through the
             // same bounded correction loop used for report and verification

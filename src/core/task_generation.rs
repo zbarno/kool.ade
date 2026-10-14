@@ -1,5 +1,6 @@
 //! Resumable task generation with per-artifact validation and bounded repair.
 //! Checkpoints and immutable attempt evidence are private runtime data, not tasks.
+mod decompose;
 mod generation;
 pub(crate) mod prompt;
 mod repair;

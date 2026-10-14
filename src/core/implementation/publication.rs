@@ -1,6 +1,11 @@
 use super::*;
+mod lifecycle;
 mod payload;
 mod pull_request;
+pub(super) use lifecycle::{
+    LifecyclePublicationGate, finish_lifecycle_publication, prepare_lifecycle_publication,
+    reconcile_lifecycle_pr_state,
+};
 #[cfg(test)]
 pub(super) use payload::remote_repository;
 pub(super) use payload::{

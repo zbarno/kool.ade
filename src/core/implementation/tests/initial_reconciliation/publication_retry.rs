@@ -17,6 +17,13 @@ impl AiHarness for GeneratedOutputAgent {
         &self,
         request: &PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, AppError> {
+        if request.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+            return Fixture {
+                mode: "complete",
+                calls: Arc::new(AtomicUsize::new(0)),
+            }
+            .execute(request);
+        }
         self.calls.fetch_add(1, Ordering::SeqCst);
         if request.prompt_body.contains("INITIAL BASE RECONCILIATION") {
             return Ok(outcome(complete_report(
@@ -83,7 +90,6 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
     let calls_after_failure = calls.load(Ordering::SeqCst);
     assert!(calls_after_failure > 0);
     assert!(!s.root.join("pr-created").exists());
-
     fs::remove_file(s.root.join("offline")).unwrap();
     let result = run_with_agent(&s, &agent, None).unwrap();
 
@@ -100,7 +106,7 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
             .count(),
         1
     );
-    let generated_repository = result
+    let generated_repository = integrated
         .task_repositories
         .iter()
         .find(|repository| repository.join("build/cache.txt").exists())
@@ -110,7 +116,7 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
         "cache"
     );
     assert!(
-        result
+        integrated
             .task_repositories
             .iter()
             .all(|repository| !repository.join(".cache/report-source.rs").exists())
@@ -120,6 +126,22 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
 #[test]
 fn generated_output_survives_publication_retry_without_reconciliation_plan() {
     let s = Sandbox::new();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(
+        &fs::read_to_string(s.repo.join(&s.ticket)).unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    let store = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::nil(),
+        &s.repo,
+    );
+    store
+        .transaction_with_removals(
+            &[],
+            &[format!("state/lifecycle_tasks/{}.json", identity.uid)],
+            None,
+        )
+        .unwrap();
     fs::write(s.repo.join(".gitignore"), ".cache/\n").unwrap();
     fs::write(
         s.repo.join("AGENTS.md"),

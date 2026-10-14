@@ -15,15 +15,15 @@ pub struct SetupIssue {
 }
 
 impl SetupIssue {
-    pub fn bubblewrap(detail: impl Into<String>) -> Self {
+    pub fn docker(detail: impl Into<String>) -> Self {
         Self {
-            id: "setup:bubblewrap",
-            title: "Kool.ad/e needs Bubblewrap",
+            id: "setup:docker",
+            title: "Kool.ad/e needs Docker",
             issue: detail.into(),
-            why: "Kool.ad/e uses Bubblewrap to prevent agents from accessing unrelated files or the host network.",
-            recommendation: "Install Bubblewrap and enable Linux user namespaces.",
-            impact: "Planning, repository investigation, and implementation cannot start safely until the sandbox works.",
-            next_action: "Install the bubblewrap package, check user namespace support, then retry this setup check.",
+            why: "Kool.ad/e uses an application-owned Docker execution session to restrict repository access, networking, and credentials.",
+            recommendation: "Start Docker and make the approved Kool.ad/e runtime images available.",
+            impact: "Repository planning and implementation cannot start safely until the execution environment is ready. Context-only planning remains available.",
+            next_action: "Start Docker, check the runtime image readiness details, then retry this setup check.",
         }
     }
 
@@ -32,10 +32,10 @@ impl SetupIssue {
             id: "setup:provider",
             title: "Kool.ad/e cannot use this model provider safely",
             issue: detail.into(),
-            why: "Kool.ad/e relays provider requests so Pi never receives the provider credential or host network access.",
-            recommendation: "Configure Pi to use a private/local HTTP OpenAI-compatible provider.",
-            impact: "Planning, task generation, and investigation cannot run until the provider configuration passes the relay checks.",
-            next_action: "Update Pi's default provider settings and saved key, then retry this setup check.",
+            why: "Provider credentials remain with the selected provider CLI on the controller; they are not exposed to execution containers.",
+            recommendation: "Review the provider CLI setup and authentication diagnostics.",
+            impact: "Provider-backed work cannot run until the selected CLI is configured and authenticated.",
+            next_action: "Update the selected provider settings, then retry this setup check.",
         }
     }
 }
@@ -43,7 +43,7 @@ impl SetupIssue {
 pub fn detect_sandbox() -> Option<SetupIssue> {
     let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
     if !capabilities.repository_planning_available() {
-        return Some(SetupIssue::bubblewrap(
+        return Some(SetupIssue::docker(
             capabilities.planning_unavailable_message(),
         ));
     }
@@ -51,7 +51,7 @@ pub fn detect_sandbox() -> Option<SetupIssue> {
 }
 
 pub fn detect_provider() -> Option<SetupIssue> {
-    crate::harness::pi_sandbox::provider_configuration_error().map(SetupIssue::provider)
+    None
 }
 
 #[cfg(test)]
@@ -66,19 +66,19 @@ fn from_prerequisites(
     provider_error: Option<String>,
 ) -> Option<SetupIssue> {
     if !sandbox_ready {
-        return Some(SetupIssue::bubblewrap(sandbox_detail));
+        return Some(SetupIssue::docker(sandbox_detail));
     }
     provider_error.map(SetupIssue::provider)
 }
 
 pub fn from_harness_failure(detail: &str) -> Option<SetupIssue> {
     let lower = detail.to_ascii_lowercase();
-    if lower.contains("bubblewrap")
-        || lower.contains("bwrap:")
-        || lower.contains("user namespace")
-        || lower.contains("unshare-user")
+    if lower.contains("docker")
+        || lower.contains("approved runtime image")
+        || lower.contains("rootful linux")
+        || lower.contains("docker engine")
     {
-        Some(SetupIssue::bubblewrap(detail))
+        Some(SetupIssue::docker(detail))
     } else if lower.contains("planning provider")
         || lower.contains("provider relay")
         || lower.contains("configured local planning provider")
@@ -97,26 +97,26 @@ mod tests {
 
     #[test]
     fn setup_issues_explain_cause_impact_and_next_action() {
-        let bubblewrap = SetupIssue::bubblewrap("bwrap unavailable");
-        assert_eq!(bubblewrap.id, "setup:bubblewrap");
-        assert!(bubblewrap.why.contains("unrelated files"));
-        assert!(bubblewrap.impact.contains("cannot start safely"));
-        assert!(bubblewrap.next_action.contains("retry"));
+        let docker = SetupIssue::docker("Docker unavailable");
+        assert_eq!(docker.id, "setup:docker");
+        assert!(docker.why.contains("restrict repository access"));
+        assert!(docker.impact.contains("cannot start safely"));
+        assert!(docker.next_action.contains("retry"));
 
         let provider = SetupIssue::provider("HTTPS providers are unsupported");
         assert_eq!(provider.id, "setup:provider");
-        assert!(provider.recommendation.contains("OpenAI-compatible"));
+        assert!(provider.recommendation.contains("provider CLI"));
         assert!(provider.impact.contains("cannot run"));
-        assert!(provider.next_action.contains("saved key"));
+        assert!(provider.next_action.contains("provider settings"));
     }
 
     #[test]
     fn sandbox_failures_are_promoted_to_the_setup_item() {
         assert_eq!(
-            from_harness_failure("bwrap: Creating new namespace: Operation not permitted")
+            from_harness_failure("Docker Engine is unavailable")
                 .unwrap()
                 .id,
-            "setup:bubblewrap"
+            "setup:docker"
         );
         assert!(from_harness_failure("Pi returned an invalid planning response").is_none());
     }
@@ -125,19 +125,19 @@ mod tests {
     fn unsupported_provider_is_a_separate_setup_item_after_sandbox_is_ready() {
         let issue = from_prerequisites(
             true,
-            "Bubblewrap unavailable",
-            Some("Only private/local HTTP OpenAI-compatible providers are supported".into()),
+            "Docker unavailable",
+            Some("The selected provider CLI is not authenticated".into()),
         )
         .unwrap();
         assert_eq!(issue.id, "setup:provider");
-        assert!(issue.issue.contains("OpenAI-compatible"));
+        assert!(issue.issue.contains("authenticated"));
         assert!(from_prerequisites(true, "", None).is_none());
         assert_eq!(
-            from_prerequisites(false, "Bubblewrap missing", Some("provider config".into()))
+            from_prerequisites(false, "Docker missing", Some("provider config".into()))
                 .unwrap()
                 .id,
-            "setup:bubblewrap",
-            "the sandbox prerequisite must be fixed first"
+            "setup:docker",
+            "the execution prerequisite must be fixed first"
         );
     }
 }

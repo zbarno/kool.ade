@@ -223,6 +223,7 @@ mod tests {
         Implementation {
             ticket: ticket.to_owned(),
             task_uid: None,
+            workspace_uid: None,
             ticket_text: String::new(),
             approved_specification: None,
             approved_product_context: None,

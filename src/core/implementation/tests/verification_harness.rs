@@ -1,28 +1,5 @@
 use super::*;
 
-struct StateHomeGuard(Option<std::ffi::OsString>);
-
-impl StateHomeGuard {
-    fn set(path: &Path) -> Self {
-        let previous = std::env::var_os("KOOLADE_HOME");
-        // SAFETY: the repository quality gate runs tests serially.
-        unsafe { std::env::set_var("KOOLADE_HOME", path) };
-        Self(previous)
-    }
-}
-
-impl Drop for StateHomeGuard {
-    fn drop(&mut self) {
-        // SAFETY: the repository quality gate runs tests serially.
-        unsafe {
-            match self.0.take() {
-                Some(previous) => std::env::set_var("KOOLADE_HOME", previous),
-                None => std::env::remove_var("KOOLADE_HOME"),
-            }
-        }
-    }
-}
-
 #[test]
 fn publication_targets_the_origin_repository() {
     assert_eq!(
@@ -50,10 +27,12 @@ fn verification_receives_corrections_even_after_report_retries_are_used() {
 }
 
 #[test]
-fn verification_task_clone_path_survives_cd_and_spaces() {
+fn verification_runs_only_through_the_injected_session_seam() {
     let s = Sandbox::new();
     let state_home = s.root.join("state home with spaces");
-    let _state_home = StateHomeGuard::set(&state_home);
+    // Sandbox owns the process-wide environment lock and restores the original
+    // KOOLADE_HOME when it drops; avoid reacquiring the non-reentrant lock.
+    unsafe { std::env::set_var("KOOLADE_HOME", &state_home) };
     let project_id = crate::persistence::project_slug(&s.repo.canonicalize().unwrap());
     let repository_id = "repo";
     let task_key = crate::core::implementation::key_for_ticket(&s.ticket);
@@ -85,24 +64,42 @@ fn verification_task_clone_path_survives_cd_and_spaces() {
         deadline: Instant::now() + Duration::from_secs(5),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
-    runner
-        .verify(
-            &cwd,
-            "test -d /tmp/koolade-home/.npm-prepared/_cacache/content-v2 && \
-             if touch /tmp/koolade-home/.npm-prepared/_cacache/content-v2/.koolade-write-guard 2>/dev/null; then exit 31; fi",
-        )
+    let output = runner
+        .verify_with_executor(&cwd, "cargo test --locked", |command| {
+            assert_eq!(command, "cargo test --locked");
+            Ok("fake Docker execution output".into())
+        })
         .unwrap();
-    runner
-        .verify(
-            &cwd,
-            "cd / && test \"$(cat \"$KOOLADE_WORKTREE/marker\")\" = proof",
-        )
-        .unwrap();
-    runner.verify(&cwd, "test -f marker && test -z \"${PREVIOUS_CHECK_VARIABLE+x}\" && PREVIOUS_CHECK_VARIABLE=value").unwrap();
-    runner
-        .verify(&cwd, "test -z \"${PREVIOUS_CHECK_VARIABLE+x}\"")
-        .unwrap();
+    assert_eq!(output, "fake Docker execution output");
+    assert!(
+        runner
+            .verify_with_executor(&cwd, "npm start", |_| panic!(
+                "invalid command reached executor"
+            ))
+            .is_err()
+    );
+    let failure = runner
+        .verify_with_executor(&cwd, "cargo test --locked", |_| {
+            anyhow::bail!("Docker verification failed: fixture exit code 7")
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(failure.contains("fixture exit code 7"));
+
+    let cancelled_runner = Runner {
+        cancel: Arc::new(AtomicBool::new(true)),
+        ..runner
+    };
+    let cancellation = cancelled_runner
+        .verify_with_executor(&cwd, "cargo test --locked", |_| {
+            panic!("cancelled verification reached executor")
+        })
+        .unwrap_err()
+        .to_string();
+    assert!(cancellation.contains("Implementation cancelled"));
 }
 
 #[test]
@@ -114,6 +111,8 @@ fn failed_command_retains_both_streams_for_correction() {
         deadline: Instant::now() + Duration::from_secs(5),
         cancel: Arc::new(AtomicBool::new(false)),
         progress,
+
+        authorization_verifier: None,
     };
     let error = runner
         .command(

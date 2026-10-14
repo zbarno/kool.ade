@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let root = std::env::temp_dir().join(format!(
         "koolade-concurrent-chats-{}",

@@ -5,6 +5,7 @@ mod proactive_attention;
 
 #[test]
 fn task_details_show_full_state_and_inline_reply() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     if let Screen::Connected(p) = &mut app.screen {
@@ -70,6 +71,7 @@ fn task_details_show_full_state_and_inline_reply() {
 
 #[test]
 fn task_details_show_independent_check_result_separately_from_koolade_verification() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     if let Screen::Connected(project) = &mut app.screen {
@@ -104,6 +106,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             crate::core::implementation::Implementation {
                 ticket: key.into(),
                 task_uid: None,
+                workspace_uid: None,
                 ticket_text: "# First task".into(),
                 approved_specification: None,
                 approved_product_context: None,
@@ -188,6 +191,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
 
 #[test]
 fn task_details_offer_open_options_in_the_reply_box() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     if let Screen::Connected(p) = &mut app.screen {
@@ -220,6 +224,7 @@ fn task_details_offer_open_options_in_the_reply_box() {
 
 #[test]
 fn generated_attention_brief_explains_an_unseen_blocker_and_sends_its_choice() {
+    let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
     if let Screen::Connected(p) = &mut app.screen {

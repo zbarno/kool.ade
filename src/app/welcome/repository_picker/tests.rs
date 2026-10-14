@@ -128,21 +128,8 @@ fn welcome_picker_shows_shared_name_and_role_fallback() {
 
 #[test]
 fn welcome_picker_selects_the_mapped_checkout_by_repository_id() {
-    use std::{ffi::OsString, path::Path, process::Command};
+    use std::{path::Path, process::Command};
 
-    struct KooladeHome(Option<OsString>);
-    impl Drop for KooladeHome {
-        fn drop(&mut self) {
-            // SAFETY: the process-wide Git test shield serializes this restore.
-            unsafe {
-                if let Some(previous) = self.0.take() {
-                    std::env::set_var("KOOLADE_HOME", previous);
-                } else {
-                    std::env::remove_var("KOOLADE_HOME");
-                }
-            }
-        }
-    }
     fn init(path: &Path, remote: &str) {
         std::fs::create_dir_all(path).unwrap();
         assert!(
@@ -200,10 +187,8 @@ fn welcome_picker_selects_the_mapped_checkout_by_repository_id() {
     )
     .unwrap();
     let koolade_home = base.join("koolade-home");
-    let previous = std::env::var_os("KOOLADE_HOME");
-    // SAFETY: `_shield` serializes all test access to KOOLADE_HOME.
-    unsafe { std::env::set_var("KOOLADE_HOME", &koolade_home) };
-    let _restore = KooladeHome(previous);
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", &koolade_home);
     crate::core::project_repos::map_local_checkout(&root, "worker", &worker).unwrap();
 
     let ctx = egui::Context::default();
@@ -263,6 +248,6 @@ fn welcome_picker_selects_the_mapped_checkout_by_repository_id() {
     let shared = std::fs::read_to_string(manifest_path).unwrap();
     assert!(shared.contains("API"));
     assert!(!shared.contains(&worker.to_string_lossy().to_string()));
-    drop(_restore);
+    drop(environment);
     let _ = std::fs::remove_dir_all(base);
 }

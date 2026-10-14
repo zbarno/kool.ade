@@ -41,6 +41,26 @@ fn scope_changes_are_rejected_but_wording_and_reference_order_are_stable() {
     );
     assert!(same_refs(&[1, 2], &[2, 1]));
 }
+
+#[test]
+fn detailed_story_keeps_the_approved_parent_task_reference() {
+    let outline: crate::core::workflow::TaskOutline = serde_json::from_value(serde_json::json!({
+        "title": "Implement the child task",
+        "purpose": "Complete one bounded implementation slice.",
+        "scopeItems": [1],
+        "successCriteria": [1, 2],
+        "dependencies": [],
+        "parentTaskIndex": 1
+    }))
+    .unwrap();
+    let story = story_response(
+        include_str!("../../../../tests/fixtures/task-story-1.json"),
+        &outline,
+        1,
+    )
+    .unwrap();
+    assert_eq!(story.parent_task_index, Some(1));
+}
 #[test]
 fn missing_detail_produces_specific_repair_feedback() {
     let outlines =

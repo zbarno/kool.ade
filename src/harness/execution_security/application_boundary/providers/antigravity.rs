@@ -37,6 +37,7 @@ pub(super) fn configure(
     boundary.scratch.write_json(
         "cli-home/.gemini/antigravity-cli/settings.json",
         &json!({
+            "modelProvider": "gemini",
             "toolPermission": "strict",
             "allowNonWorkspaceAccess": false,
             "enableTerminalSandbox": true,

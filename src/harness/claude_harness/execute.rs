@@ -38,6 +38,7 @@ impl AiHarness for ClaudeHarness {
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Claude Code executable: {error}"))
         })?;
+        let version = Self::checked_binary(&binary)?;
         let argv = command(&binary, request);
         let mut developer = String::from(
             "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Never switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.",
@@ -68,13 +69,25 @@ impl AiHarness for ClaudeHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Claude sandbox tools: {error:#}"))
             })?;
+        let provider = crate::harness::execution_security::CliProvider::Claude;
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
+            provider,
+            &binary,
+            version,
+            &[],
+        )
+        .map_err(|error| AppError::Other(format!("Claude profile probe failed: {error}")))?;
+        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
+            evidence,
+            argv,
+            boundary.working_directory(),
+            child_env,
+        )
+        .map_err(|error| AppError::Other(format!("Claude launch profile is invalid: {error}")))?;
 
-        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
-            &argv,
+        let task = launch.spawn_with_input(
             boundary.working_directory(),
             Some(prompt_input(&request.prompt_body)),
-            &child_env,
-            crate::harness::execution_security::CliProvider::Claude.excluded_child_environment(),
         )?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();

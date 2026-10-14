@@ -11,6 +11,9 @@ use crate::harness::{
     PlanningRequest,
 };
 
+mod failures;
+use failures::provider_failure;
+
 impl AiHarness for CodexHarness {
     fn label(&self) -> String {
         match self.check_available() {
@@ -41,6 +44,7 @@ impl AiHarness for CodexHarness {
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Codex CLI executable: {error}"))
         })?;
+        let version = Self::check_binary(&binary)?;
         let requested_model = model.map(Into::into).or_else(|| {
             std::env::var(CODEX_MODEL_ENV)
                 .ok()
@@ -61,14 +65,23 @@ impl AiHarness for CodexHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Codex sandbox tools: {error:#}"))
             })?;
-        let prompt = format!("{prompt}\n\n{}", boundary.system_policy());
-        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
-            &argv,
+        let provider = crate::harness::execution_security::CliProvider::Codex;
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
+            provider,
+            &binary,
+            version,
+            provider.profile_requirements().capabilities,
+        )
+        .map_err(|error| AppError::Other(format!("Codex profile probe failed: {error}")))?;
+        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
+            evidence,
+            argv,
             boundary.working_directory(),
-            Some(prompt),
-            &child_env,
-            crate::harness::execution_security::CliProvider::Codex.excluded_child_environment(),
-        )?;
+            child_env,
+        )
+        .map_err(|error| AppError::Other(format!("Codex launch profile is invalid: {error}")))?;
+        let prompt = format!("{prompt}\n\n{}", boundary.system_policy());
+        let task = launch.spawn_with_input(boundary.working_directory(), Some(prompt))?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();
         let mut exit_status = None;
@@ -135,10 +148,11 @@ impl AiHarness for CodexHarness {
                                 });
                             }
                             CodexEvent::Failure(reason) => {
-                                return Err(AppError::HarnessFailed {
-                                    reason,
-                                    stderr_tail: stderr_tail(&stderr),
-                                });
+                                return Err(provider_failure(
+                                    &reason,
+                                    request.mode.tool_access(),
+                                    stderr_tail(&stderr),
+                                ));
                             }
                             CodexEvent::Other => {}
                         }

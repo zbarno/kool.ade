@@ -1,9 +1,11 @@
 use std::time::Duration;
 
 use crate::harness::api::LiveProgress;
+use serde::{Deserialize, Serialize};
 
 /// A harness operation's fixed authority and tool capability class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
     Planning,
     ReadOnlyAnalysis,
@@ -54,6 +56,14 @@ pub struct PlanningRequest {
     pub mode: ExecutionMode,
     /// Stable Koolade task identity supplied by the application, never the worker.
     pub task_id: Option<String>,
+    /// Stable planning workspace and immutable source identity selected by the
+    /// application for Docker-backed repository tools.
+    pub execution_workspace: Option<crate::execution::contract::WorkspaceRef>,
+    /// Optional app-owned claim fence for implementation tool sessions.
+    pub authorization_verifier:
+        Option<std::sync::Arc<dyn crate::execution::session::AuthorizationGenerationVerifier>>,
+    /// Versioned identity of the application-owned role prompt used for this turn.
+    pub prompt_manifest: Option<crate::harness::prompt_catalog::PromptManifest>,
     /// Pi thinking level selected by the Koolade role that owns this turn.
     pub reasoning_level: String,
     /// Implementation subphase for telemetry attribution, when applicable.
@@ -72,4 +82,7 @@ pub struct PlanningRequest {
     pub progress_tx: std::sync::mpsc::Sender<LiveProgress>,
     /// Cooperative cancellation set by the UI's Cancel button.
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Controller identity for an independent review invocation. Review
+    /// backends must consume this on a newly spawned, non-resumed process.
+    pub review_identity: Option<super::ReviewExecutionIdentity>,
 }

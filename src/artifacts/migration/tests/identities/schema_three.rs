@@ -82,6 +82,7 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
     let state = crate::core::implementation::Implementation {
         ticket: task_path.clone(),
         task_uid: None,
+        workspace_uid: None,
         ticket_text: task.clone(),
         approved_specification: None,
         approved_product_context: None,

@@ -13,6 +13,8 @@ use super::{TurnEvt, TurnInputs, TurnOutcome, configured_turn_timeout};
 
 /// Lifetime handle for one running turn; polled from the UI tick loop.
 pub struct TurnController {
+    pub author_run_id: String,
+    pub author_session_id: String,
     rx: Receiver<TurnEvt>,
     /// Held (deliberately unread) so the channel stays open while a turn runs.
     #[allow(dead_code)]
@@ -34,6 +36,8 @@ impl TurnController {
         let (evt_tx, evt_rx) = channel();
         let (act_tx, act_rx) = channel::<LiveProgress>();
         let cancel = Arc::new(AtomicBool::new(false));
+        let author_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
+        let author_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
 
         // Forward snapshots in order and drain them before sending Done.
         let forwarder = {
@@ -107,6 +111,8 @@ impl TurnController {
         });
 
         TurnController {
+            author_run_id,
+            author_session_id,
             rx: evt_rx,
             keepalive: Some(evt_tx),
             cancel_flag: cancel,

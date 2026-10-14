@@ -67,11 +67,15 @@ fn saved_manual_cli_precedes_environment_and_path_and_executes_wrapper() {
 }
 
 #[cfg(unix)]
-struct EnvRestore(Vec<(&'static str, Option<std::ffi::OsString>)>);
+struct EnvRestore {
+    previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    _lock: crate::test_support::ProcessEnvironmentLock,
+}
 
 #[cfg(unix)]
 impl EnvRestore {
     fn set(values: &[(&'static str, Option<&std::ffi::OsStr>)]) -> Self {
+        let lock = crate::test_support::lock_process_environment();
         let previous = values
             .iter()
             .map(|(name, _)| (*name, std::env::var_os(name)))
@@ -82,14 +86,17 @@ impl EnvRestore {
                 None => unsafe { std::env::remove_var(name) },
             }
         }
-        Self(previous)
+        Self {
+            previous,
+            _lock: lock,
+        }
     }
 }
 
 #[cfg(unix)]
 impl Drop for EnvRestore {
     fn drop(&mut self) {
-        for (name, value) in self.0.drain(..) {
+        for (name, value) in self.previous.drain(..) {
             match value {
                 Some(value) => unsafe { std::env::set_var(name, value) },
                 None => unsafe { std::env::remove_var(name) },

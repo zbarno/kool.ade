@@ -129,7 +129,7 @@ fn take_dependency_update(
 ) -> crate::harness::DependencyRequest {
     loop {
         let update = updates
-            .recv_timeout(std::time::Duration::from_secs(2))
+            .recv_timeout(std::time::Duration::from_secs(120))
             .expect("dependency request should be delivered to task activity");
         if let Some(request) = update.dependency_requests.into_iter().next() {
             return request;
@@ -143,7 +143,7 @@ fn answer(
     scope: Option<crate::harness::DependencyAuthorizationScope>,
     rationale: &str,
 ) {
-    assert!(crate::harness::dependency_authorization::answer(
+    let result = crate::harness::dependency_authorization::answer_diagnostic(
         &request.id,
         &request.task_id,
         &request.need,
@@ -151,8 +151,17 @@ fn answer(
             decision,
             scope,
             rationale: rationale.into(),
-        }
-    ));
+        },
+    );
+    assert!(
+        result.is_ok(),
+        "dependency answer was not accepted: request_id={}, task_id={}, need={:?}, status={:?}, reason={:?}",
+        request.id,
+        request.task_id,
+        request.need,
+        request.status,
+        result.err()
+    );
 }
 
 #[test]

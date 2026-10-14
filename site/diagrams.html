@@ -319,7 +319,7 @@
     f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>09 / Local execution and sandbox</h2><a href="https://github.com/zbarno/kool.ade/issues/136" target="_blank" rel="noreferrer">ISSUE #136 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
     c0["CLI provider"]
     c1["Private MCP server"]
-    c2["Bubblewrap"]
+    c2["Local Docker backend"]
     c3["Bounded repository commands"]
     c4["Dependency broker"]
     c0 --> c1
@@ -328,7 +328,7 @@
     c3 --> c4</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
     c0["CLI provider"]
     c1["Private MCP server"]
-    c2["Bubblewrap"]
+    c2["Local Docker backend"]
     c3["Bounded repository commands"]
     c4["Dependency broker"]
     c0 --> c1
@@ -355,14 +355,14 @@
     f3 --> f4</pre></details></div></div></article><article class="atlas-item"><div class="atlas-head"><h2>10 / Remote execution parity</h2><a href="https://github.com/zbarno/kool.ade/issues/139" target="_blank" rel="noreferrer">ISSUE #139 ↗</a></div><div class="atlas-pair"><div class="atlas-view current"><h3>● CURRENT / CODEBASE</h3><pre class="mermaid">flowchart LR
     c0["Local CLI controller"]
     c1["Local clone"]
-    c2["Local Bubblewrap sandbox"]
+    c2["Local Docker container"]
     c3["Local evidence"]
     c0 --> c1
     c1 --> c2
     c2 --> c3</pre><details><summary>View Mermaid source</summary><pre>flowchart LR
     c0["Local CLI controller"]
     c1["Local clone"]
-    c2["Local Bubblewrap sandbox"]
+    c2["Local Docker container"]
     c3["Local evidence"]
     c0 --> c1
     c1 --> c2
@@ -388,7 +388,7 @@
     c0["CLI tool"]
     c1["Private MCP bridge"]
     c2["Scoped tool access"]
-    c3["Bubblewrap"]
+    c3["Docker command bridge"]
     c4["Application Git publisher"]
     c0 --> c1
     c1 --> c2
@@ -397,7 +397,7 @@
     c0["CLI tool"]
     c1["Private MCP bridge"]
     c2["Scoped tool access"]
-    c3["Bubblewrap"]
+    c3["Docker command bridge"]
     c4["Application Git publisher"]
     c0 --> c1
     c1 --> c2

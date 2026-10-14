@@ -23,59 +23,8 @@ fn story() -> TaskStory {
     story
 }
 
-#[test]
-fn small_task_needs_no_padding_and_incomplete_meaning_stays_invalid() {
-    let small = TaskOutline {
-        title: "Fix crash".into(),
-        purpose: "Opening a saved filter crashes.".into(),
-        scope_items: vec![1],
-        success_criteria: vec![1],
-        ..Default::default()
-    };
-    assert!(validate_outline(&brief(), &[small]).is_ok());
-
-    let missing_references = TaskOutline {
-        title: "Prepare the task batch".into(),
-        purpose: "Separate the approved scope into implementable work.".into(),
-        ..Default::default()
-    };
-    let feedback = validate_outline(&brief(), &[missing_references])
-        .unwrap_err()
-        .join(" ");
-    assert!(feedback.contains("scope item index(es) [1]"));
-    assert!(feedback.contains("success criterion index(es) [1]"));
-
-    let mut concise = story();
-    concise.title = "Show full blocker".into();
-    concise.intent = "Long blocker reports hide the choices the user needs.".into();
-    concise.goal = "Show the full report and let the user choose a response.".into();
-    concise.context = "Task details currently clip long blocker reports.".into();
-    concise.user_story = "As a blocked user, I need the whole issue and its reply control.".into();
-    concise.purpose = "Restore the context needed to choose what happens next.".into();
-    concise.affected_files = vec!["src/app/task_detail.rs: show the complete blocker".into()];
-    concise.implementation_steps =
-        vec!["Render the full report and its matching response control.".into()];
-    concise.acceptance_criteria =
-        vec!["A long blocker displays its full explanation and available choices.".into()];
-    concise.test_plan =
-        vec!["Render a long blocker and assert all text and choices remain visible.".into()];
-    concise.verification_commands = vec!["cargo test --offline --lib task_detail".into()];
-    concise.definition_of_done =
-        vec!["The complete issue is visible and the user can submit a response.".into()];
-    concise.technical_design.clear();
-    concise.edge_cases.clear();
-    concise.rollout_notes.clear();
-    assert!(story_detail_errors(&concise, 1).is_empty());
-
-    concise.intent.clear();
-    concise.context = "Padding that does not explain the actual blocker. ".repeat(100);
-    let errors = story_detail_errors(&concise, 1);
-    assert!(
-        errors
-            .iter()
-            .any(|error| error.contains("task-specific intent"))
-    );
-}
+#[path = "tests/brief.rs"]
+mod brief;
 
 fn state(tag: &str) -> PlannerState {
     let root = std::env::temp_dir().join(format!("koolade_workflow_{tag}_{}", std::process::id()));
@@ -89,9 +38,74 @@ fn state(tag: &str) -> PlannerState {
             .unwrap()
             .success()
     );
+    for args in [
+        ["config", "user.name", "Kool.ad/e Test"].as_slice(),
+        ["config", "user.email", "koolade@test.local"].as_slice(),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     let mut s = PlannerState::load(&root).unwrap();
     s.bootstrap_missing().unwrap();
     s
+}
+
+fn install_approved_feature(state: &mut PlannerState) {
+    let root = state.repo_root.clone();
+    let id = "CHG-004";
+    let dir = root.join(".koolade-packet/planning/changes/CHG-004-saved-searches");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("specification.md");
+    let markdown = "# CHG-004: Saved searches\n\n**Status:** Ready\n\n## Intent\n\nLet analysts resume a useful query.\n\n## Current Behavior\n\nAnalysts reconstruct query configuration each morning.\n\n## Desired Behavior\n\nAnalysts can restore a saved query.\n\n## Scope\n\nPersist and restore named search filters.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- SEARCH-R1 (MUST). Restore a named query after restart.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Saved searches remain local.\n\n## Acceptance Criteria\n\n1. A named query restores after restart.\n";
+    let markdown =
+        crate::artifacts::product_docs::identity::preserve_feature_identity(&path, id, markdown)
+            .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
+        .unwrap()
+        .unwrap();
+    let markdown = crate::domain::ChangeMetadata::write_markdown(
+        &markdown,
+        &identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    let relative = path
+        .strip_prefix(state.planning_store.root.as_path())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    state
+        .planning_store
+        .transaction(
+            &[(relative, markdown.as_bytes().to_vec())],
+            Some(&state.baseline_planning_revision),
+        )
+        .unwrap();
+    state.workflow.brief = Some(brief());
+    crate::artifacts::task_docs::save_workflow(&root, &state.workflow).unwrap();
+    state.baseline_planning_revision = state.planning_store.revision().unwrap();
+    crate::core::gitops::commit(
+        &root,
+        "fixture: create approved saved-search feature",
+        &[".koolade-packet/planning".into()],
+    )
+    .unwrap();
+    state.active_feature = Some((id.into(), markdown.clone()));
+    state.active_features = vec![(id.into(), markdown.clone())];
+    crate::core::lifecycle::test_support::approve_and_review_feature(
+        &state.planning_store,
+        &mut state.workflow,
+        id,
+        &markdown,
+    )
+    .unwrap();
+    state.baseline_planning_revision = state.planning_store.revision().unwrap();
 }
 fn envelope() -> TurnEnvelope {
     serde_json::from_value(serde_json::json!({"assistant_message":"The goal is to restore analysts' daily queries without repeating setup."})).unwrap()
@@ -123,9 +137,10 @@ fn generation(
 #[test]
 fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
     let mut s = state("complete");
+    install_approved_feature(&mut s);
     mark_ready(&mut s);
     s = PlannerState::load(&s.repo_root).unwrap();
-    assert!(s.workflow.ready(s.spec_text.as_deref()));
+    assert!(s.workflow.ready(s.planning_contract()));
     assert!(
         !s.repo_root.join(".koolade-packet/planning/tasks").exists(),
         "readiness must not generate files"
@@ -135,10 +150,12 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
     second.dependencies = vec![1];
     let nt = generation(&s, vec![story(), second]).unwrap();
     let receipt = apply::apply(&mut s, &nt).unwrap();
-    let dir = s
-        .repo_root
-        .join(".koolade-packet/planning/tasks/saved-searches");
-    let task = std::fs::read_to_string(dir.join("001-persist-named-search-filters.md")).unwrap();
+    let task_path = receipt
+        .repo_relative_paths
+        .iter()
+        .find(|path| path.ends_with("TASK-persist-named-search-filters.md"))
+        .expect("generated task path is recorded");
+    let task = std::fs::read_to_string(s.repo_root.join(task_path)).unwrap();
     assert!(task.contains(&story().intent));
     assert!(task.contains(&story().goal));
     assert!(!task.contains("## Product goal and intent"));
@@ -156,12 +173,24 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
     ] {
         assert!(task.contains(section));
     }
-    let second =
-        std::fs::read_to_string(dir.join("002-connect-the-saved-search-picker.md")).unwrap();
-    assert!(second.contains("[Task 001](001-persist-named-search-filters.md)"));
+    let second_task_path = receipt
+        .repo_relative_paths
+        .iter()
+        .find(|path| path.ends_with("TASK-connect-the-saved-search-picker.md"))
+        .expect("generated dependent task path is recorded");
+    let second = std::fs::read_to_string(s.repo_root.join(second_task_path)).unwrap();
+    assert!(second.contains("TASK-persist-named-search-filters.md"));
+    let specification_path = receipt
+        .repo_relative_paths
+        .iter()
+        .find(|path| path.ends_with("/specification.md"))
+        .expect("generated batch specification path is recorded");
+    let approved_feature_path =
+        crate::artifacts::product_docs::document_path(&s.planning_store, "feature:CHG-004")
+            .unwrap();
     assert_eq!(
-        std::fs::read_to_string(dir.join("specification.md")).unwrap(),
-        s.spec_text.clone().unwrap()
+        std::fs::read_to_string(s.repo_root.join(specification_path)).unwrap(),
+        std::fs::read_to_string(approved_feature_path).unwrap()
     );
     assert!(
         receipt
@@ -170,7 +199,7 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
             .any(|path| path.starts_with(".koolade-packet/state/workflow/"))
     );
     let restored = PlannerState::load(&s.repo_root).unwrap();
-    assert!(!restored.workflow.ready(restored.spec_text.as_deref()));
+    assert!(!restored.workflow.ready(restored.planning_contract()));
     assert_eq!(
         crate::artifacts::task_docs::load_latest(&restored.repo_root, &restored.workflow).len(),
         2
@@ -198,7 +227,7 @@ fn no_approval_or_incomplete_intent_cannot_generate_tasks() {
     let nt = validation::validate(&envelope(), &s, &s.effective_user()).unwrap();
     apply::apply(&mut s, &nt).unwrap();
     assert!(
-        !s.workflow.ready(s.spec_text.as_deref()),
+        !s.workflow.ready(s.planning_contract()),
         "further discussion invalidates old readiness"
     );
     std::fs::remove_dir_all(s.repo_root).unwrap();

@@ -1,5 +1,25 @@
 use super::*;
 
+pub(super) struct RestoreKooladeHome(Option<std::ffi::OsString>);
+
+impl RestoreKooladeHome {
+    pub(super) fn capture() -> Self {
+        Self(std::env::var_os("KOOLADE_HOME"))
+    }
+}
+
+impl Drop for RestoreKooladeHome {
+    fn drop(&mut self) {
+        // Callers hold the shared Git test shield for the full test body.
+        unsafe {
+            match self.0.take() {
+                Some(previous) => std::env::set_var("KOOLADE_HOME", previous),
+                None => std::env::remove_var("KOOLADE_HOME"),
+            }
+        }
+    }
+}
+
 // ---- CHG-003 welcome screen ↔ workspace-browser dialog -----------------
 //
 // House practice (F-16): the app pump needs an eframe::Frame (GPU

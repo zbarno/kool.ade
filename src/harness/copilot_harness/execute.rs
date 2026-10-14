@@ -101,6 +101,7 @@ impl AiHarness for CopilotHarness {
                 "Cannot resolve GitHub Copilot CLI executable: {error}"
             ))
         })?;
+        let version = checked_binary(&binary)?;
         let model = model.map(str::to_owned).or_else(configured_model);
         let usage_file = supports_usage_output(&binary).then(UsageFile::new);
         let mut argv = command(
@@ -119,6 +120,21 @@ impl AiHarness for CopilotHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Copilot sandbox tools: {error:#}"))
             })?;
+        let provider = crate::harness::execution_security::CliProvider::Copilot;
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
+            provider,
+            &binary,
+            version,
+            &[],
+        )
+        .map_err(|error| AppError::Other(format!("Copilot profile probe failed: {error}")))?;
+        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
+            evidence,
+            argv,
+            boundary.working_directory(),
+            child_env,
+        )
+        .map_err(|error| AppError::Other(format!("Copilot launch profile is invalid: {error}")))?;
         let mut developer = String::from(
             "Kool.ad/e owns task lifecycle, branches, approvals, Git operations, and pull request publication. Never switch branches, commit, push, open a pull request, or publish. Work only inside the current task repository and return the requested structured result.\n\n",
         );
@@ -127,14 +143,8 @@ impl AiHarness for CopilotHarness {
         developer.push_str(boundary.system_policy());
         let input = format!("{developer}\n\n{}", request.prompt_body);
         let started = chrono::Utc::now();
-        let output = run_process_at(
-            &argv,
-            input,
-            boundary.working_directory(),
-            request,
-            &child_env,
-            crate::harness::execution_security::CliProvider::Copilot.excluded_child_environment(),
-        )?;
+        let task = launch.spawn_with_input(boundary.working_directory(), Some(input))?;
+        let output = run_task(task, request)?;
         let response = normalize_output(&output.stdout);
         if output.success != Some(true) {
             let diagnostics = output
@@ -187,24 +197,31 @@ pub(super) fn run_process(
     argv: &[String],
     input: String,
 ) -> Result<ProcessOutput, AppError> {
-    run_process_at(argv, input, &request.repo_root, request, &[], &[])
+    run_process_at(argv, input, &request.repo_root, request, &[])
 }
 
+#[cfg(test)]
 fn run_process_at(
     argv: &[String],
     input: String,
     working_directory: &std::path::Path,
     request: &PlanningRequest,
     env: &[(String, String)],
-    excluded_env: &[&str],
 ) -> Result<ProcessOutput, AppError> {
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let task = crate::harness::pi_proc::spawn_with_input_provider_env(
         argv,
         working_directory,
         Some(input),
         env,
-        excluded_env,
+        crate::harness::execution_security::CliProvider::Copilot,
     )?;
+    run_task(task, request)
+}
+
+fn run_task(
+    task: crate::harness::pi_proc::ChildTask,
+    request: &PlanningRequest,
+) -> Result<ProcessOutput, AppError> {
     let deadline = Instant::now() + request.timeout;
     let mut stderr = Vec::new();
     let mut stdout = Vec::new();
@@ -248,6 +265,23 @@ fn run_process_at(
         stdout,
         stderr,
         success: status,
+    })
+}
+
+pub(super) fn checked_binary(path: &std::path::Path) -> Result<String, AppError> {
+    let (output, success) = super::run(path, &["--version"]).map_err(|error| {
+        AppError::Other(format!("GitHub Copilot CLI version probe failed: {error}"))
+    })?;
+    if !success {
+        return Err(AppError::Other(
+            "GitHub Copilot CLI version command failed".into(),
+        ));
+    }
+    super::copilot_version(&output).ok_or_else(|| {
+        AppError::Other(
+            "Executable did not identify itself as GitHub Copilot CLI with a version from --version"
+                .into(),
+        )
     })
 }
 

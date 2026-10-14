@@ -35,7 +35,7 @@ pub(super) fn configure(
     let path = boundary.scratch.write_json("opencode.json", &config)?;
     let home = boundary.scratch.path.join("opencode-home");
     fs::create_dir(&home)?;
-    config::copy_auth(boundary, &home)?;
+    config::copy_auth(boundary, &home, config["model"].as_str())?;
     let config_dir = home.join("config");
     fs::create_dir(&config_dir)?;
     env.extend([

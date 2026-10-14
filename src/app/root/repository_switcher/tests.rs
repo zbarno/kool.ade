@@ -3,7 +3,6 @@ use crate::{
     core::project_repos::{ProjectManifest, Repository, map_local_checkout},
 };
 use std::{
-    ffi::OsString,
     path::{Path, PathBuf},
     process::Command,
     time::{Duration, Instant},
@@ -11,20 +10,6 @@ use std::{
 
 #[path = "tests/registration_ui.rs"]
 mod registration_ui;
-
-struct KooladeHome(Option<OsString>);
-impl Drop for KooladeHome {
-    fn drop(&mut self) {
-        // SAFETY: every KOOLADE_HOME test shares the Git test shield.
-        unsafe {
-            if let Some(previous) = self.0.take() {
-                std::env::set_var("KOOLADE_HOME", previous);
-            } else {
-                std::env::remove_var("KOOLADE_HOME");
-            }
-        }
-    }
-}
 
 fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
@@ -52,6 +37,7 @@ fn init_repo(root: &Path, remote: &str) {
 
 #[test]
 fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
+    let _environment = crate::test_support::lock_process_environment();
     let _shield = crate::core::gitops::test_support::shield("workspace-repository-switcher");
     let base = std::env::temp_dir().join(format!(
         "koolade_switcher_{}_{}",
@@ -87,10 +73,8 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     )
     .unwrap();
     let koolade_home = base.join("koolade-home");
-    let previous = std::env::var_os("KOOLADE_HOME");
-    // SAFETY: `_shield` serializes KOOLADE_HOME changes across tests.
-    unsafe { std::env::set_var("KOOLADE_HOME", &koolade_home) };
-    let _restore = KooladeHome(previous);
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", &koolade_home);
     map_local_checkout(&root, "worker", &worker).unwrap();
 
     let probe = base.join("capture-cwd.sh");
@@ -126,6 +110,6 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     let shared = std::fs::read_to_string(manifest_path).unwrap();
     assert!(shared.contains("API"));
     assert!(!shared.contains(&worker.to_string_lossy().to_string()));
-    drop(_restore);
+    drop(environment);
     let _ = std::fs::remove_dir_all(base);
 }

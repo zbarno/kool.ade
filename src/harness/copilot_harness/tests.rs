@@ -12,6 +12,7 @@ mod manual_path;
 
 fn request(mode: ExecutionMode) -> PlanningRequest {
     PlanningRequest {
+        prompt_manifest: None,
         mode,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -23,6 +24,10 @@ fn request(mode: ExecutionMode) -> PlanningRequest {
         timeout: Duration::from_secs(2),
         progress_tx: mpsc::channel().0,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     }
 }
 

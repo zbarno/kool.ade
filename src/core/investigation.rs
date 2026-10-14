@@ -140,6 +140,7 @@ fn run_with_settle_window(
     for attempt in 1..=3 {
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
         let request = PlanningRequest {
+            prompt_manifest: None,
             mode: ExecutionMode::Investigation,
             task_id: None,
             reasoning_level: "off".into(),
@@ -151,6 +152,10 @@ fn run_with_settle_window(
             timeout: crate::core::turn::configured_turn_timeout(),
             progress_tx: progress.clone(),
             cancel: cancel.clone(),
+            execution_workspace: None,
+
+            authorization_verifier: None,
+            review_identity: None,
         };
         let result = harness
             .execute(&request)

@@ -73,6 +73,13 @@ fn resumed_worker_receives_the_submitted_task_decision() {
             &self,
             req: &PlanningRequest,
         ) -> Result<crate::harness::HarnessOutcome, AppError> {
+            if req.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+                return Fixture {
+                    mode: "complete",
+                    calls: Arc::new(AtomicUsize::new(0)),
+                }
+                .execute(req);
+            }
             *self.prompt.lock().unwrap() = req.prompt_body.clone();
             Fixture {
                 mode: "complete",
@@ -162,6 +169,13 @@ fn auto_mode_includes_remote_changes_that_arrive_during_implementation() {
             &self,
             req: &PlanningRequest,
         ) -> Result<crate::harness::HarnessOutcome, AppError> {
+            if req.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+                return Fixture {
+                    mode: "complete",
+                    calls: self.calls.clone(),
+                }
+                .execute(req);
+            }
             self.sandbox.advance_remote();
             fs::write(
                 self.sandbox.repo.join("local-only.txt"),

@@ -55,9 +55,10 @@ Targeted interaction tests cover card growth and child clicks, title/control
 separation, current activity buckets, planning history, branch selection,
 compact settings navigation, plan adoption, and task navigation.
 
-Run the normal pinned format, serial all-target test and Clippy gates after the
-review. Finish compilation before running the full test suite: its diagnostics
-test relaunches its own executable and must not overlap a rebuild of that file.
+Run the normal pinned format, parallel `cargo-nextest` all-target and Clippy
+gates after the review. Finish compilation before running the full test suite:
+its diagnostics test relaunches its own executable and must not overlap a
+rebuild of that file.
 
 ## Final result — 2026-10-07
 

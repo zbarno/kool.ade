@@ -1,7 +1,17 @@
 use super::*;
 
+mod clarification;
 mod conversation;
 mod details;
+
+pub(super) fn paint_clarification(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    question: &crate::core::planning::QuestionV1,
+    height: f32,
+) {
+    clarification::paint(ui, surface, question, height);
+}
 
 pub(super) fn paint_item(
     ui: &mut egui::Ui,

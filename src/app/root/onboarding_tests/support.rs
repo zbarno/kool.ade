@@ -1,29 +1,19 @@
 use super::super::super::{KooladeApp, Screen};
-use std::{ffi::OsString, path::Path, process::Command};
+use std::{path::Path, process::Command};
 
-pub(super) struct StateHome(Option<OsString>);
+pub(super) struct StateHome {
+    _environment: crate::test_support::ProcessEnvironmentGuard,
+}
 
 impl StateHome {
     pub(super) fn new() -> Self {
-        Self(std::env::var_os("KOOLADE_HOME"))
-    }
-
-    pub(super) fn set(path: &Path) {
-        // SAFETY: callers hold the shared Git test shield.
-        unsafe { std::env::set_var("KOOLADE_HOME", path) };
-    }
-}
-
-impl Drop for StateHome {
-    fn drop(&mut self) {
-        // SAFETY: callers hold the shared Git test shield through this drop.
-        unsafe {
-            if let Some(previous) = self.0.take() {
-                std::env::set_var("KOOLADE_HOME", previous);
-            } else {
-                std::env::remove_var("KOOLADE_HOME");
-            }
+        Self {
+            _environment: crate::test_support::ProcessEnvironmentGuard::new(),
         }
+    }
+
+    pub(super) fn set(&mut self, path: &Path) {
+        self._environment.set("KOOLADE_HOME", path);
     }
 }
 

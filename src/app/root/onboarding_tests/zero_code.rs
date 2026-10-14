@@ -16,8 +16,8 @@ fn welcome_ui_creates_plans_joins_and_reopens_one_zero_code_workspace() {
     let home_b = base.join("operator-b");
     std::fs::create_dir_all(&home_a).unwrap();
     std::fs::create_dir_all(&home_b).unwrap();
-    let _restore = StateHome::new();
-    StateHome::set(&home_a);
+    let mut state_home = StateHome::new();
+    state_home.set(&home_a);
     let ctx = egui::Context::default();
     let mut app = KooladeApp::default();
 
@@ -74,7 +74,7 @@ fn welcome_ui_creates_plans_joins_and_reopens_one_zero_code_workspace() {
         .set_planning_remote(workspace_id, &remote.to_string_lossy())
         .unwrap();
 
-    StateHome::set(&home_b);
+    state_home.set(&home_b);
     app.screen = Screen::Welcome;
     app.conn_join_remote.clear();
     let join_url = url::Url::from_file_path(&remote).unwrap().to_string();

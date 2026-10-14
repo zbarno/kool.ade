@@ -12,10 +12,9 @@
 //! inspect the codebase directly (§18).
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::AppError;
-use crate::harness::pi_proc::StreamEvt;
 
 mod read_budget;
 
@@ -144,21 +143,12 @@ impl PiHarness {
                 configuration_required: false,
             },
             Ok(exe) => match Self::check_binary(&exe) {
-                Ok(version) => match crate::harness::pi_sandbox::provider_configuration_error() {
-                    Some(diagnostic) => ProbeReport {
-                        status: format!("pi {version}"),
-                        diagnostic,
-                        binary: Some(exe),
-                        ok: false,
-                        configuration_required: true,
-                    },
-                    None => ProbeReport {
-                        status: format!("pi {version}"),
-                        diagnostic: String::new(),
-                        binary: Some(exe),
-                        ok: true,
-                        configuration_required: false,
-                    },
+                Ok(version) => ProbeReport {
+                    status: format!("pi {version}"),
+                    diagnostic: String::new(),
+                    binary: Some(exe),
+                    ok: true,
+                    configuration_required: false,
                 },
                 Err(e) => ProbeReport {
                     status: format!("pi (unavailable: {})", e.headline()),
@@ -176,32 +166,21 @@ impl PiHarness {
     /// from `check_available`, which now delegates here (behavior and the
     /// `AiHarness` contract are unchanged).
     fn probe_version(exe: &Path) -> Result<String, AppError> {
-        let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+        let output = crate::harness::discovery::run(
             &[exe.to_string_lossy().into_owned(), "--version".into()],
-            Path::new("."),
-            None,
+            CHECK_TIMEOUT,
+            crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+            crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
             &[],
-            &["NODE_OPTIONS"],
-        )?;
-        let deadline = Instant::now() + CHECK_TIMEOUT;
-        let mut version = String::new();
-        let mut exited = None;
-        while Instant::now() < deadline {
-            match task.next_line(Duration::from_millis(100)) {
-                Some(StreamEvt::Stdout(line)) => {
-                    if version.is_empty() {
-                        version = line.trim().to_string();
-                    }
-                }
-                Some(StreamEvt::Exited(ok)) => {
-                    exited = Some(ok);
-                    break;
-                }
-                _ => {}
-            }
-        }
-        let exit = exited.or_else(|| task.settle(Duration::from_secs(2)));
-        if exit != Some(true) || version.is_empty() {
+        )
+        .map_err(|error| AppError::Other(format!("Pi version probe failed: {error}")))?;
+        let version = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if !output.success || output.stdout_truncated || version.is_empty() {
             return Err(AppError::HarnessFailed {
                 reason: "pi --version failed".into(),
                 stderr_tail: String::new(),

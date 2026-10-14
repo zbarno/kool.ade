@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "tests/opportunities.rs"]
+mod opportunities;
+
 #[test]
 fn manager_cannot_grant_custom_npm_registry_without_user_action() {
     let need = crate::harness::DependencyNeed {

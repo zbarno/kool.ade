@@ -29,6 +29,8 @@ impl PrRefresh {
                 deadline: Instant::now() + Duration::from_secs(45),
                 cancel: worker_cancel,
                 progress,
+
+                authorization_verifier: None,
             };
             let mut errors = Vec::new();
             for ticket in tickets {
@@ -109,7 +111,8 @@ fn refresh_pr_with_store(
             publication::update_pull_request_detail(&mut state);
         }
         cleanup::run(&target_repo, &dir, &mut state, runner);
-        return save(&dir, &state);
+        save(&dir, &state)?;
+        return publication::reconcile_lifecycle_pr_state(planning_store, &state);
     }
     let Some(url) = state.pr_url.clone() else {
         return Ok(());
@@ -183,7 +186,8 @@ fn refresh_pr_with_store(
         Err(error) => state.pr_check_error = Some(error.to_string()),
     }
     cleanup::run(&target_repo, &dir, &mut state, runner);
-    save(&dir, &state)
+    save(&dir, &state)?;
+    publication::reconcile_lifecycle_pr_state(planning_store, &state)
 }
 
 fn valid_sha(sha: &str) -> bool {

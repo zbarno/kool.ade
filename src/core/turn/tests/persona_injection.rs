@@ -12,11 +12,6 @@ const SENTINEL_A: &str =
 const SENTINEL_B: &str =
     "# Sentinel B: retuned voice\n- Warmer opener\n- Still terse\n- Flag ambiguity eagerly";
 
-/// Whole-test serializer: this module's legs never interleave
-/// (nesting order is always SERIALIZER outside, HOME_LOCK
-/// inside, everywhere).
-static LEG_SERIALIZER: std::sync::Mutex<()> = std::sync::Mutex::new(());
-static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 const SETTLE_WAITS_MS: [u64; 5] = [50, 100, 200, 400, 400];
 const SAMPLE_GAP_MICROS: u64 = 100;
 /// Full-redo budget per leg when a neighbor's env flip crosses
@@ -76,17 +71,15 @@ fn bound_here(home: &LockedPersonaHome) -> bool {
 /// restores) and wipes the dir, both under the still-held lock.
 struct LockedPersonaHome {
     home: std::path::PathBuf,
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _lock: crate::test_support::ProcessEnvironmentLock,
 }
 
 impl LockedPersonaHome {
     fn new(tag: &str) -> Self {
-        let lock = HOME_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = crate::test_support::lock_process_environment();
         let home = std::env::temp_dir().join(format!(
             "koolade_persona_inject_{tag}_{}",
-            std::process::id()
+            uuid::Uuid::new_v4()
         ));
         for wait_ms in SETTLE_WAITS_MS {
             std::thread::sleep(std::time::Duration::from_millis(wait_ms));
@@ -96,8 +89,7 @@ impl LockedPersonaHome {
                 continue; // a live transition crossed the sample pair
             }
             std::fs::create_dir_all(&home).unwrap();
-            // SAFETY: guarded by HOME_LOCK; the settle gate rules
-            // out concurrent KOOLADE_HOME transitions at claim time.
+            // SAFETY: guarded by the shared process environment lock.
             unsafe { std::env::set_var("KOOLADE_HOME", &home) };
             assert_eq!(
                 std::env::var_os("KOOLADE_HOME").as_deref(),
@@ -170,10 +162,6 @@ fn controller_for(
 
 #[test]
 fn saved_sentinel_rides_both_conversation_modes_from_the_next_turn_on() {
-    let _serial = LEG_SERIALIZER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-
     // Main-Chat leg.
     run_leg(|attempt, obs| {
         let (inputs, dir_main) = inputs_for("pj_main", "Speak in my tuned voice.");
@@ -321,10 +309,6 @@ fn saved_sentinel_rides_both_conversation_modes_from_the_next_turn_on() {
 
 #[test]
 fn unservable_persona_falls_back_to_shipped_default_with_surfaced_diagnostic() {
-    let _serial = LEG_SERIALIZER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-
     // Leg 1: persona.md overwritten with NON-UTF-8 bytes (a 0xFF
     // then 0xFE header plus junk).
     run_leg(|attempt, obs| {
@@ -438,10 +422,6 @@ fn unservable_persona_falls_back_to_shipped_default_with_surfaced_diagnostic() {
 
 #[test]
 fn resaved_sentinel_reaches_the_second_controller_without_cache_or_restart() {
-    let _serial = LEG_SERIALIZER
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-
     run_leg(|attempt, obs| {
         // Both turns live under ONE claimed home: turn one stores
         // sentinel A, then B is stored IN-PROCESS — no relaunch,

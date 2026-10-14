@@ -1,10 +1,9 @@
 //! Headless Google Antigravity CLI adapter.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::error::AppError;
-use crate::harness::pi_proc::{PollState, StreamEvt};
 
 pub const ANTIGRAVITY_BINARY_ENV: &str = "KOOLADE_ANTIGRAVITY_BIN";
 pub const ANTIGRAVITY_MODEL_ENV: &str = "KOOLADE_ANTIGRAVITY_MODEL";
@@ -127,37 +126,27 @@ fn probe(binary: &Path) -> Result<(String, Vec<String>), (String, Option<String>
 fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), (String, Option<String>)> {
     let mut argv = vec![binary.to_string_lossy().into_owned()];
     argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let task = crate::harness::pi_proc::spawn_with_input_env_excluding(
+    let output = crate::harness::discovery::run(
         &argv,
-        Path::new("."),
-        None,
-        &[],
+        PROBE_TIMEOUT,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::execution_security::CliProvider::Antigravity.excluded_child_environment(),
     )
-    .map_err(|e| (format!("Antigravity CLI could not start: {e}"), None))?;
-    let deadline = Instant::now() + PROBE_TIMEOUT;
-    let mut stdout = String::new();
-    let mut exit = None;
-    while Instant::now() < deadline {
-        match task.poll_next(Duration::from_millis(100)) {
-            Ok(StreamEvt::Stdout(line)) => {
-                stdout.push_str(&line);
-                stdout.push('\n');
-            }
-            Ok(StreamEvt::Stderr(_)) => {}
-            Ok(StreamEvt::Exited(success)) => exit = Some(success),
-            Err(PollState::Closed) => break,
-            Err(PollState::Pending) => {}
-        }
+    .map_err(|error| {
+        (
+            format!("Antigravity CLI readiness check failed: {error}"),
+            None,
+        )
+    })?;
+    if output.stdout_truncated || output.stderr_truncated {
+        return Err((
+            "Antigravity CLI readiness output exceeded the size limit".into(),
+            None,
+        ));
     }
-    match exit {
-        Some(success) => Ok((stdout, success)),
-        None => {
-            task.kill();
-            let _ = task.settle(Duration::from_secs(1));
-            Err(("Antigravity CLI readiness check timed out".into(), None))
-        }
-    }
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    Ok((stdout, output.success))
 }
 
 fn parse_models(text: &str) -> Vec<String> {

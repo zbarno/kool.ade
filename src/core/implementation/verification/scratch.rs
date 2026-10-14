@@ -104,7 +104,7 @@ impl ReportCheckClone {
             copy_entry(source, destination, &relative)?;
         }
 
-        let runtime_config = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+        let runtime_config = crate::harness::runtime_config::paths_with_source(
             source,
             runner.runtime_config_source.as_deref(),
         )?;
@@ -119,7 +119,7 @@ impl ReportCheckClone {
             }
         }
 
-        let runtime_config = crate::harness::pi_sandbox::runtime_config::paths_with_source(
+        let runtime_config = crate::harness::runtime_config::paths_with_source(
             source,
             runner.runtime_config_source.as_deref(),
         )?;

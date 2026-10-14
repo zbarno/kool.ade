@@ -6,48 +6,27 @@ This is the authoritative planner behavior and document-authoring policy. Rust r
 
 ## Execution and automation boundaries
 
-The harness derives tools from the typed operation mode. Planning, task
-generation, and investigation can use read-only repository tools inside the
-Linux Bubblewrap planning profile. Read-only analysis, reconciliation, and
-decision explanation receive no tools. Implementation receives Kool.ad/e's
-bounded shell tool only inside the assigned task workspace and uses its separate
-implementation sandbox. On hosts without the supported planning sandbox,
-planning receives only Kool.ad/e-selected context and no repository tools;
-implementation is unavailable.
+The harness derives tools from the typed operation mode. Repository reads and
+writes are exposed only through the application-owned Docker `ExecutionSession`
+and the assigned workspace. Planning tools are read-only; implementation uses
+the task clone; verification and QA receive only their explicitly selected
+policy. On hosts without an approved Docker target, repository tools fail
+closed. Context-only analysis receives only context selected by Kool.ad/e and
+has no repository tools.
 
-The planning profile mounts the primary repository and registered related
-repositories read-only, hides host home and credential directories, clears
-inherited environment variables, and isolates the network namespace. For a
-configured private HTTP OpenAI-compatible provider, Kool.ad/e's host-side relay
-holds the credential and forwards only provider API requests through a mounted
-Unix socket. Pi receives a placeholder key, and a loopback relay inside the
-sandbox reaches only that socket. Public or HTTPS provider endpoints fail
-closed. This capability does not grant the model tools or host-network access.
-
-The implementation profile selectively exposes the host .NET installation and
-NuGet global package cache when available. A user-installed .NET SDK is mounted
-read-only by itself, without neighboring home files. The cache comes from
-`NUGET_PACKAGES`, or defaults to `~/.nuget/packages`, and is mounted read-only
-at `/tmp/koolade-home/.nuget/packages` on each invocation. Host cache data
-persists between invocations; the sandbox mount point is recreated each time.
-Only a dedicated package-cache directory is exposed. NuGet configuration and
-credentials remain hidden. The sandbox still has no network route, so package
-dependencies must already be present in that cache.
-
-Node verification follows the same offline policy. Kool.ad/e mounts only the
-host npm content cache at `~/.npm/_cacache` (or the dedicated path supplied in
-`KOOLADE_NPM_CACHE`) read-only; it does not expose `.npmrc` or registry tokens.
-npm audit and network access are disabled inside the sandbox. If a lockfile
-dependency is missing from the cache, verification waits for the environment to
-be provisioned instead of asking the implementation agent to retry an
-unrunnable command.
+The controller keeps provider credentials, task claims, dependency
+authorization, and Git publication authority. Containers receive no provider
+credentials and no ambient network access. Dependency and public-resource
+requests go through the application broker. Docker Engine readiness and approved
+image availability are checked before repository execution; they never cause a
+host-command fallback.
 
 Auto Plan controls investigation of Agent-owned items. The read-only
-Kool.ad/e Man.ager patrol is separate: it watches board events and task
-progress while the workspace is open, even when Auto Plan is off. It reports
-current progress, distinguishes an action the user can take from an external
-wait, and points to the relevant board card. Auto Build controls continuation
-of explicitly approved implementation work. Auto Publish controls remote
+Kool.ad/e Man.ager patrol is separate: it watches board events and task progress
+while the workspace is open, even when Auto Plan is off. It reports current
+progress, distinguishes an action the user can take from an external wait, and
+points to the relevant board card. Auto Build controls continuation of
+explicitly approved implementation work. Auto Publish controls remote
 integration and defaults off; enabling it requires independent checks against
 the exact commit. These controls do not grant the model additional repository
 or publication authority.

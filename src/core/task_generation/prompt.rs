@@ -6,11 +6,13 @@ OUTLINE FIRST. This step overrides the default request for full task stories.
 Return exactly one bare JSON object with only schema_version, assistant_message,
 task_stories and task_outline. Do not include prose or a Markdown code fence.
 Use schema_version 1, task_stories=null, and task_outline=[...]. Example:
-{"schema_version":1,"assistant_message":"Outline prepared.","task_stories":null,"task_outline":[{"title":"Specific imperative title","purpose":"Task-specific problem and reason","target_repository":"root","scope_items":[1],"success_criteria":[1],"dependencies":[]}]}
+{"schema_version":1,"assistant_message":"Outline prepared.","task_stories":null,"task_outline":[{"title":"Specific imperative title","purpose":"Task-specific problem and reason","target_repository":"root","scope_items":[1],"success_criteria":[1],"dependencies":[],"parent_task_index":null}]}
 For every task_outline entry, these JSON types are mandatory:
 - scope_items: array of one-based integer indexes into the approved brief's scope.
 - success_criteria: array of one-based integer indexes into its success criteria.
 - dependencies: array of one-based positions of earlier tasks in this outline.
+- parent_task_index: null for standalone tasks, otherwise the one-based position
+  of an earlier parent whose subtask this task implements.
 Never put explanatory strings or prose in these three arrays. Put each task's
 specific reason in purpose; the numeric references carry scope and criteria.
 If validation reports a purpose over 500 characters or an out-of-range reference,
@@ -19,7 +21,8 @@ Before returning, check that the union of all scope_items covers every approved
 scope index and the union of all success_criteria covers every criterion index.
 
 Plan the COMPLETE feature as an ordered list. Each entry contains only title,
-purpose, target_repository, scope_items, success_criteria, and dependencies.
+purpose, target_repository, scope_items, success_criteria, dependencies, and
+parent_task_index.
 Use one-based brief references and earlier-task dependency numbers. Scope indexes
 must be in 1..=the approved brief's scope-item count; criterion indexes must be in
 1..=its success-criterion count. Cover every

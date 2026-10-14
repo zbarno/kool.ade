@@ -2,6 +2,38 @@ use super::ResourceBridge;
 use std::{fs, sync::atomic::Ordering};
 
 impl ResourceBridge {
+    #[cfg(test)]
+    pub(crate) fn cache_snapshot(
+        &self,
+        task_id: &str,
+        ecosystem: crate::execution::contract::DependencyCacheEcosystemV1,
+        project_id: &str,
+        resolved_integrity: &str,
+        target_arch: &str,
+        target_id: &str,
+    ) -> anyhow::Result<super::super::cache_snapshot::CacheSnapshot> {
+        if self
+            .task_id
+            .as_deref()
+            .is_some_and(|bound| bound != task_id)
+        {
+            anyhow::bail!("cache snapshot task does not match its broker session");
+        }
+        let root = match ecosystem {
+            crate::execution::contract::DependencyCacheEcosystemV1::Npm => &self.npm_cache,
+            crate::execution::contract::DependencyCacheEcosystemV1::Cargo => &self.cargo_cache,
+        };
+        super::super::cache_snapshot::CacheSnapshot::capture(
+            root,
+            task_id,
+            ecosystem,
+            project_id,
+            resolved_integrity,
+            target_arch,
+            target_id,
+        )
+    }
+
     pub(crate) fn socket_path(&self) -> &std::path::Path {
         &self.socket
     }
@@ -10,16 +42,9 @@ impl ResourceBridge {
         &self.cache_dir
     }
 
+    #[cfg(test)]
     pub(crate) fn npm_cache_path(&self) -> &std::path::Path {
         &self.npm_cache
-    }
-
-    pub(crate) fn npm_index_snapshot_path(&self) -> &std::path::Path {
-        &self.npm_snapshot
-    }
-
-    pub(crate) fn cargo_cache_path(&self) -> &std::path::Path {
-        &self.cargo_cache
     }
 
     pub(crate) fn attention_detail(&self) -> Option<String> {

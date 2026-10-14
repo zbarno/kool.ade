@@ -7,10 +7,13 @@ use std::{fs, io::Read, path::Path, process::Command};
 
 #[test]
 fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
-    let worktree = std::env::temp_dir().join(format!(
+    let test_root = std::env::temp_dir().join(format!(
         "koolade-resource-authorized-{}",
         uuid::Uuid::new_v4()
     ));
+    fs::create_dir_all(&test_root).unwrap();
+    let _home = crate::test_support::KooladeHomeGuard::set(&test_root.join("state"));
+    let worktree = test_root.join("worktree");
     fs::create_dir_all(&worktree).unwrap();
     let archive = format!("synthetic npm package {}", uuid::Uuid::new_v4()).into_bytes();
     let digest = Sha512::digest(&archive);
@@ -91,10 +94,32 @@ fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
             .map(|request| request.status),
         Some(DependencyRequestStatus::Prepared)
     );
+    let snapshot = bridge
+        .cache_snapshot(
+            "00000000-0000-4000-8000-000000000001",
+            crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+            "00000000-0000-4000-8000-000000000002",
+            &integrity,
+            "amd64",
+            "local",
+        )
+        .unwrap();
+    snapshot
+        .manifest
+        .validate_ref(&snapshot.cache_ref, &snapshot.archive)
+        .unwrap();
+    assert!(
+        snapshot
+            .manifest
+            .entries
+            .iter()
+            .any(|entry| entry.path.ends_with(&hex(&digest[2..])))
+    );
 
     drop(bridge);
     fs::remove_file(archive_path).unwrap();
-    fs::remove_dir_all(worktree).unwrap();
+    drop(_home);
+    fs::remove_dir_all(test_root).unwrap();
 }
 
 #[test]

@@ -1,0 +1,1 @@
+Return PRProposalV1 JSON. Inputs: role, feature_uid, task_uid, original_goal, approved_spec_ref/hash, decision_refs, evidence_manifest, execution_policy_ref, output_schema_version, reviewed_task_refs and approved_subtasks. Prepare exactly one scoped proposal; do not publish or bypass authorization.

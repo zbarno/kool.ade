@@ -1,12 +1,13 @@
 ## Quality and Acceptance
 
-**Definition-of-done gates** — all three must pass before a task is complete or committed (`AGENTS.md`):
+**Definition-of-done gates** — all four must pass before a task is complete or committed (`AGENTS.md`):
 
 1. `cargo +1.98.1 fmt --all --check`
-2. `cargo +1.98.1 test --locked --all-targets -- --test-threads=1`
-3. `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`
+2. `cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast`
+3. `cargo +1.98.1 test --locked --doc`
+4. `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`
 
-A gate that cannot run or fails leaves the task incomplete, with the result reported.
+A gate that cannot run or fails leaves the task incomplete, with the result reported. Run independent all-target tests in parallel with cargo-nextest; fix unsafe shared-state tests instead of serializing the suite.
 
 **Testing practice.** Co-located unit tests throughout `src/` (for example `src/core/validation/tests`, `src/core/turn/tests`, `src/artifacts/*/`), integration tests (`tests/multi_repository_feature.rs`), and egui renderer fixtures that simulate real clicks and typing against the live UI (board tests under `src/app/root.rs`). Agent behavior is validated with deterministic provider fixtures rather than live models; the task-conversation audit cites 249 library tests plus two integration tests passing at its date — a historical indicator, not a target (`docs/task-conversations-progress.md`).
 

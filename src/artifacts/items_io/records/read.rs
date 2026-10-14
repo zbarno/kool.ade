@@ -28,10 +28,17 @@ pub(crate) fn load_store_unlocked(
         return Ok((open, resolved, false));
     }
     let content_files = store.list_files(paths::ITEM_CONTENTS)?;
-    anyhow::ensure!(
-        content_files.is_empty(),
-        "Item content files exist without matching state/items records"
-    );
+    for file in content_files {
+        let uid = file.name.strip_suffix(".md").unwrap_or_default();
+        let state_path = format!("{}/{uid}.json", paths::ITEM_STATES);
+        let state = store.read(&state_path).map_err(anyhow::Error::from)?;
+        let record: serde_json::Value = serde_json::from_slice(&state)?;
+        anyhow::ensure!(
+            record.get("recordKind").and_then(serde_json::Value::as_str)
+                == Some("clarification_question_v1"),
+            "Item content files exist without matching state/items records"
+        );
+    }
     let (open, open_exists) = read_open_items(store)?;
     let (resolved, resolved_exists) = read_resolved_items(store)?;
     validate_items(open.iter().chain(&resolved))?;
@@ -50,6 +57,12 @@ pub(super) fn read_records(store: &PlanningStore) -> anyhow::Result<Vec<LoadedIt
             .to_string();
         let relative = format!("{}/{uid}.json", paths::ITEM_STATES);
         let bytes = store.read(&relative)?;
+        let raw: serde_json::Value = serde_json::from_slice(&bytes)?;
+        if raw.get("recordKind").and_then(serde_json::Value::as_str)
+            == Some("clarification_question_v1")
+        {
+            continue;
+        }
         let record: ItemRecord = serde_json::from_slice(&bytes)?;
         anyhow::ensure!(
             record.schema_version == RECORD_SCHEMA_VERSION,

@@ -4,6 +4,7 @@ use crate::domain::{ChatMessage, ChatRole};
 mod cancellation;
 mod dispatch;
 mod intent;
+mod pr_publication;
 
 impl KooladeApp {
     pub(crate) fn prepare_task_chat(&mut self, key: &str) {

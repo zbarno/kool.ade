@@ -1,17 +1,18 @@
-use super::{BoundaryAccess, ServerConfig, resource, sandbox};
+use super::{BoundaryAccess, ServerConfig, resource};
 use serde_json::{Value, json};
+use std::path::Path;
 
 pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
     let mut tools = vec![json!({
         "name": "koolade_bash",
         "description": match config.access {
-            BoundaryAccess::ReadOnly => "Run a read-only shell command in the assigned project inside Kool.ad/e's Bubblewrap planning sandbox.",
-            BoundaryAccess::Implementation => "Run a shell command in the assigned task clone inside Kool.ad/e's Bubblewrap implementation sandbox. Network and host credentials are unavailable.",
+            BoundaryAccess::ReadOnly => "Run a read-only shell command in the application-selected workspace inside Kool.ad/e's Docker planning session.",
+            BoundaryAccess::Implementation => "Run a shell command in the assigned task clone inside Kool.ad/e's Docker implementation session. Network and host credentials are unavailable.",
         },
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": { "type": "string", "description": "The shell command to run inside the Bubblewrap sandbox." },
+                "command": { "type": "string", "description": "The shell command to run inside the Docker execution session." },
                 "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 1200 },
             },
             "required": ["command"],
@@ -56,14 +57,19 @@ pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
     tools
 }
 
-pub(super) fn call(config: &ServerConfig, name: &str, arguments: &Value) -> Value {
+pub(super) fn call(
+    config_path: &Path,
+    config: &ServerConfig,
+    name: &str,
+    arguments: &Value,
+) -> Value {
     let result = match name {
-        "koolade_bash" => bash(config, arguments),
+        "koolade_bash" => bash(config_path, config, arguments),
         "koolade_resource" if config.access == BoundaryAccess::Implementation => {
             resource::fetch(config, arguments)
         }
         "koolade_dependency" if config.access == BoundaryAccess::Implementation => {
-            resource::dependency(config, arguments)
+            resource::dependency(config_path, config, arguments)
         }
         _ => Err(format!(
             "Tool {name} is not available in this Kool.ad/e execution mode"
@@ -73,7 +79,11 @@ pub(super) fn call(config: &ServerConfig, name: &str, arguments: &Value) -> Valu
     json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
 }
 
-fn bash(config: &ServerConfig, arguments: &Value) -> Result<(String, bool), String> {
+fn bash(
+    config_path: &Path,
+    config: &ServerConfig,
+    arguments: &Value,
+) -> Result<(String, bool), String> {
     let Some(command) = arguments["command"]
         .as_str()
         .filter(|value| !value.trim().is_empty() && value.len() <= 65_536)
@@ -84,9 +94,34 @@ fn bash(config: &ServerConfig, arguments: &Value) -> Result<(String, bool), Stri
         .as_u64()
         .unwrap_or(300)
         .clamp(1, 1200);
-    let output = sandbox::run(config, command, timeout, false, None)
-        .map_err(|error| format!("Bubblewrap command could not start: {error:#}"))?;
-    Ok((output.text, output.is_error))
+    let binding = super::super::session_bridge::SessionBinding {
+        session_id: config.session_id.clone(),
+        capability_id: config.capability_id.clone(),
+        target_id: config.target_id.clone().unwrap_or_else(|| "local".into()),
+        target_arch: config.target_arch.clone(),
+        task_id: config.task_id.clone(),
+        workspace_id: config.workspace_id.clone(),
+        access: match config.access {
+            BoundaryAccess::ReadOnly => "read_only".into(),
+            BoundaryAccess::Implementation => "implementation".into(),
+        },
+    };
+    let output = super::super::session_bridge::call(config_path, &binding, command, timeout)
+        .map_err(|error| format!("Docker execution session is unavailable: {error:#}"))?;
+    let mut text = output.stdout;
+    if !output.stderr.is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&output.stderr);
+    }
+    if let Some(code) = output.exit_code {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&format!("Exit code: {code}"));
+    }
+    Ok((text, output.is_error))
 }
 
 #[cfg(test)]
@@ -99,7 +134,12 @@ mod tests {
         let listed = list(&config);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0]["name"], "koolade_bash");
-        let unavailable = call(&config, "koolade_resource", &Value::Null);
+        let unavailable = call(
+            Path::new("/tmp/mcp/server.json"),
+            &config,
+            "koolade_resource",
+            &Value::Null,
+        );
         assert_eq!(unavailable["isError"], true);
     }
 
@@ -119,10 +159,17 @@ mod tests {
 
     fn config(access: BoundaryAccess) -> ServerConfig {
         ServerConfig {
+            protocol_version: 2,
             access,
-            bwrap: "/usr/bin/bwrap".into(),
-            root: "/tmp/project".into(),
-            args: Vec::new(),
+            session_id: "00000000-0000-4000-8000-000000000001".into(),
+            task_id: "00000000-0000-4000-8000-000000000002".into(),
+            workspace_id: format!(
+                "00000000-0000-4000-8000-000000000003:00000000-0000-4000-8000-000000000002:{}",
+                "a".repeat(40)
+            ),
+            capability_id: "00000000-0000-4000-8000-000000000004".into(),
+            target_id: Some("local".into()),
+            target_arch: Some("amd64".into()),
             resource_socket: None,
             resource_cache: None,
         }

@@ -160,6 +160,10 @@ mod tests {
     /// environment (`.env_clear()`) would yield an empty value instead.
     #[test]
     fn spawn_sibling_inherits_the_parent_environment_wholesale() {
+        // HOME is process-wide and some welcome-flow tests temporarily replace
+        // it. Hold the shared environment lock through the observation and
+        // child launch so this assertion always compares against one value.
+        let _environment = crate::test_support::lock_process_environment();
         let home = std::env::var("HOME").expect("test host provides HOME");
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

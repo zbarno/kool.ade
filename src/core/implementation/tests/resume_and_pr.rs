@@ -226,11 +226,11 @@ fn external_decision_stops_after_one_report_and_preserves_work() {
 #[test]
 fn feature_id_collision_does_not_inject_another_features_specification() {
     assert!(!specification_matches_task(
-        "# Task\n\nFeature: Switch Workspaces\n",
+        "# Task\n\nFeature: F23\n",
         "# CHG-003: Readable Chat Replies\n"
     ));
     assert!(specification_matches_task(
-        "# Task\n\nFeature: Switch Workspaces\n",
-        "# CHG-003: Switch Workspaces\n"
+        "# Task\n\nFeature: F23\n",
+        "# F23: Switch Workspaces\n"
     ));
 }

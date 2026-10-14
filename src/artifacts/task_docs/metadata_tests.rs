@@ -53,6 +53,8 @@ fn invalid_metadata_fails_closed_and_legacy_parser_is_bounded_to_dependency_sect
         dependency_uids: vec![],
         source_branch: None,
         destination_branch: None,
+        source_sha: None,
+        parallelizable: None,
         routing_overrides: Default::default(),
         routing_source_uid: None,
         routing_inherited_from: None,
@@ -186,6 +188,8 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
         branch_targets: Some(targets),
         task_routing: Default::default(),
         stories: vec![crate::core::workflow::TaskStory {
+            source_sha: Some("a".repeat(40)),
+            parallelizable: Some(false),
             title: "Implement branch selection".into(),
             ..Default::default()
         }],
@@ -196,6 +200,51 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
     let metadata = docs[0].metadata.as_ref().unwrap();
     assert_eq!(metadata.source_branch.as_deref(), Some("release/2.1"));
     assert_eq!(metadata.destination_branch.as_deref(), Some("integration"));
+    assert_eq!(
+        metadata.source_sha.as_deref(),
+        Some("a".repeat(40).as_str())
+    );
+    assert_eq!(metadata.parallelizable, Some(false));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn decomposer_task_uid_survives_progress_replay_and_is_deduplicated() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-decomposer-uid-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    init_git(&root);
+    let graph_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let batch = crate::core::workflow::TaskBatch {
+        brief: crate::core::workflow::InterviewBrief {
+            feature_name: "Decomposer UID fixture".into(),
+            ..Default::default()
+        },
+        specification: "# Decomposer UID fixture".into(),
+        feature_id: None,
+        contract: None,
+        branch_targets: None,
+        task_routing: Default::default(),
+        stories: vec![crate::core::workflow::TaskStory {
+            graph_uid: Some(graph_uid.clone()),
+            title: "Persist graph identity".into(),
+            ..Default::default()
+        }],
+    };
+    crate::artifacts::task_docs::save_progress(&root, "decomposer-run", &batch, 1).unwrap();
+    crate::artifacts::task_docs::save_progress(&root, "decomposer-run", &batch, 1).unwrap();
+    let docs =
+        crate::artifacts::task_docs::load_board(&root, &crate::core::workflow::Workflow::default());
+    let tasks = docs
+        .iter()
+        .filter(|document| document.metadata.is_some())
+        .collect::<Vec<_>>();
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].identity.as_ref().unwrap().uid, graph_uid);
+    assert_eq!(tasks[0].metadata.as_ref().unwrap().uid, graph_uid);
     std::fs::remove_dir_all(root).unwrap();
 }
 

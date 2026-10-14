@@ -91,7 +91,7 @@ fn ensure_private_directory(path: &Path) -> anyhow::Result<()> {
 
 pub(super) fn locate_npm(worktree: &Path) -> anyhow::Result<PathBuf> {
     let worktree = worktree.canonicalize()?;
-    if let Some(root) = crate::harness::pi_sandbox::host_node_root_for_resource_broker()? {
+    if let Some(root) = crate::harness::host_tools::host_node_root_for_resource_broker()? {
         let candidate = root.join("lib/node_modules/npm/bin/npm-cli.js");
         let canonical = candidate.canonicalize()?;
         anyhow::ensure!(

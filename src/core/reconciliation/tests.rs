@@ -64,14 +64,15 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     )
     .unwrap();
     let mut workflow = workflow::Workflow::default();
-    workflow
-        .approved_features
-        .insert("CHG-001".into(), workflow::feature_contract(&feature));
     crate::artifacts::task_docs::save_workflow(&repo, &workflow).unwrap();
-    crate::persistence::feature_approvals::record(
-        &repo,
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "planning baseline"]);
+    let approval_state = PlannerState::load(&repo).unwrap();
+    crate::core::lifecycle::test_support::approve_and_review_feature(
+        &approval_state.planning_store,
+        &mut workflow,
         "CHG-001",
-        &workflow::feature_contract(&feature),
+        &feature,
     )
     .unwrap();
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/search")).unwrap();
@@ -88,6 +89,34 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     git(&repo, &["add", "implemented.txt"]);
     git(&repo, &["commit", "-qm", "implement search"]);
     let merged = git(&repo, &["rev-parse", "HEAD"]);
+    let initial_state = PlannerState::load(&repo).unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&feature)
+        .unwrap()
+        .unwrap();
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &initial_state.planning_store,
+        "CHG-001",
+        &identity,
+        &feature,
+        &workflow::feature_contract(&feature),
+    )
+    .unwrap();
+    if let Some((path, bytes, check)) = crate::core::lifecycle::plan_snapshot::record_change(
+        &initial_state.planning_store,
+        &snapshot,
+    )
+    .unwrap()
+    {
+        let revision = initial_state.planning_store.revision().unwrap();
+        initial_state
+            .planning_store
+            .transaction_with_revision_and_record_revisions(
+                &[(path, bytes)],
+                Some(&revision),
+                &[check],
+            )
+            .unwrap();
+    }
     let state = PlannerState::load(&repo).unwrap();
     let task: crate::core::implementation::Implementation = serde_json::from_value(serde_json::json!({
             "ticket":".koolade-packet/planning/tasks/search/001-save-query.md","ticket_text":ticket,"branch":"koolade/task",

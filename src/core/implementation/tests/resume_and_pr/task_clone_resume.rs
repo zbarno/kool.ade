@@ -33,19 +33,6 @@ fn cancelled_task_clone_is_reviewed_and_resumed() {
 #[test]
 fn active_task_clone_resumes_after_ticket_rename() {
     let mut s = Sandbox::new();
-    let original = fs::read_to_string(s.repo.join(&s.ticket)).unwrap();
-    let identified = crate::domain::ArtifactIdentity::preserve_markdown(
-        &original,
-        None,
-        "TASK-001",
-        "Implement ticket behavior",
-    )
-    .unwrap();
-    fs::write(s.repo.join(&s.ticket), identified).unwrap();
-    s.git(&s.repo, &["add", &s.ticket]);
-    s.git(&s.repo, &["commit", "-qm", "identify task ticket"]);
-    s.git(&s.repo, &["push", "-q", "origin", "main"]);
-
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
     let state = load(&s.repo, &s.ticket).unwrap();

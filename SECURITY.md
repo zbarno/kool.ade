@@ -6,9 +6,11 @@ execution carries risk; use disposable test repositories, keep independent
 backups, review generated changes, and leave automatic publication disabled
 unless you knowingly accept the risk.
 
-The Bubblewrap sandbox, isolated task repositories, approval steps, and verification
-checks reduce risk. They are not a formal security boundary or a guarantee that
-the host, repository, or credentials cannot be exposed or changed unexpectedly.
+The Docker execution boundary, isolated task repositories, approval steps, and
+verification checks reduce risk. They are not a guarantee that the host,
+repository, or credentials cannot be exposed or changed unexpectedly. See the
+[Docker security matrix](docs/docker-security-matrix.md) for the controls and
+validation status.
 
 Do not include live credentials, access tokens, private keys, or passwords in a
 security report. Reproduce issues on a disposable or test repository and redact

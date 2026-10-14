@@ -1,0 +1,91 @@
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+
+use super::super::runtime::RuntimeExecution;
+use crate::execution::{
+    contract::{ExecutionEventKindV1, ExecutionLifecycleV1},
+    errors::{ExecutionError, ExecutionErrorKind},
+};
+
+pub(super) fn finish(
+    execution: &Arc<Mutex<RuntimeExecution>>,
+    lifecycle: ExecutionLifecycleV1,
+    failure: Option<ExecutionError>,
+    code: Option<i32>,
+    timed_out: bool,
+    cancelled: bool,
+) -> Result<(), ExecutionError> {
+    let Ok(mut state) = execution.lock() else {
+        return Err(disconnected());
+    };
+    if state.terminal || state.cancellation_requests.load(Ordering::Acquire) > 0 {
+        return Ok(());
+    }
+    state.push(ExecutionEventKindV1::Lifecycle {
+        state: ExecutionLifecycleV1::Collecting,
+    })?;
+    state.terminal = true;
+    state.result = Some(super::super::control::result(
+        &state.request.execution_id,
+        failure,
+        code,
+        timed_out,
+        cancelled,
+    ));
+    state.push(ExecutionEventKindV1::Lifecycle { state: lifecycle })?;
+    Ok(())
+}
+
+pub(super) fn interrupted(execution: &Arc<Mutex<RuntimeExecution>>) -> Result<(), ExecutionError> {
+    interrupted_with(execution, disconnected())
+}
+
+pub(super) fn interrupted_with(
+    execution: &Arc<Mutex<RuntimeExecution>>,
+    error: ExecutionError,
+) -> Result<(), ExecutionError> {
+    finish(
+        execution,
+        ExecutionLifecycleV1::Interrupted,
+        Some(error.clone()),
+        None,
+        false,
+        false,
+    )?;
+    Err(error)
+}
+
+pub(super) fn output_limit_error() -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorKind::ExecutionFailed,
+        "Command output exceeded its policy limit",
+        false,
+    )
+}
+
+pub(super) fn disconnected() -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        "Docker Engine operation failed or disconnected",
+        true,
+    )
+}
+
+pub(super) fn operation_disconnected(
+    operation: &str,
+    error: &bollard::errors::Error,
+) -> ExecutionError {
+    let detail = match error {
+        bollard::errors::Error::DockerResponseServerError { status_code, .. } => {
+            format!("Docker API returned HTTP {status_code}")
+        }
+        bollard::errors::Error::RequestTimeoutError => "Docker API request timed out".into(),
+        bollard::errors::Error::DockerStreamError { .. } => "Docker stream was interrupted".into(),
+        _ => "Docker Engine connection failed".into(),
+    };
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        format!("Docker could not {operation}: {detail}"),
+        true,
+    )
+}

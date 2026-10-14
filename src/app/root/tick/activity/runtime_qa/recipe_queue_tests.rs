@@ -1,0 +1,165 @@
+use super::{approved_candidate, latest_receipt, receipt_allows_next};
+use crate::{
+    execution::contract::WorkspaceRef,
+    project_runtime::{
+        AppSurface, AppTargetV1, ExecutionRecipeV1, NetworkRequirement,
+        ProjectCapabilityManifestV1, RecipeSource, RuntimeOperation, RuntimeReceiptState,
+        RuntimeReceiptV1, TargetCapabilityState,
+    },
+};
+
+fn receipt(state: RuntimeReceiptState, observed_at_unix_ms: u64) -> RuntimeReceiptV1 {
+    RuntimeReceiptV1 {
+        schema_version: 1,
+        receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        operation: RuntimeOperation::Build,
+        task_id: "task-1".into(),
+        target_id: "web".into(),
+        source_sha: "a".repeat(40),
+        recipe_id: Some("build-v1".into()),
+        state,
+        exit_code: (state == RuntimeReceiptState::Passed).then_some(0),
+        artifact_hashes: Default::default(),
+        log_reference: None,
+        observed_at_unix_ms,
+    }
+}
+
+#[test]
+fn restart_does_not_replay_an_attempt_claimed_before_execution() {
+    let old_success = receipt(RuntimeReceiptState::Passed, 10);
+    let interrupted_attempt = receipt(RuntimeReceiptState::Running, 20);
+    let receipts = [old_success, interrupted_attempt];
+    let latest = latest_receipt(
+        &receipts,
+        RuntimeOperation::Build,
+        "web",
+        &"a".repeat(40),
+        "build-v1",
+    )
+    .unwrap();
+    assert_eq!(latest.state, RuntimeReceiptState::Running);
+    assert!(receipt_allows_next(latest, "build").is_err());
+}
+
+#[test]
+fn failed_attempt_requires_a_fresh_explicit_approval() {
+    let failed = receipt(RuntimeReceiptState::Failed, 30);
+    assert!(receipt_allows_next(&failed, "test").is_err());
+    assert!(receipt_allows_next(&receipt(RuntimeReceiptState::Passed, 31), "test").is_ok());
+}
+
+#[test]
+fn queue_dispatch_requires_explicit_recipe_approval() {
+    let recipe = ExecutionRecipeV1 {
+        schema_version: 1,
+        recipe_id: "web-build".into(),
+        source: RecipeSource::UserApproved,
+        working_directory_relative: ".".into(),
+        executable_id: "npm".into(),
+        argv: vec!["run".into(), "build".into()],
+        allowed_env_keys: Vec::new(),
+        allowed_output_paths: vec!["dist".into()],
+        timeout_seconds: 60,
+        expected_exit_codes: vec![0],
+        expected_artifacts: Vec::new(),
+        cache_scope: None,
+        prerequisite_tool_ids: vec!["npm".into()],
+        network_requirement: NetworkRequirement::Denied,
+        evidence_refs: vec!["user-approval:reviewed-recipe".into()],
+    };
+    let target = AppTargetV1 {
+        target_id: "web".into(),
+        owning_task_id: "planning-item".into(),
+        repository_id: "repo".into(),
+        app_surface: AppSurface::Web,
+        project_relative_root: "apps/web".into(),
+        build_recipe_ref: Some("web-build".into()),
+        test_recipe_refs: Vec::new(),
+        start_recipe_ref: None,
+        readiness_probe_ref: None,
+        artifact_spec_ref: None,
+        fixture_ref: None,
+        required_dependencies: Vec::new(),
+        supported_driver_ids: Vec::new(),
+        port_needs: Vec::new(),
+        environment_policy_ref: "default".into(),
+        capability_state: TargetCapabilityState::Ready,
+    };
+    let mut manifest = ProjectCapabilityManifestV1 {
+        schema_version: 1,
+        workspace_id: "project".into(),
+        repository_id: "repo".into(),
+        source_sha: "a".repeat(40),
+        detected_languages: vec!["JavaScript".into()],
+        frameworks: Vec::new(),
+        candidate_targets: vec![target.clone()],
+        target_capabilities: vec![TargetCapabilityState::Ready],
+        recipes: vec![recipe.clone()],
+        readiness_probes: Default::default(),
+        artifact_specs: Default::default(),
+        confidence: 80,
+        evidence_refs: vec!["package.json".into()],
+        user_overrides: Vec::new(),
+        revision: 1,
+    };
+    let workspace = WorkspaceRef {
+        project_id: "project".into(),
+        task_id: "planning-item".into(),
+        source_sha: "a".repeat(40),
+    };
+    assert!(
+        approved_candidate(
+            &manifest,
+            &target,
+            std::path::Path::new("task-clone"),
+            workspace.clone(),
+            RuntimeOperation::Build,
+            vec!["web-build"]
+        )
+        .unwrap()
+        .is_some()
+    );
+
+    for (executable, tool, expected_profile) in [
+        (
+            "python",
+            "python",
+            crate::execution::docker::images::RuntimeProfile::Python,
+        ),
+        (
+            "go",
+            "go",
+            crate::execution::docker::images::RuntimeProfile::Go,
+        ),
+    ] {
+        manifest.recipes[0].executable_id = executable.into();
+        manifest.recipes[0].prerequisite_tool_ids = vec![tool.into()];
+        let selected = approved_candidate(
+            &manifest,
+            &target,
+            std::path::Path::new("task-clone"),
+            workspace.clone(),
+            RuntimeOperation::Build,
+            vec!["web-build"],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(selected.4, expected_profile);
+    }
+
+    manifest.recipes[0].source = RecipeSource::ValidatedProjectConfig;
+    manifest.recipes[0].evidence_refs.clear();
+    assert!(
+        approved_candidate(
+            &manifest,
+            &target,
+            std::path::Path::new("task-clone"),
+            workspace,
+            RuntimeOperation::Build,
+            vec!["web-build"]
+        )
+        .unwrap()
+        .is_none()
+    );
+}

@@ -1,4 +1,7 @@
 use super::*;
+mod lifecycle_pr;
+mod lifecycle_spec;
+mod target_choices;
 mod telemetry;
 
 impl KooladeApp {
@@ -55,6 +58,7 @@ impl KooladeApp {
             draft,
             auto_build,
             can_start,
+            lifecycle_pr,
         ) = match &self.screen {
             Screen::Connected(project) => (
                 project.implementation_states.get(ticket).cloned(),
@@ -92,8 +96,14 @@ impl KooladeApp {
                     .unwrap_or_default(),
                 project.queue.auto_build,
                 project.active_implementations.len() < project.queue.max_parallel.clamp(1, 8),
+                lifecycle_pr::for_ticket(project, ticket),
             ),
             Screen::Welcome => return None,
+        };
+        let (lifecycle_pr_work_uid, lifecycle_pr_status, lifecycle_pr_error) = lifecycle_pr;
+        let lifecycle_spec_proposal = match &self.screen {
+            Screen::Connected(project) => lifecycle_spec::for_ticket(project, ticket),
+            Screen::Welcome => None,
         };
         let failure = queued_failure.or_else(|| {
             (!implementation_active)
@@ -112,6 +122,18 @@ impl KooladeApp {
             Screen::Connected(project) => telemetry::reports(project, ticket),
             Screen::Welcome => (None, None),
         };
+        let target_key = match &self.screen {
+            Screen::Connected(project) => super::super::task_target::key(project, ticket),
+            Screen::Welcome => ticket.to_owned(),
+        };
+        let (environment, settings_error) =
+            crate::persistence::execution_environment_settings::load();
+        let target_preference = environment
+            .task_targets
+            .get(&target_key)
+            .cloned()
+            .unwrap_or_else(|| environment.default_target.clone());
+        let target_choices = target_choices::build(&target_preference, settings_error.as_deref());
         let attention = failure
             .as_deref()
             .and_then(|detail| self.attention_view(ticket, detail));
@@ -148,6 +170,12 @@ impl KooladeApp {
             activity_active: self.activity_active(ticket),
             implementation_metrics,
             feature_metrics,
+            target_preference,
+            target_choices,
+            lifecycle_pr_work_uid,
+            lifecycle_pr_status,
+            lifecycle_pr_error,
+            lifecycle_spec_proposal,
         })
     }
     pub(super) fn planning_board_for_surface(&self) -> crate::ui::planning_board::ViewModel {
@@ -181,10 +209,78 @@ impl KooladeApp {
                 .into_iter()
                 .map(|item| item.id.clone())
                 .collect();
+                let (clarification_questions, clarification_error) =
+                    match crate::core::planning::QuestionStore::new(&p.state.planning_store).list()
+                    {
+                        Ok(questions) => (questions, None),
+                        Err(error) => (Vec::new(), Some(error.to_string())),
+                    };
+                let (opportunities, mut opportunity_error) =
+                    match crate::core::opportunity::OpportunityStore::new(&p.state.planning_store)
+                        .list_with_revisions()
+                    {
+                        Ok(proposals) => (proposals, None),
+                        Err(error) => (Vec::new(), Some(error.to_string())),
+                    };
+                let opportunity_decisions =
+                    match crate::core::opportunity::OpportunityStore::new(&p.state.planning_store)
+                        .list_decisions()
+                    {
+                        Ok(decisions) => decisions
+                            .into_iter()
+                            .map(|decision| (decision.opportunity_uid.clone(), decision))
+                            .collect(),
+                        Err(error) => {
+                            opportunity_error.get_or_insert_with(|| error.to_string());
+                            std::collections::BTreeMap::new()
+                        }
+                    };
+                let opportunity_discovery_settings =
+                    match crate::core::opportunity::OpportunityStore::new(&p.state.planning_store)
+                        .discovery_settings()
+                    {
+                        Ok(settings) => settings,
+                        Err(error) => {
+                            opportunity_error.get_or_insert_with(|| error.to_string());
+                            crate::core::opportunity::OpportunityDiscoverySettingsV1::default()
+                        }
+                    };
+                let self_improvement_runs = opportunities
+                    .iter()
+                    .filter(|(proposal, _)| {
+                        proposal.target.kind
+                            == crate::core::opportunity::OpportunityTargetKindV1::KooladeProduct
+                    })
+                    .filter_map(|(proposal, _)| {
+                        let decision = opportunity_decisions.get(&proposal.opportunity_uid)?;
+                        if decision.decision
+                            != crate::core::opportunity::OpportunityDecisionKindV1::Pursue
+                        {
+                            return None;
+                        }
+                        let run_uid = crate::core::self_improvement::SelfImprovementStore::run_uid_for_decision(
+                            &decision.uid,
+                        )
+                        .ok()?;
+                        crate::core::self_improvement::SelfImprovementStore::new(
+                            &p.state.planning_store,
+                        )
+                        .load(&run_uid)
+                        .ok()
+                        .map(|run| (proposal.opportunity_uid.clone(), run))
+                    })
+                    .collect();
                 crate::ui::planning_board::ViewModel {
                     task_documents: p.task_documents.clone(),
                     planning_work,
                     planning_items,
+                    clarification_questions,
+                    clarification_error,
+                    opportunities,
+                    opportunity_decisions,
+                    self_improvement_runs,
+                    opportunity_error,
+                    opportunity_discovery_settings,
                     setup_attention: self.setup_attention.clone(),
                     setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,

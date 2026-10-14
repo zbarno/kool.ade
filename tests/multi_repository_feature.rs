@@ -39,6 +39,10 @@ fn init(repo: &Path, remote: &str) -> String {
     git(repo, &["rev-parse", "HEAD"])
 }
 
+#[path = "multi_repository_feature/support.rs"]
+mod support;
+use support::approve_and_record_reviewer_receipt;
+
 struct MultiHarness;
 impl AiHarness for MultiHarness {
     fn label(&self) -> String {
@@ -188,9 +192,10 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
             .exists()
     );
     workflow = koolade::artifacts::task_docs::load_workflow(&planning).unwrap();
-    koolade::core::workflow::approve_feature(&planning, &mut workflow, "CHG-001").unwrap();
     let state = PlannerState::load(&planning).unwrap();
     assert!(state.workflow.ready(state.planning_contract()));
+    approve_and_record_reviewer_receipt(&state, &mut workflow, "CHG-001", &feature);
+    let state = PlannerState::load(&planning).unwrap();
     let controller = TurnController::start(
         TurnInputs {
             state,

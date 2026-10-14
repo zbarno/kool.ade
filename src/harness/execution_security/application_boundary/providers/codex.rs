@@ -43,7 +43,6 @@ pub(super) fn configure(
     argv.extend([
         "--skip-git-repo-check".into(),
         "--ignore-user-config".into(),
-        "--ignore-rules".into(),
     ]);
     for feature in [
         "shell_tool",

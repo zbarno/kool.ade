@@ -147,29 +147,50 @@ fn compatibility_store_keeps_existing_embedded_root() {
 
 #[test]
 fn relative_store_roots_are_anchored_to_the_creation_directory() {
-    struct RestoreCurrentDir(PathBuf);
-    impl Drop for RestoreCurrentDir {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.0);
-        }
+    const ROOT_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_ROOT";
+    const ID_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_ID";
+    const CWD_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_CWD";
+
+    if let (Some(root), Some(id), Some(cwd)) = (
+        std::env::var_os(ROOT_ENV),
+        std::env::var_os(ID_ENV),
+        std::env::var_os(CWD_ENV),
+    ) {
+        // This test changes cwd only in its isolated subprocess, so other tests
+        // in the same nextest binary keep the parent process directory.
+        std::env::set_current_dir(cwd).unwrap();
+        let id = uuid::Uuid::parse_str(&id.to_string_lossy()).unwrap();
+        let store = PlanningStore::new(id, PathBuf::from(root), StoreMode::ManagedLocal);
+        assert!(store.root.is_absolute());
+        assert_eq!(
+            store.read("planning/specification.md").unwrap(),
+            b"anchored"
+        );
+        return;
     }
 
     let original = std::env::current_dir().unwrap();
-    let restore = RestoreCurrentDir(original.clone());
     let relative = PathBuf::from(format!(".koolade-relative-store-{}", uuid::Uuid::new_v4()));
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), &relative, StoreMode::ManagedLocal);
+    let id = uuid::Uuid::new_v4();
+    let store = PlanningStore::new(id, &relative, StoreMode::ManagedLocal);
     assert!(store.root.is_absolute());
     std::fs::create_dir_all(&store.root).unwrap();
     store
         .atomic_write("planning/specification.md", b"anchored")
         .unwrap();
     let other_directory = TempDir::new();
-    std::env::set_current_dir(other_directory.path()).unwrap();
-    assert_eq!(
-        store.read("planning/specification.md").unwrap(),
-        b"anchored"
-    );
-    drop(restore);
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "artifacts::planning_store::tests::relative_store_roots_are_anchored_to_the_creation_directory",
+            "--nocapture",
+        ])
+        .env(ROOT_ENV, &store.root)
+        .env(ID_ENV, id.to_string())
+        .env(CWD_ENV, other_directory.path())
+        .status()
+        .unwrap();
+    assert!(status.success(), "isolated cwd verification process failed");
     std::fs::remove_dir_all(original.join(relative)).unwrap();
 }
 

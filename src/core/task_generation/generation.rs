@@ -22,18 +22,22 @@ pub(super) fn model_batch_context(contract: &serde_json::Value) -> serde_json::V
     })
 }
 
+mod approval;
+use approval::approved_snapshot;
+
 pub fn generate(
     harness: &dyn AiHarness,
     request: &PlanningRequest,
     state: &PlannerState,
     started: Instant,
 ) -> Result<TaskGenerationOutcome, AppError> {
-    let run = Run::open(request, state, started)?;
     let brief = state
         .workflow
         .brief
         .as_ref()
         .ok_or_else(|| AppError::Other("No approved interview brief.".into()))?;
+    let lifecycle_snapshot = approved_snapshot(state)?;
+    let run = Run::open(request, state, started)?;
     let task_routing = state
         .active_feature
         .as_ref()
@@ -58,7 +62,13 @@ pub fn generate(
         serde_json::to_string_pretty(&model_batch_context(&run.identity["batch_contract"]))
             .unwrap_or_default()
     );
-    let mut cp = if let Some(cp) = run.load(state) {
+    let mut cp = if let Some(cp) = run.load(state).filter(|cp| {
+        lifecycle_snapshot.is_none()
+            || (!cp.stories.is_empty()
+                && cp.stories.len() == cp.outline.len()
+                && cp.stories.iter().all(|story| story.graph_uid.is_some())
+                && super::decompose::checkpoint_matches(state, &cp.stories))
+    }) {
         let _ = request.progress_tx.send(LiveProgress {
             response: format!(
                 "Resuming task generation: {} of {} detailed stories already validated.",
@@ -67,6 +77,17 @@ pub fn generate(
             ),
             ..Default::default()
         });
+        cp
+    } else if let Some(snapshot) = lifecycle_snapshot.as_ref() {
+        let (outline, stories) =
+            super::decompose::run(&run, harness, request, state, snapshot, brief)
+                .map_err(|error| AppError::Other(error.to_string()))?;
+        let cp = Checkpoint {
+            identity: run.identity.clone(),
+            outline,
+            stories,
+        };
+        run.write("checkpoint", &cp)?;
         cp
     } else {
         let mut outline_request = request.clone();
@@ -109,6 +130,14 @@ pub fn generate(
     };
     let mut planning_revision = state.baseline_planning_revision.clone();
     let publish = |cp: &Checkpoint, planning_revision: &mut String| -> anyhow::Result<()> {
+        if let Some(approved) = lifecycle_snapshot.as_ref() {
+            let current =
+                approved_snapshot(state).map_err(|error| anyhow::anyhow!(error.to_string()))?;
+            anyhow::ensure!(
+                current.as_ref() == Some(approved),
+                "Approved plan or its review changed during task generation"
+            );
+        }
         anyhow::ensure!(
             crate::artifacts::spec_doc::load(&state.planning_store)? == state.spec_text,
             "Specification changed during generation"
@@ -201,7 +230,7 @@ pub fn generate(
             .map(|n| &cp.stories[n - 1])
             .collect();
         let prompt = format!(
-            "{base}\n=== APPLICATION GENERATION STEP ===\nWrite ONLY detailed story {} of {}. Return one complete task_stories entry. The application supplies its stable title, purpose and reference mappings from the outline; concentrate on the implementation detail. Preserve the approved scope.\n=== APPROVED TASK OUTLINE ===\n{}\n=== CURRENT TASK ===\n{}\n=== COMPLETED DEPENDENCY STORIES ===\n{}\nReuse these interfaces and decisions; do not invent conflicting contracts.\n{}",
+            "{base}\n=== APPLICATION GENERATION STEP ===\nWrite ONLY detailed story {} of {}. Return one complete task_stories entry. The application supplies its stable title, purpose and reference mappings from the outline; concentrate on the implementation detail. Preserve the approved dependencies and parent_task_index hierarchy.\n=== APPROVED TASK OUTLINE ===\n{}\n=== CURRENT TASK ===\n{}\n=== COMPLETED DEPENDENCY STORIES ===\n{}\nReuse these interfaces and decisions; do not invent conflicting contracts.\n{}",
             i + 1,
             cp.outline.len(),
             serde_json::to_string_pretty(&cp.outline).unwrap_or_default(),

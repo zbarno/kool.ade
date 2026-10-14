@@ -29,6 +29,10 @@ pub mod paths {
     pub const WORK_RECORDS: &str = "state/work";
     pub const WORKFLOW_RECORDS: &str = "state/workflow";
     pub const ITEM_STATES: &str = "state/items";
+    /// Typed lifecycle questions share the normalized planning-item collections.
+    pub const QUESTION_CONTENTS: &str = ITEM_CONTENTS;
+    pub const QUESTION_STATES: &str = ITEM_STATES;
+    pub const READINESS_STATES: &str = "state/readiness";
     pub const TASK_STATES: &str = "state/tasks";
     pub const WORKFLOW: &str = "state/workflow.json";
     pub const WORK: &str = "state/work.json";
@@ -156,6 +160,17 @@ impl PlanningLayout {
     }
     pub fn item_state(&self, uid: &str) -> Option<PathBuf> {
         record_path(&self.root, paths::ITEM_STATES, uid)
+    }
+    pub fn question_content(&self, uid: &str) -> Option<PathBuf> {
+        uuid::Uuid::parse_str(uid)
+            .ok()
+            .map(|uid| self.at(paths::QUESTION_CONTENTS).join(format!("{uid}.md")))
+    }
+    pub fn question_state(&self, uid: &str) -> Option<PathBuf> {
+        record_path(&self.root, paths::QUESTION_STATES, uid)
+    }
+    pub fn readiness_state(&self, uid: &str) -> Option<PathBuf> {
+        record_path(&self.root, paths::READINESS_STATES, uid)
     }
     pub fn task_state(&self, uid: &str) -> Option<PathBuf> {
         record_path(&self.root, paths::TASK_STATES, uid)

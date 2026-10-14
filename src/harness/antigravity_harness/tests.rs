@@ -1,9 +1,6 @@
 use super::*;
 use crate::harness::{AiHarness, PlanningRequest};
 use std::path::Path;
-use std::sync::Mutex;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn model_catalog_uses_only_slug_tokens() {
@@ -46,7 +43,7 @@ fn auth_configuration_and_permission_denials_need_operator_attention() {
     let spaced_labels = redact_unexpected("API key: spaced-secret Access key=another-secret");
     assert!(!spaced_labels.contains("spaced-secret"));
     assert!(!spaced_labels.contains("another-secret"));
-    let _lock = ENV_LOCK.lock().unwrap();
+    let _lock = crate::test_support::lock_process_environment();
     let old = std::env::var_os("KOOLADE_TEST_TOKEN");
     unsafe {
         std::env::set_var("KOOLADE_TEST_TOKEN", "shrt");
@@ -94,6 +91,7 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
     let _env = set_binary(&cli);
     let (tx, rx) = mpsc::channel();
     let request = PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "high".into(),
@@ -105,6 +103,10 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
         timeout: Duration::from_secs(5),
         progress_tx: tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
     let result = crate::harness::with_uncontained_provider_test_execution(|| {
         AntigravityHarness.execute(&request)
@@ -171,6 +173,7 @@ fn cancellation_stops_the_active_cli_process() {
     let worker = std::thread::spawn(move || {
         crate::harness::with_uncontained_provider_test_execution(|| {
             AntigravityHarness.execute(&PlanningRequest {
+                prompt_manifest: None,
                 cancel: worker_cancel,
                 ..request(&worker_root, std::sync::mpsc::channel().0)
             })
@@ -199,6 +202,7 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
     use std::sync::{Arc, atomic::AtomicBool, mpsc};
     use std::time::Duration;
     let request = PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "medium".into(),
@@ -210,6 +214,10 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
         timeout: Duration::from_secs(1),
         progress_tx: mpsc::channel().0,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     };
     let args = execute::command(Path::new("agy"), &request, Some("gemini-3.8-flash-high"));
     assert!(
@@ -234,13 +242,19 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
 #[cfg(unix)]
 fn fake_cli(path: &Path, script: &str) {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::write(path, format!("#!/bin/sh\n{script}")).unwrap();
+    std::fs::write(
+        path,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'agy 1.2.3'; exit 0; fi\nif [ \"$1\" = \"models\" ]; then echo 'gemini-3.8-flash-high Gemini Flash'; exit 0; fi\n{script}"
+        ),
+    )
+    .unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 struct BinaryOverride {
     old: Option<std::ffi::OsString>,
-    _guard: std::sync::MutexGuard<'static, ()>,
+    _guard: crate::test_support::ProcessEnvironmentLock,
 }
 impl Drop for BinaryOverride {
     fn drop(&mut self) {
@@ -255,7 +269,7 @@ impl Drop for BinaryOverride {
 }
 
 fn set_binary(path: &Path) -> BinaryOverride {
-    let _lock = ENV_LOCK.lock().unwrap();
+    let _lock = crate::test_support::lock_process_environment();
     let old = std::env::var_os(ANTIGRAVITY_BINARY_ENV);
     unsafe {
         std::env::set_var(ANTIGRAVITY_BINARY_ENV, path);
@@ -271,6 +285,7 @@ fn request(
     use std::sync::{Arc, atomic::AtomicBool};
     use std::time::Duration;
     crate::harness::PlanningRequest {
+        prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
         reasoning_level: "high".into(),
@@ -282,5 +297,9 @@ fn request(
         timeout: Duration::from_secs(5),
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+
+        authorization_verifier: None,
+        review_identity: None,
     }
 }
