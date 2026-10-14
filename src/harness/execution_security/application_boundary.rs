@@ -40,11 +40,22 @@ impl ApplicationBoundary {
         }
         let scratch = PrivateDirectory::create("koolade-cli-session")?;
         let requested_access = request.mode.tool_access();
-        let app_binary = (requested_access != ToolAccess::None)
-            .then(std::env::current_exe)
-            .transpose()?
-            .map(|path| path.canonicalize())
-            .transpose()?;
+        let app_binary = if requested_access == ToolAccess::None {
+            None
+        } else {
+            // Unit tests run inside a test-harness executable, which does not
+            // implement the application's private MCP entry point. Hosted
+            // integration tests build the real sibling application binary
+            // and provide it explicitly; production always uses itself.
+            #[cfg(test)]
+            let executable = std::env::var_os("KOOLADE_TEST_APP_BINARY")
+                .map(PathBuf::from)
+                .map(Ok)
+                .unwrap_or_else(std::env::current_exe)?;
+            #[cfg(not(test))]
+            let executable = std::env::current_exe()?;
+            Some(executable.canonicalize()?)
+        };
         let mut resource_bridge = None;
         let mut session_bridge = None;
         let mut access = ToolAccess::None;

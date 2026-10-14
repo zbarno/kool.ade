@@ -20,11 +20,25 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     let _restore_pi = fake_pi::restore_environment_variable("KOOLADE_PI_BIN");
     let _restore_path = fake_pi::restore_environment_variable("PATH");
     let _restore_ssh = fake_pi::restore_environment_variable("GIT_SSH_COMMAND");
+    let _restore_app_binary = fake_pi::restore_environment_variable("KOOLADE_TEST_APP_BINARY");
     let root = std::env::temp_dir().join(format!(
         "koolade-auto-e2e-{}",
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     let _restore_home = fake_pi::configure_harness_settings(&root);
+    let app_binary = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("test binary is in target/debug/deps")
+        .join("koolade");
+    assert!(
+        app_binary.is_file(),
+        "application binary must be built for the Docker CI suite"
+    );
+    // SAFETY: the test holds the shared process-environment lock and restores
+    // this override after the fixture completes.
+    unsafe { std::env::set_var("KOOLADE_TEST_APP_BINARY", app_binary) };
     let repo = root.join("repo");
     let remote = root.join("remote.git");
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/fixture")).unwrap();
