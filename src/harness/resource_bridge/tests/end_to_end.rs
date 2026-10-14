@@ -247,7 +247,8 @@ fn authorized_npm_restore_indexes_synthetic_archive_for_offline_install() {
     assert_eq!(
         output.result.exit_code,
         Some(0),
-        "offline npm restore failed: {}",
+        "offline npm restore failed: {:?}; {}",
+        output.result,
         output.stderr
     );
 

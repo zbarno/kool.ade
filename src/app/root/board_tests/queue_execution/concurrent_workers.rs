@@ -223,11 +223,23 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         if finished {
             break;
         }
-        assert!(
-            Instant::now() < deadline,
-            "queue did not finish: {}",
-            app.queue_status()
-        );
+        if Instant::now() >= deadline {
+            let progress = match &app.screen {
+                Screen::Connected(project) => format!(
+                    "active={:?}, states={:?}, waiting={:?}, last_error={}",
+                    project.active_implementations.keys().collect::<Vec<_>>(),
+                    project
+                        .implementation_states
+                        .iter()
+                        .map(|(path, state)| (path, state.status, &state.detail))
+                        .collect::<Vec<_>>(),
+                    project.queue.waiting_for_capacity,
+                    project.queue.last_error,
+                ),
+                _ => "project disconnected".into(),
+            };
+            panic!("queue did not finish: {}; {progress}", app.queue_status());
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
     if let Screen::Connected(project) = &app.screen {
