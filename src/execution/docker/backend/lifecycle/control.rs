@@ -1,3 +1,7 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
 use bollard::query_parameters::{RemoveContainerOptions, StopContainerOptions};
@@ -21,6 +25,21 @@ pub(super) use helpers::{
     disconnected, operation_disconnected, operation_timeout, result, terminal, verify_owned,
 };
 use release::release_persisted;
+
+struct CancellationIntentGuard(Arc<AtomicUsize>);
+
+impl CancellationIntentGuard {
+    fn new(requests: Arc<AtomicUsize>) -> Self {
+        requests.fetch_add(1, Ordering::AcqRel);
+        Self(requests)
+    }
+}
+
+impl Drop for CancellationIntentGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 fn load_record(
     backend: &DockerExecutionBackend,
@@ -54,7 +73,15 @@ pub(super) async fn cancel(
         }
         Err(error) => return Err(error),
     };
-    let (container_id, workspace, snapshot, budget, writable, authorization_generation) = {
+    let (
+        container_id,
+        workspace,
+        snapshot,
+        budget,
+        writable,
+        authorization_generation,
+        cancellation_intent,
+    ) = {
         let state = execution.lock().map_err(|_| internal_error())?;
         if state.terminal {
             return Ok(());
@@ -62,6 +89,8 @@ pub(super) async fn cancel(
         if state.request.cancellation_generation != generation {
             return Err(invalid_request());
         }
+        let cancellation_intent =
+            CancellationIntentGuard::new(Arc::clone(&state.cancellation_requests));
         (
             state.container_id.clone(),
             state._workspace.clone(),
@@ -69,8 +98,10 @@ pub(super) async fn cancel(
             state.request.resource_budget.temporary_disk_bytes,
             super::execute::workspace_write_enabled(&state.request),
             state.request.authorization_generation.clone(),
+            cancellation_intent,
         )
     };
+    let _cancellation_intent = cancellation_intent;
     if let Err(error) = verify_owned(backend, &container_id, &handle.execution_id).await {
         terminal(
             &execution,
@@ -253,4 +284,30 @@ pub(super) async fn release(
         .map_err(|_| internal_error())?
         .remove(&handle.execution_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CancellationIntentGuard;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[tokio::test]
+    async fn aborted_cancellation_releases_its_terminal_result_reservation() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let task_requests = Arc::clone(&requests);
+        let task = tokio::spawn(async move {
+            let _intent = CancellationIntentGuard::new(task_requests);
+            std::future::pending::<()>().await;
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(requests.load(Ordering::Acquire), 1);
+
+        task.abort();
+        let _ = task.await;
+
+        assert_eq!(requests.load(Ordering::Acquire), 0);
+    }
 }

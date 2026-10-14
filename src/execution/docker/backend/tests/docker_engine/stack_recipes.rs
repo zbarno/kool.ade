@@ -107,9 +107,34 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Rust,
             "cargo",
-            recipe("rust-build", "cargo", &["build", "--offline"]),
-            recipe("rust-test", "cargo", &["test", "--offline"]),
-            recipe("rust-start", "cargo", &["run", "--offline", "--quiet"]),
+            recipe(
+                "rust-build",
+                "cargo",
+                &[
+                    "build",
+                    "--offline",
+                    "--target-dir=/tmp/koolade-stack-target",
+                ],
+            ),
+            recipe(
+                "rust-test",
+                "cargo",
+                &[
+                    "test",
+                    "--offline",
+                    "--target-dir=/tmp/koolade-stack-target",
+                ],
+            ),
+            recipe(
+                "rust-start",
+                "cargo",
+                &[
+                    "run",
+                    "--offline",
+                    "--quiet",
+                    "--target-dir=/tmp/koolade-stack-target",
+                ],
+            ),
         ),
         (
             RuntimeProfile::Node,
