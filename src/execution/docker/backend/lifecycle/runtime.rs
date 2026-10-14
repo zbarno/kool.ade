@@ -1,3 +1,5 @@
+use std::sync::{Arc, atomic::AtomicUsize};
+
 use crate::execution::{
     contract::{ExecutionEventV1, ExecutionLifecycleV1, ExecutionRequestV1, ExecutionResultV1},
     docker::sandbox::{ValidatedWorkspace, WorkspaceSnapshot},
@@ -16,6 +18,7 @@ pub(in crate::execution::docker::backend) struct RuntimeExecution {
     pub result: Option<ExecutionResultV1>,
     pub executed: bool,
     pub terminal: bool,
+    pub cancellation_requests: Arc<AtomicUsize>,
     lifecycle_state: ExecutionLifecycleV1,
     pub output_bytes: u64,
     next_event_sequence: u64,
@@ -56,6 +59,7 @@ impl RuntimeExecution {
             result: None,
             executed: false,
             terminal: false,
+            cancellation_requests: Arc::new(AtomicUsize::new(0)),
             lifecycle_state: ExecutionLifecycleV1::Queued,
             output_bytes: 0,
             next_event_sequence: 1,
@@ -161,6 +165,7 @@ impl RuntimeExecution {
                     | ExecutionRecordStateV1::Cancelled
                     | ExecutionRecordStateV1::Interrupted
             ),
+            cancellation_requests: Arc::new(AtomicUsize::new(0)),
             lifecycle_state: match record.state {
                 ExecutionRecordStateV1::Preparing => ExecutionLifecycleV1::Preparing,
                 ExecutionRecordStateV1::Running => ExecutionLifecycleV1::Running,
