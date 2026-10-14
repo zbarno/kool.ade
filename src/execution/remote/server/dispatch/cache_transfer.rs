@@ -134,14 +134,25 @@ pub(super) fn finalize(
         .manifest
         .validate_ref(&transfer.cache_ref, &transfer.archive)
         .map_err(|_| super::super::incompatible("cache snapshot integrity validation failed"))?;
-    runtime.block_on(backend.stage_dependency_cache(
-        crate::execution::backend::DependencyCacheSnapshot {
-            snapshot: crate::harness::resource_bridge::CacheSnapshot {
-                cache_ref: transfer.cache_ref,
-                manifest: transfer.manifest,
-                archive: transfer.archive,
+    runtime
+        .block_on(backend.stage_dependency_cache(
+            crate::execution::backend::DependencyCacheSnapshot {
+                snapshot: crate::harness::resource_bridge::CacheSnapshot {
+                    cache_ref: transfer.cache_ref,
+                    manifest: transfer.manifest,
+                    archive: transfer.archive,
+                },
             },
-        },
-    ))?;
+        ))
+        .map_err(|error| {
+            crate::execution::errors::ExecutionError::new(
+                error.kind,
+                format!(
+                    "Worker backend could not stage the authorized dependency cache: {}",
+                    error.message
+                ),
+                error.retryable,
+            )
+        })?;
     Ok((Kind::Acknowledge, json!({"accepted": true})))
 }
