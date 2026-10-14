@@ -168,7 +168,9 @@ request(1, 'initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clie
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
 server.stdin.flush()
 if output_path is None:
-    lookup = "ticket=$(rg -l --fixed-strings '" + task_uid + "' .koolade-packet/planning/tasks/fixture/*.md) && rg -o '^- src/[^[:space:]]+' \"$ticket\""
+    # The reviewed general image contains grep/sed, and no ripgrep. Return
+    # the affected filename itself, so recovery prompts need no ticket prose.
+    lookup = "for ticket in .koolade-packet/planning/tasks/fixture/*.md; do if grep -q -F '" + task_uid + "' \"$ticket\"; then sed -n 's/^- //p' \"$ticket\" | grep '^src/'; break; fi; done"
     response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':lookup,'timeout_seconds':60}})
     if 'error' in response or response.get('result', {}).get('isError'):
         print(json.dumps(response), file=sys.stderr)
