@@ -146,7 +146,12 @@ else:
 # This fixture models the ticket's literal acceptance criterion. Keep this
 # independent of prompt formatting so it exercises report validation itself.
 criteria = ['File exists.']
-server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+server_env = os.environ.copy()
+# The real provider launch deliberately strips host Git transport overrides.
+# This fixture-owned MCP server still needs the synthetic SSH endpoint for its
+# remote task-claim checks, so scope the override to this child only.
+server_env['GIT_SSH_COMMAND'] = str(root / 'ssh-fixture')
+server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=server_env)
 def request(identifier, method, params=None):
     server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
     server.stdin.flush()
