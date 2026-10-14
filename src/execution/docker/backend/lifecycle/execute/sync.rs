@@ -1,5 +1,6 @@
 use bollard::container::LogOutput;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+use bollard::query_parameters::DownloadFromContainerOptionsBuilder;
 use futures_util::StreamExt;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -57,7 +58,7 @@ async fn download_workspace(
     budget: u64,
 ) -> Result<Vec<u8>, ExecutionError> {
     let limit = budget.min(crate::execution::docker::sandbox::staging::MAX_STAGED_BYTES);
-    let exec = backend
+    let exec = match backend
         .docker
         .create_exec(
             container_id,
@@ -79,9 +80,18 @@ async fn download_workspace(
             },
         )
         .await
-        .map_err(|error| {
-            super::state::operation_disconnected("create the workspace archive command", &error)
-        })?;
+    {
+        Ok(exec) => exec,
+        Err(bollard::errors::Error::DockerResponseServerError {
+            status_code: 409, ..
+        }) => return download_stopped_workspace(backend, container_id, limit).await,
+        Err(error) => {
+            return Err(super::state::operation_disconnected(
+                "create the workspace archive command",
+                &error,
+            ));
+        }
+    };
     let StartExecResults::Attached {
         mut output,
         mut input,
@@ -175,6 +185,42 @@ async fn download_workspace(
         ));
     }
     Ok(archive)
+}
+
+async fn download_stopped_workspace(
+    backend: &DockerExecutionBackend,
+    container_id: &str,
+    limit: u64,
+) -> Result<Vec<u8>, ExecutionError> {
+    let options = DownloadFromContainerOptionsBuilder::default()
+        .path("/workspace")
+        .build();
+    let mut stream = backend
+        .docker
+        .download_from_container(container_id, Some(options));
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let mut archive = Vec::new();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|_| super::state::disconnected())?;
+            if (archive.len() as u64).saturating_add(chunk.len() as u64) > limit {
+                return Err(ExecutionError::new(
+                    ExecutionErrorKind::ExecutionFailed,
+                    "Container workspace archive exceeded its synchronization limit",
+                    false,
+                ));
+            }
+            archive.extend_from_slice(&chunk);
+        }
+        Ok(archive)
+    })
+    .await
+    .map_err(|_| {
+        ExecutionError::new(
+            ExecutionErrorKind::WorkerDisconnected,
+            "Docker workspace archive exceeded its bounded deadline",
+            true,
+        )
+    })?
 }
 
 fn stderr_summary(stderr: &[u8]) -> &'static str {
