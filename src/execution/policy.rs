@@ -104,7 +104,7 @@ impl ExecutionPolicyV1 {
             ExecutionModeV1::PlanningReadOnly => &["cat", "git", "rg", "sh"],
             ExecutionModeV1::Implementation => &["bash", "git", "rg", "sh"],
             ExecutionModeV1::Verification => &[
-                "bash", "cargo", "git", "node", "npm", "python", "pytest", "sh",
+                "bash", "cargo", "git", "go", "node", "npm", "python", "pytest", "sh",
             ],
             ExecutionModeV1::RuntimeQa => &["browser", "node", "playwright", "sh"],
         };
