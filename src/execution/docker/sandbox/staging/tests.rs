@@ -196,6 +196,23 @@ fn synchronization_preserves_host_files() {
 
 #[cfg(unix)]
 #[test]
+fn synchronization_is_idempotent_when_cancellation_and_exec_complete_together() {
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture(&workspace, 1024 * 1024, false).unwrap();
+    let archive = returned(&[("source.txt", b"container edit")]);
+
+    synchronize(&workspace, &snapshot, &archive, 1024 * 1024).unwrap();
+    synchronize(&workspace, &snapshot, &archive, 1024 * 1024).unwrap();
+
+    assert_eq!(
+        fs::read(fixture.0.join("source.txt")).unwrap(),
+        b"container edit"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn synchronization_preserves_a_host_file_created_during_execution() {
     let fixture = Fixture::new();
     let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
