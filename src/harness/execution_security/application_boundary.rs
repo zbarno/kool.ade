@@ -20,6 +20,38 @@ mod tests;
 pub(crate) use private_directory::PrivateDirectory;
 pub(crate) use providers::{CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch};
 
+#[cfg(test)]
+static TEST_APP_BINARY_OVERRIDE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) struct TestAppBinaryOverride(Option<PathBuf>);
+
+#[cfg(test)]
+pub(crate) fn override_test_app_binary(path: PathBuf) -> TestAppBinaryOverride {
+    let mut current = TEST_APP_BINARY_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    TestAppBinaryOverride(current.replace(path))
+}
+
+#[cfg(test)]
+impl Drop for TestAppBinaryOverride {
+    fn drop(&mut self) {
+        let mut current = TEST_APP_BINARY_OVERRIDE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *current = self.0.take();
+    }
+}
+
+#[cfg(test)]
+fn test_app_binary_override() -> Option<PathBuf> {
+    TEST_APP_BINARY_OVERRIDE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
 pub(crate) struct ApplicationBoundary {
     scratch: PrivateDirectory,
     server_name: String,
@@ -48,8 +80,7 @@ impl ApplicationBoundary {
             // integration tests build the real sibling application binary
             // and provide it explicitly; production always uses itself.
             #[cfg(test)]
-            let executable = std::env::var_os("KOOLADE_TEST_APP_BINARY")
-                .map(PathBuf::from)
+            let executable = test_app_binary_override()
                 .map(Ok)
                 .unwrap_or_else(std::env::current_exe)?;
             #[cfg(not(test))]
