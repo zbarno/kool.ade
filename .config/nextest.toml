@@ -1,0 +1,9 @@
+[test-groups]
+# The hosted rootless daemon runs the Docker-backed end-to-end tests alongside
+# the rest of the suite. Limit pressure on its exec and archive streams while
+# leaving every unrelated test at nextest's normal parallelism.
+rootless-docker = { max-threads = 2 }
+
+[[profile.default.overrides]]
+filter = 'test(/(docker_lifecycle::|auto_queue_cannot_start_task_from_unapproved_feature|docker_engine::|resource_bridge::tests::end_to_end::|implementation_harness_without_an_application_session_fails_before_provider_launch)/)'
+test-group = 'rootless-docker'
