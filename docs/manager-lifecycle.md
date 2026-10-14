@@ -1,8 +1,10 @@
 # Man.ager lifecycle contract
 
-This document describes the application-owned transition foundation. It does
-not claim that the desktop Man.ager, role prompts, task queue, reviewers, QA
-drivers, or PR publisher are wired to it yet.
+`LifecycleStore` is the durable application-owned state machine for the
+feature-plan and implementation pipeline. Manager and worker output supplies
+proposals and evidence; Rust validates every transition before persisting it
+to the planning repository. Board and task-detail views project the persisted
+records. Freeform specification chat remains separate from per-item work.
 
 ## Feature transitions
 
@@ -14,7 +16,7 @@ drivers, or PR publisher are wired to it yet.
 | AwaitingPlanConfirmation | UserPlanDecision | User receipt names this feature and exact plan SHA | PlanReviewPending or Exploring |
 | PlanReviewPending | PlanReview | Independent reviewer receipt names this feature and exact plan SHA | ReadyToDecompose or PlanRework |
 | ReadyToDecompose | TaskGraphCreated | Exact approved plan SHA | Executing |
-| Any non-complete phase | Cancel | Expected revision matches | Cancelled |
+| Any non-terminal phase | Cancel | Expected revision matches; recorded as a user action | Cancelled |
 
 New tasks can be recorded only after their feature reaches `Executing`, and the
 task must reference the same approved plan hash. Feature and task snapshots are
@@ -41,16 +43,26 @@ Updating the implementation SHA clears all downstream receipts. Snapshot and
 event writes share one transaction, so a stale revision, duplicate event UID,
 or failed write leaves the prior snapshot intact.
 
-## Evidence shape and remaining integration
+## Evidence and application wiring
 
-Gate receipts carry a subject UID and SHA, actor, decision, evidence references,
-and distinct reviewer/author run and session IDs. These checks prevent a review
-receipt from reusing the author's recorded context. The lifecycle store still
-needs to bind those identifiers to actual application-owned execution records
-and authenticated user actions before desktop entry points can accept them.
+Gate receipts carry a subject UID and SHA, actor, decision, and evidence. Plan
+and code review receipts also bind the versioned reviewer prompt and distinct
+author/reviewer run and session identities. The app creates these receipts
+from the current prompt execution and validates them against the exact plan,
+code head, and review subject before accepting them.
 
-The coordinator, event replay/recovery, task DAG persistence, role prompt
-catalog, question and approval cards, independent code review, browser/desktop
-QA, specification reconciliation, and separate PR-preparation task are not
-connected yet. Until those integrations are implemented, existing task status
-must not be advanced by treating agent prose as a lifecycle event.
+The application flow connects explicit user plan confirmation, independent
+plan review, reviewed-plan task generation, claim-fenced implementation,
+independent code review, applicable runtime QA, specification reconciliation,
+and a distinct PR-preparation work item. The transition store writes each
+snapshot and event in the same revision-checked planning-store transaction.
+Implementation `Done` is separate from PR opening and merging. PR publication
+requires its own authorization and records its state independently.
+
+Recovery reopens the current per-record snapshots and their append-only event
+history. Same-revision concurrent advances are fenced, code changes invalidate
+downstream review and QA evidence, and completion atomically creates one
+idempotently keyed PR work item. A waiting or blocked step retains its reason
+and evidence rather than synthesizing a pass. Local lifecycle acceptance
+fixtures validate these contracts; interactive browser/desktop behavior is
+covered by the separate runtime-QA acceptance path.

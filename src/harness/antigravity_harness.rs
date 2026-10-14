@@ -116,6 +116,12 @@ fn probe(binary: &Path) -> Result<(String, Vec<String>), (String, Option<String>
     if version.is_empty() {
         return Err(("Antigravity did not report a version".into(), None));
     }
+    crate::harness::execution_security::ProfileProbeEvidence::probe(
+        crate::harness::execution_security::CliProvider::Antigravity,
+        binary,
+        version.clone(),
+    )
+    .map_err(|error| (error.to_string(), Some(version.clone())))?;
     let (models, model_success) = run(binary, &["models"])?;
     if !model_success {
         return Err(("Antigravity model discovery failed".into(), Some(version)));

@@ -31,18 +31,24 @@ fn launch_profiles_carry_the_discoverable_version_and_capability_gates() {
     let antigravity = CliProvider::Antigravity.profile_requirements();
     assert!(antigravity.requires_launch_token("--input-format"));
     assert!(antigravity.requires_environment_key("HOME"));
-    assert!(
-        CliProvider::OpenCode
-            .profile_requirements()
-            .capabilities
-            .is_empty()
-    );
-    assert!(
-        CliProvider::Copilot
-            .profile_requirements()
-            .capabilities
-            .is_empty()
-    );
+    for provider in [
+        CliProvider::Pi,
+        CliProvider::Codex,
+        CliProvider::Claude,
+        CliProvider::OpenCode,
+        CliProvider::Copilot,
+        CliProvider::Antigravity,
+    ] {
+        let requirements = provider.profile_requirements();
+        assert!(!requirements.help_commands.is_empty(), "{provider:?}");
+        assert!(!requirements.capabilities.is_empty(), "{provider:?}");
+        assert!(
+            requirements
+                .missing_capabilities(requirements.capabilities)
+                .is_empty(),
+            "{provider:?}"
+        );
+    }
 }
 
 #[test]
