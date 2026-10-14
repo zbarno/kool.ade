@@ -44,6 +44,8 @@ pub(crate) const UNSAFE_PROVIDER_LAUNCH_ENV: &[&str] = &[
 ];
 
 pub(crate) use application_boundary::PrivateDirectory;
+#[cfg(test)]
+pub(crate) use application_boundary::override_test_app_binary;
 pub(crate) use application_boundary::{
     ApplicationBoundary, CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch,
 };
