@@ -141,7 +141,11 @@ fn stack_recipes() -> Vec<(
             RuntimeProfile::Go,
             "go",
             recipe("go-build", "go", &["build", "-o", "app", "main.go"]),
-            recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
+            recipe(
+                "go-test",
+                "go",
+                &["test", "-o", ".koolade-go-test", "main.go", "main_test.go"],
+            ),
             recipe("go-start", "go", &["run", "main.go"]),
         ),
     ]
