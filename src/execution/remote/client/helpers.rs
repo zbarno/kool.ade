@@ -21,19 +21,37 @@ pub(super) fn negotiated_probe(
         wire_version: u16,
         probe: BackendProbeV1,
     }
-    let ack: HealthAck = serde_json::from_value(payload).map_err(|_| incompatible())?;
-    if ack.wire_version != PROTOCOL_VERSION_V1
-        || ack.probe.wire_version != PROTOCOL_VERSION_V1
-        || !ack.probe.available
-        || !ack.probe.compatible
-    {
-        return Err(incompatible());
+    let ack: HealthAck = serde_json::from_value(payload)
+        .map_err(|error| incompatible_with(format!("invalid worker health response: {error}")))?;
+    if ack.wire_version != PROTOCOL_VERSION_V1 || ack.probe.wire_version != PROTOCOL_VERSION_V1 {
+        return Err(incompatible_with(format!(
+            "worker wire version mismatch: response={}, probe={}, expected={PROTOCOL_VERSION_V1}",
+            ack.wire_version, ack.probe.wire_version
+        )));
     }
-    let capabilities = ack.probe.capabilities.as_ref().ok_or_else(incompatible)?;
-    if capabilities.app_version != env!("CARGO_PKG_VERSION")
-        || capabilities.policy_hash != crate::execution::policy::policy_hash()
-    {
-        return Err(incompatible());
+    if !ack.probe.available || !ack.probe.compatible {
+        return Err(incompatible_with(format!(
+            "worker reports unavailable or incompatible execution: available={}, compatible={}, failure={:?}",
+            ack.probe.available, ack.probe.compatible, ack.probe.failure
+        )));
+    }
+    let capabilities =
+        ack.probe.capabilities.as_ref().ok_or_else(|| {
+            incompatible_with("worker health response omitted capabilities".into())
+        })?;
+    let expected_policy_hash = crate::execution::policy::policy_hash();
+    if capabilities.app_version != env!("CARGO_PKG_VERSION") {
+        return Err(incompatible_with(format!(
+            "worker application version mismatch: worker={}, controller={}",
+            capabilities.app_version,
+            env!("CARGO_PKG_VERSION")
+        )));
+    }
+    if capabilities.policy_hash != expected_policy_hash {
+        return Err(incompatible_with(format!(
+            "worker execution policy fingerprint mismatch: worker={}, controller={expected_policy_hash}",
+            capabilities.policy_hash
+        )));
     }
     Ok(ack.probe)
 }
@@ -98,6 +116,10 @@ pub(super) fn incompatible() -> ExecutionError {
         "Remote worker identity or protocol is incompatible",
         false,
     )
+}
+
+fn incompatible_with(message: String) -> ExecutionError {
+    ExecutionError::new(ExecutionErrorKind::WorkerIncompatible, message, false)
 }
 
 #[cfg(test)]

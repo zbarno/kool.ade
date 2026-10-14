@@ -69,11 +69,13 @@ impl RemoteWorkerClient {
             sequences: HashMap::new(),
             last_health_check: Instant::now(),
         };
-        let ack = client.exchange(
-            Kind::Health,
-            CONTROL_ID,
-            serde_json::json!({"wire_version": PROTOCOL_VERSION_V1}),
-        )?;
+        let ack = client
+            .exchange(
+                Kind::Health,
+                CONTROL_ID,
+                serde_json::json!({"wire_version": PROTOCOL_VERSION_V1}),
+            )
+            .map_err(|error| client.health_error_with_diagnostics(error))?;
         client.probe = match negotiated_probe(ack.payload) {
             Ok(probe) => probe,
             Err(error) => {
@@ -213,8 +215,20 @@ impl RemoteWorkerClient {
     ) -> Result<EnvelopeV1, ExecutionError> {
         if response.kind == Kind::Error {
             let error: ExecutionError =
-                serde_json::from_value(response.payload.clone()).map_err(|_| incompatible())?;
-            error.validate().map_err(|_| incompatible())?;
+                serde_json::from_value(response.payload.clone()).map_err(|parse_error| {
+                    ExecutionError::new(
+                        ExecutionErrorKind::WorkerIncompatible,
+                        format!("Remote worker returned an invalid error response: {parse_error}"),
+                        false,
+                    )
+                })?;
+            error.validate().map_err(|validation_error| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerIncompatible,
+                    format!("Remote worker returned an invalid error response: {validation_error}"),
+                    false,
+                )
+            })?;
             if error.kind != ExecutionErrorKind::WorkerDisconnected {
                 remote_requests::record_completion(&self.worker_id, &request.request_id, &response)
                     .map_err(|_| unavailable())?;
@@ -224,6 +238,31 @@ impl RemoteWorkerClient {
         remote_requests::record_completion(&self.worker_id, &request.request_id, &response)
             .map_err(|_| unavailable())?;
         Ok(response)
+    }
+
+    fn health_error_with_diagnostics(&self, error: ExecutionError) -> ExecutionError {
+        let mut diagnostic = self
+            .transport
+            .diagnostic_stderr()
+            .chars()
+            .filter(|character| !character.is_control())
+            .take(512)
+            .collect::<String>();
+        while diagnostic.len() > 512 {
+            diagnostic.pop();
+        }
+        if diagnostic.is_empty() {
+            return error;
+        }
+        let mut message = error.message;
+        while message.len() > 3_500 {
+            message.pop();
+        }
+        ExecutionError::new(
+            error.kind,
+            format!("{message}; SSH worker diagnostic: {diagnostic}"),
+            error.retryable,
+        )
     }
 
     fn reconnect_and_negotiate(&mut self) -> Result<(), ExecutionError> {
@@ -247,8 +286,16 @@ impl RemoteWorkerClient {
         if response.request_id != request.request_id
             || response.execution_id != request.execution_id
             || response.sequence != request.sequence
-            || response.kind != Kind::Acknowledge
         {
+            return Err(incompatible());
+        }
+        if response.kind == Kind::Error {
+            let error: ExecutionError =
+                serde_json::from_value(response.payload.clone()).map_err(|_| incompatible())?;
+            error.validate().map_err(|_| incompatible())?;
+            return Err(error);
+        }
+        if response.kind != Kind::Acknowledge {
             return Err(incompatible());
         }
         self.probe = match negotiated_probe(response.payload) {

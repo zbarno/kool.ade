@@ -50,8 +50,45 @@ jobs:
       - name: Install loopback SSH server for authenticated remote E2E
         run: |
           sudo apt-get update
-          sudo apt-get install --yes openssh-server
+          sudo apt-get install --yes openssh-server socat
+          fixture_password="$(openssl rand -hex 32)"
+          printf '%s:%s\n' "$USER" "$fixture_password" | sudo chpasswd
+          unset fixture_password
+          sudo install -d -o root -g root -m 0755 /run/sshd
           command -v /usr/sbin/sshd
+          test -d /run/sshd
+      - name: Route rootless Docker through the approved user socket
+        run: |
+          set -euo pipefail
+          case "$DOCKER_HOST" in
+            unix:///*) rootless_socket="${DOCKER_HOST#unix://}" ;;
+            *) echo "Rootless Docker must use its per-job Unix socket" >&2; exit 1 ;;
+          esac
+          approved_socket="$XDG_RUNTIME_DIR/docker.sock"
+          if [ "$rootless_socket" != "$approved_socket" ]; then
+            test ! -e "$approved_socket"
+            socat "UNIX-LISTEN:$approved_socket,fork,mode=0600" \
+              "UNIX-CONNECT:$rootless_socket" \
+              >"$RUNNER_TEMP/docker-socket-proxy.log" 2>&1 &
+            proxy_pid=$!
+            for attempt in $(seq 1 50); do
+              if [ -S "$approved_socket" ]; then break; fi
+              if ! kill -0 "$proxy_pid" 2>/dev/null; then
+                cat "$RUNNER_TEMP/docker-socket-proxy.log" >&2
+                exit 1
+              fi
+              sleep 0.1
+            done
+            test -S "$approved_socket"
+          fi
+          docker --host "unix://$approved_socket" info --format '{{.ServerVersion}}' \
+            | grep --fixed-strings --line-regexp 29.9.0
+      - name: Pre-pull locked Linux test images
+        run: |
+          set -euo pipefail
+          while IFS= read -r image; do
+            docker pull --platform linux/amd64 "$image"
+          done < <(jq -r '.profiles | to_entries[] | .value[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json | sort -u)
       - name: Install pinned Node.js and npm for the offline restore E2E
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -77,6 +114,8 @@ jobs:
           KOOLADE_REQUIRE_SSHD_E2E: "1"
           KOOLADE_TEST_WORKER_BINARY: target/debug/koolade
         run: |
+          unset DOCKER_CONTEXT
+          export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
             cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast

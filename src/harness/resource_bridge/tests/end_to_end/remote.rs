@@ -110,6 +110,7 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
         }
         Err(error) => panic!("could not start loopback sshd for remote E2E: {error}"),
     };
+    sshd.verify_client_authentication().unwrap();
     sshd.restore_known_host(&worker_id).unwrap();
     let fingerprint = sshd.host_fingerprint.clone();
     let worker = sshd.worker_config(&worker_id);

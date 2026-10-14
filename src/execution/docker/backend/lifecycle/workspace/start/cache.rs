@@ -39,20 +39,16 @@ pub(super) async fn install_dependency_caches(
             DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
             DependencyCacheEcosystemV1::Cargo => "/home/executor/.cargo",
         };
-        let upload = backend
-            .docker
-            .upload_to_container(
-                container_id,
-                Some(
-                    bollard::query_parameters::UploadToContainerOptionsBuilder::default()
-                        .path(destination)
-                        .copy_uidgid("1")
-                        .build(),
-                ),
-                bollard::body_full(snapshot.archive.clone().into()),
-            )
-            .await;
-        if !matches!(upload, Ok(())) {
+        if super::super::extract_archive(
+            backend,
+            container_id,
+            destination,
+            &snapshot.archive,
+            false,
+        )
+        .await
+        .is_err()
+        {
             return false;
         }
     }

@@ -48,8 +48,9 @@ pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn write_clie
     fs::write(
         path,
         format!(
-            "Host fixture-host\n  HostName 127.0.0.1\n  Port {port}\n  IdentityFile {}\n  IdentitiesOnly yes\n  IdentityAgent none\n  BatchMode yes\n  SendEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR PATH\n",
-            identity.display()
+            "Host fixture-host\n  HostName 127.0.0.1\n  Port {port}\n  IdentityFile {}\n  IdentitiesOnly yes\n  IdentityAgent none\n  BatchMode yes\n  StrictHostKeyChecking yes\n  UpdateHostKeys no\n  UserKnownHostsFile {}\n  GlobalKnownHostsFile /dev/null\n  HostKeyAlias fixture-worker\n  SendEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR PATH\n",
+            identity.display(),
+            path.parent().unwrap().join("known_hosts").display()
         ),
     )
 }
@@ -98,4 +99,37 @@ pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn shell_quot
     value: &str,
 ) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixture_client_config_uses_the_pinned_known_hosts_alias() {
+        let root =
+            std::env::temp_dir().join(format!("koolade-ssh-config-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let config = root.join("ssh_config");
+        let identity = root.join("identity");
+        write_client_config(&config, 22_222, &identity).unwrap();
+
+        let output = Command::new(find_ssh().unwrap())
+            .args(["-G", "-F"])
+            .arg(&config)
+            .arg("fixture-host")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let resolved = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            resolved
+                .lines()
+                .any(|line| line == "hostkeyalias fixture-worker")
+        );
+        assert!(resolved.lines().any(|line| {
+            line == format!("userknownhostsfile {}", root.join("known_hosts").display())
+        }));
+        let _ = fs::remove_dir_all(root);
+    }
 }

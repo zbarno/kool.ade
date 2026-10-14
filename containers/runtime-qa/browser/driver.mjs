@@ -115,6 +115,15 @@ async function main() {
   page.on('console', (message) => { if (message.type() === 'error' && consoleMessages.length < 128) consoleMessages.push(message.text().slice(0, 1024)); });
   page.on('pageerror', (error) => { if (consoleMessages.length < 128) consoleMessages.push(error.message.slice(0, 1024)); });
   page.on('requestfailed', (requestEvent) => { if (failedRequests.length < 128) failedRequests.push(`${requestEvent.method()} ${requestEvent.url().slice(0, 1024)}: ${(requestEvent.failure()?.errorText ?? 'failed').slice(0, 256)}`); });
+  page.on('response', (response) => {
+    const location = response.headers().location;
+    if (!location) return;
+    let destination;
+    try { destination = new URL(location, response.url()).href; } catch { return; }
+    if (!allowedUrl(destination, request.origin)) {
+      policyViolation = `redirect escaped preview origin: ${destination}`;
+    }
+  });
   page.on('websocket', (socket) => { if (!allowedUrl(socket.url(), request.origin)) policyViolation = `websocket escaped preview origin: ${socket.url()}`; });
   await context.routeWebSocket('**/*', (socket) => {
     if (!allowedUrl(socket.url(), request.origin)) {

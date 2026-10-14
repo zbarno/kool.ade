@@ -123,9 +123,10 @@ impl SshWorkerConfig {
 }
 
 fn known_host_fingerprint_matches(output: &str, expected: &str) -> bool {
-    output
-        .lines()
-        .any(|line| line.split_whitespace().nth(1) == Some(expected))
+    output.lines().any(|line| {
+        line.split_whitespace()
+            .any(|field| field.starts_with("SHA256:") && field == expected)
+    })
 }
 
 /// A worker whose pinned public key was found in the selected known_hosts file.
@@ -225,6 +226,10 @@ mod tests {
     #[test]
     fn known_hosts_fingerprint_must_match_the_approved_worker_key() {
         let trusted = format!("SHA256:{}", "A".repeat(43));
+        assert!(known_host_fingerprint_matches(
+            &format!("trusted-worker-1 ED25519 {trusted} (ED25519)\n"),
+            &trusted
+        ));
         assert!(known_host_fingerprint_matches(
             &format!("256 {trusted} trusted-worker-1 (ED25519)\n"),
             &trusted
