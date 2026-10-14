@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use bollard::query_parameters::{InspectContainerOptionsBuilder, StopContainerOptions};
+use bollard::query_parameters::InspectContainerOptionsBuilder;
 
 use crate::execution::{
     backend::ExecutionHandleV1,
@@ -64,30 +64,6 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
             .and_then(|config| config.labels)
             .unwrap_or_default(),
     )?;
-    let stopped = tokio::time::timeout(
-        Duration::from_secs(6),
-        backend.docker.stop_container(
-            container_id,
-            Some(StopContainerOptions {
-                t: Some(5),
-                ..Default::default()
-            }),
-        ),
-    )
-    .await
-    .is_ok_and(|result| result.is_ok());
-    if !stopped {
-        tokio::time::timeout(
-            Duration::from_secs(2),
-            backend.docker.kill_container(
-                container_id,
-                None::<bollard::query_parameters::KillContainerOptions>,
-            ),
-        )
-        .await
-        .map_err(|_| super::operation_timeout())?
-        .map_err(|_| super::disconnected())?;
-    }
     let request = record.request.as_ref().ok_or_else(super::disconnected)?;
     let workspace_path = backend.resolver.resolve_owned_clone(&request.workspace)?;
     let workspace =
@@ -112,16 +88,22 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
                 false,
             )
         })?;
-    super::super::execute::sync_workspace(
+    if let Err(error) = super::super::execute::terminate_and_sync(
         backend,
         container_id,
         &workspace,
         Some(&snapshot),
-        request.resource_budget.temporary_disk_bytes,
-        super::super::execute::workspace_write_enabled(request),
-        &request.authorization_generation,
+        request,
     )
-    .await?;
+    .await
+    {
+        super::super::recovery::mark_interrupted(
+            &mut record,
+            true,
+            "Cancellation could not preserve the workspace; task clone was retained",
+        )?;
+        return Err(error);
+    }
     mark_cancelled(&mut record)?;
     execution_records::save(&record).map_err(|_| super::internal_error())
 }

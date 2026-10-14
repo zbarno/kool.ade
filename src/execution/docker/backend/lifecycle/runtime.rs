@@ -19,6 +19,7 @@ pub(in crate::execution::docker::backend) struct RuntimeExecution {
     pub executed: bool,
     pub terminal: bool,
     pub cancellation_requests: Arc<AtomicUsize>,
+    pub workspace_sync: Arc<tokio::sync::Mutex<()>>,
     lifecycle_state: ExecutionLifecycleV1,
     pub output_bytes: u64,
     next_event_sequence: u64,
@@ -60,6 +61,7 @@ impl RuntimeExecution {
             executed: false,
             terminal: false,
             cancellation_requests: Arc::new(AtomicUsize::new(0)),
+            workspace_sync: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle_state: ExecutionLifecycleV1::Queued,
             output_bytes: 0,
             next_event_sequence: 1,
@@ -166,6 +168,7 @@ impl RuntimeExecution {
                     | ExecutionRecordStateV1::Interrupted
             ),
             cancellation_requests: Arc::new(AtomicUsize::new(0)),
+            workspace_sync: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle_state: match record.state {
                 ExecutionRecordStateV1::Preparing => ExecutionLifecycleV1::Preparing,
                 ExecutionRecordStateV1::Running => ExecutionLifecycleV1::Running,
