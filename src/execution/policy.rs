@@ -170,6 +170,12 @@ impl ExecutionPolicyV1 {
         Ok(policy)
     }
 
+    pub(crate) fn without_scoped_workspace_write(mut self) -> Self {
+        self.filesystem
+            .remove(&FilesystemGrantV1::WorkspaceScopedWrite);
+        self
+    }
+
     pub fn for_approved_recipe(
         resource_limits: ResourceBudgetV1,
         root_relative: String,

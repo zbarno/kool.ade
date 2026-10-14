@@ -9,9 +9,8 @@ use bollard::models::{ContainerCreateBody, HostConfig, Mount, MountBindOptions, 
 
 use super::images::{ImageLock, SelectedImage};
 use crate::execution::{
-    contract::{ExecutionModeV1, ExecutionRequestV1},
+    contract::ExecutionRequestV1,
     errors::{ExecutionError, ExecutionErrorKind},
-    policy::FilesystemGrantV1,
 };
 
 pub(crate) mod staging;
@@ -127,15 +126,6 @@ pub fn create_body(
             "Sandbox image does not match the approved request digest",
         ));
     }
-    let writable = request.mode != ExecutionModeV1::PlanningReadOnly
-        && (request
-            .policy
-            .filesystem_grants()
-            .contains(&FilesystemGrantV1::WorkspaceWrite)
-            || request
-                .policy
-                .filesystem_grants()
-                .contains(&FilesystemGrantV1::WorkspaceScopedWrite));
     let labels = HashMap::from([
         (OWNER_LABEL.into(), identity.owner_instance_id.clone()),
         (EXECUTION_LABEL.into(), request.execution_id.clone()),
@@ -153,20 +143,26 @@ pub fn create_body(
             identity.lease_expires_unix_ms.to_string(),
         ),
     ]);
-    let mut mounts = vec![tmpfs_mount(
-        WORKSPACE_TARGET,
-        request.resource_budget.temporary_disk_bytes / 4,
-        if writable { 0o1777 } else { 0o555 },
-    )?];
-    if request.policy.workspace_write_scope().is_none() {
-        mounts.push(bind_mount(
+    let mounts = if request.policy.workspace_write_scope().is_none() {
+        vec![bind_mount(
             &workspace.git_metadata,
             "/workspace/.git",
             true,
-        )?);
-    }
+        )?]
+    } else {
+        Vec::new()
+    };
     let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
     let mut tmpfs = HashMap::new();
+    // The staged snapshot is materialized after container start. Planning mode
+    // is sealed before any user command runs, while the image rootfs and .git
+    // mount remain read-only throughout setup.
+    let workspace_mode = "1777";
+    let workspace_access = "rw";
+    tmpfs.insert(
+        WORKSPACE_TARGET.into(),
+        format!("{workspace_access},nosuid,nodev,size={temporary_bytes},mode={workspace_mode}"),
+    );
     for target in ["/tmp", "/run", "/home/executor"] {
         tmpfs.insert(
             target.to_owned(),
@@ -174,7 +170,6 @@ pub fn create_body(
         );
     }
     // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
-    mounts.shrink_to_fit();
     Ok(ContainerCreateBody {
         user: Some("10001:10001".into()),
         env: Some(vec![
@@ -202,10 +197,9 @@ pub fn create_body(
             privileged: Some(false),
             readonly_rootfs: Some(true),
             network_mode: Some("none".into()),
-            pid_mode: Some("private".into()),
             ipc_mode: Some("private".into()),
-            // Omit UsernsMode: Docker's default is private. The API accepts
-            // only the empty default or the explicit `host` value.
+            // Docker's default PID and user namespaces are isolated. Omit
+            // explicit mode strings because rootless Engine rejects `private`.
             userns_mode: None,
             cap_drop: Some(vec!["ALL".into()]),
             cap_add: Some(Vec::new()),
@@ -249,23 +243,6 @@ fn bind_mount(source: &Path, target: &str, read_only: bool) -> Result<Mount, Exe
             non_recursive: Some(true),
             create_mountpoint: Some(false),
             ..Default::default()
-        }),
-        ..Default::default()
-    })
-}
-
-fn tmpfs_mount(target: &str, size_bytes: u64, mode: u32) -> Result<Mount, ExecutionError> {
-    Ok(Mount {
-        target: Some(target.into()),
-        typ: Some(MountType::TMPFS),
-        read_only: Some(false),
-        tmpfs_options: Some(bollard::models::MountTmpfsOptions {
-            size_bytes: Some(
-                i64::try_from(size_bytes)
-                    .map_err(|_| denied("Temporary disk limit is out of range"))?,
-            ),
-            mode: Some(i64::from(mode)),
-            options: Some(vec![vec!["nosuid".into()], vec!["nodev".into()]]),
         }),
         ..Default::default()
     })

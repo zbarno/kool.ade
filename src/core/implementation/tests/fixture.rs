@@ -105,9 +105,16 @@ impl AiHarness for Fixture {
                     .contains("PREVIOUS STOP / CORRECTION REQUIRED")
             );
             assert!(req.prompt_body.contains("Implementation cancelled"));
+            let expected_checkpoint = if call == 1 {
+                "partial\n"
+            } else {
+                "implemented\n"
+            };
             assert_eq!(
                 fs::read_to_string(req.repo_root.join("implemented.txt")).unwrap(),
-                "partial\n"
+                expected_checkpoint,
+                "resume workspace {} does not have the expected checkpoint",
+                req.repo_root.display()
             );
         }
         if self.mode == "cancel" {

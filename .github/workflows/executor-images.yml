@@ -65,6 +65,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
@@ -90,6 +92,7 @@ jobs:
           [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
           printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
       - name: Build the trusted recipe from its fixed context
+        id: build
         env:
           PROFILE: ${{ matrix.profile }}
           PLATFORM: ${{ matrix.platform }}
@@ -111,10 +114,13 @@ jobs:
             containers/executor
           image_digest="$(jq -er '."containerimage.digest"' "$metadata_file")"
           [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'image_digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
       - name: Check architecture, identity, tools, and forbidden services
         env:
           PROFILE: ${{ matrix.profile }}
           PLATFORM: ${{ matrix.platform }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.image_digest }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
         run: |
           set -euo pipefail
           architecture="${PLATFORM#linux/}"
@@ -172,6 +178,8 @@ jobs:
             exit 1
           fi
           test ! -e /var/run/docker.sock
+          test "$(cat /sys/fs/cgroup/memory.max)" = 1073741824
+          test "$(cat /sys/fs/cgroup/pids.max)" = 64
           if touch /executor-root-write 2>/dev/null; then
             echo "executor root filesystem is writable" >&2
             exit 1
@@ -193,7 +201,7 @@ jobs:
           jq -n \
             --arg profile "$PROFILE" \
             --arg platform "$PLATFORM" \
-            --arg digest "$image_digest" \
+            --arg digest "$IMAGE_DIGEST" \
             --arg base_image "$BASE_IMAGE" \
             --arg source_revision "$GITHUB_SHA" \
             --arg recipe "$recipe_sha256" \
@@ -255,6 +263,8 @@ jobs:
           - profile: desktop_qa
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
@@ -449,6 +459,8 @@ jobs:
         profile: [browser_qa, desktop_qa]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
@@ -584,6 +596,8 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:

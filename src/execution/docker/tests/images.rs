@@ -154,6 +154,33 @@ fn image_verification_rejects_tags_spoofed_digests_missing_images_and_wrong_plat
 }
 
 #[test]
+fn image_verification_accepts_docker_hub_library_alias_only_for_the_same_digest() {
+    let image = ImageLock::bundled()
+        .unwrap()
+        .select(RuntimeProfile::Node, "amd64")
+        .unwrap();
+    let docker_hub_short_name = image.reference.replace("docker.io/library/", "");
+    verify_image_observation(&image, &[docker_hub_short_name], "linux", "amd64").unwrap();
+
+    let wrong_digest = format!("node@sha256:{}", "0".repeat(64));
+    assert_eq!(
+        verify_image_observation(&image, &[wrong_digest], "linux", "amd64")
+            .unwrap_err()
+            .code,
+        PrerequisiteCode::ImageDigestMismatch
+    );
+    let wrong_repository = image
+        .reference
+        .replace("docker.io/library/node", "attacker.invalid/library/node");
+    assert_eq!(
+        verify_image_observation(&image, &[wrong_repository], "linux", "amd64")
+            .unwrap_err()
+            .code,
+        PrerequisiteCode::ImageDigestMismatch
+    );
+}
+
+#[test]
 fn engine_inventory_exposes_only_exact_locked_image_references() {
     let lock = ImageLock::bundled().unwrap();
     let approved = lock

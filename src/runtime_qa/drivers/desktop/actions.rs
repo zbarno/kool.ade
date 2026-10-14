@@ -178,6 +178,7 @@ fn click(
     let rect = display.window(window)?;
     let point = absolute_point(&rect, x, y)?;
     let count = if double { 2 } else { 1 };
+    input(display, 6, 0, point)?;
     for _ in 0..count {
         input(display, 4, 1, point)?;
         input(display, 5, 1, point)?;

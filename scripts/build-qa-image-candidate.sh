@@ -86,10 +86,10 @@ SMOKE
     tool_versions="$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
       --pids-limit 256 --memory 1g --cpus 2 --tmpfs /tmp:rw,nosuid,nodev,size=256m \
       --env EXPECTED_NPM="$npm_version" --env EXPECTED_PYTHON3="$python_version" --env BASE_IMAGE="$base_image" \
-      --mount "type=bind,src=$smoke,dst=/tmp/qa-smoke.mjs,readonly" \
-      --entrypoint node "$tag" /tmp/qa-smoke.mjs)"
+      --mount "type=bind,src=$smoke,dst=/opt/koolade-runtime-qa/qa-smoke.mjs,readonly" \
+      --entrypoint node "$tag" /opt/koolade-runtime-qa/qa-smoke.mjs)"
     tool_versions="$(jq -c . <<< "$tool_versions")"
-    scripts/test-browser-qa-fixture.py "$tag"
+    python3 scripts/test-browser-qa-fixture.py "$tag"
     ;;
   desktop_qa)
     repository=ghcr.io/zbarno/koolade-runtime-qa-desktop
@@ -192,7 +192,7 @@ for attempt in {1..20}; do
   sleep 0.1
 done
 if docker inspect "$probe_id" >/dev/null 2>&1; then
-  echo "rootless Docker did not remove stopped QA probe container" >&2
+  echo "rootless Docker did not remove stopped QA probe container after $attempt checks" >&2
   exit 1
 fi
 probe_id=""

@@ -31,7 +31,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn verify_owned(
     )
     .await
     .map_err(|_| operation_timeout())?
-    .map_err(|_| disconnected())?;
+    .map_err(|error| operation_disconnected("verify execution container ownership", &error))?;
     let labels = info
         .config
         .and_then(|config| config.labels)
@@ -115,6 +115,25 @@ pub(in crate::execution::docker::backend::lifecycle) fn disconnected() -> Execut
     ExecutionError::new(
         ExecutionErrorKind::WorkerDisconnected,
         "Docker Engine operation failed or disconnected",
+        true,
+    )
+}
+
+pub(in crate::execution::docker::backend::lifecycle) fn operation_disconnected(
+    operation: &str,
+    error: &bollard::errors::Error,
+) -> ExecutionError {
+    let detail = match error {
+        bollard::errors::Error::DockerResponseServerError { status_code, .. } => {
+            format!("Docker API returned HTTP {status_code}")
+        }
+        bollard::errors::Error::RequestTimeoutError => "Docker API request timed out".into(),
+        bollard::errors::Error::DockerStreamError { .. } => "Docker stream was interrupted".into(),
+        _ => "Docker Engine connection failed".into(),
+    };
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        format!("Docker could not {operation}: {detail}"),
         true,
     )
 }
