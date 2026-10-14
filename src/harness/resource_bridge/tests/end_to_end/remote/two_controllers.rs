@@ -3,7 +3,12 @@ use crate::execution::{
     contract::{ExecutionTarget, ResourceBudgetV1},
     session::{AuthorizationGenerationVerifier, ExecutionSession, RemoteSessionOptions},
 };
-use std::sync::mpsc;
+use std::{
+    fmt::Debug,
+    path::Path,
+    thread::JoinHandle,
+    time::{Duration, Instant},
+};
 
 #[test]
 fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
@@ -30,7 +35,7 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
     support::commit(&repository);
     let clone_a = support::create_task_clone(&repository, &task_home_path, "controller-a");
     let clone_b = support::create_task_clone(&repository, &task_home_path, "controller-b");
-    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for concurrent controller E2E");
     sshd.restore_known_host(&worker_id).unwrap();
@@ -43,25 +48,26 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
     )
     .unwrap();
 
-    let (started_tx, started_rx) = mpsc::channel();
     let generation_a = uuid::Uuid::new_v4().hyphenated().to_string();
-    let (authorization_a, active_a) =
-        authorization::RevocableAuthorization::new(generation_a, started_tx);
+    let (authorization_a, active_a) = authorization::RevocableAuthorization::new(generation_a);
     let session_a = Arc::new(connect_session(
         &clone_a,
         &worker,
         Arc::new(authorization_a),
     ));
     let run_a = session_a.clone();
-    let controller_a = std::thread::spawn(move || {
+    let mut controller_a = Some(std::thread::spawn(move || {
         run_a.run_tool_command(
             "printf 'controller-a-started\\n'; sleep 30; printf 'stale-controller-a\\n' > stale-result.txt",
             Duration::from_secs(120),
         )
-    });
-    started_rx
-        .recv_timeout(Duration::from_secs(90))
-        .expect("first controller must receive the remote Exec acknowledgement");
+    }));
+    wait_for_remote_stdout(
+        &session_a,
+        "controller-a-started",
+        &mut controller_a,
+        &root.join("sshd.log"),
+    );
 
     let generation_b = uuid::Uuid::new_v4().hyphenated().to_string();
     let session_b = connect_session(
@@ -83,6 +89,8 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
 
     active_a.store(false, std::sync::atomic::Ordering::Release);
     let stale_result = controller_a
+        .take()
+        .expect("first controller should still be running")
         .join()
         .expect("first controller thread should not panic");
     assert!(matches!(
@@ -97,6 +105,67 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
     drop(session_a);
     drop(sshd);
     fs::remove_dir_all(root).unwrap();
+}
+
+pub(super) fn wait_for_remote_stdout<T: Debug>(
+    session: &ExecutionSession,
+    expected: &str,
+    controller: &mut Option<JoinHandle<T>>,
+    sshd_log: &Path,
+) {
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        if let Some(handle) = session.active_handle_for_test()
+            && let Ok(events) = crate::persistence::execution_records::load_events(
+                &handle.task_id,
+                &handle.execution_id,
+                crate::execution::contract::EventPageRequestV1::new(0, 256).unwrap(),
+            )
+            && events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    crate::execution::contract::ExecutionEventKindV1::Stdout { chunk }
+                        if chunk.contains(expected)
+                )
+            })
+        {
+            return;
+        }
+
+        if controller.as_ref().is_some_and(JoinHandle::is_finished) {
+            let result = controller
+                .take()
+                .expect("finished controller is present")
+                .join();
+            panic!(
+                "remote command exited before emitting {expected:?}: {result:?}; sshd log: {}",
+                sshd_log_tail(sshd_log)
+            );
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "remote command did not emit {expected:?} before the deadline; sshd log: {}",
+                sshd_log_tail(sshd_log)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn sshd_log_tail(path: &Path) -> String {
+    std::fs::read_to_string(path)
+        .map(|contents| {
+            contents
+                .lines()
+                .rev()
+                .take(30)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_else(|error| format!("unavailable: {error}"))
 }
 
 pub(super) fn connect_session(
