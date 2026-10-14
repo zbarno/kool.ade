@@ -37,6 +37,26 @@ fn returned(entries: &[(&str, &[u8])]) -> Vec<u8> {
     builder.into_inner().unwrap()
 }
 
+fn returned_with_hard_link(path: &str, source: &str, target: &str) -> Vec<u8> {
+    let mut builder = Builder::new(Vec::new());
+    let mut file = Header::new_gnu();
+    file.set_entry_type(tar::EntryType::Regular);
+    file.set_path(source).unwrap();
+    file.set_size(7);
+    file.set_mode(0o644);
+    file.set_cksum();
+    builder.append(&file, Cursor::new(b"payload")).unwrap();
+    let mut link = Header::new_gnu();
+    link.set_entry_type(tar::EntryType::Link);
+    link.set_path(path).unwrap();
+    link.set_link_name(target).unwrap();
+    link.set_size(0);
+    link.set_mode(0o644);
+    link.set_cksum();
+    builder.append(&link, Cursor::new([])).unwrap();
+    builder.into_inner().unwrap()
+}
+
 fn traversal_returned(path: &str, bytes: &[u8]) -> Vec<u8> {
     let mut builder = Builder::new(Vec::new());
     let mut header = Header::new_gnu();
@@ -124,6 +144,39 @@ fn returned_archive_accepts_tar_dot_slash_prefixes() {
         entries.get(Path::new("output.txt")).unwrap().bytes,
         b"container output"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn returned_archive_materializes_bounded_hard_links_from_prior_files() {
+    let archive = returned_with_hard_link(
+        "./target/debug/deps/fixture",
+        "./target/debug/fixture",
+        "./target/debug/fixture",
+    );
+    let entries = super::archive::parse_returned(&archive, 16 * 1024, 10).unwrap();
+    assert_eq!(
+        entries
+            .get(Path::new("target/debug/deps/fixture"))
+            .unwrap()
+            .bytes,
+        b"payload"
+    );
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture(&workspace, 1024 * 1024, false).unwrap();
+    synchronize(&workspace, &snapshot, &archive, 1024 * 1024).unwrap();
+    assert_eq!(
+        fs::read(fixture.0.join("target/debug/deps/fixture")).unwrap(),
+        b"payload"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn returned_archive_rejects_hard_links_that_escape_the_workspace() {
+    let archive = returned_with_hard_link("inside", "source", "../outside");
+    assert!(super::archive::parse_returned(&archive, 16 * 1024, 10).is_err());
 }
 
 #[cfg(unix)]
