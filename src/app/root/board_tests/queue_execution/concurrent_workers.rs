@@ -238,7 +238,12 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
                 ),
                 _ => "project disconnected".into(),
             };
-            panic!("queue did not finish: {}; {progress}", app.queue_status());
+            let provider_trace = std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
+                .unwrap_or_else(|error| format!("trace unavailable: {error}"));
+            panic!(
+                "queue did not finish: {}; {progress}; provider_trace={provider_trace}",
+                app.queue_status()
+            );
         }
         std::thread::sleep(Duration::from_millis(20));
     }
