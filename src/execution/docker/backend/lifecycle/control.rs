@@ -168,7 +168,7 @@ pub(super) async fn cancel(
             Some(error.clone()),
             None,
             false,
-            true,
+            false,
         )?;
         return Err(error);
     }

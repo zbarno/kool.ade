@@ -128,8 +128,9 @@ time.sleep(0.3)
 ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
 affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
 output_path = next(line.strip().removeprefix('- ') for line in affected_section.splitlines() if line.strip().startswith('- '))
-criteria_section = ticket_text.split('## Acceptance criteria\n', 1)[1].split('\n## ', 1)[0]
-criteria = [line.strip().removeprefix('- ') for line in criteria_section.splitlines() if line.strip().startswith('- ')]
+# This fixture models the ticket's literal acceptance criterion. Keep this
+# independent of prompt formatting so it exercises report validation itself.
+criteria = ['File exists.']
 root = pathlib.Path(__file__).parent
 output = pathlib.Path(output_path)
 if output.name in ('task-1.rs', 'task-2.rs'):
