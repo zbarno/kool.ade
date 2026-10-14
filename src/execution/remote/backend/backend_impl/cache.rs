@@ -19,7 +19,7 @@ pub(super) fn stage<'a>(
                 EnvelopeKindV1::BeginCacheTransfer,
                 CONTROL_EXECUTION_ID,
                 serde_json::json!({"transfer_id": transfer_id, "cache_ref": snapshot.cache_ref, "manifest": snapshot.manifest}),
-            )?;
+            ).map_err(|error| transfer_error("begin", error))?;
         for (index, bytes) in snapshot
             .archive
             .chunks(crate::execution::remote::staging::MAX_TRANSFER_CHUNK_BYTES)
@@ -32,17 +32,35 @@ pub(super) fn stage<'a>(
                 bytes.to_vec(),
             )
             .map_err(|_| incompatible())?;
-            let _: crate::execution::remote::protocol::EnvelopeV1 = client.request(
-                EnvelopeKindV1::CacheTransferChunk,
-                CONTROL_EXECUTION_ID,
-                serde_json::json!({"chunk": chunk}),
-            )?;
+            let _: crate::execution::remote::protocol::EnvelopeV1 = client
+                .request(
+                    EnvelopeKindV1::CacheTransferChunk,
+                    CONTROL_EXECUTION_ID,
+                    serde_json::json!({"chunk": chunk}),
+                )
+                .map_err(|error| transfer_error("send chunk", error))?;
         }
-        let _: crate::execution::remote::protocol::EnvelopeV1 = client.request(
-            EnvelopeKindV1::FinalizeCacheTransfer,
-            CONTROL_EXECUTION_ID,
-            serde_json::json!({"transfer_id": transfer_id}),
-        )?;
+        let _: crate::execution::remote::protocol::EnvelopeV1 = client
+            .request(
+                EnvelopeKindV1::FinalizeCacheTransfer,
+                CONTROL_EXECUTION_ID,
+                serde_json::json!({"transfer_id": transfer_id}),
+            )
+            .map_err(|error| transfer_error("finalize", error))?;
         Ok(())
     })
+}
+
+fn transfer_error(
+    phase: &str,
+    error: crate::execution::errors::ExecutionError,
+) -> crate::execution::errors::ExecutionError {
+    crate::execution::errors::ExecutionError::new(
+        error.kind,
+        format!(
+            "Remote dependency cache transfer could not {phase}: {}",
+            error.message
+        ),
+        error.retryable,
+    )
 }
