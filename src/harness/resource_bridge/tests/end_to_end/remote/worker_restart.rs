@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::mpsc;
+use std::time::Duration;
 
 #[test]
 fn ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result() {
@@ -38,54 +38,31 @@ fn ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result() {
     )
     .unwrap();
 
-    let (started_tx, started_rx) = mpsc::channel();
     let generation = uuid::Uuid::new_v4().hyphenated().to_string();
-    let (authorization, active) =
-        authorization::RevocableAuthorization::new(generation, started_tx);
+    let (authorization, active) = authorization::RevocableAuthorization::new(generation);
     let session_a = Arc::new(two_controllers::connect_session(
         &task_clone,
         &worker,
         Arc::new(authorization),
     ));
     let running_session = session_a.clone();
-    let controller = std::thread::spawn(move || {
+    let mut controller = Some(std::thread::spawn(move || {
         running_session.run_tool_command(
             "printf 'restart-started\\n'; sleep 30; printf 'partial-stale-result\\n' > partial-result.txt",
             Duration::from_secs(120),
         )
-    });
-    started_rx
-        .recv_timeout(Duration::from_secs(90))
-        .expect("worker must acknowledge execution before disconnect");
-    let handle = session_a
-        .active_handle_for_test()
-        .expect("controller should retain the active execution handle");
-    let event_deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let events = crate::persistence::execution_records::load_events(
-            &handle.task_id,
-            &handle.execution_id,
-            crate::execution::contract::EventPageRequestV1::new(0, 256).unwrap(),
-        )
-        .expect("loopback worker event journal should be visible to the fixture");
-        if events.iter().any(|event| {
-            matches!(
-                &event.event,
-                crate::execution::contract::ExecutionEventKindV1::Stdout { chunk }
-                    if chunk.contains("restart-started")
-            )
-        }) {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < event_deadline,
-            "remote command did not start"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    }));
+    two_controllers::wait_for_remote_stdout(
+        &session_a,
+        "restart-started",
+        &mut controller,
+        &root.join("sshd.log"),
+    );
     session_a.terminate_remote_connection_for_test();
     active.store(false, std::sync::atomic::Ordering::Release);
     let interrupted = controller
+        .take()
+        .expect("controller should still be running")
         .join()
         .expect("controller thread should finish after worker restart");
     assert!(matches!(

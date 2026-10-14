@@ -1,29 +1,5 @@
 use super::*;
 use crate::core::task_claim::{ClaimLease, ClaimLeaseHandle, ClaimRecord};
-use crate::execution::errors::ExecutionError;
-use crate::execution::session::AuthorizationGenerationVerifier;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-#[derive(Debug)]
-struct ClaimAcknowledgement {
-    claim: ClaimLeaseHandle,
-    checks: AtomicUsize,
-    started: std::sync::mpsc::Sender<()>,
-}
-
-impl AuthorizationGenerationVerifier for ClaimAcknowledgement {
-    fn generation(&self) -> String {
-        self.claim.generation()
-    }
-
-    fn verify(&self, generation: &str) -> Result<(), ExecutionError> {
-        AuthorizationGenerationVerifier::verify(&self.claim, generation)?;
-        if self.checks.fetch_add(1, Ordering::AcqRel) == 4 {
-            let _ = self.started.send(());
-        }
-        Ok(())
-    }
-}
 
 #[test]
 fn git_claim_takeover_fences_the_stale_remote_worker_result() {
@@ -60,12 +36,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
         .expect("the first controller must acquire the Git-backed claim");
     let old_record = lease_a.record().unwrap().clone();
     let old_session = old_record.session_id.clone();
-    let (started_tx, started_rx) = std::sync::mpsc::channel();
-    let verifier_a = Arc::new(ClaimAcknowledgement {
-        claim: ClaimLeaseHandle::new(lease_a),
-        checks: AtomicUsize::new(0),
-        started: started_tx,
-    });
+    let verifier_a = Arc::new(ClaimLeaseHandle::new(lease_a));
 
     let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
@@ -88,15 +59,18 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
         &task_id,
     ));
     let run_a = session_a.clone();
-    let stale_controller = std::thread::spawn(move || {
+    let mut stale_controller = Some(std::thread::spawn(move || {
         run_a.run_tool_command(
             "printf 'stale-worker-started\\n'; sleep 5; printf 'stale-result\\n' > stale-result.txt",
             Duration::from_secs(120),
         )
-    });
-    started_rx
-        .recv_timeout(Duration::from_secs(90))
-        .expect("the stale worker must start under its active Git claim");
+    }));
+    super::two_controllers::wait_for_remote_stdout(
+        &session_a,
+        "stale-worker-started",
+        &mut stale_controller,
+        &root.join("sshd.log"),
+    );
 
     // Install a genuinely expired Git claim object at the shared claim ref,
     // then perform takeover through the production CAS-backed API.
@@ -161,6 +135,8 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
     );
 
     let stale_result = stale_controller
+        .take()
+        .expect("stale controller should still be running")
         .join()
         .expect("stale controller thread should not panic");
     assert!(matches!(
