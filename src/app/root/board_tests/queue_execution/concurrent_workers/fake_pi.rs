@@ -126,7 +126,8 @@ if typed_marker in prompt:
         reports = [item for item in evidence if item['id'].startswith('verified-test-report-')]
         diffs = [item for item in evidence if item['id'].startswith('diff-')]
         assert reports and diffs
-        assert all('File exists.' in requirement for requirement in payload['requirements_matrix'])
+        assert (payload['requirements_matrix'] == ['approved-task-scope:' + typed['task_uid']] or
+                all('File exists.' in requirement for requirement in payload['requirements_matrix']))
         assert 'implemented' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
         assert 'complete' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
         verdict = {'subject_hash': payload['subject_hash'], 'pass': True,
@@ -228,3 +229,7 @@ print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason
     std::fs::set_permissions(&pi, std::fs::Permissions::from_mode(0o700)).unwrap();
     pi
 }
+
+#[cfg(test)]
+#[path = "fake_pi/tests.rs"]
+mod tests;
