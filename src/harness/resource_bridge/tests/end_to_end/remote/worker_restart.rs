@@ -25,7 +25,7 @@ fn ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result() {
     fs::write(repository.join("README.md"), "synthetic restart fixture\n").unwrap();
     support::commit(&repository);
     let task_clone = support::create_task_clone(&repository, &task_home_path, "worker-restart");
-    let worker_id = format!("worker-{}", uuid::Uuid::new_v4().simple());
+    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for worker restart E2E");
     sshd.restore_known_host(&worker_id).unwrap();

@@ -67,7 +67,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
         started: started_tx,
     });
 
-    let worker_id = format!("worker-{}", uuid::Uuid::new_v4().simple());
+    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for claim takeover E2E");
     sshd.restore_known_host(&worker_id).unwrap();
