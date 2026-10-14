@@ -163,7 +163,6 @@ impl QaDriverContainerSpec<'_> {
                 privileged: Some(false),
                 readonly_rootfs: Some(true),
                 network_mode: Some(network_mode),
-                pid_mode: Some("private".into()),
                 ipc_mode: Some("private".into()),
                 cap_drop: Some(vec!["ALL".into()]),
                 cap_add: Some(Vec::new()),

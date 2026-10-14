@@ -17,7 +17,9 @@ mod helpers;
 mod release;
 pub(super) use cancel::cancel_persisted;
 pub(super) use events::events;
-pub(super) use helpers::{disconnected, operation_timeout, result, terminal, verify_owned};
+pub(super) use helpers::{
+    disconnected, operation_disconnected, operation_timeout, result, terminal, verify_owned,
+};
 use release::release_persisted;
 
 fn load_record(
@@ -214,14 +216,18 @@ pub(super) async fn release(
         backend.docker.remove_container(
             &container_id,
             Some(RemoveContainerOptions {
-                force: false,
+                // Terminal execution can leave the long-lived workspace
+                // keeper process running after its exec process has exited.
+                // Ownership was verified above, so force removal is bounded
+                // and avoids leaking that container.
+                force: true,
                 ..Default::default()
             }),
         ),
     )
     .await
     .map_err(|_| operation_timeout())?
-    .map_err(|_| disconnected())?;
+    .map_err(|error| operation_disconnected("remove the execution container", &error))?;
     {
         let mut state = execution.lock().map_err(|_| internal_error())?;
         state.cleanup_complete = true;

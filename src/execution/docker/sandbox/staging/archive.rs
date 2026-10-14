@@ -43,8 +43,14 @@ pub(super) fn parse_returned(
     let mut total = 0_u64;
     for entry in archive.entries()? {
         let entry = entry?;
-        let path = entry.path()?.into_owned();
-        if path == Path::new(".") {
+        let raw_path = entry.path()?.into_owned();
+        // `tar -C /workspace .` prefixes entries with `./`. Normalize that
+        // conventional prefix before applying the stricter workspace checks.
+        let path = raw_path
+            .strip_prefix("./")
+            .unwrap_or(&raw_path)
+            .to_path_buf();
+        if path.as_os_str().is_empty() || path == Path::new(".") {
             continue;
         }
         validate_relative(&path)?;

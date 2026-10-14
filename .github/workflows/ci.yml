@@ -51,6 +51,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes openssh-server socat
+          fixture_password="$(openssl rand -hex 32)"
+          printf '%s:%s\n' "$USER" "$fixture_password" | sudo chpasswd
+          unset fixture_password
           sudo install -d -o root -g root -m 0755 /run/sshd
           command -v /usr/sbin/sshd
           test -d /run/sshd

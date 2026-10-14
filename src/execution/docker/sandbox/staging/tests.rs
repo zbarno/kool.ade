@@ -117,6 +117,17 @@ fn returned_archive_excludes_nested_git_metadata() {
 
 #[cfg(unix)]
 #[test]
+fn returned_archive_accepts_tar_dot_slash_prefixes() {
+    let archive = returned(&[("./output.txt", b"container output")]);
+    let entries = super::archive::parse_returned(&archive, 16 * 1024, 10).unwrap();
+    assert_eq!(
+        entries.get(Path::new("output.txt")).unwrap().bytes,
+        b"container output"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn synchronization_preserves_host_files() {
     let fixture = Fixture::new();
     let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();

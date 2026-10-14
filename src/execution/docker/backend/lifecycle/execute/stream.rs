@@ -9,7 +9,7 @@ use futures_util::{Stream, StreamExt};
 use super::super::runtime::RuntimeExecution;
 use crate::execution::{contract::ExecutionEventKindV1, errors::ExecutionError};
 
-use super::state::{disconnected, output_limit_error};
+use super::state::{operation_disconnected, output_limit_error};
 
 pub(super) async fn collect_output(
     mut output: Pin<Box<dyn Stream<Item = Result<LogOutput, bollard::errors::Error>> + Send>>,
@@ -17,7 +17,7 @@ pub(super) async fn collect_output(
     budget: u64,
 ) -> Result<(), ExecutionError> {
     while let Some(item) = output.next().await {
-        let output = item.map_err(|_| disconnected())?;
+        let output = item.map_err(|error| operation_disconnected("read command output", &error))?;
         let (stderr, bytes) = match output {
             LogOutput::StdOut { message } => (false, message),
             LogOutput::StdErr { message } => (true, message),
