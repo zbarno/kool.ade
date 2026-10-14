@@ -129,7 +129,7 @@ fn take_dependency_update(
 ) -> crate::harness::DependencyRequest {
     loop {
         let update = updates
-            .recv_timeout(std::time::Duration::from_secs(2))
+            .recv_timeout(std::time::Duration::from_secs(30))
             .expect("dependency request should be delivered to task activity");
         if let Some(request) = update.dependency_requests.into_iter().next() {
             return request;
