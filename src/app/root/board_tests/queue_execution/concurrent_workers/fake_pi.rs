@@ -116,6 +116,8 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
 if ticket_line is None:
+    with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
+        trace_file.write(json.dumps({'role':'planning','tools':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
     deadline = time.time() + 45
     while not (root / '004-task.started').exists() and time.time() < deadline:
         time.sleep(0.05)
@@ -123,6 +125,9 @@ if ticket_line is None:
     report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Planning fixture while independent workers run.','acceptance_criteria':[{'criterion':'The task remains available during planning.','evidence':'Independent workers remain active.'}],'verification':['Observed active workers.'],'remaining':[],'human_choices':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
+tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
+tool_names = {name.strip() for name in tool_args.split(',')}
+assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; argv=' + repr(sys.argv)
 time.sleep(0.3)
 ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
 affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
