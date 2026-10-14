@@ -1,5 +1,7 @@
+use fs2::FileExt;
 use std::{
     fs,
+    fs::OpenOptions,
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
@@ -30,6 +32,15 @@ impl SshdFixture {
             std::io::Error::new(std::io::ErrorKind::NotFound, "sshd was not found")
         })?;
         let username = command_text("id", &["-un"])?;
+        // nextest runs these integration tests in separate processes. Hold a
+        // process-shared lock until sshd has bound the selected ephemeral port.
+        let port_lock_path = std::env::temp_dir().join("koolade-sshd-fixture-port.lock");
+        let port_lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(port_lock_path)?;
+        port_lock.lock_exclusive()?;
         let port_listener = TcpListener::bind(("127.0.0.1", 0))?;
         let port = port_listener.local_addr()?.port();
         drop(port_listener);
@@ -83,6 +94,7 @@ impl SshdFixture {
             format!(
                 "ListenAddress 127.0.0.1\n\
                  Port {port}\n\
+                 LogLevel VERBOSE\n\
                  HostKey {}\n\
                  PidFile {}\n\
                  AuthorizedKeysFile {}\n\
@@ -114,7 +126,7 @@ impl SshdFixture {
             .arg(&config)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::from(fs::File::create(root.join("sshd.log"))?));
         let child = command.spawn()?;
 
         let ssh_config = root.join("ssh_config");
@@ -139,6 +151,7 @@ impl SshdFixture {
             host_fingerprint,
         };
         fixture.wait_ready()?;
+        FileExt::unlock(&port_lock)?;
         Ok(fixture)
     }
 
@@ -171,6 +184,22 @@ impl SshdFixture {
             .expect("real SSH client should start")
     }
 
+    pub(super) fn verify_client_authentication(&self) -> std::io::Result<()> {
+        let output = Command::new(&self.ssh_wrapper)
+            .args(["fixture-host", "true"])
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let daemon_log = fs::read_to_string(self.root.join("sshd.log"))
+            .unwrap_or_else(|error| format!("could not read sshd log: {error}"));
+        Err(std::io::Error::other(format!(
+            "fixture SSH authentication failed: client_stderr={:?}; server_log={:?}",
+            String::from_utf8_lossy(&output.stderr),
+            daemon_log.lines().rev().take(20).collect::<Vec<_>>()
+        )))
+    }
+
     pub(super) fn write_wrong_known_host(&self, worker_id: &str) -> std::io::Result<()> {
         fs::write(
             &self.known_hosts,
@@ -195,8 +224,10 @@ impl SshdFixture {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             if let Some(status) = self.child.try_wait()? {
+                let diagnostics = fs::read_to_string(self.root.join("sshd.log"))
+                    .unwrap_or_else(|error| format!("could not read sshd log: {error}"));
                 return Err(std::io::Error::other(format!(
-                    "sshd exited before readiness with {status}; executable={} port={} host_key={} root={}",
+                    "sshd exited before readiness with {status}; executable={} port={} host_key={} root={}; stderr={diagnostics:?}",
                     self.sshd.display(),
                     self.port,
                     self.host_key.display(),

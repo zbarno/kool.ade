@@ -188,7 +188,11 @@ fn wait_for_click_observation(
     ignore_click: bool,
     owner_pids: &std::collections::BTreeSet<u32>,
 ) -> Result<super::display::WindowInfo, String> {
-    let deadline = Instant::now() + Duration::from_millis(400);
+    // The fixture runs under the same CPU and PID limits as a real QA session;
+    // X11 event delivery can lag on a loaded hosted runner after the synthetic
+    // click has been sent. Keep this bounded, but give the event loop time to
+    // observe the resulting title change.
+    let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let window = display
             .windows(owner_pids)?
@@ -206,7 +210,10 @@ fn wait_for_click_observation(
             if ignore_click {
                 return Ok(window);
             }
-            return Err("desktop fixture did not respond to the actual mouse click".into());
+            return Err(format!(
+                "desktop fixture did not respond to the actual mouse click; observed title {:?} at {},{} size {}x{}",
+                window.title, window.x, window.y, window.width, window.height
+            ));
         }
         thread::sleep(Duration::from_millis(20));
     }

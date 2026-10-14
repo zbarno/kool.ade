@@ -157,12 +157,17 @@ impl ExecutionSession {
         let allowed_service_ports = BTreeSet::new();
         let policy = match policy_override {
             Some(policy) => policy,
-            None => ExecutionPolicyV1::for_mode(
-                self.mode,
-                self.resources.clone(),
-                allowed_service_ports.clone(),
-            )
-            .map_err(|_| policy_error("Execution mode does not permit this command"))?,
+            None => {
+                let policy = ExecutionPolicyV1::for_mode(
+                    self.mode,
+                    self.resources.clone(),
+                    allowed_service_ports.clone(),
+                )
+                .map_err(|_| policy_error("Execution mode does not permit this command"))?;
+                // Scoped writes are only meaningful with the exact recipe
+                // authorization supplied by run_scoped_recipe.
+                policy.without_scoped_workspace_write()
+            }
         };
         let request = ExecutionRequestV1 {
             schema_version: 1,
@@ -193,9 +198,9 @@ impl ExecutionSession {
             request_sequence,
             policy,
         };
-        request
-            .validate_at(now_unix_ms())
-            .map_err(|_| policy_error("Execution request failed validation"))?;
+        request.validate_at(now_unix_ms()).map_err(|error| {
+            policy_error(&format!("Execution request failed validation: {error:#}"))
+        })?;
         Ok(request)
     }
 
