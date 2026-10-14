@@ -137,7 +137,11 @@ PY
           ([.interaction_case.actions[].action] | index("keyboard_type") != null) and
           .seeded_defect_case.click_assertion == "failed" and
           .seeded_defect_case.defect_detected == true and
-          .seeded_defect_case.actions[0].status == "failed"'
+          .seeded_defect_case.actions[0].status == "failed" and
+          .interaction_case.foreign_window_excluded == true and
+          .interaction_case.foreign_window_action_rejected == true and
+          .native_control_visibility.visible == "region visible" and
+          .native_control_visibility.absent == "region not visible"'
     python3 - "$fixture_evidence" "$output_directory" <<'PY'
 import base64, hashlib, json, pathlib, sys
 evidence = json.loads(pathlib.Path(sys.argv[1]).read_text())

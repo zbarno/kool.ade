@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     io::{BufRead, BufReader},
     os::unix::{fs::PermissionsExt, process::CommandExt},
     process::{Child, Command, Stdio},
@@ -80,12 +81,45 @@ impl TargetProcess {
             .map_err(|error| format!("could not inspect QA target process: {error}"))
     }
 
+    pub(super) fn owned_pids(&self) -> BTreeSet<u32> {
+        descendants(self.child.id())
+    }
+
     pub(super) fn logs(&self) -> Vec<String> {
         self.logs
             .lock()
             .map(|logs| logs.clone())
             .unwrap_or_default()
     }
+}
+
+pub(super) fn descendants(root: u32) -> BTreeSet<u32> {
+    let mut result = BTreeSet::from([root]);
+    let mut pending = vec![root];
+    while let Some(pid) = pending.pop() {
+        if result.len() >= 4096 {
+            break;
+        }
+        let tasks = format!("/proc/{pid}/task");
+        let Ok(tasks) = std::fs::read_dir(tasks) else {
+            continue;
+        };
+        for task in tasks.flatten() {
+            let path = task.path().join("children");
+            let Ok(children) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            for child in children
+                .split_whitespace()
+                .filter_map(|value| value.parse::<u32>().ok())
+            {
+                if result.insert(child) {
+                    pending.push(child);
+                }
+            }
+        }
+    }
+    result
 }
 
 impl Drop for TargetProcess {
