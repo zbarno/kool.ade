@@ -16,6 +16,7 @@ pub(super) fn action_platform(action: &QaDriverActionV1) -> Option<QaPlatform> {
         | QaDriverActionV1::Screenshot
         | QaDriverActionV1::ReadAppLogs
         | QaDriverActionV1::CloseWindow { .. } => Some(QaPlatform::LinuxDesktop),
+        QaDriverActionV1::AssertRegionVisible { .. } => Some(QaPlatform::LinuxDesktop),
         QaDriverActionV1::WaitForVisible { .. }
         | QaDriverActionV1::NavigateAllowedUrl { .. }
         | QaDriverActionV1::FindByRole { .. }

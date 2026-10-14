@@ -13,6 +13,9 @@ use super::{
     process::TargetProcess,
 };
 
+mod expectation;
+pub(super) use expectation::expected_state_met;
+
 const DRIVER_VERSION: &str = "linux-x11-driver/v1";
 pub(crate) fn run(
     request: &QaRunRequestV1,
@@ -64,7 +67,11 @@ pub(crate) fn run(
             break;
         }
         let command = action_name(&step.driver_action);
-        let before = actions::describe_windows(&display.windows().unwrap_or_default());
+        let owner_pids = process
+            .as_ref()
+            .map(TargetProcess::owned_pids)
+            .unwrap_or_default();
+        let before = actions::window::describe(&display.windows(&owner_pids).unwrap_or_default());
         if matches!(step.driver_action, QaDriverActionV1::LaunchValidatedTarget) {
             if process.is_some() {
                 output.failure =
@@ -93,6 +100,10 @@ pub(crate) fn run(
             &display,
             step,
             deadline.saturating_duration_since(Instant::now()),
+            &process
+                .as_ref()
+                .map(TargetProcess::owned_pids)
+                .unwrap_or_default(),
         );
         let (post_state, screenshot_requested) = match result {
             Ok(ActionResult::State(value)) => (Some(value), false),
@@ -220,10 +231,6 @@ pub(crate) fn run(
     Ok(output)
 }
 
-pub(super) fn expected_state_met(expected: &str, observed: &str) -> bool {
-    observed.to_lowercase().contains(&expected.to_lowercase())
-}
-
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -237,6 +244,7 @@ fn action_name(action: &QaDriverActionV1) -> &'static str {
         QaDriverActionV1::LaunchValidatedTarget => "launch_validated_target",
         QaDriverActionV1::WaitForWindow => "wait_for_window",
         QaDriverActionV1::ListWindows => "list_windows",
+        QaDriverActionV1::AssertRegionVisible { .. } => "assert_region_visible",
         QaDriverActionV1::FocusWindow { .. } => "focus_window",
         QaDriverActionV1::ResizeWindow { .. } => "resize_window",
         QaDriverActionV1::Click { .. } => "click",
@@ -273,21 +281,17 @@ fn redacted_arguments(action: &QaDriverActionV1) -> std::collections::BTreeMap<S
         | QaDriverActionV1::CloseWindow { window_id } => {
             result.insert("window_id".into(), window_id.clone());
         }
+        QaDriverActionV1::AssertRegionVisible {
+            window_id,
+            x,
+            y,
+            width,
+            height,
+        } => {
+            result.insert("window_id".into(), window_id.clone());
+            result.insert("region".into(), format!("{x},{y},{width},{height}"));
+        }
         _ => {}
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::expected_state_met;
-
-    #[test]
-    fn observed_desktop_state_mismatch_is_not_treated_as_unobserved() {
-        assert!(expected_state_met("window visible", "main window visible"));
-        assert!(!expected_state_met(
-            "saved confirmation",
-            "clicked window 123 at 5,5"
-        ));
-    }
 }
