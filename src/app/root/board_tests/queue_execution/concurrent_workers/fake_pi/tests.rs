@@ -60,3 +60,44 @@ fn reviewer_fixture_covers_explicit_and_task_scope_requirements() {
         .unwrap();
     }
 }
+
+#[test]
+fn planner_fixture_returns_the_expected_conversation_message() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    std::fs::write(root.path().join("004-task.started"), "").unwrap();
+    let mut child = Command::new(&pi)
+        .env_remove("KOOLADE_MCP_ARGS")
+        .env_remove("KOOLADE_MCP_COMMAND")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"Can we discuss planning while the task runs?")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let reply = envelope["messages"][0]["content"][0]["text"]
+        .as_str()
+        .unwrap();
+    let turn = crate::harness::responses::decode_turn(
+        reply,
+        crate::core::workflow::TurnPurpose::Interview,
+    )
+    .unwrap();
+    assert_eq!(
+        turn.assistant(),
+        "Planning fixture: I can discuss this while the worker runs."
+    );
+    assert!(turn.document_updates.unwrap().is_empty());
+}

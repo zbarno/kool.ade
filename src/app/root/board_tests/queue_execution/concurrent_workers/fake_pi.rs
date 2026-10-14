@@ -153,7 +153,7 @@ if ticket_line is None and not implementation_call:
     while not (root / '004-task.started').exists() and time.time() < deadline:
         time.sleep(0.05)
     time.sleep(0.25)
-    report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Planning fixture while independent workers run.','acceptance_criteria':[{'criterion':'The task remains available during planning.','evidence':'Independent workers remain active.'}],'verification':['Observed active workers.'],'remaining':[],'human_choices':[]}
+    report = {'schema_version':2,'assistant_message':'Planning fixture: I can discuss this while the worker runs.','document_updates':[],'open_items_added':[],'open_items_updated':[],'open_items_resolved':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
 assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; tools=' + repr(tool_args)
