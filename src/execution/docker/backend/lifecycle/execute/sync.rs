@@ -92,10 +92,7 @@ async fn download_workspace(
             ));
         }
     };
-    let StartExecResults::Attached {
-        mut output,
-        mut input,
-    } = backend
+    let started = match backend
         .docker
         .start_exec(
             &exec.id,
@@ -106,9 +103,23 @@ async fn download_workspace(
             }),
         )
         .await
-        .map_err(|error| {
-            super::state::operation_disconnected("start the workspace archive command", &error)
-        })?
+    {
+        Ok(started) => started,
+        Err(bollard::errors::Error::DockerResponseServerError {
+            status_code: 404 | 409,
+            ..
+        }) => return download_stopped_workspace(backend, container_id, limit).await,
+        Err(error) => {
+            return Err(super::state::operation_disconnected(
+                "start the workspace archive command",
+                &error,
+            ));
+        }
+    };
+    let StartExecResults::Attached {
+        mut output,
+        mut input,
+    } = started
     else {
         return Err(ExecutionError::new(
             ExecutionErrorKind::WorkerDisconnected,
@@ -150,20 +161,22 @@ async fn download_workspace(
             _ => {}
         }
     }
-    let exit_code = tokio::time::timeout(Duration::from_secs(5), async {
+    let inspection = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let status = backend
-                .docker
-                .inspect_exec(&exec.id)
-                .await
-                .map_err(|error| {
-                    super::state::operation_disconnected(
+            let status = match backend.docker.inspect_exec(&exec.id).await {
+                Ok(status) => status,
+                Err(bollard::errors::Error::DockerResponseServerError {
+                    status_code: 404, ..
+                }) => return Ok::<_, ExecutionError>(None),
+                Err(error) => {
+                    return Err(super::state::operation_disconnected(
                         "inspect the workspace archive command",
                         &error,
-                    )
-                })?;
+                    ));
+                }
+            };
             if status.running == Some(false) || status.exit_code.is_some() {
-                return Ok::<_, ExecutionError>(status.exit_code);
+                return Ok(Some(status.exit_code));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -176,6 +189,12 @@ async fn download_workspace(
             true,
         )
     })??;
+    let Some(exit_code) = inspection else {
+        // Container cancellation or teardown can remove the short-lived exec
+        // before Docker's inspect endpoint returns its final status. The
+        // stopped container still exposes the completed workspace snapshot.
+        return download_stopped_workspace(backend, container_id, limit).await;
+    };
     if exit_code != Some(0) {
         let detail = stderr_summary(&stderr_tail);
         return Err(ExecutionError::new(
