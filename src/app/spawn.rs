@@ -117,7 +117,9 @@ mod tests {
         std::fs::write(&script, format!("#!/bin/sh\npwd > {}\n", output.display())).unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         spawn_sibling_in(&script, &dir).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
+        // The child is launched asynchronously, so allow for loaded parallel
+        // test runners to schedule it without making this poll unbounded.
+        let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline && !output.exists() {
             std::thread::sleep(Duration::from_millis(20));
         }

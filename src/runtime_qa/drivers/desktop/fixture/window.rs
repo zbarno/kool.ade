@@ -13,6 +13,7 @@ const HEIGHT: u16 = 360;
 
 pub(crate) fn run() -> Result<(), String> {
     let ignore_click = std::env::var("QA_FIXTURE_IGNORE_CLICK").as_deref() == Ok("1");
+    let hide_control = std::env::var("QA_FIXTURE_HIDE_CONTROL").as_deref() == Ok("1");
     let (connection, screen) = RustConnection::connect(Some(":99"))
         .map_err(|error| format!("fixture could not connect to private Xvfb: {error}"))?;
     let screen_info = &connection.setup().roots[screen];
@@ -36,7 +37,8 @@ pub(crate) fn run() -> Result<(), String> {
         .map_err(x11_error)?
         .check()
         .map_err(x11_error)?;
-    let mut state = "Ready".to_owned();
+    let identity = std::env::var("QA_FIXTURE_TITLE").unwrap_or_else(|_| "Target".into());
+    let mut state = format!("{identity}:Ready");
     set_title(&connection, window, &state)?;
     let font = connection.generate_id().map_err(x11_error)?;
     connection
@@ -67,15 +69,17 @@ pub(crate) fn run() -> Result<(), String> {
     connection.flush().map_err(x11_error)?;
     loop {
         match connection.wait_for_event().map_err(x11_error)? {
-            x11rb::protocol::Event::Expose(_) => draw(&connection, window, gc, &state)?,
+            x11rb::protocol::Event::Expose(_) => {
+                draw(&connection, window, gc, &state, hide_control)?
+            }
             x11rb::protocol::Event::ButtonPress(event) => {
                 if (20..220).contains(&event.event_x)
                     && (36..88).contains(&event.event_y)
                     && !ignore_click
                 {
-                    state = "Clicked".into();
+                    state = format!("{identity}:Clicked");
                     set_title(&connection, window, &state)?;
-                    draw(&connection, window, gc, &state)?;
+                    draw(&connection, window, gc, &state, hide_control)?;
                 }
             }
             x11rb::protocol::Event::KeyPress(event) => {
@@ -87,10 +91,13 @@ pub(crate) fn run() -> Result<(), String> {
                 if let Some(keysym) = keymap.keysyms.first().copied()
                     && let Some(character) = char::from_u32(keysym).filter(char::is_ascii_lowercase)
                 {
-                    let previous = state.strip_prefix("Typed:").unwrap_or("");
-                    state = format!("Typed:{previous}{character}");
+                    let previous = state
+                        .split_once(":Typed:")
+                        .map(|(_, value)| value)
+                        .unwrap_or("");
+                    state = format!("{identity}:Typed:{previous}{character}");
                     set_title(&connection, window, &state)?;
-                    draw(&connection, window, gc, &state)?;
+                    draw(&connection, window, gc, &state, hide_control)?;
                 }
             }
             _ => {}
@@ -112,7 +119,13 @@ fn set_title(connection: &RustConnection, window: u32, value: &str) -> Result<()
         .map_err(x11_error)
 }
 
-fn draw(connection: &RustConnection, window: u32, gc: u32, state: &str) -> Result<(), String> {
+fn draw(
+    connection: &RustConnection,
+    window: u32,
+    gc: u32,
+    state: &str,
+    hide_control: bool,
+) -> Result<(), String> {
     connection
         .clear_area(false, window, 0, 0, WIDTH, HEIGHT)
         .map_err(x11_error)?
@@ -123,25 +136,29 @@ fn draw(connection: &RustConnection, window: u32, gc: u32, state: &str) -> Resul
         .map_err(x11_error)?
         .check()
         .map_err(x11_error)?;
-    connection
-        .poly_rectangle(
-            window,
-            gc,
-            &[Rectangle {
-                x: 20,
-                y: 36,
-                width: 200,
-                height: 52,
-            }],
-        )
-        .map_err(x11_error)?
-        .check()
-        .map_err(x11_error)?;
-    connection
-        .image_text8(window, gc, 35, 68, b"CLICK")
-        .map_err(x11_error)?
-        .check()
-        .map_err(x11_error)?;
+    if !hide_control {
+        connection
+            .poly_rectangle(
+                window,
+                gc,
+                &[Rectangle {
+                    x: 20,
+                    y: 36,
+                    width: 200,
+                    height: 52,
+                }],
+            )
+            .map_err(x11_error)?
+            .check()
+            .map_err(x11_error)?;
+    }
+    if !hide_control {
+        connection
+            .image_text8(window, gc, 35, 68, b"CLICK")
+            .map_err(x11_error)?
+            .check()
+            .map_err(x11_error)?;
+    }
     connection
         .image_text8(window, gc, 24, 130, state.as_bytes())
         .map_err(x11_error)?

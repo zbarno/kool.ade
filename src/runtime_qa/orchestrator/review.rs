@@ -262,6 +262,7 @@ fn action_label(action: &super::super::QaDriverActionV1) -> &'static str {
         Action::KeyChord { .. } => "send an approved keyboard chord",
         Action::Scroll { .. } => "scroll the application window",
         Action::WaitForVisible { .. } => "wait for a visible element",
+        Action::AssertRegionVisible { .. } => "assert native control region is visible",
         Action::NavigateAllowedUrl { .. } | Action::BrowserOpen { .. } => "open an allowed app URL",
         Action::FindByRole { .. } => "find an element by role",
         Action::FindByTestId { .. } => "find an element by test ID",

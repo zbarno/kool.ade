@@ -14,6 +14,7 @@ use api::{pending_at, record_completion_at, save_pending_at, take_completion_at}
 
 const MAX_PENDING: usize = 4096;
 const MAX_RECORD_BYTES: u64 = 2 * 1024 * 1024;
+pub(crate) const REPLAY_RETENTION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

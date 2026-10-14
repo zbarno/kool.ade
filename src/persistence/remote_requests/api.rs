@@ -50,7 +50,29 @@ pub(super) fn pending_at(
     if !directory.exists() {
         return Ok(Vec::new());
     }
-    load_pending_dir(&directory, worker_id)
+    let now = crate::persistence::harness_settings::current_unix_ms();
+    let mut active = Vec::new();
+    for request in load_pending_dir(&directory, worker_id)? {
+        if now.saturating_sub(request.created_at_unix_ms) > super::REPLAY_RETENTION_MS {
+            let error = crate::execution::errors::ExecutionError::new(
+                crate::execution::errors::ExecutionErrorKind::WorkerIncompatible,
+                "Remote request replay retention expired before the worker replied",
+                false,
+            );
+            let response = crate::execution::remote::protocol::EnvelopeV1 {
+                version: request.envelope.version,
+                request_id: request.envelope.request_id.clone(),
+                execution_id: request.envelope.execution_id.clone(),
+                sequence: request.envelope.sequence,
+                kind: crate::execution::remote::protocol::EnvelopeKindV1::Error,
+                payload: serde_json::to_value(error)?,
+            };
+            record_completion_at(root, worker_id, &request.envelope.request_id, &response)?;
+        } else {
+            active.push(request);
+        }
+    }
+    Ok(active)
 }
 
 pub fn record_completion(

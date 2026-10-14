@@ -10,6 +10,11 @@ pub const PROVIDERS: [&str; 6] = [
 ];
 
 pub fn discover_provider(id: &str, runtime_available: bool) -> HarnessProbe {
+    let report = discover_provider_unbounded(id, runtime_available);
+    super::bounds::bound_report(report)
+}
+
+fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProbe {
     match id {
         "pi" => {
             let pi = crate::harness::PiHarness::probe_report();
