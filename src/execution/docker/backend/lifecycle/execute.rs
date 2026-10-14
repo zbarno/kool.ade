@@ -5,8 +5,9 @@ mod cleanup;
 mod initial;
 mod state;
 mod stream;
+mod termination;
+pub(super) use termination::terminate_and_sync;
 mod sync;
-pub(super) use sync::sync_workspace;
 pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_write_enabled;
 
 use crate::execution::{
@@ -149,26 +150,19 @@ pub(super) async fn run(
     match tokio::time::timeout(stream_budget, collect).await {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
-            let cleanup = cleanup::stop_owned(backend, &container_id, &handle.execution_id).await;
-            let mut failure = cleanup
-                .as_ref()
-                .err()
-                .cloned()
-                .unwrap_or_else(|| error.clone());
-            if cleanup.is_ok()
-                && let Err(sync_error) = sync::sync_workspace(
-                    backend,
-                    &container_id,
-                    &workspace,
-                    snapshot.as_ref(),
-                    request.resource_budget.temporary_disk_bytes,
-                    sync::workspace_write_enabled(request),
-                    &request.authorization_generation,
-                )
-                .await
-            {
-                failure = sync_error;
+            let cleanup = sync::terminate_if_active(
+                &execution,
+                backend,
+                &container_id,
+                &workspace,
+                snapshot.as_ref(),
+                request,
+            )
+            .await;
+            if matches!(cleanup, Ok(false)) {
+                return Ok(());
             }
+            let failure = cleanup.as_ref().err().cloned().unwrap_or(error);
             state::finish(
                 &execution,
                 if cleanup.is_ok() {
@@ -184,28 +178,25 @@ pub(super) async fn run(
             return Err(failure);
         }
         Err(_) => {
-            let cleanup = cleanup::stop_owned(backend, &container_id, &handle.execution_id).await;
-            let mut failure = cleanup.as_ref().err().cloned().unwrap_or_else(|| {
+            let cleanup = sync::terminate_if_active(
+                &execution,
+                backend,
+                &container_id,
+                &workspace,
+                snapshot.as_ref(),
+                request,
+            )
+            .await;
+            if matches!(cleanup, Ok(false)) {
+                return Ok(());
+            }
+            let failure = cleanup.as_ref().err().cloned().unwrap_or_else(|| {
                 ExecutionError::new(
                     ExecutionErrorKind::DeadlineExceeded,
                     "Execution exceeded its deadline",
                     false,
                 )
             });
-            if cleanup.is_ok()
-                && let Err(sync_error) = sync::sync_workspace(
-                    backend,
-                    &container_id,
-                    &workspace,
-                    snapshot.as_ref(),
-                    request.resource_budget.temporary_disk_bytes,
-                    sync::workspace_write_enabled(request),
-                    &request.authorization_generation,
-                )
-                .await
-            {
-                failure = sync_error;
-            }
             state::finish(
                 &execution,
                 if cleanup.is_ok() {
@@ -279,16 +270,34 @@ pub(super) async fn run(
         )?;
         return Ok(());
     };
-    // Cancellation owns the final workspace snapshot. The attached exec
-    // stream also reaches this path after Docker stops the container; skip its
-    // second sync while cancel() is synchronizing the stopped workspace.
-    if execution
-        .lock()
-        .map_err(|_| internal_error())?
-        .cancellation_requests
-        .load(std::sync::atomic::Ordering::Acquire)
-        > 0
+    let synced = match sync::sync_workspace_if_active(
+        &execution,
+        sync::WorkspaceSyncRequest {
+            backend,
+            container_id: &container_id,
+            workspace: &workspace,
+            snapshot: snapshot.as_ref(),
+            budget: request.resource_budget.temporary_disk_bytes,
+            writable: sync::workspace_write_enabled(request),
+            authorization_generation: &request.authorization_generation,
+        },
+    )
+    .await
     {
+        Ok(synced) => synced,
+        Err(error) => {
+            state::finish(
+                &execution,
+                ExecutionLifecycleV1::Failed,
+                Some(error.clone()),
+                Some(code),
+                false,
+                false,
+            )?;
+            return Err(error);
+        }
+    };
+    if !synced {
         return Ok(());
     }
     let failure = (code != 0).then(|| {
@@ -298,27 +307,6 @@ pub(super) async fn run(
             false,
         )
     });
-    if let Err(error) = sync::sync_workspace(
-        backend,
-        &container_id,
-        &workspace,
-        snapshot.as_ref(),
-        request.resource_budget.temporary_disk_bytes,
-        sync::workspace_write_enabled(request),
-        &request.authorization_generation,
-    )
-    .await
-    {
-        state::finish(
-            &execution,
-            ExecutionLifecycleV1::Failed,
-            Some(error.clone()),
-            Some(code),
-            false,
-            false,
-        )?;
-        return Err(error);
-    }
     state::finish(
         &execution,
         if failure.is_some() {

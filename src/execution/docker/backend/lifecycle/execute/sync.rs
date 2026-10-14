@@ -1,6 +1,5 @@
 use bollard::container::LogOutput;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
-use bollard::query_parameters::DownloadFromContainerOptionsBuilder;
 use futures_util::StreamExt;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -13,6 +12,9 @@ use crate::execution::{
     },
     errors::{ExecutionError, ExecutionErrorKind},
 };
+
+mod cancellation;
+pub(super) use cancellation::{WorkspaceSyncRequest, sync_workspace_if_active};
 
 pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
     backend: &DockerExecutionBackend,
@@ -52,7 +54,7 @@ pub(in crate::execution::docker::backend::lifecycle) fn workspace_write_enabled(
         })
 }
 
-async fn download_workspace(
+pub(super) async fn download_workspace(
     backend: &DockerExecutionBackend,
     container_id: &str,
     budget: u64,
@@ -82,9 +84,6 @@ async fn download_workspace(
         .await
     {
         Ok(exec) => exec,
-        Err(bollard::errors::Error::DockerResponseServerError {
-            status_code: 409, ..
-        }) => return download_stopped_workspace(backend, container_id, limit).await,
         Err(error) => {
             return Err(super::state::operation_disconnected(
                 "create the workspace archive command",
@@ -105,10 +104,6 @@ async fn download_workspace(
         .await
     {
         Ok(started) => started,
-        Err(bollard::errors::Error::DockerResponseServerError {
-            status_code: 404 | 409,
-            ..
-        }) => return download_stopped_workspace(backend, container_id, limit).await,
         Err(error) => {
             return Err(super::state::operation_disconnected(
                 "start the workspace archive command",
@@ -190,10 +185,9 @@ async fn download_workspace(
         )
     })??;
     let Some(exit_code) = inspection else {
-        // Container cancellation or teardown can remove the short-lived exec
-        // before Docker's inspect endpoint returns its final status. The
-        // stopped container still exposes the completed workspace snapshot.
-        return download_stopped_workspace(backend, container_id, limit).await;
+        // Docker's archive API cannot see the live tmpfs. Never apply an
+        // empty stopped-container archive as deletions to the task clone.
+        return Err(super::state::disconnected());
     };
     if exit_code != Some(0) {
         let detail = stderr_summary(&stderr_tail);
@@ -204,42 +198,6 @@ async fn download_workspace(
         ));
     }
     Ok(archive)
-}
-
-async fn download_stopped_workspace(
-    backend: &DockerExecutionBackend,
-    container_id: &str,
-    limit: u64,
-) -> Result<Vec<u8>, ExecutionError> {
-    let options = DownloadFromContainerOptionsBuilder::default()
-        .path("/workspace")
-        .build();
-    let mut stream = backend
-        .docker
-        .download_from_container(container_id, Some(options));
-    tokio::time::timeout(Duration::from_secs(60), async {
-        let mut archive = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|_| super::state::disconnected())?;
-            if (archive.len() as u64).saturating_add(chunk.len() as u64) > limit {
-                return Err(ExecutionError::new(
-                    ExecutionErrorKind::ExecutionFailed,
-                    "Container workspace archive exceeded its synchronization limit",
-                    false,
-                ));
-            }
-            archive.extend_from_slice(&chunk);
-        }
-        Ok(archive)
-    })
-    .await
-    .map_err(|_| {
-        ExecutionError::new(
-            ExecutionErrorKind::WorkerDisconnected,
-            "Docker workspace archive exceeded its bounded deadline",
-            true,
-        )
-    })?
 }
 
 fn stderr_summary(stderr: &[u8]) -> &'static str {

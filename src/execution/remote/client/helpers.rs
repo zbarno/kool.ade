@@ -69,6 +69,9 @@ pub(super) fn matches_response(request: &Kind, response: &Kind) -> bool {
                     | Kind::BeginWorkspaceTransfer
                     | Kind::WorkspaceTransferChunk
                     | Kind::FinalizeWorkspaceTransfer
+                    | Kind::BeginCacheTransfer
+                    | Kind::CacheTransferChunk
+                    | Kind::FinalizeCacheTransfer
                     | Kind::DependencyDecision
                     | Kind::PrepareWorkspaceResult
                     | Kind::ReadWorkspaceResultChunk
