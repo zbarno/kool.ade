@@ -159,12 +159,16 @@ impl ExecutionRecordV1 {
         {
             return Err("execution record workspace lease identity is invalid".into());
         }
-        if self.result.as_ref().is_some_and(|result| {
-            result.execution_id != self.execution_id
-                || result.validate().is_err()
-                || result.exit_code != self.exit_code
-        }) {
-            return Err("execution record result does not match its identity".into());
+        if let Some(result) = &self.result {
+            if result.execution_id != self.execution_id {
+                return Err("execution record result does not match its identity".into());
+            }
+            result
+                .validate()
+                .map_err(|error| format!("execution record result is invalid: {error}"))?;
+            if result.exit_code != self.exit_code {
+                return Err("execution record exit code does not match its result".into());
+            }
         }
         if let Some(request) = &self.request
             && (request.execution_id != self.execution_id

@@ -209,7 +209,9 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
                     command: "npm ci".into(),
                     reason: "Restore locked package for remote offline verification".into(),
                     kind: DependencyKind::ExistingRestore,
-                    lockfile_identity: Some("sha256:fixture-lock".into()),
+                    // The broker computes and validates lock identity from this
+                    // staged task clone; callers cannot supply trusted metadata.
+                    lockfile_identity: None,
                     introduced_packages: Vec::new(),
                 },
             )
