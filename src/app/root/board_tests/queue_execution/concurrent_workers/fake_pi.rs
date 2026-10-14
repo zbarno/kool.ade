@@ -117,10 +117,17 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     sys.exit(0)
 tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
 tool_names = {name.strip() for name in tool_args.split(',')}
-implementation_call = 'koolade_dependency' in tool_names
+server_command = os.environ.get('KOOLADE_MCP_COMMAND')
+server_args = json.loads(os.environ.get('KOOLADE_MCP_ARGS', '[]'))
+mcp_access = None
+if server_args:
+    config_path = pathlib.Path(server_args[-1])
+    if config_path.is_file():
+        mcp_access = json.loads(config_path.read_text()).get('access')
+implementation_call = 'koolade_dependency' in tool_names or mcp_access == 'implementation'
 if ticket_line is None and not implementation_call:
     with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
-        trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'prompt_prefix':prompt[:160]}) + '\n')
+        trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'mcp_access':mcp_access,'argv':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
     deadline = time.time() + 45
     while not (root / '004-task.started').exists() and time.time() < deadline:
         time.sleep(0.05)
@@ -130,8 +137,6 @@ if ticket_line is None and not implementation_call:
     sys.exit(0)
 assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; tools=' + repr(tool_args)
 time.sleep(0.3)
-server_command = os.environ['KOOLADE_MCP_COMMAND']
-server_args = json.loads(os.environ['KOOLADE_MCP_ARGS'])
 task_uid = None
 if ticket_line is not None:
     ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
@@ -139,8 +144,8 @@ if ticket_line is not None:
     output_path = next(line.strip().removeprefix('- ') for line in affected_section.splitlines() if line.strip().startswith('- '))
 else:
     assert implementation_call, 'A ticketless prompt did not receive implementation tools'
+    assert mcp_access == 'implementation'
     config = json.loads(pathlib.Path(server_args[-1]).read_text())
-    assert config['access'] == 'implementation'
     task_uid = config['task_id']
     output_path = None
 # This fixture models the ticket's literal acceptance criterion. Keep this
@@ -151,6 +156,9 @@ server_env = os.environ.copy()
 # This fixture-owned MCP server still needs the synthetic SSH endpoint for its
 # remote task-claim checks, so scope the override to this child only.
 server_env['GIT_SSH_COMMAND'] = str(root / 'ssh-fixture')
+# Provider environments also omit Kool.ad/e's state root. Point this fixture
+# child at the isolated state created for the test, so task claims use its ledger.
+server_env['KOOLADE_HOME'] = str(root / 'app-home')
 server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=server_env)
 def request(identifier, method, params=None):
     server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
