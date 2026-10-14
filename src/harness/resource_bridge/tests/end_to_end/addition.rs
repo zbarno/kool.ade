@@ -217,7 +217,8 @@ fn manager_authorized_new_npm_dependency_is_available_to_offline_install() {
         .unwrap();
     assert!(
         output.result.exit_code == Some(0),
-        "offline npm addition failed: {}; {}",
+        "offline npm addition failed: {:?}; {}; {}",
+        output.result,
         output.stderr,
         output.stdout
     );

@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use super::super::runtime::RuntimeExecution;
@@ -17,7 +18,7 @@ pub(super) fn finish(
     let Ok(mut state) = execution.lock() else {
         return Err(disconnected());
     };
-    if state.terminal {
+    if state.terminal || state.cancellation_requests.load(Ordering::Acquire) > 0 {
         return Ok(());
     }
     state.push(ExecutionEventKindV1::Lifecycle {
