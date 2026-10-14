@@ -51,7 +51,15 @@ fn approved_stack_recipes_run_processes_without_claiming_qa_readiness() {
             let output = session
                 .run_recipe(&recipe)
                 .unwrap_or_else(|error| panic!("{} recipe failed: {error}", recipe.recipe_id));
-            assert_eq!(output.result.exit_code, Some(0), "{}", recipe.recipe_id);
+            assert_eq!(
+                output.result.exit_code,
+                Some(0),
+                "{} failed: stdout={:?}, stderr={:?}, result={:?}",
+                recipe.recipe_id,
+                output.stdout,
+                output.stderr,
+                output.result.failure
+            );
             assert!(!output.result.cancelled && !output.result.timed_out);
             // A process exit is not persistent application readiness evidence.
             assert_eq!(capability_state, TargetCapabilityState::ReadyButUntested);
@@ -153,7 +161,9 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
             (
                 ".cargo/config.toml",
-                "[build]\ntarget-dir = \"/tmp/koolade-stack-target\"\n",
+                // The executor's /tmp is intentionally mounted noexec, so
+                // Cargo's test binary must live on the executable workspace tmpfs.
+                "[build]\ntarget-dir = \"../.koolade-target\"\n",
             ),
         ],
         "node" => &[
