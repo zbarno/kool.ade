@@ -110,13 +110,12 @@ if '--version' in sys.argv:
     sys.exit(0)
 prompt = sys.stdin.read()
 ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
+root = pathlib.Path(__file__).parent
 if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
-tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
-if ticket_line is None or 'koolade_bash' not in tool_args.split(','):
-    root = pathlib.Path(__file__).parent
+if ticket_line is None:
     deadline = time.time() + 45
     while not (root / '004-task.started').exists() and time.time() < deadline:
         time.sleep(0.05)
@@ -131,7 +130,6 @@ output_path = next(line.strip().removeprefix('- ') for line in affected_section.
 # This fixture models the ticket's literal acceptance criterion. Keep this
 # independent of prompt formatting so it exercises report validation itself.
 criteria = ['File exists.']
-root = pathlib.Path(__file__).parent
 output = pathlib.Path(output_path)
 if output.name in ('task-1.rs', 'task-2.rs'):
     (root / (output.name + '.started')).touch()
@@ -157,6 +155,8 @@ if 'error' in response or response.get('result', {}).get('isError'):
     print(json.dumps(response), file=sys.stderr)
     sys.exit(1)
 report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':criterion,'evidence':output_path+' exists and contains implemented; verified criterion: '+criterion} for criterion in criteria],'verification':['test -f '+output_path+' && grep -q implemented '+output_path],'remaining':[],'human_choices':[]}
+with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
+    trace_file.write(json.dumps({'ticket':ticket_line,'tools':sys.argv,'criteria':criteria,'report':report}) + '\n')
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
 "#,
     )
