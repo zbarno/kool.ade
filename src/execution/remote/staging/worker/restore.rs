@@ -46,6 +46,9 @@ impl WorkerStager {
                     StagedWorkspace {
                         path,
                         snapshot_generation: snapshot.snapshot_generation.clone(),
+                        reservations: 0,
+                        leases: Default::default(),
+                        executions: Default::default(),
                     },
                 );
             }

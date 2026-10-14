@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use bollard::exec::{CreateExecOptions, StartExecOptions};
+use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+use futures_util::StreamExt;
 
 use crate::execution::{
     contract::ExecutionRequestV1,
@@ -73,6 +74,9 @@ async fn quiesce(
         .create_exec(
             container_id,
             CreateExecOptions::<String> {
+                attach_stdin: Some(false),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
                 cmd: Some(vec!["/bin/sh".into(), "-c".into(), "kill -KILL -1".into()]),
                 user: Some("10001:10001".into()),
                 privileged: Some(false),
@@ -81,18 +85,28 @@ async fn quiesce(
         )
         .await
         .map_err(|error| super::state::operation_disconnected("stop task processes", &error))?;
-    backend
+    let started = backend
         .docker
         .start_exec(
             &exec.id,
             Some(StartExecOptions {
-                detach: true,
+                detach: false,
                 tty: false,
                 ..Default::default()
             }),
         )
         .await
         .map_err(|error| super::state::operation_disconnected("stop task processes", &error))?;
+    let StartExecResults::Attached { mut output, .. } = started else {
+        return Err(super::state::disconnected());
+    };
+    // Wait for shutdown itself to finish before creating the archive exec.
+    // Inspection alone can observe an exec that has not started yet.
+    while let Some(chunk) = output.next().await {
+        chunk.map_err(|error| {
+            super::state::operation_disconnected("wait for task shutdown", &error)
+        })?;
+    }
     loop {
         let status = backend
             .docker

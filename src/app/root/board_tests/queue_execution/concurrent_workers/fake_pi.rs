@@ -115,6 +115,26 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
+typed_marker = 'TYPED TASK REQUEST (JSON DATA)\n'
+if typed_marker in prompt:
+    typed = json.JSONDecoder().raw_decode(prompt.split(typed_marker, 1)[1].lstrip())[0]
+    if typed['role'] == 'code_reviewer':
+        payload = typed['payload']['request']
+        evidence = typed['evidence_manifest']
+        ids = [item['id'] for item in evidence]
+        assert 'approved-task-spec' in ids
+        reports = [item for item in evidence if item['id'].startswith('verified-test-report-')]
+        diffs = [item for item in evidence if item['id'].startswith('diff-')]
+        assert reports and diffs
+        assert all('File exists.' in requirement for requirement in payload['requirements_matrix'])
+        assert 'implemented' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
+        assert 'complete' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
+        verdict = {'subject_hash': payload['subject_hash'], 'pass': True,
+                   'coverage': [{'requirement': requirement, 'status': 'pass', 'evidence': ids}
+                                for requirement in payload['requirements_matrix']],
+                   'findings': [], 'untested': []}
+        print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(verdict)}]}]}))
+        sys.exit(0)
 tool_args = next((sys.argv[index + 1] for index, arg in enumerate(sys.argv[:-1]) if arg == '--tools'), '')
 tool_names = {name.strip() for name in tool_args.split(',')}
 server_command = os.environ.get('KOOLADE_MCP_COMMAND')

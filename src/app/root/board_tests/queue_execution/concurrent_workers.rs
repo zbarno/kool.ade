@@ -90,7 +90,7 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
                 path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"),
                 title,
                 text: format!(
-                    "# Task {number}\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
+                    "# Task {number}\n\nFeature: CHG-001\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
                 ),
                 identity: Some(identity),
                 metadata: Some(metadata),

@@ -16,6 +16,7 @@ use crate::execution::{
 use super::{StagingReceiver, TransferChunkV1, TransferManifestV1, TransferPayloadV1};
 
 mod input;
+mod leases;
 mod materialize;
 mod restore;
 mod results;
@@ -31,6 +32,9 @@ pub struct WorkerStager {
 struct StagedWorkspace {
     path: PathBuf,
     snapshot_generation: String,
+    reservations: usize,
+    leases: std::collections::HashSet<String>,
+    executions: std::collections::HashSet<String>,
 }
 
 impl WorkerStager {

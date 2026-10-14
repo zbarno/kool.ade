@@ -198,7 +198,7 @@ pub(super) async fn download_workspace(
         let detail = stderr_summary(&stderr_tail);
         return Err(ExecutionError::new(
             ExecutionErrorKind::WorkerDisconnected,
-            format!("Docker workspace archive command failed: {detail}"),
+            format!("Docker workspace archive command exited with status {exit_code:?}: {detail}"),
             true,
         ));
     }
