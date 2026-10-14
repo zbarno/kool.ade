@@ -125,12 +125,11 @@ if ticket_line is None or 'koolade_bash' not in tool_args.split(','):
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
 time.sleep(0.3)
-ticket = ticket_line.removeprefix('TICKET PATH: ')
-ticket_text = pathlib.Path(ticket).read_text()
+ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
 affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
 output_path = next(line.strip().removeprefix('- ') for line in affected_section.splitlines() if line.strip().startswith('- '))
 criteria_section = ticket_text.split('## Acceptance criteria\n', 1)[1].split('\n## ', 1)[0]
-criterion = next(line.strip().removeprefix('- ') for line in criteria_section.splitlines() if line.strip().startswith('- '))
+criteria = [line.strip().removeprefix('- ') for line in criteria_section.splitlines() if line.strip().startswith('- ')]
 root = pathlib.Path(__file__).parent
 output = pathlib.Path(output_path)
 if output.name in ('task-1.rs', 'task-2.rs'):
@@ -156,7 +155,7 @@ server.wait(timeout=3)
 if 'error' in response or response.get('result', {}).get('isError'):
     print(json.dumps(response), file=sys.stderr)
     sys.exit(1)
-report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':criterion,'evidence':output_path+' exists and contains implemented'}],'verification':['test -f '+output_path+' && grep -q implemented '+output_path],'remaining':[],'human_choices':[]}
+report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':criterion,'evidence':output_path+' exists and contains implemented; verified criterion: '+criterion} for criterion in criteria],'verification':['test -f '+output_path+' && grep -q implemented '+output_path],'remaining':[],'human_choices':[]}
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
 "#,
     )
