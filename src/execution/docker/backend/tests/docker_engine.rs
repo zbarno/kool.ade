@@ -191,7 +191,7 @@ async fn docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded() {
         .collect_artifacts(&second_handle)
         .await
         .expect("collect cancelled execution result");
-    assert!(result.cancelled);
+    assert!(result.cancelled, "cancellation result was {result:?}");
     assert_eq!(
         fs::read_to_string(second_clone.join("cancelled-output.txt")).unwrap(),
         "preserved\n"
