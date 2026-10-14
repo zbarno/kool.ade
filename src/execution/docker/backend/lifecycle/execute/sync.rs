@@ -14,7 +14,9 @@ use crate::execution::{
 };
 
 mod cancellation;
-pub(super) use cancellation::{WorkspaceSyncRequest, sync_workspace_if_active};
+pub(super) use cancellation::{
+    WorkspaceSyncRequest, sync_workspace_if_active, terminate_if_active,
+};
 
 pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
     backend: &DockerExecutionBackend,
