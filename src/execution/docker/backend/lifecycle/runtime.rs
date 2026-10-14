@@ -257,10 +257,20 @@ impl RuntimeExecution {
                 ExecutionCleanupStateV1::Pending
             },
         };
-        crate::persistence::execution_records::save(&record).map_err(|_| {
+        crate::persistence::execution_records::save(&record).map_err(|error| {
+            let detail = if error.starts_with("cannot atomically write ") {
+                error
+                    .rsplit_once(": ")
+                    .map(|(_, kind)| format!("atomic write failed ({kind})"))
+                    .unwrap_or_else(|| "atomic write failed".into())
+            } else {
+                error.clone()
+            };
             crate::execution::errors::ExecutionError::new(
                 crate::execution::errors::ExecutionErrorKind::ExecutionFailed,
-                "Execution state could not be persisted; task execution cannot continue",
+                format!(
+                    "Execution state could not be persisted ({detail}); task execution cannot continue"
+                ),
                 false,
             )
         })
