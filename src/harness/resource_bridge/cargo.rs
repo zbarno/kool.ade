@@ -12,9 +12,14 @@ use super::ResourceResponse;
 mod cache;
 mod lockfile;
 mod prepare;
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
 use prepare::prepare_with_download_policy;
 #[cfg(test)]
 use prepare::{locate_cargo_in_path, run_fetch};
+#[cfg(test)]
+pub(in crate::harness::resource_bridge) use test_support::test_preparation_operations;
 pub(super) fn package_identities_from_contents(
     contents: &str,
 ) -> anyhow::Result<Vec<crate::harness::DependencyPackageIdentity>> {
@@ -53,17 +58,22 @@ impl super::adapter::DependencyAdapter for Adapter {
             context.worktree,
             need,
         )?;
-        self::prepare_with_download_policy(
+        self::prepare::prepare_with_download_policy_and_operations(
             context.worktree,
             context.cargo_cache,
             context.downloaded_bytes,
             context.allow_downloads,
+            context.cargo_operations,
         )
     }
 }
 
 pub(super) fn persistent_cache_at(state_root: &Path) -> anyhow::Result<PathBuf> {
     cache::persistent_cache_at(state_root)
+}
+
+pub(super) struct SharedPreparationOperations {
+    pub(super) fetch: std::sync::Arc<prepare::CargoFetchOperation>,
 }
 
 #[cfg(test)]

@@ -59,6 +59,7 @@ pub(super) fn verified_package_count(
     for package in packages {
         let filename = format!("{}-{}.crate", package.name, package.version);
         let mut verified = false;
+        let mut checksum_mismatch = false;
         for entry in fs::read_dir(&root)? {
             let entry = entry?;
             let metadata = entry.file_type()?;
@@ -85,13 +86,15 @@ pub(super) fn verified_package_count(
             );
             if verify_sha256(&canonical, &package.checksum)? {
                 verified = true;
-                break;
+            } else {
+                checksum_mismatch = true;
             }
-            anyhow::bail!(
-                "Cargo archive {} did not match its Cargo.lock SHA-256 checksum",
-                package.name
-            );
         }
+        anyhow::ensure!(
+            !checksum_mismatch,
+            "Cargo archive {} did not match its Cargo.lock SHA-256 checksum",
+            package.name
+        );
         count += usize::from(verified);
     }
     Ok(count)
