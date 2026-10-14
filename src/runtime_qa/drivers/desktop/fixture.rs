@@ -68,6 +68,10 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
     {
         return Err("desktop driver accepted a foreign process window".into());
     }
+    // Both synthetic windows open at the same coordinates. Remove the foreign
+    // window after the ownership assertion so it cannot cover the target while
+    // the XTEST click is routed by pointer position.
+    foreign.stop();
     let window_id = window.id.to_string();
     let before = display.screenshot_png()?;
     let focus = step(QaDriverActionV1::FocusWindow {
@@ -112,7 +116,6 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
         after_keyboard = display.screenshot_png()?;
     }
     fixture.stop();
-    foreign.stop();
     let before_sha = sha256(&before);
     let click_sha = sha256(&after_click);
     let keyboard_sha = sha256(&after_keyboard);
