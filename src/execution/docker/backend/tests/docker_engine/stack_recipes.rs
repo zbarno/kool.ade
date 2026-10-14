@@ -107,34 +107,9 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Rust,
             "cargo",
-            recipe(
-                "rust-build",
-                "cargo",
-                &[
-                    "build",
-                    "--offline",
-                    "--target-dir=/tmp/koolade-stack-target",
-                ],
-            ),
-            recipe(
-                "rust-test",
-                "cargo",
-                &[
-                    "test",
-                    "--offline",
-                    "--target-dir=/tmp/koolade-stack-target",
-                ],
-            ),
-            recipe(
-                "rust-start",
-                "cargo",
-                &[
-                    "run",
-                    "--offline",
-                    "--quiet",
-                    "--target-dir=/tmp/koolade-stack-target",
-                ],
-            ),
+            recipe("rust-build", "cargo", &["build", "--offline"]),
+            recipe("rust-test", "cargo", &["test", "--offline"]),
+            recipe("rust-start", "cargo", &["run", "--offline", "--quiet"]),
         ),
         (
             RuntimeProfile::Node,
@@ -175,6 +150,10 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             (
                 "src/main.rs",
                 "fn main() { println!(\"STARTED\"); }\n#[cfg(test)] mod tests { #[test] fn passes() { assert_eq!(2 + 2, 4); } }\n",
+            ),
+            (
+                ".cargo/config.toml",
+                "[build]\ntarget-dir = \"/tmp/koolade-stack-target\"\n",
             ),
         ],
         "node" => &[
