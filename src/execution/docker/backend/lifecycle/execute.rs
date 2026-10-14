@@ -279,6 +279,18 @@ pub(super) async fn run(
         )?;
         return Ok(());
     };
+    // Cancellation owns the final workspace snapshot. The attached exec
+    // stream also reaches this path after Docker stops the container; skip its
+    // second sync while cancel() is synchronizing the stopped workspace.
+    if execution
+        .lock()
+        .map_err(|_| internal_error())?
+        .cancellation_requests
+        .load(std::sync::atomic::Ordering::Acquire)
+        > 0
+    {
+        return Ok(());
+    }
     let failure = (code != 0).then(|| {
         ExecutionError::new(
             ExecutionErrorKind::ExecutionFailed,
