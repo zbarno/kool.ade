@@ -19,6 +19,7 @@ pub(super) fn run(
     mut diagnostics: Option<(PathBuf, std::fs::File)>,
     resource_bridge: Option<&ResourceBridge>,
     planning_reads: bool,
+    launch_profile: crate::harness::CleanLaunchTelemetry,
 ) -> Result<HarnessOutcome, AppError> {
     let deadline = Instant::now() + req.timeout;
     let stall_limit = configured_stall_timeout();
@@ -48,7 +49,8 @@ pub(super) fn run(
             });
         }
         if preview_dirty && last_emit.elapsed() >= Duration::from_millis(50) {
-            let preview = fold.preview();
+            let mut preview = fold.preview();
+            preview.telemetry.launch_profile = Some(launch_profile.clone());
             if preview != last_preview {
                 let _ = req.progress_tx.send(preview.clone());
                 last_preview = preview;
@@ -90,7 +92,8 @@ pub(super) fn run(
                     ));
                 }
                 crate::harness::pi_events::fold_line(&line, &mut fold);
-                let usage_preview = fold.preview();
+                let mut usage_preview = fold.preview();
+                usage_preview.telemetry.launch_profile = Some(launch_profile.clone());
                 if usage_preview.model_calls != last_preview.model_calls {
                     let _ = req.progress_tx.send(usage_preview.clone());
                     last_preview = usage_preview;
@@ -138,7 +141,9 @@ pub(super) fn run(
         }
     }
 
-    let _ = req.progress_tx.send(fold.preview());
+    let mut final_progress = fold.preview();
+    final_progress.telemetry.launch_profile = Some(launch_profile);
+    let _ = req.progress_tx.send(final_progress);
     if let Some(error) = resource_attention(resource_bridge, &req.progress_tx) {
         return Err(error);
     }

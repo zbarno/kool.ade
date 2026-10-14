@@ -99,11 +99,10 @@ impl AiHarness for AntigravityHarness {
                     "Cannot configure Antigravity sandbox tools: {error:#}"
                 ))
             })?;
-        let evidence = crate::harness::execution_security::ProfileProbeEvidence::validated(
+        let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             crate::harness::execution_security::CliProvider::Antigravity,
             &binary,
             version,
-            &[],
         )
         .map_err(|error| AppError::Other(format!("Antigravity profile probe failed: {error}")))?;
         let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
@@ -115,6 +114,12 @@ impl AiHarness for AntigravityHarness {
         .map_err(|error| {
             AppError::Other(format!("Antigravity launch profile is invalid: {error}"))
         })?;
+        let launch_profile = launch.telemetry(
+            request
+                .prompt_manifest
+                .as_ref()
+                .map(|manifest| manifest.role_version.as_str()),
+        );
         let task = launch.spawn_with_input(
             boundary.working_directory(),
             Some(prompt_input_with_policy(request, boundary.system_policy())),
@@ -130,6 +135,7 @@ impl AiHarness for AntigravityHarness {
         let mut unexpected_stdout = Vec::new();
         let mut telemetry = crate::harness::ActivityTelemetry {
             started_ms: Some(started_at.timestamp_millis()),
+            launch_profile: Some(launch_profile),
             ..Default::default()
         };
         let mut model_calls = Vec::new();

@@ -28,6 +28,10 @@ fn tool_harness_receives_supervisor_identity_and_process_ownership_rules() {
     .unwrap();
     let script = root.join("pi");
     fs::write(&script, r#"#!/bin/sh
+if [ "$1" = --version ]; then
+    echo 'pi - v0.84.4'
+    exit 0
+fi
 if [ "$1" = --help ]; then
     printf '%s\n' '--print' '--mode <mode> json' '--provider' '--model' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-themes' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
     exit 0

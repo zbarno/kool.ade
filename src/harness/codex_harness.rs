@@ -129,19 +129,31 @@ impl CodexHarness {
     }
 
     pub(super) fn check_binary(path: &Path) -> Result<String, AppError> {
-        let version = run_probe(path, &["--version"])?;
+        let version = run_probe(path, &["--version"])?
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if version.is_empty() {
+            return Err(AppError::Other("Codex CLI did not report a version".into()));
+        }
+        #[cfg(test)]
         check_supported_capabilities(path)?;
+        #[cfg(not(test))]
+        crate::harness::execution_security::ProfileProbeEvidence::probe(
+            crate::harness::execution_security::CliProvider::Codex,
+            path,
+            version.clone(),
+        )
+        .map_err(|error| AppError::Other(error.to_string()))?;
         let login = run_probe_status(path, &["login", "status"]);
         match login {
             Ok((output, true))
                 if output.to_ascii_lowercase().contains("logged in")
                     && !output.to_ascii_lowercase().contains("not logged in") =>
             {
-                let version = version.lines().next().unwrap_or_default().trim();
-                if version.is_empty() {
-                    return Err(AppError::Other("Codex CLI did not report a version".into()));
-                }
-                Ok(version.to_owned())
+                Ok(version)
             }
             Ok((output, _))
                 if output.to_ascii_lowercase().contains("not logged in")
@@ -167,8 +179,31 @@ impl CodexHarness {
     }
 }
 
+#[cfg(test)]
 fn check_supported_capabilities(path: &Path) -> Result<(), AppError> {
-    let help = run_probe(path, &["exec", "--help"])?;
+    let argv = [
+        path.to_string_lossy().into_owned(),
+        "exec".into(),
+        "--help".into(),
+    ];
+    let output = crate::harness::discovery::run_isolated(
+        &argv,
+        PROBE_TIMEOUT,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
+        crate::harness::execution_security::CliProvider::Codex.excluded_child_environment(),
+    )
+    .map_err(|_| AppError::Other("Codex CLI capability check failed or timed out".into()))?;
+    if !output.success || output.stdout_truncated || output.stderr_truncated {
+        return Err(AppError::Other(
+            "Codex CLI capability check failed or exceeded the output limit".into(),
+        ));
+    }
+    let help = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     let required = [
         "--json",
         "--cd",

@@ -144,6 +144,18 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
             Some(version.to_owned()),
         ));
     }
+    crate::harness::execution_security::ProfileProbeEvidence::probe(
+        crate::harness::execution_security::CliProvider::Claude,
+        path,
+        version.to_owned(),
+    )
+    .map_err(|error| {
+        (
+            ClaudeReadiness::Unsupported,
+            error.to_string(),
+            Some(version.to_owned()),
+        )
+    })?;
     let auth = run(path, &["auth", "status"]);
     match auth {
         Ok((output, true))

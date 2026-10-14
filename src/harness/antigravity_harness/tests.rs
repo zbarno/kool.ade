@@ -85,7 +85,7 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
     let root = std::env::temp_dir().join(format!("agy-execute-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&root);
     let cli = root.join("agy");
-    std::fs::write(&cli, "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"done\",\"usage\":{\"input_tokens\":11,\"output_tokens\":3,\"thinking_tokens\":2,\"cache_read_tokens\":4,\"total_tokens\":14}}}'\n").unwrap();
+    std::fs::write(&cli, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'agy 1.2.3'; exit 0; fi\nif [ \"$1\" = \"models\" ]; then echo 'gemini-3.8-flash-high Gemini Flash'; exit 0; fi\ncat >/dev/null\nprintf '%s\\n' '{\"event\":\"result\",\"result\":{\"status\":\"SUCCESS\",\"response\":\"done\",\"usage\":{\"input_tokens\":11,\"output_tokens\":3,\"thinking_tokens\":2,\"cache_read_tokens\":4,\"total_tokens\":14}}}'\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
     let _env = set_binary(&cli);

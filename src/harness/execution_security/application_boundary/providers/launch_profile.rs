@@ -1,10 +1,14 @@
 use super::CliProvider;
 use std::path::{Path, PathBuf};
 
+mod probe;
+mod telemetry;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ProfileRequirements {
     pub minimum_version: Option<(u64, u64, u64)>,
     pub capabilities: &'static [&'static str],
+    pub help_commands: &'static [&'static [&'static str]],
     pub(crate) launch_tokens: &'static [&'static str],
     pub(crate) environment_keys: &'static [&'static str],
 }
@@ -21,6 +25,24 @@ pub(crate) struct ProfileProbeEvidence {
 }
 
 impl ProfileProbeEvidence {
+    pub(crate) fn probe(
+        provider: CliProvider,
+        executable: &Path,
+        version: String,
+    ) -> anyhow::Result<Self> {
+        #[cfg(test)]
+        let capabilities: Vec<String> = provider
+            .profile_requirements()
+            .capabilities
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect();
+        #[cfg(not(test))]
+        let capabilities = probe::verified_capabilities(provider, executable, &version)?;
+        let capability_refs = capabilities.iter().map(String::as_str).collect::<Vec<_>>();
+        Self::validated(provider, executable, version, &capability_refs)
+    }
+
     pub(crate) fn validated(
         provider: CliProvider,
         executable: &Path,
@@ -50,10 +72,10 @@ impl ProfileProbeEvidence {
             "provider version evidence is empty"
         );
         let requirements = self.provider.profile_requirements();
+        let actual = parse_version(&self.version).ok_or_else(|| {
+            anyhow::anyhow!("{} version evidence is not parseable", self.provider.name())
+        })?;
         if let Some(minimum) = requirements.minimum_version {
-            let actual = parse_version(&self.version).ok_or_else(|| {
-                anyhow::anyhow!("{} version evidence is not parseable", self.provider.name())
-            })?;
             anyhow::ensure!(
                 actual >= minimum,
                 "{} profile requires version {}.{}.{} or later",
@@ -136,6 +158,13 @@ impl ValidatedProviderLaunch {
             "provider launch profile changed after validation"
         );
         crate::harness::pi_proc::spawn_with_input_clear_env(&self.argv, &self.cwd, input, &self.env)
+    }
+
+    pub(crate) fn telemetry(
+        &self,
+        prompt_role_version: Option<&str>,
+    ) -> crate::harness::CleanLaunchTelemetry {
+        telemetry::for_launch(self, prompt_role_version)
     }
 
     fn validate_profile(&self) -> anyhow::Result<()> {
