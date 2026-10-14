@@ -183,17 +183,31 @@ async fn docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded() {
         .cancel(&second_handle, second_request.cancellation_generation)
         .await
         .expect("cancel only the owned container");
-    let _ = tokio::time::timeout(Duration::from_secs(15), running)
+    let execution_result = tokio::time::timeout(Duration::from_secs(15), running)
         .await
-        .expect("exec stream did not end after cancellation");
+        .expect("exec stream did not end after cancellation")
+        .expect("exec task panicked");
+    assert!(
+        execution_result.is_ok(),
+        "cancelled exec stream failed: {execution_result:?}"
+    );
 
     let result = execution_backend
         .collect_artifacts(&second_handle)
         .await
         .expect("collect cancelled execution result");
     assert!(result.cancelled, "cancellation result was {result:?}");
+    let cancelled_output = second_clone.join("cancelled-output.txt");
     assert_eq!(
-        fs::read_to_string(second_clone.join("cancelled-output.txt")).unwrap(),
+        fs::read_to_string(&cancelled_output).unwrap_or_else(|error| panic!(
+            "cancelled workspace output is missing: {error}; result={result:?}; workspace={:?}",
+            fs::read_dir(&second_clone)
+                .map(|entries| entries
+                    .filter_map(Result::ok)
+                    .map(|entry| entry.file_name())
+                    .collect::<Vec<_>>())
+                .unwrap_or_default()
+        )),
         "preserved\n"
     );
     let terminal_events = execution_backend
