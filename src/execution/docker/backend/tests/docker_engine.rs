@@ -9,6 +9,8 @@ use crate::execution::{
 mod deadlines;
 #[path = "docker_engine/planning_read_only.rs"]
 mod planning_read_only;
+#[path = "docker_engine/recovery.rs"]
+mod recovery;
 #[path = "docker_engine/stack_recipes.rs"]
 mod stack_recipes;
 #[path = "docker_engine/support.rs"]

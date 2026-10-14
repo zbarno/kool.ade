@@ -3,6 +3,17 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import socketserver
+import threading
+
+UDP_SEEN = threading.Event()
+
+class UdpHandler(socketserver.BaseRequestHandler):
+    def handle(self):
+        UDP_SEEN.set()
+
+class UdpServer(socketserver.ThreadingUDPServer):
+    allow_reuse_address = True
 
 PAGE = b'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -38,6 +49,13 @@ document.querySelector('#close-dialog').addEventListener('click',()=>document.qu
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/__udp_seen":
+            body = b"yes" if UDP_SEEN.is_set() else b"no"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/redirect":
             self.send_response(302)
             self.send_header("Location", "http://169.254.169.254/latest/meta-data/")
@@ -80,4 +98,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("QA_FIXTURE_PORT", "4173"))
     host = os.environ.get("QA_FIXTURE_HOST", "127.0.0.1")
+    udp = UdpServer((host, int(os.environ.get("QA_FIXTURE_UDP_PORT", "4174"))), UdpHandler)
+    threading.Thread(target=udp.serve_forever, daemon=True).start()
     ThreadingHTTPServer((host, port), Handler).serve_forever()

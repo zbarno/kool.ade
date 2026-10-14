@@ -128,6 +128,10 @@ fn stale_worker_process_cannot_publish_after_takeover() {
         &["show", "-s", "--format=%B", &old_object],
     ))
     .unwrap();
+    assert_eq!(
+        session, stale_record.session_id,
+        "claim session publication must be complete"
+    );
     stale_record.issued_at_utc = 1;
     stale_record.expires_at_utc = 1;
     let stale_object =
@@ -205,7 +209,10 @@ fn run_stale_worker_process() {
     let mut lease = ClaimLease::acquire(&repo, project_uid, &task_uid, "web", &base)
         .unwrap()
         .unwrap();
-    fs::write(signal_dir.join("ready"), lease.record().unwrap().session_id).unwrap();
+    let ready = signal_dir.join("ready");
+    let ready_temp = signal_dir.join("ready.tmp");
+    fs::write(&ready_temp, lease.record().unwrap().session_id).unwrap();
+    fs::rename(ready_temp, ready).unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
     while !signal_dir.join("continue").exists() {
         assert!(

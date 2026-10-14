@@ -11,7 +11,7 @@ use crate::execution::{
     },
     errors::{ExecutionError, ExecutionErrorKind},
 };
-use crate::persistence::execution_records::{self, ExecutionRecordStateV1, ExecutionRecordV1};
+use crate::persistence::execution_records::{self, ExecutionRecordV1};
 
 const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -95,19 +95,11 @@ async fn reconcile_record(
         }
     }
 
-    if !is_terminal(record.state) {
-        record.state = ExecutionRecordStateV1::Interrupted;
-    }
-    let ended = now_unix_ms().max(record.started_at_unix_ms);
-    record.updated_at_unix_ms = ended;
-    record.ended_at_unix_ms = Some(ended);
-    record.cleanup = if removed {
-        crate::persistence::execution_records::ExecutionCleanupStateV1::Complete
-    } else {
-        crate::persistence::execution_records::ExecutionCleanupStateV1::Failed
-    };
-    execution_records::save(record)
-        .map_err(|_| recovery_error("Interrupted execution state could not be saved"))
+    mark_interrupted(
+        record,
+        removed,
+        "Worker restarted while execution was in flight",
+    )
 }
 
 pub(super) fn verify_record_labels(
@@ -132,16 +124,6 @@ pub(super) fn verify_record_labels(
     Ok(())
 }
 
-fn is_terminal(state: ExecutionRecordStateV1) -> bool {
-    matches!(
-        state,
-        ExecutionRecordStateV1::Succeeded
-            | ExecutionRecordStateV1::Failed
-            | ExecutionRecordStateV1::Cancelled
-            | ExecutionRecordStateV1::Interrupted
-    )
-}
-
 fn lease_expired(record: &ExecutionRecordV1, now: u64) -> Result<bool, ExecutionError> {
     let Some(expires_at) = record.lease_expires_at_unix_ms else {
         return Err(recovery_error(
@@ -158,7 +140,9 @@ fn recovery_error(message: &str) -> ExecutionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::execution_records::{ExecutionCleanupStateV1, ExecutionRecordV1};
+    use crate::persistence::execution_records::{
+        ExecutionCleanupStateV1, ExecutionRecordStateV1, ExecutionRecordV1,
+    };
     use std::collections::HashMap;
 
     fn record() -> ExecutionRecordV1 {

@@ -55,6 +55,14 @@ fn hung_probe_is_terminated_at_its_deadline() {
 }
 
 #[test]
+fn crashed_probe_is_reported_as_a_provider_failure() {
+    let (root, path) = script("ulimit -c 0; kill -SEGV $$");
+    let result = run_script(&path, Duration::from_secs(2), 1024).unwrap();
+    assert!(!result.success);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn cancellation_terminates_a_running_probe_before_its_deadline() {
     let (root, path) = script("sleep 30");
     let cancellation = Arc::new(AtomicBool::new(false));

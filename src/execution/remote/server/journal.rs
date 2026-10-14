@@ -14,12 +14,11 @@ mod tests;
 
 use record::{EntryState, JournalEntry, RequestIndexEntry};
 use storage::{
-    append_entry, append_index, create_private_dir, fingerprint, invalid_data, now_unix_ms,
-    open_private, read_entries, read_index,
+    append_entry, append_index, compact_entries, compact_index, create_private_dir, fingerprint,
+    invalid_data, now_unix_ms, open_private, read_entries, read_index,
 };
 
 const MAX_JOURNAL_ENTRIES: usize = 16_384;
-const REPLAY_RETENTION_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Lookup {
@@ -43,8 +42,18 @@ impl RequestJournal {
     /// before dispatch. Exact completed retries replay the saved response.
     pub fn reserve(&self, request: &EnvelopeV1) -> io::Result<Lookup> {
         let request_hash = fingerprint(request)?;
-        let (index_lock, mut index) = self.open_index_locked()?;
-        let index_entries = read_index(&mut index)?;
+        let (index_lock, index, index_path) = self.open_index_locked()?;
+        let mut index = index;
+        let now = now_unix_ms();
+        let existing_index = read_index(&mut index)?;
+        let (mut index, index_entries) = compact_index(
+            index,
+            &index_path,
+            &existing_index,
+            &request.request_id,
+            now,
+            crate::persistence::remote_requests::REPLAY_RETENTION_MS,
+        )?;
         let mut indexed = false;
         for entry in &index_entries {
             if entry.request_id == request.request_id {
@@ -68,13 +77,22 @@ impl RequestJournal {
                     request_id: request.request_id.clone(),
                     execution_id: request.execution_id.clone(),
                     request_sha256: request_hash.clone(),
-                    created_unix_ms: now_unix_ms(),
+                    created_unix_ms: now,
                 },
             )?;
         }
 
-        let (lock, mut log) = self.open_locked(&request.execution_id)?;
-        let entries = read_entries(&mut log)?;
+        let (lock, log, log_path) = self.open_locked(&request.execution_id)?;
+        let mut log = log;
+        let existing_entries = read_entries(&mut log)?;
+        let (mut log, entries) = compact_entries(
+            log,
+            &log_path,
+            &existing_entries,
+            &request.request_id,
+            now,
+            crate::persistence::remote_requests::REPLAY_RETENTION_MS,
+        )?;
         let mut prior_entry = None;
         for entry in &entries {
             if entry.request_id == request.request_id {
@@ -87,7 +105,9 @@ impl RequestJournal {
             }
         }
         if let Some(entry) = prior_entry {
-            if now_unix_ms().saturating_sub(entry.created_unix_ms) > REPLAY_RETENTION_MS {
+            if now.saturating_sub(entry.created_unix_ms)
+                > crate::persistence::remote_requests::REPLAY_RETENTION_MS
+            {
                 return Ok(Lookup::Expired);
             }
             return match entry.state {
@@ -103,7 +123,7 @@ impl RequestJournal {
             JournalEntry {
                 request_id: request.request_id.clone(),
                 request_sha256: request_hash,
-                created_unix_ms: now_unix_ms(),
+                created_unix_ms: now,
                 state: EntryState::Pending,
             },
         )?;
@@ -115,7 +135,7 @@ impl RequestJournal {
     /// Append the response only after dispatch has produced it. A crash while
     /// pending is deliberately not retried because execution may have begun.
     pub fn complete(&self, request: &EnvelopeV1, response: &EnvelopeV1) -> io::Result<()> {
-        let (lock, mut log) = self.open_locked(&request.execution_id)?;
+        let (lock, mut log, _) = self.open_locked(&request.execution_id)?;
         let entries = read_entries(&mut log)?;
         let request_hash = fingerprint(request)?;
         if response.request_id != request.request_id
@@ -150,7 +170,7 @@ impl RequestJournal {
         Ok(())
     }
 
-    fn open_locked(&self, execution_id: &str) -> io::Result<(File, File)> {
+    fn open_locked(&self, execution_id: &str) -> io::Result<(File, File, PathBuf)> {
         if uuid::Uuid::parse_str(execution_id)
             .map_or(true, |id| id.hyphenated().to_string() != execution_id)
         {
@@ -161,27 +181,29 @@ impl RequestJournal {
         create_private_dir(&directory)?;
         let lock = open_private(&directory.join("rpc.lock"), true)?;
         FileExt::lock_exclusive(&lock)?;
-        let log = match open_private(&directory.join("rpc.jsonl"), true) {
+        let path = directory.join("rpc.jsonl");
+        let log = match open_private(&path, true) {
             Ok(log) => log,
             Err(error) => {
                 let _ = FileExt::unlock(&lock);
                 return Err(error);
             }
         };
-        Ok((lock, log))
+        Ok((lock, log, path))
     }
 
-    fn open_index_locked(&self) -> io::Result<(File, File)> {
+    fn open_index_locked(&self) -> io::Result<(File, File, PathBuf)> {
         create_private_dir(&self.root)?;
         let lock = open_private(&self.root.join("request-index.lock"), true)?;
         FileExt::lock_exclusive(&lock)?;
-        let index = match open_private(&self.root.join("request-index.jsonl"), true) {
+        let path = self.root.join("request-index.jsonl");
+        let index = match open_private(&path, true) {
             Ok(index) => index,
             Err(error) => {
                 let _ = FileExt::unlock(&lock);
                 return Err(error);
             }
         };
-        Ok((lock, index))
+        Ok((lock, index, path))
     }
 }
