@@ -301,7 +301,13 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
         manifest: response.manifest,
         archive,
     };
-    session.stage_dependency_cache(snapshot).unwrap();
+    session
+        .stage_dependency_cache(snapshot)
+        .unwrap_or_else(|error| {
+            let sshd_log = fs::read_to_string(workspace.join("sshd.log"))
+                .unwrap_or_else(|read_error| format!("sshd log unavailable: {read_error}"));
+            panic!("remote cache staging failed: {error}; sshd log:\n{sshd_log}");
+        });
     let output = session
         .run_tool_command(
             "npm ci --offline --no-audit --no-fund",

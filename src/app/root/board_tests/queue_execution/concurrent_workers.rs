@@ -293,9 +293,11 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         for doc in &docs[..2] {
             assert!(
                 !project.queue.blocked.contains_key(&doc.path),
-                "task {} remained blocked: {:?}",
+                "task {} remained blocked: {:?}; fake Pi trace={}",
                 doc.path,
-                project.queue.blocked.get(&doc.path)
+                project.queue.blocked.get(&doc.path),
+                std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
+                    .unwrap_or_else(|error| format!("trace unavailable: {error}"))
             );
             assert_eq!(
                 project.implementation_states.get(&doc.path).unwrap().status,
