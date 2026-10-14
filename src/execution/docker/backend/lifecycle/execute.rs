@@ -269,6 +269,14 @@ pub(super) async fn run(
         .exit_code
         .and_then(|code| i32::try_from(code).ok());
     let Some(code) = code else {
+        state::interrupted_with(
+            &execution,
+            ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                "Docker returned an invalid command exit status",
+                true,
+            ),
+        )?;
         return Ok(());
     };
     let failure = (code != 0).then(|| {
