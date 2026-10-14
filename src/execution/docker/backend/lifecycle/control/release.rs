@@ -49,12 +49,15 @@ pub(super) async fn release_persisted(
                         .and_then(|config| config.labels)
                         .unwrap_or_default(),
                 )?;
+                let inspected_id = info.id.ok_or_else(super::disconnected)?;
                 tokio::time::timeout(
                     Duration::from_secs(5),
                     backend.docker.remove_container(
-                        container_id,
+                        &inspected_id,
                         Some(bollard::query_parameters::RemoveContainerOptions {
-                            force: false,
+                            // The terminal command may have exited while the
+                            // workspace keeper process is still running.
+                            force: true,
                             ..Default::default()
                         }),
                     ),

@@ -216,7 +216,11 @@ pub(super) async fn release(
         backend.docker.remove_container(
             &container_id,
             Some(RemoveContainerOptions {
-                force: false,
+                // Terminal execution can leave the long-lived workspace
+                // keeper process running after its exec process has exited.
+                // Ownership was verified above, so force removal is bounded
+                // and avoids leaking that container.
+                force: true,
                 ..Default::default()
             }),
         ),
