@@ -35,7 +35,7 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
     support::commit(&repository);
     let clone_a = support::create_task_clone(&repository, &task_home_path, "controller-a");
     let clone_b = support::create_task_clone(&repository, &task_home_path, "controller-b");
-    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for concurrent controller E2E");
     sshd.restore_known_host(&worker_id).unwrap();

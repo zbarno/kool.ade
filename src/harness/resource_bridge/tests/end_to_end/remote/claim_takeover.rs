@@ -38,7 +38,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
     let old_session = old_record.session_id.clone();
     let verifier_a = Arc::new(ClaimLeaseHandle::new(lease_a));
 
-    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
     let sshd = sshd::SshdFixture::start(&root, &worker_binary)
         .expect("CI must provide loopback sshd for claim takeover E2E");
     sshd.restore_known_host(&worker_id).unwrap();
