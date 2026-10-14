@@ -175,7 +175,7 @@ fn container_lease_label_uses_the_durable_expiry_value() {
 }
 
 #[test]
-fn planning_workspace_and_git_are_read_only() {
+fn planning_workspace_is_staged_before_it_is_sealed_and_git_is_always_read_only() {
     let fixture = Fixture::new();
     let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
     let body = create_body(
@@ -186,8 +186,8 @@ fn planning_workspace_and_git_are_read_only() {
     )
     .unwrap();
     let host = body.host_config.unwrap();
-    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("ro,"));
-    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("mode=555"));
+    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("rw,"));
+    assert!(host.tmpfs.as_ref().unwrap()["/workspace"].contains("mode=1777"));
     let mounts = host.mounts.unwrap();
     assert!(mounts.iter().any(|mount| {
         mount.target.as_deref() == Some("/workspace/.git") && mount.read_only == Some(true)

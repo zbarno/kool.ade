@@ -6,11 +6,13 @@ use crate::execution::{
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
+mod archive;
 mod cleanup;
 mod prepare;
 mod probe;
 mod start;
 
+pub(super) use archive::extract_archive;
 pub(super) use prepare::prepare;
 pub(super) use probe::probe;
 pub(super) use start::start;

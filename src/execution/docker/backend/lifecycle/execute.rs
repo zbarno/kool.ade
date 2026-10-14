@@ -54,7 +54,12 @@ pub(super) async fn run(
     .await
     {
         Ok(Ok(exec)) => exec,
-        Ok(Err(_)) => return state::interrupted(&execution),
+        Ok(Err(error)) => {
+            return state::interrupted_with(
+                &execution,
+                state::operation_disconnected("create the workspace command", &error),
+            );
+        }
         Err(_) => {
             return cleanup::deadline_failure(
                 backend,
@@ -84,7 +89,12 @@ pub(super) async fn run(
     .await
     {
         Ok(Ok(stream)) => stream,
-        Ok(Err(_)) => return state::interrupted(&execution),
+        Ok(Err(error)) => {
+            return state::interrupted_with(
+                &execution,
+                state::operation_disconnected("attach to the workspace command", &error),
+            );
+        }
         Err(_) => {
             return cleanup::deadline_failure(
                 backend,
@@ -218,7 +228,12 @@ pub(super) async fn run(
     .await
     {
         Ok(Ok(inspected)) => inspected,
-        Ok(Err(_)) => return state::interrupted(&execution),
+        Ok(Err(error)) => {
+            return state::interrupted_with(
+                &execution,
+                state::operation_disconnected("inspect the workspace command", &error),
+            );
+        }
         Err(_) => {
             return cleanup::deadline_failure(
                 backend,
