@@ -4,7 +4,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use bollard::query_parameters::{RemoveContainerOptions, StopContainerOptions};
+use bollard::query_parameters::RemoveContainerOptions;
 
 use crate::execution::{
     backend::ExecutionHandleV1,
@@ -16,6 +16,8 @@ use crate::execution::{
 use super::runtime::RuntimeExecution;
 
 mod cancel;
+mod cancel_active;
+pub(super) use cancel_active::cancel_active as cancel;
 mod events;
 mod helpers;
 mod release;
@@ -59,132 +61,6 @@ fn load_record(
         ));
     }
     Ok(record)
-}
-
-pub(super) async fn cancel(
-    backend: &DockerExecutionBackend,
-    handle: &ExecutionHandleV1,
-    generation: u64,
-) -> Result<(), ExecutionError> {
-    let execution = match backend.lookup_execution(handle) {
-        Ok(execution) => execution,
-        Err(error) if error.kind == ExecutionErrorKind::WorkerDisconnected => {
-            return cancel_persisted(backend, handle, generation).await;
-        }
-        Err(error) => return Err(error),
-    };
-    let (
-        container_id,
-        workspace,
-        snapshot,
-        budget,
-        writable,
-        authorization_generation,
-        cancellation_intent,
-    ) = {
-        let state = execution.lock().map_err(|_| internal_error())?;
-        if state.terminal {
-            return Ok(());
-        }
-        if state.request.cancellation_generation != generation {
-            return Err(invalid_request());
-        }
-        let cancellation_intent =
-            CancellationIntentGuard::new(Arc::clone(&state.cancellation_requests));
-        (
-            state.container_id.clone(),
-            state._workspace.clone(),
-            state.workspace_snapshot.clone(),
-            state.request.resource_budget.temporary_disk_bytes,
-            super::execute::workspace_write_enabled(&state.request),
-            state.request.authorization_generation.clone(),
-            cancellation_intent,
-        )
-    };
-    let _cancellation_intent = cancellation_intent;
-    if let Err(error) = verify_owned(backend, &container_id, &handle.execution_id).await {
-        terminal(
-            &execution,
-            ExecutionLifecycleV1::Interrupted,
-            Some(error.clone()),
-            None,
-            false,
-            false,
-        )?;
-        return Err(error);
-    }
-    let stopped = tokio::time::timeout(
-        Duration::from_secs(6),
-        backend.docker.stop_container(
-            &container_id,
-            Some(StopContainerOptions {
-                t: Some(5),
-                ..Default::default()
-            }),
-        ),
-    )
-    .await
-    .is_ok_and(|result| result.is_ok());
-    if !stopped {
-        let killed = tokio::time::timeout(
-            Duration::from_secs(2),
-            backend.docker.kill_container(
-                &container_id,
-                None::<bollard::query_parameters::KillContainerOptions>,
-            ),
-        )
-        .await;
-        let result = match killed {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(_)) => Err(disconnected()),
-            Err(_) => Err(operation_timeout()),
-        };
-        if let Err(error) = result {
-            terminal(
-                &execution,
-                ExecutionLifecycleV1::Interrupted,
-                Some(error.clone()),
-                None,
-                false,
-                false,
-            )?;
-            return Err(error);
-        }
-    }
-    if let Err(error) = super::execute::sync_workspace(
-        backend,
-        &container_id,
-        &workspace,
-        snapshot.as_ref(),
-        budget,
-        writable,
-        &authorization_generation,
-    )
-    .await
-    {
-        terminal(
-            &execution,
-            ExecutionLifecycleV1::Interrupted,
-            Some(error.clone()),
-            None,
-            false,
-            false,
-        )?;
-        return Err(error);
-    }
-    terminal(
-        &execution,
-        ExecutionLifecycleV1::Cancelled,
-        Some(ExecutionError::new(
-            ExecutionErrorKind::Cancelled,
-            "Execution was cancelled",
-            false,
-        )),
-        None,
-        false,
-        true,
-    )?;
-    Ok(())
 }
 
 pub(super) async fn collect(
