@@ -77,7 +77,7 @@ fn request_deadline_cannot_extend_beyond_the_bounded_execution_lease() {
 }
 
 #[test]
-fn verification_policy_allows_the_python_stack_recipe() {
+fn verification_policy_allows_the_python_and_go_stack_recipes() {
     let policy = ExecutionPolicyV1::for_mode(
         ExecutionModeV1::Verification,
         budget(1024 * 1024 * 1024, 2000),
@@ -85,6 +85,7 @@ fn verification_policy_allows_the_python_stack_recipe() {
     )
     .unwrap();
     assert!(policy.command_capabilities().contains("python"));
+    assert!(policy.command_capabilities().contains("go"));
 }
 
 #[test]
