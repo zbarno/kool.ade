@@ -18,8 +18,6 @@ use std::{
 mod cache;
 mod serve;
 pub(crate) use cache::stage_cache;
-#[cfg(test)]
-pub(crate) use serve::prepare_remote_dependency;
 use serve::serve_request;
 
 const MESSAGE_LIMIT: usize = 65_536;

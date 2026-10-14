@@ -87,6 +87,109 @@ pub(super) fn append_index(index: &mut File, entry: RequestIndexEntry) -> io::Re
     append_line(index, &bytes, "remote request index")
 }
 
+pub(super) fn compact_entries(
+    log: File,
+    path: &Path,
+    entries: &[JournalEntry],
+    preserve_request_id: &str,
+    now_unix_ms: u64,
+    retention_ms: u64,
+) -> io::Result<(File, Vec<JournalEntry>)> {
+    let mut latest = std::collections::HashMap::<&str, usize>::new();
+    for (index, entry) in entries.iter().enumerate() {
+        latest.insert(&entry.request_id, index);
+    }
+    let retained = entries
+        .iter()
+        .enumerate()
+        .filter(|(index, entry)| {
+            latest.get(entry.request_id.as_str()).is_some_and(|latest| {
+                latest == index
+                    && (matches!(entry.state, super::record::EntryState::Pending)
+                        || entry.request_id == preserve_request_id
+                        || now_unix_ms.saturating_sub(entry.created_unix_ms) <= retention_ms)
+            })
+        })
+        .map(|(_, entry)| entry.clone())
+        .collect::<Vec<_>>();
+    let log = if retained.len() != entries.len() {
+        drop(log);
+        rewrite_lines(path, retained.iter(), "remote execution request journal")?;
+        open_private(path, false)?
+    } else {
+        log
+    };
+    Ok((log, retained))
+}
+
+pub(super) fn compact_index(
+    index: File,
+    path: &Path,
+    entries: &[RequestIndexEntry],
+    preserve_request_id: &str,
+    now_unix_ms: u64,
+    retention_ms: u64,
+) -> io::Result<(File, Vec<RequestIndexEntry>)> {
+    let retained = entries
+        .iter()
+        .filter(|entry| {
+            entry.request_id == preserve_request_id
+                || now_unix_ms.saturating_sub(entry.created_unix_ms) <= retention_ms
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let index = if retained.len() != entries.len() {
+        drop(index);
+        rewrite_lines(path, retained.iter(), "remote request index")?;
+        open_private(path, false)?
+    } else {
+        index
+    };
+    Ok((index, retained))
+}
+
+fn rewrite_lines<T: serde::Serialize>(
+    path: &Path,
+    entries: impl Iterator<Item = T>,
+    label: &'static str,
+) -> io::Result<()> {
+    let temporary = path.with_extension(format!("compact-{}.tmp", uuid::Uuid::new_v4().simple()));
+    let result = (|| {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&temporary)?;
+        let mut written = 0_u64;
+        for entry in entries {
+            let mut bytes = serde_json::to_vec(&entry)
+                .map_err(|_| invalid_data("remote journal entry could not be encoded"))?;
+            bytes.push(b'\n');
+            written = written.saturating_add(bytes.len() as u64);
+            if written > MAX_JOURNAL_BYTES {
+                return Err(invalid_data(
+                    "remote execution request journal exceeds its limit",
+                ));
+            }
+            file.write_all(&bytes)?;
+        }
+        file.sync_all().map_err(|error| {
+            io::Error::new(error.kind(), format!("{label} could not be synchronized"))
+        })?;
+        fs::rename(&temporary, path)?;
+        #[cfg(unix)]
+        File::open(path.parent().expect("journal file has parent"))?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 fn append_line(file: &mut File, bytes: &[u8], label: &'static str) -> io::Result<()> {
     if file.metadata()?.len().saturating_add(bytes.len() as u64) > MAX_JOURNAL_BYTES {
         return Err(invalid_data(

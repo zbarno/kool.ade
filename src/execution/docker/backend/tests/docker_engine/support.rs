@@ -129,6 +129,18 @@ pub(super) fn backend(
     fixture: &Fixture,
     workspace: WorkspaceRef,
 ) -> (DockerExecutionBackend, PathBuf) {
+    backend_with_owner(
+        fixture,
+        workspace,
+        uuid::Uuid::new_v4().hyphenated().to_string(),
+    )
+}
+
+pub(super) fn backend_with_owner(
+    fixture: &Fixture,
+    workspace: WorkspaceRef,
+    owner_id: String,
+) -> (DockerExecutionBackend, PathBuf) {
     let clone = fixture.task_clone(&workspace);
     let projects = fixture.root.join("koolade-home/projects");
     let resolver = Arc::new(
@@ -137,12 +149,8 @@ pub(super) fn backend(
     );
     let endpoint = DockerEndpoint::from_process_environment(HostPlatform::Linux)
         .expect("opted-in test requires a supported local Docker Engine");
-    let backend = DockerExecutionBackend::connect(
-        endpoint,
-        resolver,
-        uuid::Uuid::new_v4().hyphenated().to_string(),
-    )
-    .expect("connect to local Docker Engine");
+    let backend = DockerExecutionBackend::connect(endpoint, resolver, owner_id)
+        .expect("connect to local Docker Engine");
     (backend, clone)
 }
 

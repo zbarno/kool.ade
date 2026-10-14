@@ -83,6 +83,20 @@ pub use process::RuntimeProcessHandle;
 pub use remote::RemoteSessionOptions;
 
 impl ExecutionSession {
+    #[cfg(test)]
+    pub fn terminate_remote_connection_for_test(&self) {
+        self.backend.terminate_remote_connection_for_test();
+    }
+
+    #[cfg(test)]
+    pub fn active_handle_for_test(&self) -> Option<crate::execution::backend::ExecutionHandleV1> {
+        self.active
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|(handle, _)| handle.clone())
+    }
+
     pub fn workspace(&self) -> &WorkspaceRef {
         &self.workspace
     }

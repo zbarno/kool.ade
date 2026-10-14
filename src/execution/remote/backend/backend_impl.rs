@@ -8,6 +8,13 @@ use crate::execution::{
 };
 
 impl ExecutionBackend for RemoteExecutionBackend {
+    #[cfg(test)]
+    fn terminate_remote_connection_for_test(&self) {
+        if let Ok(mut client) = self.client.lock() {
+            client.terminate_transport_for_test();
+        }
+    }
+
     fn relay_dependency_request<'a>(
         &'a self,
         request: crate::execution::remote::dependency::DependencyRelayRequestV1,
