@@ -36,7 +36,12 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
             false,
         ));
     };
-    let archive = download_workspace(backend, container_id, budget).await?;
+    let archive = tokio::time::timeout(
+        Duration::from_secs(60),
+        download_workspace(backend, container_id, budget),
+    )
+    .await
+    .map_err(|_| super::super::control::operation_timeout())??;
     backend.verify_authorization(authorization_generation)?;
     staging::synchronize(workspace, snapshot, &archive, budget)
 }

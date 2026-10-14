@@ -7,7 +7,7 @@ use std::{
 
 use bollard::models::{ContainerCreateBody, HostConfig, Mount, MountBindOptions, MountType};
 
-use super::images::{ImageLock, SelectedImage};
+use super::images::{ImageLock, RuntimeProfile, SelectedImage};
 use crate::execution::{
     contract::ExecutionRequestV1,
     errors::{ExecutionError, ExecutionErrorKind},
@@ -175,15 +175,21 @@ pub fn create_body(
             format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
         );
     }
+    let mut environment = vec![
+        "HOME=/home/executor".into(),
+        "CI=true".into(),
+        "LANG=C".into(),
+        "TZ=UTC".into(),
+    ];
+    if image.profile == RuntimeProfile::Go {
+        // /tmp intentionally stays noexec. Go creates temporary test and run
+        // binaries here and removes them when the command finishes.
+        environment.push("GOTMPDIR=/workspace".into());
+    }
     // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
     Ok(ContainerCreateBody {
         user: Some("10001:10001".into()),
-        env: Some(vec![
-            "HOME=/home/executor".into(),
-            "CI=true".into(),
-            "LANG=C".into(),
-            "TZ=UTC".into(),
-        ]),
+        env: Some(environment),
         attach_stdin: Some(false),
         attach_stdout: Some(false),
         attach_stderr: Some(false),

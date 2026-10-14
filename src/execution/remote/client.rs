@@ -21,9 +21,9 @@ use super::{
 mod health;
 mod helpers;
 mod reconnect;
+pub(super) use helpers::matches_response;
 use helpers::{
-    disconnected, incompatible, matches_response, negotiated_probe, unavailable, unavailable_probe,
-    verified,
+    disconnected, incompatible, negotiated_probe, unavailable, unavailable_probe, verified,
 };
 
 const CONTROL_ID: &str = "00000000-0000-4000-8000-000000000000";
