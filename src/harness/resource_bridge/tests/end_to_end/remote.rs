@@ -174,6 +174,10 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
         },
     )
     .unwrap();
+    let staged = session
+        .run_bounded_script("true", Duration::from_secs(30))
+        .expect("remote task clone should stage before dependency preparation");
+    assert_eq!(staged.result.exit_code, Some(0));
 
     let state_root = workspace.join("app-state");
     fs::create_dir_all(&state_root).unwrap();
@@ -210,7 +214,35 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
                 },
             )
         });
-        let review = super::super::take_dependency_update(&updates);
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        let review = loop {
+            match updates.recv_timeout(Duration::from_millis(250)) {
+                Ok(update) => {
+                    if let Some(request) = update.dependency_requests.into_iter().next() {
+                        break request;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    panic!("remote dependency activity channel closed before the request arrived");
+                }
+            }
+            if relay_thread.is_finished() {
+                match relay_thread.join().unwrap() {
+                    Ok(response) => panic!(
+                        "remote dependency preparation completed without emitting a review request: {:?}",
+                        response.broker_response
+                    ),
+                    Err(error) => panic!(
+                        "remote dependency preparation failed before emitting a review request: {error:#}"
+                    ),
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "remote dependency preparation stayed active without emitting a review request"
+            );
+        };
         super::super::answer(
             &review,
             DependencyDecision::AuthorizeForTask,
