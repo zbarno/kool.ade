@@ -39,7 +39,7 @@ pub(super) fn parse_returned(
         "returned archive exceeds sync budget"
     );
     let mut archive = Archive::new(Cursor::new(bytes));
-    let mut entries = BTreeMap::new();
+    let mut entries = BTreeMap::<PathBuf, ReturnedEntry>::new();
     let mut total = 0_u64;
     for entry in archive.entries()? {
         let entry = entry?;
@@ -92,6 +92,42 @@ pub(super) fn parse_returned(
             let fingerprint = Fingerprint::File {
                 sha256: hash(&content),
                 size,
+                mode,
+            };
+            ReturnedEntry {
+                fingerprint,
+                bytes: content,
+                mode,
+            }
+        } else if kind.is_hard_link() {
+            let raw_target = entry
+                .link_name()?
+                .ok_or_else(|| anyhow::anyhow!("returned hard link has no target"))?
+                .into_owned();
+            let target = raw_target
+                .strip_prefix("./")
+                .unwrap_or(&raw_target)
+                .to_path_buf();
+            validate_relative(&target)?;
+            if target
+                .components()
+                .any(|component| component.as_os_str() == ".git")
+            {
+                continue;
+            }
+            let source = entries
+                .get(&target)
+                .ok_or_else(|| anyhow::anyhow!("returned hard link target is unavailable"))?;
+            anyhow::ensure!(
+                matches!(&source.fingerprint, Fingerprint::File { .. }),
+                "returned hard link target is not a regular file"
+            );
+            let content = source.bytes.clone();
+            total = total.saturating_add(content.len() as u64);
+            anyhow::ensure!(total <= byte_limit, "returned files exceed sync budget");
+            let fingerprint = Fingerprint::File {
+                sha256: hash(&content),
+                size: content.len() as u64,
                 mode,
             };
             ReturnedEntry {
