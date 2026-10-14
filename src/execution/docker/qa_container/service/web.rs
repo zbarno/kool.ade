@@ -154,7 +154,6 @@ pub(super) fn service_body(
             privileged: Some(false),
             readonly_rootfs: Some(true),
             network_mode: Some(network_id.into()),
-            pid_mode: Some("private".into()),
             ipc_mode: Some("private".into()),
             cap_drop: Some(vec!["ALL".into()]),
             cap_add: Some(Vec::new()),
@@ -205,7 +204,7 @@ pub(super) fn relay_body(spec: &QaWebPreviewSpec<'_>, network_id: &str) -> Conta
         labels: Some(labels(spec.request, "preview-relay")),
         host_config: Some(HostConfig {
             privileged: Some(false), readonly_rootfs: Some(true), network_mode: Some(network_id.into()),
-            pid_mode: Some("private".into()), ipc_mode: Some("private".into()),
+            ipc_mode: Some("private".into()),
             cap_drop: Some(vec!["ALL".into()]), cap_add: Some(Vec::new()),
             security_opt: Some(vec!["no-new-privileges:true".into()]),
             memory: Some(256 * 1024 * 1024), memory_swap: Some(256 * 1024 * 1024),

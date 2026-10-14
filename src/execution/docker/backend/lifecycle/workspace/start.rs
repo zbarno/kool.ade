@@ -4,6 +4,7 @@ use std::time::Duration;
 use bollard::query_parameters::CreateContainerOptionsBuilder;
 
 use super::super::runtime::{RuntimeExecution, RuntimeExecutionContext};
+use super::extract_archive;
 use crate::execution::{
     backend::{ExecutionHandleV1, WorkspaceLeaseV1},
     contract::{ExecutionEventKindV1, ExecutionLifecycleV1, ExecutionRequestV1, ExecutionTarget},
@@ -70,7 +71,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     let mut reservation = WorkspaceStartReservation::new(prepared);
     workspace.revalidate()?;
     let writable = super::super::execute::workspace_write_enabled(request);
-    let mut snapshot = if let Some(scope) = request.policy.workspace_write_scope() {
+    let snapshot = if let Some(scope) = request.policy.workspace_write_scope() {
         staging::capture_scoped(
             &workspace,
             &scope.root_relative,
@@ -135,7 +136,9 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     .await
     {
         Ok(Ok(created)) => created,
-        Ok(Err(_)) => return Err(super::super::disconnected()),
+        Ok(Err(error)) => {
+            return Err(engine_operation_error("create container", error));
+        }
         Err(_) => {
             cleanup_named_container(backend, &name, &request.execution_id).await;
             return Err(deadline_error());
@@ -157,13 +160,13 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     match tokio::time::timeout_at(deadline, backend.docker.start_container(&created.id, None)).await
     {
         Ok(Ok(())) => {}
-        result => {
+        Ok(Err(error)) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
-            return if result.is_err() {
-                Err(deadline_error())
-            } else {
-                Err(super::super::disconnected())
-            };
+            return Err(engine_operation_error("start container", error));
+        }
+        Err(_) => {
+            cleanup_created_container(backend, &created.id, &request.execution_id).await;
+            return Err(deadline_error());
         }
     }
     match tokio::time::timeout_at(
@@ -184,25 +187,25 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     }
     let upload = tokio::time::timeout_at(
         deadline,
-        backend.docker.upload_to_container(
+        extract_archive(
+            backend,
             &created.id,
-            Some(
-                bollard::query_parameters::UploadToContainerOptionsBuilder::default()
-                    .path("/workspace")
-                    .copy_uidgid("1")
-                    .build(),
-            ),
-            bollard::body_full(std::mem::take(&mut snapshot.archive).into()),
+            "/workspace",
+            &snapshot.archive,
+            !writable,
         ),
     )
     .await;
-    if !matches!(upload, Ok(Ok(()))) {
-        cleanup_created_container(backend, &created.id, &request.execution_id).await;
-        return if upload.is_err() {
-            Err(deadline_error())
-        } else {
-            Err(super::super::disconnected())
-        };
+    match upload {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            cleanup_created_container(backend, &created.id, &request.execution_id).await;
+            return Err(error);
+        }
+        Err(_) => {
+            cleanup_created_container(backend, &created.id, &request.execution_id).await;
+            return Err(deadline_error());
+        }
     }
     if let Err(error) = execution.push(ExecutionEventKindV1::Lifecycle {
         state: ExecutionLifecycleV1::Running,
@@ -226,6 +229,42 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         );
     reservation.activate(&handle.execution_id)?;
     Ok(handle)
+}
+
+fn engine_operation_error(operation: &str, error: bollard::errors::Error) -> ExecutionError {
+    let details = match error {
+        bollard::errors::Error::DockerResponseServerError {
+            status_code,
+            message,
+        } => format!(
+            "Docker API returned HTTP {status_code}: {}",
+            safe_detail(&message)
+        ),
+        _ => format!("Docker Engine {operation} request failed"),
+    };
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        format!("{operation} failed: {details}"),
+        true,
+    )
+}
+
+fn safe_detail(message: &str) -> String {
+    let mut result = String::new();
+    for word in message.split_whitespace() {
+        if !result.is_empty() {
+            result.push(' ');
+        }
+        if word.starts_with('/') {
+            result.push_str("<path>");
+        } else {
+            result.push_str(word);
+        }
+        if result.chars().count() >= 256 {
+            break;
+        }
+    }
+    result
 }
 
 struct WorkspaceStartReservation {
