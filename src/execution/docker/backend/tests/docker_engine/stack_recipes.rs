@@ -153,7 +153,7 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
         "cargo" => &[
             (
                 "Cargo.toml",
-                "[package]\nname = \"stack_fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+                "[package]\nname = \"stack_fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[profile.dev]\ndebug = 0\nincremental = false\n",
             ),
             (
                 "src/main.rs",
