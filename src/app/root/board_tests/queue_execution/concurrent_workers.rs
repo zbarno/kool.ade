@@ -45,8 +45,30 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
+    let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let task_uids = (1..=4)
+        .map(|_| uuid::Uuid::new_v4().hyphenated().to_string())
+        .collect::<Vec<_>>();
     let docs = (1..=4)
         .map(|number| {
+            let title = format!("Task {number}");
+            let identity = crate::domain::ArtifactIdentity {
+                uid: task_uids[number - 1].clone(),
+                display_id: format!("TASK-{number:03}"),
+                title: title.clone(),
+                parent_uid: Some(batch_uid.clone()),
+            };
+            let dependency_uids = if number == 3 {
+                task_uids[..2].to_vec()
+            } else {
+                Vec::new()
+            };
+            let metadata = crate::artifacts::task_docs::TaskMetadata::new(
+                &identity,
+                "root",
+                dependency_uids,
+            )
+            .unwrap();
             let dependencies = if number == 3 {
                 "- [Task 001](001-task.md) must be complete.\n- [Task 002](002-task.md) must be complete."
             } else {
@@ -54,12 +76,12 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
             };
             crate::artifacts::task_docs::TaskDocument {
                 path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"),
-                title: format!("Task {number}"),
+                title,
                 text: format!(
                     "# Task {number}\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
                 ),
-                identity: None,
-                metadata: None,
+                identity: Some(identity),
+                metadata: Some(metadata),
                 task_state: None,
 
                 metadata_error: None,
@@ -68,7 +90,13 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         .collect::<Vec<_>>();
     for doc in &docs {
         std::fs::create_dir_all(repo.join(&doc.path).parent().unwrap()).unwrap();
-        std::fs::write(repo.join(&doc.path), &doc.text).unwrap();
+        let metadata = serde_json::to_string(doc.metadata.as_ref().unwrap()).unwrap();
+        let identity = serde_json::to_string(doc.identity.as_ref().unwrap()).unwrap();
+        let stored = format!(
+            "---\nkoolade-task: {metadata}\n---\n\n{}\n<!-- koolade-artifact-id:v1 {identity} -->\n",
+            doc.text
+        );
+        std::fs::write(repo.join(&doc.path), stored).unwrap();
     }
     let feature = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/changes/CHG-001-fixture")).unwrap();
