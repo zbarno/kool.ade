@@ -94,6 +94,7 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         detected_languages: vec!["JavaScript".into()],
         frameworks: Vec::new(),
         candidate_targets: vec![target.clone()],
+        selected_target_id: None,
         target_capabilities: vec![TargetCapabilityState::Ready],
         recipes: vec![recipe.clone()],
         readiness_probes: Default::default(),
@@ -108,31 +109,19 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         task_id: "planning-item".into(),
         source_sha: "a".repeat(40),
     };
-    assert!(
-        approved_candidate(
-            &manifest,
-            &target,
-            std::path::Path::new("task-clone"),
-            workspace.clone(),
-            RuntimeOperation::Build,
-            vec!["web-build"]
-        )
-        .unwrap()
-        .is_some()
-    );
+    let candidate = approved_candidate(
+        &manifest,
+        &target,
+        std::path::Path::new("task-clone"),
+        workspace.clone(),
+        RuntimeOperation::Build,
+        vec!["web-build"],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(candidate.4, ["npm"]);
 
-    for (executable, tool, expected_profile) in [
-        (
-            "python",
-            "python",
-            crate::execution::docker::images::RuntimeProfile::Python,
-        ),
-        (
-            "go",
-            "go",
-            crate::execution::docker::images::RuntimeProfile::Go,
-        ),
-    ] {
+    for (executable, tool) in [("python", "python"), ("go", "go")] {
         manifest.recipes[0].executable_id = executable.into();
         manifest.recipes[0].prerequisite_tool_ids = vec![tool.into()];
         let selected = approved_candidate(
@@ -145,8 +134,42 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(selected.4, expected_profile);
+        assert_eq!(selected.4, [tool]);
     }
+
+    manifest.recipes[0].executable_id = "custom-compiler".into();
+    manifest.recipes[0].prerequisite_tool_ids = vec!["custom-compiler".into()];
+    let custom = approved_candidate(
+        &manifest,
+        &target,
+        std::path::Path::new("task-clone"),
+        workspace.clone(),
+        RuntimeOperation::Build,
+        vec!["web-build"],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(custom.4, ["custom-compiler"]);
+
+    let lock = crate::execution::docker::images::ImageLock::bundled().unwrap();
+    let profiles = [
+        crate::execution::docker::images::RuntimeProfile::General,
+        crate::execution::docker::images::RuntimeProfile::Rust,
+        crate::execution::docker::images::RuntimeProfile::Node,
+        crate::execution::docker::images::RuntimeProfile::Python,
+        crate::execution::docker::images::RuntimeProfile::Go,
+    ];
+    let selected = lock
+        .select_with_tools(&profiles, "amd64", &candidate.4)
+        .unwrap();
+    assert_eq!(
+        selected.profile,
+        crate::execution::docker::images::RuntimeProfile::Node
+    );
+    assert!(
+        lock.select_with_tools(&profiles, "amd64", &custom.4)
+            .is_err()
+    );
 
     manifest.recipes[0].source = RecipeSource::ValidatedProjectConfig;
     manifest.recipes[0].evidence_refs.clear();

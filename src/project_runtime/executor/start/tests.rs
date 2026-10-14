@@ -62,6 +62,7 @@ fn manifest() -> ProjectCapabilityManifestV1 {
         detected_languages: Vec::new(),
         frameworks: Vec::new(),
         candidate_targets: vec![target()],
+        selected_target_id: None,
         target_capabilities: vec![TargetCapabilityState::Ready],
         recipes: vec![recipe()],
         readiness_probes,

@@ -34,7 +34,9 @@ let an authenticated controller add an explicitly selected target for an
 unknown stack. The target can select an app surface and project-relative root;
 its recipes must cite the controller's approval reference. A generic logical
 tool ID and discrete argv are allowed, so no Rust/npm-specific adapter is
-required to describe an unfamiliar project.
+required to describe an unfamiliar project. Task Details does not yet expose
+the custom-target form; it currently exposes discovery, selection, and recipe
+approval for detected targets.
 
 `ExecutionRecipeV1` stores a logical executor tool ID and discrete arguments.
 It rejects shell-evaluation switches, absolute or parent-traversing paths,
@@ -72,8 +74,17 @@ Build and test attempts use separate `RuntimeReceiptV1` records tied to the
 task, target, and immutable source SHA. A passing build or test requires an
 approved exit code and all declared artifacts. The current Docker backend does
 not yet collect workspace artifacts, so recipes requiring outputs fail closed.
-Start dispatch uses a bounded in-session lifecycle: the approved process is launched in the
-Docker workspace, probed until ready or timeout, then terminated and reaped.
+Queued build and test recipes use the generic executor. Its image selection
+matches each approved recipe's logical tool requirements against pinned image
+inventory instead of inferring a language from executable names. A custom tool
+can be recorded without a Kool.ad/e code change; execution still fails closed
+unless an approved image advertises that tool. Missing tools currently produce
+an unavailable-image result; they are not yet converted into Man.ager broker
+requests.
+
+The generic start executor uses a bounded in-session lifecycle: the approved
+process is launched in the Docker workspace, probed until ready or timeout,
+then terminated and reaped. It is not yet dispatched by the normal task queue.
 HTTP readiness uses an application-generated loopback request through a declared
 Node or Python standard-library prerequisite in the selected executor image;
 it never downloads or invokes curl. Targets without that approved prerequisite
@@ -81,6 +92,10 @@ fail closed for HTTP readiness. Process health alone does not mean functional
 or visual QA passed. Capability assessment uses an
 explicit inventory of toolchains, dependencies, and surface drivers from the
 approved execution environment; it never consults host `PATH`.
+The queued QA prerequisite gate applies this assessment to the selected task
+target and reviewed source SHA using toolchain and driver IDs from the pinned
+image lock. Until dependency-broker inventory is wired into this gate, declared
+dependencies remain unavailable and block QA; they are never assumed present.
 Unsupported native mobile, Windows/macOS desktop, and hardware targets must be
 reported as unsupported until their execution and QA drivers exist.
 
@@ -100,11 +115,12 @@ Python web, Go service, and a two-target TypeScript/Python monorepo. Discovery
 only reads metadata and leaves all candidates `ready_but_untested`; the web
 fixture's build script is never executed. The typed contracts, bounded
 metadata-only discovery, revision-fenced manifest and receipt persistence,
-explicit recipe binding, capability assessment, Docker-backed build/test
-dispatch, and bounded start/readiness execution are present. The desktop
-application does not yet expose discovery and recipe approval in task settings
-or invoke the executor from its normal task queue. Docker artifact collection,
-prerequisite-broker integration, web preview relay, desktop automation, and the
-end-to-end QA workflow remain incomplete. Until those paths land, the
-application must not present a detected candidate as a verified runnable
-target or claim runtime QA coverage.
+explicit task target selection and recipe/readiness approval in Task Details,
+capability assessment, Docker-backed build/test dispatch, and a bounded
+start/readiness executor are present. Approval records discrete argv and an
+explicit user-approval reference; it does not launch the recipe. Docker
+artifact collection, broker-backed toolchain provisioning and inventory, web
+preview relay, desktop automation, and headless service evidence are not
+integrated.
+Until those paths land, the application must not present a detected candidate
+as a verified runnable target or claim runtime QA coverage.

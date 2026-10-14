@@ -85,6 +85,9 @@ pub struct ProjectCapabilityManifestV1 {
     pub detected_languages: Vec<String>,
     pub frameworks: Vec<String>,
     pub candidate_targets: Vec<AppTargetV1>,
+    /// Explicit app target selected for this task and source revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_target_id: Option<String>,
     pub target_capabilities: Vec<TargetCapabilityState>,
     pub recipes: Vec<ExecutionRecipeV1>,
     pub readiness_probes: std::collections::BTreeMap<String, ReadinessProbeV1>,
@@ -96,6 +99,29 @@ pub struct ProjectCapabilityManifestV1 {
 }
 
 impl ProjectCapabilityManifestV1 {
+    pub fn is_active_target(&self, task_id: &str, target_id: &str) -> bool {
+        let Some(target) = self
+            .candidate_targets
+            .iter()
+            .find(|target| target.target_id == target_id)
+        else {
+            return false;
+        };
+        if target.owning_task_id != task_id || target.repository_id != self.repository_id {
+            return false;
+        }
+        match self.selected_target_id.as_deref() {
+            Some(selected) => selected == target_id,
+            None => {
+                self.candidate_targets
+                    .iter()
+                    .filter(|candidate| candidate.owning_task_id == task_id)
+                    .count()
+                    == 1
+            }
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         let is_sha = |sha: &str| {
             matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -122,6 +148,12 @@ impl ProjectCapabilityManifestV1 {
             .candidate_targets
             .iter()
             .any(|target| target.validate().is_err())
+            || self.selected_target_id.as_ref().is_some_and(|selected| {
+                !self
+                    .candidate_targets
+                    .iter()
+                    .any(|target| &target.target_id == selected)
+            })
             || self
                 .recipes
                 .iter()
