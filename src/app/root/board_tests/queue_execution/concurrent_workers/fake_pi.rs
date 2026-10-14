@@ -126,14 +126,19 @@ if ticket_line is None or 'koolade_bash' not in tool_args.split(','):
     sys.exit(0)
 time.sleep(0.3)
 ticket = ticket_line.removeprefix('TICKET PATH: ')
-name = pathlib.Path(ticket).stem + '.txt'
+ticket_text = pathlib.Path(ticket).read_text()
+affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
+output_path = next(line.strip().removeprefix('- ') for line in affected_section.splitlines() if line.strip().startswith('- '))
+criteria_section = ticket_text.split('## Acceptance criteria\n', 1)[1].split('\n## ', 1)[0]
+criterion = next(line.strip().removeprefix('- ') for line in criteria_section.splitlines() if line.strip().startswith('- '))
 root = pathlib.Path(__file__).parent
-if name in ('001-task.txt', '002-task.txt'):
-    (root / (name + '.started')).touch()
-elif name == '004-task.txt':
+output = pathlib.Path(output_path)
+if output.name in ('task-1.rs', 'task-2.rs'):
+    (root / (output.name + '.started')).touch()
+elif output.name == 'task-4.rs':
     (root / '004-task.started').touch()
-elif name == '003-task.txt':
-    assert pathlib.Path('001-task.txt').exists() and pathlib.Path('002-task.txt').exists(), 'Dependencies were not merged before starting'
+elif output.name == 'task-3.rs':
+    assert pathlib.Path('src/task-1.rs').exists() and pathlib.Path('src/task-2.rs').exists(), 'Dependencies were not merged before starting'
 server_command = os.environ['KOOLADE_MCP_COMMAND']
 server_args = json.loads(os.environ['KOOLADE_MCP_ARGS'])
 server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
@@ -144,14 +149,14 @@ def request(identifier, method, params=None):
 request(1, 'initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'fake-pi','version':'1'}})
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
 server.stdin.flush()
-response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':"printf implemented > '" + name + "'",'timeout_seconds':60}})
+response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':"mkdir -p '" + str(output.parent) + "' && printf implemented > '" + output_path + "'",'timeout_seconds':60}})
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
 server.stdin.flush()
 server.wait(timeout=3)
 if 'error' in response or response.get('result', {}).get('isError'):
     print(json.dumps(response), file=sys.stderr)
     sys.exit(1)
-report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':'File exists.','evidence':'File exists and was verified'}],'verification':['test -f '+name],'remaining':[],'human_choices':[]}
+report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':criterion,'evidence':output_path+' exists and contains implemented'}],'verification':['test -f '+output_path+' && grep -q implemented '+output_path],'remaining':[],'human_choices':[]}
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
 "#,
     )
