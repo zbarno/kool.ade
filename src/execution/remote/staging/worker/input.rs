@@ -79,12 +79,6 @@ impl WorkerStager {
         let materialized = receiver.finalize()?;
         let destination = self.workspace_path(workspace)?;
         if destination.exists() {
-            if workspaces
-                .get(&workspace.workspace)
-                .is_some_and(|staged| staged.path == destination)
-            {
-                return Ok(());
-            }
             anyhow::bail!("worker workspace snapshot already exists");
         }
         anyhow::ensure!(

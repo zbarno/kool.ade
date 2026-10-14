@@ -175,6 +175,8 @@ fn materialized_workspace_uses_fresh_git_metadata_not_controller_configuration()
     assert!(restarted.finalize(&transfer.transfer_id).is_err());
     // A previously created worker refreshes its cached generation under the
     // shared registry lock before issuing another lease.
+    peer.begin(transfer.clone()).unwrap();
+    assert!(peer.finalize(&transfer.transfer_id).is_err());
     let refreshed = peer.reserve_workspace(&workspace).unwrap();
     assert_eq!(peer.resolve_owned_clone(&workspace).unwrap(), updated);
     drop(refreshed);
