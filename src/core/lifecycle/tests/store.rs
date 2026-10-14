@@ -153,3 +153,95 @@ fn event_identity_cannot_be_replayed_to_overwrite_a_feature() {
         Err(StoreError::StaleRecordRevision { .. })
     ));
 }
+
+#[test]
+fn competing_user_and_manager_advances_have_one_durable_winner() {
+    use std::sync::{Arc, Barrier};
+
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let other_store = store.clone();
+    let lifecycle = LifecycleStore::new(&store);
+    let feature = FeatureGoal {
+        schema_version: 1,
+        feature_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+        original_intent: "persist one winning transition".into(),
+        draft: String::new(),
+        scope: Vec::new(),
+        non_goals: Vec::new(),
+        revision: 0,
+        phase: FeaturePhase::Exploring,
+        approved_plan_sha256: None,
+        plan_snapshot_uid: None,
+        plan_snapshot_sha256: None,
+        unresolved_questions: Vec::new(),
+        decision_refs: Vec::new(),
+        review_refs: Vec::new(),
+        readiness_evidence_refs: Vec::new(),
+        task_uids: Vec::new(),
+    };
+    let feature_uid = feature.feature_uid.clone();
+    let create_event_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    lifecycle
+        .create_feature(&feature, &create_event_uid)
+        .unwrap();
+    let revision = lifecycle.load_feature(&feature_uid).unwrap().revision;
+    let barrier = Arc::new(Barrier::new(3));
+
+    let manager_barrier = Arc::clone(&barrier);
+    let manager_feature_uid = feature_uid.clone();
+    let manager = std::thread::spawn(move || {
+        let lifecycle = LifecycleStore::new(&store);
+        manager_barrier.wait();
+        lifecycle.apply_feature_event(
+            &manager_feature_uid,
+            revision,
+            &uuid::Uuid::new_v4().hyphenated().to_string(),
+            FeatureEvent::QuestionsRaised {
+                questions: vec!["Choose a repository".into()],
+            },
+        )
+    });
+
+    let user_barrier = Arc::clone(&barrier);
+    let user_feature_uid = feature_uid.clone();
+    let user = std::thread::spawn(move || {
+        let lifecycle = LifecycleStore::new(&other_store);
+        user_barrier.wait();
+        lifecycle.apply_feature_event(
+            &user_feature_uid,
+            revision,
+            &uuid::Uuid::new_v4().hyphenated().to_string(),
+            FeatureEvent::Cancel,
+        )
+    });
+
+    barrier.wait();
+    let outcomes = [manager.join().unwrap(), user.join().unwrap()];
+    assert_eq!(outcomes.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|result| matches!(result, Err(StoreError::StaleRecordRevision { .. })))
+            .count(),
+        1,
+        "the losing coordinator must observe the persisted revision fence"
+    );
+
+    let final_store = fixture.store();
+    let final_lifecycle = LifecycleStore::new(&final_store);
+    let final_feature = final_lifecycle.load_feature(&feature_uid).unwrap();
+    assert_eq!(final_feature.revision, revision + 1);
+    assert!(matches!(
+        final_feature.phase,
+        FeaturePhase::AwaitingAnswers | FeaturePhase::Cancelled
+    ));
+    assert_eq!(
+        final_lifecycle
+            .events_for_feature(&feature_uid)
+            .unwrap()
+            .len(),
+        2,
+        "only creation and the winning transition may be durable"
+    );
+}
