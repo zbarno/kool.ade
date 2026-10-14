@@ -143,7 +143,7 @@ fn answer(
     scope: Option<crate::harness::DependencyAuthorizationScope>,
     rationale: &str,
 ) {
-    assert!(crate::harness::dependency_authorization::answer(
+    let result = crate::harness::dependency_authorization::answer_diagnostic(
         &request.id,
         &request.task_id,
         &request.need,
@@ -151,8 +151,17 @@ fn answer(
             decision,
             scope,
             rationale: rationale.into(),
-        }
-    ));
+        },
+    );
+    assert!(
+        result.is_ok(),
+        "dependency answer was not accepted: request_id={}, task_id={}, need={:?}, status={:?}, reason={:?}",
+        request.id,
+        request.task_id,
+        request.need,
+        request.status,
+        result.err()
+    );
 }
 
 #[test]

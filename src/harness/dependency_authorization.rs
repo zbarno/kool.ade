@@ -106,26 +106,41 @@ pub(crate) fn answer(
     need: &DependencyNeed,
     answer: DependencyResolution,
 ) -> bool {
+    answer_diagnostic(id, task_id, need, answer).is_ok()
+}
+
+pub(crate) fn answer_diagnostic(
+    id: &str,
+    task_id: &str,
+    need: &DependencyNeed,
+    answer: DependencyResolution,
+) -> Result<(), &'static str> {
     let Ok(mut pending) = pending().lock() else {
-        return false;
+        return Err("authorization registry lock is poisoned");
     };
     let Some(request) = pending.get_mut(id) else {
-        return false;
+        return Err("request ID is no longer pending");
     };
     if request.task_id != task_id || request.need != *need {
-        return false;
+        return Err("request task or dependency identity does not match");
     }
     if answer.decision == DependencyDecision::RequiresUserAuthorization {
         if request.awaiting_user {
-            return false;
+            return Err("request is already awaiting user authorization");
         }
         request.awaiting_user = true;
-        return request.sender.send(answer).is_ok();
+        return request
+            .sender
+            .send(answer)
+            .map_err(|_| "authorization receiver is closed");
     }
     let Some(request) = pending.remove(id) else {
-        return false;
+        return Err("request was removed before authorization");
     };
-    request.sender.send(answer).is_ok()
+    request
+        .sender
+        .send(answer)
+        .map_err(|_| "authorization receiver is closed")
 }
 
 pub(crate) fn unregister(id: &str) {
