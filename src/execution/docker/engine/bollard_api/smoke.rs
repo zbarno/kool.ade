@@ -165,7 +165,6 @@ pub(super) fn smoke_test_body(
             privileged: Some(false),
             readonly_rootfs: Some(true),
             network_mode: Some("none".into()),
-            pid_mode: Some("private".into()),
             ipc_mode: Some("private".into()),
             cap_drop: Some(vec!["ALL".into()]),
             cap_add: Some(Vec::new()),

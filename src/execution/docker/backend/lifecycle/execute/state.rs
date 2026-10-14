@@ -36,7 +36,13 @@ pub(super) fn finish(
 }
 
 pub(super) fn interrupted(execution: &Arc<Mutex<RuntimeExecution>>) -> Result<(), ExecutionError> {
-    let error = disconnected();
+    interrupted_with(execution, disconnected())
+}
+
+pub(super) fn interrupted_with(
+    execution: &Arc<Mutex<RuntimeExecution>>,
+    error: ExecutionError,
+) -> Result<(), ExecutionError> {
     finish(
         execution,
         ExecutionLifecycleV1::Interrupted,
@@ -60,6 +66,25 @@ pub(super) fn disconnected() -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::WorkerDisconnected,
         "Docker Engine operation failed or disconnected",
+        true,
+    )
+}
+
+pub(super) fn operation_disconnected(
+    operation: &str,
+    error: &bollard::errors::Error,
+) -> ExecutionError {
+    let detail = match error {
+        bollard::errors::Error::DockerResponseServerError { status_code, .. } => {
+            format!("Docker API returned HTTP {status_code}")
+        }
+        bollard::errors::Error::RequestTimeoutError => "Docker API request timed out".into(),
+        bollard::errors::Error::DockerStreamError { .. } => "Docker stream was interrupted".into(),
+        _ => "Docker Engine connection failed".into(),
+    };
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        format!("Docker could not {operation}: {detail}"),
         true,
     )
 }
