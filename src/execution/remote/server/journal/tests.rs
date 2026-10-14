@@ -63,7 +63,7 @@ fn expired_requests_are_rejected_without_becoming_new_work() {
     let root = tempfile::tempdir().unwrap();
     let journal = RequestJournal::new(root.path().to_owned());
     let request = request("00000000-0000-4000-8000-000000000001");
-    let (lock, mut log) = journal.open_locked(&request.execution_id).unwrap();
+    let (lock, mut log, _) = journal.open_locked(&request.execution_id).unwrap();
     append_entry(
         &mut log,
         JournalEntry {
@@ -76,4 +76,70 @@ fn expired_requests_are_rejected_without_becoming_new_work() {
     .unwrap();
     FileExt::unlock(&lock).unwrap();
     assert_eq!(journal.reserve(&request).unwrap(), Lookup::Expired);
+}
+
+#[test]
+fn reserving_new_work_compacts_expired_entries_and_reclaims_capacity() {
+    let root = tempfile::tempdir().unwrap();
+    let journal = RequestJournal::new(root.path().to_owned());
+    let expired = request("00000000-0000-4000-8000-000000000001");
+    let (lock, mut log, _) = journal.open_locked(&expired.execution_id).unwrap();
+    append_entry(
+        &mut log,
+        JournalEntry {
+            request_id: expired.request_id.clone(),
+            request_sha256: fingerprint(&expired).unwrap(),
+            created_unix_ms: 1,
+            state: EntryState::Completed {
+                response: response(&expired),
+            },
+        },
+    )
+    .unwrap();
+    FileExt::unlock(&lock).unwrap();
+    let (lock, mut index, _) = journal.open_index_locked().unwrap();
+    append_index(
+        &mut index,
+        RequestIndexEntry {
+            request_id: expired.request_id.clone(),
+            execution_id: expired.execution_id.clone(),
+            request_sha256: fingerprint(&expired).unwrap(),
+            created_unix_ms: 1,
+        },
+    )
+    .unwrap();
+    FileExt::unlock(&lock).unwrap();
+
+    let next = EnvelopeV1 {
+        request_id: "00000000-0000-4000-8000-000000000003".into(),
+        ..expired.clone()
+    };
+    assert_eq!(journal.reserve(&next).unwrap(), Lookup::New);
+    let (_, mut index, _) = journal.open_index_locked().unwrap();
+    assert_eq!(read_index(&mut index).unwrap().len(), 1);
+    let (_, mut log, _) = journal.open_locked(&next.execution_id).unwrap();
+    assert_eq!(read_entries(&mut log).unwrap().len(), 1);
+}
+
+#[test]
+fn full_expired_request_index_is_compacted_before_capacity_is_checked() {
+    let root = tempfile::tempdir().unwrap();
+    let journal = RequestJournal::new(root.path().to_owned());
+    let index_path = root.path().join("request-index.jsonl");
+    let mut contents = Vec::new();
+    for _ in 0..MAX_JOURNAL_ENTRIES {
+        let entry = RequestIndexEntry {
+            request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            request_sha256: "a".repeat(64),
+            created_unix_ms: 1,
+        };
+        serde_json::to_writer(&mut contents, &entry).unwrap();
+        contents.push(b'\n');
+    }
+    std::fs::write(index_path, contents).unwrap();
+    let next = request("00000000-0000-4000-8000-000000000009");
+    assert_eq!(journal.reserve(&next).unwrap(), Lookup::New);
+    let (_, mut index, _) = journal.open_index_locked().unwrap();
+    assert_eq!(read_index(&mut index).unwrap().len(), 1);
 }

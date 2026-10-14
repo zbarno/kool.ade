@@ -16,12 +16,16 @@ use super::{actions, display::DesktopDisplay};
 pub(super) fn exercise() -> Result<serde_json::Value, String> {
     let interaction = run_case(false)?;
     let seeded_defect = run_case(true)?;
+    let visible_control = visibility_case(false)?;
+    let absent_control = visibility_case(true)?;
     if interaction["click_assertion"] != "passed"
         || interaction["keyboard_assertion"] != "passed"
         || interaction["screenshot_changed"] != true
         || interaction["screenshot_hashes_distinct"] != true
         || seeded_defect["click_assertion"] != "failed"
         || seeded_defect["defect_detected"] != true
+        || visible_control != "region visible"
+        || absent_control != "region not visible"
     {
         return Err("desktop fixture did not prove interactions and defect detection".into());
     }
@@ -32,27 +36,56 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         "fixture": "synthetic-x11-counter-v1",
         "interaction_case": interaction,
         "seeded_defect_case": seeded_defect,
+        "native_control_visibility": {"visible": visible_control, "absent": absent_control},
     }))
 }
 
 fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
     let display = DesktopDisplay::start()?;
-    let mut fixture = FixtureProcess::start(ignore_click)?;
-    let window = wait_for_title(&display, "Ready", Duration::from_secs(5))?;
+    let mut fixture = FixtureProcess::start(ignore_click, "Target", false)?;
+    let mut foreign = FixtureProcess::start(false, "Foreign", false)?;
+    let owner_pids = super::process::descendants(fixture.0.id());
+    let window = wait_for_title(&display, "Ready", Duration::from_secs(5), &owner_pids)?;
+    let foreign_pids = super::process::descendants(foreign.0.id());
+    let foreign_window = wait_for_title(&display, "Ready", Duration::from_secs(5), &foreign_pids)?;
+    if display
+        .windows(&owner_pids)?
+        .iter()
+        .any(|candidate| candidate.id == foreign_window.id)
+    {
+        return Err("foreign process window was included in the approved target window set".into());
+    }
+    let foreign_action = step(QaDriverActionV1::FocusWindow {
+        window_id: foreign_window.id.to_string(),
+    });
+    if actions::execute(
+        &display,
+        &foreign_action,
+        Duration::from_secs(1),
+        &owner_pids,
+    )
+    .is_ok()
+    {
+        return Err("desktop driver accepted a foreign process window".into());
+    }
+    // Both synthetic windows open at the same coordinates. Remove the foreign
+    // window after the ownership assertion so it cannot cover the target while
+    // the XTEST click is routed by pointer position.
+    foreign.stop();
     let window_id = window.id.to_string();
     let before = display.screenshot_png()?;
     let focus = step(QaDriverActionV1::FocusWindow {
         window_id: window_id.clone(),
     });
-    actions::execute(&display, &focus, Duration::from_secs(2))?;
+    actions::execute(&display, &focus, Duration::from_secs(2), &owner_pids)?;
     let click = step(QaDriverActionV1::Click {
         window_id: window_id.clone(),
         x: 55,
         y: 58,
     });
-    actions::execute(&display, &click, Duration::from_secs(2))?;
-    let after_click_window = wait_for_click_observation(&display, ignore_click)?;
-    let observed = actions::describe_windows(std::slice::from_ref(&after_click_window));
+    actions::execute(&display, &click, Duration::from_secs(2), &owner_pids)?;
+    let after_click_window = wait_for_click_observation(&display, ignore_click, &owner_pids)?;
+    let observed = actions::window::describe(std::slice::from_ref(&after_click_window));
     let click_passed = super::run::expected_state_met("Clicked", &observed);
     let after_click = display.screenshot_png()?;
     let mut action_evidence = vec![serde_json::json!({
@@ -68,9 +101,10 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
     let mut after_keyboard = after_click.clone();
     if !ignore_click {
         let keyboard = step(QaDriverActionV1::TypeText { text: "ok".into() });
-        actions::execute(&display, &keyboard, Duration::from_secs(2))?;
-        let typed_window = wait_for_title(&display, "Typed:ok", Duration::from_secs(2))?;
-        let typed_state = actions::describe_windows(&[typed_window]);
+        actions::execute(&display, &keyboard, Duration::from_secs(2), &owner_pids)?;
+        let typed_window =
+            wait_for_title(&display, "Typed:ok", Duration::from_secs(2), &owner_pids)?;
+        let typed_state = actions::window::describe(&[typed_window]);
         keyboard_passed = super::run::expected_state_met("Typed:ok", &typed_state);
         action_evidence.push(serde_json::json!({
             "action": "keyboard_type",
@@ -89,6 +123,8 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
         "click_assertion": if click_passed { "passed" } else { "failed" },
         "keyboard_assertion": if keyboard_passed { "passed" } else if ignore_click { "not_run" } else { "failed" },
         "defect_detected": ignore_click && !click_passed,
+        "foreign_window_excluded": true,
+        "foreign_window_action_rejected": true,
         "actions": action_evidence,
         "screenshot_changed": before_sha != click_sha,
         "screenshots": [
@@ -98,6 +134,26 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
         ],
         "screenshot_hashes_distinct": before_sha != click_sha && click_sha != keyboard_sha,
     }))
+}
+
+fn visibility_case(hide_control: bool) -> Result<String, String> {
+    let display = DesktopDisplay::start()?;
+    let mut fixture = FixtureProcess::start(false, "Visibility", hide_control)?;
+    let owner_pids = super::process::descendants(fixture.0.id());
+    let window = wait_for_title(&display, "Ready", Duration::from_secs(5), &owner_pids)?;
+    let action = step(QaDriverActionV1::AssertRegionVisible {
+        window_id: window.id.to_string(),
+        x: 20,
+        y: 36,
+        width: 200,
+        height: 52,
+    });
+    let result = actions::execute(&display, &action, Duration::from_secs(1), &owner_pids)?;
+    fixture.stop();
+    match result {
+        actions::ActionResult::State(state) => Ok(state),
+        _ => Err("native control visibility probe did not return an observation".into()),
+    }
 }
 
 fn step(driver_action: QaDriverActionV1) -> QaScenarioStepV1 {
@@ -112,11 +168,12 @@ fn wait_for_title(
     display: &DesktopDisplay,
     expected: &str,
     timeout: Duration,
+    owner_pids: &std::collections::BTreeSet<u32>,
 ) -> Result<super::display::WindowInfo, String> {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(window) = display
-            .windows()?
+            .windows(owner_pids)?
             .into_iter()
             .find(|window| window.title.contains(expected))
         {
@@ -132,6 +189,7 @@ fn wait_for_title(
 fn wait_for_click_observation(
     display: &DesktopDisplay,
     ignore_click: bool,
+    owner_pids: &std::collections::BTreeSet<u32>,
 ) -> Result<super::display::WindowInfo, String> {
     // The fixture runs under the same CPU and PID limits as a real QA session;
     // X11 event delivery can lag on a loaded hosted runner after the synthetic
@@ -140,11 +198,11 @@ fn wait_for_click_observation(
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let window = display
-            .windows()?
+            .windows(owner_pids)?
             .into_iter()
-            .find(|window| window.title.starts_with("Ready") || window.title.starts_with("Clicked"))
+            .find(|window| window.title.contains(":Ready") || window.title.contains(":Clicked"))
             .ok_or_else(|| "desktop fixture window disappeared after mouse input".to_owned())?;
-        let clicked = window.title.starts_with("Clicked");
+        let clicked = window.title.contains(":Clicked");
         if clicked || Instant::now() >= deadline {
             if ignore_click && clicked {
                 return Ok(window);
@@ -182,7 +240,7 @@ fn sha256(bytes: &[u8]) -> String {
 struct FixtureProcess(Child);
 
 impl FixtureProcess {
-    fn start(ignore_click: bool) -> Result<Self, String> {
+    fn start(ignore_click: bool, title: &str, hide_control: bool) -> Result<Self, String> {
         let executable = std::env::current_exe()
             .map_err(|error| format!("could not locate desktop QA driver: {error}"))?;
         Command::new(executable)
@@ -192,6 +250,11 @@ impl FixtureProcess {
             .env("HOME", "/tmp")
             .env("DISPLAY", ":99")
             .env("LANG", "C.UTF-8")
+            .env("QA_FIXTURE_TITLE", title)
+            .env(
+                "QA_FIXTURE_HIDE_CONTROL",
+                if hide_control { "1" } else { "0" },
+            )
             .env(
                 "QA_FIXTURE_IGNORE_CLICK",
                 if ignore_click { "1" } else { "0" },

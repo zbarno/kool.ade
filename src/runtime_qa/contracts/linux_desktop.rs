@@ -197,6 +197,21 @@ impl LinuxDesktopSessionV1 {
             | QaDriverActionV1::ReadAppLogs => true,
             QaDriverActionV1::FocusWindow { window_id }
             | QaDriverActionV1::CloseWindow { window_id } => window(window_id).is_some(),
+            QaDriverActionV1::AssertRegionVisible {
+                window_id,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                window(window_id).is_some()
+                    && *width >= 4
+                    && *height >= 4
+                    && *width <= 256
+                    && *height <= 256
+                    && x.saturating_add(*width) <= window(window_id).map_or(0, |item| item.width)
+                    && y.saturating_add(*height) <= window(window_id).map_or(0, |item| item.height)
+            }
             QaDriverActionV1::ResizeWindow {
                 window_id,
                 width,

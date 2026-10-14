@@ -12,6 +12,9 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
+mod ownership;
+mod visibility;
+
 pub(super) const DISPLAY_NAME: &str = ":99";
 pub(super) const DISPLAY_WIDTH: u16 = 1440;
 pub(super) const DISPLAY_HEIGHT: u16 = 900;
@@ -99,7 +102,10 @@ impl DesktopDisplay {
         })
     }
 
-    pub(super) fn windows(&self) -> Result<Vec<WindowInfo>, String> {
+    pub(super) fn windows(
+        &self,
+        owner_pids: &std::collections::BTreeSet<u32>,
+    ) -> Result<Vec<WindowInfo>, String> {
         let tree = self
             .connection
             .query_tree(self.root)
@@ -139,6 +145,10 @@ impl DesktopDisplay {
                 .reply()
                 .map_err(display_error)?;
             let title = self.window_title(id).unwrap_or_default();
+            let pid = ownership::window_client_pid(&self.connection, id)?;
+            if !pid.is_some_and(|pid| owner_pids.contains(&pid)) {
+                continue;
+            }
             windows.push(WindowInfo {
                 id,
                 x: position.dst_x.max(0) as u16,
@@ -151,8 +161,12 @@ impl DesktopDisplay {
         Ok(windows)
     }
 
-    pub(super) fn window(&self, id: Window) -> Result<WindowInfo, String> {
-        self.windows()?
+    pub(super) fn window(
+        &self,
+        id: Window,
+        owner_pids: &std::collections::BTreeSet<u32>,
+    ) -> Result<WindowInfo, String> {
+        self.windows(owner_pids)?
             .into_iter()
             .find(|window| window.id == id)
             .ok_or_else(|| "target window is no longer visible".into())
@@ -196,6 +210,17 @@ impl DesktopDisplay {
             )
             .map_err(|error| format!("could not encode private display screenshot: {error}"))?;
         Ok(png)
+    }
+
+    pub(super) fn region_has_visible_content(
+        &self,
+        window: Window,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<bool, String> {
+        visibility::region_has_visible_content(&self.connection, window, x, y, width, height)
     }
 
     pub(super) fn keyboard_mapping(&self) -> Result<(u8, Vec<u32>, usize), String> {

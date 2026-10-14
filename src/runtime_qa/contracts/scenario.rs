@@ -50,6 +50,15 @@ pub enum QaDriverActionV1 {
     WaitForVisible {
         selector: String,
     },
+    /// Checks that a bounded native window region contains visible pixel variation.
+    /// This reports visual presence and does not claim semantic accessibility labels.
+    AssertRegionVisible {
+        window_id: String,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    },
     NavigateAllowedUrl {
         url: String,
     },
@@ -196,6 +205,13 @@ impl QaScenarioV1 {
 }
 
 fn valid_step(step: &QaScenarioStepV1) -> bool {
+    if matches!(
+        &step.driver_action,
+        QaDriverActionV1::AssertRegionVisible { .. }
+    ) && step.expected_state.as_deref() != Some("region visible")
+    {
+        return false;
+    }
     step.expected_state
         .as_ref()
         .is_none_or(|state| valid_text(state, 4096))
@@ -207,6 +223,16 @@ fn valid_step(step: &QaScenarioStepV1) -> bool {
             | QaDriverActionV1::Drag { window_id, .. }
             | QaDriverActionV1::Scroll { window_id, .. }
             | QaDriverActionV1::CloseWindow { window_id } => valid_text(window_id, 128),
+            QaDriverActionV1::AssertRegionVisible {
+                window_id,
+                width,
+                height,
+                ..
+            } => {
+                valid_text(window_id, 128)
+                    && (4..=256).contains(width)
+                    && (4..=256).contains(height)
+            }
             QaDriverActionV1::TypeText { text } => text.len() <= 16 * 1024 && !text.contains('\0'),
             QaDriverActionV1::KeyChord { keys } => {
                 !keys.is_empty() && keys.len() <= 8 && keys.iter().all(|key| valid_text(key, 32))
