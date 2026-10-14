@@ -218,7 +218,13 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
         let review = loop {
             match updates.recv_timeout(Duration::from_millis(250)) {
                 Ok(update) => {
-                    if let Some(request) = update.dependency_requests.into_iter().next() {
+                    if let Some(request) = update.dependency_requests.into_iter().find(|request| {
+                        matches!(
+                            request.status,
+                            crate::harness::DependencyRequestStatus::ManagerReviewing
+                                | crate::harness::DependencyRequestStatus::AwaitingUser
+                        )
+                    }) {
                         break request;
                     }
                 }
@@ -243,12 +249,18 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
                 "remote dependency preparation stayed active without emitting a review request"
             );
         };
-        super::super::answer(
-            &review,
-            DependencyDecision::AuthorizeForTask,
-            None,
-            "Fixture package is required for offline verification.",
-        );
+        if matches!(
+            review.status,
+            crate::harness::DependencyRequestStatus::ManagerReviewing
+                | crate::harness::DependencyRequestStatus::AwaitingUser
+        ) {
+            super::super::answer(
+                &review,
+                DependencyDecision::AuthorizeForTask,
+                None,
+                "Fixture package is required for offline verification.",
+            );
+        }
         relay_thread.join().unwrap().unwrap()
     });
     assert_eq!(response.broker_response["status"], "prepared");
