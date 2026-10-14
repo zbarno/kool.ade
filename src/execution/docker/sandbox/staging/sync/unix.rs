@@ -24,9 +24,15 @@ pub(super) fn apply(
 
     // Preflight all paths through directory descriptors. Parent swaps and
     // symlink substitutions cannot redirect later operations outside root.
+    // A competing cancellation/exec completion may already have applied this
+    // exact container snapshot; treat that retry as idempotent while preserving
+    // any host edit that differs from both the baseline and container result.
+    let mut pending = BTreeSet::new();
     for path in &changed {
         let current = fingerprint_at(&root, path, byte_limit)?;
-        if current.as_ref() != baseline.get(path) {
+        if current.as_ref() == baseline.get(path) {
+            pending.insert(path.clone());
+        } else if current.as_ref() != returned.get(path).map(|entry| &entry.fingerprint) {
             return Err("Task clone changed while the container was running; container changes were not synchronized".into());
         }
         if let (Some(original), Some(update)) = (baseline.get(path), returned.get(path)) {
@@ -43,7 +49,11 @@ pub(super) fn apply(
         }
     }
 
-    let mut directories = changed
+    if pending.is_empty() {
+        return Ok(());
+    }
+
+    let mut directories = pending
         .iter()
         .filter(|path| {
             returned
@@ -58,7 +68,7 @@ pub(super) fn apply(
         create_directory(&root, &path)?;
     }
 
-    let mut files = changed
+    let mut files = pending
         .iter()
         .filter_map(|path| returned.get(path).map(|entry| (path.clone(), entry)))
         .filter(|(_, entry)| matches!(entry.fingerprint, Fingerprint::File { .. }))
@@ -68,7 +78,7 @@ pub(super) fn apply(
         write_file(&root, &path, entry, baseline.get(&path), byte_limit)?;
     }
 
-    let mut deletions = changed
+    let mut deletions = pending
         .iter()
         .filter(|path| {
             !returned.contains_key(*path)
