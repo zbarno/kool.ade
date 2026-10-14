@@ -66,17 +66,32 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_if_activ
     request: &crate::execution::contract::ExecutionRequestV1,
 ) -> Result<bool, ExecutionError> {
     let workspace_sync = Arc::clone(
-        &execution.lock().map_err(|_| super::super::state::disconnected())?.workspace_sync,
+        &execution
+            .lock()
+            .map_err(|_| super::super::state::disconnected())?
+            .workspace_sync,
     );
     let _workspace_sync = workspace_sync.lock().await;
     {
-        let state = execution.lock().map_err(|_| super::super::state::disconnected())?;
-        if state.terminal || state.cancellation_requests.load(std::sync::atomic::Ordering::Acquire) > 0 {
+        let state = execution
+            .lock()
+            .map_err(|_| super::super::state::disconnected())?;
+        if state.terminal
+            || state
+                .cancellation_requests
+                .load(std::sync::atomic::Ordering::Acquire)
+                > 0
+        {
             return Ok(false);
         }
     }
     super::super::termination::terminate_and_sync(
-        backend, container_id, workspace, snapshot, request,
-    ).await?;
+        backend,
+        container_id,
+        workspace,
+        snapshot,
+        request,
+    )
+    .await?;
     Ok(true)
 }
