@@ -97,14 +97,17 @@ pub(super) fn serve_request(
             request
         }
     };
-    anyhow::ensure!(
-        request.session_id == binding.session_id
-            && request.capability_id == binding.capability_id
-            && request.task_id == binding.task_id
-            && request.workspace_id == binding.workspace_id
-            && request.access == binding.access,
-        "Execution tool request does not match its application-owned session"
-    );
+    verify_binding(
+        &request.session_id,
+        &request.capability_id,
+        &request.task_id,
+        &request.workspace_id,
+        &request.access,
+        binding,
+    )
+    .map_err(|_| {
+        anyhow::anyhow!("Execution tool request does not match its application-owned session")
+    })?;
     let timeout = Duration::from_secs(request.timeout_seconds.clamp(1, 1200));
     let done = Arc::new(AtomicBool::new(false));
     let watcher_done = done.clone();
@@ -226,3 +229,7 @@ fn verify_binding(
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "serve/tests.rs"]
+mod tests;
