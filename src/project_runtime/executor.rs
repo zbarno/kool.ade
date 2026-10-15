@@ -8,7 +8,10 @@ use crate::{
     },
 };
 
+mod artifacts;
 mod start;
+
+use artifacts::artifact_capture_paths;
 
 /// Resolves only persisted, approved target recipes and records their observed outcome.
 pub struct ProjectRuntimeExecutor<'store, 'planning> {
@@ -44,6 +47,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .chain(manifest.user_overrides.iter())
                 .find(|recipe| recipe.recipe_id == recipe_id.as_str())
                 .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
+            let capture_paths = artifact_capture_paths(&manifest, &target, recipe, operation)?;
             let mut recipe = recipe.clone();
             recipe.working_directory_relative = join_workspace_path(
                 &target.project_relative_root,
@@ -59,7 +63,11 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .iter()
                 .map(|path| join_workspace_path(&target.project_relative_root, path))
                 .collect::<anyhow::Result<_>>()?;
-            let output = match session.run_scoped_recipe(&recipe, &target.project_relative_root) {
+            let output = match session.run_scoped_recipe_with_artifacts(
+                &recipe,
+                &target.project_relative_root,
+                &capture_paths,
+            ) {
                 Ok(output) => output,
                 Err(error) => {
                     let receipt = RuntimeReceiptV1 {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::project_runtime::{RuntimeOperation, RuntimeReceiptState};
 
 fn recipe() -> crate::project_runtime::ExecutionRecipeV1 {
     crate::project_runtime::ExecutionRecipeV1 {
@@ -72,6 +73,126 @@ fn manifest() -> ProjectCapabilityManifestV1 {
         user_overrides: Vec::new(),
         revision: 1,
     }
+}
+
+fn build_receipt(path: &str) -> RuntimeReceiptV1 {
+    RuntimeReceiptV1 {
+        schema_version: 1,
+        receipt_id: "build-1".into(),
+        operation: RuntimeOperation::Build,
+        task_id: "task".into(),
+        target_id: "web".into(),
+        source_sha: "a".repeat(40),
+        recipe_id: Some("build-web".into()),
+        state: RuntimeReceiptState::Passed,
+        exit_code: Some(0),
+        artifact_hashes: [(path.into(), "b".repeat(64))].into(),
+        log_reference: Some("execution-1".into()),
+        observed_at_unix_ms: 1,
+    }
+}
+
+#[test]
+fn start_requires_a_build_receipt_matching_target_source_and_artifact_spec() {
+    let mut manifest = manifest();
+    let target = &mut manifest.candidate_targets[0];
+    target.build_recipe_ref = Some("build-web".into());
+    target.artifact_spec_ref = Some("web-dist".into());
+    manifest
+        .artifact_specs
+        .insert("web-dist".into(), vec!["dist/index.html".into()]);
+    let receipt = build_receipt("apps/dist/index.html");
+
+    let selected = build_artifacts(
+        &manifest,
+        &manifest.candidate_targets[0],
+        std::slice::from_ref(&receipt),
+        &"a".repeat(40),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.paths, ["apps/dist/index.html"]);
+    assert_eq!(selected.hashes["apps/dist/index.html"], "b".repeat(64));
+    assert!(
+        build_artifacts(
+            &manifest,
+            &manifest.candidate_targets[0],
+            &[],
+            &"a".repeat(40),
+        )
+        .unwrap()
+        .is_none()
+    );
+    assert!(
+        build_artifacts(
+            &manifest,
+            &manifest.candidate_targets[0],
+            std::slice::from_ref(&receipt),
+            &"c".repeat(40),
+        )
+        .unwrap()
+        .is_none()
+    );
+}
+
+#[test]
+fn start_rejects_build_receipts_with_missing_or_extra_artifact_hashes() {
+    let mut manifest = manifest();
+    let target = &mut manifest.candidate_targets[0];
+    target.build_recipe_ref = Some("build-web".into());
+    target.artifact_spec_ref = Some("web-dist".into());
+    manifest
+        .artifact_specs
+        .insert("web-dist".into(), vec!["dist/index.html".into()]);
+
+    let mut receipt = build_receipt("unexpected.bin");
+    assert!(
+        build_artifacts(
+            &manifest,
+            &manifest.candidate_targets[0],
+            &[receipt.clone()],
+            &"a".repeat(40),
+        )
+        .is_err()
+    );
+    receipt
+        .artifact_hashes
+        .insert("apps/dist/index.html".into(), "b".repeat(64));
+    assert!(
+        build_artifacts(
+            &manifest,
+            &manifest.candidate_targets[0],
+            &[receipt],
+            &"a".repeat(40),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn start_uses_build_recipe_outputs_when_the_target_has_no_artifact_spec() {
+    let mut manifest = manifest();
+    let target = &mut manifest.candidate_targets[0];
+    target.build_recipe_ref = Some("build-web".into());
+    manifest
+        .recipes
+        .push(crate::project_runtime::ExecutionRecipeV1 {
+            recipe_id: "build-web".into(),
+            expected_artifacts: vec!["dist/index.html".into()],
+            allowed_output_paths: vec!["dist".into()],
+            ..recipe()
+        });
+    let receipt = build_receipt("apps/dist/index.html");
+
+    let selected = build_artifacts(
+        &manifest,
+        &manifest.candidate_targets[0],
+        &[receipt],
+        &"a".repeat(40),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(selected.paths, ["apps/dist/index.html"]);
 }
 
 #[test]

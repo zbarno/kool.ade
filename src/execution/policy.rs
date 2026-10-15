@@ -61,6 +61,8 @@ pub struct ExecutionPolicyV1 {
     environment_names: BTreeSet<String>,
     command_capabilities: BTreeSet<String>,
     tool_capabilities: BTreeSet<String>,
+    #[serde(default)]
+    artifact_paths: Vec<String>,
     resource_limits: ResourceBudgetV1,
     run_as_non_root: bool,
     host_secrets: bool,
@@ -144,6 +146,7 @@ impl ExecutionPolicyV1 {
             environment_names: ["CI", "LANG", "LC_ALL", "TZ"].map(str::to_owned).into(),
             command_capabilities,
             tool_capabilities,
+            artifact_paths: Vec::new(),
             resource_limits,
             run_as_non_root: true,
             host_secrets: false,
@@ -233,5 +236,14 @@ impl ExecutionPolicyV1 {
     /// Intersect grants and lower limits. The returned policy cannot widen either input.
     pub fn failure_kind_for_invalid(&self) -> ExecutionErrorKind {
         ExecutionErrorKind::PolicyDenied
+    }
+
+    pub(crate) fn with_artifact_paths(
+        mut self,
+        artifact_paths: Vec<String>,
+    ) -> anyhow::Result<Self> {
+        self.artifact_paths = artifact_paths;
+        self.validate()?;
+        Ok(self)
     }
 }

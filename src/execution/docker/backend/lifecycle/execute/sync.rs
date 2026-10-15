@@ -6,10 +6,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::execution::{
     contract::ExecutionRequestV1,
-    docker::{
-        backend::DockerExecutionBackend,
-        sandbox::{ValidatedWorkspace, WorkspaceSnapshot, staging},
-    },
+    docker::{backend::DockerExecutionBackend, sandbox::staging},
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
@@ -17,25 +14,22 @@ mod cancellation;
 pub(super) use cancellation::{WorkspaceSyncRequest, sync_workspace_if_active};
 
 pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
-    backend: &DockerExecutionBackend,
-    container_id: &str,
-    workspace: &ValidatedWorkspace,
-    snapshot: Option<&WorkspaceSnapshot>,
-    budget: u64,
-    writable: bool,
-    authorization_generation: &str,
-) -> Result<(), ExecutionError> {
-    if !writable {
-        return Ok(());
+    request: WorkspaceSyncRequest<'_>,
+) -> Result<Vec<crate::execution::contract::ArtifactManifestEntryV1>, ExecutionError> {
+    let WorkspaceSyncRequest {
+        backend,
+        container_id,
+        workspace,
+        snapshot,
+        budget,
+        writable,
+        artifact_paths,
+        authorization_generation,
+    } = request;
+    if !writable && artifact_paths.is_empty() {
+        return Ok(Vec::new());
     }
     backend.verify_authorization(authorization_generation)?;
-    let Some(snapshot) = snapshot else {
-        return Err(ExecutionError::new(
-            ExecutionErrorKind::WorkerDisconnected,
-            "Workspace baseline is unavailable after recovery; task clone was preserved",
-            false,
-        ));
-    };
     let archive = tokio::time::timeout(
         Duration::from_secs(60),
         download_workspace(backend, container_id, budget),
@@ -43,7 +37,18 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
     .await
     .map_err(|_| super::super::control::operation_timeout())??;
     backend.verify_authorization(authorization_generation)?;
-    staging::synchronize(workspace, snapshot, &archive, budget)
+    if writable {
+        let Some(snapshot) = snapshot else {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::WorkerDisconnected,
+                "Workspace baseline is unavailable after recovery; task clone was preserved",
+                false,
+            ));
+        };
+        staging::synchronize_with_artifacts(workspace, snapshot, &archive, budget, artifact_paths)
+    } else {
+        staging::collect_artifacts(&archive, budget, artifact_paths)
+    }
 }
 
 pub(in crate::execution::docker::backend::lifecycle) fn workspace_write_enabled(

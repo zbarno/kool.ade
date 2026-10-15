@@ -1,4 +1,4 @@
-use super::{join_workspace_path, validate_manifest_candidate};
+use super::{artifact_capture_paths, join_workspace_path, validate_manifest_candidate};
 use crate::{
     execution::contract::WorkspaceRef,
     project_runtime::{
@@ -127,4 +127,26 @@ fn recipe_candidate_requires_exact_task_source_and_user_approval() {
             .to_string()
             .contains("explicit approval")
     );
+}
+
+#[test]
+fn build_artifact_capture_uses_the_exact_target_spec_and_recipe_allowlist() {
+    let (mut manifest, _) = approved_manifest();
+    let target = &mut manifest.candidate_targets[0];
+    target.artifact_spec_ref = Some("web-assets".into());
+    manifest
+        .artifact_specs
+        .insert("web-assets".into(), vec!["dist/index.html".into()]);
+    let target = manifest.candidate_targets[0].clone();
+    let recipe = manifest.recipes[0].clone();
+
+    assert_eq!(
+        artifact_capture_paths(&manifest, &target, &recipe, RuntimeOperation::Build).unwrap(),
+        ["dist/index.html"]
+    );
+
+    manifest
+        .artifact_specs
+        .insert("web-assets".into(), vec!["private/config.json".into()]);
+    assert!(artifact_capture_paths(&manifest, &target, &recipe, RuntimeOperation::Build).is_err());
 }
