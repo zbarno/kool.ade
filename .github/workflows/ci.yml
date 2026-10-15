@@ -125,9 +125,24 @@ jobs:
           set -e
 
           cat "$RUNNER_TEMP/nextest-time.txt"
-          parallel_seconds="$(awk '$1 == "real" { print $2 }' "$RUNNER_TEMP/nextest-time.txt")"
-          printf '## Rust test suite timing\n\n| Run | Wall time |\n| --- | ---: |\n| Full nextest suite | %ss |\n\nThis is the measured wall time for this run. Compare only against equivalent suites and CI environments; the previous 1,441-test serial baseline is not comparable.\n' "$parallel_seconds" >> "$GITHUB_STEP_SUMMARY"
-          exit "$test_status"
+          set +e
+          python3 scripts/summarize-nextest-junit.py \
+            "$RUNNER_TEMP/nextest-time.txt" \
+            target/nextest/default/nextest.xml \
+            >> "$GITHUB_STEP_SUMMARY"
+          report_status=$?
+          set -e
+          if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+          exit "$report_status"
+
+      - name: Retain per-test timing inventory
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nextest-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/nextest/default/nextest.xml
+          if-no-files-found: error
+          retention-days: 14
 
   docs:
     name: documentation tests
