@@ -15,7 +15,7 @@ pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_write_e
 use crate::execution::{
     backend::ExecutionHandleV1,
     contract::ExecutionRequestV1,
-    docker::backend::{DockerExecutionBackend, internal_error},
+    docker::backend::{DockerExecutionBackend, internal_error_with_context},
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
@@ -61,7 +61,9 @@ pub(super) async fn run(
         }
     };
     {
-        let mut state = execution.lock().map_err(|_| internal_error())?;
+        let mut state = execution
+            .lock()
+            .map_err(|_| internal_error_with_context("recording the container command ID"))?;
         state.command_id = Some(exec.id.clone());
         state.persist()?;
     }

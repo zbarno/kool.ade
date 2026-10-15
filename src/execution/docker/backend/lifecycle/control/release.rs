@@ -81,17 +81,23 @@ pub(super) async fn release_persisted(
         record.cleanup = ExecutionCleanupStateV1::Complete;
         record.updated_at_unix_ms =
             crate::execution::docker::backend::now_unix_ms().max(record.started_at_unix_ms);
-        execution_records::save(&record).map_err(|_| super::internal_error())?;
+        execution_records::save(&record).map_err(|_| {
+            super::internal_error_with_context("persisting completed execution cleanup")
+        })?;
     }
     if let Some(lease_id) = record.workspace_lease_id.as_deref() {
         let prepared = backend
             .workspaces
             .lock()
-            .map_err(|_| super::internal_error())?
+            .map_err(|_| {
+                super::internal_error_with_context("reading the workspace registry during recovery")
+            })?
             .get(lease_id)
             .cloned();
         if let Some(prepared) = prepared {
-            let mut state = prepared.lock().map_err(|_| super::internal_error())?;
+            let mut state = prepared.lock().map_err(|_| {
+                super::internal_error_with_context("updating recovered workspace state")
+            })?;
             if state.active_execution_id.as_deref() != Some(handle.execution_id.as_str()) {
                 return Err(ExecutionError::new(
                     ExecutionErrorKind::PolicyDenied,
@@ -104,14 +110,18 @@ pub(super) async fn release_persisted(
             backend
                 .workspaces
                 .lock()
-                .map_err(|_| super::internal_error())?
+                .map_err(|_| {
+                    super::internal_error_with_context("removing the recovered workspace lease")
+                })?
                 .remove(lease_id);
         }
     }
     backend
         .executions
         .lock()
-        .map_err(|_| super::internal_error())?
+        .map_err(|_| {
+            super::internal_error_with_context("removing the recovered execution registry entry")
+        })?
         .remove(&handle.execution_id);
     Ok(())
 }
