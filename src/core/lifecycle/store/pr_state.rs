@@ -168,6 +168,10 @@ fn persist(
             work_item_uid: record.work_item_uid.clone(),
             status: record.status,
         },
+        super::records::EventProjection {
+            pr_preparation_after: Some(record.clone()),
+            ..super::records::EventProjection::default()
+        },
     )?;
     append_transition(
         store,
