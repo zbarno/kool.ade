@@ -7,8 +7,8 @@ use std::{
 };
 
 const PORT: u16 = 38_421;
-const SERVER_SCRIPT: &str = "const net=require('node:net');net.createServer(s=>s.end('ready')).listen(Number(process.argv[1]),'0.0.0.0');";
-const CLIENT_SCRIPT: &str = "const net=require('node:net');const c=net.createConnection({host:process.argv[1],port:Number(process.argv[2])});c.setTimeout(1500);c.on('connect',()=>c.end());c.on('data',d=>{if(d.toString()==='ready')process.exit(0)});c.on('error',e=>{console.error(e.message);process.exit(1)});c.on('timeout',()=>{console.error('connection timed out');c.destroy();process.exit(1)});";
+const SERVER_SCRIPT: &str = "const net=require('node:net');net.createServer(s=>s.end()).listen(Number(process.argv[1]),'0.0.0.0');";
+const CLIENT_SCRIPT: &str = "const net=require('node:net');const c=net.createConnection({host:process.argv[1],port:Number(process.argv[2])});c.setTimeout(1500);c.on('connect',()=>c.end());c.on('error',e=>{console.error(e.message);process.exit(1)});c.on('timeout',()=>{console.error('connection timed out');c.destroy();process.exit(1)});";
 
 pub(super) struct BridgeNetworkProbe {
     name: String,
