@@ -182,21 +182,20 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
 #[test]
 fn interview_approval_multicall_generation_commit_and_failure_recovery() {
     for failure_mode in [0, 1, 2, 3, 4, 6] {
-        let root = std::env::temp_dir().join(format!(
-            "koolade_full_workflow_{}_{failure_mode}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root).unwrap();
+        let tempdir = tempfile::Builder::new()
+            .prefix("koolade_full_workflow_")
+            .tempdir()
+            .unwrap();
+        let root = tempdir.path();
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
-                .current_dir(&root)
+                .current_dir(root)
                 .status()
                 .unwrap()
                 .success()
         );
-        let mut state = PlannerState::load(&root).unwrap();
+        let mut state = PlannerState::load(root).unwrap();
         state.bootstrap_missing().unwrap();
         let TurnOutcome::Applied {
             state,
@@ -232,7 +231,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 ".koolade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md",
             );
             let saved = std::fs::read_to_string(&first).unwrap();
-            let reloaded = PlannerState::load(&root).unwrap();
+            let reloaded = PlannerState::load(root).unwrap();
             assert!(
                 reloaded.workflow.ready(reloaded.spec_text.as_deref()),
                 "failed generation can be retried"
@@ -324,7 +323,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             );
             let tracked = std::process::Command::new("git")
                 .args(["ls-tree", "-r", "--name-only", "HEAD"])
-                .current_dir(&root)
+                .current_dir(root)
                 .output()
                 .unwrap();
             let paths = String::from_utf8(tracked.stdout).unwrap();
@@ -338,6 +337,5 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 paths.contains(".koolade-packet/planning/tasks/saved-searches/specification.md")
             );
         }
-        std::fs::remove_dir_all(root).unwrap();
     }
 }
