@@ -109,15 +109,6 @@ jobs:
         uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           tool: nextest@0.9.148
-      - name: Run clean provider launch release gate
-        run: >-
-          cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
-          -E 'test(exact_cli_help_capabilities_gate_each_provider_profile) |
-          test(fake_provider_invocations_cover_all_modes_and_launch_profiles) |
-          test(every_provider_launch_profile_binds_its_required_arguments_and_environment) |
-          test(evidence_enforces_discoverable_version_and_capability_requirements) |
-          test(launch_telemetry_records_only_redacted_profile_identity) |
-          test(redacted_launch_profile_survives_later_progress_updates)'
       - name: Run all tests in parallel and report timing
         env:
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
@@ -135,24 +126,7 @@ jobs:
 
           cat "$RUNNER_TEMP/nextest-time.txt"
           parallel_seconds="$(awk '$1 == "real" { print $2 }' "$RUNNER_TEMP/nextest-time.txt")"
-          python3 - "$parallel_seconds" >> "$GITHUB_STEP_SUMMARY" <<'PY'
-          import sys
-
-          baseline_seconds = 1732.0
-          parallel_seconds = float(sys.argv[1])
-          saved_percent = 100 * (baseline_seconds - parallel_seconds) / baseline_seconds
-          speedup = baseline_seconds / parallel_seconds
-          print("## Rust test suite timing")
-          print()
-          print("| Run | Wall time |")
-          print("| --- | ---: |")
-          print(f"| Recorded serial baseline | {baseline_seconds:.1f}s |")
-          print(f"| Parallel nextest suite | {parallel_seconds:.1f}s |")
-          print()
-          print(f"Parallel run: {speedup:.2f}x speedup ({saved_percent:.1f}% less wall time).")
-          print("Measured with `/usr/bin/time -p`; both values cover the all-target test command.")
-          print("The serial baseline is from an earlier revision (1,441 tests); the current suite may contain additional tests, so this is an indicative cross-revision comparison.")
-          PY
+          printf '## Rust test suite timing\n\n| Run | Wall time |\n| --- | ---: |\n| Full nextest suite | %ss |\n\nThis is the measured wall time for this run. Compare only against equivalent suites and CI environments; the previous 1,441-test serial baseline is not comparable.\n' "$parallel_seconds" >> "$GITHUB_STEP_SUMMARY"
           exit "$test_status"
 
   docs:

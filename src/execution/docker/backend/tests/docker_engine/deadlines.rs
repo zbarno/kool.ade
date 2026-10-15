@@ -32,7 +32,9 @@ async fn run(cancel_at_deadline: bool) {
         workspace,
         "printf 'preserved\\n' > output.txt; printf 'ready\\n'; sleep 300",
     );
-    request.deadline_unix_ms = now_unix_ms() + 30_000;
+    // Exercise the actual deadline and cancellation race without a 30-second wait.
+    // Leave ample room for rootless Docker startup under shared CI load.
+    request.deadline_unix_ms = now_unix_ms() + 15_000;
     let _cleanup = container_cleanup(&request);
     let (_lease, handle) = prepare_and_start(&backend, &request).await;
     let backend = Arc::new(backend);

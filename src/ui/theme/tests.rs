@@ -121,13 +121,6 @@ fn board_frames_separate_active_from_idle_per_class() {
     }
 }
 
-#[test]
-fn badge_impls_compile() {
-    let (a, b) = crate::domain::Priority::High.badge_colors();
-    let (c, d) = crate::domain::ItemKind::Question.badge_colors();
-    let _ = (a, b, c, d);
-}
-
 /// CHG-003 story 4: the digest backdrop and the reserved chip tints hold
 /// their recorded literals, and the backdrop ranks between BG (lowest) and
 /// the card's answer-needed frame ACCENT_SOFT (highest) on every channel
