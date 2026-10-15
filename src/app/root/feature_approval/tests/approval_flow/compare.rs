@@ -196,6 +196,3 @@ fn discard_recompare_action_keeps_the_previous_plan_transcript() {
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }
-
-#[path = "compare/task_generation.rs"]
-mod task_generation;
