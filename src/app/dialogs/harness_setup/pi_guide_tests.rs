@@ -121,6 +121,8 @@ fn pi_guide_tracks_tool_discovery_from_pending_to_live_report() {
         scan_cancel: None,
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
     assert!(matches!(
         super::pi_guide::pi_guide_view(&dialog),

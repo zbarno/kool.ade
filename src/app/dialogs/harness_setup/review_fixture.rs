@@ -14,6 +14,8 @@ impl DlgHarnessSetup {
             scan_generation: 0,
             scan_cancel: None,
             scan_results: Vec::new(),
+            probe_results: Default::default(),
+            running_providers: Default::default(),
             runtime_available: None,
         }
     }

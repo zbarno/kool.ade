@@ -40,37 +40,6 @@ fn invalidating_a_manual_provider_keeps_only_stale_diagnostics() {
 }
 
 #[test]
-fn runtime_probe_updates_only_the_current_provider_capability_snapshot() {
-    use crate::execution::contract::ReadinessState;
-
-    let mut settings = HarnessSettings::default();
-    super::super::discovery::apply_probe_results(&mut settings, &[report(true)], None, 11);
-    let mut reports = vec![report(true)];
-    super::super::discovery::update_runtime_readiness(&mut settings, &mut reports, 11, true);
-
-    super::super::discovery::update_runtime_readiness(&mut settings, &mut reports, 10, true);
-    assert_eq!(
-        settings.discovered["pi"]
-            .capability_snapshot
-            .as_ref()
-            .unwrap()
-            .execution_target,
-        ReadinessState::Ready,
-        "a prior scan cannot overwrite current runtime readiness"
-    );
-
-    super::super::discovery::update_runtime_readiness(&mut settings, &mut reports, 11, true);
-    assert_eq!(
-        settings.discovered["pi"]
-            .capability_snapshot
-            .as_ref()
-            .unwrap()
-            .execution_target,
-        ReadinessState::Ready
-    );
-}
-
-#[test]
 fn setup_selection_requires_a_valid_current_capability_snapshot() {
     let generation = crate::persistence::harness_settings::current_unix_ms();
     let mut settings = HarnessSettings::default();
@@ -113,6 +82,8 @@ fn runtime_and_provider_messages_can_arrive_in_either_order() {
             scan_cancel: None,
             runtime_available: None,
             scan_results: Vec::new(),
+            probe_results: Default::default(),
+            running_providers: Default::default(),
         };
         let runtime = super::super::discovery::ProbeMessage::Runtime {
             generation: 21,
@@ -120,9 +91,10 @@ fn runtime_and_provider_messages_can_arrive_in_either_order() {
         };
         let mut report = report(true);
         report.implementation_available = false;
+        let result = super::super::probe_result::from_harness_probe(&report, 21, 100, 250);
         let provider = super::super::discovery::ProbeMessage::Provider {
             generation: 21,
-            report,
+            result,
         };
         if runtime_first {
             dialog.apply_probe_message(runtime);
@@ -159,68 +131,34 @@ fn late_probe_from_previous_generation_cannot_replace_saved_result() {
         scan_cancel: None,
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
     let mut stale = report(false);
     stale.executable = Some("/stale/old-pi".into());
+    let stale = super::super::probe_result::from_harness_probe(&stale, 7, 50, 20);
+    dialog.apply_probe_message(super::super::discovery::ProbeMessage::Started {
+        generation: 7,
+        provider_id: "old-codex".into(),
+    });
+    dialog.apply_probe_message(super::super::discovery::ProbeMessage::Started {
+        generation: 8,
+        provider_id: "pi".into(),
+    });
     dialog.apply_probe_message(super::super::discovery::ProbeMessage::Provider {
         generation: 7,
-        report: stale,
+        result: stale,
     });
     assert_eq!(
         dialog.settings.discovered["pi"].executable.as_deref(),
         Some("/example/bin/pi")
     );
     assert!(dialog.settings.discovered["pi"].ready);
+    assert_eq!(
+        dialog.running_providers,
+        std::collections::BTreeSet::from(["pi".to_owned()])
+    );
     assert_eq!(dialog.probe_view, ProbeView::Pending);
-}
-
-#[test]
-fn pending_scan_keeps_completed_provider_results_visible() {
-    let mut settings = HarnessSettings::default();
-    super::super::discovery::apply_probe_results(&mut settings, &[report(true)], None, 1);
-    let mut dialog = DlgHarnessSetup {
-        settings,
-        probe_view: ProbeView::Pending,
-        feedback: None,
-        section: HarnessSettingsSection::Tools,
-        manual_path_drafts: Default::default(),
-        probe_rx: None,
-        scan_generation: 1,
-        scan_cancel: None,
-        runtime_available: None,
-        scan_results: vec![report(true)],
-    };
-    let ctx = egui::Context::default();
-    let mut output = ctx.run_ui(
-        egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(900.0, 700.0),
-            )),
-            ..Default::default()
-        },
-        |ui| {
-            paint::paint_harness_setup_card(ui, &mut dialog);
-        },
-    );
-    let labels = output
-        .shapes
-        .iter()
-        .filter_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    output.textures_delta.clear();
-    assert!(labels.iter().any(|label| {
-        label == "Checking installed tools; completed provider results appear below."
-    }));
-    assert!(
-        labels
-            .iter()
-            .any(|label| label.contains("Still checking: codex"))
-    );
-    assert!(labels.iter().any(|label| label.starts_with("pi")));
 }
 
 #[test]
@@ -237,6 +175,8 @@ fn closing_discovery_cancels_the_active_provider_scan() {
         scan_cancel: Some(cancel.clone()),
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
     dialog.cancel_discovery();
     assert!(cancel.load(std::sync::atomic::Ordering::Acquire));
@@ -286,3 +226,7 @@ fn missing_provider_setup_is_recorded_separately_from_a_missing_executable() {
 
 #[path = "discovery/fallback.rs"]
 mod fallback;
+#[path = "discovery/progress.rs"]
+mod progress;
+#[path = "discovery/runtime.rs"]
+mod runtime;

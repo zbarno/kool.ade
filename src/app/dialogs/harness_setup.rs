@@ -2,11 +2,15 @@
 
 use std::sync::mpsc::Receiver;
 
+use crate::harness::discovery::ProbeResult;
+
 mod discovery;
 mod paint;
 mod pi_guide;
 #[cfg(test)]
 mod pi_guide_tests;
+mod probe;
+mod probe_result;
 mod probes;
 #[cfg(test)]
 mod review_fixture;
@@ -14,25 +18,12 @@ mod review_fixture;
 mod tests;
 mod tools;
 
+use probe::{HarnessProbe, is_executable_file};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeView {
     Pending,
     Complete,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HarnessProbe {
-    pub id: String,
-    pub status: String,
-    pub version: Option<String>,
-    pub executable: Option<String>,
-    pub diagnostic: Option<String>,
-    pub ready: bool,
-    pub models: Vec<String>,
-    pub default_model: Option<String>,
-    pub model_catalog_fresh: bool,
-    pub configuration_required: bool,
-    pub implementation_available: bool,
 }
 
 #[derive(Clone)]
@@ -47,6 +38,8 @@ pub struct DlgHarnessSetup {
     scan_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     runtime_available: Option<bool>,
     scan_results: Vec<HarnessProbe>,
+    pub(super) probe_results: std::collections::BTreeMap<String, ProbeResult>,
+    pub(super) running_providers: std::collections::BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -54,34 +47,6 @@ pub enum HarnessSettingsSection {
     #[default]
     Tools,
     Routing,
-}
-
-fn is_executable_file(path: &std::path::Path) -> bool {
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(windows)]
-    {
-        path.extension()
-            .and_then(std::ffi::OsStr::to_str)
-            .is_some_and(|extension| {
-                ["exe", "com", "cmd", "bat"]
-                    .iter()
-                    .any(|allowed| extension.eq_ignore_ascii_case(allowed))
-            })
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        true
-    }
 }
 
 pub(super) fn invalidate_discovery(
@@ -147,6 +112,8 @@ impl DlgHarnessSetup {
             scan_cancel: None,
             runtime_available: None,
             scan_results: Vec::new(),
+            probe_results: Default::default(),
+            running_providers: Default::default(),
         };
         dialog.refresh();
         dialog

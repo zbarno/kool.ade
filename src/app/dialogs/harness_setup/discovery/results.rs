@@ -92,14 +92,15 @@ pub(super) fn update_settings_from_probe(
 pub(in crate::app::dialogs::harness_setup) fn update_runtime_readiness(
     settings: &mut crate::persistence::harness_settings::HarnessSettings,
     reports: &mut [HarnessProbe],
-    generation: u64,
     implementation_available: bool,
 ) {
     use crate::execution::contract::ReadinessState;
 
+    // Runtime availability is shared by every provider. Retained provider
+    // snapshots keep their own discovery generation, while this global field
+    // is refreshed for all of them by the current, generation-fenced message.
     for (id, entry) in &mut settings.discovered {
         if let Some(snapshot) = entry.capability_snapshot.as_mut()
-            && snapshot.probe_cancellation_generation == generation
             && snapshot.provider_id == *id
         {
             snapshot.execution_target = if implementation_available {

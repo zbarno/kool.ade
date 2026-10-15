@@ -2,16 +2,15 @@ use super::{DlgHarnessSetup, ProbeView};
 use crate::ui::theme;
 use egui::{RichText, Ui};
 
+mod probe_status;
+
 pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     ui.label(theme::section_heading("Available coding tools"));
     ui.label(theme::helper_text(
         "Choose a tool to inspect its availability, executable path, and setup guidance.",
     ));
     if matches!(dialog.probe_view, ProbeView::Pending) {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label("Checking installed tools; completed provider results appear below.");
-        });
+        probe_status::paint_scan_progress(ui, dialog);
         let waiting = super::probes::PROVIDERS
             .iter()
             .filter(|id| {
@@ -204,6 +203,7 @@ fn paint_tool_details(
             harness.status
         )
     }));
+    probe_status::paint_probe_status(ui, dialog, id);
     ui.label(theme::helper_text(format!(
         "Security boundary: {}",
         crate::harness::execution_security::summary_for_harness(id)

@@ -17,6 +17,8 @@ fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
         scan_cancel: None,
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
     let ctx = egui::Context::default();
     let frame = |ctx: &egui::Context, dialog: &mut DlgHarnessSetup, events| {
@@ -138,6 +140,8 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
         scan_cancel: None,
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
     let ctx = egui::Context::default();
     let mut output = ctx.run_ui(
