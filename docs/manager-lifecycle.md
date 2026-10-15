@@ -29,6 +29,22 @@ while avoiding collisions with canonical workflow records (`state/workflow/`),
 task state (`state/tasks/`), and board work records (`state/work/`). Each
 transition writes an immutable event record and advances the snapshot atomically.
 
+New lifecycle event records use schema version 3. Feature creation records
+carry the revision-zero goal, feature transitions record the resulting feature
+revision, and task-creation records carry the initial task plus the resulting
+feature and task revisions. Task transitions record their resulting task
+revision. Task completion and PR publication events retain the full resulting
+PR-preparation projection. `LifecycleStore::replay_feature` reduces the feature,
+task, and PR histories without writing, and checks their cross-record links.
+PR scope must include the completed task and every directly owned subtask; each
+subtask must have a recorded completion before the parent completion event.
+Publication authorization is bound to the task's implementation hash and the
+explicit create-PR user action. Only after these checks pass does replay restore
+missing snapshots, one revision at a time through revision-fenced writes.
+Conflicting or malformed snapshots are reported rather than overwritten. Older
+version-1 histories and version-2 PR histories remain readable from their
+snapshots but cannot restore projections whose original state was not recorded.
+
 ## Task transitions
 
 | Current phase | Event | Guard | Next phase |
@@ -65,18 +81,18 @@ transaction. Implementation `Done` is separate from PR opening and merging.
 PR publication requires its own authorization and records its state
 independently.
 
-On reopen, `load_feature` and `load_task` validate and return the current
-per-record snapshots. `events_for_feature` validates and sorts matching event
-records for inspection; it does not replay them or rebuild a missing or
-corrupt snapshot. The event history is therefore an audit trail, not a
-reconstruction source. In particular, `FeatureCreated` does not contain the
-initial feature goal, so the current event records are not sufficient to
-reconstruct a feature from scratch. Same-revision concurrent advances are
-fenced by the transaction layer, code changes invalidate downstream review
-and QA evidence, and completion atomically creates one idempotently keyed PR
-work item. A waiting or blocked step retains its reason and evidence rather
-than synthesizing a pass. Deterministic lifecycle replay/reconstruction and
-restart replay coverage remain open work tracked by issue #157. Local
-lifecycle acceptance fixtures validate the implemented store contracts;
-interactive browser/desktop behavior is covered by the separate runtime-QA
-acceptance path.
+On reopen, `load_feature`, `load_task`, and `load_pr_preparation` validate and
+return the current per-record snapshots. `events_for_feature` validates and
+sorts matching event records. `replay_feature` reconstructs the projections
+from replayable event histories in a read-only validation pass, compares
+existing snapshots, then restores missing snapshots through revision-fenced
+writes. Legacy histories without
+initial-state or resulting-state data remain readable but cannot reconstruct a
+missing snapshot. Same-revision concurrent advances are fenced by the
+transaction layer, code changes invalidate downstream review and QA evidence,
+and completion atomically creates one idempotently keyed PR work item. A
+waiting or blocked step retains its reason and evidence rather than
+synthesizing a pass. The application still lacks one end-to-end lifecycle
+coordinator across all legacy entry points; the local replay tests validate
+store recovery, while interactive browser/desktop behavior is covered by the
+separate runtime-QA acceptance path.

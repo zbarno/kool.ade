@@ -3,6 +3,8 @@ use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
 #[path = "store/completion.rs"]
 mod completion;
+#[path = "store/replay.rs"]
+mod replay;
 #[path = "store/task_batch.rs"]
 mod task_batch;
 
@@ -79,6 +81,7 @@ fn lifecycle_events_and_snapshots_commit_atomically_and_survive_reopen() {
         )
         .unwrap();
     assert_eq!(changed.revision, 2);
+    assert_eq!(lifecycle.replay_feature(&feature_uid).unwrap(), changed);
     assert_eq!(
         lifecycle.load_feature(&feature_uid).unwrap().phase,
         FeaturePhase::AwaitingAnswers
@@ -88,6 +91,7 @@ fn lifecycle_events_and_snapshots_commit_atomically_and_survive_reopen() {
     let reopened = LifecycleStore::new(&reopened_planning);
     feature = reopened.load_feature(&feature_uid).unwrap();
     assert_eq!(feature.unresolved_questions, ["Confirm target repository"]);
+    assert_eq!(reopened.replay_feature(&feature_uid).unwrap(), feature);
     assert_eq!(reopened.events_for_feature(&feature_uid).unwrap().len(), 2);
     assert!(matches!(
         reopened.apply_feature_event(
@@ -105,6 +109,7 @@ fn lifecycle_events_and_snapshots_commit_atomically_and_survive_reopen() {
             .is_file()
     );
 }
+
 #[test]
 fn event_identity_cannot_be_replayed_to_overwrite_a_feature() {
     let fixture = Fixture::new();
