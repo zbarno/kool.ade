@@ -197,6 +197,17 @@ pub(super) fn paint_planning_work(
     planning::paint_work(ui, surface, board, work, height);
 }
 
+pub(super) fn paint_opportunity(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    proposal: &crate::core::opportunity::OpportunityV1,
+    record_revision: u64,
+    height: f32,
+) {
+    planning::paint_opportunity(ui, surface, board, proposal, record_revision, height);
+}
+
 pub(super) fn paint_setup_issue(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,

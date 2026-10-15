@@ -27,6 +27,8 @@ fn manual_path_save_and_reset_roll_back_memory_when_settings_cannot_be_written()
         scan_cancel: None,
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
     dialog.set_manual_path("pi", binary.display().to_string());
     assert!(!dialog.settings.manual_executable_paths.contains_key("pi"));
@@ -98,6 +100,8 @@ fn reset_clears_manual_discovery_until_automatic_probe_finishes() {
         scan_cancel: None,
         runtime_available: None,
         scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
     };
 
     dialog.reset_manual_path("pi");

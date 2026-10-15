@@ -4,8 +4,10 @@ mod cancellation;
 mod columns;
 mod empty_lane;
 mod opportunities;
+mod planning_modal;
 pub(super) mod presentation;
 mod relationships;
+mod task_chat;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -32,7 +34,6 @@ pub(super) fn paint(
     let mut planning_selection = ui
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
-    let items = &board.planning_items;
     let relationship_map = relationships::build(board);
     ui.ctx().data_mut(|data| {
         data.insert_temp(
@@ -44,53 +45,19 @@ pub(super) fn paint(
             std::collections::HashSet::<String>::new(),
         );
     });
-    opportunities::paint(ui, s, board);
+    opportunities::paint(ui, s, board, &mut planning_selection);
     columns::paint(ui, s, board, &mut selected_path, &mut planning_selection);
 
     // Opening or switching a task is an interaction, not a rendering side
     // effect. Emit one typed initialization command on the selection change,
     // before the modal reads its conversation in the same frame.
-    let selected_chat = selected_path
-        .as_deref()
-        .filter(|path| docs.iter().any(|doc| doc.path == *path))
-        .map(str::to_owned)
-        .or_else(|| {
-            let selected = planning_selection.as_deref()?;
-            items
-                .iter()
-                .find(|item| item.id == selected)
-                .map(|item| item.conversation_key().to_owned())
-                .or_else(|| {
-                    board
-                        .planning_work
-                        .iter()
-                        .find(|work| work.key == selected)
-                        .map(|work| work.key.clone())
-                })
-                .or_else(|| {
-                    board
-                        .clarification_questions
-                        .iter()
-                        .find(|question| selected == clarification_key(&question.uid))
-                        .map(|question| clarification_key(&question.uid))
-                })
-        });
-    let prepared_id = egui::Id::new("koolade_last_prepared_task_chat");
-    let previously_prepared = ui
-        .ctx()
-        .data_mut(|data| data.get_temp::<String>(prepared_id));
-    if selected_chat != previously_prepared {
-        ui.ctx().data_mut(|data| {
-            if let Some(key) = selected_chat.as_ref() {
-                data.insert_temp(prepared_id, key.clone());
-            } else {
-                data.remove::<String>(prepared_id);
-            }
-        });
-        if let Some(key) = selected_chat {
-            s.dispatch(crate::ui::ApplicationCommand::PrepareTaskChat { key });
-        }
-    }
+    task_chat::prepare_for_selection(
+        ui,
+        s,
+        board,
+        selected_path.as_deref(),
+        planning_selection.as_deref(),
+    );
     cancellation::confirm(ui, s, board);
     let active_hover = egui::Id::new("koolade_board_hover_active");
     let next_hover = egui::Id::new("koolade_board_hover_next");
@@ -145,95 +112,7 @@ pub(super) fn paint(
         } else {
             selected_path = None;
         }
-        if let Some(item) = planning_selection
-            .as_ref()
-            .and_then(|id| items.iter().find(|i| &i.id == id))
-        {
-            let closed = crate::ui::overlays::show_task_modal(
-                ui,
-                item.conversation_key(),
-                panel_bounds,
-                |ui| {
-                    task_details::paint_planning_item(
-                        ui,
-                        s,
-                        board,
-                        item,
-                        (panel_bounds.height() - 160.0).max(160.0),
-                    );
-                },
-            );
-            if closed {
-                planning_selection = None;
-            }
-        } else if let Some(work) = planning_selection
-            .as_ref()
-            .and_then(|key| board.planning_work.iter().find(|work| &work.key == key))
-        {
-            let closed = crate::ui::overlays::show_task_modal(ui, &work.key, panel_bounds, |ui| {
-                task_details::paint_planning_work(
-                    ui,
-                    s,
-                    board,
-                    work,
-                    (panel_bounds.height() - 160.0).max(160.0),
-                );
-            });
-            if closed {
-                planning_selection = None;
-            }
-        } else if let Some(question) = planning_selection
-            .as_deref()
-            .and_then(|key| key.strip_prefix("clarification:"))
-            .and_then(|uid| {
-                board
-                    .clarification_questions
-                    .iter()
-                    .find(|question| question.uid == uid)
-            })
-        {
-            let key = clarification_key(&question.uid);
-            let closed = crate::ui::overlays::show_task_modal(ui, &key, panel_bounds, |ui| {
-                task_details::paint_clarification(
-                    ui,
-                    s,
-                    question,
-                    (panel_bounds.height() - 160.0).max(160.0),
-                );
-            });
-            if closed {
-                planning_selection = None;
-            }
-        } else if let Some(action) = planning_selection
-            .as_deref()
-            .and_then(|key| key.strip_prefix("feature-approval:"))
-            .and_then(|id| {
-                s.feature_actions(None)
-                    .into_iter()
-                    .find(|action| action.id == id)
-            })
-        {
-            let id = action.id.clone();
-            let closed = crate::ui::overlays::show_task_modal(ui, &id, panel_bounds, |ui| {
-                task_details::paint_feature_approval(ui, s, &action);
-            });
-            if closed {
-                planning_selection = None;
-            }
-        } else if let Some(issue) = board
-            .setup_attention
-            .as_ref()
-            .filter(|issue| planning_selection.as_deref() == Some(issue.id))
-        {
-            let closed = crate::ui::overlays::show_task_modal(ui, issue.id, panel_bounds, |ui| {
-                task_details::paint_setup_issue(ui, s, board, issue)
-            });
-            if closed {
-                planning_selection = None;
-            }
-        } else {
-            planning_selection = None;
-        }
+        planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
     }
     if ui.ctx().input(|input| input.key_pressed(egui::Key::Escape)) {
         selected_path = None;
@@ -301,8 +180,4 @@ pub(super) fn paint(
             d.remove::<String>(id);
         }
     });
-}
-
-fn clarification_key(uid: &str) -> String {
-    format!("clarification:{uid}")
 }

@@ -14,7 +14,9 @@ mod imports;
 mod task_conversation;
 #[path = "prompt/workflow.rs"]
 mod workflow;
-pub use task_conversation::{QUESTION_TASK_MODE_NOTE, TASK_CONVERSATION_MODE_NOTE};
+pub use task_conversation::{
+    OPPORTUNITY_TASK_MODE_NOTE, QUESTION_TASK_MODE_NOTE, TASK_CONVERSATION_MODE_NOTE,
+};
 pub use workflow::{WORKFLOW_INSTRUCTIONS, workflow_context, workflow_context_for_turn};
 
 /// Canonical authoring contract injected into every planning turn.

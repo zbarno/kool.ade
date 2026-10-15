@@ -62,6 +62,16 @@ pub(super) fn run_turn(
     // Decode (or discover the absence of) the structured block.
     match decode_envelope(&outcome.final_text, inputs.purpose) {
         EnvelopeDecode::Env(env) => {
+            if task.is_some_and(|key| {
+                crate::core::task_conversation::is_opportunity_conversation_key(key)
+            }) && crate::core::task_conversation::opportunity_discussion_requests_project_change(&env)
+            {
+                return TurnOutcome::Rejected {
+                    problems: vec!["Improvement proposal discussions cannot change planning state or create project actions. Use the proposal's explicit Task Details controls for decisions.".into()],
+                    final_text: outcome.final_text,
+                    elapsed: started.elapsed(),
+                };
+            }
             if inputs.purpose == crate::core::workflow::TurnPurpose::Question
                 && (env.updated_specification.is_some()
                     || env.document_updates.as_ref().is_some_and(|items| !items.is_empty())

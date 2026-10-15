@@ -61,6 +61,18 @@ fn retain_bounded(existing: &[u8], line: &[u8]) -> Vec<u8> {
 /// Append only bounded, non-sensitive probe metadata. Provider output,
 /// executable paths, models, and authentication details are intentionally omitted.
 pub fn record_probe(scan_id: u64, provider: &str, duration_ms: u64, ready: bool) {
+    record_probe_result(scan_id, provider, duration_ms, ready, None, None);
+}
+
+/// Append typed stage and failure codes while omitting provider output and secrets.
+pub fn record_probe_result(
+    scan_id: u64,
+    provider: &str,
+    duration_ms: u64,
+    ready: bool,
+    stage: Option<&str>,
+    failure_code: Option<&str>,
+) {
     if !supported_provider(provider) {
         return;
     }
@@ -71,10 +83,10 @@ pub fn record_probe(scan_id: u64, provider: &str, duration_ms: u64, ready: bool)
         schema_version: 1,
         scan_id,
         provider,
-        stage: "provider_probe",
+        stage: supported_stage(stage).unwrap_or("provider_probe"),
         duration_ms,
         outcome: if ready { "ready" } else { "failed" },
-        failure_code: (!ready).then_some("provider_unavailable"),
+        failure_code: logged_failure_code(ready, failure_code),
     };
     let Ok(mut line) = serde_json::to_vec(&record) else {
         return;
@@ -146,6 +158,37 @@ pub fn record_probe(scan_id: u64, provider: &str, duration_ms: u64, ready: bool)
     let _ = fs2::FileExt::unlock(&lock);
 }
 
+fn supported_stage(stage: Option<&str>) -> Option<&'static str> {
+    match stage {
+        Some("executable") => Some("executable"),
+        Some("version") => Some("version"),
+        Some("authentication") => Some("authentication"),
+        Some("models") => Some("models"),
+        Some("capability") => Some("capability"),
+        _ => None,
+    }
+}
+
+fn supported_failure_code(code: &str) -> Option<&'static str> {
+    match code {
+        "executable_missing" => Some("executable_missing"),
+        "executable_invalid" => Some("executable_invalid"),
+        "version_unavailable" => Some("version_unavailable"),
+        "authentication_required" => Some("authentication_required"),
+        "model_catalog_unavailable" => Some("model_catalog_unavailable"),
+        "runtime_unavailable" => Some("runtime_unavailable"),
+        "provider_probe_failed" => Some("provider_probe_failed"),
+        "invalid_provider_result" => Some("invalid_provider_result"),
+        _ => None,
+    }
+}
+
+fn logged_failure_code(ready: bool, failure_code: Option<&str>) -> Option<&'static str> {
+    failure_code
+        .and_then(supported_failure_code)
+        .or_else(|| (!ready).then_some("provider_unavailable"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +209,34 @@ mod tests {
         assert!(!encoded.contains("/home/"));
         assert!(supported_provider("codex"));
         assert!(!supported_provider("unknown"));
+        assert_eq!(supported_stage(Some("models")), Some("models"));
+        assert_eq!(supported_stage(Some("private path")), None);
+        assert_eq!(
+            supported_failure_code("authentication_required"),
+            Some("authentication_required")
+        );
+        assert_eq!(supported_failure_code("token=secret"), None);
+        assert_eq!(
+            logged_failure_code(true, Some("model_catalog_unavailable")),
+            Some("model_catalog_unavailable")
+        );
+        assert_eq!(logged_failure_code(true, None), None);
+        assert_eq!(
+            logged_failure_code(false, None),
+            Some("provider_unavailable")
+        );
+        let typed = ProbeRecord {
+            schema_version: 1,
+            scan_id: 8,
+            provider: "codex",
+            stage: supported_stage(Some("models")).unwrap(),
+            duration_ms: 18,
+            outcome: "failed",
+            failure_code: supported_failure_code("model_catalog_unavailable"),
+        };
+        let encoded = serde_json::to_string(&typed).unwrap();
+        assert!(encoded.contains("\"stage\":\"models\""));
+        assert!(encoded.contains("\"failure_code\":\"model_catalog_unavailable\""));
     }
 
     #[test]

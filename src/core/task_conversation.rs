@@ -3,7 +3,14 @@ use crate::core::{context_build::clip, state::PlannerState};
 
 mod documentation_refresh;
 mod feature_planning;
+mod opportunity;
 mod references;
+pub(crate) use opportunity::is_conversation_key as is_opportunity_conversation_key;
+use opportunity::uid_from_conversation_key;
+pub(crate) use opportunity::{
+    conversation_key as opportunity_conversation_key,
+    discussion_requests_project_change as opportunity_discussion_requests_project_change,
+};
 
 /// Immediate opening copy from the current in-memory board. Opening a chat
 /// must not wait for a model or perform repository I/O on an input frame.
@@ -12,6 +19,9 @@ pub fn presentation(
     docs: &[crate::artifacts::task_docs::TaskDocument],
     key: &str,
 ) -> Option<(String, String)> {
+    if let Some(uid) = uid_from_conversation_key(key) {
+        return opportunity::presentation(state, uid);
+    }
     if key.starts_with("planning:")
         || key.starts_with("feature:")
         || key.starts_with("task:")
@@ -114,6 +124,9 @@ pub fn prompt(
     message: &str,
     history: &[(String, String)],
 ) -> Result<String, String> {
+    if let Some(uid) = uid_from_conversation_key(key) {
+        return opportunity::prompt(state, uid, message, history);
+    }
     let docs = crate::artifacts::task_docs::load_board(&state.planning_store, &state.workflow);
     let synthetic = crate::core::ownership::synthesize_for_state(state);
     let mut subject = if let Some(item) = state

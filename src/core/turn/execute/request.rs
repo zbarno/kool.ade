@@ -154,6 +154,9 @@ pub(super) fn prepare(
         });
     }
     let task_note = task.and_then(|key| {
+        if crate::core::task_conversation::is_opportunity_conversation_key(key) {
+            return Some(prompt::OPPORTUNITY_TASK_MODE_NOTE);
+        }
         if key.starts_with("planning:") || key.starts_with("feature:") {
             return None;
         }

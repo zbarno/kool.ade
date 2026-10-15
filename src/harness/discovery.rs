@@ -8,7 +8,13 @@ use std::{
 };
 
 mod process;
+mod result;
 use process::{is_cancelled, spawn_reader, terminate_group, wait_bounded};
+
+pub(crate) use result::{
+    ExecutionCapability, ModelCatalogStatus, ProbeDiagnosticCode, ProbeKind, ProbeResult,
+    ProbeStatus,
+};
 
 pub(crate) const MODEL_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) const MAX_PROBE_OUTPUT_BYTES: usize = 1024 * 1024;
