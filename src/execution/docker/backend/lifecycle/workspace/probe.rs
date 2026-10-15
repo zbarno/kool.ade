@@ -2,7 +2,7 @@ use crate::execution::{
     backend::{BackendCapabilitiesV1, BackendProbeV1},
     contract::ExecutionTarget,
     docker::{
-        backend::{DockerExecutionBackend, internal_error, prerequisite_error},
+        backend::{DockerExecutionBackend, prerequisite_error},
         images::ImageLock,
     },
     errors::{ExecutionError, ExecutionErrorKind},
@@ -32,7 +32,11 @@ pub(in crate::execution::docker::backend::lifecycle) async fn probe(
         backend
             .executions
             .lock()
-            .map_err(|_| internal_error())?
+            .map_err(|_| {
+                crate::execution::docker::backend::internal_error_with_context(
+                    "counting active executions during a probe",
+                )
+            })?
             .len(),
     )
     .unwrap_or(u32::MAX);

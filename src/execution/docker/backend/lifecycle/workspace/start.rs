@@ -10,7 +10,7 @@ use crate::execution::{
     contract::{ExecutionEventKindV1, ExecutionLifecycleV1, ExecutionRequestV1, ExecutionTarget},
     docker::{
         backend::{
-            DockerExecutionBackend, internal_error, invalid_request, now_unix_ms,
+            DockerExecutionBackend, internal_error_with_context, invalid_request, now_unix_ms,
             prerequisite_error, selected_image,
         },
         sandbox::{create_body, staging},
@@ -34,7 +34,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     }
     let _reservation = backend.reserve_start(&request.execution_id)?;
     let task_lock = crate::persistence::execution_records::try_task_lock(&request.task_id)
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("acquiring the task execution lock"))?
         .ok_or_else(|| {
             ExecutionError::new(
                 ExecutionErrorKind::PolicyDenied,
@@ -49,12 +49,17 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         return Err(invalid_request());
     }
     let (prepared, workspace) = {
-        let workspaces = backend.workspaces.lock().map_err(|_| internal_error())?;
+        let workspaces = backend
+            .workspaces
+            .lock()
+            .map_err(|_| internal_error_with_context("reading the prepared workspace registry"))?;
         let prepared = workspaces
             .get(&lease.lease_id)
             .cloned()
             .ok_or_else(invalid_request)?;
-        let mut state = prepared.lock().map_err(|_| internal_error())?;
+        let mut state = prepared
+            .lock()
+            .map_err(|_| internal_error_with_context("reading prepared workspace state"))?;
         if state.workspace != request.workspace
             || state.expires_unix_ms != lease.expires_unix_ms
             || state.expires_unix_ms <= now_unix_ms()
@@ -222,7 +227,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     backend
         .executions
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("updating the execution registry"))?
         .insert(
             handle.execution_id.clone(),
             Arc::new(std::sync::Mutex::new(execution)),
@@ -281,7 +286,10 @@ impl WorkspaceStartReservation {
     }
 
     fn activate(&mut self, execution_id: &str) -> Result<(), ExecutionError> {
-        let mut prepared = self.prepared.lock().map_err(|_| internal_error())?;
+        let mut prepared = self
+            .prepared
+            .lock()
+            .map_err(|_| internal_error_with_context("activating the workspace execution"))?;
         prepared.starting = false;
         prepared.active_execution_id = Some(execution_id.to_owned());
         self.active = false;

@@ -4,7 +4,7 @@ use crate::execution::{
     backend::WorkspaceLeaseV1,
     contract::{ExecutionTarget, WorkspaceRef},
     docker::{
-        backend::{DockerExecutionBackend, internal_error, invalid_request, now_unix_ms},
+        backend::{DockerExecutionBackend, invalid_request, now_unix_ms},
         sandbox::ValidatedWorkspace,
     },
     errors::ExecutionError,
@@ -26,7 +26,11 @@ pub(in crate::execution::docker::backend::lifecycle) async fn prepare(
     backend
         .workspaces
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| {
+            crate::execution::docker::backend::internal_error_with_context(
+                "registering the prepared workspace",
+            )
+        })?
         .insert(
             lease_id.clone(),
             Arc::new(std::sync::Mutex::new(

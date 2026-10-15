@@ -179,7 +179,11 @@ impl ExecutionBackend for DockerExecutionBackend {
 
     fn release_workspace<'a>(&'a self, lease: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()> {
         Box::pin(async move {
-            let mut workspaces = self.workspaces.lock().map_err(|_| internal_error())?;
+            let mut workspaces = self.workspaces.lock().map_err(|_| {
+                crate::execution::docker::backend::internal_error_with_context(
+                    "releasing a prepared workspace",
+                )
+            })?;
             let prepared = workspaces.get(&lease.lease_id).cloned().ok_or_else(|| {
                 crate::execution::errors::ExecutionError::new(
                     crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
@@ -187,7 +191,11 @@ impl ExecutionBackend for DockerExecutionBackend {
                     false,
                 )
             })?;
-            let state = prepared.lock().map_err(|_| internal_error())?;
+            let state = prepared.lock().map_err(|_| {
+                crate::execution::docker::backend::internal_error_with_context(
+                    "checking workspace release state",
+                )
+            })?;
             if state.workspace != lease.workspace
                 || state.expires_unix_ms != lease.expires_unix_ms
                 || state.starting
