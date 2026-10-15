@@ -48,9 +48,8 @@ impl HarnessRole {
             Self::PlanReviewer | Self::CodeReviewer => ExecutionMode::Investigation,
             Self::RuntimeQaReviewer => ExecutionMode::ReadOnlyAnalysis,
             Self::TaskDecomposer => ExecutionMode::TaskGeneration,
-            Self::Implementer | Self::RepairWorker | Self::PRPreparer => {
-                ExecutionMode::Implementation
-            }
+            Self::Implementer | Self::RepairWorker => ExecutionMode::Implementation,
+            Self::PRPreparer => ExecutionMode::ReadOnlyAnalysis,
             Self::SpecReconciler => ExecutionMode::Reconciliation,
         }
     }
@@ -58,9 +57,8 @@ impl HarnessRole {
     /// Container tool authority for the role; provider selection cannot alter it.
     pub fn execution_mode(self) -> ExecutionModeV1 {
         match self {
-            Self::Implementer | Self::RepairWorker | Self::PRPreparer => {
-                ExecutionModeV1::Implementation
-            }
+            Self::Implementer | Self::RepairWorker => ExecutionModeV1::Implementation,
+            Self::PRPreparer => ExecutionModeV1::PlanningReadOnly,
             Self::RuntimeQaReviewer => ExecutionModeV1::RuntimeQa,
             Self::Manager
             | Self::PlanningAnalyst

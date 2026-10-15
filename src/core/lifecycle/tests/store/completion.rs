@@ -1,3 +1,5 @@
+#[path = "completion/replay_integrity.rs"]
+mod replay_integrity;
 #[path = "completion/support.rs"]
 mod support;
 
@@ -163,6 +165,34 @@ fn task_completion_and_pr_preparation_are_committed_as_one_transition() {
         work,
         "the PR work item and its publication state survive restart"
     );
+    let expected_parent = reopened.load_task(&task_uid).unwrap();
+    let expected_child = reopened.load_task(&child_uid).unwrap();
+    let state_dir = fixture.0.join(".koolade-packet/state");
+    std::fs::remove_file(
+        state_dir
+            .join("lifecycle_tasks")
+            .join(format!("{task_uid}.json")),
+    )
+    .unwrap();
+    std::fs::remove_file(
+        state_dir
+            .join("lifecycle_tasks")
+            .join(format!("{child_uid}.json")),
+    )
+    .unwrap();
+    std::fs::remove_file(
+        state_dir
+            .join("lifecycle_pr_work_items")
+            .join(format!("{work_uid}.json")),
+    )
+    .unwrap();
+    assert_eq!(
+        reopened.replay_feature(&feature_uid).unwrap(),
+        reopened.load_feature(&feature_uid).unwrap()
+    );
+    assert_eq!(reopened.load_task(&task_uid).unwrap(), expected_parent);
+    assert_eq!(reopened.load_task(&child_uid).unwrap(), expected_child);
+    assert_eq!(reopened.load_pr_preparation(&work_uid).unwrap(), work);
     assert_eq!(
         reopened_store
             .list_record_paths("state/lifecycle_pr_work_items")
@@ -184,4 +214,58 @@ fn task_completion_and_pr_preparation_are_committed_as_one_transition() {
         complete.phase,
         crate::core::lifecycle::FeaturePhase::Complete
     );
+
+    let authorization_path = state_dir
+        .join("lifecycle_events")
+        .join(format!("{authorization_event}.json"));
+    let pr_snapshot_path = state_dir
+        .join("lifecycle_pr_work_items")
+        .join(format!("{work_uid}.json"));
+    let mut authorization_record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&authorization_path).unwrap()).unwrap();
+    authorization_record["prPreparationAfter"]["publication_authorization"]["subject_sha256"] =
+        "f".repeat(64).into();
+    std::fs::write(
+        &authorization_path,
+        serde_json::to_vec(&authorization_record).unwrap(),
+    )
+    .unwrap();
+    std::fs::remove_file(&pr_snapshot_path).unwrap();
+    assert!(reopened.replay_feature(&feature_uid).is_err());
+    assert!(!pr_snapshot_path.exists());
+}
+
+#[test]
+fn replay_does_not_restore_parent_without_subtask_projection() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let lifecycle = LifecycleStore::new(&store);
+    let (feature_uid, task_uid, _child_uid, _) = support::create_feature_graph(&lifecycle);
+    let parent_path = fixture.0.join(format!(
+        ".koolade-packet/state/lifecycle_tasks/{task_uid}.json"
+    ));
+    let subtask_event = lifecycle
+        .events_for_feature(&feature_uid)
+        .unwrap()
+        .into_iter()
+        .find(|event| {
+            matches!(
+                &event.event,
+                crate::core::lifecycle::LifecycleEventKind::SubtaskCreated { parent_task_uid }
+                    if parent_task_uid == &task_uid
+            )
+        })
+        .unwrap();
+    let event_path = fixture.0.join(format!(
+        ".koolade-packet/state/lifecycle_events/{}.json",
+        subtask_event.uid
+    ));
+    let mut event: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&event_path).unwrap()).unwrap();
+    event.as_object_mut().unwrap().remove("parentTaskAfter");
+    std::fs::write(&event_path, serde_json::to_vec(&event).unwrap()).unwrap();
+    std::fs::remove_file(&parent_path).unwrap();
+
+    assert!(lifecycle.replay_feature(&feature_uid).is_err());
+    assert!(!parent_path.exists());
 }

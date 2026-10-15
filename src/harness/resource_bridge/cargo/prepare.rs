@@ -13,11 +13,36 @@ use std::{
 const CARGO_FETCH_TIMEOUT: Duration = Duration::from_secs(7 * 60);
 const CARGO_REGISTRY_HOSTS: &[&str] = &["index.crates.io", "static.crates.io"];
 
+pub(in crate::harness::resource_bridge) struct FetchOutcome {
+    pub(super) bytes_received: usize,
+    pub(super) result: anyhow::Result<()>,
+}
+
+pub(in crate::harness::resource_bridge) type CargoFetchOperation =
+    dyn Fn(&Path, &Path, &Path, usize) -> FetchOutcome + Send + Sync;
+
+#[cfg(test)]
 pub(super) fn prepare_with_download_policy(
     worktree: &Path,
     cargo_cache: &Path,
     downloaded_bytes: &AtomicUsize,
     allow_downloads: bool,
+) -> anyhow::Result<ResourceResponse> {
+    prepare_with_download_policy_and_operations(
+        worktree,
+        cargo_cache,
+        downloaded_bytes,
+        allow_downloads,
+        None,
+    )
+}
+
+pub(super) fn prepare_with_download_policy_and_operations(
+    worktree: &Path,
+    cargo_cache: &Path,
+    downloaded_bytes: &AtomicUsize,
+    allow_downloads: bool,
+    operations: Option<&super::SharedPreparationOperations>,
 ) -> anyhow::Result<ResourceResponse> {
     let packages = lockfile::collect(worktree)?;
     if packages.is_empty() {
@@ -71,28 +96,17 @@ pub(super) fn prepare_with_download_policy(
         crate::harness::resource_bridge::MAX_SESSION_BYTES,
         crate::harness::resource_bridge::MAX_SESSION_BYTES,
     )?;
-    let proxy = match HttpsRegistryProxy::start(
-        CARGO_REGISTRY_HOSTS.iter().map(|host| (*host).to_owned()),
-        reservation,
-    ) {
-        Ok(proxy) => proxy,
-        Err(error) => {
-            crate::harness::resource_bridge::budget::settle_downloads(
-                downloaded_bytes,
-                reservation,
-                0,
-            );
-            return Err(error);
-        }
+    let outcome = match operations {
+        Some(operations) => (operations.fetch)(worktree, &cargo, cargo_cache, reservation),
+        None => fetch_from_registry(&cargo, worktree, cargo_cache, reservation),
     };
-    let result = run_fetch(&cargo, worktree, cargo_cache, &proxy.url());
-    let bytes_downloaded = proxy.bytes_received();
     crate::harness::resource_bridge::budget::settle_downloads(
         downloaded_bytes,
         reservation,
-        bytes_downloaded,
+        outcome.bytes_received,
     );
-    result?;
+    let bytes_downloaded = outcome.bytes_received;
+    outcome.result?;
     cache::verify_locked_packages(cargo_cache, &packages)?;
     Ok(ResourceResponse::prepared(format!(
         "Cargo prepared {} crates.io packages from Cargo.lock; registry checksums were verified and the sandbox remains offline.",
@@ -110,6 +124,31 @@ pub(super) fn prepare_with_download_policy(
         bytes_downloaded: bytes_downloaded as u64,
         ..Default::default()
     }))
+}
+
+fn fetch_from_registry(
+    cargo: &Path,
+    worktree: &Path,
+    cargo_cache: &Path,
+    reservation: usize,
+) -> FetchOutcome {
+    let proxy = match HttpsRegistryProxy::start(
+        CARGO_REGISTRY_HOSTS.iter().map(|host| (*host).to_owned()),
+        reservation,
+    ) {
+        Ok(proxy) => proxy,
+        Err(error) => {
+            return FetchOutcome {
+                bytes_received: 0,
+                result: Err(error),
+            };
+        }
+    };
+    let result = run_fetch(cargo, worktree, cargo_cache, &proxy.url());
+    FetchOutcome {
+        bytes_received: proxy.bytes_received(),
+        result,
+    }
 }
 
 pub(super) fn run_fetch(

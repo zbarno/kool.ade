@@ -9,7 +9,9 @@ mod server;
 mod test_support;
 
 #[cfg(test)]
-pub(super) use test_support::start_with_state_root_and_npm_operations;
+pub(super) use test_support::{
+    start_with_state_root_and_cargo_operations, start_with_state_root_and_npm_operations,
+};
 
 use super::{MAX_IN_FLIGHT_REQUESTS, cargo, npm, set_private_dir, set_private_file};
 use crate::harness::DependencyRequest;
@@ -78,6 +80,7 @@ impl ResourceBridge {
             &crate::persistence::state_root(),
             None,
             None,
+            None,
         )
     }
 
@@ -97,6 +100,7 @@ impl ResourceBridge {
             &crate::persistence::state_root(),
             None,
             None,
+            None,
         )
     }
 
@@ -109,6 +113,7 @@ impl ResourceBridge {
         cancel: Arc<AtomicBool>,
         state_root: &Path,
         npm_operations: Option<Arc<super::npm::SharedPreparationOperations>>,
+        cargo_operations: Option<Arc<super::cargo::SharedPreparationOperations>>,
         before_authorized: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> anyhow::Result<Self> {
         let worktree = worktree.canonicalize()?;
@@ -168,6 +173,7 @@ impl ResourceBridge {
         let thread_npm_snapshot = npm_snapshot.clone();
         let thread_npm_cache_gate = npm_cache_gate.clone();
         let thread_npm_operations = npm_operations;
+        let thread_cargo_operations = cargo_operations;
         let thread_before_authorized = before_authorized;
         let thread_cargo_cache = cargo_cache.clone();
         let thread_cargo_cache_gate = cargo_cache_gate.clone();
@@ -199,6 +205,7 @@ impl ResourceBridge {
                         let npm_snapshot = thread_npm_snapshot.clone();
                         let npm_cache_gate = thread_npm_cache_gate.clone();
                         let npm_operations = thread_npm_operations.clone();
+                        let cargo_operations = thread_cargo_operations.clone();
                         let before_authorized = thread_before_authorized.clone();
                         let cargo_cache = thread_cargo_cache.clone();
                         let cargo_cache_gate = thread_cargo_cache_gate.clone();
@@ -212,6 +219,7 @@ impl ResourceBridge {
                                 npm_snapshot: &npm_snapshot,
                                 cargo_cache: &cargo_cache,
                                 npm_operations: npm_operations.as_deref(),
+                                cargo_operations: cargo_operations.as_deref(),
                                 attention: &attention,
                                 dependency: &dependency,
                                 task_id: task_id.as_deref(),

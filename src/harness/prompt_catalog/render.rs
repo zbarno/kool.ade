@@ -6,7 +6,6 @@ use super::{EvidenceItem, PromptRole, RoleInputV1};
 mod validation;
 use validation::validate_input;
 
-const MAX_FIELD_BYTES: usize = 16 * 1024;
 const MAX_EVIDENCE_BYTES: usize = 64 * 1024;
 const MAX_TASK_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_RENDERED_USER_BYTES: usize = 512 * 1024;
@@ -148,7 +147,7 @@ pub fn render(input: &RoleInputV1) -> Result<RenderedPrompt, String> {
         if remaining == 0 {
             return Err("quoted evidence exceeds the 64 KiB prompt limit".into());
         }
-        let quoted = quote_evidence(item, remaining);
+        let quoted = quote_evidence(item, remaining)?;
         if quoted.len() > remaining {
             return Err("quoted evidence exceeds the 64 KiB prompt limit".into());
         }
@@ -182,7 +181,7 @@ pub fn render(input: &RoleInputV1) -> Result<RenderedPrompt, String> {
     })
 }
 
-fn quote_evidence(item: &EvidenceItem, max: usize) -> String {
+fn quote_evidence(item: &EvidenceItem, max: usize) -> Result<String, String> {
     #[derive(Serialize)]
     struct Quoted<'a> {
         id: &'a str,
@@ -190,21 +189,18 @@ fn quote_evidence(item: &EvidenceItem, max: usize) -> String {
         source: &'a str,
         content: String,
     }
-    let mut content = item.content.clone();
-    let max_content = max
-        .saturating_sub(2048)
-        .checked_div(6)
-        .unwrap_or_default()
-        .min(MAX_FIELD_BYTES);
-    content.truncate(content.floor_char_boundary(max_content));
     // JSON escaping makes instruction-like lines explicit data and preserves origin.
-    serde_json::to_string(&Quoted {
+    let quoted = serde_json::to_string(&Quoted {
         id: &item.id,
         origin: item.origin,
         source: &item.source,
-        content,
+        content: item.content.clone(),
     })
-    .unwrap_or_else(|_| "\"[unserializable evidence]\"".into())
+    .map_err(|error| error.to_string())?;
+    if quoted.len() > max {
+        return Err("quoted evidence exceeds the 64 KiB prompt limit".into());
+    }
+    Ok(quoted)
 }
 
 fn digest(value: &str) -> String {

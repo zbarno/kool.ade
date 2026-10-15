@@ -4,8 +4,8 @@ use crate::core::lifecycle::{FeatureEvent, FeatureGoal};
 use super::{
     Snapshot,
     records::{
-        append_transition, event_path, event_record, feature_actor, feature_path, now_unix_ms,
-        stale,
+        EventProjection, append_transition, event_path, event_record, feature_actor, feature_path,
+        now_unix_ms, stale,
     },
     task_transition,
 };
@@ -76,6 +76,10 @@ fn commit_after_read(
         expected_revision,
         feature_actor(&proposal),
         super::LifecycleEventKind::Feature(proposal),
+        EventProjection {
+            feature_revision_after: Some(snapshot.revision),
+            ..EventProjection::default()
+        },
     )?;
     append_transition(store, path, &snapshot, expected_revision, event_path, event)?;
     Ok(snapshot.record)

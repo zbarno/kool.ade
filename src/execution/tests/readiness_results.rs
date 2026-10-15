@@ -55,11 +55,11 @@ fn provider_readiness_has_cancellable_versioned_probes_and_unique_roles() {
     assert!(readiness.validate().is_err());
     assert_eq!(
         HarnessRole::PRPreparer.harness_mode(),
-        crate::harness::ExecutionMode::Implementation
+        crate::harness::ExecutionMode::ReadOnlyAnalysis
     );
     assert_eq!(
         HarnessRole::PRPreparer.execution_mode(),
-        crate::execution::contract::ExecutionModeV1::Implementation
+        crate::execution::contract::ExecutionModeV1::PlanningReadOnly
     );
 }
 

@@ -1,6 +1,7 @@
 use super::*;
 mod lifecycle;
 mod payload;
+mod pr_preparer;
 mod pull_request;
 pub(super) use lifecycle::{
     LifecyclePublicationGate, finish_lifecycle_publication, prepare_lifecycle_publication,
@@ -11,6 +12,15 @@ pub(super) use payload::remote_repository;
 pub(super) use payload::{
     effective_push_remote, pr_body, push_identity_remote, validate_target_remotes,
 };
+pub(super) fn prepare_lifecycle_pr_proposal(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    dir: &Path,
+    state: &Implementation,
+    harness: &dyn AiHarness,
+    runner: &Runner,
+) -> anyhow::Result<bool> {
+    pr_preparer::prepare_lifecycle_pr_proposal(store, dir, state, harness, runner)
+}
 pub(super) use pull_request::{create_pull_request, fenced_push};
 
 const HOLD_FOR_REVIEW_NOTE: &str =

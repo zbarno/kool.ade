@@ -146,13 +146,14 @@ pub(super) fn apply_task_event(
     snapshot.revision = snapshot.record.revision;
     snapshot.updated_at_ms = now_unix_ms();
     let event_path = event_path(event_uid)?;
-    let event = event_record(
+    let mut event = event_record(
         event_uid,
         &snapshot.record.feature_uid,
         Some(task_uid),
         expected_revision,
         task_actor(&proposal),
         LifecycleEventKind::Task(proposal.clone()),
+        super::records::EventProjection::default(),
     )?;
     if let TaskEvent::ReconcileSpec {
         pr_work_item_uid, ..
@@ -246,6 +247,7 @@ pub(super) fn apply_task_event(
             revision: 1,
             record: preparation,
         };
+        event.pr_preparation_after = Some(preparation_snapshot.record.clone());
         append_transition_with_additional_checks(
             store,
             &path,

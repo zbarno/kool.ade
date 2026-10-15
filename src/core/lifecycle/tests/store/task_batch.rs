@@ -152,6 +152,7 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
     let feature = reopened.load_feature(&feature_uid).unwrap();
     assert_eq!(feature.phase, FeaturePhase::Executing);
     assert_eq!(feature.task_uids.len(), 3);
+    assert_eq!(reopened.replay_feature(&feature_uid).unwrap(), feature);
     assert_eq!(reopened.load_task(&first.task_uid).unwrap().revision, 1);
     assert_eq!(
         reopened
@@ -174,6 +175,29 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
             .dependency_task_uids,
         [second.task_uid.clone()]
     );
+
+    let subtask_event = reopened
+        .events_for_feature(&feature_uid)
+        .unwrap()
+        .into_iter()
+        .find(|event| {
+            matches!(
+                event.event,
+                crate::core::lifecycle::LifecycleEventKind::SubtaskCreated { .. }
+            )
+        })
+        .unwrap();
+    let event_path = fixture.0.join(format!(
+        ".koolade-packet/state/lifecycle_events/{}.json",
+        subtask_event.uid
+    ));
+    let mut event: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&event_path).unwrap()).unwrap();
+    let fake_parent = uuid::Uuid::new_v4().hyphenated().to_string();
+    event["event"]["parent_task_uid"] = fake_parent.clone().into();
+    event["initialTask"]["parentTaskUid"] = fake_parent.into();
+    std::fs::write(&event_path, serde_json::to_vec(&event).unwrap()).unwrap();
+    assert!(reopened.replay_feature(&feature_uid).is_err());
 
     let mut changed = first;
     changed.task_spec_sha256 = Some("e".repeat(64));

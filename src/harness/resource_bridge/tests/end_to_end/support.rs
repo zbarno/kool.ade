@@ -15,6 +15,15 @@ pub(super) fn task_home(path: &Path) -> TaskHome {
     }
 }
 
+pub(super) fn task_home_with_host_secret_probe(path: &Path) -> TaskHome {
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", path);
+    environment.set("KOOLADE_E2E_HOST_SECRET", "synthetic-test-sentinel");
+    TaskHome {
+        _environment: environment,
+    }
+}
+
 pub(super) fn create_task_clone(repository: &Path, home: &Path, name: &str) -> PathBuf {
     let task_key = format!(
         "{}-{}",

@@ -5,6 +5,7 @@ mod feature_event;
 mod pr_state;
 mod reconcile_plan;
 mod records;
+mod replay;
 mod runtime_qa;
 mod spec_reconciliation;
 mod task_batch;
@@ -13,7 +14,9 @@ mod types;
 use types::Snapshot;
 pub use types::{LifecycleActor, LifecycleEventKind, LifecycleEventRecord};
 pub(super) mod task_transition;
-use records::{create_pair, event_path, event_record, feature_path, now_unix_ms, task_path};
+use records::{
+    EventProjection, create_pair, event_path, event_record, feature_path, now_unix_ms, task_path,
+};
 pub use task_transition::PullRequestPreparation;
 pub use task_transition::PullRequestPublicationState;
 
@@ -29,7 +32,10 @@ impl<'a> LifecycleStore<'a> {
 
     pub fn create_feature(&self, goal: &FeatureGoal, event_uid: &str) -> Result<(), StoreError> {
         goal.validate().map_err(StoreError::MalformedState)?;
-        if goal.revision != 0 || goal.phase != super::FeaturePhase::Exploring {
+        if goal.revision != 0
+            || goal.phase != super::FeaturePhase::Exploring
+            || !goal.task_uids.is_empty()
+        {
             return Err(StoreError::MalformedState(
                 "new feature must start at revision zero in exploring phase".into(),
             ));
@@ -54,6 +60,11 @@ impl<'a> LifecycleStore<'a> {
             0,
             LifecycleActor::Manager,
             LifecycleEventKind::FeatureCreated,
+            EventProjection {
+                feature_revision_after: Some(1),
+                initial_feature: Some(goal.clone()),
+                ..EventProjection::default()
+            },
         )?;
         create_pair(self.store, snapshot_path, &snapshot, event_path, event)
     }
@@ -190,7 +201,7 @@ impl<'a> LifecycleStore<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         if events.iter().any(|event| {
-            event.schema_version != 1
+            !matches!(event.schema_version, 1..=3)
                 || event.revision != 1
                 || !super::types::is_uuid(&event.feature_uid)
                 || event
@@ -209,6 +220,7 @@ impl<'a> LifecycleStore<'a> {
                 )
                 || event.created_at_ms == 0
                 || event.updated_at_ms < event.created_at_ms
+                || event.feature_revision_after == Some(0)
         }) {
             return Err(StoreError::MalformedState(
                 "lifecycle event record is malformed".into(),
