@@ -86,8 +86,8 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
         ),
         (
             HarnessRole::PRPreparer,
-            ExecutionMode::Implementation,
-            ToolAccess::BoundedImplementation,
+            ExecutionMode::ReadOnlyAnalysis,
+            ToolAccess::None,
         ),
     ];
     assert_eq!(expected.len(), HarnessRole::ALL.len());
@@ -122,9 +122,8 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
 fn expected_execution_mode(role: HarnessRole) -> crate::execution::contract::ExecutionModeV1 {
     use crate::execution::contract::ExecutionModeV1;
     match role {
-        HarnessRole::Implementer | HarnessRole::RepairWorker | HarnessRole::PRPreparer => {
-            ExecutionModeV1::Implementation
-        }
+        HarnessRole::Implementer | HarnessRole::RepairWorker => ExecutionModeV1::Implementation,
+        HarnessRole::PRPreparer => ExecutionModeV1::PlanningReadOnly,
         HarnessRole::RuntimeQaReviewer => ExecutionModeV1::RuntimeQa,
         HarnessRole::Manager
         | HarnessRole::PlanningAnalyst
