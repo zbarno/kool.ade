@@ -3,6 +3,7 @@ use super::*;
 mod clarification;
 mod conversation;
 mod details;
+mod opportunity;
 
 pub(super) fn paint_clarification(
     ui: &mut egui::Ui,
@@ -45,6 +46,17 @@ pub(super) fn paint_work(
         height,
         details::PlanningDetails::Work(work, &board.planning_work),
     );
+}
+
+pub(super) fn paint_opportunity(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    proposal: &crate::core::opportunity::OpportunityV1,
+    record_revision: u64,
+    height: f32,
+) {
+    opportunity::paint(ui, surface, board, proposal, record_revision, height);
 }
 
 pub(super) fn paint_setup_issue(

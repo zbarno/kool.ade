@@ -56,11 +56,15 @@ impl KooladeApp {
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
         let work = crate::core::planning_work::find(&project.state, key);
-        let purpose = work
-            .as_ref()
-            .filter(|work| work.kind == crate::core::planning_work::WorkKind::Question)
-            .map(|_| crate::core::workflow::TurnPurpose::Question)
-            .unwrap_or(crate::core::workflow::TurnPurpose::Interview);
+        let purpose = if crate::core::task_conversation::is_opportunity_conversation_key(key)
+            || work
+                .as_ref()
+                .is_some_and(|work| work.kind == crate::core::planning_work::WorkKind::Question)
+        {
+            crate::core::workflow::TurnPurpose::Question
+        } else {
+            crate::core::workflow::TurnPurpose::Interview
+        };
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: text,

@@ -26,6 +26,8 @@ mod conversation_navigation;
 mod implementation_gates;
 #[path = "board_tests/kanban_states.rs"]
 mod kanban_states;
+#[path = "board_tests/opportunity_details.rs"]
+mod opportunity_details;
 #[path = "board_tests/planning_decisions.rs"]
 mod planning_decisions;
 #[path = "board_tests/queue_execution.rs"]

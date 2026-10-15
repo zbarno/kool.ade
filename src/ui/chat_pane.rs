@@ -73,6 +73,7 @@ pub fn paint_with_actions(
             progress,
             offer: actions.task_offer,
             implementation_offer: actions.implementation_offer,
+            focus_editor: false,
         },
     )
 }
@@ -97,6 +98,7 @@ pub fn paint_specification(
             progress,
             offer: None,
             implementation_offer: false,
+            focus_editor: false,
         },
     )
 }
@@ -117,7 +119,18 @@ pub fn paint_task_with_context(
     busy: bool,
     context: Option<&str>,
 ) -> Intent {
-    paint_task_with_actions(ui, messages, draft, busy, context, &[])
+    paint_task_with_context_focus(ui, messages, draft, busy, context, false)
+}
+
+pub fn paint_task_with_context_focus(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+    context: Option<&str>,
+    focus_editor: bool,
+) -> Intent {
+    paint_task_with_actions_focus(ui, messages, draft, busy, context, &[], focus_editor)
 }
 
 pub fn paint_task_with_actions(
@@ -127,6 +140,18 @@ pub fn paint_task_with_actions(
     busy: bool,
     context: Option<&str>,
     actions: &[super::feature_approval::Action],
+) -> Intent {
+    paint_task_with_actions_focus(ui, messages, draft, busy, context, actions, false)
+}
+
+fn paint_task_with_actions_focus(
+    ui: &mut egui::Ui,
+    messages: &[ChatMessage],
+    draft: &mut String,
+    busy: bool,
+    context: Option<&str>,
+    actions: &[super::feature_approval::Action],
+    focus_editor: bool,
 ) -> Intent {
     composer::paint_with_hint(
         ui,
@@ -141,6 +166,7 @@ pub fn paint_task_with_actions(
             progress: None,
             offer: None,
             implementation_offer: false,
+            focus_editor,
         },
     )
 }

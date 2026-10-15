@@ -14,6 +14,7 @@ pub(super) struct ComposeCopy<'a> {
     pub(super) progress: Option<&'a crate::harness::LiveProgress>,
     pub(super) offer: Option<&'a crate::core::workflow::InterviewBrief>,
     pub(super) implementation_offer: bool,
+    pub(super) focus_editor: bool,
 }
 
 pub(super) fn paint_with_hint(
@@ -31,6 +32,7 @@ pub(super) fn paint_with_hint(
         progress,
         offer,
         implementation_offer,
+        focus_editor,
     } = *compose;
     let mut cancel = false;
     let mut generate_tasks = false;
@@ -141,6 +143,9 @@ pub(super) fn paint_with_hint(
                         .show(ui)
                 })
                 .inner;
+            if focus_editor && editable {
+                editor.response.request_focus();
+            }
             if chip_fired {
                 // A chip tap landed its option this frame: park the caret at
                 // the end of the fresh text and hand the box back (typing
