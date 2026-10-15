@@ -120,7 +120,7 @@ jobs:
           export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/docker.sock"
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
-            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast
+            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16
           test_status=$?
           set -e
 
