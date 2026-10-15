@@ -66,7 +66,11 @@ pub(in crate::execution::docker::backend::lifecycle) fn terminal(
     cancelled: bool,
 ) -> Result<(), ExecutionError> {
     let Ok(mut state) = execution.lock() else {
-        return Err(super::internal_error());
+        return Err(
+            crate::execution::docker::backend::internal_error_with_context(
+                "recording terminal execution state",
+            ),
+        );
     };
     if state.terminal {
         return Ok(());
