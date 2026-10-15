@@ -3,8 +3,11 @@
 `LifecycleStore` is the durable application-owned state machine for the
 feature-plan and implementation pipeline. Manager and worker output supplies
 proposals and evidence; Rust validates every transition before persisting it
-to the planning repository. Board and task-detail views project the persisted
-records. Freeform specification chat remains separate from per-item work.
+to the planning repository. Some Task Details flows project persisted
+lifecycle records, while other screens and legacy planning paths still use
+their existing models. This page describes the typed lifecycle domain and
+store contract; it does not imply that every application path is integrated.
+Freeform specification chat remains separate from per-item work.
 
 ## Feature transitions
 
@@ -51,18 +54,29 @@ author/reviewer run and session identities. The app creates these receipts
 from the current prompt execution and validates them against the exact plan,
 code head, and review subject before accepting them.
 
-The application flow connects explicit user plan confirmation, independent
-plan review, reviewed-plan task generation, claim-fenced implementation,
-independent code review, applicable runtime QA, specification reconciliation,
-and a distinct PR-preparation work item. The transition store writes each
-snapshot and event in the same revision-checked planning-store transaction.
-Implementation `Done` is separate from PR opening and merging. PR publication
-requires its own authorization and records its state independently.
+The application has integration points for explicit user plan confirmation,
+independent plan review, reviewed-plan task generation, claim-fenced
+implementation, independent code review, applicable runtime QA, specification
+reconciliation, and a distinct PR-preparation work item. These integrations
+are not yet a single end-to-end lifecycle coordinator across all application
+paths; legacy feature and task workflows remain. The transition store writes
+each snapshot and event in the same revision-checked planning-store
+transaction. Implementation `Done` is separate from PR opening and merging.
+PR publication requires its own authorization and records its state
+independently.
 
-Recovery reopens the current per-record snapshots and their append-only event
-history. Same-revision concurrent advances are fenced, code changes invalidate
-downstream review and QA evidence, and completion atomically creates one
-idempotently keyed PR work item. A waiting or blocked step retains its reason
-and evidence rather than synthesizing a pass. Local lifecycle acceptance
-fixtures validate these contracts; interactive browser/desktop behavior is
-covered by the separate runtime-QA acceptance path.
+On reopen, `load_feature` and `load_task` validate and return the current
+per-record snapshots. `events_for_feature` validates and sorts matching event
+records for inspection; it does not replay them or rebuild a missing or
+corrupt snapshot. The event history is therefore an audit trail, not a
+reconstruction source. In particular, `FeatureCreated` does not contain the
+initial feature goal, so the current event records are not sufficient to
+reconstruct a feature from scratch. Same-revision concurrent advances are
+fenced by the transaction layer, code changes invalidate downstream review
+and QA evidence, and completion atomically creates one idempotently keyed PR
+work item. A waiting or blocked step retains its reason and evidence rather
+than synthesizing a pass. Deterministic lifecycle replay/reconstruction and
+restart replay coverage remain open work tracked by issue #157. Local
+lifecycle acceptance fixtures validate the implemented store contracts;
+interactive browser/desktop behavior is covered by the separate runtime-QA
+acceptance path.
