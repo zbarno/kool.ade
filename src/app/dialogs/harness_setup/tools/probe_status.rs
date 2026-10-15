@@ -34,6 +34,15 @@ pub(super) fn paint_probe_status(ui: &mut Ui, dialog: &DlgHarnessSetup, id: &str
         "Last probe: {} ms",
         result.duration_ms
     )));
+    let catalog_status = match result.model_catalog_status {
+        crate::harness::discovery::ModelCatalogStatus::Fresh => "fresh",
+        crate::harness::discovery::ModelCatalogStatus::Stale => "stale",
+        crate::harness::discovery::ModelCatalogStatus::Unavailable => "unavailable",
+        crate::harness::discovery::ModelCatalogStatus::NotChecked => "not checked",
+    };
+    ui.label(theme::metadata_text(format!(
+        "Model catalog: {catalog_status}"
+    )));
     if let Some(stage) = result.failure_stage {
         let code = result
             .diagnostic_code

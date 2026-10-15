@@ -71,6 +71,18 @@ impl DlgHarnessSetup {
                 generation,
                 mut result,
             } if generation == self.scan_generation => {
+                if result.model_catalog_status
+                    != crate::harness::discovery::ModelCatalogStatus::Fresh
+                    && result.models.is_empty()
+                    && let Some(previous) = self.settings.discovered.get(&result.provider_id)
+                    && !previous.models.is_empty()
+                {
+                    result.models.clone_from(&previous.models);
+                    result.default_model.clone_from(&previous.default_model);
+                    result.model_catalog_status =
+                        crate::harness::discovery::ModelCatalogStatus::Stale;
+                    result = result.bounded();
+                }
                 if let Some(runtime_available) = self.runtime_available {
                     result.set_runtime_readiness(runtime_available);
                 }

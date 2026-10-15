@@ -227,9 +227,15 @@ fn paint_tool_details(
         if let Some(model) = &harness.default_model {
             ui.label(theme::metadata_text(format!("CLI default: {model}")));
         }
+    } else if harness.model_catalog_status() == crate::harness::discovery::ModelCatalogStatus::Stale
+    {
+        ui.label(theme::metadata_text(
+            "Last-known models are stale and cannot be selected until discovery refreshes them.",
+        ));
+        ui.label(harness.models.join(", "));
     } else {
         ui.label(theme::metadata_text(
-            "This CLI model catalog is unavailable or stale; refresh discovery before selecting a model.",
+            "This CLI model catalog is unavailable or has not been checked; refresh discovery before selecting a model.",
         ));
     }
     let configured = dialog.settings.manual_executable_paths.get(id).cloned();

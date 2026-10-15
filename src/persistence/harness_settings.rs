@@ -61,6 +61,22 @@ pub struct DetectedHarness {
 }
 
 impl DetectedHarness {
+    pub fn model_catalog_status(&self) -> crate::harness::discovery::ModelCatalogStatus {
+        use crate::harness::discovery::ModelCatalogStatus;
+
+        if self.model_catalog_fresh {
+            ModelCatalogStatus::Fresh
+        } else if !self.models.is_empty() {
+            ModelCatalogStatus::Stale
+        } else if self.capability_snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.model_catalog == crate::execution::contract::ReadinessState::Unavailable
+        }) {
+            ModelCatalogStatus::Unavailable
+        } else {
+            ModelCatalogStatus::NotChecked
+        }
+    }
+
     pub fn is_fresh_at(&self, now_unix_ms: u64) -> bool {
         self.checked_at_unix_ms > 0
             && self.checked_at_unix_ms <= now_unix_ms

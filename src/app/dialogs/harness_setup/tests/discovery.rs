@@ -226,6 +226,8 @@ fn missing_provider_setup_is_recorded_separately_from_a_missing_executable() {
 
 #[path = "discovery/fallback.rs"]
 mod fallback;
+#[path = "discovery/model_catalog.rs"]
+mod model_catalog;
 #[path = "discovery/progress.rs"]
 mod progress;
 #[path = "discovery/runtime.rs"]

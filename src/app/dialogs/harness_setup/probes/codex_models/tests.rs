@@ -120,6 +120,11 @@ fn fake_app_server(body: &str) -> (std::path::PathBuf, std::path::PathBuf) {
 }
 
 #[cfg(unix)]
+fn shell_quote(path: &std::path::Path) -> String {
+    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+}
+
+#[cfg(unix)]
 fn assert_catalog_error_is_bounded(binary: std::path::PathBuf, expected: &str) {
     use std::{
         sync::{
@@ -193,5 +198,48 @@ printf '%s\n' '{"id":3,"result":{"data":[{"model":"model-b"}],"nextCursor":"same
 "#,
     );
     assert_catalog_error_is_bounded(binary, "repeated a cursor");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn app_server_exit_kills_a_descendant_holding_the_output_pipe() {
+    use std::time::{Duration, Instant};
+
+    let root = std::env::temp_dir().join(format!(
+        "codex-model-descendant-{}",
+        uuid::Uuid::new_v4().hyphenated()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("codex");
+    let started_marker = root.join("descendant-started");
+    let marker = root.join("descendant-survived");
+    let started_shell = shell_quote(&started_marker);
+    let marker_shell = shell_quote(&marker);
+    std::fs::write(
+        &binary,
+        format!(
+            "#!/bin/sh\nread -r initialize\n( : > {started_shell}; sleep 1; printf leaked > {marker_shell} ) &\ni=0\nwhile [ ! -f {started_shell} ] && [ $i -lt 100 ]; do sleep 0.01; i=$((i+1)); done\n[ -f {started_shell} ] || exit 13\nexit 0\n"
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let started = Instant::now();
+    let result = discover(&binary);
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("exited during model discovery")
+    );
+    assert!(started_marker.exists(), "the background descendant started");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    std::thread::sleep(Duration::from_millis(1100));
+    assert!(
+        !marker.exists(),
+        "the app-server descendant must not survive discovery cleanup"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }

@@ -13,10 +13,7 @@ pub(super) fn from_harness_probe(
     started_at_unix_ms: u64,
     duration_ms: u64,
 ) -> ProbeResult {
-    let catalog_error = report.diagnostic.as_deref().is_some_and(|message| {
-        let message = message.to_ascii_lowercase();
-        message.contains("catalog") || message.contains("models")
-    });
+    let catalog_error = has_catalog_error(report);
     let (failure_stage, diagnostic_code) = if report.executable.is_none() {
         (
             Some(ProbeKind::Executable),
@@ -71,6 +68,7 @@ pub(super) fn from_harness_probe(
         .as_deref()
         .map(crate::error::redact_secrets)
         .filter(|message| !message.trim().is_empty());
+    let model_catalog_status = model_catalog_status(report);
     ProbeResult {
         schema_version: 1,
         provider_id: report.id.clone(),
@@ -86,13 +84,7 @@ pub(super) fn from_harness_probe(
         } else {
             ReadinessState::Unknown
         },
-        model_catalog_status: if report.model_catalog_fresh {
-            ModelCatalogStatus::Fresh
-        } else if catalog_error {
-            ModelCatalogStatus::Unavailable
-        } else {
-            ModelCatalogStatus::NotChecked
-        },
+        model_catalog_status,
         models: report.models.clone(),
         default_model: report.default_model.clone(),
         execution_capability: crate::harness::discovery::ExecutionCapability {
@@ -111,6 +103,25 @@ pub(super) fn from_harness_probe(
         diagnostic_message: message,
     }
     .bounded()
+}
+
+pub(super) fn model_catalog_status(report: &HarnessProbe) -> ModelCatalogStatus {
+    if report.model_catalog_fresh {
+        ModelCatalogStatus::Fresh
+    } else if !report.models.is_empty() {
+        ModelCatalogStatus::Stale
+    } else if has_catalog_error(report) {
+        ModelCatalogStatus::Unavailable
+    } else {
+        ModelCatalogStatus::NotChecked
+    }
+}
+
+fn has_catalog_error(report: &HarnessProbe) -> bool {
+    report.diagnostic.as_deref().is_some_and(|message| {
+        let message = message.to_ascii_lowercase();
+        message.contains("catalog") || message.contains("models")
+    })
 }
 
 pub(super) fn into_harness_probe(result: &ProbeResult) -> HarnessProbe {
