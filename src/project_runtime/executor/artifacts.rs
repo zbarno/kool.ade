@@ -2,6 +2,21 @@ use crate::project_runtime::{
     AppTargetV1, ExecutionRecipeV1, ProjectCapabilityManifestV1, RuntimeOperation,
 };
 
+pub(super) fn receipt_artifact_hashes(
+    target_root: &str,
+    artifacts: &[crate::execution::contract::ArtifactManifestEntryV1],
+) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
+    artifacts
+        .iter()
+        .map(|artifact| {
+            Ok((
+                super::join_workspace_path(target_root, &artifact.relative_path)?,
+                artifact.sha256.clone(),
+            ))
+        })
+        .collect()
+}
+
 pub(super) fn artifact_capture_paths(
     manifest: &ProjectCapabilityManifestV1,
     target: &AppTargetV1,

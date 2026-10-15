@@ -11,7 +11,7 @@ use crate::{
 mod artifacts;
 mod start;
 
-use artifacts::artifact_capture_paths;
+use artifacts::{artifact_capture_paths, receipt_artifact_hashes};
 
 /// Resolves only persisted, approved target recipes and records their observed outcome.
 pub struct ProjectRuntimeExecutor<'store, 'planning> {
@@ -91,20 +91,8 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                     return Err(anyhow::Error::new(error));
                 }
             };
-            let artifact_hashes = output
-                .result
-                .artifacts
-                .iter()
-                .map(|artifact| {
-                    Ok((
-                        join_workspace_path(
-                            &target.project_relative_root,
-                            &artifact.relative_path,
-                        )?,
-                        artifact.sha256.clone(),
-                    ))
-                })
-                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+            let artifact_hashes =
+                receipt_artifact_hashes(&target.project_relative_root, &output.result.artifacts)?;
             let expected_artifacts_present = recipe.expected_artifacts.iter().all(|expected| {
                 let scoped_expected = expected
                     .strip_prefix(&format!("{}/", target.project_relative_root))
