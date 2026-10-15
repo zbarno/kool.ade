@@ -204,33 +204,45 @@ fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
 }
 
 #[test]
-fn incomplete_or_mismatched_recovery_history_cannot_grant_another_attempt() {
-    for field in ["phase", "target", "private_ref"] {
-        let s = interrupted();
-        let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
-        snapshot[field] = serde_json::json!(if field == "phase" {
-            "snapshot_saved"
-        } else {
-            "invalid"
-        });
-        fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
-        let worktree = super::merge_recovery::migrated_task_repository(&s);
-        fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
-        let (_, agent) = super::merge_recovery::agent();
-        crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
-        assert!(run_with_agent(&s, &agent, Some("Resume")).is_err());
-        assert_eq!(
-            fs::read_to_string(worktree.join("build/cache.txt")).unwrap(),
-            "operator edit\n"
-        );
-        assert!(
-            !path
-                .parent()
-                .unwrap()
-                .join("reconciliation-recovery-history")
-                .exists()
-        );
-    }
+fn incomplete_recovery_phase_cannot_grant_another_attempt() {
+    assert_invalid_recovery_history_rejected("phase");
+}
+
+#[test]
+fn mismatched_recovery_target_cannot_grant_another_attempt() {
+    assert_invalid_recovery_history_rejected("target");
+}
+
+#[test]
+fn mismatched_recovery_private_ref_cannot_grant_another_attempt() {
+    assert_invalid_recovery_history_rejected("private_ref");
+}
+
+fn assert_invalid_recovery_history_rejected(field: &str) {
+    let s = interrupted();
+    let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
+    snapshot[field] = serde_json::json!(if field == "phase" {
+        "snapshot_saved"
+    } else {
+        "invalid"
+    });
+    fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+    let worktree = super::merge_recovery::migrated_task_repository(&s);
+    fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
+    let (_, agent) = super::merge_recovery::agent();
+    crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
+    assert!(run_with_agent(&s, &agent, Some("Resume")).is_err());
+    assert_eq!(
+        fs::read_to_string(worktree.join("build/cache.txt")).unwrap(),
+        "operator edit\n"
+    );
+    assert!(
+        !path
+            .parent()
+            .unwrap()
+            .join("reconciliation-recovery-history")
+            .exists()
+    );
 }
 
 #[test]
@@ -247,48 +259,55 @@ fn reconciliation_ready_report_defers_checks_without_weakening_task_validation()
 }
 
 #[test]
-fn inherited_eof_whitespace_in_either_history_is_preserved() {
-    for local_side in [true, false] {
-        let s = Sandbox::new();
-        let remote = s.advance_remote();
-        if !local_side {
-            let peer = s.latest_peer();
-            fs::write(peer.join("upstream.txt"), "latest upstream\n\n").unwrap();
-            s.git(&peer, &["add", "upstream.txt"]);
-            s.git(&peer, &["commit", "-qm", "preserve inherited whitespace"]);
-            s.git(&peer, &["push", "-q", "origin", "main"]);
-        }
-        fs::write(
-            s.repo.join("local.txt"),
-            if local_side {
-                "local change\n\n"
-            } else {
-                "local change\n"
-            },
-        )
-        .unwrap();
-        s.git(&s.repo, &["add", "local.txt"]);
-        s.git(&s.repo, &["commit", "-qm", "local change"]);
-        let (_, agent) = super::merge_recovery::agent();
-        let result = run_with_agent(&s, &agent, None).unwrap();
-        let path = if local_side {
-            "local.txt"
-        } else {
-            "upstream.txt"
-        };
-        assert!(
-            fs::read_to_string(result.task_repository.join(path))
-                .unwrap()
-                .ends_with("\n\n")
-        );
-        assert!(
-            s.git(
-                &result.task_repository,
-                &["merge-base", "--is-ancestor", &remote, &result.base_commit]
-            )
-            .is_empty()
-        );
+fn inherited_eof_whitespace_from_local_history_is_preserved() {
+    assert_inherited_eof_whitespace_preserved(true);
+}
+
+#[test]
+fn inherited_eof_whitespace_from_remote_history_is_preserved() {
+    assert_inherited_eof_whitespace_preserved(false);
+}
+
+fn assert_inherited_eof_whitespace_preserved(local_side: bool) {
+    let s = Sandbox::new();
+    let remote = s.advance_remote();
+    if !local_side {
+        let peer = s.latest_peer();
+        fs::write(peer.join("upstream.txt"), "latest upstream\n\n").unwrap();
+        s.git(&peer, &["add", "upstream.txt"]);
+        s.git(&peer, &["commit", "-qm", "preserve inherited whitespace"]);
+        s.git(&peer, &["push", "-q", "origin", "main"]);
     }
+    fs::write(
+        s.repo.join("local.txt"),
+        if local_side {
+            "local change\n\n"
+        } else {
+            "local change\n"
+        },
+    )
+    .unwrap();
+    s.git(&s.repo, &["add", "local.txt"]);
+    s.git(&s.repo, &["commit", "-qm", "local change"]);
+    let (_, agent) = super::merge_recovery::agent();
+    let result = run_with_agent(&s, &agent, None).unwrap();
+    let path = if local_side {
+        "local.txt"
+    } else {
+        "upstream.txt"
+    };
+    assert!(
+        fs::read_to_string(result.task_repository.join(path))
+            .unwrap()
+            .ends_with("\n\n")
+    );
+    assert!(
+        s.git(
+            &result.task_repository,
+            &["merge-base", "--is-ancestor", &remote, &result.base_commit]
+        )
+        .is_empty()
+    );
 }
 
 #[test]
