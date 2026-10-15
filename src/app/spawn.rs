@@ -175,11 +175,16 @@ mod tests {
             std::env::temp_dir().join(format!("koolade-spawn-env-{}-{stamp}", std::process::id()));
         let script = dir.join("probe.sh");
         let out = dir.join("home.txt");
+        let done = dir.join("done");
         std::fs::create_dir_all(&dir).expect("probe dir");
         use std::os::unix::fs::PermissionsExt;
         std::fs::write(
             &script,
-            format!("#!/bin/sh\nprintf %s \"$HOME\" > {}\n", out.display()),
+            format!(
+                "#!/bin/sh\nprintf %s \"$HOME\" > {}\n: > {}\n",
+                out.display(),
+                done.display()
+            ),
         )
         .expect("probe script");
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
@@ -188,12 +193,11 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut observed = None;
-        while Instant::now() < deadline {
-            if let Ok(value) = std::fs::read_to_string(&out) {
-                observed = Some(value);
-                break;
-            }
+        while Instant::now() < deadline && !done.exists() {
             std::thread::sleep(Duration::from_millis(20));
+        }
+        if done.exists() {
+            observed = std::fs::read_to_string(&out).ok();
         }
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
