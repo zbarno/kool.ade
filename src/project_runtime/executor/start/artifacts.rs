@@ -1,0 +1,117 @@
+use std::collections::BTreeMap;
+
+use crate::{
+    execution::session::ExecutionSession,
+    project_runtime::{
+        AppTargetV1, ProjectCapabilityManifestV1, ProjectRuntimeStore, RuntimeOperation,
+        RuntimeReceiptState, RuntimeReceiptV1,
+    },
+};
+
+pub(super) struct BuildArtifacts {
+    pub paths: Vec<String>,
+    pub hashes: BTreeMap<String, String>,
+}
+
+pub(super) fn build_artifacts(
+    manifest: &ProjectCapabilityManifestV1,
+    target: &AppTargetV1,
+    receipts: &[RuntimeReceiptV1],
+    source_sha: &str,
+) -> anyhow::Result<Option<BuildArtifacts>> {
+    let Some(build_recipe_id) = target.build_recipe_ref.as_deref() else {
+        return Ok(None);
+    };
+    let Some(build) = receipts
+        .iter()
+        .filter(|receipt| {
+            receipt.operation == RuntimeOperation::Build
+                && receipt.state == RuntimeReceiptState::Passed
+                && receipt.exit_code == Some(0)
+                && receipt.task_id == target.owning_task_id
+                && receipt.target_id == target.target_id
+                && receipt.source_sha == source_sha
+                && receipt.recipe_id.as_deref() == Some(build_recipe_id)
+        })
+        .max_by_key(|receipt| (receipt.observed_at_unix_ms, receipt.receipt_id.clone()))
+    else {
+        return Ok(None);
+    };
+    let artifact_paths = if let Some(reference) = target.artifact_spec_ref.as_ref() {
+        manifest
+            .artifact_specs
+            .get(reference)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("runtime artifact specification is missing"))?
+    } else {
+        manifest
+            .recipes
+            .iter()
+            .chain(manifest.user_overrides.iter())
+            .find(|recipe| recipe.recipe_id == build_recipe_id)
+            .ok_or_else(|| anyhow::anyhow!("runtime build recipe is missing"))?
+            .expected_artifacts
+            .clone()
+    }
+    .iter()
+    .map(|path| super::super::join_workspace_path(&target.project_relative_root, path))
+    .collect::<anyhow::Result<Vec<_>>>()?;
+    let hashes = build.artifact_hashes.clone();
+    anyhow::ensure!(
+        hashes.len() == artifact_paths.len()
+            && artifact_paths.iter().all(|path| hashes.contains_key(path)),
+        "successful build receipt does not match the approved artifact specification"
+    );
+    Ok(Some(BuildArtifacts {
+        paths: artifact_paths,
+        hashes,
+    }))
+}
+
+pub(super) fn failed_start(
+    store: &ProjectRuntimeStore<'_>,
+    session: &ExecutionSession,
+    target: &AppTargetV1,
+    recipe_id: String,
+) -> anyhow::Result<Vec<RuntimeReceiptV1>> {
+    let receipt = receipt(
+        session,
+        target,
+        recipe_id,
+        None,
+        None,
+        BTreeMap::new(),
+        false,
+    );
+    store.append_receipt(&receipt)?;
+    Ok(vec![receipt])
+}
+
+pub(super) fn receipt(
+    session: &ExecutionSession,
+    target: &AppTargetV1,
+    recipe_id: String,
+    exit_code: Option<i32>,
+    log_reference: Option<String>,
+    artifact_hashes: BTreeMap<String, String>,
+    passed: bool,
+) -> RuntimeReceiptV1 {
+    RuntimeReceiptV1 {
+        schema_version: 1,
+        receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        operation: RuntimeOperation::Start,
+        task_id: session.workspace().task_id.clone(),
+        target_id: target.target_id.clone(),
+        source_sha: session.workspace().source_sha.clone(),
+        recipe_id: Some(recipe_id),
+        state: if passed {
+            RuntimeReceiptState::Passed
+        } else {
+            RuntimeReceiptState::Failed
+        },
+        exit_code,
+        artifact_hashes,
+        log_reference,
+        observed_at_unix_ms: super::super::now_unix_ms(),
+    }
+}

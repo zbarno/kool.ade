@@ -3,7 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{Fingerprint, Manifest, ReturnedEntry, validate_relative};
+use super::super::archive::validate_relative;
+use super::{Fingerprint, Manifest, ReturnedEntry};
 
 mod fs;
 mod write;

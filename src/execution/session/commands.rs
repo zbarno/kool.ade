@@ -46,6 +46,7 @@ impl ExecutionSession {
             request_sequence: sequence,
             cancellation_generation,
             policy_override: None,
+            artifact_paths: Vec::new(),
         }) {
             Ok(request) => request,
             Err(error) => {
@@ -103,6 +104,7 @@ impl ExecutionSession {
             request_sequence: sequence,
             cancellation_generation,
             policy_override: None,
+            artifact_paths: Vec::new(),
         });
         let request = match request {
             Ok(request) => request,
@@ -127,6 +129,17 @@ impl ExecutionSession {
         recipe: &crate::project_runtime::ExecutionRecipeV1,
         target_root: &str,
     ) -> Result<ExecutionOutput, ExecutionError> {
+        self.run_scoped_recipe_with_artifacts(recipe, target_root, &[])
+    }
+
+    /// Runs an approved scoped recipe and returns hashes for the exact
+    /// application-selected artifact paths in its container workspace.
+    pub fn run_scoped_recipe_with_artifacts(
+        &self,
+        recipe: &crate::project_runtime::ExecutionRecipeV1,
+        target_root: &str,
+        artifact_paths: &[String],
+    ) -> Result<ExecutionOutput, ExecutionError> {
         use crate::execution::policy::ExecutionPolicyV1;
         use std::collections::BTreeSet;
 
@@ -148,6 +161,7 @@ impl ExecutionSession {
             .cloned()
             .ok_or_else(|| policy_error("Recipe approval evidence is missing"))?;
         let working_directory = strip_target_root(target_root, &recipe.working_directory_relative)?;
+        validate_artifact_outputs(recipe, target_root, artifact_paths)?;
         let policy = ExecutionPolicyV1::for_approved_recipe(
             self.resources.clone(),
             target_root.to_owned(),
@@ -185,6 +199,7 @@ impl ExecutionSession {
             request_sequence: sequence,
             cancellation_generation,
             policy_override: Some(policy),
+            artifact_paths: artifact_paths.to_vec(),
         });
         let request = match request {
             Ok(request) => request,
@@ -204,6 +219,9 @@ impl ExecutionSession {
 }
 
 fn strip_target_root(target_root: &str, path: &str) -> Result<String, ExecutionError> {
+    if target_root == "." {
+        return Ok(path.to_owned());
+    }
     let relative = path
         .strip_prefix(target_root)
         .filter(|suffix| suffix.is_empty() || suffix.starts_with('/'))
@@ -216,6 +234,33 @@ fn strip_target_root(target_root: &str, path: &str) -> Result<String, ExecutionE
     } else {
         Ok(relative.to_owned())
     }
+}
+
+fn validate_artifact_outputs(
+    recipe: &crate::project_runtime::ExecutionRecipeV1,
+    target_root: &str,
+    artifact_paths: &[String],
+) -> Result<(), ExecutionError> {
+    for artifact in artifact_paths {
+        let allowed = recipe
+            .allowed_output_paths
+            .iter()
+            .chain(recipe.expected_artifacts.iter())
+            .filter_map(|path| strip_target_root(target_root, path).ok())
+            .any(|root| {
+                root == "."
+                    || artifact == &root
+                    || artifact
+                        .strip_prefix(&root)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+            });
+        if !allowed {
+            return Err(policy_error(
+                "Requested artifact is outside the approved recipe outputs",
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

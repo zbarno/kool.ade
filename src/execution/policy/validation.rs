@@ -80,6 +80,15 @@ impl ExecutionPolicyV1 {
         );
         anyhow::ensure!(!self.privileged, "privileged execution is prohibited");
         self.resource_limits.validate()?;
+        validate_artifact_paths(&self.artifact_paths)?;
+        anyhow::ensure!(
+            self.artifact_paths.is_empty()
+                || matches!(
+                    self.mode,
+                    ExecutionModeV1::Verification | ExecutionModeV1::RuntimeQa
+                ),
+            "only verification and runtime QA executions may collect project artifacts"
+        );
         anyhow::ensure!(
             self.mode == ExecutionModeV1::RuntimeQa || self.network_service_ports.is_empty(),
             "only runtime QA may allow service ports"
@@ -189,6 +198,32 @@ pub(super) fn validate_write_scope(value: &str) -> anyhow::Result<()> {
             .any(|component| component.as_os_str() == ".git"),
         "workspace write scope cannot include Git metadata"
     );
+    Ok(())
+}
+
+fn validate_artifact_paths(paths: &[String]) -> anyhow::Result<()> {
+    anyhow::ensure!(paths.len() <= 128, "too many requested artifact paths");
+    let mut unique = std::collections::BTreeSet::new();
+    for value in paths {
+        let path = std::path::Path::new(value);
+        anyhow::ensure!(
+            !value.is_empty()
+                && value.len() <= 1024
+                && !value.contains('\\')
+                && !value.chars().any(char::is_control)
+                && value
+                    .split('/')
+                    .all(|part| !part.is_empty() && part != "." && part != "..")
+                && path
+                    .components()
+                    .all(|component| matches!(component, std::path::Component::Normal(_)))
+                && !path
+                    .components()
+                    .any(|component| component.as_os_str() == ".git"),
+            "artifact paths must be normalized workspace-relative files"
+        );
+        anyhow::ensure!(unique.insert(value), "artifact paths must be unique");
+    }
     Ok(())
 }
 

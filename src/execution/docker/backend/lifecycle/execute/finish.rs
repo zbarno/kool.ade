@@ -72,7 +72,7 @@ pub(super) async fn finish_command(
         )?;
         return Ok(());
     };
-    let synced = match sync::sync_workspace_if_active(
+    let artifacts = match sync::sync_workspace_if_active(
         execution,
         sync::WorkspaceSyncRequest {
             backend,
@@ -81,6 +81,7 @@ pub(super) async fn finish_command(
             snapshot,
             budget: request.resource_budget.temporary_disk_bytes,
             writable: sync::workspace_write_enabled(request),
+            artifact_paths: request.policy.artifact_paths(),
             authorization_generation: &request.authorization_generation,
         },
     )
@@ -99,9 +100,9 @@ pub(super) async fn finish_command(
             return Err(error);
         }
     };
-    if !synced {
+    let Some(artifacts) = artifacts else {
         return Ok(());
-    }
+    };
     let failure = (code != 0).then(|| {
         ExecutionError::new(
             ExecutionErrorKind::ExecutionFailed,
@@ -109,7 +110,7 @@ pub(super) async fn finish_command(
             false,
         )
     });
-    state::finish(
+    state::finish_with_artifacts(
         execution,
         if failure.is_some() {
             ExecutionLifecycleV1::Failed
@@ -120,6 +121,7 @@ pub(super) async fn finish_command(
         Some(code),
         false,
         false,
+        artifacts,
     )?;
     Ok(())
 }

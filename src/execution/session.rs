@@ -42,6 +42,7 @@ pub(super) struct RequestParameters {
     pub request_sequence: u64,
     pub cancellation_generation: u64,
     pub policy_override: Option<ExecutionPolicyV1>,
+    pub artifact_paths: Vec<String>,
 }
 
 /// App-owned claim/capability fence captured by an execution session and
@@ -167,9 +168,10 @@ impl ExecutionSession {
             request_sequence,
             cancellation_generation,
             policy_override,
+            artifact_paths,
         } = parameters;
         let allowed_service_ports = BTreeSet::new();
-        let policy = match policy_override {
+        let mut policy = match policy_override {
             Some(policy) => policy,
             None => {
                 let policy = ExecutionPolicyV1::for_mode(
@@ -183,6 +185,11 @@ impl ExecutionSession {
                 policy.without_scoped_workspace_write()
             }
         };
+        if !artifact_paths.is_empty() {
+            policy = policy
+                .with_artifact_paths(artifact_paths)
+                .map_err(|_| policy_error("Requested artifact paths are outside policy limits"))?;
+        }
         let request = ExecutionRequestV1 {
             schema_version: 1,
             execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),

@@ -15,6 +15,26 @@ pub(super) fn finish(
     timed_out: bool,
     cancelled: bool,
 ) -> Result<(), ExecutionError> {
+    finish_with_artifacts(
+        execution,
+        lifecycle,
+        failure,
+        code,
+        timed_out,
+        cancelled,
+        Vec::new(),
+    )
+}
+
+pub(super) fn finish_with_artifacts(
+    execution: &Arc<Mutex<RuntimeExecution>>,
+    lifecycle: ExecutionLifecycleV1,
+    failure: Option<ExecutionError>,
+    code: Option<i32>,
+    timed_out: bool,
+    cancelled: bool,
+    artifacts: Vec<crate::execution::contract::ArtifactManifestEntryV1>,
+) -> Result<(), ExecutionError> {
     let Ok(mut state) = execution.lock() else {
         return Err(disconnected());
     };
@@ -25,13 +45,15 @@ pub(super) fn finish(
         state: ExecutionLifecycleV1::Collecting,
     })?;
     state.terminal = true;
-    state.result = Some(super::super::control::result(
+    let mut result = super::super::control::result(
         &state.request.execution_id,
         failure,
         code,
         timed_out,
         cancelled,
-    ));
+    );
+    result.artifacts = artifacts;
+    state.result = Some(result);
     state.push(ExecutionEventKindV1::Lifecycle { state: lifecycle })?;
     Ok(())
 }

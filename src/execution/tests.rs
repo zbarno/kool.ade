@@ -151,7 +151,10 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
         ".".into(),
         BTreeSet::new(),
     )
+    .unwrap()
+    .with_artifact_paths(vec!["dist/index.html".into()])
     .unwrap();
+    assert_eq!(request.policy.artifact_paths(), &["dist/index.html"]);
     request.validate_at(1).unwrap();
 
     let ceiling = ExecutionPolicyV1::for_mode(
@@ -164,6 +167,50 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
 
     request.argv[2] = "../sibling".into();
     assert!(request.validate_at(1).is_err());
+}
+
+#[test]
+fn artifact_collection_policy_rejects_unbounded_or_unsafe_paths() {
+    let base = ExecutionPolicyV1::for_mode(
+        ExecutionModeV1::Verification,
+        budget(1024 * 1024 * 1024, 2000),
+        BTreeSet::new(),
+    )
+    .unwrap();
+    assert!(
+        base.clone()
+            .with_artifact_paths(vec!["dist/../secrets".into()])
+            .is_err()
+    );
+    assert!(
+        base.clone()
+            .with_artifact_paths(vec!["dist/index.html".into(), "dist/index.html".into()])
+            .is_err()
+    );
+    assert!(
+        base.with_artifact_paths((0..129).map(|index| format!("dist/{index}.bin")).collect())
+            .is_err()
+    );
+    assert!(
+        ExecutionPolicyV1::for_mode(
+            ExecutionModeV1::RuntimeQa,
+            budget(1024 * 1024 * 1024, 2000),
+            BTreeSet::new(),
+        )
+        .unwrap()
+        .with_artifact_paths(vec!["dist/index.html".into()])
+        .is_ok()
+    );
+    assert!(
+        ExecutionPolicyV1::for_mode(
+            ExecutionModeV1::PlanningReadOnly,
+            budget(1024 * 1024 * 1024, 2000),
+            BTreeSet::new(),
+        )
+        .unwrap()
+        .with_artifact_paths(vec!["dist/index.html".into()])
+        .is_err()
+    );
 }
 
 #[test]

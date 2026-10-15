@@ -36,4 +36,8 @@ impl ExecutionPolicyV1 {
     pub fn resource_limits(&self) -> &ResourceBudgetV1 {
         &self.resource_limits
     }
+
+    pub fn artifact_paths(&self) -> &[String] {
+        &self.artifact_paths
+    }
 }

@@ -1,4 +1,6 @@
-use super::{latest_successful_build_receipt, task_spec::acceptance_criteria};
+use super::{
+    latest_successful_build_receipt, task_spec::acceptance_criteria, workspace_target_path,
+};
 use crate::project_runtime::{RuntimeOperation, RuntimeReceiptState, RuntimeReceiptV1};
 
 #[test]
@@ -58,5 +60,18 @@ fn running_terminal_receipt_state_is_valid_and_not_a_pass() {
     running.validate().unwrap();
     assert!(
         latest_successful_build_receipt(&[running], "web", &"a".repeat(40), "web-build").is_none()
+    );
+}
+
+#[test]
+fn qa_artifact_and_start_paths_are_rooted_at_the_workspace_clone() {
+    assert_eq!(
+        workspace_target_path("apps/web", "dist/index.html").unwrap(),
+        "apps/web/dist/index.html"
+    );
+    assert_eq!(workspace_target_path("apps/web", ".").unwrap(), "apps/web");
+    assert_eq!(
+        workspace_target_path(".", "dist/index.html").unwrap(),
+        "dist/index.html"
     );
 }

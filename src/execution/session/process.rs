@@ -78,6 +78,17 @@ impl ExecutionSession {
         script: &str,
         timeout: Duration,
     ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
+        self.start_runtime_process_with_artifacts(script, timeout, &[])
+    }
+
+    /// Starts a bounded launcher and records hashes for selected workspace
+    /// artifacts in the execution result.
+    pub fn start_runtime_process_with_artifacts(
+        &self,
+        script: &str,
+        timeout: Duration,
+        artifact_paths: &[String],
+    ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
         self.verify_authorization()?;
         if script.len() > crate::execution::contract::MAX_SCRIPT_BYTES
             || script.contains('\0')
@@ -109,6 +120,7 @@ impl ExecutionSession {
             request_sequence: sequence,
             cancellation_generation,
             policy_override: None,
+            artifact_paths: artifact_paths.to_vec(),
         });
         let request = match request {
             Ok(request) => request,

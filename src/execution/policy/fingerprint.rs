@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 pub fn policy_hash() -> String {
     let artifacts: &[(&str, &[u8])] = &[
         ("policy", include_bytes!("../policy.rs")),
+        ("policy_accessors", include_bytes!("accessors.rs")),
+        ("policy_restriction", include_bytes!("restrict.rs")),
         ("validation", include_bytes!("validation.rs")),
         ("request", include_bytes!("../contract/request.rs")),
         ("argv", include_bytes!("../contract/request/argv.rs")),
@@ -13,6 +15,30 @@ pub fn policy_hash() -> String {
         ("result", include_bytes!("../contract/result.rs")),
         ("backend_contract", include_bytes!("../backend.rs")),
         ("sandbox", include_bytes!("../docker/sandbox.rs")),
+        (
+            "workspace_staging",
+            include_bytes!("../docker/sandbox/staging.rs"),
+        ),
+        (
+            "workspace_staging_archive",
+            include_bytes!("../docker/sandbox/staging/archive.rs"),
+        ),
+        (
+            "workspace_staging_capture",
+            include_bytes!("../docker/sandbox/staging/archive/capture.rs"),
+        ),
+        (
+            "workspace_staging_sync",
+            include_bytes!("../docker/sandbox/staging/sync.rs"),
+        ),
+        (
+            "workspace_staging_sync_unix",
+            include_bytes!("../docker/sandbox/staging/sync/unix.rs"),
+        ),
+        (
+            "workspace_staging_artifacts",
+            include_bytes!("../docker/sandbox/staging/artifacts.rs"),
+        ),
         ("engine", include_bytes!("../docker/engine.rs")),
         (
             "engine_endpoint",
@@ -67,6 +93,18 @@ pub fn policy_hash() -> String {
         (
             "execute_state",
             include_bytes!("../docker/backend/lifecycle/execute/state.rs"),
+        ),
+        (
+            "execute_finish",
+            include_bytes!("../docker/backend/lifecycle/execute/finish.rs"),
+        ),
+        (
+            "execute_sync",
+            include_bytes!("../docker/backend/lifecycle/execute/sync.rs"),
+        ),
+        (
+            "execute_sync_cancellation",
+            include_bytes!("../docker/backend/lifecycle/execute/sync/cancellation.rs"),
         ),
         (
             "execute_stream",

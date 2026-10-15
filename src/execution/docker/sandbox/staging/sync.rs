@@ -1,18 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::archive::{Fingerprint, Manifest, ReturnedEntry, parse_returned, validate_relative};
-
-pub(super) fn apply(
-    root: &Path,
-    baseline: &Manifest,
-    archive: &[u8],
-    byte_limit: u64,
-    entry_limit: usize,
-) -> Result<(), String> {
-    let returned = parse_returned(archive, byte_limit, entry_limit)
-        .map_err(|_| "Container returned an invalid or oversized workspace archive")?;
-    apply_entries(root, baseline, returned, byte_limit)
-}
+use super::archive::{Fingerprint, Manifest, ReturnedEntry};
 
 pub(super) fn apply_entries(
     root: &Path,

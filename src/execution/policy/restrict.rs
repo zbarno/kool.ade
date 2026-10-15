@@ -65,6 +65,9 @@ impl ExecutionPolicyV1 {
                 .intersection(&ceiling.tool_capabilities)
                 .cloned()
                 .collect(),
+            // Artifact paths are a bounded request selection inside the
+            // verification capability; they are not a grant ceiling.
+            artifact_paths: self.artifact_paths.clone(),
             resource_limits: self.resource_limits.restricted_by(&ceiling.resource_limits),
             run_as_non_root: true,
             host_secrets: false,

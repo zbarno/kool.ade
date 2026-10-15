@@ -1,4 +1,7 @@
-use super::{join_workspace_path, validate_manifest_candidate};
+use super::{
+    artifact_capture_paths, join_workspace_path, receipt_artifact_hashes,
+    validate_manifest_candidate,
+};
 use crate::{
     execution::contract::WorkspaceRef,
     project_runtime::{
@@ -127,4 +130,58 @@ fn recipe_candidate_requires_exact_task_source_and_user_approval() {
             .to_string()
             .contains("explicit approval")
     );
+}
+
+#[test]
+fn build_artifact_capture_uses_the_exact_target_spec_and_recipe_allowlist() {
+    let (mut manifest, _) = approved_manifest();
+    let target = &mut manifest.candidate_targets[0];
+    target.artifact_spec_ref = Some("web-assets".into());
+    manifest
+        .artifact_specs
+        .insert("web-assets".into(), vec!["dist/index.html".into()]);
+    let target = manifest.candidate_targets[0].clone();
+    let recipe = manifest.recipes[0].clone();
+
+    assert_eq!(
+        artifact_capture_paths(&manifest, &target, &recipe, RuntimeOperation::Build).unwrap(),
+        ["dist/index.html"]
+    );
+
+    manifest
+        .artifact_specs
+        .insert("web-assets".into(), vec!["private/config.json".into()]);
+    assert!(artifact_capture_paths(&manifest, &target, &recipe, RuntimeOperation::Build).is_err());
+}
+
+#[test]
+fn monorepo_artifact_capture_stays_target_scoped_and_receipts_use_workspace_paths() {
+    let (mut manifest, _) = approved_manifest();
+    manifest.candidate_targets[0].project_relative_root = "apps/web".into();
+    manifest.candidate_targets[0].artifact_spec_ref = Some("web-assets".into());
+    manifest
+        .artifact_specs
+        .insert("web-assets".into(), vec!["dist/index.html".into()]);
+    let target = manifest.candidate_targets[0].clone();
+    let recipe = manifest.recipes[0].clone();
+    let capture =
+        artifact_capture_paths(&manifest, &target, &recipe, RuntimeOperation::Build).unwrap();
+
+    assert_eq!(capture, ["dist/index.html"]);
+    let receipt_hashes = receipt_artifact_hashes(
+        &target.project_relative_root,
+        &[crate::execution::contract::ArtifactManifestEntryV1 {
+            relative_path: capture[0].clone(),
+            size_bytes: 5,
+            sha256: "a".repeat(64),
+            media_type: "text/html".into(),
+        }],
+    )
+    .unwrap();
+    assert_eq!(receipt_hashes["apps/web/dist/index.html"], "a".repeat(64));
+
+    manifest
+        .artifact_specs
+        .insert("web-assets".into(), vec!["private/config.json".into()]);
+    assert!(artifact_capture_paths(&manifest, &target, &recipe, RuntimeOperation::Build).is_err());
 }
