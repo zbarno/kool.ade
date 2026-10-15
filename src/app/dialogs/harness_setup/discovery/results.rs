@@ -136,10 +136,11 @@ fn snapshot_from_probe(
     } else {
         ReadinessState::Unknown
     };
-    let model_catalog = if report.model_catalog_fresh {
-        ReadinessState::Ready
-    } else {
-        ReadinessState::Unknown
+    let model_catalog = match super::super::probe_result::model_catalog_status(report) {
+        crate::harness::discovery::ModelCatalogStatus::Fresh => ReadinessState::Ready,
+        crate::harness::discovery::ModelCatalogStatus::Stale
+        | crate::harness::discovery::ModelCatalogStatus::Unavailable => ReadinessState::Unavailable,
+        crate::harness::discovery::ModelCatalogStatus::NotChecked => ReadinessState::Unknown,
     };
 
     HarnessCapabilitySnapshotV1 {

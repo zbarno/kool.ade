@@ -64,6 +64,7 @@ fn authentication_and_optional_catalog_failures_have_stable_codes() {
     let mut catalog = probe();
     catalog.diagnostic = Some("Model catalog unavailable".into());
     catalog.model_catalog_fresh = false;
+    catalog.models.clear();
     let catalog_result = from_harness_probe(&catalog, 2, 20, 30);
     assert_eq!(catalog_result.status, ProbeStatus::Available);
     assert_eq!(
@@ -75,6 +76,18 @@ fn authentication_and_optional_catalog_failures_have_stable_codes() {
         ModelCatalogStatus::Unavailable
     );
     assert_eq!(catalog_result.failure_stage, Some(ProbeKind::Models));
+}
+
+#[test]
+fn retained_models_are_reported_as_stale_and_never_fresh() {
+    let mut catalog = probe();
+    catalog.diagnostic = Some("Model catalog unavailable".into());
+    catalog.model_catalog_fresh = false;
+    let result = from_harness_probe(&catalog, 3, 30, 40);
+
+    assert_eq!(result.model_catalog_status, ModelCatalogStatus::Stale);
+    assert_eq!(result.models, ["model-a"]);
+    assert!(!into_harness_probe(&result).model_catalog_fresh);
 }
 
 #[test]
