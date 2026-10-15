@@ -8,6 +8,25 @@ The baseline is `main` at `60d213e` ([CI run](https://github.com/zbarno/kool.ade
 
 The 20 cases sum to 470.919 s in the baseline and 466.507 s in the 16-thread trial. Summed case durations are not suite wall time. All listed cases use isolated local Git fixtures and synthetic harness behavior; none requires Docker or SSH. Decisions below preserve each distinct behavior. No case is removed or consolidated by this inventory.
 
+## Full core profile on PR #212
+
+The complete local Nextest report from PR #212's latest source (`target/nextest/default/nextest.xml`, 2026-10-15) includes **193** `core::implementation` cases. Their cumulative case duration is **1,340.014 s**; **75** cases exceed 10 s and **96** exceed 5 s. The full suite in that run passed 1,936 tests, skipped 2, and took 239.629 s of Nextest wall time. These local timings are a distribution snapshot, not a controlled comparison with the CI trials above; machine and Docker capability differ.
+
+| Test group | Cases | Cumulative time (s) |
+| --- | ---: | ---: |
+| `initial_reconciliation::resilience` | 7 | 133.50 |
+| `recovery_corrections` | 14 | 127.75 |
+| `cleanup` | 6 | 77.47 |
+| `resume_and_pr` | 10 | 70.87 |
+| `resume_and_pr::branch_intent` | 7 | 65.21 |
+| `initial_reconciliation::runtime_config` | 4 | 64.03 |
+| `publication_checks::provider_checks::remote_guards` | 6 | 53.77 |
+| `initial_reconciliation::publication_retry` | 2 | 53.06 |
+| `publication_checks` | 5 | 52.16 |
+| `initial_reconciliation::cache_reuse` | 2 | 51.95 |
+
+This report widens the measured scope beyond the historical slowest-20 table and identifies where further source-level review can focus. It does not establish that the remaining cases are duplicate-free; the complete duplicate/vacuous-test audit and the rest of the repository inventory remain open.
+
 ## Inventory
 
 | Test | Source | Baseline / 16 threads (s) | Category and protected invariant | Dependency | Decision |
