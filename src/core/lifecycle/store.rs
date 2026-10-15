@@ -1,6 +1,7 @@
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
 use super::{FeatureEvent, FeatureGoal, TaskEvent, TaskRecord};
+mod feature_event;
 mod pr_state;
 mod reconcile_plan;
 mod records;
@@ -12,10 +13,7 @@ mod types;
 use types::Snapshot;
 pub use types::{LifecycleActor, LifecycleEventKind, LifecycleEventRecord};
 pub(super) mod task_transition;
-use records::{
-    append_transition, create_pair, event_path, event_record, feature_actor, feature_path,
-    now_unix_ms, stale, task_path,
-};
+use records::{create_pair, event_path, event_record, feature_path, now_unix_ms, task_path};
 pub use task_transition::PullRequestPreparation;
 pub use task_transition::PullRequestPublicationState;
 
@@ -230,42 +228,13 @@ impl<'a> LifecycleStore<'a> {
         event_uid: &str,
         proposal: FeatureEvent,
     ) -> Result<FeatureGoal, StoreError> {
-        let path = feature_path(feature_uid);
-        let (mut snapshot, actual) = self.store.read_record::<Snapshot<FeatureGoal>>(&path)?;
-        if actual != expected_revision || snapshot.record.revision != expected_revision {
-            return Err(stale(&path, expected_revision, actual));
-        }
-        if matches!(proposal, FeatureEvent::TasksCompleted) {
-            task_transition::ensure_feature_tasks_complete(
-                self.store,
-                feature_uid,
-                &snapshot.record.task_uids,
-            )?;
-        }
-        snapshot
-            .record
-            .apply(expected_revision, proposal.clone())
-            .map_err(StoreError::MalformedState)?;
-        snapshot.revision = snapshot.record.revision;
-        snapshot.updated_at_ms = now_unix_ms();
-        let event_path = event_path(event_uid)?;
-        let event = event_record(
-            event_uid,
-            feature_uid,
-            None,
-            expected_revision,
-            feature_actor(&proposal),
-            LifecycleEventKind::Feature(proposal),
-        )?;
-        append_transition(
+        feature_event::apply(
             self.store,
-            &path,
-            &snapshot,
+            feature_uid,
             expected_revision,
-            event_path,
-            event,
-        )?;
-        Ok(snapshot.record)
+            event_uid,
+            proposal,
+        )
     }
 
     pub fn apply_task_event(
