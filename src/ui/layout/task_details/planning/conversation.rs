@@ -2,6 +2,15 @@ use crate::ui::{ApplicationCommand, Surface, theme};
 use egui::Ui;
 
 pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface, key: &str) {
+    paint_with_focus(ui, surface, key, false);
+}
+
+pub(super) fn paint_with_focus(
+    ui: &mut Ui,
+    surface: &mut dyn Surface,
+    key: &str,
+    focus_editor: bool,
+) {
     ui.heading("Task conversation");
     ui.label(theme::helper_text(
         "Messages and replies stay with this task.",
@@ -18,12 +27,13 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface, key: &str) {
     }
     let mut intent = crate::ui::chat_pane::Intent::default();
     if let Some(draft) = surface.task_draft(key) {
-        intent = crate::ui::chat_pane::paint_task_with_context(
+        intent = crate::ui::chat_pane::paint_task_with_context_focus(
             ui,
             &messages,
             draft,
             busy,
             context.as_deref(),
+            focus_editor,
         );
     } else {
         ui.label("Conversation is unavailable for this item.");
