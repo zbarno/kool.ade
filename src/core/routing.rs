@@ -518,6 +518,20 @@ mod tests {
             Eligibility::SeatInherited
         );
         assert_eq!(evaluate(&q, &guest(), &stakes()), Eligibility::NotEligible);
+        let owned_by_someone_else = item("M-3c", Priority::High, "Security", None);
+        let queue = [q, owned_by_someone_else];
+        assert_eq!(
+            eligible_items(&queue, &chair(), &stakes())
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["M-3"],
+            "the chair inherits unowned lanes but not another operator's lane"
+        );
+        assert_eq!(
+            recommended_next(&queue, &chair(), &stakes()).map(|item| item.id.as_str()),
+            Some("M-3")
+        );
 
         // AC-4 — an OWNERLESS category: guests inherit nothing, ever.
         let ux = item("M-4", Priority::High, "UX", None);
