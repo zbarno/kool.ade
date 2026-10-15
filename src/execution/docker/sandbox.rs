@@ -181,6 +181,11 @@ pub fn create_body(
         "LANG=C".into(),
         "TZ=UTC".into(),
     ];
+    if image.profile == RuntimeProfile::Rust {
+        // The approved Rust image sets CARGO_HOME to /usr/local/cargo. Broker
+        // snapshots are staged under the executor's private home instead.
+        environment.push("CARGO_HOME=/home/executor/.cargo".into());
+    }
     if image.profile == RuntimeProfile::Go {
         // /tmp intentionally stays noexec. Go creates temporary test and run
         // binaries here and removes them when the command finishes.

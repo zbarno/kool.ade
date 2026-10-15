@@ -104,3 +104,49 @@ fn cargo_proxy_symlink_keeps_its_alias_when_invoked_for_fetch() {
     assert!(lines.next().unwrap().contains("--locked fetch"));
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn duplicate_lock_identity_with_conflicting_checksums_is_rejected() {
+    let lockfile = format!(
+        "version = 4\n\n[[package]]\nname = \"same-crate\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"{}\"\n\n[[package]]\nname = \"same-crate\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"{}\"\n",
+        "a".repeat(64),
+        "b".repeat(64)
+    );
+
+    let error = super::package_identities_from_contents(&lockfile).unwrap_err();
+
+    assert!(error.to_string().contains("conflicting checksums"));
+}
+
+#[test]
+fn conflicting_registry_cache_copies_fail_closed_regardless_of_scan_order() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-cargo-cache-collision-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let first = root.join("registry/cache/index.crates.io-first");
+    let second = root.join("registry/cache/index.crates.io-second");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    let valid_archive = b"valid lockfile package";
+    let checksum = Sha256::digest(valid_archive)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    fs::write(first.join("same-crate-1.0.0.crate"), valid_archive).unwrap();
+    fs::write(
+        second.join("same-crate-1.0.0.crate"),
+        b"colliding package with different bytes",
+    )
+    .unwrap();
+
+    let package = super::lockfile::LockedPackage {
+        name: "same-crate".into(),
+        version: "1.0.0".into(),
+        checksum,
+    };
+    let error = super::cache::verified_package_count(&root, &[package]).unwrap_err();
+
+    assert!(error.to_string().contains("did not match its Cargo.lock"));
+    fs::remove_dir_all(root).unwrap();
+}

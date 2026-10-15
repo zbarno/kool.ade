@@ -79,14 +79,20 @@ fn collect_contents(contents: &str) -> anyhow::Result<Vec<LockedPackage>> {
             valid_name(&name) && valid_version(&version) && valid_checksum(&checksum),
             "Cargo.lock contains an invalid package identity or checksum"
         );
-        packages.insert(
-            (name.clone(), version.clone()),
+        let identity = (name.clone(), version.clone());
+        if let Some(previous) = packages.insert(
+            identity,
             LockedPackage {
                 name,
                 version,
-                checksum,
+                checksum: checksum.clone(),
             },
-        );
+        ) {
+            anyhow::ensure!(
+                previous.checksum.eq_ignore_ascii_case(&checksum),
+                "Cargo.lock contains conflicting checksums for the same crates.io package identity"
+            );
+        }
         anyhow::ensure!(
             packages.len() <= MAX_LOCKED_PACKAGES,
             "Cargo.lock contains more than {MAX_LOCKED_PACKAGES} registry packages"
