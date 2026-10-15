@@ -1,4 +1,4 @@
-use super::{DockerExecutionBackend, internal_error};
+use super::{DockerExecutionBackend, internal_error_with_context};
 use crate::execution::{
     docker::qa_container::{self, QaWebPreview, QaWebPreviewSpec},
     errors::ExecutionError,
@@ -18,7 +18,9 @@ pub(super) async fn cleanup(
     binding: &crate::runtime_qa::QaPreviewRelayBindingV1,
 ) -> Result<(), ExecutionError> {
     if lease.task_network_id.is_empty() || binding.relay_browser_network_id.is_empty() {
-        return Err(internal_error());
+        return Err(internal_error_with_context(
+            "validating the QA preview lease and relay binding",
+        ));
     }
     qa_container::cleanup_web_preview(&backend.docker, lease, binding).await
 }

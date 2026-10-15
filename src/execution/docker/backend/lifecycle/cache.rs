@@ -9,16 +9,21 @@ pub(super) fn stage_dependency_cache<'a>(
         snapshot
             .manifest
             .validate_ref(&snapshot.cache_ref, &snapshot.archive)
-            .map_err(|_| crate::execution::docker::backend::internal_error())?;
+            .map_err(|_| {
+                crate::execution::docker::backend::internal_error_with_context(
+                    "validating the dependency cache snapshot",
+                )
+            })?;
         if snapshot.cache_ref.target_id != "local"
             && snapshot.cache_ref.target_id != backend.identity.owner_instance_id
         {
             return Err(crate::execution::docker::backend::invalid_request());
         }
-        let mut caches = backend
-            .dependency_caches
-            .lock()
-            .map_err(|_| crate::execution::docker::backend::internal_error())?;
+        let mut caches = backend.dependency_caches.lock().map_err(|_| {
+            crate::execution::docker::backend::internal_error_with_context(
+                "updating the dependency cache registry",
+            )
+        })?;
         let existing = caches
             .get(&snapshot.cache_ref)
             .map_or(0, |entry| entry.archive.len() as u64);

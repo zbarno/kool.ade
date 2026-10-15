@@ -6,7 +6,7 @@ use crate::execution::{
         EventPageRequestV1, ExecutionEventV1, ExecutionRequestV1, ExecutionResultV1,
         ExecutionTarget, WorkspaceRef,
     },
-    docker::backend::{DockerExecutionBackend, internal_error},
+    docker::backend::{DockerExecutionBackend, internal_error_with_context as state_error},
     errors::ExecutionError,
 };
 
@@ -50,7 +50,7 @@ impl ExecutionBackend for DockerExecutionBackend {
     ) -> BackendFuture<'a, String> {
         Box::pin(async move {
             if *cancel.borrow() {
-                return Err(internal_error());
+                return Err(state_error("checking QA driver cancellation"));
             }
             if let (Some(lease), Some(binding)) = (spec.service_lease, spec.relay_binding) {
                 crate::execution::docker::qa_container::validate_preview_relay_network(
@@ -121,7 +121,7 @@ impl ExecutionBackend for DockerExecutionBackend {
                     )
                     .await?;
                 }
-                _ => return Err(internal_error()),
+                _ => return Err(state_error("validating the QA driver network binding")),
             }
             crate::execution::docker::qa_container::run_created_driver(
                 &self.docker,

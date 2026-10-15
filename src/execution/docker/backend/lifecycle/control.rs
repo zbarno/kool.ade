@@ -9,9 +9,7 @@ use bollard::query_parameters::RemoveContainerOptions;
 use crate::execution::{
     backend::ExecutionHandleV1,
     contract::{ExecutionLifecycleV1, ExecutionResultV1},
-    docker::backend::{
-        DockerExecutionBackend, internal_error, internal_error_with_context, invalid_request,
-    },
+    docker::backend::{DockerExecutionBackend, internal_error_with_context, invalid_request},
     errors::{ExecutionError, ExecutionErrorKind},
 };
 

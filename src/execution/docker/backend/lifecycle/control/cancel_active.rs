@@ -1,7 +1,7 @@
 use super::{
     CancellationIntentGuard, DockerExecutionBackend, ExecutionError, ExecutionErrorKind,
-    ExecutionHandleV1, ExecutionLifecycleV1, cancel_persisted, internal_error, invalid_request,
-    terminal,
+    ExecutionHandleV1, ExecutionLifecycleV1, cancel_persisted, internal_error_with_context,
+    invalid_request, terminal,
 };
 use std::sync::Arc;
 
@@ -18,7 +18,9 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_active(
         Err(error) => return Err(error),
     };
     let (container_id, workspace, snapshot, request, cancellation_intent, workspace_sync) = {
-        let state = execution.lock().map_err(|_| internal_error())?;
+        let state = execution.lock().map_err(|_| {
+            internal_error_with_context("reading execution state for active cancellation")
+        })?;
         if state.terminal {
             return Ok(());
         }
@@ -38,7 +40,13 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_active(
     };
     let _cancellation_intent = cancellation_intent;
     let _workspace_sync = workspace_sync.lock().await;
-    if execution.lock().map_err(|_| internal_error())?.terminal {
+    if execution
+        .lock()
+        .map_err(|_| {
+            internal_error_with_context("checking execution state before active cancellation")
+        })?
+        .terminal
+    {
         return Ok(());
     }
     if let Err(error) = super::super::execute::terminate_and_sync(
