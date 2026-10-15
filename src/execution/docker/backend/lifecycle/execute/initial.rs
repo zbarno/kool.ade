@@ -27,9 +27,11 @@ pub(super) fn begin(
     request: &ExecutionRequestV1,
 ) -> Result<InitialState, ExecutionError> {
     let execution = backend.lookup_execution(handle)?;
-    let mut state = execution
-        .lock()
-        .map_err(|_| crate::execution::docker::backend::internal_error())?;
+    let mut state = execution.lock().map_err(|_| {
+        crate::execution::docker::backend::internal_error_with_context(
+            "starting the execution command",
+        )
+    })?;
     if state.request != *request || state.executed || state.terminal {
         return Err(crate::execution::docker::backend::invalid_request());
     }

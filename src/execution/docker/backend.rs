@@ -106,7 +106,7 @@ impl DockerExecutionBackend {
         let execution = self
             .executions
             .lock()
-            .map_err(|_| internal_error())?
+            .map_err(|_| internal_error_with_context("reading the execution registry"))?
             .get(&handle.execution_id)
             .cloned()
             .ok_or_else(|| {
@@ -116,7 +116,9 @@ impl DockerExecutionBackend {
                     false,
                 )
             })?;
-        let state = execution.lock().map_err(|_| internal_error())?;
+        let state = execution
+            .lock()
+            .map_err(|_| internal_error_with_context("reading an execution record"))?;
         if !handle_matches(
             handle,
             &state.request.execution_id,
@@ -138,11 +140,14 @@ impl DockerExecutionBackend {
         &self,
         execution_id: &str,
     ) -> Result<StartingGuard<'_>, ExecutionError> {
-        let mut starting = self.starting.lock().map_err(|_| internal_error())?;
+        let mut starting = self
+            .starting
+            .lock()
+            .map_err(|_| internal_error_with_context("reserving an execution start"))?;
         if self
             .executions
             .lock()
-            .map_err(|_| internal_error())?
+            .map_err(|_| internal_error_with_context("checking the execution registry"))?
             .contains_key(execution_id)
             || !starting.insert(execution_id.to_owned())
         {
@@ -207,6 +212,14 @@ fn internal_error() -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::WorkerDisconnected,
         "Execution state could not be accessed",
+        true,
+    )
+}
+
+pub(super) fn internal_error_with_context(context: &'static str) -> ExecutionError {
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        format!("Execution state could not be accessed while {context}"),
         true,
     )
 }
