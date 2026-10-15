@@ -132,10 +132,19 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         .artifact_spec_ref
         .as_deref()
         .ok_or_else(|| "the approved target has no artifact allowlist".to_owned())?;
-    let artifact_paths = manifest
+    let target_artifact_paths = manifest
         .artifact_specs
         .get(artifact_ref)
         .ok_or_else(|| "the target artifact allowlist is missing".to_owned())?;
+    let artifact_paths = target_artifact_paths
+        .iter()
+        .map(|path| workspace_target_path(&target.project_relative_root, path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut startup_recipe = recipe.clone();
+    startup_recipe.working_directory_relative = workspace_target_path(
+        &target.project_relative_root,
+        &recipe.working_directory_relative,
+    )?;
     let profile = match target.app_surface {
         AppSurface::Web => RuntimeProfile::BrowserQa,
         AppSurface::LinuxDesktop => RuntimeProfile::DesktopQa,
@@ -162,9 +171,9 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         task_text: &document.text,
         implementation,
         target,
-        startup_recipe_sha256: &recipe_sha256(recipe)?,
+        startup_recipe_sha256: &recipe_sha256(&startup_recipe)?,
         build,
-        artifact_paths,
+        artifact_paths: &artifact_paths,
         driver_profile_version: driver_version,
     })?;
     let readiness_probe = target
@@ -188,7 +197,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         task_clone: implementation.task_repository.clone(),
         workspace,
         target: target.clone(),
-        startup_recipe: recipe.clone(),
+        startup_recipe,
         build_receipt: build.clone(),
         artifact_paths: artifact_paths.clone(),
         readiness_probe,
@@ -198,6 +207,16 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
             .map(|metadata| metadata.routing_overrides.clone())
             .unwrap_or_default(),
     })
+}
+
+fn workspace_target_path(target_root: &str, path: &str) -> Result<String, String> {
+    if target_root == "." {
+        Ok(path.to_owned())
+    } else if path == "." {
+        Ok(target_root.to_owned())
+    } else {
+        Ok(format!("{target_root}/{path}"))
+    }
 }
 
 pub(super) fn latest_successful_build_receipt<'a>(

@@ -72,8 +72,12 @@ Example recipe payload:
 
 Build and test attempts use separate `RuntimeReceiptV1` records tied to the
 task, target, and immutable source SHA. A passing build or test requires an
-approved exit code and all declared artifacts. The current Docker backend does
-not yet collect workspace artifacts, so recipes requiring outputs fail closed.
+approved exit code and all declared artifacts. The Docker backend collects only
+the exact recipe or target artifact paths selected by the application. It parses
+the bounded returned workspace archive, rejects missing or unsafe files, and
+records each artifact's size, media type, and SHA-256 before synchronization.
+Runtime receipt paths are relative to the repository clone so monorepo targets
+remain addressable by both Start and QA.
 Queued build and test recipes use the generic executor. Its image selection
 matches each approved recipe's logical tool requirements against pinned image
 inventory instead of inferring a language from executable names. A custom tool
@@ -82,9 +86,12 @@ unless an approved image advertises that tool. Missing tools currently produce
 an unavailable-image result; they are not yet converted into Man.ager broker
 requests.
 
-The generic start executor uses a bounded in-session lifecycle: the approved
-process is launched in the Docker workspace, probed until ready or timeout,
-then terminated and reaped. It is not yet dispatched by the normal task queue.
+The generic start executor requires a passing Build receipt for the same task,
+target, source SHA, and recipe. It launches the approved process in the Docker
+workspace, captures the exact build artifact paths again, and requires their
+hashes to match before recording readiness. The bounded in-session process is
+then terminated and reaped. Start is not yet dispatched by the normal task
+queue.
 HTTP readiness uses an application-generated loopback request through a declared
 Node or Python standard-library prerequisite in the selected executor image;
 it never downloads or invokes curl. Targets without that approved prerequisite
@@ -118,9 +125,10 @@ metadata-only discovery, revision-fenced manifest and receipt persistence,
 explicit task target selection and recipe/readiness approval in Task Details,
 capability assessment, Docker-backed build/test dispatch, and a bounded
 start/readiness executor are present. Approval records discrete argv and an
-explicit user-approval reference; it does not launch the recipe. Docker
-artifact collection, broker-backed toolchain provisioning and inventory, web
-preview relay, desktop automation, and headless service evidence are not
-integrated.
+explicit user-approval reference; it does not launch the recipe. Bounded Docker
+artifact collection now feeds Build/Test and Start/readiness receipts. The
+existing QA artifact snapshot verifies those hashes before uploading only the
+selected files to web preview or desktop sessions. Broker-backed toolchain
+provisioning and inventory, and headless service evidence remain unintegrated.
 Until those paths land, the application must not present a detected candidate
 as a verified runnable target or claim runtime QA coverage.

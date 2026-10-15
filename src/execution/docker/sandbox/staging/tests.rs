@@ -6,6 +6,9 @@ use crate::execution::docker::sandbox::ValidatedWorkspace;
 
 use super::{capture, capture_scoped, synchronize};
 
+#[path = "tests/artifacts.rs"]
+mod artifacts;
+
 struct Fixture(std::path::PathBuf);
 
 impl Fixture {

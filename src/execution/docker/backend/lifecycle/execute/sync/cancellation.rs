@@ -17,13 +17,14 @@ pub(in crate::execution::docker::backend::lifecycle) struct WorkspaceSyncRequest
     pub snapshot: Option<&'a WorkspaceSnapshot>,
     pub budget: u64,
     pub writable: bool,
+    pub artifact_paths: &'a [String],
     pub authorization_generation: &'a str,
 }
 
 pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace_if_active(
     execution: &Arc<Mutex<RuntimeExecution>>,
     request: WorkspaceSyncRequest<'_>,
-) -> Result<bool, ExecutionError> {
+) -> Result<Option<Vec<crate::execution::contract::ArtifactManifestEntryV1>>, ExecutionError> {
     let workspace_sync = {
         let state = execution
             .lock()
@@ -42,17 +43,8 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace_if_
                 == 0
     };
     if !active {
-        return Ok(false);
+        return Ok(None);
     }
-    super::sync_workspace(
-        request.backend,
-        request.container_id,
-        request.workspace,
-        request.snapshot,
-        request.budget,
-        request.writable,
-        request.authorization_generation,
-    )
-    .await?;
-    Ok(true)
+    let artifacts = super::sync_workspace(request).await?;
+    Ok(Some(artifacts))
 }

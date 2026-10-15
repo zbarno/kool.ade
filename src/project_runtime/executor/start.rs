@@ -1,10 +1,13 @@
 use std::{collections::BTreeMap, time::Duration};
 
+mod artifacts;
+use artifacts::{build_artifacts, failed_start, receipt};
+
 use crate::{
     execution::session::ExecutionSession,
     project_runtime::{
-        ProjectCapabilityManifestV1, ProjectRuntimeStore, RecipeSource, RuntimeOperation,
-        RuntimeReceiptState, RuntimeReceiptV1, TargetCapabilityState,
+        ProjectCapabilityManifestV1, ProjectRuntimeStore, RecipeSource, RuntimeReceiptV1,
+        TargetCapabilityState,
     },
 };
 
@@ -49,28 +52,61 @@ pub(super) fn execute(
     probe
         .validate()
         .map_err(|_| anyhow::anyhow!("runtime readiness probe failed validation"))?;
+    let receipts = store.receipts_for_task(&session.workspace().task_id)?;
+    let Some(build_artifacts) =
+        build_artifacts(manifest, target, &receipts, &session.workspace().source_sha)?
+    else {
+        return failed_start(store, session, target, recipe.recipe_id.clone());
+    };
+    let artifact_paths = build_artifacts.paths;
+    let build_hashes = build_artifacts.hashes;
     let script = start_script(manifest, target, recipe, probe)?;
     let timeout = Duration::from_secs(recipe.timeout_seconds.min(MAX_START_SECONDS));
-    let (output, process) = match session.start_runtime_process(&script, timeout) {
-        Ok(result) => result,
-        Err(_) => {
-            let receipt = receipt(session, target, recipe.recipe_id.clone(), None, None, false);
-            store.append_receipt(&receipt)?;
-            return Ok(vec![receipt]);
-        }
-    };
+    let (output, process) =
+        match session.start_runtime_process_with_artifacts(&script, timeout, &artifact_paths) {
+            Ok(result) => result,
+            Err(_) => {
+                let receipt = receipt(
+                    session,
+                    target,
+                    recipe.recipe_id.clone(),
+                    None,
+                    None,
+                    BTreeMap::new(),
+                    false,
+                );
+                store.append_receipt(&receipt)?;
+                return Ok(vec![receipt]);
+            }
+        };
+    let observed_hashes = output
+        .result
+        .artifacts
+        .iter()
+        .map(|artifact| (artifact.relative_path.clone(), artifact.sha256.clone()))
+        .collect::<BTreeMap<_, _>>();
     let passed = process.is_some()
         && output.result.exit_code == Some(0)
         && !output.result.cancelled
-        && !output.result.timed_out;
+        && !output.result.timed_out
+        && output.result.artifacts.len() == artifact_paths.len()
+        && observed_hashes == build_hashes;
     let receipt = receipt(
         session,
         target,
         recipe.recipe_id.clone(),
         output.result.exit_code,
         Some(output.result.execution_id),
+        observed_hashes,
         passed,
     );
+    if !passed {
+        if let Some(process) = process {
+            let _ = process.stop();
+        }
+        store.append_receipt(&receipt)?;
+        return Ok(vec![receipt]);
+    }
     if let Err(error) = store.append_receipt(&receipt) {
         if let Some(process) = process {
             let _ = process.stop();
@@ -78,34 +114,6 @@ pub(super) fn execute(
         return Err(error.into());
     }
     Ok(vec![receipt])
-}
-
-fn receipt(
-    session: &ExecutionSession,
-    target: &super::super::AppTargetV1,
-    recipe_id: String,
-    exit_code: Option<i32>,
-    log_reference: Option<String>,
-    passed: bool,
-) -> RuntimeReceiptV1 {
-    RuntimeReceiptV1 {
-        schema_version: 1,
-        receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        operation: RuntimeOperation::Start,
-        task_id: session.workspace().task_id.clone(),
-        target_id: target.target_id.clone(),
-        source_sha: session.workspace().source_sha.clone(),
-        recipe_id: Some(recipe_id),
-        state: if passed {
-            RuntimeReceiptState::Passed
-        } else {
-            RuntimeReceiptState::Failed
-        },
-        exit_code,
-        artifact_hashes: BTreeMap::new(),
-        log_reference,
-        observed_at_unix_ms: super::now_unix_ms(),
-    }
 }
 
 fn start_script(

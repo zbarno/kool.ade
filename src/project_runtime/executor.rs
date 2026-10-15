@@ -8,7 +8,10 @@ use crate::{
     },
 };
 
+mod artifacts;
 mod start;
+
+use artifacts::{artifact_capture_paths, receipt_artifact_hashes};
 
 /// Resolves only persisted, approved target recipes and records their observed outcome.
 pub struct ProjectRuntimeExecutor<'store, 'planning> {
@@ -44,6 +47,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .chain(manifest.user_overrides.iter())
                 .find(|recipe| recipe.recipe_id == recipe_id.as_str())
                 .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
+            let capture_paths = artifact_capture_paths(&manifest, &target, recipe, operation)?;
             let mut recipe = recipe.clone();
             recipe.working_directory_relative = join_workspace_path(
                 &target.project_relative_root,
@@ -59,7 +63,11 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .iter()
                 .map(|path| join_workspace_path(&target.project_relative_root, path))
                 .collect::<anyhow::Result<_>>()?;
-            let output = match session.run_scoped_recipe(&recipe, &target.project_relative_root) {
+            let output = match session.run_scoped_recipe_with_artifacts(
+                &recipe,
+                &target.project_relative_root,
+                &capture_paths,
+            ) {
                 Ok(output) => output,
                 Err(error) => {
                     let receipt = RuntimeReceiptV1 {
@@ -83,20 +91,8 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                     return Err(anyhow::Error::new(error));
                 }
             };
-            let artifact_hashes = output
-                .result
-                .artifacts
-                .iter()
-                .map(|artifact| {
-                    Ok((
-                        join_workspace_path(
-                            &target.project_relative_root,
-                            &artifact.relative_path,
-                        )?,
-                        artifact.sha256.clone(),
-                    ))
-                })
-                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+            let artifact_hashes =
+                receipt_artifact_hashes(&target.project_relative_root, &output.result.artifacts)?;
             let expected_artifacts_present = recipe.expected_artifacts.iter().all(|expected| {
                 let scoped_expected = expected
                     .strip_prefix(&format!("{}/", target.project_relative_root))
