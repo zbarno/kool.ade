@@ -18,6 +18,7 @@ use std::{
 };
 
 mod fixture;
+mod network;
 
 #[test]
 fn authorized_npm_restore_blocks_malicious_install_egress_and_host_secrets() {
@@ -33,7 +34,13 @@ fn authorized_npm_restore_blocks_malicious_install_egress_and_host_secrets() {
     let repository = workspace.join("repository");
     fs::create_dir_all(&repository).unwrap();
     initialize_project(&repository);
-    let archive = fixture::create_archive(&workspace, &repository);
+    let network_probe = network::BridgeNetworkProbe::start();
+    let archive = fixture::create_archive(
+        &workspace,
+        &repository,
+        network_probe.host(),
+        network_probe.port(),
+    );
     let archive_bytes = fs::read(&archive).unwrap();
     let integrity = format!("sha512-{}", base64(&Sha512::digest(&archive_bytes)));
     let registry_url = "https://registry.npmjs.org/archive-helper/-/archive-helper-1.0.0.tgz";
@@ -212,16 +219,32 @@ fn authorized_npm_restore_blocks_malicious_install_egress_and_host_secrets() {
     session.stage_dependency_cache(snapshot).unwrap();
     let output = session
         .run_tool_command(
-            "npm ci --offline --no-audit --no-fund",
+            "npm ci --offline --no-audit --no-fund --ignore-scripts",
             Duration::from_secs(300),
         )
         .unwrap();
     assert_eq!(
         output.result.exit_code,
         Some(0),
-        "offline npm restore failed: {:?}; {}",
+        "offline npm restore failed: {:?}; stdout: {}; stderr: {}",
         output.result,
+        output.stdout,
         output.stderr
+    );
+
+    let script_output = session
+        .run_tool_command(
+            "node node_modules/archive-helper/postinstall.js",
+            Duration::from_secs(30),
+        )
+        .unwrap();
+    assert_eq!(
+        script_output.result.exit_code,
+        Some(0),
+        "sandboxed install hook failed: {:?}; stdout: {}; stderr: {}",
+        script_output.result,
+        script_output.stdout,
+        script_output.stderr
     );
 
     let manifest: serde_json::Value =

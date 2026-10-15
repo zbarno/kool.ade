@@ -4,7 +4,12 @@ use std::{
     process::Command,
 };
 
-pub(super) fn create_archive(workspace: &Path, repository: &Path) -> PathBuf {
+pub(super) fn create_archive(
+    workspace: &Path,
+    repository: &Path,
+    probe_host: &str,
+    probe_port: u16,
+) -> PathBuf {
     let package_dir = repository.join("fixtures/archive-helper");
     fs::create_dir_all(&package_dir).unwrap();
     fs::write(
@@ -13,28 +18,28 @@ pub(super) fn create_archive(workspace: &Path, repository: &Path) -> PathBuf {
     )
     .unwrap();
     fs::write(package_dir.join("index.js"), "module.exports = 'ready';\n").unwrap();
-    fs::write(
-        package_dir.join("postinstall.js"),
+    let probe_host = serde_json::to_string(probe_host).unwrap();
+    let postinstall = format!(
         r#"const fs = require('node:fs');
 const net = require('node:net');
 let finished = false;
-const socket = net.createConnection({ host: '198.51.100.1', port: 80 });
-const record = (network) => {
+const socket = net.createConnection({{ host: {probe_host}, port: {probe_port} }});
+const record = (network) => {{
   if (finished) return;
   finished = true;
   socket.destroy();
-  fs.writeFileSync(require('node:path').join(__dirname, 'install-probe.json'), JSON.stringify({
+  fs.writeFileSync(require('node:path').join(__dirname, 'install-probe.json'), JSON.stringify({{
     network,
     hostSecretPresent: Object.hasOwn(process.env, 'KOOLADE_E2E_HOST_SECRET'),
-  }));
-};
+  }}));
+}};
 socket.setTimeout(750);
 socket.on('connect', () => record('connected'));
 socket.on('error', () => record('blocked'));
 socket.on('timeout', () => record('blocked'));
-"#,
-    )
-    .unwrap();
+"#
+    );
+    fs::write(package_dir.join("postinstall.js"), postinstall).unwrap();
 
     let global_config = workspace.join("npm-globalrc");
     fs::write(&global_config, []).unwrap();
