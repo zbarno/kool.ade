@@ -23,11 +23,13 @@ pub(super) fn archive(
         _ => None,
     };
     let valid = history_repository.is_some()
-        && saved["phase"] == "recovered_once"
-        && saved["branch"].as_str() == Some(state.branch.as_str())
-        && saved["base"].as_str() == Some(plan.remote_commit.as_str())
-        && saved["target"].as_str() == Some(plan.local_commit.as_str())
-        && saved["merge_head"].as_str() == Some(plan.local_commit.as_str());
+        && snapshot_matches_pinned_history(
+            &saved,
+            &state.branch,
+            &plan.remote_commit,
+            &plan.local_commit,
+            &plan.local_commit,
+        );
     anyhow::ensure!(
         valid,
         "{}",
@@ -62,22 +64,15 @@ pub(super) fn archive(
                 "The prior recovery has no valid stash identity.",
             )
         })?;
-    let private_ref = saved["private_ref"]
-        .as_str()
-        .filter(|name| {
-            name.starts_with(&format!(
-                "refs/koolade/reconciliation-recovery/{}/",
-                task_repository::allocation_key(state)
-            ))
-        })
-        .ok_or_else(|| {
-            review_required(
-                state,
-                plan,
-                path,
-                "The prior recovery has no valid preservation ref.",
-            )
-        })?;
+    let allocation_key = task_repository::allocation_key(state);
+    let private_ref = valid_private_ref(&saved, &allocation_key).ok_or_else(|| {
+        review_required(
+            state,
+            plan,
+            path,
+            "The prior recovery has no valid preservation ref.",
+        )
+    })?;
     anyhow::ensure!(
         runner.git(
             history_repository,
@@ -120,6 +115,32 @@ pub(super) fn archive(
     fs::remove_file(path)?;
     Ok(())
 }
+
+fn snapshot_matches_pinned_history(
+    saved: &serde_json::Value,
+    branch: &str,
+    base: &str,
+    target: &str,
+    merge_head: &str,
+) -> bool {
+    saved["phase"] == "recovered_once"
+        && saved["branch"].as_str() == Some(branch)
+        && saved["base"].as_str() == Some(base)
+        && saved["target"].as_str() == Some(target)
+        && saved["merge_head"].as_str() == Some(merge_head)
+}
+
+fn valid_private_ref<'a>(saved: &'a serde_json::Value, allocation_key: &str) -> Option<&'a str> {
+    saved["private_ref"].as_str().filter(|name| {
+        name.starts_with(&format!(
+            "refs/koolade/reconciliation-recovery/{allocation_key}/"
+        ))
+    })
+}
+
+#[cfg(test)]
+#[path = "history/tests.rs"]
+mod tests;
 
 fn legacy_repository_path(
     snapshot_path: &Path,
