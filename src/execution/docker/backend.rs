@@ -208,14 +208,6 @@ fn prerequisite_error(
     )
 }
 
-fn internal_error() -> ExecutionError {
-    ExecutionError::new(
-        ExecutionErrorKind::WorkerDisconnected,
-        "Execution state could not be accessed",
-        true,
-    )
-}
-
 pub(super) fn internal_error_with_context(context: &'static str) -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::WorkerDisconnected,

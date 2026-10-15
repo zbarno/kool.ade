@@ -23,7 +23,9 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
         return Err(super::invalid_request());
     }
     let _task_lock = execution_records::try_task_lock(&record.task_id)
-        .map_err(|_| super::internal_error())?
+        .map_err(|_| {
+            super::internal_error_with_context("acquiring the task lock for persisted cancellation")
+        })?
         .ok_or_else(|| {
             ExecutionError::new(
                 ExecutionErrorKind::PolicyDenied,
@@ -105,13 +107,14 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
         return Err(error);
     }
     mark_cancelled(&mut record)?;
-    execution_records::save(&record).map_err(|_| super::internal_error())
+    execution_records::save(&record)
+        .map_err(|_| super::internal_error_with_context("persisting cancelled execution state"))
 }
 
 fn mark_cancelled(record: &mut ExecutionRecordV1) -> Result<(), ExecutionError> {
     let now = crate::execution::docker::backend::now_unix_ms().max(record.started_at_unix_ms);
     let cursor = execution_records::journal_cursor(&record.task_id, &record.execution_id)
-        .map_err(|_| super::internal_error())?;
+        .map_err(|_| super::internal_error_with_context("reading the cancellation event cursor"))?;
     let last = if cursor > 0 {
         execution_records::load_events(
             &record.task_id,
@@ -121,7 +124,7 @@ fn mark_cancelled(record: &mut ExecutionRecordV1) -> Result<(), ExecutionError> 
                 max_events: 1,
             },
         )
-        .map_err(|_| super::internal_error())?
+        .map_err(|_| super::internal_error_with_context("reading the latest cancellation event"))?
         .into_iter()
         .last()
     } else {
@@ -178,7 +181,7 @@ fn append_lifecycle(
             event: ExecutionEventKindV1::Lifecycle { state },
         },
     )
-    .map_err(|_| super::internal_error())
+    .map_err(|_| super::internal_error_with_context("appending a cancellation lifecycle event"))
 }
 
 fn is_terminal(state: execution_records::ExecutionRecordStateV1) -> bool {

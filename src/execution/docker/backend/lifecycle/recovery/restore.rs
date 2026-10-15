@@ -5,7 +5,7 @@ use bollard::query_parameters::InspectContainerOptionsBuilder;
 use crate::execution::{
     backend::ExecutionHandleV1,
     docker::{
-        backend::{DockerExecutionBackend, internal_error},
+        backend::{DockerExecutionBackend, internal_error_with_context},
         sandbox::ValidatedWorkspace,
     },
     errors::{ExecutionError, ExecutionErrorKind},
@@ -101,7 +101,7 @@ pub(super) async fn restore_record(
     backend
         .workspaces
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("restoring the workspace registry entry"))?
         .insert(lease_id, prepared);
     let handle = ExecutionHandleV1 {
         execution_id: request.execution_id.clone(),
@@ -112,7 +112,7 @@ pub(super) async fn restore_record(
     backend
         .executions
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("restoring the execution registry entry"))?
         .insert(handle.execution_id, Arc::new(Mutex::new(restored)));
     Ok(())
 }
