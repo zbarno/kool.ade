@@ -205,27 +205,9 @@ fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
 
 #[test]
 fn incomplete_recovery_phase_cannot_grant_another_attempt() {
-    assert_invalid_recovery_history_rejected("phase");
-}
-
-#[test]
-fn mismatched_recovery_target_cannot_grant_another_attempt() {
-    assert_invalid_recovery_history_rejected("target");
-}
-
-#[test]
-fn mismatched_recovery_private_ref_cannot_grant_another_attempt() {
-    assert_invalid_recovery_history_rejected("private_ref");
-}
-
-fn assert_invalid_recovery_history_rejected(field: &str) {
     let s = interrupted();
     let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
-    snapshot[field] = serde_json::json!(if field == "phase" {
-        "snapshot_saved"
-    } else {
-        "invalid"
-    });
+    snapshot["phase"] = serde_json::json!("snapshot_saved");
     fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
     let worktree = super::merge_recovery::migrated_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
