@@ -1931,6 +1931,7 @@ dependencies = [
  "chrono",
  "eframe",
  "egui",
+ "flate2",
  "fs2",
  "futures-util",
  "image",

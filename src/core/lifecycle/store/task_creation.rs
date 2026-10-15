@@ -1,5 +1,6 @@
 use super::records::{
-    create_pair_with_extra, event_path, event_record, feature_path, now_unix_ms, stale, task_path,
+    EventProjection, create_pair_with_extra, event_path, event_record, feature_path, now_unix_ms,
+    stale, task_path,
 };
 use super::{
     FeatureGoal, LifecycleActor, LifecycleEventKind, LifecycleStore, Snapshot, TaskRecord,
@@ -157,6 +158,15 @@ impl LifecycleStore<'_> {
                     parent_task_uid: parent_task_uid.clone(),
                 },
             ),
+            EventProjection {
+                feature_revision_after: Some(feature_snapshot.revision),
+                task_revision_after: Some(1),
+                initial_task: Some(task.clone()),
+                parent_task_after: parent_update
+                    .as_ref()
+                    .map(|(_, parent_snapshot, _)| parent_snapshot.record.clone()),
+                ..EventProjection::default()
+            },
         )?;
         let feature_check = crate::artifacts::planning_store::RecordRevisionCheck {
             path: feature_record_path.clone(),

@@ -19,5 +19,27 @@ pub(in crate::harness::resource_bridge) fn start_with_state_root_and_npm_operati
         state_root,
         Some(npm_operations),
         None,
+        None,
+    )
+}
+
+pub(in crate::harness::resource_bridge) fn start_with_state_root_and_cargo_operations(
+    worktree: &Path,
+    task_id: Option<&str>,
+    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+    state_root: &Path,
+    cargo_operations: Arc<super::super::cargo::SharedPreparationOperations>,
+) -> anyhow::Result<ResourceBridge> {
+    ResourceBridge::start_inner(
+        worktree,
+        None,
+        task_id,
+        progress,
+        cancel,
+        state_root,
+        None,
+        Some(cargo_operations),
+        None,
     )
 }

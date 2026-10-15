@@ -4,7 +4,8 @@ use crate::artifacts::planning_store::{PlanningStore, RecordRevisionCheck, Store
 
 use super::super::types::is_uuid;
 use super::{
-    FeatureEvent, LifecycleActor, LifecycleEventKind, LifecycleEventRecord, Snapshot, TaskEvent,
+    FeatureEvent, FeatureGoal, LifecycleActor, LifecycleEventKind, LifecycleEventRecord, Snapshot,
+    TaskEvent, TaskRecord,
 };
 
 pub(super) struct AdditionalTransition {
@@ -145,14 +146,22 @@ pub(super) fn event_record(
     expected_revision: u64,
     actor: LifecycleActor,
     event: LifecycleEventKind,
+    projection: EventProjection,
 ) -> Result<LifecycleEventRecord, StoreError> {
     if !is_uuid(uid) || !is_uuid(feature_uid) || task_uid.is_some_and(|id| !is_uuid(id)) {
         return Err(StoreError::InvalidPath(uid.to_owned()));
     }
     let now = now_unix_ms();
+    let task_revision_after = projection.task_revision_after.or_else(|| {
+        if matches!(event, LifecycleEventKind::Task(_)) {
+            expected_revision.checked_add(1)
+        } else {
+            None
+        }
+    });
     Ok(LifecycleEventRecord {
         uid: uid.to_owned(),
-        schema_version: 1,
+        schema_version: 3,
         created_at_ms: now,
         updated_at_ms: now,
         revision: 1,
@@ -161,7 +170,23 @@ pub(super) fn event_record(
         expected_revision,
         actor,
         event,
+        feature_revision_after: projection.feature_revision_after,
+        task_revision_after,
+        initial_feature: projection.initial_feature,
+        initial_task: projection.initial_task,
+        parent_task_after: projection.parent_task_after,
+        pr_preparation_after: projection.pr_preparation_after,
     })
+}
+
+#[derive(Default)]
+pub(super) struct EventProjection {
+    pub(super) feature_revision_after: Option<u64>,
+    pub(super) task_revision_after: Option<u64>,
+    pub(super) initial_feature: Option<FeatureGoal>,
+    pub(super) initial_task: Option<TaskRecord>,
+    pub(super) parent_task_after: Option<TaskRecord>,
+    pub(super) pr_preparation_after: Option<super::PullRequestPreparation>,
 }
 
 pub(super) fn feature_actor(event: &FeatureEvent) -> LifecycleActor {

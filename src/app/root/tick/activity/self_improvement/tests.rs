@@ -130,5 +130,11 @@ fn event(feature_uid: &str, event: FeatureEvent) -> LifecycleEventRecord {
         expected_revision: 0,
         actor,
         event: LifecycleEventKind::Feature(event),
+        feature_revision_after: None,
+        task_revision_after: None,
+        initial_feature: None,
+        initial_task: None,
+        parent_task_after: None,
+        pr_preparation_after: None,
     }
 }
