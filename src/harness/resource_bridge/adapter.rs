@@ -14,6 +14,7 @@ pub(super) struct PreparationContext<'a> {
     pub(super) cargo_cache: &'a Path,
     pub(super) downloaded_bytes: &'a AtomicUsize,
     pub(super) npm_operations: Option<&'a super::npm::SharedPreparationOperations>,
+    pub(super) cargo_operations: Option<&'a super::cargo::SharedPreparationOperations>,
     pub(super) npm_cache_gate: &'a std::sync::Mutex<()>,
     pub(super) cargo_cache_gate: &'a std::sync::Mutex<()>,
 }

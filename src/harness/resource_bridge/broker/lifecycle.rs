@@ -73,6 +73,7 @@ impl ResourceBridge {
             cancel,
             &crate::persistence::state_root(),
             None,
+            None,
             Some(hook),
         )
     }

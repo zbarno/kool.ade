@@ -15,6 +15,7 @@ pub(super) struct BrokerContext<'a> {
     pub(super) npm_snapshot: &'a Path,
     pub(super) cargo_cache: &'a Path,
     pub(super) npm_operations: Option<&'a super::super::npm::SharedPreparationOperations>,
+    pub(super) cargo_operations: Option<&'a super::super::cargo::SharedPreparationOperations>,
     pub(super) attention: &'a Arc<Mutex<Option<String>>>,
     pub(super) dependency: &'a Arc<Mutex<Vec<DependencyRequest>>>,
     pub(super) task_id: Option<&'a str>,
