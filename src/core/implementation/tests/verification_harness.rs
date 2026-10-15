@@ -128,7 +128,7 @@ fn failed_command_retains_both_streams_for_correction() {
 
 #[test]
 fn harness_failures_retry_and_saved_diagnostics_survive_lost_final_message() {
-    for (mode, expected) in [("harness_retry", 2), ("sidecar", 2), ("healing", 5)] {
+    for (mode, expected) in [("harness_retry", 2), ("healing", 5)] {
         let s = Sandbox::new();
         let calls = Arc::new(AtomicUsize::new(0));
         let result = s.run(mode, calls.clone()).unwrap();

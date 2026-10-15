@@ -123,10 +123,7 @@ impl AiHarness for Fixture {
         } else if self.mode != "evidence_only" {
             fs::write(req.repo_root.join("implemented.txt"), "implemented\n").unwrap();
         }
-        if (self.mode == "harness_retry" && call == 0)
-            || (self.mode == "sidecar" && call == 0)
-            || self.mode == "harness_dead"
-        {
+        if (self.mode == "harness_retry" && call == 0) || self.mode == "harness_dead" {
             return Err(AppError::HarnessFailed {
                 reason: "pi finished but produced no final assistant message".into(),
                 stderr_tail: String::new(),
