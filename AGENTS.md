@@ -69,6 +69,8 @@ Do not claim the task is complete until:
 - Before an agent marks a task complete, run the repository quality gates: `cargo +1.98.1 fmt --all --check`, `cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast`, `cargo +1.98.1 test --locked --doc`, and `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`.
 - Run all-target tests with `cargo-nextest` so independent tests execute in parallel. Do not serialize the suite with `--test-threads=1`; fix concurrency-unsafe tests instead.
 - All four quality gates must pass before marking the task complete or committing. If a gate cannot run or fails, report the result and leave the task incomplete until it is resolved.
+- For each new integration or end-to-end test, state the production boundary and invariant it covers, why a unit test alone cannot prove it, its external dependencies (such as Docker or SSH), and its expected setup cost. Prefer direct tests of validators for exhaustive invalid-field cases, while retaining representative end-to-end proof at important trust and recovery boundaries.
+- Keep tests signal-dense: remove or consolidate a test only with evidence that its behavior is identical to an existing check or its production path is no longer supported. Do not use test count alone to justify removal.
 
 # Never
 
