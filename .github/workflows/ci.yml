@@ -99,7 +99,9 @@ jobs:
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1
+          # Keep each job's compiled artifacts distinct; Clippy's check-only
+          # output cannot replace the test and doctest codegen caches.
+          shared-key: rust-1.98.1-tests
           cache-workspace-crates: true
       - name: Build the worker executable for loopback SSH integration
         run: time -p cargo +1.98.1 build --locked --bin koolade
@@ -163,7 +165,9 @@ jobs:
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1
+          # Keep each job's compiled artifacts distinct; Clippy's check-only
+          # output cannot replace the test and doctest codegen caches.
+          shared-key: rust-1.98.1-docs
           cache-workspace-crates: true
       - name: Run documentation tests
         run: time -p cargo +1.98.1 test --locked --doc
@@ -178,7 +182,9 @@ jobs:
       - name: Cache Rust dependencies and build artifacts
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1
+          # Keep each job's compiled artifacts distinct; Clippy's check-only
+          # output cannot replace the test and doctest codegen caches.
+          shared-key: rust-1.98.1-clippy
           cache-workspace-crates: true
       - name: Reject all clippy warnings
         run: time -p cargo +1.98.1 clippy --locked --all-targets -- -D warnings
