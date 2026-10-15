@@ -9,7 +9,9 @@ use bollard::query_parameters::RemoveContainerOptions;
 use crate::execution::{
     backend::ExecutionHandleV1,
     contract::{ExecutionLifecycleV1, ExecutionResultV1},
-    docker::backend::{DockerExecutionBackend, internal_error, invalid_request},
+    docker::backend::{
+        DockerExecutionBackend, internal_error, internal_error_with_context, invalid_request,
+    },
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
@@ -48,7 +50,7 @@ fn load_record(
     handle: &ExecutionHandleV1,
 ) -> Result<crate::persistence::execution_records::ExecutionRecordV1, ExecutionError> {
     let record = crate::persistence::execution_records::load(&handle.task_id, &handle.execution_id)
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("loading the durable execution record"))?
         .ok_or_else(disconnected)?;
     if record.owner_instance_id != backend.identity.owner_instance_id
         || record.target_id != handle.target.target_id
@@ -83,7 +85,7 @@ pub(super) async fn collect(
     };
     execution
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("reading the terminal execution result"))?
         .result
         .clone()
         .ok_or_else(|| {
@@ -107,7 +109,9 @@ pub(super) async fn release(
         Err(error) => return Err(error),
     };
     let (container_id, lease_id) = {
-        let state = execution.lock().map_err(|_| internal_error())?;
+        let state = execution
+            .lock()
+            .map_err(|_| internal_error_with_context("reading execution state for release"))?;
         if !state.terminal {
             return Err(ExecutionError::new(
                 ExecutionErrorKind::PolicyDenied,
@@ -136,28 +140,34 @@ pub(super) async fn release(
     .map_err(|_| operation_timeout())?
     .map_err(|error| operation_disconnected("remove the execution container", &error))?;
     {
-        let mut state = execution.lock().map_err(|_| internal_error())?;
+        let mut state = execution
+            .lock()
+            .map_err(|_| internal_error_with_context("recording execution cleanup completion"))?;
         state.cleanup_complete = true;
         state.persist()?;
     }
     let prepared = backend
         .workspaces
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("reading the workspace registry during release"))?
         .get(&lease_id)
         .cloned()
-        .ok_or_else(internal_error)?;
+        .ok_or_else(|| internal_error_with_context("finding the workspace lease during release"))?;
     {
-        let mut state = prepared.lock().map_err(|_| internal_error())?;
+        let mut state = prepared.lock().map_err(|_| {
+            internal_error_with_context("updating workspace execution state during release")
+        })?;
         if state.active_execution_id.as_deref() != Some(handle.execution_id.as_str()) {
-            return Err(internal_error());
+            return Err(internal_error_with_context(
+                "checking workspace execution ownership during release",
+            ));
         }
         state.active_execution_id = None;
     }
     backend
         .executions
         .lock()
-        .map_err(|_| internal_error())?
+        .map_err(|_| internal_error_with_context("removing the execution registry entry"))?
         .remove(&handle.execution_id);
     Ok(())
 }
