@@ -63,6 +63,13 @@ pub(super) fn execute(
         }
         PublicationMode::CreatePullRequest => {
             integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
+            publication::prepare_lifecycle_pr_proposal(
+                planning_store,
+                dir,
+                state,
+                harness,
+                runner,
+            )?;
             match publication::prepare_lifecycle_publication(planning_store, state)? {
                 publication::LifecyclePublicationGate::Legacy => {
                     publication::create_pull_request(dir, state, runner, policy.claim_lease)

@@ -1,0 +1,147 @@
+use super::*;
+use crate::harness::prompt_catalog::{
+    PrProposalV1, PromptRole, RoleInputV1, RolePayloadV1, render,
+};
+
+fn expected() -> ExpectedProposal {
+    ExpectedProposal {
+        task_uid: "task-1".into(),
+        base_ref: "refs/heads/main".into(),
+        head_ref: "refs/heads/koolade/task-1".into(),
+        commits: vec!["head-sha".into()],
+        files: vec!["src/main.rs".into(), "tests/main.rs".into()],
+        evidence_ids: vec!["approved-feature-plan-0".into(), "integrated-diff-0".into()],
+    }
+}
+
+fn proposal(expected: &ExpectedProposal) -> PrProposalV1 {
+    PrProposalV1 {
+        task_uid: expected.task_uid.clone(),
+        base_ref: expected.base_ref.clone(),
+        head_ref: expected.head_ref.clone(),
+        commits: expected.commits.clone(),
+        files: expected.files.clone(),
+        evidence: expected.evidence_ids.clone(),
+        description: "Summarize the reviewed task changes.".into(),
+    }
+}
+
+fn scope() -> ProposalScope {
+    ProposalScope {
+        expected: expected(),
+        scope_sha256: "a".repeat(64),
+        feature_plan: String::new(),
+        task_spec: String::new(),
+        gate_evidence: String::new(),
+        verified_report: String::new(),
+        diff: String::new(),
+        scope_manifest: String::new(),
+    }
+}
+
+fn receipt(scope: &ProposalScope) -> PreparedProposalV1 {
+    let prompt = render(&RoleInputV1 {
+        role: PromptRole::PrPreparer,
+        workspace_uid: "workspace-1".into(),
+        feature_uid: "feature-1".into(),
+        task_uid: Some(scope.expected.task_uid.clone()),
+        original_goal: "Prepare the approved task for review".into(),
+        approved_spec_ref: None,
+        approved_spec_hash: None,
+        decision_refs: Vec::new(),
+        evidence_manifest: Vec::new(),
+        execution_policy_ref: "publication/pr-preparer/read-only-exact-scope/v1".into(),
+        output_schema_version: PromptRole::PrPreparer.output_schema_version().into(),
+        payload: RolePayloadV1::Pr {
+            reviewed_task_refs: Vec::new(),
+            approved_subtasks: Vec::new(),
+            base_ref: scope.expected.base_ref.clone(),
+            head_ref: scope.expected.head_ref.clone(),
+        },
+    })
+    .unwrap()
+    .manifest;
+    PreparedProposalV1 {
+        schema_version: 1,
+        scope_sha256: scope.scope_sha256.clone(),
+        prompt,
+        proposal: proposal(&scope.expected),
+    }
+}
+
+#[test]
+fn pr_preparer_requires_exact_application_scope_and_evidence() {
+    let expected = expected();
+    let proposal = proposal(&expected);
+    assert!(validate_proposal(&proposal, &expected).is_ok());
+
+    let mut wrong_head = proposal.clone();
+    wrong_head.head_ref = "refs/heads/unreviewed".into();
+    assert!(validate_proposal(&wrong_head, &expected).is_err());
+
+    let mut missing_file = proposal.clone();
+    missing_file.files.pop();
+    assert!(validate_proposal(&missing_file, &expected).is_err());
+
+    let mut unsupported_evidence = proposal;
+    unsupported_evidence.evidence[0] = "model-invented-test-result".into();
+    assert!(validate_proposal(&unsupported_evidence, &expected).is_err());
+}
+
+#[test]
+fn pr_preparer_rejects_duplicate_evidence_and_empty_description() {
+    let expected = expected();
+    let mut duplicate_evidence = proposal(&expected);
+    duplicate_evidence.evidence[1] = duplicate_evidence.evidence[0].clone();
+    assert!(validate_proposal(&duplicate_evidence, &expected).is_err());
+
+    let mut empty_description = proposal(&expected);
+    empty_description.description = "  ".into();
+    assert!(validate_proposal(&empty_description, &expected).is_err());
+}
+
+#[test]
+fn pr_preparer_reuses_only_current_scope_and_prompt_receipts() {
+    let scope = scope();
+    let valid = receipt(&scope);
+    assert!(validate_receipt(&valid, &scope).unwrap());
+
+    let mut stale_scope = valid.clone();
+    stale_scope.scope_sha256 = "b".repeat(64);
+    assert!(!validate_receipt(&stale_scope, &scope).unwrap());
+
+    let mut stale_schema = valid.clone();
+    stale_schema.schema_version = 2;
+    assert!(!validate_receipt(&stale_schema, &scope).unwrap());
+
+    let mut stale_prompt = valid.clone();
+    stale_prompt.prompt.role_version = "pr/v99".into();
+    assert!(!validate_receipt(&stale_prompt, &scope).unwrap());
+
+    let mut corrupted = valid;
+    corrupted.proposal.files.pop();
+    assert!(validate_receipt(&corrupted, &scope).is_err());
+}
+
+#[test]
+fn stale_pr_preparer_receipts_are_removed_so_restart_can_rebuild_them() {
+    let scope = scope();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("pr-preparer-v1.json");
+    let mut stale_scope = receipt(&scope);
+    stale_scope.scope_sha256 = "b".repeat(64);
+    fs::write(&path, serde_json::to_vec(&stale_scope).unwrap()).unwrap();
+    assert!(read_reusable_receipt(&path, &scope).unwrap().is_none());
+    assert!(!path.exists());
+
+    let mut stale_prompt = receipt(&scope);
+    stale_prompt.prompt.role_version = "pr/v99".into();
+    fs::write(&path, serde_json::to_vec(&stale_prompt).unwrap()).unwrap();
+    assert!(read_reusable_receipt(&path, &scope).unwrap().is_none());
+    assert!(!path.exists());
+
+    let current = receipt(&scope);
+    fs::write(&path, serde_json::to_vec(&current).unwrap()).unwrap();
+    assert!(read_reusable_receipt(&path, &scope).unwrap().is_some());
+    assert!(path.exists());
+}
