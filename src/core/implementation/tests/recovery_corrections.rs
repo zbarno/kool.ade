@@ -25,84 +25,108 @@ fn newest_saved_report_controls_interrupted_blocker_recovery() {
     assert!(latest_external_blocker(&s.repo, &s.ticket).is_none());
 }
 #[test]
-fn automatic_corrections_preserve_work_and_publish_only_after_verification() {
-    for mode in [
-        "repair_markdown",
-        "repair_schema",
-        "repair_criterion",
-        "repair_verification",
-        "repair_blocked",
-    ] {
-        let s = Sandbox::new();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let result = s.run(mode, calls.clone()).unwrap();
-        assert_eq!(calls.load(Ordering::SeqCst), 2, "{mode}");
-        assert_eq!(result.status, ImplementationStatus::AwaitingReview);
-        let dir = state_dir(&s.repo, &s.ticket).unwrap();
-        let files = fs::read_dir(&dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
-        let incomplete_response = matches!(mode, "repair_markdown" | "repair_schema");
-        assert_eq!(
-            files
-                .iter()
-                .filter(|name| name.ends_with("-report.json") && *name != "verified-report.json")
-                .count(),
-            if incomplete_response { 1 } else { 2 }
-        );
-        assert_eq!(
-            files
-                .iter()
-                .filter(|name| name.ends_with("-response.txt"))
-                .count(),
-            usize::from(incomplete_response),
-            "only incomplete final responses need a separate copy"
-        );
-        assert_eq!(
-            files
-                .iter()
-                .filter(|name| name.ends_with("-correction.txt"))
-                .count(),
-            1
-        );
-        if mode == "repair_verification" {
-            assert_eq!(
-                files
-                    .iter()
-                    .filter(|name| name.ends_with("-verification.json"))
-                    .count(),
-                2
-            );
-            assert!(result.task_repository.join("missing-file").exists());
-        }
-        assert_eq!(
-            fs::read_to_string(s.root.join("pr-created"))
-                .unwrap()
-                .lines()
-                .count(),
-            1
-        );
-    }
+fn markdown_correction_preserves_work_and_publishes_after_verification() {
+    assert_automatic_correction("repair_markdown");
 }
 
 #[test]
-fn correction_limit_blocker_and_cancellation_never_publish() {
-    for (mode, expected_calls, error_text) in [
-        ("fail", 6, "Automatic correction limit"),
-        ("blocked", 6, "Automatic correction limit"),
-        ("repair_cancel", 2, "Implementation cancelled"),
-    ] {
-        let s = Sandbox::new();
-        let calls = Arc::new(AtomicUsize::new(0));
-        let error = s.run(mode, calls.clone()).unwrap_err().to_string();
-        assert!(error.contains(error_text), "{error}");
-        assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
-        assert!(!s.root.join("pr-created").exists());
-        let state = load(&s.repo, &s.ticket).unwrap();
-        assert!(state.task_repository.join("implemented.txt").exists());
-        assert!(state.detail.contains(error_text));
+fn schema_correction_preserves_work_and_publishes_after_verification() {
+    assert_automatic_correction("repair_schema");
+}
+
+#[test]
+fn criterion_correction_preserves_work_and_publishes_after_verification() {
+    assert_automatic_correction("repair_criterion");
+}
+
+#[test]
+fn verification_correction_preserves_work_and_publishes_after_verification() {
+    assert_automatic_correction("repair_verification");
+}
+
+#[test]
+fn blocked_correction_preserves_work_and_publishes_after_verification() {
+    assert_automatic_correction("repair_blocked");
+}
+
+fn assert_automatic_correction(mode: &'static str) {
+    let s = Sandbox::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let result = s.run(mode, calls.clone()).unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "{mode}");
+    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let files = fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let incomplete_response = matches!(mode, "repair_markdown" | "repair_schema");
+    assert_eq!(
+        files
+            .iter()
+            .filter(|name| name.ends_with("-report.json") && *name != "verified-report.json")
+            .count(),
+        if incomplete_response { 1 } else { 2 }
+    );
+    assert_eq!(
+        files
+            .iter()
+            .filter(|name| name.ends_with("-response.txt"))
+            .count(),
+        usize::from(incomplete_response),
+        "only incomplete final responses need a separate copy"
+    );
+    assert_eq!(
+        files
+            .iter()
+            .filter(|name| name.ends_with("-correction.txt"))
+            .count(),
+        1
+    );
+    if mode == "repair_verification" {
+        assert_eq!(
+            files
+                .iter()
+                .filter(|name| name.ends_with("-verification.json"))
+                .count(),
+            2
+        );
+        assert!(result.task_repository.join("missing-file").exists());
     }
+    assert_eq!(
+        fs::read_to_string(s.root.join("pr-created"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn failed_verification_at_correction_limit_never_publishes() {
+    assert_correction_does_not_publish("fail", 6, "Automatic correction limit");
+}
+
+#[test]
+fn blocked_report_at_correction_limit_never_publishes() {
+    assert_correction_does_not_publish("blocked", 6, "Automatic correction limit");
+}
+
+#[test]
+fn cancelled_correction_never_publishes() {
+    assert_correction_does_not_publish("repair_cancel", 2, "Implementation cancelled");
+}
+
+fn assert_correction_does_not_publish(mode: &'static str, expected_calls: usize, error_text: &str) {
+    let s = Sandbox::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let error = s.run(mode, calls.clone()).unwrap_err().to_string();
+    assert!(error.contains(error_text), "{error}");
+    assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
+    assert!(!s.root.join("pr-created").exists());
+    let state = load(&s.repo, &s.ticket).unwrap();
+    assert!(state.task_repository.join("implemented.txt").exists());
+    assert!(state.detail.contains(error_text));
 }
 
 #[test]
