@@ -49,6 +49,9 @@ def source_for(test_id, index):
     if exact:
         selected = max(exact, key=lambda item: (len(item[0]), item[0]))
         mapping = "module path match"
+    elif len(candidates) == 1:
+        selected = candidates[0]
+        mapping = "unique function declaration"
     elif candidates:
         selected = max(
             candidates,
