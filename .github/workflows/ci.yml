@@ -23,6 +23,8 @@ jobs:
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt
       - name: Check formatting
         run: cargo +1.98.1 fmt --all --check
+      - name: Check standalone Windows regression formatting
+        run: cargo +1.98.1 fmt --manifest-path tests/windows-process-tree/Cargo.toml -- --check
 
   tests:
     name: tests and Docker runtime
@@ -178,6 +180,20 @@ jobs:
       - name: Reject all clippy warnings
         run: time -p cargo +1.98.1 clippy --locked --all-targets -- -D warnings
 
+  windows-process-tree:
+    name: Windows discovery process tree
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Verify discovery descendants are terminated
+        run: >-
+          cargo +1.98.1 test --locked
+          --manifest-path tests/windows-process-tree/Cargo.toml
+          windows::tests::windows_process_tree_terminates_descendants_when_owner_exits
+          -- --exact --nocapture
+
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.
   docker-only-check:
@@ -191,7 +207,7 @@ jobs:
   quality:
     name: format, tests, and clippy
     if: always()
-    needs: [format, tests, docs, clippy, docker-only-check]
+    needs: [format, tests, docs, clippy, windows-process-tree, docker-only-check]
     runs-on: ubuntu-latest
     steps:
       - name: Require every quality gate
@@ -200,14 +216,17 @@ jobs:
           TESTS_RESULT: ${{ needs.tests.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
+          WINDOWS_PROCESS_TREE_RESULT: ${{ needs['windows-process-tree'].result }}
           DOCKER_ONLY_RESULT: ${{ needs.docker-only-check.result }}
         run: |
           printf 'format: %s\ntests: %s\nclippy: %s\n' \
             "$FORMAT_RESULT" "$TESTS_RESULT" "$CLIPPY_RESULT"
           printf 'documentation tests: %s\n' "$DOCS_RESULT"
+          printf 'Windows process-tree regression: %s\n' "$WINDOWS_PROCESS_TREE_RESULT"
           printf 'Docker-only runtime: %s\n' "$DOCKER_ONLY_RESULT"
           test "$FORMAT_RESULT" = success
           test "$TESTS_RESULT" = success
           test "$DOCS_RESULT" = success
           test "$CLIPPY_RESULT" = success
+          test "$WINDOWS_PROCESS_TREE_RESULT" = success
           test "$DOCKER_ONLY_RESULT" = success
