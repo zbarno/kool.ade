@@ -45,6 +45,8 @@ mod planner_turn;
 mod evidence;
 #[path = "tests/manifest.rs"]
 mod manifest;
+#[path = "tests/provider_parity.rs"]
+mod provider_parity;
 #[path = "tests/reviews.rs"]
 mod reviews;
 #[path = "tests/roles.rs"]

@@ -36,6 +36,7 @@ if [ "$1" = --help ]; then
     printf '%s\n' '--print' '--mode <mode> json' '--provider' '--model' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-themes' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
     exit 0
 fi
+dir=$(dirname "$0")
 args="$*"
 system=''
 while [ "$#" -gt 0 ]; do
@@ -45,7 +46,7 @@ while [ "$#" -gt 0 ]; do
     fi
     shift
 done
-cat >/dev/null
+cat > "$dir/user-prompt.txt"
 case "$system" in *"Custom persona remains intact"*) persona=yes ;; *) persona=no ;; esac
 case "$system" in *"PID "*) supervisor=yes ;; *) supervisor=no ;; esac
 case "$system" in *"Do not use pkill/killall"*) ownership=yes ;; *) ownership=no ;; esac
@@ -87,6 +88,10 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
     .collect::<Result<Vec<_>, _>>();
     let outcomes = outcomes.unwrap();
     assert_eq!(outcomes.len(), 3);
+    assert_eq!(
+        fs::read_to_string(root.join("user-prompt.txt")).unwrap(),
+        "test"
+    );
     let expected_policy = "no";
     let expected_tools = "no";
     assert!(

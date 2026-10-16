@@ -12,6 +12,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 mod execute;
 mod probe;
 #[cfg(test)]
+pub(super) use execute::prompt_input_with_policy;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 use probe::probe_with_timeouts;

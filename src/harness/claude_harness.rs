@@ -13,6 +13,8 @@ const MINIMUM_VERSION: (u64, u64, u64) = (2, 1, 268);
 mod execute;
 mod stream;
 #[cfg(test)]
+pub(super) use execute::developer_instructions;
+#[cfg(test)]
 pub(super) use stream::{ClaudeEvent, command, parse_event, prompt_input};
 
 #[derive(Default)]

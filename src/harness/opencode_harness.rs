@@ -11,6 +11,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 mod execute;
 mod readiness;
 mod stream;
+#[cfg(test)]
+pub(super) use execute::prompt_input;
 use readiness::{probe, probe_version};
 #[cfg(test)]
 use stream::{OpenCodeEvent, parse_event};

@@ -55,15 +55,7 @@ impl AiHarness for OpenCodeHarness {
         if let Some(model) = &model {
             argv.extend(["--model".into(), model.clone()]);
         }
-        let mut prompt = String::from(
-            "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Do not switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.\n\n",
-        );
-        prompt.push_str("Task policy:\n");
-        prompt.push_str(&request.system_instructions);
-        prompt.push_str("\n\nTask:\n");
-        prompt.push_str(&request.prompt_body);
-        prompt.push_str("\n\n");
-        prompt.push_str(boundary.system_policy());
+        let prompt = prompt_input(request, boundary.system_policy());
         let mut env = Vec::new();
         boundary
             .configure(
@@ -242,6 +234,13 @@ impl AiHarness for OpenCodeHarness {
             stderr_tail: stderr_tail(&stderr),
         })
     }
+}
+
+pub(in crate::harness) fn prompt_input(request: &PlanningRequest, boundary_policy: &str) -> String {
+    format!(
+        "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Do not switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.\n\nTask policy:\n{}\n\nTask:\n{}\n\n{}",
+        request.system_instructions, request.prompt_body, boundary_policy
+    )
 }
 
 fn snapshot(

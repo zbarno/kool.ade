@@ -40,13 +40,7 @@ impl AiHarness for ClaudeHarness {
         })?;
         let version = Self::checked_binary(&binary)?;
         let argv = command(&binary, request);
-        let mut developer = String::from(
-            "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Never switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.",
-        );
-        developer.push_str("\n\n");
-        developer.push_str(&request.system_instructions);
-        developer.push_str("\n\n");
-        developer.push_str(boundary.system_policy());
+        let developer = developer_instructions(request, boundary.system_policy());
         let mut argv = argv;
         argv.extend(["--append-system-prompt".into(), developer]);
         let requested_model = model.map(str::to_owned).or_else(|| {
@@ -211,6 +205,16 @@ impl AiHarness for ClaudeHarness {
             stderr_tail: stderr_tail(&stderr),
         })
     }
+}
+
+pub(in crate::harness) fn developer_instructions(
+    request: &PlanningRequest,
+    boundary_policy: &str,
+) -> String {
+    format!(
+        "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Never switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.\n\n{}\n\n{}",
+        request.system_instructions, boundary_policy
+    )
 }
 
 fn normalize_effort(value: &str) -> &'static str {
