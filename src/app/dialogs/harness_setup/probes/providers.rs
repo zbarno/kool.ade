@@ -9,6 +9,10 @@ pub const PROVIDERS: [&str; 6] = [
     "antigravity",
 ];
 
+#[cfg(test)]
+#[path = "providers/tests.rs"]
+mod tests;
+
 pub fn discover_provider(id: &str, runtime_available: bool) -> HarnessProbe {
     let report = discover_provider_unbounded(id, runtime_available);
     super::bounds::bound_report(report)
@@ -34,6 +38,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 default_model,
                 model_catalog_fresh,
                 configuration_required: pi.configuration_required,
+                authentication_required: pi.configuration_required,
                 implementation_available: pi.ok && runtime_available,
                 status: pi.status,
             }
@@ -77,6 +82,8 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 model_catalog_fresh,
                 configuration_required: codex.readiness
                     == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
+                authentication_required: codex.readiness
+                    == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
                 implementation_available: codex.ready && runtime_available,
                 status: codex.status,
             }
@@ -97,16 +104,39 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 model_catalog_fresh,
                 configuration_required: probe.readiness
                     == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
+                authentication_required: probe.readiness
+                    == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
                 implementation_available: ready && runtime_available,
                 status: probe.status,
             }
         }
         "opencode" => {
             let probe = crate::harness::OpenCodeHarness::probe_report();
-            let ready =
-                probe.readiness == crate::harness::opencode_harness::OpenCodeReadiness::Ready;
+            let ready = matches!(
+                probe.readiness,
+                crate::harness::opencode_harness::OpenCodeReadiness::Ready
+                    | crate::harness::opencode_harness::OpenCodeReadiness::CatalogUnavailable
+            );
             let model_catalog_fresh = !probe.models.is_empty();
-            HarnessProbe { id: id.into(), version: probe.version, executable: probe.binary.as_ref().map(|p| p.to_string_lossy().into()), diagnostic: (!probe.diagnostic.is_empty()).then_some(probe.diagnostic), ready, models: probe.models, default_model: None, model_catalog_fresh, configuration_required: matches!(probe.readiness, crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired), implementation_available: ready && runtime_available, status: probe.status }
+            HarnessProbe {
+                id: id.into(),
+                version: probe.version,
+                executable: probe.binary.as_ref().map(|p| p.to_string_lossy().into()),
+                diagnostic: (!probe.diagnostic.is_empty()).then_some(probe.diagnostic),
+                ready,
+                models: probe.models,
+                default_model: None,
+                model_catalog_fresh,
+                configuration_required: matches!(
+                    probe.readiness,
+                    crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
+                        | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired
+                ),
+                authentication_required: probe.readiness
+                    == crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired,
+                implementation_available: ready && runtime_available,
+                status: probe.status,
+            }
         }
         "copilot" => {
             let probe = crate::harness::CopilotHarness::probe_report();
@@ -134,6 +164,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 default_model,
                 model_catalog_fresh,
                 configuration_required: false,
+                authentication_required: false,
                 implementation_available: ready && runtime_available,
                 status,
             }
@@ -154,7 +185,8 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 .ok()
                 .filter(|m| !m.trim().is_empty()),
                 model_catalog_fresh,
-                configuration_required: false,
+                configuration_required: probe.configuration_required,
+                authentication_required: probe.configuration_required,
                 implementation_available: probe.ready && runtime_available,
                 status: probe.status,
             }
@@ -170,6 +202,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
             default_model: None,
             model_catalog_fresh: false,
             configuration_required: false,
+            authentication_required: false,
             implementation_available: false,
         },
     }

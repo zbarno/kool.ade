@@ -12,6 +12,7 @@ pub(super) fn failed_probe(id: &str, message: &str) -> HarnessProbe {
         default_model: None,
         model_catalog_fresh: false,
         configuration_required: false,
+        authentication_required: false,
         implementation_available: false,
     }
 }
@@ -129,7 +130,7 @@ fn snapshot_from_probe(
     } else {
         ReadinessState::Unavailable
     };
-    let authentication = if report.configuration_required {
+    let authentication = if report.authentication_required {
         ReadinessState::Unavailable
     } else if report.ready {
         ReadinessState::Ready

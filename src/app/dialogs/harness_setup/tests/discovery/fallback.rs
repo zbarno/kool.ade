@@ -15,6 +15,7 @@ fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
         default_model: None,
         model_catalog_fresh: false,
         configuration_required: true,
+        authentication_required: true,
         implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
@@ -44,6 +45,7 @@ fn configured_codex_default_is_preserved_when_ready() {
         default_model: Some("gpt-configured".into()),
         model_catalog_fresh: true,
         configuration_required: false,
+        authentication_required: false,
         implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
@@ -54,4 +56,46 @@ fn configured_codex_default_is_preserved_when_ready() {
         1,
     );
     assert_eq!(settings.default_harness.as_deref(), Some("codex"));
+}
+
+#[test]
+fn unrelated_provider_failure_preserves_saved_manual_path_and_default() {
+    let settings_before = HarnessSettings {
+        default_harness: Some("pi".into()),
+        manual_executable_paths: std::collections::BTreeMap::from([
+            ("pi".into(), "/example/custom/pi".into()),
+            ("codex".into(), "/example/custom/codex".into()),
+        ]),
+        ..HarnessSettings::default()
+    };
+    let failure = HarnessProbe {
+        id: "claude".into(),
+        status: "claude (not installed)".into(),
+        version: None,
+        executable: None,
+        diagnostic: Some("synthetic executable missing".into()),
+        ready: false,
+        models: Vec::new(),
+        default_model: None,
+        model_catalog_fresh: false,
+        configuration_required: false,
+        authentication_required: false,
+        implementation_available: false,
+    };
+    let mut settings = settings_before.clone();
+
+    super::super::super::discovery::apply_probe_results(
+        &mut settings,
+        &[failure],
+        Some("claude"),
+        2,
+    );
+
+    assert_eq!(settings.default_harness, settings_before.default_harness);
+    assert_eq!(
+        settings.manual_executable_paths,
+        settings_before.manual_executable_paths
+    );
+    assert!(!settings.discovered["claude"].ready);
+    assert!(settings.discovered["claude"].executable.is_none());
 }

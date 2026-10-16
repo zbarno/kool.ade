@@ -2,6 +2,9 @@ use super::*;
 use crate::harness::{AiHarness, PlanningRequest};
 use std::path::Path;
 
+#[path = "tests/catalog_failures.rs"]
+mod catalog_failures;
+
 #[test]
 fn model_catalog_uses_only_slug_tokens() {
     assert_eq!(
@@ -70,9 +73,9 @@ fn readiness_discovers_version_and_models_without_auth_probe() {
     std::fs::write(&cli, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'agy 1.2.3'; else echo 'gemini-3.8-flash-high Gemini Flash'; fi\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let (version, models) = probe(&cli).unwrap();
-    assert_eq!(version, "agy 1.2.3");
-    assert_eq!(models, vec!["gemini-3.8-flash-high"]);
+    let report = probe(&cli, Duration::from_secs(1)).unwrap();
+    assert_eq!(report.version, "agy 1.2.3");
+    assert_eq!(report.models, vec!["gemini-3.8-flash-high"]);
     std::fs::remove_dir_all(root).unwrap();
 }
 

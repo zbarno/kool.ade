@@ -10,6 +10,7 @@ pub(super) struct HarnessProbe {
     pub default_model: Option<String>,
     pub model_catalog_fresh: bool,
     pub configuration_required: bool,
+    pub authentication_required: bool,
     pub implementation_available: bool,
 }
 
