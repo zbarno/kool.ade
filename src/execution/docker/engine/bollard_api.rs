@@ -150,13 +150,57 @@ impl DockerApi for BollardApi {
                 }
             };
             Ok(ImageObservation {
+                image_id: inspect.id.unwrap_or_default(),
                 repo_digests: inspect.repo_digests.unwrap_or_default(),
                 os: inspect.os.unwrap_or_default(),
                 architecture: inspect.architecture.unwrap_or_default(),
                 configured_user: inspect
                     .config
-                    .and_then(|config| config.user)
+                    .as_ref()
+                    .and_then(|config| config.user.clone())
                     .unwrap_or_default(),
+                labels: inspect
+                    .config
+                    .and_then(|config| config.labels)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+            })
+        })
+    }
+
+    fn inspect_derived_image<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async move {
+            let inspect = self
+                .docker
+                .inspect_image(&image.reference)
+                .await
+                .map_err(|_| {
+                    failure(
+                        PrerequisiteCode::ImageUnavailable,
+                        "Registered derived image is not present in the selected Docker daemon",
+                        false,
+                    )
+                })?;
+            Ok(ImageObservation {
+                image_id: inspect.id.unwrap_or_default(),
+                repo_digests: inspect.repo_digests.unwrap_or_default(),
+                os: inspect.os.unwrap_or_default(),
+                architecture: inspect.architecture.unwrap_or_default(),
+                configured_user: inspect
+                    .config
+                    .as_ref()
+                    .and_then(|config| config.user.clone())
+                    .unwrap_or_default(),
+                labels: inspect
+                    .config
+                    .and_then(|config| config.labels)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
             })
         })
     }

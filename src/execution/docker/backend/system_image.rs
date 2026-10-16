@@ -1,6 +1,13 @@
 use super::{DockerExecutionBackend, SelectedImage};
 use crate::execution::errors::{ExecutionError, ExecutionErrorKind};
 
+#[derive(Clone)]
+pub(super) struct RegisteredDerivedImage {
+    pub image: SelectedImage,
+    pub content_identity: String,
+    pub base_digest: String,
+}
+
 fn disconnected() -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::WorkerDisconnected,
@@ -66,7 +73,43 @@ impl DockerExecutionBackend {
         self.derived_images
             .lock()
             .map_err(|_| disconnected())?
-            .insert(derived.image_id.clone(), selected);
+            .insert(
+                derived.image_id.clone(),
+                RegisteredDerivedImage {
+                    image: selected,
+                    content_identity: derived.content_identity.clone(),
+                    base_digest: derived.base_digest.clone(),
+                },
+            );
         Ok(derived)
+    }
+
+    pub(super) async fn prepare_selected_image(
+        &self,
+        image: &SelectedImage,
+    ) -> Result<(), ExecutionError> {
+        let registered = self
+            .derived_images
+            .lock()
+            .map_err(|_| super::internal_error_with_context("reading derived image registry"))?
+            .get(&image.digest)
+            .cloned();
+        match registered {
+            Some(registered) if registered.image == *image => self
+                .engine
+                .prepare_derived_image(image, &registered.content_identity, &registered.base_digest)
+                .await
+                .map_err(super::prerequisite_error),
+            Some(_) => Err(ExecutionError::new(
+                ExecutionErrorKind::ImageUnavailable,
+                "Selected derived image differs from its registered identity",
+                false,
+            )),
+            None => self
+                .engine
+                .prepare_image(image)
+                .await
+                .map_err(super::prerequisite_error),
+        }
     }
 }

@@ -169,10 +169,7 @@ pub(super) fn parse_record(fields: &BTreeMap<String, String>) -> anyhow::Result<
         "Debian package filename is outside approved pool/main"
     );
     anyhow::ensure!(
-        size > 0
-            && size <= 512 * 1024 * 1024
-            && sha256.len() == 64
-            && sha256.bytes().all(|b| b.is_ascii_hexdigit()),
+        size > 0 && sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit()),
         "invalid Debian package artifact integrity fields"
     );
     let mut dependencies = Vec::new();

@@ -6,7 +6,9 @@ use super::discovery::{PrerequisiteCode, PrerequisiteFailure, parse_architecture
 
 mod observation;
 mod validation;
-pub use observation::{approved_available_images, verify_image_observation};
+pub use observation::{
+    approved_available_images, verify_derived_image_observation, verify_image_observation,
+};
 
 pub const IMAGE_LOCK: &str = include_str!("../../../containers/images.lock.json");
 pub const EXECUTOR_UID: u32 = 10_001;
@@ -62,10 +64,12 @@ pub struct SelectedImage {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImageObservation {
+    pub image_id: String,
     pub repo_digests: Vec<String>,
     pub os: String,
     pub architecture: String,
     pub configured_user: String,
+    pub labels: BTreeMap<String, String>,
 }
 
 impl ImageLock {

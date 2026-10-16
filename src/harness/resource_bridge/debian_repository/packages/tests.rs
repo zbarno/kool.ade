@@ -200,7 +200,9 @@ fn compressed_index_is_hash_checked_before_records_are_admitted() {
         "Package: app\nVersion: 1.0-1\nArchitecture: amd64\nFilename: pool/main/a/app_1.0-1_amd64.deb\nSize: 12\nSHA256: ",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nDepends: liba\n\n",
         "Package: liba\nVersion: 2.0-1\nArchitecture: all\nFilename: pool/main/libl/liba_2.0-1_all.deb\nSize: 12\nSHA256: ",
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n\n"
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n\n",
+        "Package: huge\nVersion: 1.0-1\nArchitecture: amd64\nFilename: pool/main/h/huge_1.0-1_amd64.deb\nSize: 536870913\nSHA256: ",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n\n"
     );
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
     encoder.write_all(index_text.as_bytes()).unwrap();
@@ -230,7 +232,47 @@ fn compressed_index_is_hash_checked_before_records_are_admitted() {
             .collect::<Vec<_>>(),
         ["app", "liba"]
     );
+    assert!(
+        parsed
+            .closure(&["huge".into()], &BTreeMap::new(), "amd64")
+            .is_err()
+    );
     let mut tampered = bytes;
     tampered.push(0);
     assert!(PackageIndex::parse_gzip(&release, path, &tampered).is_err());
+}
+
+#[test]
+fn oversized_unrelated_package_is_parsed_but_oversized_requested_package_is_rejected() {
+    let oversized = |name: &str| {
+        let fields = BTreeMap::from([
+            ("Package".into(), name.into()),
+            ("Version".into(), "1.0-1".into()),
+            ("Architecture".into(), "amd64".into()),
+            (
+                "Filename".into(),
+                format!("pool/main/{}/{}_1.0-1_amd64.deb", &name[..1], name),
+            ),
+            ("Size".into(), (512_u64 * 1024 * 1024 + 1).to_string()),
+            ("SHA256".into(), "c".repeat(64)),
+        ]);
+        parse_record(&fields).unwrap()
+    };
+    let index = PackageIndex {
+        records: BTreeMap::from([
+            ("small".into(), record("small", None)),
+            ("huge".into(), oversized("huge")),
+        ]),
+    };
+    assert_eq!(
+        index
+            .closure(&["small".into()], &BTreeMap::new(), "amd64")
+            .unwrap()
+            .len(),
+        1
+    );
+    let error = index
+        .closure(&["huge".into()], &BTreeMap::new(), "amd64")
+        .unwrap_err();
+    assert!(error.to_string().contains("per-artifact transfer limit"));
 }

@@ -50,7 +50,7 @@ pub struct DockerExecutionBackend {
             crate::harness::resource_bridge::CacheSnapshot,
         >,
     >,
-    derived_images: Mutex<HashMap<String, SelectedImage>>,
+    derived_images: Mutex<HashMap<String, system_image::RegisteredDerivedImage>>,
 }
 
 impl DockerExecutionBackend {
@@ -258,7 +258,7 @@ pub(super) fn selected_image(
         .lock()
         .map_err(|_| internal_error_with_context("reading derived system images"))?
         .get(digest)
-        .cloned()
+        .map(|registered| registered.image.clone())
     {
         let expected = crate::execution::docker::discovery::parse_architecture(architecture)
             .ok_or_else(|| internal_error_with_context("validating derived image architecture"))?;

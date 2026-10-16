@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod derived_image;
 mod docker_api;
 mod errors;
 mod image_derivation;

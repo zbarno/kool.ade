@@ -25,6 +25,10 @@ impl PackageIndex {
                 .ok_or_else(|| anyhow::anyhow!("approved Debian index has no package {name}"))?
                 .clone();
             anyhow::ensure!(
+                record.size <= 512 * 1024 * 1024,
+                "resolved Debian package exceeds the per-artifact transfer limit"
+            );
+            anyhow::ensure!(
                 record.architecture == architecture || record.architecture == "all",
                 "Debian package architecture does not match target"
             );

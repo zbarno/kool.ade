@@ -10,7 +10,7 @@ use crate::execution::{
     docker::{
         backend::{
             DockerExecutionBackend, internal_error_with_context, invalid_request, now_unix_ms,
-            prerequisite_error, selected_image,
+            selected_image,
         },
         sandbox::{create_body, staging},
     },
@@ -102,10 +102,9 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
             .as_deref()
             .ok_or_else(invalid_request)?,
     )?;
-    tokio::time::timeout_at(deadline, backend.engine.prepare_image(&image))
+    tokio::time::timeout_at(deadline, backend.prepare_selected_image(&image))
         .await
-        .map_err(|_| deadline_error())?
-        .map_err(prerequisite_error)?;
+        .map_err(|_| deadline_error())??;
     let mut identity = backend.identity.clone();
     identity.lease_expires_unix_ms = request.deadline_unix_ms.saturating_add(60_000);
     let body = create_body(request, &workspace, &identity, &image)?;

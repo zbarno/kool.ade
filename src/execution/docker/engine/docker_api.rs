@@ -8,6 +8,20 @@ pub(crate) trait DockerApi: Send + Sync {
         image: &'a SelectedImage,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>>;
 
+    /// Inspect an already-built local image without attempting a registry pull.
+    fn inspect_derived_image<'a>(
+        &'a self,
+        _image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async {
+            Err(failure(
+                PrerequisiteCode::ImageUnavailable,
+                "Docker adapter cannot inspect a locally derived image",
+                false,
+            ))
+        })
+    }
+
     /// Query package state without networking.
     fn image_package_state<'a>(
         &'a self,
