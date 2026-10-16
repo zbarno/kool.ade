@@ -71,27 +71,34 @@ fn descendant_helper(started: std::path::PathBuf, survived: std::path::PathBuf) 
     .join("System32")
     .join("cmd.exe");
     let script = format!(
-        "echo started>\"{}\" & timeout /T 3 /NOBREAK >nul & echo leaked>\"{}\"",
+        "echo started>\"{}\" & ping -n 4 127.0.0.1 >nul & echo leaked>\"{}\"",
         started.display(),
         survived.display()
     );
     let mut descendant = Command::new(command_processor)
-        .args(["/C", &script])
+        .arg("/C")
+        .raw_arg(format!(" {script}"))
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("spawn descendant process");
 
     let deadline = Instant::now() + Duration::from_secs(2);
     while !started.exists() && Instant::now() < deadline {
-        assert!(
-            descendant
-                .try_wait()
-                .expect("query descendant process status")
-                .is_none(),
-            "descendant exited before creating its start marker"
-        );
+        if let Some(status) = descendant
+            .try_wait()
+            .expect("query descendant process status")
+        {
+            let output = descendant
+                .wait_with_output()
+                .expect("collect failed descendant output");
+            panic!(
+                "descendant exited before creating its start marker ({status}); stdout: {}; stderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(started.exists(), "descendant did not start");
