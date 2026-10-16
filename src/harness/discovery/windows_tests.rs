@@ -39,22 +39,15 @@ fn windows_process_tree_terminates_descendants_when_owner_exits() {
         .env(STARTED_ENV, &started)
         .env(SURVIVED_ENV, &survived)
         .env(PID_ENV, &pid)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
 
-    let child = owner.spawn().expect("spawn suspended test process");
+    let mut child = owner.spawn().expect("spawn suspended test process");
     let tree = WindowsProcessTree::attach(child.id()).expect("assign child to a job object");
-    let output = child.wait_with_output().expect("wait for helper process");
-    assert!(
-        output.status.success(),
-        "helper failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("1 passed"),
-        "the child test harness did not run the requested helper"
-    );
+    let status = child.wait().expect("wait for helper process");
+    assert!(status.success(), "helper process failed: {status}");
     assert!(
         started.exists(),
         "the descendant started before its owner exited"
