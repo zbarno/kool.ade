@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "sandbox/cleanup.rs"]
 mod cleanup;
+#[path = "sandbox/create.rs"]
+mod create;
 #[path = "sandbox/lifecycle.rs"]
 mod lifecycle;
 #[path = "sandbox/verification.rs"]
@@ -133,103 +135,10 @@ impl Sandbox {
             .expect("advance_remote must create a peer before it is used")
     }
     pub(super) fn new() -> Self {
-        let environment_lock = crate::test_support::lock_process_environment();
-        let verification_executor = install_verification_executor();
-        let root = std::env::temp_dir().join(format!(
-            "koolade-implementation-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4().hyphenated()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        let koolade_home_restore = RestoreKooladeHome::capture();
-        // SAFETY: this fixture holds the shared cross-process environment lock and restores the prior value.
-        unsafe {
-            std::env::set_var("KOOLADE_HOME", root.join("koolade-home"));
-        }
-        let repo = root.join("repo");
-        fs::create_dir(&repo).unwrap();
-        let git = |args: &[&str]| {
-            let o = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&repo)
-                .output()
-                .unwrap();
-            assert!(
-                o.status.success(),
-                "git {} failed: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&o.stderr)
-            );
-        };
-        git(&["init", "-q", "-b", "main"]);
-        git(&["config", "user.name", "Fixture"]);
-        git(&["config", "user.email", "fixture@example.test"]);
-        let ticket =
-            ".koolade-packet/planning/tasks/feature/001-implement-ticket-behavior.md".to_owned();
-        fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/feature")).unwrap();
-        let ticket_text = "# Implement ticket behavior\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
-        let identity = crate::domain::ArtifactIdentity::preserve_markdown(
-            ticket_text,
-            None,
-            "TASK-001",
-            "Implement ticket behavior",
-        )
-        .unwrap();
-        fs::write(repo.join(&ticket), &identity).unwrap();
-        fs::write(
-            repo.join(".koolade-packet/planning/tasks/feature/specification.md"),
-            "# F1: Implement ticket behavior\n\n- File contains implemented.\n",
-        )
-        .unwrap();
-        git(&["add", "."]);
-        git(&["commit", "-qm", "baseline"]);
-        git(&[
-            "init",
-            "--bare",
-            "-q",
-            root.join("remote.git").to_str().unwrap(),
-        ]);
-        let ssh = root.join("ssh-fixture");
-        fs::write(
-            &ssh,
-            "#!/bin/sh\nroot=$(dirname \"$0\")\ncase \"$*\" in\n  *git-upload-pack*) exec git-upload-pack \"$root/remote.git\" ;;\n  *git-receive-pack*) exec git-receive-pack \"$root/remote.git\" ;;\n  *) echo 'unsupported fixture SSH command' >&2; exit 2 ;;\nesac\n",
-        )
-        .unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&ssh, fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        let ssh_command_restore = RestoreSshCommand::capture();
-        // SAFETY: this fixture holds the shared cross-process environment lock and restores the prior value.
-        unsafe {
-            std::env::set_var("GIT_SSH_COMMAND", &ssh);
-        }
-        git(&[
-            "remote",
-            "add",
-            "origin",
-            "ssh://git@github.com/fixture/repo.git",
-        ]);
-        git(&["push", "-q", "origin", "main"]);
-        let gh = root.join("gh-fixture");
-        fs::write(&gh, "#!/bin/sh\nroot=$(dirname \"$0\")\nif [ -f \"$root/offline\" ]; then echo 'simulated GitHub unavailable' >&2; exit 1; fi\nif [ \"$1\" = run ] && [ \"$2\" = list ]; then\n commit=''\n while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --commit ]; then shift; commit=$1; fi; shift; done\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\",\"workflowName\":\"fixture\",\"createdAt\":\"2099-01-01T00:00:00Z\",\"url\":\"https://github.com/fixture/repo/actions/runs/1\"}]\\n' \"$commit\"\nelif [ \"$2\" = list ]; then\n if [ -f \"$root/pr-created\" ]; then echo '[{\"url\":\"https://github.com/fixture/repo/pull/1\",\"state\":\"OPEN\"}]'; else echo '[]'; fi\nelse\n printf '%s\\n' \"$@\" > \"$root/pr-args\"\n echo created >> \"$root/pr-created\"\n echo 'https://github.com/fixture/repo/pull/1'\nfi\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&gh, fs::Permissions::from_mode(0o700)).unwrap();
-        }
-        Self {
-            root,
-            repo,
-            gh,
-            ticket,
-            latest_peer: std::sync::Mutex::new(None),
-            _koolade_home_restore: koolade_home_restore,
-            _ssh_command_restore: ssh_command_restore,
-            _environment_lock: environment_lock,
-            _verification_executor: Some(verification_executor),
-        }
+        create::create(&[])
+    }
+    pub(super) fn new_with_initial_files(initial_files: &[(&str, &str)]) -> Self {
+        create::create(initial_files)
     }
     pub(super) fn run(
         &self,
