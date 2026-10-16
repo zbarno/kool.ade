@@ -1,14 +1,14 @@
 use sha2::Digest as _;
 
 use crate::{
-    artifacts::planning_store::{PlanningStore, StoreError},
+    artifacts::planning_store::StoreError,
     core::lifecycle::{
         GateDecision, GateReceipt, QaExecutionStatusV1, TaskEvent, TaskPhase, TaskRecord,
     },
     runtime_qa::{QaOutcome, QaRunRequestV1, RuntimeQaStore},
 };
 
-use super::{LifecycleStore, Snapshot};
+use super::LifecycleStore;
 
 impl LifecycleStore<'_> {
     /// Queue a request only after the exact code revision passed independent review.
@@ -29,7 +29,7 @@ impl LifecycleStore<'_> {
 
     /// Reopen-safe list of tasks that still need a concrete QA request or retry.
     pub fn runtime_qa_candidates(&self) -> Result<Vec<TaskRecord>, StoreError> {
-        let mut tasks = load_tasks(self.store)?;
+        let mut tasks = super::records::load_tasks(self.store)?;
         tasks.retain(|task| {
             task.phase == TaskPhase::AwaitingRuntimeQa
                 && task.qa_execution.as_ref().is_some_and(|state| {
@@ -191,27 +191,4 @@ impl LifecycleStore<'_> {
             }
         }
     }
-}
-
-pub(super) fn load_tasks(store: &PlanningStore) -> Result<Vec<TaskRecord>, StoreError> {
-    store
-        .list_record_paths("state/lifecycle_tasks")?
-        .into_iter()
-        .map(|path| {
-            let (snapshot, revision) = store.read_record::<Snapshot<TaskRecord>>(&path)?;
-            if snapshot.uid != snapshot.record.task_uid
-                || snapshot.revision != revision
-                || snapshot.revision != snapshot.record.revision
-            {
-                return Err(StoreError::MalformedState(
-                    "runtime QA queue contains an inconsistent task record".into(),
-                ));
-            }
-            snapshot
-                .record
-                .validate()
-                .map_err(StoreError::MalformedState)?;
-            Ok(snapshot.record)
-        })
-        .collect()
 }

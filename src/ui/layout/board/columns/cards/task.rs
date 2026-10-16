@@ -37,7 +37,7 @@ pub(in crate::ui::layout::board::columns) fn task(
     };
     let open_details =
         task_cards::board_card(ui, &doc.path, None, active, column == 3, complete, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 if needs_input.is_some() {
                     super::super::attention::badge(
                         ui,
@@ -55,6 +55,14 @@ pub(in crate::ui::layout::board::columns) fn task(
                     );
                 } else {
                     theme::badge(ui, "Task", theme::PANEL, theme::TEXT_DIM);
+                }
+                if let Some(phase) = board.lifecycle_tasks.get(&doc.path) {
+                    theme::badge(
+                        ui,
+                        crate::ui::task_detail::task_phase_label(*phase),
+                        theme::ACCENT_SOFT,
+                        theme::TEXT,
+                    );
                 }
             });
             if let Some(item) = needs_input {

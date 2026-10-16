@@ -154,6 +154,10 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
     assert_eq!(feature.task_uids.len(), 3);
     assert_eq!(reopened.replay_feature(&feature_uid).unwrap(), feature);
     assert_eq!(reopened.load_task(&first.task_uid).unwrap().revision, 1);
+    // Production boundary: the board consumes this validated on-disk snapshot list.
+    // The existing temp-store fixture proves persisted identity/revision checks beyond a pure unit test;
+    // it needs no external services and adds no setup beyond this lifecycle store test.
+    assert_eq!(reopened.list_tasks().unwrap().len(), 3);
     assert_eq!(
         reopened
             .task_for_planning_item(first.planning_item_uid.as_deref().unwrap())
