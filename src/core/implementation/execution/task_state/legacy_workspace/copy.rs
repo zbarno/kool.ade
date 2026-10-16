@@ -223,11 +223,15 @@ fn create_symlink(_: &Path, _: &Path) -> anyhow::Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     #[test]
     fn nul_path_list_preserves_tabs_newlines_and_non_utf8_names() {
+        use std::os::unix::ffi::OsStrExt;
+
         let paths = paths_from_nul_list(b"tab\tname\0line\nname\0binary\xff\0").unwrap();
         assert_eq!(paths.len(), 3);
         assert_eq!(paths[0], Path::new("tab\tname"));
         assert_eq!(paths[1], Path::new("line\nname"));
+        assert_eq!(paths[2].as_os_str().as_bytes(), b"binary\xff");
     }
 }

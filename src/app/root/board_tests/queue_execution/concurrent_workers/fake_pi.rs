@@ -112,7 +112,9 @@ prompt = sys.stdin.read()
 ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
 root = pathlib.Path(__file__).parent
 def wait_for_marker(name):
-    deadline = time.monotonic() + 30
+    # The Rust test's 180-second deadline owns failure; give the child ten
+    # additional seconds to exit cleanly after a failed overlap proof.
+    deadline = time.monotonic() + 190
     marker = root / name
     while not marker.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -156,8 +158,9 @@ implementation_call = 'koolade_dependency' in tool_names or mcp_access == 'imple
 if ticket_line is None and not implementation_call:
     with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
         trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'mcp_access':mcp_access,'argv':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
-    # In the queue E2E, hold planning until Rust observes real worker overlap.
-    if (root / 'require-planning-overlap-handshake').exists():
+    if 'Can we discuss planning while the task runs?' in prompt and (root / '004-task.started').exists():
+        # Signal from inside the fake provider process before waiting for release.
+        (root / 'planning.started').touch()
         wait_for_marker('planning-overlap-observed')
     report = {'schema_version':2,'assistant_message':'Planning fixture: I can discuss this while the worker runs.','document_updates':[],'open_items_added':[],'open_items_updated':[],'open_items_resolved':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
@@ -204,7 +207,8 @@ if output_path is None:
         sys.exit(1)
     output_path = response['result']['content'][0]['text'].splitlines()[0]
 output = pathlib.Path(output_path)
-if output.name == 'task-4.rs' and (root / 'require-planning-overlap-handshake').exists():
+if output.name == 'task-4.rs':
+    # Keep Task 4 live until the UI observes it alongside the planning turn.
     (root / '004-task.started').touch()
     wait_for_marker('planning-overlap-observed')
 if output.name == 'task-3.rs':

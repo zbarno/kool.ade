@@ -25,7 +25,6 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     let _restore_home = fake_pi::configure_harness_settings(&root);
-    std::fs::write(root.join("require-planning-overlap-handshake"), "").unwrap();
     let app_binary = std::env::current_exe()
         .unwrap()
         .parent()
@@ -243,16 +242,29 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         app.tick(0.1, &ctx);
         max_workers = max_workers.max(app.active_task_count());
         assert!(app.active_task_count() <= 2);
+        let task_four_active = matches!(
+            &app.screen,
+            Screen::Connected(project)
+                if project.active_implementations.contains_key(&docs[3].path)
+        );
+        let planning_turn_available = matches!(
+            &app.screen,
+            Screen::Connected(project) if project.active_turn.is_none()
+        );
         if !concurrent_chat
-            && matches!(&app.screen, Screen::Connected(p) if p.active_implementations.len() == 2)
+            && planning_turn_available
+            && task_four_active
+            && root.join("004-task.started").exists()
         {
             app.start_turn("Can we discuss planning while the task runs?");
             assert!(app.conversation_busy());
             concurrent_chat = true;
         }
         if !planning_and_queued_task_overlap
-            && matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some() && project.active_implementations.contains_key(&docs[3].path))
+            && task_four_active
             && root.join("004-task.started").exists()
+            && root.join("planning.started").exists()
+            && concurrent_chat
         {
             planning_and_queued_task_overlap = true;
             std::fs::write(root.join("planning-overlap-observed"), "").unwrap();
@@ -277,8 +289,9 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         if Instant::now() >= deadline {
             let progress = match &app.screen {
                 Screen::Connected(project) => format!(
-                    "active={:?}, states={:?}, waiting={:?}, last_error={}",
+                    "active={:?}, planning_turn_active={}, states={:?}, waiting={:?}, last_error={}",
                     project.active_implementations.keys().collect::<Vec<_>>(),
+                    project.active_turn.is_some(),
                     project
                         .implementation_states
                         .iter()

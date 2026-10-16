@@ -99,10 +99,23 @@ fn receipt_rejects_same_author_and_reviewer_session() {
 #[test]
 fn receipt_rejects_pass_with_findings_or_without_test_evidence() {
     let mut value = receipt();
-    value.verdict.untested.push("deployment".into());
+    value
+        .verdict
+        .findings
+        .push(crate::harness::prompt_catalog::ReviewFindingV1 {
+            id: "finding-1".into(),
+            requirement: "AC-1".into(),
+            severity: crate::harness::prompt_catalog::Severity::High,
+            kind: crate::harness::prompt_catalog::FindingKind::Correctness,
+            location: "src/lib.rs:1".into(),
+            evidence: vec!["The required behavior is missing".into()],
+            repro: None,
+            proposed_correction: "Implement the missing behavior".into(),
+        });
     assert!(validate_receipt(&value).is_err());
 
     let mut value = receipt();
+    value.verdict.untested.push("deployment".into());
     value.verdict.coverage[0].evidence.clear();
     assert!(validate_receipt(&value).is_err());
 }
