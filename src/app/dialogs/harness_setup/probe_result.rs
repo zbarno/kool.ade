@@ -24,10 +24,15 @@ pub(super) fn from_harness_probe(
             Some(ProbeKind::Version),
             Some(ProbeDiagnosticCode::VersionUnavailable),
         )
-    } else if report.configuration_required {
+    } else if report.authentication_required {
         (
             Some(ProbeKind::Authentication),
             Some(ProbeDiagnosticCode::AuthenticationRequired),
+        )
+    } else if report.configuration_required {
+        (
+            Some(ProbeKind::Models),
+            Some(ProbeDiagnosticCode::ConfigurationRequired),
         )
     } else if catalog_error {
         (
@@ -44,7 +49,7 @@ pub(super) fn from_harness_probe(
     };
     let status = if report.ready {
         ProbeStatus::Available
-    } else if report.configuration_required {
+    } else if report.authentication_required {
         ProbeStatus::NeedsAuthentication
     } else if report.executable.is_some() {
         ProbeStatus::Installed
@@ -77,7 +82,7 @@ pub(super) fn from_harness_probe(
         duration_ms,
         binary_path: report.executable.clone(),
         version: report.version.clone(),
-        authentication: if report.configuration_required {
+        authentication: if report.authentication_required {
             ReadinessState::Unavailable
         } else if report.ready {
             ReadinessState::Ready
@@ -144,7 +149,14 @@ pub(super) fn into_harness_probe(result: &ProbeResult) -> HarnessProbe {
         models: result.models.clone(),
         default_model: result.default_model.clone(),
         model_catalog_fresh: result.model_catalog_status == ModelCatalogStatus::Fresh,
-        configuration_required: result.diagnostic_code
+        configuration_required: matches!(
+            result.diagnostic_code,
+            Some(
+                ProbeDiagnosticCode::AuthenticationRequired
+                    | ProbeDiagnosticCode::ConfigurationRequired
+            )
+        ),
+        authentication_required: result.diagnostic_code
             == Some(ProbeDiagnosticCode::AuthenticationRequired),
         implementation_available: result.execution_capability.safe_for_implementation
             == ReadinessState::Ready,

@@ -10,8 +10,12 @@ pub const ANTIGRAVITY_MODEL_ENV: &str = "KOOLADE_ANTIGRAVITY_MODEL";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 mod execute;
+mod probe;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+use probe::probe_with_timeouts;
+use probe::{probe, probe_version};
 
 #[derive(Default)]
 pub struct AntigravityHarness;
@@ -23,6 +27,7 @@ pub struct AntigravityProbeReport {
     pub diagnostic: String,
     pub binary: Option<PathBuf>,
     pub ready: bool,
+    pub configuration_required: bool,
     pub models: Vec<String>,
 }
 
@@ -74,85 +79,67 @@ impl AntigravityHarness {
                     diagnostic: error.detail(),
                     binary: None,
                     ready: false,
+                    configuration_required: false,
                     models: Vec::new(),
                 };
             }
         };
-        match probe(&binary) {
-            Ok((version, models)) => AntigravityProbeReport {
-                status: format!("Antigravity {version}"),
-                version: Some(version),
-                diagnostic:
+        match probe(&binary, PROBE_TIMEOUT) {
+            Ok(outcome) => {
+                let status = if outcome.configuration_required {
+                    "Antigravity (authentication required)".into()
+                } else if outcome.catalog_diagnostic.is_some() {
+                    format!(
+                        "Antigravity {} (model catalog unavailable)",
+                        outcome.version
+                    )
+                } else {
+                    format!("Antigravity {}", outcome.version)
+                };
+                let mut diagnostic =
                     "Authentication and provider access are checked when a headless task runs."
-                        .into(),
-                binary: Some(binary),
-                ready: true,
-                models,
-            },
+                        .to_owned();
+                if outcome.configuration_required {
+                    diagnostic =
+                        "Antigravity authentication is required. Sign in and retry.".into();
+                }
+                if let Some(catalog_diagnostic) = outcome.catalog_diagnostic {
+                    diagnostic.push(' ');
+                    diagnostic.push_str(&catalog_diagnostic);
+                }
+                AntigravityProbeReport {
+                    status,
+                    version: Some(outcome.version),
+                    diagnostic,
+                    binary: Some(binary),
+                    ready: !outcome.configuration_required,
+                    configuration_required: outcome.configuration_required,
+                    models: outcome.models,
+                }
+            }
             Err((diagnostic, version)) => AntigravityProbeReport {
                 status: "Antigravity (unavailable)".into(),
                 version,
                 diagnostic,
                 binary: Some(binary),
                 ready: false,
+                configuration_required: false,
                 models: Vec::new(),
             },
         }
     }
 
     pub(super) fn checked_binary(path: &Path) -> Result<String, AppError> {
-        probe(path)
-            .map(|(version, _)| version)
-            .map_err(|(message, _)| AppError::Other(message))
-    }
-}
-
-fn probe(binary: &Path) -> Result<(String, Vec<String>), (String, Option<String>)> {
-    let (output, success) = run(binary, &["--version"])?;
-    if !success {
-        return Err(("Antigravity version command failed".into(), None));
-    }
-    let version = output.lines().next().unwrap_or_default().trim().to_owned();
-    if version.is_empty() {
-        return Err(("Antigravity did not report a version".into(), None));
-    }
-    crate::harness::execution_security::ProfileProbeEvidence::probe(
-        crate::harness::execution_security::CliProvider::Antigravity,
-        binary,
-        version.clone(),
-    )
-    .map_err(|error| (error.to_string(), Some(version.clone())))?;
-    let (models, model_success) = run(binary, &["models"])?;
-    if !model_success {
-        return Err(("Antigravity model discovery failed".into(), Some(version)));
-    }
-    Ok((version, parse_models(&models)))
-}
-
-fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), (String, Option<String>)> {
-    let mut argv = vec![binary.to_string_lossy().into_owned()];
-    argv.extend(args.iter().map(|arg| (*arg).to_owned()));
-    let output = crate::harness::discovery::run(
-        &argv,
-        PROBE_TIMEOUT,
-        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
-        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
-        crate::harness::execution_security::CliProvider::Antigravity.excluded_child_environment(),
-    )
-    .map_err(|error| {
-        (
-            format!("Antigravity CLI readiness check failed: {error}"),
-            None,
+        let version =
+            probe_version(path, PROBE_TIMEOUT).map_err(|(message, _)| AppError::Other(message))?;
+        crate::harness::execution_security::ProfileProbeEvidence::probe(
+            crate::harness::execution_security::CliProvider::Antigravity,
+            path,
+            version.clone(),
         )
-    })?;
-    if output.stdout_truncated || output.stderr_truncated {
-        return Err((
-            "Antigravity CLI readiness output exceeded the size limit".into(),
-            None,
-        ));
+        .map_err(|error| AppError::Other(error.to_string()))?;
+        Ok(version)
     }
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    Ok((stdout, output.success))
 }
 
 fn parse_models(text: &str) -> Vec<String> {
