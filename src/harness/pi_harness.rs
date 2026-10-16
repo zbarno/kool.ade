@@ -284,4 +284,9 @@ mod diagnostics;
 mod execute;
 
 #[cfg(test)]
+pub(super) use execute::system_instructions;
+#[cfg(test)]
+pub(super) use execute::user_input;
+
+#[cfg(test)]
 mod tests;

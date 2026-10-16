@@ -5,7 +5,12 @@ use crate::error::AppError;
 use crate::harness::pi_proc::{PollState, StreamEvt};
 use crate::harness::{AiHarness, HarnessOutcome, LiveProgress, ModelCallUsage, PlanningRequest};
 
+mod input;
+mod output;
 mod usage;
+pub(crate) use input::command;
+pub(in crate::harness) use input::prompt_input;
+pub(super) use output::{needs_attention, normalize_output, stderr_tail};
 pub(super) use usage::UsageFile;
 #[cfg(test)]
 pub(super) use usage::parse_usage;
@@ -15,58 +20,6 @@ pub(super) struct ProcessOutput {
     pub(super) stdout: Vec<String>,
     pub(super) stderr: Vec<String>,
     pub(super) success: Option<bool>,
-}
-
-pub(crate) fn command(
-    binary: &std::path::Path,
-    request: &PlanningRequest,
-    model: Option<&str>,
-    usage_path: Option<&std::path::Path>,
-) -> Vec<String> {
-    let mut args = vec![
-        binary.to_string_lossy().into_owned(),
-        "--silent".into(),
-        "--no-ask-user".into(),
-        "--no-auto-update".into(),
-    ];
-    if let Some(model) = model.filter(|model| !model.trim().is_empty()) {
-        args.extend(["--model".into(), model.to_owned()]);
-    }
-    let access = request.mode.tool_access();
-    let tools = match access {
-        crate::harness::ToolAccess::None => "",
-        crate::harness::ToolAccess::ReadOnly => "read",
-        crate::harness::ToolAccess::BoundedImplementation => "read,edit",
-    };
-    args.push(format!("--available-tools={tools}"));
-    if access == crate::harness::ToolAccess::BoundedImplementation {
-        args.extend([
-            "--allow-tool=write".into(),
-            "--deny-tool=shell(git:*)".into(),
-            "--deny-tool=shell(gh:*)".into(),
-        ]);
-    }
-    args.push("--disable-builtin-mcps".into());
-    if let Some(usage_path) = usage_path {
-        args.extend([
-            "--usage-output-file".into(),
-            usage_path.to_string_lossy().into_owned(),
-        ]);
-    }
-    let secrets = std::env::vars_os()
-        .filter_map(|(name, _)| {
-            let name = name.to_string_lossy();
-            let upper = name.to_ascii_uppercase();
-            ["TOKEN", "KEY", "SECRET", "PASSWORD", "CREDENTIAL", "AUTH"]
-                .iter()
-                .any(|needle| upper.contains(needle))
-                .then(|| name.into_owned())
-        })
-        .collect::<Vec<_>>();
-    if !secrets.is_empty() {
-        args.push(format!("--secret-env-vars={}", secrets.join(",")));
-    }
-    args
 }
 
 impl AiHarness for CopilotHarness {
@@ -138,13 +91,7 @@ impl AiHarness for CopilotHarness {
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
         );
-        let mut developer = String::from(
-            "Kool.ad/e owns task lifecycle, branches, approvals, Git operations, and pull request publication. Never switch branches, commit, push, open a pull request, or publish. Work only inside the current task repository and return the requested structured result.\n\n",
-        );
-        developer.push_str(&request.system_instructions);
-        developer.push_str("\n\n");
-        developer.push_str(boundary.system_policy());
-        let input = format!("{developer}\n\n{}", request.prompt_body);
+        let input = prompt_input(request, boundary.system_policy());
         let started = chrono::Utc::now();
         let task = launch.spawn_with_input(boundary.working_directory(), Some(input))?;
         let output = run_task(task, request)?;
@@ -326,34 +273,4 @@ fn configured_model() -> Option<String> {
 pub(super) fn supports_usage_output(binary: &std::path::Path) -> bool {
     super::run(binary, &["--help"])
         .is_ok_and(|(output, success)| success && output.contains("--usage-output-file"))
-}
-
-pub(super) fn normalize_output(lines: &[String]) -> Option<String> {
-    let text = lines.join("\n").trim().to_owned();
-    (!text.is_empty()).then_some(text)
-}
-
-pub(super) fn needs_attention(lines: &[&String]) -> bool {
-    lines.iter().any(|line| {
-        let line = line.to_ascii_lowercase();
-        ["auth", "login", "config", "policy", "copilot access"]
-            .iter()
-            .any(|needle| line.contains(needle))
-    })
-}
-
-fn stderr_tail(lines: &[String]) -> String {
-    const LIMIT: usize = 16_000;
-    let joined = lines.join("\n");
-    if joined.chars().count() <= LIMIT {
-        return joined;
-    }
-    joined
-        .chars()
-        .rev()
-        .take(LIMIT)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect()
 }

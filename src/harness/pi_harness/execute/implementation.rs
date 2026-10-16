@@ -54,11 +54,7 @@ impl AiHarness for PiHarness {
             "--model".into(),
             profile.model.clone(),
         ]);
-        let system_instructions = format!(
-            "{}\n\n{}",
-            req.system_instructions,
-            boundary.system_policy()
-        );
+        let system_instructions = system_instructions(req, boundary.system_policy());
         argv.extend([
             "--print".into(),
             "--mode".into(),
@@ -119,8 +115,7 @@ impl AiHarness for PiHarness {
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
         );
-        let task =
-            launch.spawn_with_input(boundary.working_directory(), Some(req.prompt_body.clone()))?;
+        let task = launch.spawn_with_input(boundary.working_directory(), Some(user_input(req)))?;
         stream::run(
             task,
             req,
@@ -139,4 +134,15 @@ impl AiHarness for PiHarness {
             .map(Some)
             .map_err(|error| AppError::Other(format!("Invalid retrieval plan: {error}")))
     }
+}
+
+pub(in crate::harness) fn system_instructions(
+    req: &PlanningRequest,
+    boundary_policy: &str,
+) -> String {
+    format!("{}\n\n{}", req.system_instructions, boundary_policy)
+}
+
+pub(in crate::harness) fn user_input(req: &PlanningRequest) -> String {
+    req.prompt_body.clone()
 }

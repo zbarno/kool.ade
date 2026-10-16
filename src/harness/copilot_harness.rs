@@ -10,6 +10,8 @@ pub const COPILOT_MODEL_ENV: &str = "KOOLADE_COPILOT_MODEL";
 mod execute;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(super) use execute::prompt_input;
 
 #[derive(Default)]
 pub struct CopilotHarness;

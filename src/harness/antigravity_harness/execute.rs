@@ -4,10 +4,14 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 mod diagnostics;
+mod prompt;
 use diagnostics::{diagnostics_tail, record_unexpected};
 pub(super) use diagnostics::{
     execution_error, looks_like_denial, provider_attention, redact_unexpected, stderr_tail,
 };
+#[cfg(test)]
+pub(super) use prompt::prompt_input;
+pub(in crate::harness) use prompt::prompt_input_with_policy;
 
 use super::{ANTIGRAVITY_MODEL_ENV, AntigravityHarness};
 use crate::error::AppError;
@@ -38,19 +42,6 @@ pub(super) fn command(
     };
     args.extend(["--effort".into(), effort.into()]);
     args
-}
-
-#[cfg(test)]
-pub(super) fn prompt_input(request: &PlanningRequest) -> String {
-    prompt_input_with_policy(request, "")
-}
-
-fn prompt_input_with_policy(request: &PlanningRequest, boundary_policy: &str) -> String {
-    let prompt = format!(
-        "Kool.ad/e owns task lifecycle, source and destination branches, approvals, Git operations, and publication. Never switch branches, commit, push, open a pull request, or publish. Work only on the task requested below and return its required structured result.\n\n{}\n\n{}\n\n{}",
-        request.system_instructions, boundary_policy, request.prompt_body
-    );
-    serde_json::json!({"event":"user","message":{"content":prompt}}).to_string() + "\n"
 }
 
 impl AiHarness for AntigravityHarness {
