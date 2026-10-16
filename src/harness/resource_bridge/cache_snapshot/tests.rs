@@ -55,7 +55,9 @@ fn rejects_symlinks_and_archive_tampering() {
     );
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(root.path().join("pkg"), root.path().join("link")).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("entry"), b"outside cache bytes").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("nested")).unwrap();
         assert!(
             CacheSnapshot::capture(
                 root.path(),
