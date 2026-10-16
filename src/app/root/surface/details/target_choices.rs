@@ -16,6 +16,7 @@ pub(super) fn build(
         &local,
         workers.as_deref().unwrap_or(&[]),
         workers.is_err(),
+        crate::persistence::harness_settings::current_unix_ms(),
     )
 }
 
@@ -25,6 +26,7 @@ fn choices(
     local: &DockerEnvironmentStatus,
     workers: &[remote_workers::RemoteWorkerRegistration],
     worker_error: bool,
+    now_unix_ms: u64,
 ) -> Vec<TargetChoice> {
     let mut choices = vec![TargetChoice {
         preference: TargetPreference::Auto,
@@ -45,10 +47,15 @@ fn choices(
         },
     }];
     for worker in workers {
-        let probe_health = worker.last_probe.as_ref().map(|probe| &probe.health);
-        let available = worker.enabled && probe_health == Some(&RemoteWorkerHealth::Healthy);
+        let probe = worker.last_probe.as_ref();
+        let probe_health = probe.map(|probe| &probe.health);
+        let stale_probe = probe.is_some_and(|probe| probe_is_stale(probe, now_unix_ms));
+        let available =
+            worker.enabled && !stale_probe && probe_health == Some(&RemoteWorkerHealth::Healthy);
         let reason = if !worker.enabled {
             "Worker is disabled in Execution Environments.".into()
+        } else if stale_probe {
+            "Worker health probe is stale; reconnect before scheduling.".into()
         } else {
             match probe_health {
                 Some(RemoteWorkerHealth::Healthy) => {
@@ -80,6 +87,13 @@ fn choices(
         });
     }
     choices
+}
+
+fn probe_is_stale(probe: &remote_workers::RemoteWorkerProbe, now_unix_ms: u64) -> bool {
+    probe.observed_at_unix_ms == 0
+        || probe.observed_at_unix_ms > now_unix_ms
+        || now_unix_ms.saturating_sub(probe.observed_at_unix_ms)
+            > crate::execution::remote::scheduler::MAX_HEALTH_AGE_MS
 }
 
 fn health_label(health: &RemoteWorkerHealth) -> &'static str {
@@ -153,7 +167,7 @@ mod tests {
     #[test]
     fn selected_worker_missing_from_enrollment_is_visible_but_unavailable() {
         let selected = TargetPreference::Worker("worker-no-longer-enrolled".into());
-        let choices = choices(&selected, None, &local_status(), &[], false);
+        let choices = choices(&selected, None, &local_status(), &[], false, 1);
         let choice = choices
             .iter()
             .find(|choice| choice.preference == selected)
@@ -173,7 +187,7 @@ mod tests {
             worker(false, RemoteWorkerHealth::Healthy),
             worker(true, RemoteWorkerHealth::Disconnected),
         ];
-        let choices = choices(&selected, None, &local_status(), &workers, false);
+        let choices = choices(&selected, None, &local_status(), &workers, false, 1);
         assert!(choices.iter().any(|choice| {
             choice.label.contains("disabled-worker")
                 && !choice.available
@@ -189,5 +203,62 @@ mod tests {
                 && !choice.available
                 && choice.reason.contains("Docker is not installed")
         }));
+    }
+
+    #[test]
+    fn stale_or_future_healthy_probe_is_unavailable_for_target_selection() {
+        let selected = TargetPreference::Auto;
+        let stale_worker = worker(true, RemoteWorkerHealth::Healthy);
+        let stale_choices = choices(
+            &selected,
+            None,
+            &local_status(),
+            &[stale_worker],
+            false,
+            crate::execution::remote::scheduler::MAX_HEALTH_AGE_MS + 2,
+        );
+        let choice = stale_choices
+            .iter()
+            .find(|choice| choice.preference == TargetPreference::Worker("healthy-worker".into()))
+            .expect("enrolled worker is shown");
+        assert!(!choice.available);
+        assert!(choice.reason.contains("probe is stale"));
+
+        let boundary_worker = worker(true, RemoteWorkerHealth::Healthy);
+        let boundary_choices = choices(
+            &selected,
+            None,
+            &local_status(),
+            &[boundary_worker],
+            false,
+            crate::execution::remote::scheduler::MAX_HEALTH_AGE_MS + 1,
+        );
+        assert!(boundary_choices.iter().any(|choice| {
+            choice.preference == TargetPreference::Worker("healthy-worker".into())
+                && choice.available
+        }));
+
+        let future_probe = worker(true, RemoteWorkerHealth::Healthy);
+        let future_choices = choices(&selected, None, &local_status(), &[future_probe], false, 0);
+        let future_choice = future_choices
+            .iter()
+            .find(|choice| choice.preference == TargetPreference::Worker("healthy-worker".into()))
+            .expect("enrolled worker is shown");
+        assert!(!future_choice.available);
+        assert!(future_choice.reason.contains("probe is stale"));
+
+        let mut zero_probe = worker(true, RemoteWorkerHealth::Healthy);
+        zero_probe
+            .last_probe
+            .as_mut()
+            .expect("fixture has a probe")
+            .observed_at_unix_ms = 0;
+        let zero_choices = choices(&selected, None, &local_status(), &[zero_probe], false, 0);
+        let zero_choice = zero_choices
+            .iter()
+            .find(|choice| choice.preference == TargetPreference::Worker("healthy-worker".into()))
+            .expect("enrolled worker is shown");
+        assert!(!zero_choice.available);
+        assert!(zero_choice.reason.contains("probe is stale"));
     }
 }
