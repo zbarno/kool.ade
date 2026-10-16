@@ -71,7 +71,7 @@ fn readme_truncation_caps_length() {
     fs::create_dir_all(&tmp).unwrap();
     fs::write(tmp.join("README.md"), "x".repeat(9000)).unwrap();
     let rd = find_readme(&tmp).unwrap();
-    assert!(rd.chars().count() <= MAX_README_CHARS + 5);
+    assert!(rd.chars().count() <= MAX_README_CHARS);
     assert!(rd.ends_with("…[truncated]"));
     let _ = fs::remove_dir_all(&tmp);
 }
