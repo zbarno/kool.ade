@@ -4,7 +4,10 @@ use bollard::models::MountType;
 
 use crate::execution::docker::{
     images::{ImageLock, RuntimeProfile, SelectedImage},
-    sandbox::{LEASE_LABEL, SandboxIdentity, ValidatedWorkspace, create_body},
+    sandbox::{
+        LEASE_LABEL, SandboxIdentity, ValidatedWorkspace, create_body,
+        create_body_with_derived_approval,
+    },
 };
 use crate::execution::{
     contract::{
@@ -12,6 +15,9 @@ use crate::execution::{
     },
     policy::ExecutionPolicyV1,
 };
+
+#[path = "tests/derived_image.rs"]
+mod derived_image;
 
 struct Fixture(PathBuf);
 

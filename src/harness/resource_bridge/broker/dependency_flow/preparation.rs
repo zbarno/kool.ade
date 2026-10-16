@@ -1,5 +1,6 @@
 use super::{BrokerContext, DependencyRequest, set_dependency_request};
 use crate::harness::resource_bridge::{ResourceResponse, adapter};
+mod system_image;
 
 pub(super) fn authorized_dependency(
     context: &BrokerContext<'_>,
@@ -16,6 +17,9 @@ pub(super) fn authorized_dependency(
         ));
         set_dependency_request(context, request);
         return ResourceResponse::dependency_outcome("rejected", request.clone());
+    }
+    if request.need.ecosystem == crate::harness::PackageEcosystem::System {
+        return system_image::prepare(context, request, scope);
     }
     if let Some(crate::harness::DependencyAuthorizationScope::Project) = scope
         && let Err(error) = crate::persistence::dependency_authorization::save(

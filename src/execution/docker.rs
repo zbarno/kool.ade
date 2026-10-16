@@ -4,6 +4,7 @@ pub mod backend;
 pub mod discovery;
 pub mod engine;
 pub mod environment;
+pub(crate) mod image_extension;
 pub mod images;
 pub mod prerequisites;
 pub mod qa_container;

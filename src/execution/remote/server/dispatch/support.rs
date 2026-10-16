@@ -4,6 +4,11 @@ use serde_json::Value;
 use crate::execution::errors::ExecutionError;
 use crate::execution::remote::protocol::EnvelopeV1;
 
+pub(super) type PendingDependencyRelays = std::collections::HashMap<
+    String,
+    crate::execution::remote::dependency::DependencyRelayRequestV1,
+>;
+
 const CONTROL_EXECUTION_ID: &str = "00000000-0000-4000-8000-000000000000";
 
 pub(super) fn decode<T: DeserializeOwned>(value: &Value) -> Result<T, ExecutionError> {

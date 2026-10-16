@@ -39,7 +39,7 @@ impl Fixture {
         Self { root, _home: home }
     }
 
-    fn task_clone(&self, workspace: &WorkspaceRef) -> PathBuf {
+    pub(super) fn task_clone(&self, workspace: &WorkspaceRef) -> PathBuf {
         let project = format!("{}-integration", workspace.project_id);
         let task = format!("task-{}", workspace.task_id);
         let path = self
@@ -216,7 +216,7 @@ pub(super) fn container_id(backend: &DockerExecutionBackend, handle: &ExecutionH
         .clone()
 }
 
-fn native_docker_arch() -> &'static str {
+pub(super) fn native_docker_arch() -> &'static str {
     match std::env::consts::ARCH {
         "x86_64" => "amd64",
         "aarch64" => "arm64",

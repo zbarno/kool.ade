@@ -14,9 +14,42 @@ use crate::execution::{
     },
 };
 
+#[path = "system_image_rpc_tests.rs"]
+mod system_image_rpc_tests;
+
 struct FakeBackend(Arc<AtomicUsize>);
 
 impl ExecutionBackend for FakeBackend {
+    fn derive_authorized_system_image<'a>(
+        &'a self,
+        request: &'a crate::execution::docker::image_extension::AuthorizedImageExtensionRequest,
+        packages: Vec<crate::execution::docker::image_extension::builder::VerifiedPackageArtifact>,
+    ) -> BackendFuture<'a, crate::execution::docker::image_extension::DerivedImage> {
+        use crate::execution::docker::image_extension::{DerivedImage, builder::generate_context};
+        use sha2::{Digest, Sha256};
+
+        self.0.fetch_add(1, Ordering::Relaxed);
+        let result = generate_context(request, packages)
+            .map(|context| DerivedImage {
+                image_id: format!(
+                    "sha256:{:x}",
+                    Sha256::digest(context.content_identity.as_bytes())
+                ),
+                content_identity: context.content_identity,
+                base_digest: request.base_digest.clone(),
+                target_platform: request.target_platform.clone(),
+                package_manifest: context.package_manifest,
+            })
+            .map_err(|error| {
+                ExecutionError::new(
+                    crate::execution::errors::ExecutionErrorKind::WorkerIncompatible,
+                    error.to_string(),
+                    false,
+                )
+            });
+        ready(result)
+    }
+
     fn probe(&self, _: &ExecutionTarget) -> BackendFuture<'_, BackendProbeV1> {
         self.0.fetch_add(1, Ordering::Relaxed);
         ready(Ok(BackendProbeV1 {

@@ -10,6 +10,35 @@ use crate::harness::{DependencyDecision, DependencyKind, DependencyNeed, Package
 const MAX_INTRODUCED_PACKAGES: usize = 64;
 
 pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecision) -> bool {
+    if need.ecosystem == PackageEcosystem::System || need.kind == DependencyKind::SystemTool {
+        return decision == DependencyDecision::UserAuthorizeForTask
+            && need.ecosystem == PackageEcosystem::System
+            && need.kind == DependencyKind::SystemTool
+            && need.package.as_deref().is_some_and(valid_package_identity)
+            && need.reason.trim().len() >= 12
+            && need.introduced_packages.len() <= 256
+            && need
+                .introduced_packages
+                .windows(2)
+                .all(|pair| pair[0].package < pair[1].package)
+            && need.introduced_packages.iter().all(|package| {
+                package
+                    .source
+                    .starts_with("https://deb.debian.org/debian/pool/main/")
+                    && package.integrity.len() == 71
+                    && package.integrity.starts_with("sha256:")
+                    && package.integrity[7..]
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit())
+                    && valid_package_identity(&package.package)
+                    && valid_debian_exact_version(&package.version)
+            })
+            && need.package.as_deref().is_some_and(|requested| {
+                need.introduced_packages
+                    .iter()
+                    .any(|package| package.package == requested)
+            });
+    }
     let source_ok = approved_source(need);
     let user_authorized_npm_source = source_ok
         || (need.ecosystem == PackageEcosystem::Npm
@@ -213,6 +242,17 @@ fn valid_introduced_packages(need: &DependencyNeed, allow_custom_npm: bool) -> b
         }),
         _ => need.introduced_packages.is_empty(),
     }
+}
+
+fn valid_debian_exact_version(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".+:~_-".contains(&byte))
+        && value.split_once(':').is_none_or(|(epoch, _)| {
+            !epoch.is_empty() && epoch.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 /// Man.ager may recommend decisions only within the automatic public-source

@@ -72,6 +72,10 @@ pub(in crate::execution::remote) fn matches_response(request: &Kind, response: &
                     | Kind::BeginCacheTransfer
                     | Kind::CacheTransferChunk
                     | Kind::FinalizeCacheTransfer
+                    | Kind::InspectSystemPackages
+                    | Kind::BeginSystemImageTransfer
+                    | Kind::SystemImageTransferChunk
+                    | Kind::FinalizeSystemImageTransfer
                     | Kind::DependencyDecision
                     | Kind::PrepareWorkspaceResult
                     | Kind::ReadWorkspaceResultChunk

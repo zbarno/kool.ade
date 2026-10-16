@@ -1,13 +1,42 @@
 use super::*;
 
 mod cache;
+mod dependency;
 mod release;
+mod system_image;
 use crate::execution::{
     backend::{BackendFuture, BackendProbeV1, ExecutionBackend, WorkspaceLeaseV1},
     contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1},
 };
 
 impl ExecutionBackend for RemoteExecutionBackend {
+    #[allow(private_interfaces)]
+    fn inspect_system_package_state<'a>(
+        &'a self,
+        base: &'a crate::execution::docker::image_extension::BaseImageSelection,
+    ) -> BackendFuture<
+        'a,
+        std::collections::BTreeMap<String, crate::harness::resource_bridge::InstalledPackage>,
+    > {
+        system_image::inspect(self, base)
+    }
+
+    #[allow(private_interfaces)]
+    fn derive_authorized_system_image<'a>(
+        &'a self,
+        request: &'a crate::execution::docker::image_extension::AuthorizedImageExtensionRequest,
+        packages: Vec<crate::execution::docker::image_extension::builder::VerifiedPackageArtifact>,
+    ) -> BackendFuture<'a, crate::execution::docker::image_extension::DerivedImage> {
+        system_image::derive(self, request, packages)
+    }
+
+    fn stage_dependency_cache<'a>(
+        &'a self,
+        snapshot: crate::execution::backend::DependencyCacheSnapshot,
+    ) -> BackendFuture<'a, ()> {
+        cache::stage(self, snapshot)
+    }
+
     #[cfg(test)]
     fn terminate_remote_connection_for_test(&self) {
         if let Ok(mut client) = self.client.lock() {
@@ -19,50 +48,14 @@ impl ExecutionBackend for RemoteExecutionBackend {
         &'a self,
         request: crate::execution::remote::dependency::DependencyRelayRequestV1,
     ) -> BackendFuture<'a, crate::execution::remote::dependency::DependencyRelayRequestV1> {
-        Box::pin(async move {
-            request.validate().map_err(|_| incompatible())?;
-            if request.worker_id != self.target.target_id
-                || request.workspace.task_id != request.task_id
-            {
-                return Err(incompatible());
-            }
-            let mut client = self.client.lock().map_err(|_| disconnected())?;
-            let envelope = client.request(
-                EnvelopeKindV1::RelayDependency,
-                &request.execution_id,
-                serde_json::to_value(&request).map_err(|_| incompatible())?,
-            )?;
-            let emitted: crate::execution::remote::dependency::DependencyRelayRequestV1 =
-                serde_json::from_value(envelope.payload).map_err(|_| incompatible())?;
-            if emitted != request {
-                return Err(incompatible());
-            }
-            Ok(emitted)
-        })
+        dependency::relay_request(self, request)
     }
 
     fn relay_dependency_decision<'a>(
         &'a self,
         response: crate::execution::remote::dependency::DependencyRelayResponseV1,
     ) -> BackendFuture<'a, ()> {
-        Box::pin(async move {
-            if response.worker_id != self.target.target_id {
-                return Err(incompatible());
-            }
-            let _: serde_json::Value = self.request(
-                EnvelopeKindV1::DependencyDecision,
-                &response.execution_id,
-                serde_json::to_value(&response).map_err(|_| incompatible())?,
-            )?;
-            Ok(())
-        })
-    }
-
-    fn stage_dependency_cache<'a>(
-        &'a self,
-        snapshot: crate::execution::backend::DependencyCacheSnapshot,
-    ) -> BackendFuture<'a, ()> {
-        cache::stage(self, snapshot)
+        dependency::relay_decision(self, response)
     }
 
     fn probe(&self, target: &ExecutionTarget) -> BackendFuture<'_, BackendProbeV1> {

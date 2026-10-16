@@ -26,6 +26,21 @@ struct FinalizeRequest {
 #[derive(Default)]
 pub(crate) struct CacheTransfers(HashMap<String, Pending>);
 
+pub(super) fn dispatch(
+    payload: &Value,
+    transfers: &mut CacheTransfers,
+    envelope: &EnvelopeV1,
+    backend: Arc<dyn ExecutionBackend>,
+    runtime: &tokio::runtime::Runtime,
+) -> Result<(Kind, Value), crate::execution::errors::ExecutionError> {
+    match &envelope.kind {
+        Kind::BeginCacheTransfer => begin(payload, transfers, envelope),
+        Kind::CacheTransferChunk => chunk(payload, transfers, envelope),
+        Kind::FinalizeCacheTransfer => finalize(payload, transfers, envelope, backend, runtime),
+        _ => unreachable!("only cache transfer messages are dispatched here"),
+    }
+}
+
 struct Pending {
     cache_ref: crate::execution::contract::DependencyCacheRefV1,
     manifest: crate::harness::resource_bridge::CacheSnapshotManifest,

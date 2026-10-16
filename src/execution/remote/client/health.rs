@@ -13,7 +13,10 @@ impl RemoteWorkerClient {
         let response = self.exchange(
             Kind::Health,
             CONTROL_ID,
-            serde_json::json!({"wire_version": PROTOCOL_VERSION_V1}),
+            serde_json::json!({
+                "wire_version": PROTOCOL_VERSION_V1,
+                "system_image_key": self.system_image_key_hex(),
+            }),
         )?;
         self.probe = match negotiated_probe(response.payload) {
             Ok(probe) => probe,

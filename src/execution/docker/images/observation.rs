@@ -5,6 +5,52 @@ use crate::execution::docker::discovery::{
     PrerequisiteCode, PrerequisiteFailure, parse_architecture,
 };
 
+pub fn verify_derived_image_observation(
+    selected: &SelectedImage,
+    content_identity: &str,
+    base_digest: &str,
+    observation: &super::ImageObservation,
+) -> Result<(), PrerequisiteFailure> {
+    let valid_digest = |value: &str| {
+        value
+            .strip_prefix("sha256:")
+            .is_some_and(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    };
+    if !valid_digest(&selected.digest)
+        || selected.reference != selected.digest
+        || !valid_digest(content_identity)
+        || !valid_digest(base_digest)
+        || observation.image_id != selected.digest
+        || observation
+            .labels
+            .get("io.koolade.content")
+            .map(String::as_str)
+            != Some(content_identity)
+        || observation
+            .labels
+            .get("io.koolade.base-digest")
+            .map(String::as_str)
+            != Some(base_digest)
+    {
+        return Err(failure(
+            PrerequisiteCode::ImageDigestMismatch,
+            "Registered derived image identity does not match the inspected Docker image",
+            false,
+        ));
+    }
+    let expected_arch = selected.platform.strip_prefix("linux/").unwrap_or_default();
+    if !observation.os.eq_ignore_ascii_case("linux")
+        || parse_architecture(&observation.architecture) != Some(expected_arch)
+    {
+        return Err(failure(
+            PrerequisiteCode::ImageArchitectureMismatch,
+            "The derived image platform does not match its registered target architecture",
+            false,
+        ));
+    }
+    Ok(())
+}
+
 pub fn verify_image_observation(
     selected: &SelectedImage,
     observed_repo_digests: &[String],

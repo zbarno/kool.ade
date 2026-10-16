@@ -115,6 +115,7 @@ impl ApplicationBoundary {
                 runtime_profile(&request.repo_root),
                 default_resource_budget(),
             )?);
+            bridge.bind_execution_session(session.clone())?;
             let ipc = SessionBridge::start(
                 &scratch.path,
                 session,
