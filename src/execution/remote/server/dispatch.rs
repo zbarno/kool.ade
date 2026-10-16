@@ -1,21 +1,19 @@
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::execution::{
-    backend::{BackendProbeV1, ExecutionBackend},
-    contract::ExecutionTarget,
-    errors::ExecutionError,
-};
+use crate::execution::{backend::ExecutionBackend, errors::ExecutionError};
 
 use super::super::protocol::{EnvelopeKindV1 as Kind, EnvelopeV1};
-
 mod cache_transfer;
+mod health;
 mod support;
+mod system_image;
 mod workspace;
 pub(super) use cache_transfer::CacheTransfers;
-pub(super) type PendingDependencyRelays =
-    HashMap<String, crate::execution::remote::dependency::DependencyRelayRequestV1>;
-use support::{decode, json_value, require_control_id, require_execution_id};
+use support::{
+    PendingDependencyRelays, decode, json_value, require_control_id, require_execution_id,
+};
+pub(super) use system_image::SystemImageTransfers;
 
 mod requests;
 use requests::*;
@@ -24,10 +22,12 @@ pub(super) struct DispatchContext<'a> {
     pub backend: Arc<dyn ExecutionBackend>,
     pub stager: Option<Arc<crate::execution::remote::staging::WorkerStager>>,
     pub cache_transfers: &'a mut CacheTransfers,
+    pub system_image_transfers: &'a mut SystemImageTransfers,
     pub pending_dependency_relays: &'a mut PendingDependencyRelays,
     pub capacity: Option<&'a super::super::WorkerCapacityPool>,
     pub capacity_leases: &'a mut HashMap<String, super::super::WorkerCapacityLease>,
     pub runtime: &'a tokio::runtime::Runtime,
+    pub system_image_capability_key: &'a mut Option<[u8; 32]>,
 }
 
 pub(super) fn dispatch(
@@ -38,10 +38,12 @@ pub(super) fn dispatch(
         backend,
         stager,
         cache_transfers,
+        system_image_transfers,
         pending_dependency_relays,
         capacity,
         capacity_leases,
         runtime,
+        system_image_capability_key,
     } = context;
     if matches!(
         envelope.kind,
@@ -52,6 +54,22 @@ pub(super) fn dispatch(
             | Kind::ReleaseWorkspace
     ) {
         return workspace::dispatch(backend, stager, runtime, envelope);
+    }
+    if matches!(
+        envelope.kind,
+        Kind::InspectSystemPackages
+            | Kind::BeginSystemImageTransfer
+            | Kind::SystemImageTransferChunk
+            | Kind::FinalizeSystemImageTransfer
+    ) {
+        return system_image::dispatch(
+            backend,
+            stager.as_ref(),
+            system_image_transfers,
+            runtime,
+            system_image_capability_key,
+            envelope,
+        );
     }
     let result = match envelope.kind {
         Kind::DependencyRequest => Err(super::incompatible(
@@ -66,20 +84,15 @@ pub(super) fn dispatch(
             }
             json_value(probe).map(|value| (Kind::ProbeResult, value))
         }
-
-        Kind::BeginCacheTransfer => {
-            cache_transfer::begin(&envelope.payload, cache_transfers, envelope)
+        Kind::BeginCacheTransfer | Kind::CacheTransferChunk | Kind::FinalizeCacheTransfer => {
+            cache_transfer::dispatch(
+                &envelope.payload,
+                cache_transfers,
+                envelope,
+                backend,
+                runtime,
+            )
         }
-        Kind::CacheTransferChunk => {
-            cache_transfer::chunk(&envelope.payload, cache_transfers, envelope)
-        }
-        Kind::FinalizeCacheTransfer => cache_transfer::finalize(
-            &envelope.payload,
-            cache_transfers,
-            envelope,
-            backend,
-            runtime,
-        ),
         Kind::RelayDependency => {
             let request: crate::execution::remote::dependency::DependencyRelayRequestV1 =
                 decode(&envelope.payload)?;
@@ -245,24 +258,13 @@ pub(super) fn dispatch(
             Ok((Kind::Acknowledge, json!({"released": true})))
         }
 
-        Kind::Health => {
-            require_control_id(envelope)?;
-            let request: HealthRequest = decode(&envelope.payload)?;
-            if request.wire_version != super::super::protocol::PROTOCOL_VERSION_V1 {
-                return Err(super::incompatible(
-                    "remote worker protocol version is unsupported",
-                ));
-            }
-            let target = ExecutionTarget::local();
-            let mut probe: BackendProbeV1 = runtime.block_on(backend.probe(&target))?;
-            if let (Some(capabilities), Some(pool)) = (&mut probe.capabilities, capacity) {
-                capabilities.maximum_execution_count = Some(pool.max_jobs());
-            }
-            Ok((
-                Kind::Acknowledge,
-                json!({"wire_version": request.wire_version, "probe": probe}),
-            ))
-        }
+        Kind::Health => health::dispatch(
+            backend,
+            runtime,
+            capacity,
+            system_image_capability_key,
+            envelope,
+        ),
         Kind::Heartbeat => {
             require_control_id(envelope)?;
             let request: HeartbeatRequest = decode(&envelope.payload)?;
@@ -281,6 +283,7 @@ pub(super) fn dispatch(
                 "remote worker received a response as a request",
             ));
         }
+        _ => unreachable!("routed message kinds are handled before general dispatch"),
     };
     result.map_err(|_| super::incompatible("remote worker response could not be encoded"))
 }

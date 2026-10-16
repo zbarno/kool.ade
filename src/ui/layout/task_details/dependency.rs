@@ -52,7 +52,8 @@ pub(super) fn paint(
             for package in &request.need.introduced_packages {
                 ui.add(
                     egui::Label::new(format!(
-                        "Added since task start: {}@{} · {} · {}",
+                        "{}: {}@{} · {} · {}",
+                        if request.need.ecosystem == crate::harness::PackageEcosystem::System { "Approved Debian package closure" } else { "Added since task start" },
                         package.package, package.version, package.source, package.integrity
                     ))
                     .wrap(),
@@ -86,12 +87,7 @@ pub(super) fn paint(
                             },
                         );
                     }
-                    if ui
-                        .add_enabled(
-                            can_authorize_project,
-                            egui::Button::new("Authorize for project"),
-                        )
-                        .clicked()
+                    if can_authorize_project && ui.button("Authorize for project").clicked()
                     {
                         super::details::dispatch(
                             surface,

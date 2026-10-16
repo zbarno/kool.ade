@@ -2,6 +2,22 @@ use super::ResourceBridge;
 use std::{fs, sync::atomic::Ordering};
 
 impl ResourceBridge {
+    pub(crate) fn bind_execution_session(
+        &self,
+        session: std::sync::Arc<crate::execution::session::ExecutionSession>,
+    ) -> anyhow::Result<()> {
+        let mut bound = self
+            .execution_session
+            .lock()
+            .map_err(|_| anyhow::anyhow!("execution session binding is unavailable"))?;
+        anyhow::ensure!(
+            bound.is_none(),
+            "resource broker already has an execution session"
+        );
+        *bound = Some(session);
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn cache_snapshot(
         &self,

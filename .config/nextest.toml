@@ -1,10 +1,10 @@
 [test-groups]
-# These opt-in tests share the hosted rootless Docker daemon. Keep bounded
-# overlap while allowing independent Docker and remote-worker fixtures to run.
-rootless-docker = { max-threads = 2 }
+# Only integrations that share the hosted rootless Docker daemon belong in
+# this group; independent controller and fixture tests stay parallel.
+rootless-docker = { max-threads = 1 }
 
 [[profile.default.overrides]]
-filter = 'test(/(docker_lifecycle::|auto_queue_cannot_start_task_from_unapproved_feature|auto_queue_runs_independent_tasks_past_review_and_during_planning|docker_engine::|resource_bridge::tests::end_to_end::|implementation_harness_without_an_application_session_fails_before_provider_launch)/)'
+filter = 'test(/^(app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning|core::implementation::tests::docker_lifecycle::cancelled_task_clone_resumes_through_docker_verification_and_pr_preparation|execution::docker::backend::tests::docker_engine::(cache_isolation::concurrent_tasks_receive_only_their_own_dependency_cache_snapshot|deadlines::(cancellation_waiting_for_sync_owns_the_result_after_the_command_deadline|deadline_preserves_workspace_before_container_teardown)|docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded|planning_read_only::planning_workspace_is_readable_but_not_writable_after_staging|recovery::restarted_worker_interrupts_unobservable_in_flight_exec|stack_recipes::approved_stack_recipes_execute_across_runtime_profiles|system_image::(authorized_system_image_build_is_offline_pinned_and_selected|signed_bookworm_closure_builds_through_offline_docker_control_plane))|harness::resource_bridge::tests::end_to_end::(addition::manager_authorized_new_npm_dependency_is_available_to_offline_install|cargo::authorized_cargo_restore_repairs_cache_for_network_disabled_docker_build|npm_malicious::authorized_npm_restore_blocks_malicious_install_egress_and_host_secrets|remote::(remote_docker_worker_restores_authorized_npm_cache_without_container_network|task_roundtrip::ssh_worker_applies_verified_remote_file_change_to_the_task_clone|worker_restart::ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result|two_controllers::concurrent_ssh_controllers_share_worker_and_reject_revoked_result)))$/)'
 test-group = 'rootless-docker'
 
 [profile.default.junit]

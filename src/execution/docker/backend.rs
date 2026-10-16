@@ -20,12 +20,15 @@ use crate::execution::{
 use bollard::Docker;
 
 mod lifecycle;
+mod prepared_image;
 mod qa;
+mod system_image;
 #[cfg(test)]
 #[path = "backend/tests.rs"]
 mod tests;
 mod workspace_resolver;
 use lifecycle::RuntimeExecution;
+pub(super) use prepared_image::PreparedDerivedImage;
 pub use workspace_resolver::{OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspaceResolver};
 
 /// Resolves a `WorkspaceRef` only to an app-owned task clone and provides a verified staging root.
@@ -49,6 +52,7 @@ pub struct DockerExecutionBackend {
             crate::harness::resource_bridge::CacheSnapshot,
         >,
     >,
+    derived_images: Mutex<HashMap<String, system_image::RegisteredDerivedImage>>,
 }
 
 impl DockerExecutionBackend {
@@ -82,6 +86,7 @@ impl DockerExecutionBackend {
             executions: Mutex::new(HashMap::new()),
             starting: Mutex::new(HashSet::new()),
             dependency_caches: Mutex::new(HashMap::new()),
+            derived_images: Mutex::new(HashMap::new()),
         })
     }
 
@@ -245,7 +250,29 @@ fn now_unix_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-fn selected_image(digest: &str, architecture: &str) -> Result<SelectedImage, ExecutionError> {
+pub(super) fn selected_image(
+    backend: &DockerExecutionBackend,
+    digest: &str,
+    architecture: &str,
+) -> Result<SelectedImage, ExecutionError> {
+    if let Some(image) = backend
+        .derived_images
+        .lock()
+        .map_err(|_| internal_error_with_context("reading derived system images"))?
+        .get(digest)
+        .map(|registered| registered.image.clone())
+    {
+        let expected = crate::execution::docker::discovery::parse_architecture(architecture)
+            .ok_or_else(|| internal_error_with_context("validating derived image architecture"))?;
+        if image.digest == digest && image.platform == format!("linux/{expected}") {
+            return Ok(image);
+        }
+        return Err(ExecutionError::new(
+            ExecutionErrorKind::ImageUnavailable,
+            "Derived image digest is not approved for this target architecture",
+            false,
+        ));
+    }
     let lock = super::images::ImageLock::bundled().map_err(prerequisite_error)?;
     for profile in [
         super::images::RuntimeProfile::General,

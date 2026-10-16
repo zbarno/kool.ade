@@ -38,7 +38,44 @@ pub(super) fn dependency_request(
         };
         return Ok(ResourceResponse::dependency_outcome(status, request));
     }
-    if !request.need.introduced_packages.is_empty() {
+    if request.need.ecosystem == crate::harness::PackageEcosystem::System
+        || request.need.kind == crate::harness::DependencyKind::SystemTool
+    {
+        let Some(session) = context.execution_session.as_ref() else {
+            request.decision = crate::harness::DependencyDecision::Reject;
+            request.status = crate::harness::DependencyRequestStatus::Failed;
+            request.category =
+                crate::harness::DependencyFailureCategory::DependencyManagerUnsupported;
+            request.rationale = "A controller-owned execution session is required to resolve a signed system package closure.".into();
+            set_dependency_request(context, &mut request);
+            return Ok(ResourceResponse::dependency_outcome("unsupported", request));
+        };
+        match session.resolve_system_dependency_manifest(&request.need) {
+            Ok(packages) => request.need.introduced_packages = packages,
+            Err(error) => {
+                request.decision = crate::harness::DependencyDecision::Reject;
+                request.status = crate::harness::DependencyRequestStatus::Failed;
+                request.category =
+                    crate::harness::DependencyFailureCategory::DependencySystemPackageRequired;
+                request.rationale = format!(
+                    "System dependency could not be resolved from the signed Bookworm archive: {error}"
+                );
+                request.risk =
+                    "No package artifacts were acquired and no image build was attempted.".into();
+                set_dependency_request(context, &mut request);
+                return Ok(ResourceResponse::dependency_outcome("unsupported", request));
+            }
+        }
+    }
+    if request.need.ecosystem == crate::harness::PackageEcosystem::System {
+        request.category =
+            crate::harness::DependencyFailureCategory::DependencySystemPackageRequired;
+        request.rationale = format!(
+            "The signed Debian Bookworm dependency closure contains {} exact packages. Man.ager can review, but only your task-scoped approval can build this offline image.",
+            request.need.introduced_packages.len()
+        );
+        request.risk = "The app will verify the signed repository index and every package digest, then build with Docker networking disabled. No host package manager is run.".into();
+    } else if !request.need.introduced_packages.is_empty() {
         request.category = crate::harness::DependencyFailureCategory::DependencyNewPackageRequested;
         request.rationale = format!(
             "The app found {} package identities in the lockfile that are absent from the task's starting commit. Man.ager must review the listed packages before the broker restores them.",

@@ -9,6 +9,7 @@ use std::{
 
 pub(super) struct BrokerContext<'a> {
     pub(super) worktree: &'a Path,
+    pub(super) execution_session: Option<Arc<crate::execution::session::ExecutionSession>>,
     pub(super) private_configuration: bool,
     pub(super) resource_dir: &'a Path,
     pub(super) npm_cache: &'a Path,

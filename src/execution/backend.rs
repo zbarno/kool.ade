@@ -31,6 +31,40 @@ pub trait ExecutionBackend: Send + Sync {
     #[cfg(test)]
     fn terminate_remote_connection_for_test(&self) {}
 
+    /// Derive a system image from a separately user-authorized package closure.
+    /// Remote and unsupported backends reject this by default.
+    #[allow(private_interfaces)]
+    fn derive_authorized_system_image<'a>(
+        &'a self,
+        _request: &'a crate::execution::docker::image_extension::AuthorizedImageExtensionRequest,
+        _packages: Vec<crate::execution::docker::image_extension::builder::VerifiedPackageArtifact>,
+    ) -> BackendFuture<'a, crate::execution::docker::image_extension::DerivedImage> {
+        Box::pin(async {
+            Err(ExecutionError::new(
+                crate::execution::errors::ExecutionErrorKind::WorkerIncompatible,
+                "Selected execution target does not support authorized system image derivation",
+                false,
+            ))
+        })
+    }
+
+    #[allow(private_interfaces)]
+    fn inspect_system_package_state<'a>(
+        &'a self,
+        _base: &'a crate::execution::docker::image_extension::BaseImageSelection,
+    ) -> BackendFuture<
+        'a,
+        std::collections::BTreeMap<String, crate::harness::resource_bridge::InstalledPackage>,
+    > {
+        Box::pin(async {
+            Err(ExecutionError::new(
+                crate::execution::errors::ExecutionErrorKind::WorkerIncompatible,
+                "Selected execution target cannot inspect the approved base image package state",
+                false,
+            ))
+        })
+    }
+
     /// Launch a policy-validated disposable Runtime QA driver on this backend's
     /// already-selected engine. Backends without a local Docker control plane
     /// fail closed by default.

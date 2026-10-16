@@ -2,6 +2,7 @@ use crate::harness::{DependencyKind, DependencyNeed, PackageEcosystem};
 
 mod authorization;
 mod redaction;
+mod system;
 
 fn lockfile_identity() -> String {
     format!("sha256:{}", "a".repeat(64))

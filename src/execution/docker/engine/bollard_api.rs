@@ -10,11 +10,12 @@ use crate::execution::docker::{
 };
 
 pub(super) struct BollardApi {
-    docker: Docker,
+    pub(super) docker: Docker,
     endpoint: super::DockerEndpoint,
     minimum_disk_bytes: u64,
 }
 
+mod image_derivation;
 mod smoke;
 
 impl BollardApi {
@@ -149,15 +150,88 @@ impl DockerApi for BollardApi {
                 }
             };
             Ok(ImageObservation {
+                image_id: inspect.id.unwrap_or_default(),
                 repo_digests: inspect.repo_digests.unwrap_or_default(),
                 os: inspect.os.unwrap_or_default(),
                 architecture: inspect.architecture.unwrap_or_default(),
                 configured_user: inspect
                     .config
-                    .and_then(|config| config.user)
+                    .as_ref()
+                    .and_then(|config| config.user.clone())
                     .unwrap_or_default(),
+                labels: inspect
+                    .config
+                    .and_then(|config| config.labels)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
             })
         })
+    }
+
+    fn inspect_derived_image<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async move {
+            let inspect = self
+                .docker
+                .inspect_image(&image.reference)
+                .await
+                .map_err(|_| {
+                    failure(
+                        PrerequisiteCode::ImageUnavailable,
+                        "Registered derived image is not present in the selected Docker daemon",
+                        false,
+                    )
+                })?;
+            Ok(ImageObservation {
+                image_id: inspect.id.unwrap_or_default(),
+                repo_digests: inspect.repo_digests.unwrap_or_default(),
+                os: inspect.os.unwrap_or_default(),
+                architecture: inspect.architecture.unwrap_or_default(),
+                configured_user: inspect
+                    .config
+                    .as_ref()
+                    .and_then(|config| config.user.clone())
+                    .unwrap_or_default(),
+                labels: inspect
+                    .config
+                    .and_then(|config| config.labels)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+            })
+        })
+    }
+
+    fn image_package_state<'a>(
+        &'a self,
+        image_id: &'a str,
+    ) -> EngineFuture<
+        'a,
+        Result<
+            std::collections::BTreeMap<String, crate::harness::resource_bridge::InstalledPackage>,
+            PrerequisiteFailure,
+        >,
+    > {
+        image_derivation::image_package_state(self, image_id)
+    }
+
+    fn build_authorized_image<'a>(
+        &'a self,
+        context: &'a crate::execution::docker::image_extension::builder::GeneratedImageContext,
+        platform: &'a str,
+    ) -> EngineFuture<'a, Result<String, PrerequisiteFailure>> {
+        image_derivation::build(self, context, platform)
+    }
+
+    fn verify_authorized_image<'a>(
+        &'a self,
+        image_id: &'a str,
+        packages: &'a [crate::execution::docker::image_extension::builder::PackageArtifactIdentity],
+    ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
+        image_derivation::verify(self, image_id, packages)
     }
 
     fn smoke_test<'a>(

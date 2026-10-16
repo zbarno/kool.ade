@@ -110,18 +110,33 @@ pub fn create_body(
     identity: &SandboxIdentity,
     image: &SelectedImage,
 ) -> Result<ContainerCreateBody, ExecutionError> {
+    create_body_with_derived_approval(request, workspace, identity, image, None)
+}
+
+pub(super) fn create_body_with_derived_approval(
+    request: &ExecutionRequestV1,
+    workspace: &ValidatedWorkspace,
+    identity: &SandboxIdentity,
+    image: &SelectedImage,
+    derived_approval: Option<&super::backend::PreparedDerivedImage>,
+) -> Result<ContainerCreateBody, ExecutionError> {
     request
         .validate_at(now_unix_ms())
         .map_err(|_| denied("Execution request or policy is invalid"))?;
     identity.validate()?;
     workspace.revalidate()?;
-    let lock =
-        ImageLock::bundled().map_err(|_| denied("Approved executor image manifest is invalid"))?;
-    let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
-    let approved = lock
-        .select(image.profile, architecture)
-        .map_err(|_| denied("Sandbox image profile is not approved"))?;
-    if approved != *image || image.digest != request.image_digest {
+    let approved = if let Some(approval) = derived_approval {
+        approval.matches(image)
+    } else {
+        let lock = ImageLock::bundled()
+            .map_err(|_| denied("Approved executor image manifest is invalid"))?;
+        let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
+        let approved = lock
+            .select(image.profile, architecture)
+            .map_err(|_| denied("Sandbox image profile is not approved"))?;
+        approved == *image
+    };
+    if !approved || image.digest != request.image_digest {
         return Err(denied(
             "Sandbox image does not match the approved request digest",
         ));
