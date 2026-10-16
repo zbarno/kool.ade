@@ -8,9 +8,11 @@ use std::{
 };
 use url::Url;
 
+mod debian;
 mod failure;
 mod network;
 mod npm;
+pub(crate) use debian::retrieve_debian_artifact;
 pub(super) use failure::bytes_from_failure;
 pub(super) use network::public_address;
 pub(super) use npm::retrieve_npm_registry;

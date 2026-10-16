@@ -38,6 +38,7 @@ pub(crate) struct ResourceBridge {
     cargo_cache: PathBuf,
     pending_attention: Arc<Mutex<Option<String>>>,
     pending_dependency: Arc<Mutex<Vec<DependencyRequest>>>,
+    execution_session: Arc<Mutex<Option<Arc<crate::execution::session::ExecutionSession>>>>,
     cancel: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<()>>,
@@ -154,12 +155,14 @@ impl ResourceBridge {
         let stop = Arc::new(AtomicBool::new(false));
         let attention = Arc::new(Mutex::new(None));
         let pending_dependency = Arc::new(Mutex::new(Vec::new()));
+        let execution_session = Arc::new(Mutex::new(None));
         let request_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let in_flight_requests = Arc::new(AtomicUsize::new(0));
         let downloaded_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let thread_stop = stop.clone();
         let thread_attention = attention.clone();
         let thread_dependency = pending_dependency.clone();
+        let thread_execution_session = execution_session.clone();
         let thread_task_id = task_id.map(str::to_owned);
         let thread_baseline_commit = baseline_commit.clone();
         let thread_progress = progress.clone();
@@ -195,6 +198,10 @@ impl ResourceBridge {
                         let worktree = thread_worktree.clone();
                         let attention = thread_attention.clone();
                         let dependency = thread_dependency.clone();
+                        let execution_session = thread_execution_session
+                            .lock()
+                            .ok()
+                            .and_then(|session| session.clone());
                         let task_id = thread_task_id.clone();
                         let progress = thread_progress.clone();
                         let cancel = thread_cancel.clone();
@@ -213,6 +220,7 @@ impl ResourceBridge {
                             let _in_flight = InFlightRequest(in_flight_requests);
                             let context = BrokerContext {
                                 worktree: &worktree,
+                                execution_session,
                                 private_configuration,
                                 resource_dir: &resource_dir,
                                 npm_cache: &npm_cache,
@@ -256,6 +264,7 @@ impl ResourceBridge {
             cargo_cache,
             pending_attention: attention,
             pending_dependency,
+            execution_session,
             cancel,
             stop,
             worker: Some(worker),

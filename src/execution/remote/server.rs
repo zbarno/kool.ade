@@ -15,7 +15,7 @@ mod tests;
 
 use super::protocol::{EnvelopeKindV1, EnvelopeV1, SessionValidator, read_frame, write_frame};
 use super::staging::WorkerStager;
-use dispatch::{CacheTransfers, DispatchContext, dispatch};
+use dispatch::{CacheTransfers, DispatchContext, SystemImageTransfers, dispatch};
 use journal::{Lookup, RequestJournal};
 
 /// Serve one bounded framed session. SSH performs peer authentication; this
@@ -69,8 +69,10 @@ fn serve_stdio_with_journal(
     let mut inbound = SessionValidator::default();
     let mut outbound = SessionValidator::default();
     let mut cache_transfers = CacheTransfers::default();
+    let mut system_image_transfers = SystemImageTransfers::default();
     let mut pending_dependency_relays = HashMap::new();
     let mut capacity_leases = HashMap::<String, super::WorkerCapacityLease>::new();
+    let mut system_image_capability_key = None;
     while let Some(request) = read_frame(&mut input)? {
         inbound.accept(&request)?;
         match journal.reserve(&request)? {
@@ -141,10 +143,12 @@ fn serve_stdio_with_journal(
                 backend: backend.clone(),
                 stager: stager.clone(),
                 cache_transfers: &mut cache_transfers,
+                system_image_transfers: &mut system_image_transfers,
                 pending_dependency_relays: &mut pending_dependency_relays,
                 capacity: capacity.as_deref(),
                 capacity_leases: &mut capacity_leases,
                 runtime: &runtime,
+                system_image_capability_key: &mut system_image_capability_key,
             },
             &request,
         ) {

@@ -19,6 +19,26 @@ mod workspace;
 pub(super) use runtime::RuntimeExecution;
 
 impl ExecutionBackend for DockerExecutionBackend {
+    #[allow(private_interfaces)]
+    fn inspect_system_package_state<'a>(
+        &'a self,
+        base: &'a crate::execution::docker::image_extension::BaseImageSelection,
+    ) -> BackendFuture<
+        'a,
+        std::collections::BTreeMap<String, crate::harness::resource_bridge::InstalledPackage>,
+    > {
+        Box::pin(self.inspect_system_packages(base))
+    }
+
+    #[allow(private_interfaces)]
+    fn derive_authorized_system_image<'a>(
+        &'a self,
+        request: &'a crate::execution::docker::image_extension::AuthorizedImageExtensionRequest,
+        packages: Vec<crate::execution::docker::image_extension::builder::VerifiedPackageArtifact>,
+    ) -> BackendFuture<'a, crate::execution::docker::image_extension::DerivedImage> {
+        Box::pin(self.derive_system_image(request, packages))
+    }
+
     fn start_qa_web_preview<'a>(
         &'a self,
         spec: crate::execution::docker::qa_container::QaWebPreviewSpec<'a>,
@@ -178,44 +198,7 @@ impl ExecutionBackend for DockerExecutionBackend {
     }
 
     fn release_workspace<'a>(&'a self, lease: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()> {
-        Box::pin(async move {
-            let mut workspaces = self.workspaces.lock().map_err(|_| {
-                crate::execution::docker::backend::internal_error_with_context(
-                    "releasing a prepared workspace",
-                )
-            })?;
-            let prepared = workspaces.get(&lease.lease_id).cloned().ok_or_else(|| {
-                crate::execution::errors::ExecutionError::new(
-                    crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
-                    "Workspace lease is no longer owned by this backend",
-                    false,
-                )
-            })?;
-            let state = prepared.lock().map_err(|_| {
-                crate::execution::docker::backend::internal_error_with_context(
-                    "checking workspace release state",
-                )
-            })?;
-            if state.workspace != lease.workspace
-                || state.expires_unix_ms != lease.expires_unix_ms
-                || state.starting
-                || state.active_execution_id.is_some()
-            {
-                return Err(crate::execution::errors::ExecutionError::new(
-                    crate::execution::errors::ExecutionErrorKind::PolicyDenied,
-                    "Workspace lease is active or does not match this reservation",
-                    false,
-                ));
-            }
-            workspaces.remove(&lease.lease_id).ok_or_else(|| {
-                crate::execution::errors::ExecutionError::new(
-                    crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
-                    "Workspace lease is no longer owned by this backend",
-                    false,
-                )
-            })?;
-            Ok(())
-        })
+        workspace::release_workspace(self, lease)
     }
 
     fn exec<'a>(

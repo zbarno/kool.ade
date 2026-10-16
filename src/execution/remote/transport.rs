@@ -8,6 +8,15 @@ use std::{
 };
 
 const STDERR_LIMIT: usize = 64 * 1024;
+
+pub(super) trait RemoteRpcTransport: Send {
+    fn send(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()>;
+    fn receive(&mut self) -> io::Result<Option<protocol::EnvelopeV1>>;
+    #[allow(dead_code)] // The test-only client hook terminates a fakeable transport.
+    fn terminate(&mut self) -> io::Result<()>;
+    fn diagnostic_stderr(&self) -> String;
+}
+
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(16 * 60);
 
 /// One authenticated SSH stdio session. SSH stderr is drained independently
@@ -103,6 +112,24 @@ impl SshTransport {
             .unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes);
         crate::error::redact_secrets(&text)
+    }
+}
+
+impl RemoteRpcTransport for SshTransport {
+    fn send(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()> {
+        SshTransport::send(self, envelope)
+    }
+
+    fn receive(&mut self) -> io::Result<Option<protocol::EnvelopeV1>> {
+        SshTransport::receive(self)
+    }
+
+    fn terminate(&mut self) -> io::Result<()> {
+        SshTransport::terminate(self)
+    }
+
+    fn diagnostic_stderr(&self) -> String {
+        SshTransport::diagnostic_stderr(self)
     }
 }
 

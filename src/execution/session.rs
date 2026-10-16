@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeSet,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
@@ -25,6 +25,7 @@ mod process;
 mod remote;
 mod remote_dependency;
 mod run;
+mod system_image;
 
 #[derive(Debug)]
 pub struct ExecutionOutput {
@@ -58,7 +59,8 @@ pub struct ExecutionSession {
     workspace: WorkspaceRef,
     target: ExecutionTarget,
     mode: ExecutionModeV1,
-    image_digest: String,
+    image_digest: RwLock<String>,
+    derived_image: Mutex<Option<crate::execution::docker::image_extension::DerivedImage>>,
     authorization_generation: String,
     authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     resources: ResourceBudgetV1,
@@ -104,16 +106,6 @@ impl ExecutionSession {
 
     pub fn target_id(&self) -> &str {
         &self.target.target_id
-    }
-
-    pub fn cache_target_arch(&self) -> Option<String> {
-        crate::execution::docker::images::ImageLock::bundled()
-            .ok()?
-            .profiles
-            .values()
-            .flatten()
-            .find(|image| image.digest == self.image_digest)
-            .and_then(|image| image.platform.strip_prefix("linux/").map(str::to_owned))
     }
 
     pub fn authorization_generation(&self) -> &str {
@@ -200,7 +192,7 @@ impl ExecutionSession {
             controller_target_id: None,
             workspace: self.workspace.clone(),
             mode: self.mode,
-            image_digest: self.image_digest.clone(),
+            image_digest: self.selected_image_digest()?,
             argv,
             working_directory_relative,
             stdin,

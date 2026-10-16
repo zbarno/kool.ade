@@ -5,6 +5,8 @@ use crate::execution::{
     contract::{EventPageRequestV1, ExecutionEventKindV1, ExecutionLifecycleV1},
 };
 
+#[path = "docker_engine/cache_isolation.rs"]
+mod cache_isolation;
 #[path = "docker_engine/deadlines.rs"]
 mod deadlines;
 #[path = "docker_engine/planning_read_only.rs"]
@@ -15,6 +17,8 @@ mod recovery;
 mod stack_recipes;
 #[path = "docker_engine/support.rs"]
 mod support;
+#[path = "docker_engine/system_image.rs"]
+mod system_image;
 use support::{
     Fixture, OPT_IN, backend, container_cleanup, container_id, prepare_and_start, request,
     wait_for_stdout, workspace,

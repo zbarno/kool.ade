@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use bollard::query_parameters::CreateContainerOptionsBuilder;
 
@@ -18,8 +17,10 @@ use crate::execution::{
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
+use self::start_helpers::{deadline_error, deadline_instant, engine_operation_error};
 use super::cleanup::{cleanup_created_container, cleanup_named_container};
 mod cache;
+mod start_helpers;
 
 pub(in crate::execution::docker::backend::lifecycle) async fn start(
     backend: &DockerExecutionBackend,
@@ -94,6 +95,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         .await
         .map_err(|_| deadline_error())??;
     let image = selected_image(
+        backend,
         &request.image_digest,
         readiness
             .architecture
@@ -236,42 +238,6 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     Ok(handle)
 }
 
-fn engine_operation_error(operation: &str, error: bollard::errors::Error) -> ExecutionError {
-    let details = match error {
-        bollard::errors::Error::DockerResponseServerError {
-            status_code,
-            message,
-        } => format!(
-            "Docker API returned HTTP {status_code}: {}",
-            safe_detail(&message)
-        ),
-        _ => format!("Docker Engine {operation} request failed"),
-    };
-    ExecutionError::new(
-        ExecutionErrorKind::WorkerDisconnected,
-        format!("{operation} failed: {details}"),
-        true,
-    )
-}
-
-fn safe_detail(message: &str) -> String {
-    let mut result = String::new();
-    for word in message.split_whitespace() {
-        if !result.is_empty() {
-            result.push(' ');
-        }
-        if word.starts_with('/') {
-            result.push_str("<path>");
-        } else {
-            result.push_str(word);
-        }
-        if result.chars().count() >= 256 {
-            break;
-        }
-    }
-    result
-}
-
 struct WorkspaceStartReservation {
     prepared: Arc<std::sync::Mutex<super::super::super::PreparedWorkspace>>,
     active: bool,
@@ -305,17 +271,4 @@ impl Drop for WorkspaceStartReservation {
             prepared.starting = false;
         }
     }
-}
-
-fn deadline_instant(deadline_unix_ms: u64) -> tokio::time::Instant {
-    tokio::time::Instant::now()
-        + Duration::from_millis(deadline_unix_ms.saturating_sub(now_unix_ms()))
-}
-
-fn deadline_error() -> ExecutionError {
-    ExecutionError::new(
-        ExecutionErrorKind::DeadlineExceeded,
-        "Execution deadline elapsed while preparing the Docker workspace",
-        false,
-    )
 }

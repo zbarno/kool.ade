@@ -6,7 +6,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod docker_api;
 mod errors;
+mod image_derivation;
+pub(crate) use docker_api::DockerApi;
 use errors::{
     daemon_storage_capacity, failure, map_api_error, map_connect_error, operation_timeout,
 };
@@ -71,29 +74,6 @@ pub struct EngineSnapshot {
     pub minimum_disk_bytes: u64,
 }
 
-pub trait DockerApi: Send + Sync {
-    fn inspect<'a>(&'a self) -> EngineFuture<'a, Result<EngineSnapshot, PrerequisiteFailure>>;
-    fn image_digests<'a>(&'a self) -> EngineFuture<'a, Result<Vec<String>, PrerequisiteFailure>>;
-    fn ensure_image<'a>(
-        &'a self,
-        image: &'a SelectedImage,
-    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>>;
-
-    fn smoke_test<'a>(
-        &'a self,
-        _image: &'a SelectedImage,
-        _container_name: &'a str,
-    ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
-        Box::pin(async {
-            Err(failure(
-                PrerequisiteCode::CapabilitiesIncompatible,
-                "Docker API adapter does not support the bounded smoke-container operation",
-                false,
-            ))
-        })
-    }
-}
-
 struct CacheEntry {
     expires_at: Instant,
     snapshot: EngineSnapshot,
@@ -132,7 +112,7 @@ impl EngineDiscovery {
         Ok(Self::with_api(endpoint, api))
     }
 
-    pub fn with_api(endpoint: DockerEndpoint, api: Arc<dyn DockerApi>) -> Self {
+    pub(crate) fn with_api(endpoint: DockerEndpoint, api: Arc<dyn DockerApi>) -> Self {
         Self::with_api_timeouts(endpoint, api, EngineApiTimeouts::default())
     }
 

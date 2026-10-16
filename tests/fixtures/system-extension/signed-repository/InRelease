@@ -1,0 +1,20 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: Debian
+Label: Debian
+Suite: bookworm
+Codename: bookworm
+Date: Fri, 16 Oct 2026 00:00:00 UTC
+Valid-Until: Tue, 20 Oct 2026 00:00:00 UTC
+Architectures: amd64 arm64
+Components: main
+SHA256:
+  e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQQj0hYMvy4jBo7eBJiJ4hhZVMwI2AUCatJDQwAKCRCJ4hhZVMwI
+2Pk6AQCrRcMtsQc+oQsoJJqQJRV1kGqQTmcOa3IfbisUgKMEUAD/VKkfu3upwS4o
+5MG91VTTrTYb7YIefBN11zxZT/9hYgs=
+=x0Vc
+-----END PGP SIGNATURE-----

@@ -10,11 +10,12 @@ use crate::execution::docker::{
 };
 
 pub(super) struct BollardApi {
-    docker: Docker,
+    pub(super) docker: Docker,
     endpoint: super::DockerEndpoint,
     minimum_disk_bytes: u64,
 }
 
+mod image_derivation;
 mod smoke;
 
 impl BollardApi {
@@ -158,6 +159,35 @@ impl DockerApi for BollardApi {
                     .unwrap_or_default(),
             })
         })
+    }
+
+    fn image_package_state<'a>(
+        &'a self,
+        image_id: &'a str,
+    ) -> EngineFuture<
+        'a,
+        Result<
+            std::collections::BTreeMap<String, crate::harness::resource_bridge::InstalledPackage>,
+            PrerequisiteFailure,
+        >,
+    > {
+        image_derivation::image_package_state(self, image_id)
+    }
+
+    fn build_authorized_image<'a>(
+        &'a self,
+        context: &'a crate::execution::docker::image_extension::builder::GeneratedImageContext,
+        platform: &'a str,
+    ) -> EngineFuture<'a, Result<String, PrerequisiteFailure>> {
+        image_derivation::build(self, context, platform)
+    }
+
+    fn verify_authorized_image<'a>(
+        &'a self,
+        image_id: &'a str,
+        packages: &'a [crate::execution::docker::image_extension::builder::PackageArtifactIdentity],
+    ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
+        image_derivation::verify(self, image_id, packages)
     }
 
     fn smoke_test<'a>(

@@ -5,6 +5,8 @@ use std::{
 };
 
 pub const PROTOCOL_VERSION_V1: u16 = 1;
+/// Reserved execution identity for the key-bootstrap handshake on each SSH session.
+pub const SYSTEM_IMAGE_SESSION_ID_V1: &str = "00000000-0000-4000-8000-000000000001";
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_SESSION_MESSAGES: usize = 16_384;
 
@@ -21,6 +23,10 @@ pub enum EnvelopeKindV1 {
     BeginCacheTransfer,
     CacheTransferChunk,
     FinalizeCacheTransfer,
+    InspectSystemPackages,
+    BeginSystemImageTransfer,
+    SystemImageTransferChunk,
+    FinalizeSystemImageTransfer,
     RelayDependency,
     DependencyRequest,
     DependencyDecision,

@@ -13,7 +13,7 @@ impl ExecutionSession {
     ) -> Result<crate::execution::docker::qa_container::DriverContainerOutput, ExecutionError> {
         self.verify_authorization()?;
         if self.mode != crate::execution::contract::ExecutionModeV1::RuntimeQa
-            || spec.image.digest != self.image_digest
+            || spec.image.digest != self.selected_image_digest()?
         {
             return Err(policy_error(
                 "Runtime QA driver does not match the selected QA session and image",
@@ -34,7 +34,7 @@ impl ExecutionSession {
     ) -> Result<String, ExecutionError> {
         self.verify_authorization()?;
         if self.mode != crate::execution::contract::ExecutionModeV1::RuntimeQa
-            || spec.image.digest != self.image_digest
+            || spec.image.digest != self.selected_image_digest()?
         {
             return Err(policy_error(
                 "Runtime QA driver does not match the selected QA session and image",
@@ -56,7 +56,7 @@ impl ExecutionSession {
     ) -> Result<crate::execution::docker::qa_container::QaWebPreview, ExecutionError> {
         self.verify_authorization()?;
         if self.mode != crate::execution::contract::ExecutionModeV1::RuntimeQa
-            || spec.browser_image.digest != self.image_digest
+            || spec.browser_image.digest != self.selected_image_digest()?
         {
             return Err(policy_error(
                 "Runtime QA web preview does not match the selected browser session",
