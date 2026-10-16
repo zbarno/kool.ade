@@ -18,4 +18,4 @@ pub use record::{
     ExecutionArtifactV1, ExecutionCleanupStateV1, ExecutionRecordStateV1, ExecutionRecordV1,
     ExecutionWorkspaceEntryKindV1, ExecutionWorkspaceEntryV1,
 };
-pub use store::{load, save};
+pub use store::{latest_for_task, load, save};

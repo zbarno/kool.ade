@@ -183,6 +183,7 @@ pub(super) fn paint(
     // and narrow displays.
     state::paint(ui, s, presentation);
     target::paint(ui, s, presentation.ticket, presentation.view);
+    target::paint_execution_evidence(ui, presentation.view);
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle::paint(

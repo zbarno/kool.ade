@@ -145,6 +145,21 @@ impl KooladeApp {
             .cloned()
             .unwrap_or_else(|| environment.default_target.clone());
         let target_choices = target_choices::build(&target_preference, settings_error.as_deref());
+        let execution_task_id = match &self.screen {
+            Screen::Connected(project) => super::super::task_target::key(project, ticket),
+            Screen::Welcome => ticket.to_owned(),
+        };
+        let (execution_evidence, execution_evidence_error) =
+            if uuid::Uuid::parse_str(&execution_task_id)
+                .is_ok_and(|id| id.hyphenated().to_string() == execution_task_id)
+            {
+                match crate::persistence::execution_records::latest_for_task(&execution_task_id) {
+                    Ok(record) => (record, None),
+                    Err(error) => (None, Some(error)),
+                }
+            } else {
+                (None, None)
+            };
         let attention = failure
             .as_deref()
             .and_then(|detail| self.attention_view(ticket, detail));
@@ -183,6 +198,8 @@ impl KooladeApp {
             feature_metrics,
             target_preference,
             target_choices,
+            execution_evidence,
+            execution_evidence_error,
             lifecycle_pr_work_uid,
             lifecycle_pr_status,
             lifecycle_pr_error,

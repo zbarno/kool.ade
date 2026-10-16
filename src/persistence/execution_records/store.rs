@@ -47,3 +47,49 @@ pub fn load(task_id: &str, execution_id: &str) -> Result<Option<ExecutionRecordV
     }
     Ok(Some(record))
 }
+
+/// Load the most recently updated durable execution record for a task.
+pub fn latest_for_task(task_id: &str) -> Result<Option<ExecutionRecordV1>, String> {
+    if !is_canonical_uuid(task_id) {
+        return Err("execution record lookup identity is invalid".into());
+    }
+    let directory = crate::persistence::state_root()
+        .join("executions")
+        .join(task_id);
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut latest: Option<ExecutionRecordV1> = None;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if !entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_file()
+        {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(execution_id) = path.file_stem().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !is_canonical_uuid(execution_id) {
+            continue;
+        }
+        let Some(record) = load(task_id, execution_id)? else {
+            continue;
+        };
+        if latest.as_ref().is_none_or(|current| {
+            (record.updated_at_unix_ms, record.started_at_unix_ms)
+                > (current.updated_at_unix_ms, current.started_at_unix_ms)
+        }) {
+            latest = Some(record);
+        }
+    }
+    Ok(latest)
+}
