@@ -164,7 +164,7 @@ fn patch_id(repository: &Path, base: &str, head: &str) -> anyhow::Result<String>
         "git could not inspect PR merge changes"
     );
     let mut command = crate::core::planning_sync::validated_git_command(repository)?;
-    command.args(["patch-id", "--stable"]);
+    command.args(["patch-id", "--verbatim"]);
     use std::io::Write as _;
     let mut child = command
         .stdin(std::process::Stdio::piped())

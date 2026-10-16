@@ -6,10 +6,10 @@ use crate::{
 pub(super) fn advance_feature_spec_reconciliation(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
-) {
+) -> bool {
     if let Some(controller) = project.activity.feature_spec_reconciliation.as_ref() {
         let Some(result) = controller.take_result() else {
-            return;
+            return true;
         };
         let feature_uid = controller.feature_uid.clone();
         let expected_revision = controller.expected_revision;
@@ -24,7 +24,7 @@ pub(super) fn advance_feature_spec_reconciliation(
             origins,
             result,
         );
-        return;
+        return true;
     }
 
     let lifecycle = LifecycleStore::new(&project.state.planning_store);
@@ -34,11 +34,11 @@ pub(super) fn advance_feature_spec_reconciliation(
             project.activity.pending.push(format!(
                 "Feature specification refresh queue could not be read: {error}"
             ));
-            return;
+            return true;
         }
     };
     let Some((feature, origins)) = candidates.into_iter().next() else {
-        return;
+        return false;
     };
     if origins
         .iter()
@@ -73,6 +73,7 @@ pub(super) fn advance_feature_spec_reconciliation(
             Err(reason),
         ),
     }
+    true
 }
 
 fn finish_feature_spec_reconciliation(

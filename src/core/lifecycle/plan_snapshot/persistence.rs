@@ -119,6 +119,13 @@ pub(crate) fn user_confirmation_receipt(
     confirmation::load_receipt(planning_store, snapshot)
 }
 
+pub(crate) fn has_current_user_confirmation(
+    planning_store: &crate::artifacts::planning_store::PlanningStore,
+    snapshot: &PlanSnapshotV1,
+) -> Result<bool, crate::artifacts::planning_store::StoreError> {
+    confirmation::is_current(planning_store, snapshot)
+}
+
 pub(crate) fn plan_review_receipt(
     planning_store: &crate::artifacts::planning_store::PlanningStore,
     snapshot: &PlanSnapshotV1,

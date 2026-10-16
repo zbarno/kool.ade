@@ -63,7 +63,7 @@ pub(super) fn finish(
                 project,
                 &task_uid,
                 Some(&outcome.proposal),
-                None,
+                has_deltas.then_some("PR refresh found specification drift requiring human review."),
                 Some(&outcome.run_uid),
             );
             if has_deltas {

@@ -5,11 +5,16 @@ use crate::{
 
 use super::{
     LifecycleActor, LifecycleEventKind, LifecycleStore, Snapshot,
-    records::{append_transition, event_path, event_record, now_unix_ms, pr_work_item_path},
+    records::{
+        append_transition_at_store_revision, event_path, event_record, now_unix_ms,
+        pr_work_item_path,
+    },
     task_transition::{
         PullRequestPreparation, PullRequestPreparationStatus, PullRequestPublicationState,
     },
 };
+
+mod gate;
 
 pub(super) fn authorize(
     store: &PlanningStore,
@@ -18,33 +23,38 @@ pub(super) fn authorize(
     event_uid: &str,
     receipt: &GateReceipt,
 ) -> Result<PullRequestPreparation, StoreError> {
+    authorize_before_commit(
+        store,
+        work_item_uid,
+        expected_revision,
+        event_uid,
+        receipt,
+        || {},
+    )
+}
+
+pub(in crate::core::lifecycle) fn authorize_before_commit(
+    store: &PlanningStore,
+    work_item_uid: &str,
+    expected_revision: u64,
+    event_uid: &str,
+    receipt: &GateReceipt,
+    before_commit: impl FnOnce(),
+) -> Result<PullRequestPreparation, StoreError> {
+    let store_revision = store.revision()?;
     receipt.validate().map_err(StoreError::MalformedState)?;
     let mut record = read(store, work_item_uid)?;
+    let lifecycle = LifecycleStore::new(store);
+    gate::check(&lifecycle, &record)?;
     if record.publication_authorization.as_ref() == Some(receipt)
         && record.status != PullRequestPreparationStatus::AwaitingAuthorization
     {
+        before_commit();
+        // The locked revision check is the retry attempt's linearization point.
+        store.transaction_with_revision_and_record_revisions(&[], Some(&store_revision), &[])?;
         return Ok(record);
     }
-    let task = LifecycleStore::new(store).load_task(&record.task_uid)?;
-    let lifecycle = LifecycleStore::new(store);
-    let pending_triggers = lifecycle
-        .list_spec_sync_queue(&record.feature_uid, false)?
-        .into_iter()
-        .filter(|entry| {
-            entry.source_task_uid.as_deref().is_none_or(|task_uid| {
-                record
-                    .included_task_uids
-                    .iter()
-                    .any(|included| included == task_uid)
-            })
-        })
-        .collect::<Vec<_>>();
-    if !pending_triggers.is_empty() {
-        return Err(StoreError::MalformedState(format!(
-            "PR authorization is blocked by {} pending specification trigger(s) for this feature and task scope",
-            pending_triggers.len()
-        )));
-    }
+    let task = lifecycle.load_task(&record.task_uid)?;
     if record.revision != expected_revision
         || record.status != PullRequestPreparationStatus::AwaitingAuthorization
         || task.phase != TaskPhase::Done
@@ -61,12 +71,14 @@ pub(super) fn authorize(
     }
     record.publication_authorization = Some(receipt.clone());
     record.status = PullRequestPreparationStatus::Publishing;
+    before_commit();
     persist(
         store,
         record,
         expected_revision,
         event_uid,
         LifecycleActor::User,
+        Some(&store_revision),
     )
 }
 
@@ -142,7 +154,7 @@ pub(super) fn record_state(
     record.base_sha = base_sha;
     record.merged_commit_sha = merged_commit_sha;
     let actor = LifecycleActor::ApplicationPolicy;
-    persist(store, record, expected_revision, event_uid, actor)
+    persist(store, record, expected_revision, event_uid, actor, None)
 }
 
 fn read(store: &PlanningStore, work_item_uid: &str) -> Result<PullRequestPreparation, StoreError> {
@@ -172,6 +184,7 @@ fn persist(
     expected_revision: u64,
     event_uid: &str,
     actor: LifecycleActor,
+    store_revision: Option<&str>,
 ) -> Result<PullRequestPreparation, StoreError> {
     let path = pr_work_item_path(&record.work_item_uid)?;
     let (mut snapshot, actual) = store.read_record::<Snapshot<PullRequestPreparation>>(&path)?;
@@ -204,13 +217,14 @@ fn persist(
             ..super::records::EventProjection::default()
         },
     )?;
-    append_transition(
+    append_transition_at_store_revision(
         store,
         &path,
         &snapshot,
         expected_revision,
         event_path(event_uid)?,
         event,
+        store_revision,
     )?;
     Ok(record)
 }

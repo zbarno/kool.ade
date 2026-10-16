@@ -40,6 +40,7 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
         anyhow::bail!("completed lifecycle task has no PR preparation item");
     };
     let work = lifecycle.load_pr_preparation(&work_item_uid)?;
+    lifecycle.ensure_product_specification_current(&task.feature_uid)?;
     match work.status {
         PullRequestPreparationStatus::AwaitingAuthorization => {
             let subject_sha256 = task
@@ -79,6 +80,14 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
                     }),
                 "lifecycle publication authorization is stale for the reviewed task"
             );
+            lifecycle.authorize_pr_publication(
+                &work_item_uid,
+                work.revision,
+                &uuid::Uuid::new_v4().to_string(),
+                work.publication_authorization
+                    .as_ref()
+                    .expect("checked authorization"),
+            )?;
         }
         PullRequestPreparationStatus::Opened => {
             anyhow::ensure!(

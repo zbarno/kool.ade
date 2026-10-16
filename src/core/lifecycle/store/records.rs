@@ -88,6 +88,26 @@ pub(super) fn append_transition<T: Serialize>(
     event_path: String,
     event: LifecycleEventRecord,
 ) -> Result<(), StoreError> {
+    append_transition_at_store_revision(
+        store,
+        path,
+        snapshot,
+        expected_revision,
+        event_path,
+        event,
+        None,
+    )
+}
+
+pub(super) fn append_transition_at_store_revision<T: Serialize>(
+    store: &PlanningStore,
+    path: &str,
+    snapshot: &Snapshot<T>,
+    expected_revision: u64,
+    event_path: String,
+    event: LifecycleEventRecord,
+    store_revision: Option<&str>,
+) -> Result<(), StoreError> {
     let (queue_path, queue_bytes, queue_check) = queued_record(&event)?;
     let changes = vec![
         (path.to_owned(), encode(snapshot)?),
@@ -106,7 +126,7 @@ pub(super) fn append_transition<T: Serialize>(
         queue_check,
     ];
     store
-        .transaction_with_record_revisions(&changes, &checks)
+        .transaction_with_revision_and_record_revisions(&changes, store_revision, &checks)
         .map(|_| ())
 }
 

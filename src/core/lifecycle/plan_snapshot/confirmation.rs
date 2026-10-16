@@ -35,7 +35,14 @@ pub(super) fn change(
             "user confirmation must approve this exact immutable plan snapshot".into(),
         ));
     }
-    let path = confirmation_path(snapshot);
+    let product_hash = crate::core::lifecycle::product_spec::current_product_hash(store)?;
+    if confirmed_product_spec_hash(receipt) != Some(product_hash.as_str()) {
+        return Err(StoreError::MalformedState(
+            "confirmation requires the current product specification".into(),
+        ));
+    }
+    let uid = confirmation_uid(snapshot, &product_hash)?;
+    let path = confirmation_path(&uid);
     match store.read_record::<ConfirmationRecord>(&path) {
         Ok((record, actual_revision)) => {
             validate_record(&record, snapshot, actual_revision)?;
@@ -45,7 +52,7 @@ pub(super) fn change(
             let now = now_ms();
             let record = ConfirmationRecord {
                 schema_version: 1,
-                uid: snapshot.uid.clone(),
+                uid,
                 created_at_ms: now,
                 updated_at_ms: now,
                 revision: 1,
@@ -70,17 +77,16 @@ pub(super) fn is_confirmed(
     store: &PlanningStore,
     snapshot: &PlanSnapshotV1,
 ) -> Result<bool, StoreError> {
-    snapshot.validate().map_err(StoreError::MalformedState)?;
-    match store.read_record::<ConfirmationRecord>(&confirmation_path(snapshot)) {
-        Ok((record, actual_revision)) => {
-            validate_record(&record, snapshot, actual_revision)?;
-            Ok(true)
-        }
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            Ok(false)
-        }
-        Err(error) => Err(error),
-    }
+    Ok(load_receipt(store, snapshot)?.is_some())
+}
+
+pub(super) fn is_current(
+    store: &PlanningStore,
+    snapshot: &PlanSnapshotV1,
+) -> Result<bool, StoreError> {
+    let current = crate::core::lifecycle::product_spec::current_product_hash(store)?;
+    Ok(load_receipt(store, snapshot)?
+        .is_some_and(|receipt| confirmed_product_spec_hash(&receipt) == Some(current.as_str())))
 }
 
 pub(super) fn load_receipt(
@@ -88,16 +94,33 @@ pub(super) fn load_receipt(
     snapshot: &PlanSnapshotV1,
 ) -> Result<Option<GateReceipt>, StoreError> {
     snapshot.validate().map_err(StoreError::MalformedState)?;
-    match store.read_record::<ConfirmationRecord>(&confirmation_path(snapshot)) {
-        Ok((record, actual_revision)) => {
-            validate_record(&record, snapshot, actual_revision)?;
-            Ok(Some(record.receipt))
+    let current_hash = crate::core::lifecycle::product_spec::current_product_hash(store).ok();
+    let mut receipts = Vec::new();
+    for path in store.list_record_paths("state/lifecycle_plan_confirmations")? {
+        let (record, revision) = store.read_record::<ConfirmationRecord>(&path)?;
+        if record.receipt.subject_uid != snapshot.uid {
+            continue;
         }
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            Ok(None)
+        validate_record(&record, snapshot, revision)?;
+        if path != confirmation_path(&record.uid) {
+            return Err(StoreError::MalformedState(
+                "confirmation identity does not match its path".into(),
+            ));
         }
-        Err(error) => Err(error),
+        receipts.push(record.receipt);
     }
+    // Preserve historical consent for the exact immutable plan. Critical
+    // generation gates separately require a current product binding; an
+    // explicit reconfirmation creates a new immutable record for that binding.
+    receipts.sort_by_key(|receipt| {
+        (
+            confirmed_product_spec_hash(receipt).is_some()
+                && confirmed_product_spec_hash(receipt) == current_hash.as_deref(),
+            receipt.recorded_at_unix_ms,
+            receipt.receipt_uid.clone(),
+        )
+    });
+    Ok(receipts.pop())
 }
 
 fn validate_record(
@@ -107,7 +130,12 @@ fn validate_record(
 ) -> Result<(), StoreError> {
     let receipt = &record.receipt;
     if record.schema_version != 1
-        || record.uid != snapshot.uid
+        || (record.uid != snapshot.uid
+            && confirmed_product_spec_hash(receipt)
+                .map(|hash| confirmation_uid(snapshot, hash))
+                .transpose()?
+                .as_deref()
+                != Some(record.uid.as_str()))
         || record.revision != actual_revision
         || record.revision != 1
         || record.created_at_ms == 0
@@ -117,7 +145,8 @@ fn validate_record(
         || receipt.decision != GateDecision::Approved
         || receipt.subject_uid != snapshot.uid
         || receipt.subject_sha256 != snapshot.content_hash
-        || !valid_evidence_refs(receipt, snapshot)
+        || !(valid_evidence_refs(receipt, snapshot)
+            || receipt.evidence_refs == [format!("plan:{}", snapshot.uid)])
     {
         return Err(StoreError::MalformedState(
             "plan confirmation record is malformed or stale".into(),
@@ -146,9 +175,24 @@ pub(super) fn confirmed_product_spec_hash(receipt: &GateReceipt) -> Option<&str>
     })
 }
 
-fn confirmation_path(snapshot: &PlanSnapshotV1) -> String {
-    format!("state/lifecycle_plan_confirmations/{}.json", snapshot.uid)
+fn confirmation_uid(snapshot: &PlanSnapshotV1, product_hash: &str) -> Result<String, StoreError> {
+    let namespace = uuid::Uuid::parse_str(&snapshot.uid)
+        .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+    Ok(uuid::Uuid::new_v5(
+        &namespace,
+        format!("product-confirmation:v1:{product_hash}").as_bytes(),
+    )
+    .hyphenated()
+    .to_string())
 }
+
+fn confirmation_path(uid: &str) -> String {
+    format!("state/lifecycle_plan_confirmations/{uid}.json")
+}
+
+#[cfg(test)]
+#[path = "confirmation/tests.rs"]
+mod tests;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()

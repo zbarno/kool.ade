@@ -52,7 +52,7 @@ pub(super) fn approved_snapshot(
     let snapshot_persisted =
         crate::core::lifecycle::plan_snapshot::is_persisted(&state.planning_store, &snapshot)
             .map_err(|error| AppError::Other(error.to_string()))?;
-    let confirmed = crate::core::lifecycle::plan_snapshot::has_user_confirmation(
+    let confirmed = crate::core::lifecycle::plan_snapshot::has_current_user_confirmation(
         &state.planning_store,
         &snapshot,
     )

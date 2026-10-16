@@ -77,7 +77,7 @@ impl SpecRevisionV1 {
                 .as_deref()
                 .is_some_and(|run| !is_uuid(run))
             || self.origin_events.is_empty()
-            || self.origin_events.len() > 256
+            || self.origin_events.len() > 512
             || self.origin_events.iter().any(|event| !is_uuid(event))
             || has_duplicates(&self.origin_events)
             || self.decision_refs.len() > 256

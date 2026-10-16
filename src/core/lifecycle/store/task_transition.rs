@@ -149,10 +149,12 @@ pub(super) fn apply_task_event(
     if actual != expected_revision || snapshot.record.revision != expected_revision {
         return Err(stale(&path, expected_revision, actual));
     }
-    if matches!(&proposal, TaskEvent::ReconcileSpec { .. }) {
+    if matches!(
+        &proposal,
+        TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. }
+    ) {
         let lifecycle = super::LifecycleStore::new(store);
-        lifecycle.ensure_product_specification_current(&snapshot.record.feature_uid)?;
-        lifecycle.ensure_no_pending_spec_triggers(&snapshot.record.feature_uid)?;
+        lifecycle.ensure_task_specification_current(&snapshot.record)?;
     }
     snapshot
         .record

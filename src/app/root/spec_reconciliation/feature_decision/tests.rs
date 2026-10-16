@@ -242,3 +242,6 @@ fn production_command_dispatch_declines_without_changing_target_or_product() {
 mod aggregate;
 #[path = "tests/optional_text.rs"]
 mod optional_text;
+
+#[path = "tests/sequential.rs"]
+mod sequential;

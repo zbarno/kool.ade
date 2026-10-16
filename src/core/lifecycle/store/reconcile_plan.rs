@@ -26,6 +26,24 @@ impl LifecycleStore<'_> {
         }
         super::spec_sync::require_product_specification(self)?;
         let expected_event_uids = transition_ids(plan)?;
+        let original_user = self
+            .events_for_feature(&plan.feature_uid)?
+            .into_iter()
+            .find_map(|event| match event.event {
+                LifecycleEventKind::Feature(FeatureEvent::UserPlanDecision(receipt))
+                    if event.uid == expected_event_uids[3] =>
+                {
+                    Some(receipt)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| user_receipt.clone());
+        validate_receipts(
+            plan,
+            &readiness_evidence_refs,
+            &original_user,
+            review_receipt,
+        )?;
         let transitions = [
             FeatureEvent::ReadinessRecorded {
                 evidence_refs: readiness_evidence_refs.clone(),
@@ -33,7 +51,7 @@ impl LifecycleStore<'_> {
             FeatureEvent::PlanReady {
                 plan_sha256: plan.content_hash.clone(),
             },
-            FeatureEvent::UserPlanDecision(user_receipt.clone()),
+            FeatureEvent::UserPlanDecision(original_user.clone()),
             FeatureEvent::PlanReview(review_receipt.clone()),
         ];
         let feature_path = records::feature_path(&plan.feature_uid);
@@ -66,7 +84,7 @@ impl LifecycleStore<'_> {
                     actual,
                     plan,
                     &readiness_evidence_refs,
-                    user_receipt,
+                    &original_user,
                     review_receipt,
                 )?;
                 snapshot.record

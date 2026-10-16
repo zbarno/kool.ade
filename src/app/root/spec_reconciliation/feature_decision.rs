@@ -159,7 +159,7 @@ pub(crate) fn decide_feature_delta(
     } else {
         SpecReconciliationStatusV1::Synchronized
     };
-    let mut decisions = feature.decision_refs.clone();
+    let mut decisions = current.decision_refs.clone();
     decisions.push(receipt_uid);
     let draft = SpecRevisionDraftV1 {
         content_hash: content_hash.clone(),

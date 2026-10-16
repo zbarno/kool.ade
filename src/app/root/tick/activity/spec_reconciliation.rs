@@ -6,7 +6,7 @@ use sha2::Digest as _;
 
 mod feature;
 
-pub(super) fn advance_spec_reconciliation(
+pub(in crate::app::root) fn advance_spec_reconciliation(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
 ) {
@@ -30,6 +30,10 @@ pub(super) fn advance_spec_reconciliation(
         return;
     }
 
+    if feature::advance_feature_spec_reconciliation(project, task_harness) {
+        return;
+    }
+
     let candidates =
         match LifecycleStore::new(&project.state.planning_store).spec_reconciliation_candidates() {
             Ok(candidates) => candidates,
@@ -41,6 +45,17 @@ pub(super) fn advance_spec_reconciliation(
             }
         };
     for mut task in candidates {
+        let lifecycle = LifecycleStore::new(&project.state.planning_store);
+        match lifecycle.list_spec_sync_queue(&task.feature_uid, false) {
+            Ok(entries) if entries.iter().any(|entry| entry.source_task_uid.is_none()) => continue,
+            Err(error) => {
+                project.activity.pending.push(format!(
+                    "Task specification scope could not be read: {error}"
+                ));
+                continue;
+            }
+            _ => {}
+        }
         let current_spec_sha256 = match crate::core::lifecycle::product_spec::current_product_hash(
             &project.state.planning_store,
         ) {
@@ -112,8 +127,6 @@ pub(super) fn advance_spec_reconciliation(
         }
         return;
     }
-
-    feature::advance_feature_spec_reconciliation(project, task_harness);
 }
 
 pub(crate) mod finish;
@@ -141,3 +154,7 @@ fn now_ms() -> u64 {
         .as_millis()
         .min(u64::MAX as u128) as u64
 }
+
+#[cfg(test)]
+#[path = "spec_reconciliation/review_regressions.rs"]
+mod review_regressions;

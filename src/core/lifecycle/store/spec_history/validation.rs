@@ -37,7 +37,7 @@ pub(super) fn validate_draft(
 ) -> Result<(), StoreError> {
     require_uuid(feature_uid, "feature")?;
     if draft.origin_events.is_empty()
-        || draft.origin_events.len() > 256
+        || draft.origin_events.len() > 512
         || duplicate(&draft.origin_events)
         || draft.deltas.len() > 256
     {

@@ -96,7 +96,36 @@ impl LifecycleStore<'_> {
             ));
         }
         self.ensure_product_specification_current(feature_uid)?;
-        self.ensure_no_pending_spec_triggers(feature_uid)?;
+        let namespace = uuid::Uuid::parse_str(feature_uid)
+            .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        let graph_event_uid = uuid::Uuid::new_v5(
+            &namespace,
+            format!("{}:task-graph", approved_plan_sha256).as_bytes(),
+        )
+        .hyphenated()
+        .to_string();
+        let expected_origins = std::iter::once(graph_event_uid.clone())
+            .chain(tasks.iter().map(|task| {
+                uuid::Uuid::new_v5(
+                    &namespace,
+                    format!("{}:task-created:{}", approved_plan_sha256, task.task_uid).as_bytes(),
+                )
+                .hyphenated()
+                .to_string()
+            }))
+            .collect::<Vec<_>>();
+        if self
+            .list_spec_sync_queue(feature_uid, false)?
+            .iter()
+            .any(|entry| {
+                entry.trigger != crate::core::lifecycle::SpecSyncTriggerKindV1::TaskGeneration
+                    || !expected_origins.contains(&entry.uid)
+            })
+        {
+            return Err(StoreError::MalformedState(
+                "task generation has unresolved lifecycle triggers outside this batch".into(),
+            ));
+        }
         let mut completed = feature
             .task_uids
             .iter()

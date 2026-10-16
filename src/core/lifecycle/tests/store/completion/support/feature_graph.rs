@@ -3,6 +3,9 @@ use crate::core::lifecycle::{
     TaskRecord,
 };
 
+#[path = "feature_graph/spec_baseline.rs"]
+mod spec_baseline;
+
 fn complete_subtask(lifecycle: &LifecycleStore<'_>, task_uid: &str) {
     let mut task = lifecycle.load_task(task_uid).unwrap();
     task = lifecycle
@@ -60,6 +63,7 @@ fn complete_subtask(lifecycle: &LifecycleStore<'_>, task_uid: &str) {
             qa_event,
         )
         .unwrap();
+    spec_baseline::record(lifecycle, &task);
     let spec = GateReceipt {
         receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         subject_uid: task_uid.into(),

@@ -30,7 +30,7 @@ its origin queue entries.
 | User approves a validated delta | Approval receipt and product documents persist; a new history revision records the approved target. | Task reconciliation retries against the updated specification. |
 | User adopts or declines a feature-only proposal | The feature Specification view exposes persisted findings, evidence refs, and approval-required classification. The transaction stores an immutable user authorization bound to the source sequence, requirement/event, any present old and proposed text hashes, result product hash, and decision, alongside revised documents and decision history. | Only a matching persisted authorization advances the approved target hash. Mutable decision fields alone cannot authorize adoption. Decline records the decision without changing approved target or current implementation. |
 | PR authorization | Authorization is blocked while a pending feature-level trigger or included-task trigger remains unresolved. | It is a durable queue gate, not a merge reconciliation consumer. |
-| PR open/close/merge | Provider refresh updates the durable PR preparation record and creates a queue row. | A merged SHA is promoted to a separate current-implementation projection only after the exact base, PR-head, and merge objects resolve locally; the base is an ancestor of the head and merge; and the merge is in the mapped repository's checked-out history. Merge commits require PR-head ancestry; squash commits require identical stable patch IDs from base to PR head and base to merge. The immutable receipt binds task, feature, PR, repository identity, checkout head, and specification revision/hash. Provider metadata alone is not proof. |
+| PR open/close/merge | Provider refresh updates the durable PR preparation record and creates a queue row. | A merged SHA is promoted to a separate current-implementation projection only after the exact base, PR-head, and merge objects resolve locally; the base is an ancestor of the head and merge; and the merge is in the mapped repository's checked-out history. Merge commits require PR-head ancestry; squash commits require identical whitespace-preserving patch IDs from base to PR head and base to merge. The immutable receipt binds task, feature, PR, repository identity, checkout head, and specification revision/hash. Provider metadata alone is not proof. |
 | Deployment | No authoritative deployment adapter/event exists in this repository. | Deployment hash remains “Not recorded”; do not infer it from merge or PR state. A deployment provider event adapter and signed/validated source identity are prerequisites. |
 
 Current implementation, approved target, and deployed state must not be inferred
@@ -60,10 +60,33 @@ conclusions. When a lifecycle feature already
 exists, plan confirmation requires a synchronized baseline and rejects hash
 drift or pending triggers; first confirmation records the rendered hash in its
 durable receipt. Task generation requires a recorded synchronized baseline
-and checks drift and pending triggers before writing. Completing a task into PR
-preparation applies the same current-hash and no-pending-trigger gates. PR
-authorization also checks pending queue entries.
+and checks drift and pending triggers before writing. Completing a task or subtask applies the current-hash gate and rejects pending
+feature requests and triggers for that task and its children. Independent
+sibling tasks retain their own reconciliation work and can progress separately.
+Feature requests, including manual refreshes, are consumed before task passes;
+a task pass never acknowledges a request it did not inspect. PR authorization
+rechecks the current product hash, reconciliation status, and pending queue
+entries in the included task scope. A global store revision fences these reads
+at the initial Publishing commit and at each retry's locked revision check.
+Retries exempt only the unique original authorization event whose immutable
+projection binds the exact work item and receipt. Later events remain pending
+and block the next attempt, including another Publishing event with that receipt.
 The feature-only runner does not establish current implementation state. There
 is still no authoritative deployment event source; deployment remains “Not
 recorded” until a provider adapter supplies a validated event bound to the
 workspace and deployed artifact.
+
+Confirmation records preserve consent to the immutable plan. New confirmations
+are also keyed by the rendered product hash, so explicit reconfirmation after a
+product change appends a receipt without rewriting the earlier consent. Legacy
+confirmations remain readable history; critical generation gates still require
+an explicit confirmation for the current product hash. A repeated plan bridge
+retains its original lifecycle approval event while using the current persisted
+confirmation to validate the product binding.
+
+Task batch recovery recognizes only its exact deterministic graph and task
+creation events; unrelated pending requests still block generation. Retrying an
+interrupted prefix resumes the missing task records and acknowledges the batch
+only after its final revision is recorded. Sequential proposal decisions retain
+all earlier authorizations, whose product hashes are checked against their own
+immutable revision rather than a later adoption's product hash.

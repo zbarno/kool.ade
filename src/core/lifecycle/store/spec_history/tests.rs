@@ -265,3 +265,6 @@ fn revision_rejects_an_unapproved_target_hash() {
             .is_none()
     );
 }
+
+#[path = "tests/reconfirmation.rs"]
+mod reconfirmation;

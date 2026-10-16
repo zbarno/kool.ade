@@ -48,3 +48,9 @@ fn replay_does_not_restore_parent_without_subtask_projection() {
     assert!(lifecycle.replay_feature(&feature_uid).is_err());
     assert!(!parent_path.exists());
 }
+
+#[path = "completion/review_regressions.rs"]
+mod review_regressions;
+
+#[path = "completion/publication_retries.rs"]
+mod publication_retries;
