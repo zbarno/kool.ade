@@ -100,7 +100,9 @@ impl DependencyRelayRequestV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::harness::{DependencyKind, DependencyNeed, PackageEcosystem};
+    use crate::harness::{
+        DependencyKind, DependencyNeed, DependencyPackageIdentity, PackageEcosystem,
+    };
 
     fn request() -> DependencyRelayRequestV1 {
         let id = "00000000-0000-4000-8000-000000000001".to_owned();
@@ -132,13 +134,44 @@ mod tests {
 
     #[test]
     fn relay_is_bounded_and_rejects_credential_bearing_source_urls() {
-        let mut request = request();
-        assert!(request.validate().is_ok());
-        request.cancellation_generation = 0;
-        assert!(request.validate().is_err());
-        request.cancellation_generation = 1;
-        request.need.source = Some("https://user:secret@example.invalid/pkg?token=secret".into());
-        assert!(request.validate().is_err());
+        let mut invalid = request();
+        assert!(invalid.validate().is_ok());
+        invalid.cancellation_generation = 0;
+        assert!(invalid.validate().is_err());
+        invalid.cancellation_generation = 1;
+        invalid.need.source = Some("https://user:secret@example.invalid/pkg?token=secret".into());
+        assert!(invalid.validate().is_err());
+
+        let mut command_boundary = request();
+        command_boundary.need.command = "x".repeat(2048);
+        assert!(command_boundary.validate().is_ok());
+        command_boundary.need.command.push('x');
+        assert!(command_boundary.validate().is_err());
+
+        let mut reason_boundary = request();
+        reason_boundary.need.reason = "x".repeat(1024);
+        assert!(reason_boundary.validate().is_ok());
+        reason_boundary.need.reason.push('x');
+        assert!(reason_boundary.validate().is_err());
+
+        let package = DependencyPackageIdentity {
+            package: "pkg".into(),
+            version: "1".into(),
+            source: "registry".into(),
+            integrity: "hash".into(),
+        };
+        let mut package_boundary = request();
+        package_boundary.need.introduced_packages = vec![package.clone(); 128];
+        assert!(package_boundary.validate().is_ok());
+        package_boundary.need.introduced_packages.push(package);
+        assert!(package_boundary.validate().is_err());
+
+        let mut oversized = request();
+        oversized.need.source = Some(format!(
+            "https://registry.npmjs.org/{}",
+            "x".repeat(MAX_RELAY_BYTES)
+        ));
+        assert!(oversized.validate().is_err());
     }
 
     #[test]

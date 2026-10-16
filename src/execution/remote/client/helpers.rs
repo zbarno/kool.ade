@@ -131,14 +131,26 @@ mod tests {
 
     #[test]
     fn negotiated_health_rejects_incompatible_wire_versions() {
-        let result = negotiated_probe(serde_json::json!({
-            "wire_version": PROTOCOL_VERSION_V1 + 1,
-            "probe": {}
-        }));
-        assert_eq!(
-            result.unwrap_err().kind,
-            ExecutionErrorKind::WorkerIncompatible
-        );
+        for (response_version, probe_version) in [
+            (PROTOCOL_VERSION_V1 + 1, PROTOCOL_VERSION_V1),
+            (PROTOCOL_VERSION_V1, PROTOCOL_VERSION_V1 + 1),
+        ] {
+            let error = negotiated_probe(serde_json::json!({
+                "wire_version": response_version,
+                "probe": {
+                    "wire_version": probe_version,
+                    "available": false,
+                    "compatible": false,
+                    "failure": null
+                }
+            }))
+            .unwrap_err();
+
+            assert_eq!(error.kind, ExecutionErrorKind::WorkerIncompatible);
+            assert!(error.message.contains(&format!(
+                "worker wire version mismatch: response={response_version}, probe={probe_version}"
+            )));
+        }
     }
 
     #[test]
