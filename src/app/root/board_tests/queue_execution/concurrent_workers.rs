@@ -179,6 +179,9 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&repo).unwrap();
+        // Plan confirmation binds to the current product specification, just
+        // as a connected project does after its initial bootstrap.
+        project.state.bootstrap_missing().unwrap();
         project.task_documents = docs.clone();
         project.queue.max_parallel = 2;
         project.queue.auto_publish = true;
