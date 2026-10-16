@@ -2,6 +2,10 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use crate::execution::contract::{EventPageRequestV1, EventStreamValidator, ExecutionEventV1};
 
+#[cfg(test)]
+#[path = "journal/tests.rs"]
+mod tests;
+
 const MAX_JOURNAL_EVENTS: usize = 65_536;
 const MAX_JOURNAL_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_EVENT_RECORD_BYTES: usize = 512 * 1024;
@@ -65,15 +69,9 @@ pub fn append_event(task_id: &str, event: &ExecutionEventV1) -> Result<(), Strin
     let mut total_bytes = 0_u64;
     for entry in fs::read_dir(&path).map_err(|_| "execution journal could not be scanned")? {
         let entry = entry.map_err(|_| "execution journal could not be scanned")?;
-        let metadata = fs::symlink_metadata(entry.path())
-            .map_err(|_| "execution journal entry could not be inspected")?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| "execution journal filename is invalid")?;
-        if is_atomic_temp_name(&name) {
+        let Some((name, metadata)) = inspect_journal_entry(&entry)? else {
             continue;
-        }
+        };
         let sequence = parse_event_filename(&name)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             return Err("execution journal entry is not a regular file".into());
@@ -140,15 +138,9 @@ pub fn load_events(
     let mut total_bytes = 0_u64;
     for entry in fs::read_dir(path).map_err(|_| "execution journal could not be scanned")? {
         let entry = entry.map_err(|_| "execution journal could not be scanned")?;
-        let metadata = fs::symlink_metadata(entry.path())
-            .map_err(|_| "execution journal entry could not be inspected")?;
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|_| "execution journal filename is invalid")?;
-        if is_atomic_temp_name(&name) {
+        let Some((name, metadata)) = inspect_journal_entry(&entry)? else {
             continue;
-        }
+        };
         let sequence = parse_event_filename(&name)?;
         if !metadata.is_file() || metadata.file_type().is_symlink() {
             return Err("execution journal entry is not a regular file".into());
@@ -265,4 +257,17 @@ fn is_atomic_temp_name(value: &str) -> bool {
     parse_event_filename(event_name).is_ok()
         && pid.bytes().all(|byte| byte.is_ascii_digit())
         && sequence.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn inspect_journal_entry(entry: &fs::DirEntry) -> Result<Option<(String, fs::Metadata)>, String> {
+    let name = entry
+        .file_name()
+        .into_string()
+        .map_err(|_| "execution journal filename is invalid")?;
+    if is_atomic_temp_name(&name) {
+        return Ok(None);
+    }
+    let metadata = fs::symlink_metadata(entry.path())
+        .map_err(|_| "execution journal entry could not be inspected")?;
+    Ok(Some((name, metadata)))
 }
