@@ -27,6 +27,25 @@ fn planning_request(mode: ExecutionMode) -> PlanningRequest {
     }
 }
 
+fn runtime_qa_review_request() -> PlanningRequest {
+    let mut request = planning_request(ExecutionMode::ReadOnlyAnalysis);
+    request.telemetry_phase = Some("runtime_qa_review".into());
+    request.prompt_manifest = Some(crate::harness::prompt_catalog::PromptManifest {
+        role_version: "runtime_qa/v2".into(),
+        system_template_sha256: "0".repeat(64),
+        policy_template_sha256: "0".repeat(64),
+        user_template_sha256: "0".repeat(64),
+        output_schema_version: "ReviewVerdictV1".into(),
+        privilege_profile: "read_only; isolated_fresh_review_context".into(),
+    });
+    request.review_identity = Some(crate::harness::ReviewExecutionIdentity {
+        execution_id: "00000000-0000-4000-8000-000000000001".into(),
+        session_id: "00000000-0000-4000-8000-000000000002".into(),
+    });
+    request.prompt_body = "reviewer execution 00000000-0000-4000-8000-000000000001 session 00000000-0000-4000-8000-000000000002".into();
+    request
+}
+
 #[test]
 fn reviewer_dispatch_requires_distinct_controller_identity_and_read_only_prompt() {
     let mut request = planning_request(ExecutionMode::ReadOnlyAnalysis);
@@ -54,6 +73,30 @@ fn reviewer_dispatch_requires_distinct_controller_identity_and_read_only_prompt(
         .clone();
     request.review_identity.as_mut().unwrap().session_id = execution_id;
     assert!(super::validate_review_invocation(&request).is_err());
+}
+
+#[test]
+fn runtime_qa_reviewer_dispatch_uses_a_fresh_toolless_context() {
+    let request = runtime_qa_review_request();
+    assert!(super::validate_review_invocation(&request).is_ok());
+    let boundary = crate::harness::execution_security::ApplicationBoundary::new(&request).unwrap();
+    assert_eq!(boundary.access(), ToolAccess::None);
+
+    let mut wrong_phase = request.clone();
+    wrong_phase.telemetry_phase = Some("independent_code_review".into());
+    assert!(super::validate_review_invocation(&wrong_phase).is_err());
+
+    let mut writable_mode = request.clone();
+    writable_mode.mode = ExecutionMode::Implementation;
+    assert!(super::validate_review_invocation(&writable_mode).is_err());
+
+    let mut attached_workspace = request;
+    attached_workspace.execution_workspace = Some(crate::execution::contract::WorkspaceRef {
+        project_id: "00000000-0000-4000-8000-000000000003".into(),
+        task_id: "00000000-0000-4000-8000-000000000004".into(),
+        source_sha: "a".repeat(40),
+    });
+    assert!(super::validate_review_invocation(&attached_workspace).is_err());
 }
 
 #[test]

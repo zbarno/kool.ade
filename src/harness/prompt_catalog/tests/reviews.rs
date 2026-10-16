@@ -56,6 +56,9 @@ fn review_prompt_rejects_missing_or_malformed_session_identity() {
 
 #[test]
 fn strict_review_validation_rejects_wrong_subject_and_false_pass() {
+    let missing_subject = r#"{"pass":false,"coverage":[],"findings":[],"untested":[]}"#;
+    assert!(validate_output(PromptRole::CodeReviewer, missing_subject, None).is_err());
+
     let wrong_subject =
         r#"{"subject_hash":"wrong","pass":true,"coverage":[],"findings":[],"untested":[]}"#;
     assert!(
@@ -102,6 +105,28 @@ fn known_failed_requirement_cannot_be_hidden_by_zero_findings() {
 }
 
 #[test]
+fn praise_only_review_cannot_omit_required_coverage() {
+    let hash = "e".repeat(64);
+    let praise_only = format!(
+        r#"{{"subject_hash":"{hash}","pass":true,"coverage":[],"findings":[],"untested":[]}}"#
+    );
+    let context = super::schemas::OutputValidationContext {
+        expected_subject_hash: Some(&hash),
+        required_requirements: vec!["R1: persisted state survives restart".into()],
+        ..Default::default()
+    };
+    assert!(
+        super::schemas::validate_output_with_context(
+            PromptRole::CodeReviewer,
+            &praise_only,
+            &context
+        )
+        .unwrap_err()
+        .contains("omits a required acceptance check")
+    );
+}
+
+#[test]
 fn hallucinated_test_or_screenshot_evidence_cannot_validate() {
     let hash = "d".repeat(64);
     let output = format!(
@@ -115,7 +140,7 @@ fn hallucinated_test_or_screenshot_evidence_cannot_validate() {
     };
     assert!(
         super::schemas::validate_output_with_context(
-            PromptRole::RuntimeQaReviewer,
+            PromptRole::RuntimeQaReviewerV2,
             &output,
             &context
         )

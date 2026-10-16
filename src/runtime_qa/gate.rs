@@ -22,7 +22,7 @@ pub fn approved_gate_receipt(
         || result.subject_sha != request.code_head_sha
         || !matches!(
             validate_prompt_manifest(&prompt),
-            Ok(PromptRole::RuntimeQaReviewer)
+            Ok(PromptRole::RuntimeQaReviewer | PromptRole::RuntimeQaReviewerV2)
         )
     {
         return Err("runtime QA gate does not match request, subject, or reviewer prompt".into());

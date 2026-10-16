@@ -475,8 +475,8 @@ fn clone_dir_tree(src: &std::path::Path, dst: &std::path::Path) {
 // with FRESH fixtures up to MAX_ATTEMPTS. A final loud panic
 // recommends cargo-nextest, which isolates each test process.
 //
-const PREFACE_OPENING: &str = "You are Kool.ad/e Man.ager, called Kool.ad/e Man for short: the user's proactive project manager";
 const FRAG_ROUTE: &str = "violates the routing law";
+const PREFACE_OPENING: &str = "You are Kool.ad/e Man.ager, called Kool.ad/e Man for short: the user's proactive project manager";
 const FRAG_SCHEMA: &str = "unsupported schema_version";
 const FRAG_SYNTAX: &str = "Structured JSON block is malformed";
 const FRAG_ABSENT: &str = "did not include the required structured JSON block";
@@ -759,41 +759,31 @@ fn persona_boundary_hostile_persona_pipeline_holdout() {
             hip, dip,
             "stage {idx}: presentations must DIFFER across personas"
         );
-        // AC3 - exactly ONE subordination marker per presented
-        // stream: the hostile document cannot mint a second.
-        assert_eq!(
-            hip.matches(crate::core::prompt::PERSONA_LAYER_INTRO)
-                .count(),
-            1,
-            "stage {idx}: the hostile stream must carry exactly one persona intro"
-        );
-        assert_eq!(
-            dip.matches(crate::core::prompt::PERSONA_LAYER_INTRO)
-                .count(),
-            1,
-            "stage {idx}: the default stream must carry exactly one persona intro"
-        );
-        assert!(
-            hip.starts_with(PREFACE_OPENING),
-            "stage {idx}: standing opening must lead the hostile presentation"
-        );
-        assert!(
-            dip.starts_with(PREFACE_OPENING),
-            "stage {idx}: standing opening must lead the default presentation"
-        );
-        assert!(
-            hip.trim_end().ends_with(HOSTILE_PERSONA),
-            "stage {idx}: hostile stream must END in the hostile layer verbatim (tail: {:?})",
-            doc_excerpt(hip, 60)
-        );
-        // NB: the shipped sentinel document carries a trailing
-        // newline; compare on the trimmed form of BOTH sides so
-        // the assertion is byte-precise about CONTENT, not padding.
-        assert!(
-            dip.trim_end().ends_with(SHIPPED_DEFAULT_PERSONA.trim_end()),
-            "stage {idx}: default stream must END in the shipped sentinel verbatim (tail: {:?})",
-            doc_excerpt(dip, 60)
-        );
+        if idx < 2 {
+            // Envelope and veto probes call the legacy composer directly.
+            for capture in [hip, dip] {
+                assert_eq!(
+                    capture
+                        .matches(crate::core::prompt::PERSONA_LAYER_INTRO)
+                        .count(),
+                    1
+                );
+                assert!(capture.starts_with(PREFACE_OPENING));
+            }
+            assert!(hip.trim_end().ends_with(HOSTILE_PERSONA));
+            assert!(dip.trim_end().ends_with(SHIPPED_DEFAULT_PERSONA.trim_end()));
+        } else {
+            // The card attempt exercises the migrated production request:
+            // persona text is typed user data, outside the trusted system.
+            for (capture, expected) in [(hip, HOSTILE_PERSONA), (dip, SHIPPED_DEFAULT_PERSONA)] {
+                let (system, _) = capture
+                    .split_once("\nUSER\n")
+                    .expect("catalog request separates trusted system from user payload");
+                assert!(system.starts_with("SYSTEM\nYou are the Planning Analyst"));
+                assert!(!system.contains(expected));
+                assert_eq!(captured_persona(capture).as_deref(), Some(expected));
+            }
+        }
     }
 }
 

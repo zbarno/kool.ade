@@ -175,7 +175,7 @@ fn reviewer_prompt(
     reviewer_session: &str,
 ) -> PromptManifest {
     render(&RoleInputV1 {
-        role: PromptRole::RuntimeQaReviewer,
+        role: PromptRole::RuntimeQaReviewerV2,
         workspace_uid: request.feature_uid.clone(),
         feature_uid: request.feature_uid.clone(),
         task_uid: Some(request.parent_task_uid.clone()),

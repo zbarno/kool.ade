@@ -1,8 +1,12 @@
+use super::readiness::parse_version;
 use super::*;
 use crate::harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
+
+#[path = "tests/catalog_failures.rs"]
+mod catalog_failures;
 
 #[test]
 fn parses_json_events_and_usage() {
@@ -50,31 +54,35 @@ fn probe_distinguishes_ready_invalid_and_unconfigured() {
         &root,
         "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; elif [ \"$2\" = \"models\" ]; then echo 'openai/gpt-test'; fi\nexit 0",
     );
-    assert_eq!(
-        probe(&ready).unwrap(),
-        ("1.2.3".into(), vec!["openai/gpt-test".into()])
-    );
+    let ready_report = probe(&ready, Duration::from_secs(1)).unwrap();
+    assert_eq!(ready_report.version, "1.2.3");
+    assert_eq!(ready_report.models, vec!["openai/gpt-test"]);
+    assert_eq!(ready_report.readiness, OpenCodeReadiness::Ready);
     let empty = fake_cli(
         &root,
         "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; fi\nexit 0",
     );
+    let unconfigured = probe(&empty, Duration::from_secs(1)).unwrap();
     assert_eq!(
-        probe(&empty).unwrap_err().0,
+        unconfigured.readiness,
         OpenCodeReadiness::ConfigurationRequired
     );
+    assert_eq!(unconfigured.version, "1.2.3");
+    assert!(unconfigured.diagnostic.contains("opencode auth login"));
+    assert!(unconfigured.diagnostic.contains("set up a local model"));
     let invalid = fake_cli(&root, "echo invalid; exit 0");
     assert_eq!(
-        probe(&invalid).unwrap_err().0,
+        probe(&invalid, Duration::from_secs(1)).unwrap_err().0,
         OpenCodeReadiness::InvalidInstallation
     );
     let auth = fake_cli(
         &root,
         "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi; echo 'Authentication required' >&2; exit 1",
     );
-    let (readiness, diagnostic) = probe(&auth).unwrap_err();
-    assert_eq!(readiness, OpenCodeReadiness::AuthenticationRequired);
-    assert!(diagnostic.contains("auth login"));
-    assert!(!diagnostic.contains("Authentication required"));
+    let report = probe(&auth, Duration::from_secs(1)).unwrap();
+    assert_eq!(report.readiness, OpenCodeReadiness::AuthenticationRequired);
+    assert!(report.diagnostic.contains("auth login"));
+    assert!(!report.diagnostic.contains("Authentication required"));
     std::fs::remove_dir_all(root).unwrap();
 }
 

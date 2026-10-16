@@ -9,7 +9,9 @@ pub const OPENCODE_BINARY_ENV: &str = "KOOLADE_OPENCODE_BIN";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 
 mod execute;
+mod readiness;
 mod stream;
+use readiness::{probe, probe_version};
 #[cfg(test)]
 use stream::{OpenCodeEvent, parse_event};
 
@@ -22,6 +24,7 @@ pub enum OpenCodeReadiness {
     InvalidInstallation,
     AuthenticationRequired,
     ConfigurationRequired,
+    CatalogUnavailable,
     Ready,
 }
 
@@ -88,16 +91,30 @@ impl OpenCodeHarness {
                 };
             }
         };
-        match probe(&binary) {
-            Ok((version, models)) => OpenCodeProbeReport {
-                status: format!("opencode {version}"),
-                version: Some(version),
-                diagnostic: String::new(),
+        match probe(&binary, PROBE_TIMEOUT) {
+            Ok(outcome) => OpenCodeProbeReport {
+                status: match outcome.readiness {
+                    OpenCodeReadiness::Ready => format!("opencode {}", outcome.version),
+                    OpenCodeReadiness::CatalogUnavailable => {
+                        format!("opencode {} (model catalog unavailable)", outcome.version)
+                    }
+                    OpenCodeReadiness::AuthenticationRequired => {
+                        "opencode (authentication required)".into()
+                    }
+                    OpenCodeReadiness::ConfigurationRequired => {
+                        "opencode (configuration required)".into()
+                    }
+                    OpenCodeReadiness::Missing | OpenCodeReadiness::InvalidInstallation => {
+                        "opencode (unavailable)".into()
+                    }
+                },
+                version: Some(outcome.version),
+                diagnostic: outcome.diagnostic,
                 binary: Some(binary),
-                readiness: OpenCodeReadiness::Ready,
-                models,
+                readiness: outcome.readiness,
+                models: outcome.models,
             },
-            Err((readiness, diagnostic)) => OpenCodeProbeReport {
+            Err((readiness, diagnostic, version)) => OpenCodeProbeReport {
                 status: match readiness {
                     OpenCodeReadiness::InvalidInstallation => "opencode (unavailable)".into(),
                     OpenCodeReadiness::AuthenticationRequired => {
@@ -106,9 +123,9 @@ impl OpenCodeHarness {
                     OpenCodeReadiness::ConfigurationRequired => {
                         "opencode (configuration required)".into()
                     }
-                    _ => "opencode (not installed)".into(),
+                    _ => "opencode (unavailable)".into(),
                 },
-                version: None,
+                version,
                 diagnostic,
                 binary: Some(binary),
                 readiness,
@@ -118,113 +135,15 @@ impl OpenCodeHarness {
     }
 
     pub(super) fn checked_binary(path: &Path) -> Result<String, AppError> {
-        probe(path)
-            .map(|(version, _)| version)
-            .map_err(|(_, detail)| AppError::Other(detail))
-    }
-}
-
-fn probe(path: &Path) -> Result<(String, Vec<String>), (OpenCodeReadiness, String)> {
-    let version_output = run(path, &["--version"])
-        .map_err(|detail| (OpenCodeReadiness::InvalidInstallation, detail))?;
-    let version = parse_version(&version_output).ok_or_else(|| {
-        (
-            OpenCodeReadiness::InvalidInstallation,
-            "OpenCode did not report a parseable version".to_owned(),
+        let version = probe_version(path, PROBE_TIMEOUT).map_err(AppError::Other)?;
+        crate::harness::execution_security::ProfileProbeEvidence::probe(
+            crate::harness::execution_security::CliProvider::OpenCode,
+            path,
+            version.clone(),
         )
-    })?;
-    crate::harness::execution_security::ProfileProbeEvidence::probe(
-        crate::harness::execution_security::CliProvider::OpenCode,
-        path,
-        version.clone(),
-    )
-    .map_err(|error| (OpenCodeReadiness::InvalidInstallation, error.to_string()))?;
-    let model_output = run(path, &["--pure", "models"]).map_err(|detail| {
-        let lowered = detail.to_ascii_lowercase();
-        let readiness = if [
-            "authentication",
-            "not authenticated",
-            "api key",
-            "unauthorized",
-        ]
-        .iter()
-        .any(|marker| lowered.contains(marker))
-        {
-            OpenCodeReadiness::AuthenticationRequired
-        } else {
-            OpenCodeReadiness::InvalidInstallation
-        };
-        (
-            readiness,
-            format!("OpenCode could not list configured models: {detail}"),
-        )
-    })?;
-    let mut models = model_output
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.contains('/') && !line.starts_with('/') && !line.ends_with('/'))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    models.sort();
-    models.dedup();
-    if models.is_empty() {
-        return Err((
-            OpenCodeReadiness::ConfigurationRequired,
-            "OpenCode has no configured models. Configure a provider with `opencode auth login` or set up a local model, then rediscover.".into(),
-        ));
+        .map_err(|error| AppError::Other(error.to_string()))?;
+        Ok(version)
     }
-    Ok((version, models))
-}
-
-fn run(binary: &Path, args: &[&str]) -> Result<String, String> {
-    let argv = std::iter::once(binary.to_string_lossy().into_owned())
-        .chain(args.iter().map(|arg| (*arg).to_owned()))
-        .collect::<Vec<_>>();
-    let output = crate::harness::discovery::run(
-        &argv,
-        PROBE_TIMEOUT,
-        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
-        crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
-        crate::harness::execution_security::CliProvider::OpenCode.excluded_child_environment(),
-    )
-    .map_err(|error| format!("OpenCode readiness command failed: {error}"))?;
-    if output.stdout_truncated || output.stderr_truncated {
-        return Err("OpenCode readiness output exceeded the size limit".into());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    if output.success {
-        Ok(stdout)
-    } else {
-        let diagnostic = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-        let authentication_required = [
-            "authentication",
-            "not authenticated",
-            "api key",
-            "unauthorized",
-        ]
-        .iter()
-        .any(|marker| diagnostic.contains(marker));
-        Err(if authentication_required {
-            "OpenCode authentication is required. Run `opencode auth login` and retry.".into()
-        } else if args.contains(&"models") {
-            "OpenCode model discovery failed. Check provider configuration and retry.".into()
-        } else {
-            "OpenCode version check failed. Verify the installation and retry.".into()
-        })
-    }
-}
-
-fn parse_version(text: &str) -> Option<String> {
-    let start = text.find(|ch: char| ch.is_ascii_digit())?;
-    let version = text[start..]
-        .split_whitespace()
-        .next()?
-        .trim_start_matches('v');
-    let mut parts = version.split('.');
-    for _ in 0..3 {
-        parts.next()?.parse::<u64>().ok()?;
-    }
-    Some(version.to_owned())
 }
 
 fn executable(path: &Path) -> bool {

@@ -79,6 +79,7 @@ pub(crate) fn validate_review_invocation(
         match manifest.role_version.as_str() {
             "code_review/v1" => Some("independent_code_review"),
             "plan_reviewer/v1" => Some("independent_plan_review"),
+            "runtime_qa/v2" => Some("runtime_qa_review"),
             _ => None,
         }
     });
@@ -88,7 +89,7 @@ pub(crate) fn validate_review_invocation(
         && request.prompt_manifest.as_ref().is_some_and(|manifest| {
             matches!(
                 manifest.role_version.as_str(),
-                "code_review/v1" | "plan_reviewer/v1"
+                "code_review/v1" | "plan_reviewer/v1" | "runtime_qa/v2"
             ) && manifest.privilege_profile == "read_only; isolated_fresh_review_context"
         })
         && valid_uuid(&identity.execution_id)
@@ -101,7 +102,7 @@ pub(crate) fn validate_review_invocation(
         Ok(())
     } else {
         Err(crate::error::AppError::HarnessFailed {
-            reason: "Independent review request lacks a valid fresh controller run/session identity, CodeReviewer prompt, or read-only boundary. No provider was started.".into(),
+            reason: "Independent review request lacks a valid fresh controller run/session identity, reviewer prompt, or read-only boundary. No provider was started.".into(),
             stderr_tail: String::new(),
         })
     }

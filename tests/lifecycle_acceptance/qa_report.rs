@@ -145,7 +145,7 @@ pub(super) fn save_accepted_evidence_fixture(
         retention_policy: "user-local/30-days".into(),
     };
     let mut receipt = role_receipt_for_author(
-        PromptRole::RuntimeQaReviewer,
+        PromptRole::RuntimeQaReviewerV2,
         GateDecision::Approved,
         &task.task_uid,
         &request.complete_diff_hash,

@@ -136,5 +136,5 @@ fn reviewer_request_without_bound_prompt_and_session_fails_before_boundary_creat
         Ok(_) => panic!("unbound reviewer request must fail before provider startup"),
         Err(error) => error,
     };
-    assert!(error.to_string().contains("CodeReviewer prompt"));
+    assert!(error.to_string().contains("reviewer prompt"));
 }

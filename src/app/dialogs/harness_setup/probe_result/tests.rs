@@ -12,6 +12,7 @@ fn probe() -> HarnessProbe {
         default_model: Some("model-a".into()),
         model_catalog_fresh: true,
         configuration_required: false,
+        authentication_required: false,
         implementation_available: false,
     }
 }
@@ -41,6 +42,7 @@ fn authentication_and_optional_catalog_failures_have_stable_codes() {
     let mut auth = probe();
     auth.ready = false;
     auth.configuration_required = true;
+    auth.authentication_required = true;
     auth.diagnostic = Some("Sign in at https://user:secret@example.test/login".into());
     let auth_result = from_harness_probe(&auth, 1, 10, 20);
     assert_eq!(auth_result.status, ProbeStatus::NeedsAuthentication);
