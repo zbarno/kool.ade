@@ -81,6 +81,34 @@ fn windows_process_tree_terminates_descendants_when_owner_exits() {
         is_in_job, 0,
         "descendant was not assigned to the production job object"
     );
+    let mut limits =
+        windows_sys::Win32::System::JobObjects::JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    let queried = unsafe {
+        windows_sys::Win32::System::JobObjects::QueryInformationJobObject(
+            tree.0,
+            windows_sys::Win32::System::JobObjects::JobObjectExtendedLimitInformation,
+            (&mut limits as *mut windows_sys::Win32::System::JobObjects::JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
+                .cast::<std::ffi::c_void>(),
+            std::mem::size_of_val(&limits) as u32,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_ne!(queried, 0, "query production job limits");
+    assert_ne!(
+        limits.BasicLimitInformation.LimitFlags
+            & windows_sys::Win32::System::JobObjects::JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        0,
+        "production job lacks kill-on-close limit"
+    );
+    let mut handle_flags = 0;
+    let handle_checked =
+        unsafe { windows_sys::Win32::Foundation::GetHandleInformation(tree.0, &mut handle_flags) };
+    assert_ne!(handle_checked, 0, "query production job handle flags");
+    assert_eq!(
+        handle_flags & windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
+        0,
+        "production job handle must not be inherited"
+    );
 
     drop(tree);
     std::thread::sleep(Duration::from_millis(6500));
