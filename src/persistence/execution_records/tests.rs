@@ -62,6 +62,25 @@ fn execution_records_validate_and_round_trip_outside_the_repository() {
 }
 
 #[test]
+fn latest_task_execution_record_uses_persisted_update_order() {
+    let root =
+        std::env::temp_dir().join(format!("koolade-execution-latest-{}", uuid::Uuid::new_v4()));
+    let _home = crate::test_support::KooladeHomeGuard::set(&root);
+    let mut earlier = record();
+    earlier.updated_at_unix_ms = 20;
+    earlier.started_at_unix_ms = 10;
+    let mut later = record();
+    later.task_id = earlier.task_id.clone();
+    later.updated_at_unix_ms = 30;
+    later.started_at_unix_ms = 25;
+    save(&earlier).unwrap();
+    save(&later).unwrap();
+
+    assert_eq!(latest_for_task(&earlier.task_id).unwrap(), Some(later));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn remote_execution_record_binds_controller_target_without_changing_worker_target() {
     let mut record = record();
     let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();

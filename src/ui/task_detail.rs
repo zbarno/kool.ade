@@ -24,6 +24,8 @@ pub struct ViewModel {
     pub feature_metrics: Option<crate::persistence::telemetry::ImplementationMetrics>,
     pub target_preference: crate::execution::contract::TargetPreference,
     pub target_choices: Vec<TargetChoice>,
+    pub execution_evidence: Option<crate::persistence::execution_records::ExecutionRecordV1>,
+    pub execution_evidence_error: Option<String>,
     pub lifecycle_pr_work_uid: Option<String>,
     pub lifecycle_pr_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub lifecycle_pr_error: Option<String>,
