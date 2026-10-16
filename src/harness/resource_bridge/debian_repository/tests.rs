@@ -63,6 +63,14 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
 }
 
 #[test]
+fn unpinned_archive_keys_cannot_block_a_valid_pinned_signer() {
+    let mut keyring = BOOKWORM_KEYRING.to_vec();
+    keyring.extend(fixture("archive-keyring.gpg"));
+    let release = verify_inrelease_with_keyring(&fixture("InRelease"), &keyring, &[SIGNER]);
+    assert!(release.is_ok());
+}
+
+#[test]
 fn signed_index_size_and_digest_are_enforced() {
     let release = verify_inrelease_with_keyring(
         &fixture("InRelease"),

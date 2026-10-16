@@ -10,6 +10,10 @@ use bollard::{
 };
 use futures_util::StreamExt;
 
+mod build_diagnostics;
+
+use build_diagnostics::sanitize_build_diagnostic;
+
 type PackageIdentity = crate::execution::docker::image_extension::builder::PackageArtifactIdentity;
 type GeneratedContext = crate::execution::docker::image_extension::builder::GeneratedImageContext;
 
@@ -80,17 +84,24 @@ pub(super) fn build<'a>(
             api.docker
                 .build_image(options, None, Some(body_full(context.tar.clone().into())));
         while let Some(result) = stream.next().await {
-            let result = result.map_err(|_| {
-                failure(
-                    PrerequisiteCode::ImageUnavailable,
+            let result = result.map_err(|error| {
+                build_failure(
                     "Docker failed to build the authorized offline system image",
-                    false,
+                    &error.to_string(),
                 )
             })?;
-            if result.error_detail.is_some() {
+            if let Some(detail) = result.error_detail {
+                let diagnostic = detail
+                    .message
+                    .as_deref()
+                    .or(result.stream.as_deref())
+                    .unwrap_or("Docker returned an unspecified build error");
                 return Err(failure(
                     PrerequisiteCode::ImageUnavailable,
-                    "Docker rejected the authorized offline system image build",
+                    &format!(
+                        "Docker rejected the authorized offline system image build: {}",
+                        sanitize_build_diagnostic(diagnostic)
+                    ),
                     false,
                 ));
             }
@@ -118,6 +129,14 @@ pub(super) fn build<'a>(
         }
         Ok(id)
     })
+}
+
+fn build_failure(message: &str, diagnostic: &str) -> PrerequisiteFailure {
+    failure(
+        PrerequisiteCode::ImageUnavailable,
+        &format!("{message}: {}", sanitize_build_diagnostic(diagnostic)),
+        false,
+    )
 }
 
 fn has_identity_labels(

@@ -14,6 +14,8 @@ use pgp::{
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Cursor};
 
+mod key_bindings;
+
 const MAX_INRELEASE_BYTES: usize = 16 * 1024 * 1024;
 const BOOKWORM_KEYRING: &[u8] =
     include_bytes!("../../../containers/keys/debian-bookworm-archive-keyring.gpg");
@@ -58,10 +60,13 @@ fn verify_inrelease_with_keyring(
     let mut verified = None;
     for key in keys {
         let key = key.map_err(|error| anyhow::anyhow!("invalid Debian archive key: {error:#}"))?;
-        key.verify_bindings()
-            .map_err(|error| anyhow::anyhow!("invalid Debian archive key bindings: {error}"))?;
         let fingerprint = format!("{:X}", key.fingerprint());
-        if expected_fingerprints.contains(&fingerprint.as_str()) && message.verify(&key).is_ok() {
+        if !expected_fingerprints.contains(&fingerprint.as_str()) {
+            continue;
+        }
+        key_bindings::verify_self_bindings(&key)
+            .map_err(|error| anyhow::anyhow!("invalid Debian archive key bindings: {error}"))?;
+        if message.verify(&key).is_ok() {
             anyhow::ensure!(
                 verified.is_none(),
                 "Debian InRelease has ambiguous approved signers"
