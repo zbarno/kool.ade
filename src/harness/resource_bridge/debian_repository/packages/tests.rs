@@ -7,6 +7,8 @@ use std::{collections::BTreeMap, io::Write};
 
 #[path = "tests/architecture_qualifiers.rs"]
 mod architecture_qualifiers;
+#[path = "tests/duplicate_versions.rs"]
+mod duplicate_versions;
 
 fn record(name: &str, depends: Option<&str>) -> PackageRecord {
     let mut fields = BTreeMap::from([

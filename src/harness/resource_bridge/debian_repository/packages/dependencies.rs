@@ -221,6 +221,10 @@ pub(super) fn satisfies_version(actual: &str, constraint: Option<&VersionConstra
     }
 }
 
+pub(super) fn compare_versions(left: &str, right: &str) -> anyhow::Result<std::cmp::Ordering> {
+    debian_version_cmp(left, right)
+}
+
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128

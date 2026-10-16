@@ -63,21 +63,38 @@ impl PackageIndex {
             "Debian package index exceeds its size limit"
         );
         let text = std::str::from_utf8(&plain)?;
-        let mut records = BTreeMap::new();
+        let mut records = BTreeMap::<String, PackageRecord>::new();
+        let mut stanza_count = 0;
         let mut stanza = BTreeMap::<String, String>::new();
         let mut continuation: Option<String> = None;
         for line in text.lines().chain(std::iter::once("")) {
             if line.is_empty() {
                 if !stanza.is_empty() {
-                    let record = parse_record(&stanza)?;
+                    stanza_count += 1;
                     anyhow::ensure!(
-                        records.insert(record.name.clone(), record).is_none(),
-                        "Debian index has duplicate package names"
-                    );
-                    anyhow::ensure!(
-                        records.len() <= MAX_PACKAGE_STANZAS,
+                        stanza_count <= MAX_PACKAGE_STANZAS,
                         "Debian package index has too many records"
                     );
+                    let record = parse_record(&stanza)?;
+                    if let Some(existing) = records.get(&record.name) {
+                        anyhow::ensure!(
+                            existing.architecture == record.architecture,
+                            "Debian index has duplicate package names across architectures"
+                        );
+                        let ordering = super::dependencies::compare_versions(
+                            &record.version,
+                            &existing.version,
+                        )?;
+                        anyhow::ensure!(
+                            !ordering.is_eq(),
+                            "Debian index has duplicate package name and version"
+                        );
+                        if ordering.is_gt() {
+                            records.insert(record.name.clone(), record);
+                        }
+                    } else {
+                        records.insert(record.name.clone(), record);
+                    }
                     stanza.clear();
                 }
                 continuation = None;
