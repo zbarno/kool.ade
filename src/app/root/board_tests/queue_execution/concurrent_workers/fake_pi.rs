@@ -111,6 +111,13 @@ if '--version' in sys.argv:
 prompt = sys.stdin.read()
 ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
 root = pathlib.Path(__file__).parent
+def wait_for_marker(name):
+    deadline = time.monotonic() + 30
+    marker = root / name
+    while not marker.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if not marker.exists():
+        raise TimeoutError('timed out waiting for test marker: ' + name)
 if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
@@ -149,10 +156,9 @@ implementation_call = 'koolade_dependency' in tool_names or mcp_access == 'imple
 if ticket_line is None and not implementation_call:
     with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
         trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'mcp_access':mcp_access,'argv':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
-    deadline = time.time() + 45
-    while not (root / '004-task.started').exists() and time.time() < deadline:
-        time.sleep(0.05)
-    time.sleep(0.25)
+    # Keep both provider calls active until the Rust test observes their overlap.
+    if (root / '004-task.started').exists():
+        wait_for_marker('planning-overlap-observed')
     report = {'schema_version':2,'assistant_message':'Planning fixture: I can discuss this while the worker runs.','document_updates':[],'open_items_added':[],'open_items_updated':[],'open_items_resolved':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
     sys.exit(0)
@@ -198,10 +204,9 @@ if output_path is None:
         sys.exit(1)
     output_path = response['result']['content'][0]['text'].splitlines()[0]
 output = pathlib.Path(output_path)
-if output.name in ('task-1.rs', 'task-2.rs'):
-    (root / (output.name + '.started')).touch()
-elif output.name == 'task-4.rs':
+if output.name == 'task-4.rs':
     (root / '004-task.started').touch()
+    wait_for_marker('planning-overlap-observed')
 if output.name == 'task-3.rs':
     dependency_check = "test -f src/task-1.rs && test -f src/task-2.rs"
     response = request(3, 'tools/call', {'name':'koolade_bash','arguments':{'command':dependency_check,'timeout_seconds':60}})

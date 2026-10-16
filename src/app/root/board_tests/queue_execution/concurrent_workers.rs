@@ -243,15 +243,18 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         max_workers = max_workers.max(app.active_task_count());
         assert!(app.active_task_count() <= 2);
         if !concurrent_chat
-            && matches!(&app.screen, Screen::Connected(p) if p.active_implementations.len() == 2)
+            && matches!(&app.screen, Screen::Connected(p) if p.active_implementations.contains_key(&docs[3].path))
+            && root.join("004-task.started").exists()
         {
             app.start_turn("Can we discuss planning while the task runs?");
             assert!(app.conversation_busy());
             concurrent_chat = true;
         }
-        if matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some() && project.active_implementations.contains_key(&docs[3].path))
+        if !planning_and_queued_task_overlap
+            && matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some() && project.active_implementations.contains_key(&docs[3].path))
         {
             planning_and_queued_task_overlap = true;
+            std::fs::write(root.join("planning-overlap-observed"), "").unwrap();
         }
         if matches!(&app.screen, Screen::Connected(project) if project.active_implementations.len() == 2 && !project.active_implementations.contains_key(&docs[3].path) && project.queue.waiting_for_capacity.contains(&docs[3].path))
         {
