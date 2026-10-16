@@ -106,11 +106,11 @@ def main():
     outcome = {}
     for case in junit.iter("testcase"):
         case_name = case.attrib["name"]
-        key = (
-            case_name
-            if case_name.startswith(("app::", "core::", "execution::", "harness::", "ui::", "persistence::"))
-            else f"{case.attrib.get('classname', '')}::{case_name}"
-        )
+        classname = case.attrib.get("classname", "")
+        # The primary library suite emits globally qualified test paths as the
+        # testcase name. Auxiliary integration targets need their target name
+        # prepended because their testcase names are local function names.
+        key = case_name if classname == "koolade" else f"{classname}::{case_name}"
         timing[key] = float(case.attrib.get("time", "0"))
         outcome[key] = "skipped" if case.find("skipped") is not None else "passed"
 
@@ -120,7 +120,10 @@ def main():
         for test, details in data["testcases"].items():
             if details.get("kind") != "test":
                 continue
-            test_id = test if test.startswith(("app::", "core::", "execution::", "harness::", "ui::", "persistence::")) else f"{suite}::{test}"
+            # The primary `koolade` library suite already emits fully qualified
+            # Rust test paths. Prefix only auxiliary integration-test targets,
+            # whose test function names are not globally unique.
+            test_id = test if suite == "koolade" else f"{suite}::{test}"
             entries.append((suite, test, test_id))
 
     same_name = {}

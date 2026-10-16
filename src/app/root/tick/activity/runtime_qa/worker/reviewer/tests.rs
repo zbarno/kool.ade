@@ -65,16 +65,17 @@ fn reviewer_evidence_uses_same_workspace_identity_as_role_input() {
 }
 
 #[test]
-fn reviewer_manifest_renders_sha1_commit_oid_with_sha256_review_subject() {
+fn qa_request_validation_accepts_sha1_git_oid_with_sha256_review_subject() {
     let request = qa_request();
-    assert_eq!(request.code_head_sha.len(), 40);
+    request
+        .validate()
+        .expect("a 40-character Git OID and 64-character review hash are valid");
 
-    let manifest = super::manifest(
-        &request,
-        "00000000-0000-4000-8000-000000000008",
-        "00000000-0000-4000-8000-000000000009",
-    )
-    .expect("normal SHA-1 commit OID must not break review prompt rendering");
+    let mut invalid_commit_oid = request.clone();
+    invalid_commit_oid.code_head_sha = "g".repeat(40);
+    assert!(invalid_commit_oid.validate().is_err());
 
-    assert_eq!(manifest.role_version, "runtime_qa/v2");
+    let mut invalid_review_subject = request.clone();
+    invalid_review_subject.review_subject_sha256 = "d".repeat(40);
+    assert!(invalid_review_subject.validate().is_err());
 }
