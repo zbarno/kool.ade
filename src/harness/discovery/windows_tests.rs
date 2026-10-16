@@ -9,23 +9,26 @@ use std::{
 
 const STARTED_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_STARTED";
 const SURVIVED_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_SURVIVED";
+const PID_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_PID";
 
 // Boundary: Windows discovery's job-object cleanup. A real child and grandchild
 // are needed because a mock cannot prove kernel process-tree termination. This
-// uses only Windows system executables and takes about four seconds.
+// uses Windows system executables and takes about six seconds.
 #[test]
 fn windows_process_tree_terminates_descendants_when_owner_exits() {
-    if let (Some(started), Some(survived)) = (
+    if let (Some(started), Some(survived), Some(pid)) = (
         std::env::var_os(STARTED_ENV),
         std::env::var_os(SURVIVED_ENV),
+        std::env::var_os(PID_ENV),
     ) {
-        descendant_helper(started.into(), survived.into());
+        descendant_helper(started.into(), survived.into(), pid.into());
         return;
     }
 
     let directory = TestDirectory::new();
     let started = directory.0.join("descendant-started");
     let survived = directory.0.join("descendant-survived");
+    let pid = directory.0.join("descendant-pid");
     let mut owner = Command::new(std::env::current_exe().expect("test executable"));
     owner
         .args([
@@ -35,6 +38,7 @@ fn windows_process_tree_terminates_descendants_when_owner_exits() {
         ])
         .env(STARTED_ENV, &started)
         .env(SURVIVED_ENV, &survived)
+        .env(PID_ENV, &pid)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
@@ -55,23 +59,49 @@ fn windows_process_tree_terminates_descendants_when_owner_exits() {
         started.exists(),
         "the descendant started before its owner exited"
     );
+    let descendant_pid = fs::read_to_string(&pid)
+        .expect("read descendant process ID")
+        .parse()
+        .expect("parse descendant process ID");
+    let process = unsafe {
+        windows_sys::Win32::System::Threading::OpenProcess(
+            windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            descendant_pid,
+        )
+    };
+    assert!(!process.is_null(), "open descendant process for job check");
+    let mut is_in_job = 0;
+    let checked = unsafe {
+        windows_sys::Win32::System::JobObjects::IsProcessInJob(process, tree.0, &mut is_in_job)
+    };
+    unsafe { windows_sys::Win32::Foundation::CloseHandle(process) };
+    assert_ne!(checked, 0, "check descendant job membership");
+    assert_ne!(
+        is_in_job, 0,
+        "descendant was not assigned to the production job object"
+    );
 
     drop(tree);
-    std::thread::sleep(Duration::from_millis(3500));
+    std::thread::sleep(Duration::from_millis(6500));
     assert!(
         !survived.exists(),
         "the descendant survived closing its owner's job object"
     );
 }
 
-fn descendant_helper(started: std::path::PathBuf, survived: std::path::PathBuf) {
+fn descendant_helper(
+    started: std::path::PathBuf,
+    survived: std::path::PathBuf,
+    pid: std::path::PathBuf,
+) {
     let command_processor = std::path::Path::new(
         &std::env::var_os("SystemRoot").expect("Windows system root is available"),
     )
     .join("System32")
     .join("cmd.exe");
     let script = format!(
-        "echo started>\"{}\" & ping -n 4 127.0.0.1 >nul & echo leaked>\"{}\"",
+        "echo started>\"{}\" & ping -n 7 127.0.0.1 >nul & echo leaked>\"{}\"",
         started.display(),
         survived.display()
     );
@@ -79,10 +109,11 @@ fn descendant_helper(started: std::path::PathBuf, survived: std::path::PathBuf) 
         .arg("/C")
         .raw_arg(format!(" {script}"))
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .expect("spawn descendant process");
+    fs::write(pid, descendant.id().to_string()).expect("record descendant process ID");
 
     let deadline = Instant::now() + Duration::from_secs(2);
     while !started.exists() && Instant::now() < deadline {
