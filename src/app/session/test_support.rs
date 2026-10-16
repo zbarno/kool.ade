@@ -4,6 +4,7 @@ use std::path::Path;
 
 pub(crate) fn project_from(root: &Path) -> Project {
     Project {
+        specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
         state: PlannerState::load(root).unwrap(),

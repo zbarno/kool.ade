@@ -431,4 +431,6 @@ impl Surface for KooladeApp {
     fn toasts(&mut self) -> &mut ToastQueue {
         &mut self.toasts
     }
+
+    details::specification_status::specification_status_surface_methods!();
 }

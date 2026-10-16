@@ -3,6 +3,7 @@
 mod candidate;
 mod controller;
 mod evidence;
+pub mod merge_verification;
 mod response;
 mod run;
 pub use candidate::{Candidate, candidate};

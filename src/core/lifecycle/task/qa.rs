@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime_qa::QaRunRequestV1;
 
-use super::{TaskRecord, is_sha256};
-use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
+use super::TaskRecord;
+use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt, types::is_sha256};
 
 pub(super) struct QaCompletion {
     pub qa_run_id: String,

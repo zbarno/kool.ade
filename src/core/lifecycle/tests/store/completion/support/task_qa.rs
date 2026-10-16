@@ -7,6 +7,15 @@ pub(in crate::core::lifecycle::tests::store::completion) fn finish_task_through_
     lifecycle: &LifecycleStore<'_>,
     task_uid: &str,
 ) -> (TaskRecord, QaRunRequestV1) {
+    finish_task_through_qa_with_head(fixture, lifecycle, task_uid, "1".repeat(40))
+}
+
+pub(in crate::core::lifecycle::tests::store::completion) fn finish_task_through_qa_with_head(
+    fixture: &Fixture,
+    lifecycle: &LifecycleStore<'_>,
+    task_uid: &str,
+    reviewed_head_sha: String,
+) -> (TaskRecord, QaRunRequestV1) {
     let mut task = lifecycle
         .apply_task_event(
             task_uid,
@@ -37,7 +46,11 @@ pub(in crate::core::lifecycle::tests::store::completion) fn finish_task_through_
             task_uid,
             task.revision,
             &uuid::Uuid::new_v4().to_string(),
-            super::super::super::super::code_review_event(review),
+            crate::core::lifecycle::TaskEvent::CodeReview {
+                receipt: review,
+                reviewed_head_sha: reviewed_head_sha.clone(),
+                review_subject_sha256: "2".repeat(64),
+            },
         )
         .unwrap();
     task = lifecycle
@@ -91,5 +104,22 @@ pub(in crate::core::lifecycle::tests::store::completion) fn finish_task_through_
             qa_event,
         )
         .unwrap();
+    crate::artifacts::migration::bootstrap_product(&fixture.0, "Lifecycle Completion Fixture")
+        .unwrap();
+    let origin_events = lifecycle
+        .list_spec_sync_queue(&task.feature_uid, false)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.source_event_uid)
+        .collect();
+    let store = fixture.store();
+    super::super::spec_sync::append_current_revision(
+        lifecycle,
+        &store,
+        &task.feature_uid,
+        0,
+        origin_events,
+        task.reviewed_code_head_sha.clone(),
+    );
     (task, request)
 }

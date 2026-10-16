@@ -112,6 +112,12 @@ pub(crate) fn validate_record_collection(path: &str) -> Result<(), StoreError> {
                 | "state/lifecycle_plan_authors"
                 | "state/lifecycle_plan_confirmations"
                 | "state/lifecycle_pr_work_items"
+                | "state/lifecycle_feature_delta_authorizations"
+                | "state/spec_revisions"
+                | "state/spec_revision_history"
+                | "state/current_implementations"
+                | "state/current_implementation_history"
+                | "state/spec_sync_queue"
                 | "state/opportunities"
                 | "state/opportunity_decisions"
                 | "state/opportunity_dedup"
@@ -140,12 +146,6 @@ pub(crate) fn validate_record_revisions(
                 check.path
             )));
         }
-        let Some((_, bytes)) = changes.iter().find(|(path, _)| path == &check.path) else {
-            return Err(StoreError::MalformedState(format!(
-                "record revision check for {} has no corresponding write",
-                check.path
-            )));
-        };
         let actual = record_revision(store, &check.path)?;
         if actual != check.expected_revision {
             return Err(StoreError::StaleRecordRevision {
@@ -154,6 +154,11 @@ pub(crate) fn validate_record_revisions(
                 actual,
             });
         }
+        let Some((_, bytes)) = changes.iter().find(|(path, _)| path == &check.path) else {
+            // A record revision can also fence a read-only source used to
+            // derive another record in the same transaction.
+            continue;
+        };
         let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
             StoreError::MalformedState(format!(
                 "new record {} is not valid JSON: {error}",

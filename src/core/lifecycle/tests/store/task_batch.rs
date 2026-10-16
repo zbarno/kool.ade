@@ -1,105 +1,47 @@
-use super::super::{feature, receipt, set_prompt_role};
 use super::Fixture;
-use crate::core::lifecycle::{
-    FeatureEvent, FeaturePhase, GateActor, GateDecision, LifecycleStore, TaskPhase, TaskRecord,
-};
 
-fn approved_feature(lifecycle: &LifecycleStore<'_>) -> (String, String) {
-    let mut feature = feature();
-    let feature_uid = feature.feature_uid.clone();
-    let snapshot_uid = uuid::Uuid::new_v4().hyphenated().to_string();
-    let plan_sha = "a".repeat(64);
-    feature.plan_snapshot_uid = Some(snapshot_uid.clone());
-    feature.plan_snapshot_sha256 = Some(plan_sha.clone());
+#[path = "task_batch/approved_feature.rs"]
+mod feature_setup;
+use feature_setup::approved_feature;
+
+#[path = "task_batch/legacy.rs"]
+mod legacy;
+#[path = "task_batch/task.rs"]
+mod task_record;
+use crate::core::lifecycle::{FeaturePhase, LifecycleStore};
+use task_record::task;
+
+fn record_approved_spec_baseline(lifecycle: &LifecycleStore<'_>, feature_uid: &str) {
+    let feature = lifecycle.load_feature(feature_uid).unwrap();
+    let origins = lifecycle
+        .list_spec_sync_queue(feature_uid, false)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.source_event_uid)
+        .collect();
     lifecycle
-        .create_feature(&feature, &uuid::Uuid::new_v4().to_string())
-        .unwrap();
-    let mut feature = lifecycle.load_feature(&feature_uid).unwrap();
-    feature = lifecycle
-        .apply_feature_event(
-            &feature_uid,
-            feature.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            FeatureEvent::ReadinessRecorded {
-                evidence_refs: vec!["readiness/current-spec".into()],
+        .append_spec_revision(
+            feature_uid,
+            0,
+            crate::core::lifecycle::SpecRevisionDraftV1 {
+                content_hash: crate::core::lifecycle::product_spec::current_product_hash(
+                    lifecycle.store,
+                )
+                .unwrap(),
+                source_revision: feature.revision,
+                produced_by_run_id: None,
+                origin_events: origins,
+                decision_refs: feature.decision_refs,
+                delta_approval_refs: Vec::new(),
+                approved_target_hash: feature.approved_plan_sha256,
+                implementation_head_sha: None,
+                reconciliation_status:
+                    crate::core::lifecycle::SpecReconciliationStatusV1::Synchronized,
+                outcome_reason: None,
+                deltas: Vec::new(),
             },
         )
         .unwrap();
-    feature = lifecycle
-        .apply_feature_event(
-            &feature_uid,
-            feature.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            FeatureEvent::PlanReady {
-                plan_sha256: plan_sha.clone(),
-            },
-        )
-        .unwrap();
-    let mut user = receipt(GateActor::User, GateDecision::Approved, &snapshot_uid);
-    user.subject_sha256 = plan_sha.clone();
-    feature = lifecycle
-        .apply_feature_event(
-            &feature_uid,
-            feature.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            FeatureEvent::UserPlanDecision(user),
-        )
-        .unwrap();
-    let mut review = receipt(
-        GateActor::IndependentReviewer,
-        GateDecision::Approved,
-        &snapshot_uid,
-    );
-    set_prompt_role(
-        &mut review,
-        crate::harness::prompt_catalog::PromptRole::PlanReviewer,
-    );
-    review.subject_sha256 = plan_sha.clone();
-    let feature = lifecycle
-        .apply_feature_event(
-            &feature_uid,
-            feature.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            FeatureEvent::PlanReview(review),
-        )
-        .unwrap();
-    assert_eq!(feature.phase, FeaturePhase::ReadyToDecompose);
-    (feature_uid, plan_sha)
-}
-
-fn task(feature_uid: &str, plan_sha: &str, planning_uid: &str) -> TaskRecord {
-    let namespace = uuid::Uuid::parse_str(feature_uid).unwrap();
-    let spec_sha = format!("{}{}", plan_sha, planning_uid);
-    let task_uid = uuid::Uuid::new_v5(&namespace, spec_sha.as_bytes())
-        .hyphenated()
-        .to_string();
-    TaskRecord {
-        schema_version: 1,
-        task_uid,
-        feature_uid: feature_uid.into(),
-        planning_item_uid: Some(planning_uid.into()),
-        task_spec_sha256: Some("d".repeat(64)),
-        parent_task_uid: None,
-        subtask_uids: Vec::new(),
-        dependency_task_uids: Vec::new(),
-        phase: TaskPhase::Ready,
-        revision: 0,
-        approved_plan_sha256: plan_sha.into(),
-        implementation_sha256: None,
-        reviewed_code_head_sha: None,
-        reviewed_code_subject_sha256: None,
-        code_review: None,
-        review_history: Vec::new(),
-        repair_attempts: 0,
-        runtime_qa: None,
-        qa_execution: None,
-        spec_reconciliation: None,
-        spec_reconciliation_blocker: None,
-        spec_reconciliation_proposal_sha256: None,
-        spec_reconciliation_spec_sha256: None,
-        spec_reconciliation_proposal_json: None,
-        pr_work_item_uid: None,
-    }
 }
 
 #[test]
@@ -129,6 +71,31 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
     let mut first = first;
     first.subtask_uids = vec![second.task_uid.clone(), third.task_uid.clone()];
 
+    let feature_revision_before = lifecycle.load_feature(&feature_uid).unwrap().revision;
+    let error = lifecycle
+        .reconcile_task_batch(&feature_uid, &plan_sha, std::slice::from_ref(&first))
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("product specification is unavailable")
+    );
+    assert!(lifecycle.list_tasks().unwrap().is_empty());
+    assert_eq!(
+        lifecycle.load_feature(&feature_uid).unwrap().revision,
+        feature_revision_before
+    );
+    crate::artifacts::migration::bootstrap_product(&fixture.0, "Lifecycle Task Batch").unwrap();
+    let missing_baseline = lifecycle
+        .reconcile_task_batch(&feature_uid, &plan_sha, std::slice::from_ref(&first))
+        .unwrap_err();
+    assert!(
+        missing_baseline
+            .to_string()
+            .contains("no recorded lifecycle baseline")
+    );
+    assert!(lifecycle.list_tasks().unwrap().is_empty());
+    record_approved_spec_baseline(&lifecycle, &feature_uid);
     lifecycle
         .reconcile_task_batch(&feature_uid, &plan_sha, std::slice::from_ref(&first))
         .unwrap();
@@ -180,6 +147,8 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
         [second.task_uid.clone()]
     );
 
+    legacy::verify_fixture(&fixture, &reopened_store, &first.task_uid);
+
     let subtask_event = reopened
         .events_for_feature(&feature_uid)
         .unwrap()
@@ -210,4 +179,50 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
             .reconcile_task_batch(&feature_uid, &plan_sha, &[changed, second, third])
             .is_err()
     );
+}
+
+/// Production boundary: task generation through the file-backed lifecycle
+/// store must reject a changed rendered product spec before writing task or
+/// graph records; a helper-only check cannot prove write ordering. Uses only
+/// the synthetic temporary store (low setup cost, no external services).
+#[test]
+fn task_generation_rejects_spec_drift_before_persisting_tasks() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let lifecycle = LifecycleStore::new(&store);
+    let (feature_uid, plan_sha) = approved_feature(&lifecycle);
+    crate::artifacts::migration::bootstrap_product(&fixture.0, "Spec Baseline A").unwrap();
+    record_approved_spec_baseline(&lifecycle, &feature_uid);
+    let generated = task(
+        &feature_uid,
+        &plan_sha,
+        &uuid::Uuid::new_v4().hyphenated().to_string(),
+    );
+
+    let documents = crate::artifacts::product_docs::load_documents(&store)
+        .unwrap()
+        .expect("recorded product baseline");
+    let document = &documents[0];
+    let relative_path = store
+        .layout()
+        .product_root()
+        .join(&document.module.path)
+        .strip_prefix(store.layout().root())
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    store
+        .transaction(
+            &[(
+                relative_path,
+                format!("{}\n\nA deliberate product change.\n", document.content).into_bytes(),
+            )],
+            None,
+        )
+        .unwrap();
+    let error = lifecycle
+        .reconcile_task_batch(&feature_uid, &plan_sha, &[generated])
+        .unwrap_err();
+    assert!(error.to_string().contains("drifted"));
+    assert!(lifecycle.list_tasks().unwrap().is_empty());
 }

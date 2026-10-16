@@ -29,7 +29,7 @@ pub(super) fn change(
         || receipt.decision != GateDecision::Approved
         || receipt.subject_uid != snapshot.uid
         || receipt.subject_sha256 != snapshot.content_hash
-        || receipt.evidence_refs != vec![format!("plan:{}", snapshot.uid)]
+        || !valid_evidence_refs(receipt, snapshot)
     {
         return Err(StoreError::MalformedState(
             "user confirmation must approve this exact immutable plan snapshot".into(),
@@ -117,13 +117,33 @@ fn validate_record(
         || receipt.decision != GateDecision::Approved
         || receipt.subject_uid != snapshot.uid
         || receipt.subject_sha256 != snapshot.content_hash
-        || receipt.evidence_refs != vec![format!("plan:{}", snapshot.uid)]
+        || !valid_evidence_refs(receipt, snapshot)
     {
         return Err(StoreError::MalformedState(
             "plan confirmation record is malformed or stale".into(),
         ));
     }
     Ok(())
+}
+
+fn valid_evidence_refs(receipt: &GateReceipt, snapshot: &PlanSnapshotV1) -> bool {
+    receipt.evidence_refs.len() == 2
+        && receipt
+            .evidence_refs
+            .contains(&format!("plan:{}", snapshot.uid))
+        && receipt.evidence_refs.iter().any(|reference| {
+            reference
+                .strip_prefix("product-spec:")
+                .is_some_and(crate::core::lifecycle::types::is_sha256)
+        })
+}
+
+pub(super) fn confirmed_product_spec_hash(receipt: &GateReceipt) -> Option<&str> {
+    receipt.evidence_refs.iter().find_map(|reference| {
+        reference
+            .strip_prefix("product-spec:")
+            .filter(|hash| crate::core::lifecycle::types::is_sha256(hash))
+    })
 }
 
 fn confirmation_path(snapshot: &PlanSnapshotV1) -> String {

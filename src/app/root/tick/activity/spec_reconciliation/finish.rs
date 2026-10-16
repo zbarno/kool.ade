@@ -4,22 +4,45 @@ use crate::{
     app::session::Project,
     core::lifecycle::{GateActor, GateDecision, GateReceipt, LifecycleStore},
 };
-use sha2::Digest as _;
+
+mod history;
+mod pr_observation;
+mod summary;
+pub(super) use history::record_feature;
+use summary::{delta_summary, hash_json};
+
+pub(crate) fn record_user_approved_delta(
+    project: &Project,
+    task_uid: &str,
+    proposal: &SpecDeltaV1,
+    approval: &crate::core::lifecycle::SpecDeltaApprovalV1,
+) -> Result<(), String> {
+    history::record_user_approved_delta(project, task_uid, proposal, approval)
+}
 
 pub(super) fn finish(
     project: &mut Project,
     task_uid: String,
     expected_revision: u64,
     spec_sha256: String,
+    post_completion_pr_refresh: bool,
     result: Result<crate::app::root::spec_reconciliation::SpecReconciliationOutcome, String>,
 ) {
     project.live_progress = Default::default();
-    let current_spec_sha256 = crate::app::root::spec_reconciliation::spec_binding_hash(
-        project.state.spec_text.as_deref(),
-    )
-    .unwrap_or_default();
+    if post_completion_pr_refresh {
+        pr_observation::finish(project, task_uid, expected_revision, spec_sha256, result);
+        return;
+    }
+    let current_spec_sha256 =
+        crate::core::lifecycle::product_spec::current_product_hash(&project.state.planning_store)
+            .unwrap_or_default();
     match result {
         Err(reason) => {
+            if let Err(error) = history::record(&*project, &task_uid, None, Some(&reason), None) {
+                project.activity.pending.push(format!(
+                    "Specification event history for task {task_uid} could not be recorded: {error}"
+                ));
+            }
             record_blocker(
                 project,
                 &task_uid,
@@ -51,6 +74,17 @@ pub(super) fn finish(
             }
             if !outcome.proposal.deltas.is_empty() {
                 let reason = delta_summary(&outcome.proposal);
+                if let Err(error) = history::record(
+                    &*project,
+                    &task_uid,
+                    Some(&outcome.proposal),
+                    Some(&reason),
+                    Some(&outcome.run_uid),
+                ) {
+                    project.activity.pending.push(format!(
+                        "Specification deltas for task {task_uid} could not be durably recorded: {error}"
+                    ));
+                }
                 record_blocker(
                     project,
                     &task_uid,
@@ -114,6 +148,18 @@ pub(super) fn finish(
                 ));
                 return;
             };
+            if let Err(error) = history::record(
+                &*project,
+                &task_uid,
+                Some(&outcome.proposal),
+                None,
+                Some(&outcome.run_uid),
+            ) {
+                project.activity.pending.push(format!(
+                    "Synchronized specification revision for task {task_uid} could not be recorded: {error}"
+                ));
+                return;
+            }
             let receipt_uid = stable_uid(
                 &task_uid,
                 &format!("spec-reconcile-receipt:v1:{spec_sha256}:{proposal_sha256}"),
@@ -243,33 +289,4 @@ pub(super) fn record_blocker(
             "Specification reconciliation blocker for task {task_uid} could not be persisted: {error}"
         )),
     }
-}
-
-fn delta_summary(proposal: &SpecDeltaV1) -> String {
-    let details = proposal
-        .deltas
-        .iter()
-        .take(16)
-        .map(|delta| {
-            format!(
-                "{}: {} → {} ({:?}, approval={:?})",
-                delta.requirement_id,
-                crate::core::context_build::clip(&delta.old, 200),
-                crate::core::context_build::clip(&delta.new, 200),
-                delta.classification,
-                delta.approval_effect
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("; ");
-    format!(
-        "SpecReconciler proposed {} requirement delta(s): {details}",
-        proposal.deltas.len()
-    )
-}
-
-fn hash_json(value: &impl serde::Serialize) -> Option<String> {
-    serde_json::to_vec(value)
-        .ok()
-        .map(|value| format!("{:x}", sha2::Sha256::digest(value)))
 }

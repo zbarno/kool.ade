@@ -6,13 +6,15 @@ use crate::core::lifecycle::TaskPhase;
 use super::{
     FeatureGoal, LifecycleEventKind, Snapshot, TaskEvent, TaskRecord,
     records::{
-        AdditionalTransition, append_transition_with_additional_checks, encode_record, event_path,
-        event_record, feature_path, now_unix_ms, pr_work_item_path, stale, task_actor, task_path,
+        append_transition_with_additional_checks, encode_record, event_path, event_record,
+        feature_path, now_unix_ms, pr_work_item_path, stale, task_actor, task_path,
     },
 };
 
 mod completion;
+mod load;
 pub(super) use completion::ensure_feature_tasks_complete;
+pub(super) use load::load;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +53,9 @@ pub struct PullRequestPreparation {
     pub head_sha: Option<String>,
     #[serde(default)]
     pub base_sha: Option<String>,
+    /// Merge commit SHA reported by the provider; it does not prove local checkout state.
+    #[serde(default)]
+    pub merged_commit_sha: Option<String>,
 }
 
 /// Provider state observed after a pull request publication or refresh.
@@ -61,6 +66,7 @@ pub struct PullRequestPublicationState {
     pub provider_pr_url: Option<String>,
     pub head_sha: Option<String>,
     pub base_sha: Option<String>,
+    pub merged_commit_sha: Option<String>,
 }
 
 impl PullRequestPreparation {
@@ -102,6 +108,10 @@ impl PullRequestPreparation {
                 .as_deref()
                 .is_some_and(|sha| !super::super::types::is_git_oid(sha))
             || self
+                .merged_commit_sha
+                .as_deref()
+                .is_some_and(|sha| !super::super::types::is_git_oid(sha))
+            || self
                 .publication_authorization
                 .as_ref()
                 .is_some_and(|receipt| {
@@ -138,6 +148,11 @@ pub(super) fn apply_task_event(
     let (mut snapshot, actual) = store.read_record::<Snapshot<TaskRecord>>(&path)?;
     if actual != expected_revision || snapshot.record.revision != expected_revision {
         return Err(stale(&path, expected_revision, actual));
+    }
+    if matches!(&proposal, TaskEvent::ReconcileSpec { .. }) {
+        let lifecycle = super::LifecycleStore::new(store);
+        lifecycle.ensure_product_specification_current(&snapshot.record.feature_uid)?;
+        lifecycle.ensure_no_pending_spec_triggers(&snapshot.record.feature_uid)?;
     }
     snapshot
         .record
@@ -237,6 +252,7 @@ pub(super) fn apply_task_event(
             provider_pr_url: None,
             head_sha: None,
             base_sha: None,
+            merged_commit_sha: None,
         };
         preparation.validate()?;
         let preparation_snapshot = Snapshot {
@@ -248,6 +264,15 @@ pub(super) fn apply_task_event(
             record: preparation,
         };
         event.pr_preparation_after = Some(preparation_snapshot.record.clone());
+        let mut additional = super::spec_sync_queue::complete_for_task(
+            store,
+            &snapshot.record.feature_uid,
+            task_uid,
+        )?;
+        additional.changes.push((
+            pr_work_item_path(&pr_work_item_uid)?,
+            encode_record(&preparation_snapshot)?,
+        ));
         append_transition_with_additional_checks(
             store,
             &path,
@@ -255,13 +280,7 @@ pub(super) fn apply_task_event(
             expected_revision,
             event_path,
             event,
-            AdditionalTransition {
-                changes: vec![(
-                    pr_work_item_path(&pr_work_item_uid)?,
-                    encode_record(&preparation_snapshot)?,
-                )],
-                checks: Vec::new(),
-            },
+            additional,
         )?;
     } else {
         super::records::append_transition(
@@ -274,28 +293,4 @@ pub(super) fn apply_task_event(
         )?;
     }
     Ok(snapshot.record)
-}
-
-pub(super) fn load(
-    store: &PlanningStore,
-    work_item_uid: &str,
-) -> Result<PullRequestPreparation, StoreError> {
-    let path = pr_work_item_path(work_item_uid)?;
-    let (snapshot, actual) = store.read_record::<Snapshot<PullRequestPreparation>>(&path)?;
-    let record = snapshot.record;
-    if snapshot.uid != work_item_uid
-        || snapshot.revision != actual
-        || snapshot.revision != record.revision
-    {
-        return Err(StoreError::MalformedState(
-            "pull request preparation snapshot revision is inconsistent".into(),
-        ));
-    }
-    record.validate()?;
-    if record.work_item_uid != work_item_uid {
-        return Err(StoreError::MalformedState(
-            "pull request preparation identity mismatch".into(),
-        ));
-    }
-    Ok(record)
 }

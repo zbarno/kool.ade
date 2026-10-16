@@ -128,7 +128,11 @@ pub(in crate::core::implementation) fn finish_lifecycle_publication(
             provider_pr_id: Some(details.number),
             provider_pr_url: Some(provider_pr_url),
             head_sha: Some(details.head_sha.clone()),
-            base_sha: None,
+            base_sha: details
+                .base_sha
+                .clone()
+                .or_else(|| Some(implementation.base_commit.clone())),
+            merged_commit_sha: None,
         },
     )?;
     Ok(())
@@ -137,6 +141,7 @@ pub(in crate::core::implementation) fn finish_lifecycle_publication(
 pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
     store: &PlanningStore,
     implementation: &Implementation,
+    target_repository: &std::path::Path,
 ) -> anyhow::Result<()> {
     let (Some(planning_item_uid), Some(provider_pr_url), Some(pr_state)) = (
         implementation.task_uid.as_deref(),
@@ -168,7 +173,16 @@ pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
     };
     let event_uid = event_uid(
         work_item_uid,
-        &format!("{:?}:{}:{}", status, details.number, details.head_sha),
+        &format!(
+            "{:?}:{}:{}:{}",
+            status,
+            details.number,
+            details.head_sha,
+            implementation
+                .merged_commit
+                .as_deref()
+                .unwrap_or("unmerged")
+        ),
     );
     lifecycle.record_pr_publication_state(
         work_item_uid,
@@ -179,9 +193,27 @@ pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
             provider_pr_id: Some(details.number),
             provider_pr_url: Some(provider_pr_url.to_owned()),
             head_sha: Some(details.head_sha.clone()),
-            base_sha: None,
+            base_sha: work.base_sha.clone().or_else(|| {
+                details
+                    .base_sha
+                    .clone()
+                    .or_else(|| Some(implementation.base_commit.clone()))
+            }),
+            merged_commit_sha: implementation.merged_commit.clone(),
         },
     )?;
+    if status == PullRequestPreparationStatus::Merged {
+        let repository_id = implementation.repository_id.as_deref().unwrap_or("root");
+        lifecycle
+            .record_verified_current_implementation(
+                &task.task_uid,
+                repository_id,
+                target_repository,
+            )
+            .map_err(|error| {
+                anyhow::anyhow!("merged PR was not promoted to current implementation: {error}")
+            })?;
+    }
     Ok(())
 }
 

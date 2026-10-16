@@ -28,6 +28,64 @@ pub(super) fn paint(
                 lifecycle.task_revision
             ));
         });
+        ui.label("Specification state");
+        state_row(
+            ui,
+            "Current rendered product-spec hash",
+            lifecycle.current_spec_hash.as_deref(),
+        );
+        state_row(
+            ui,
+            "Reviewed implementation",
+            lifecycle.implementation_head_sha.as_deref(),
+        );
+        state_row(ui, "Approved target", lifecycle.approved_target_hash.as_deref());
+        state_row(
+            ui,
+            "Provider-reported merge commit",
+            lifecycle.merged_commit_sha.as_deref(),
+        );
+        state_row(ui, "Deployed", lifecycle.deployed_spec_hash.as_deref());
+        ui.label(format!(
+            "Pull request status · {}",
+            lifecycle.pull_request_status.map_or("not recorded", |status| match status {
+                crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization => "awaiting authorization",
+                crate::core::lifecycle::PullRequestPreparationStatus::Publishing => "publishing",
+                crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention => "needs attention",
+                crate::core::lifecycle::PullRequestPreparationStatus::Opened => "open",
+                crate::core::lifecycle::PullRequestPreparationStatus::ClosedUnmerged => "closed without merge",
+                crate::core::lifecycle::PullRequestPreparationStatus::Merged => "merged",
+            })
+        ));
+        ui.label(format!(
+            "Revision {} · reconciliation {}",
+            lifecycle.spec_revision.map_or_else(|| "not recorded".to_owned(), |seq| seq.to_string()),
+            lifecycle.spec_status.map_or("not recorded", |status| match status {
+                crate::core::lifecycle::SpecReconciliationStatusV1::Synchronized => "synchronized",
+                crate::core::lifecycle::SpecReconciliationStatusV1::OutstandingNonblockingFindings => "open findings",
+                crate::core::lifecycle::SpecReconciliationStatusV1::BlockingDrift => "blocking drift",
+                crate::core::lifecycle::SpecReconciliationStatusV1::NeedsHumanDecision => "needs decision",
+            })
+        ));
+        ui.label(format!("Pending specification triggers · {}", lifecycle.pending_spec_triggers));
+        if !lifecycle.specification_deltas.is_empty() {
+            ui.label("Specification findings linked to this task");
+            for (revision, delta) in &lifecycle.specification_deltas {
+                ui.label(format!(
+                    "Revision {revision} · {} · {:?}",
+                    delta.requirement_id, delta.classification
+                ));
+                if let Some(proposed) = delta.proposed_target.as_deref() {
+                    ui.small(format!("Proposed target: {proposed}"));
+                }
+                if let Some(observed) = delta.observed_current.as_deref() {
+                    ui.small(format!("Observed current state: {observed}"));
+                }
+                for evidence in &delta.evidence_refs {
+                    ui.small(format!("Evidence: {evidence}"));
+                }
+            }
+        }
         ui.label("Recorded gates");
         receipt_row(ui, "Code review", lifecycle.code_review.as_ref());
         receipt_row(ui, "Runtime QA", lifecycle.runtime_qa.as_ref());
@@ -39,6 +97,13 @@ pub(super) fn paint(
         ui.label(theme::helper_text(
             "Read-only lifecycle receipts. Missing evidence is shown as not recorded.",
         ));
+    });
+}
+
+fn state_row(ui: &mut egui::Ui, label: &str, hash: Option<&str>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(label).strong());
+        ui.label(hash.unwrap_or("Not recorded"));
     });
 }
 

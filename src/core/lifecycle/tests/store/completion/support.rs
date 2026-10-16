@@ -4,4 +4,4 @@ mod feature_graph;
 mod task_qa;
 
 pub(super) use feature_graph::create_feature_graph;
-pub(super) use task_qa::finish_task_through_qa;
+pub(super) use task_qa::{finish_task_through_qa, finish_task_through_qa_with_head};

@@ -14,6 +14,11 @@ impl KooladeApp {
 #[path = "board_tests/support.rs"]
 mod support;
 pub(super) use support::*;
+
+#[cfg(test)]
+pub(crate) fn trace_navigation_test_app() -> KooladeApp {
+    support::fixture()
+}
 #[path = "board_tests/cancellation.rs"]
 mod cancellation;
 #[path = "board_tests/card_activity.rs"]

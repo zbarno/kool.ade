@@ -234,6 +234,7 @@ fn connect_canonical_with_key(
             (managed, status, remote)
         };
     let mut project = Project {
+        specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
         task_documents,

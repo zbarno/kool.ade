@@ -4,6 +4,41 @@ use crate::ui::{ApplicationCommand, task_detail::Command as TaskDetailCommand};
 impl KooladeApp {
     pub(in crate::app::root) fn dispatch_ui_command(&mut self, command: ApplicationCommand) {
         match command {
+            ApplicationCommand::OpenSpecificationTrace {
+                feature_uid,
+                kind,
+                reference,
+            } => match &mut self.screen {
+                Screen::Connected(project) => {
+                    if let Err(error) = crate::app::root::specification_trace_navigation::open(
+                        project,
+                        &feature_uid,
+                        kind,
+                        &reference,
+                    ) {
+                        self.toasts.warning(error);
+                    }
+                }
+                Screen::Welcome => self
+                    .toasts
+                    .warning("Connect a project before opening specification trace records."),
+            },
+            ApplicationCommand::CloseSpecificationTrace => {
+                if let Screen::Connected(project) = &mut self.screen {
+                    project.specification_trace_navigation = None;
+                }
+            }
+            ApplicationCommand::DecideFeatureSpecDelta { feature_uid, requirement_id, expected_sequence, adopt } => {
+                match &mut self.screen {
+                    Screen::Connected(project) => match crate::app::root::spec_reconciliation::decide_feature_delta(
+                        project, &feature_uid, &requirement_id, expected_sequence, adopt,
+                    ) {
+                        Ok(()) => self.toasts.success(if adopt { "Feature target adopted and product specification updated." } else { "Feature proposal declined." }),
+                        Err(error) => self.toasts.warning(error),
+                    },
+                    Screen::Welcome => self.toasts.warning("Connect a project before reviewing feature target changes."),
+                }
+            }
             ApplicationCommand::PrepareTaskChat { key } => self.prepare_task_chat(&key),
             ApplicationCommand::SendTaskReply { key } => self.submit_task_reply(&key),
             ApplicationCommand::SendImplementationDecision { key } => {

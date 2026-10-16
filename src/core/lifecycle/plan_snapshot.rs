@@ -9,9 +9,15 @@ mod persistence;
 pub(crate) use persistence::recorded_review_decision;
 pub(crate) use persistence::{
     from_feature_with_author, has_approved_review, has_user_confirmation, is_persisted,
-    plan_review_receipt, record_author, record_change, review_change, user_confirmation_change,
-    user_confirmation_receipt,
+    load_persisted, plan_review_receipt, record_author, record_change, review_change,
+    user_confirmation_change, user_confirmation_receipt,
 };
+
+pub(crate) fn confirmed_product_spec_hash(
+    receipt: &crate::core::lifecycle::GateReceipt,
+) -> Option<&str> {
+    confirmation::confirmed_product_spec_hash(receipt)
+}
 mod content;
 mod store;
 use content::{

@@ -1,31 +1,7 @@
 use super::*;
 mod confirmation;
-
-/// Freeze the normative feature contract, excluding mutable status and
-/// repository-observation sections. A changed desired behavior needs approval again.
-pub fn feature_contract(text: &str) -> String {
-    let mut capture = false;
-    let mut selected = String::new();
-    for line in text.lines() {
-        if let Some(heading) = line.strip_prefix("## ") {
-            capture = [
-                "Intent",
-                "Desired Behavior",
-                "Scope",
-                "Requirements",
-                "Decisions and Assumptions",
-                "Acceptance Criteria",
-                "Selected Plan",
-            ]
-            .contains(&heading);
-        }
-        if capture {
-            selected.push_str(line);
-            selected.push('\n');
-        }
-    }
-    selected
-}
+mod contract;
+pub use contract::feature_contract;
 
 pub fn approve_feature<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
     repo: &R,
@@ -126,6 +102,16 @@ pub fn approve_feature_if_current_with_snapshot_with_revision<
         &store, id, &identity, &text, &contract,
     )
     .map_err(anyhow::Error::msg)?;
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&store);
+    match lifecycle.load_feature(&identity.uid) {
+        Ok(_) => {
+            lifecycle.ensure_product_specification_current(&identity.uid)?;
+            lifecycle.ensure_no_pending_spec_triggers(&identity.uid)?;
+        }
+        Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+            if source.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     anyhow::ensure!(
         expected_snapshot_hash.is_none_or(|expected| expected == plan_snapshot.content_hash),
         "The feature changed since its plan snapshot was displayed. Refresh and review the current plan."

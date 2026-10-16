@@ -112,7 +112,7 @@ fn refresh_pr_with_store(
         }
         cleanup::run(&target_repo, &dir, &mut state, runner);
         save(&dir, &state)?;
-        return publication::reconcile_lifecycle_pr_state(planning_store, &state);
+        return publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo);
     }
     let Some(url) = state.pr_url.clone() else {
         return Ok(());
@@ -135,7 +135,7 @@ fn refresh_pr_with_store(
                 "view",
                 &url,
                 "--json",
-                "state,mergeCommit,number,headRefOid,baseRefName",
+                "state,mergeCommit,number,headRefOid,baseRefOid,baseRefName",
             ],
         )?;
         let value: serde_json::Value = serde_json::from_str(&output)?;
@@ -150,14 +150,16 @@ fn refresh_pr_with_store(
         let details = match (
             value["number"].as_u64(),
             value["headRefOid"].as_str(),
+            value["baseRefOid"].as_str(),
             value["baseRefName"].as_str(),
         ) {
-            (Some(number), Some(head_sha), Some(base_branch))
+            (Some(number), Some(head_sha), base_sha, Some(base_branch))
                 if number > 0 && valid_sha(head_sha) && !base_branch.is_empty() =>
             {
                 Some(super::PullRequestDetails {
                     number,
                     head_sha: head_sha.to_owned(),
+                    base_sha: base_sha.filter(|sha| valid_sha(sha)).map(str::to_owned),
                     base_branch: base_branch.to_owned(),
                 })
             }
@@ -187,7 +189,7 @@ fn refresh_pr_with_store(
     }
     cleanup::run(&target_repo, &dir, &mut state, runner);
     save(&dir, &state)?;
-    publication::reconcile_lifecycle_pr_state(planning_store, &state)
+    publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo)
 }
 
 fn valid_sha(sha: &str) -> bool {

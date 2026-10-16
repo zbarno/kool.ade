@@ -59,6 +59,59 @@ fn unrelated_record_writes_do_not_conflict_but_same_record_revision_does() {
 }
 
 #[test]
+fn transaction_can_fence_read_only_source_records() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-read-source-fence-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let source_uid = uuid::Uuid::new_v4();
+    let output_uid = uuid::Uuid::new_v4();
+    let source_path = format!("state/work/{source_uid}.json");
+    let output_path = format!("state/work/{output_uid}.json");
+    store
+        .transaction_with_record_revisions(
+            &[(source_path.clone(), record(source_uid, 1))],
+            &[check(&source_path, 0)],
+        )
+        .unwrap();
+
+    store
+        .transaction_with_record_revisions(
+            &[(output_path.clone(), record(output_uid, 1))],
+            &[check(&source_path, 1), check(&output_path, 0)],
+        )
+        .unwrap();
+    let stale = store
+        .transaction_with_record_revisions(
+            &[(output_path.clone(), record(output_uid, 2))],
+            &[check(&source_path, 0), check(&output_path, 1)],
+        )
+        .unwrap_err();
+    assert!(matches!(
+        stale,
+        StoreError::StaleRecordRevision {
+            path,
+            expected: 0,
+            actual: 1,
+        } if path == source_path
+    ));
+    assert_eq!(
+        store
+            .read_record::<serde_json::Value>(&output_path)
+            .unwrap()
+            .1,
+        1
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn distinct_record_writes_keep_the_unrelated_store_snapshot_valid() {
     let root = std::env::temp_dir().join(format!(
         "koolade-record-store-revision-{}",

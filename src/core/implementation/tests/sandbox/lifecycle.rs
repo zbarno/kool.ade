@@ -26,6 +26,7 @@ pub(super) fn seed_task(repo: &Path, ticket: &str, ticket_text: &str) {
         parent_task_uid: None,
         subtask_uids: Vec::new(),
         dependency_task_uids: Vec::new(),
+        approved_requirement_ids: Vec::new(),
         phase: TaskPhase::Ready,
         revision: 0,
         approved_plan_sha256,

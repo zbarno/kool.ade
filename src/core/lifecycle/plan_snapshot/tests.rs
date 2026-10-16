@@ -131,7 +131,11 @@ fn snapshot_record_is_create_only_and_survives_reopen() {
         .unwrap();
     assert!(is_persisted(&store, &snapshot).unwrap());
     assert!(record_change(&store, &snapshot).unwrap().is_none());
-    let reopened = PlanningStore::new(store.project_id, &root, StoreMode::ManagedLocal);
+    let reopened = PlanningStore::new(
+        store.project_id,
+        store.root.clone(),
+        StoreMode::ManagedLocal,
+    );
     assert!(is_persisted(&reopened, &snapshot).unwrap());
     let _ = std::fs::remove_dir_all(root);
 }
@@ -141,7 +145,12 @@ fn user_confirmation_is_persisted_once_and_bound_to_the_exact_snapshot() {
     use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
     let root = std::env::temp_dir().join(format!("plan-confirmation-{}", uuid::Uuid::new_v4()));
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
+    crate::artifacts::migration::bootstrap_product(&root, "Plan Confirmation Fixture").unwrap();
+    let store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        root.join(".koolade-packet"),
+        StoreMode::ManagedLocal,
+    );
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);
     let snapshot =
@@ -158,7 +167,13 @@ fn user_confirmation_is_persisted_once_and_bound_to_the_exact_snapshot() {
         actor: GateActor::User,
         decision: GateDecision::Approved,
         recorded_at_unix_ms: 1,
-        evidence_refs: vec![format!("plan:{}", snapshot.uid)],
+        evidence_refs: vec![
+            format!("plan:{}", snapshot.uid),
+            format!(
+                "product-spec:{}",
+                crate::core::lifecycle::product_spec::current_product_hash(&store).unwrap()
+            ),
+        ],
         prompt_sha256: None,
         prompt_manifest: None,
         reviewer_run_id: None,
@@ -183,7 +198,11 @@ fn user_confirmation_is_persisted_once_and_bound_to_the_exact_snapshot() {
             .unwrap()
             .is_none()
     );
-    let reopened = PlanningStore::new(store.project_id, &root, StoreMode::ManagedLocal);
+    let reopened = PlanningStore::new(
+        store.project_id,
+        store.root.clone(),
+        StoreMode::ManagedLocal,
+    );
     assert!(
         crate::core::lifecycle::plan_snapshot::has_user_confirmation(&reopened, &snapshot).unwrap()
     );

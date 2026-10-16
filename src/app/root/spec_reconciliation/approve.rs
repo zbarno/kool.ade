@@ -16,14 +16,26 @@ pub(crate) fn apply_approved_delta(
     proposal_sha256: &str,
     base_spec_sha256: &str,
 ) -> Result<(), String> {
-    let current_spec = project.state.spec_text.as_deref();
-    let current_hash = super::spec_binding_hash(current_spec)?;
-    if current_hash != base_spec_sha256 {
-        return Err("The product specification changed since this proposal; rerun reconciliation before approving it.".into());
-    }
-    let task = LifecycleStore::new(&project.state.planning_store)
+    let lifecycle_store = project.state.planning_store.clone();
+    let lifecycle = LifecycleStore::new(&lifecycle_store);
+    let task = lifecycle
         .load_task(task_uid)
         .map_err(|error| error.to_string())?;
+    let current_hash = super::spec_binding_hash(project.state.spec_text.as_deref())?;
+    if current_hash != base_spec_sha256 {
+        if recover_saved_approval(
+            project,
+            &lifecycle,
+            &task,
+            task_uid,
+            proposal_sha256,
+            base_spec_sha256,
+            &current_hash,
+        )? {
+            return Ok(());
+        }
+        return Err("The product specification changed since this proposal; rerun reconciliation before approving it.".into());
+    }
     if task.revision != expected_revision || task.phase != TaskPhase::AwaitingSpecReconciliation {
         return Err("The lifecycle task changed; reload its current specification proposal before approving it.".into());
     }
@@ -72,7 +84,7 @@ pub(crate) fn apply_approved_delta(
         .map(|document| (document.module.id.clone(), document))
         .collect::<BTreeMap<_, _>>();
 
-    for delta in proposal.deltas {
+    for delta in &proposal.deltas {
         if !delta.old.contains(&delta.requirement_id) || !delta.new.contains(&delta.requirement_id)
         {
             return Err(format!(
@@ -169,6 +181,15 @@ pub(crate) fn apply_approved_delta(
 
     project.state.spec_text = Some(updated_spec);
     project.state.baseline_spec = project.state.spec_text.clone();
+    if let Err(error) =
+        crate::app::root::tick::activity::spec_reconciliation::finish::record_user_approved_delta(
+            project, task_uid, &proposal, &approval,
+        )
+    {
+        return Err(format!(
+            "Specification and user approval were saved, but the feature revision history could not be updated: {error}"
+        ));
+    }
     let retry_event = uuid::Uuid::new_v5(
         &uuid::Uuid::parse_str(task_uid).map_err(|error| error.to_string())?,
         format!("spec-delta-approved:v1:{expected_revision}:{proposal_sha256}:{next_hash}")
@@ -184,6 +205,76 @@ pub(crate) fn apply_approved_delta(
         ));
     }
     Ok(())
+}
+
+fn recover_saved_approval(
+    project: &mut Project,
+    lifecycle: &LifecycleStore<'_>,
+    task: &crate::core::lifecycle::TaskRecord,
+    task_uid: &str,
+    proposal_sha256: &str,
+    base_spec_sha256: &str,
+    current_hash: &str,
+) -> Result<bool, String> {
+    if task.revision == 0
+        || task.phase != TaskPhase::AwaitingSpecReconciliation
+        || task.spec_reconciliation_spec_sha256.as_deref() != Some(base_spec_sha256)
+        || task.spec_reconciliation_proposal_sha256.as_deref() != Some(proposal_sha256)
+    {
+        return Ok(false);
+    }
+    let Ok(approval) = lifecycle.load_spec_delta_approval(task_uid, proposal_sha256) else {
+        return Ok(false);
+    };
+    if approval.base_spec_sha256 != base_spec_sha256
+        || approval.resulting_spec_sha256 != current_hash
+    {
+        return Ok(false);
+    }
+    let proposal_json = task
+        .spec_reconciliation_proposal_json
+        .as_deref()
+        .ok_or_else(|| "The saved proposal is unavailable for approval recovery.".to_owned())?;
+    if format!("{:x}", sha2::Sha256::digest(proposal_json.as_bytes())) != proposal_sha256 {
+        return Err(
+            "The saved proposal failed its integrity check during approval recovery.".into(),
+        );
+    }
+    let proposal: SpecDeltaV1 =
+        serde_json::from_str(proposal_json).map_err(|error| error.to_string())?;
+    let persisted_spec = product_docs::render_product(&project.state.planning_store)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "The modular product specification is unavailable.".to_owned())?;
+    if super::spec_binding_hash(Some(&persisted_spec))? != current_hash {
+        return Ok(false);
+    }
+    project.state.spec_text = Some(persisted_spec);
+    project.state.baseline_spec = project.state.spec_text.clone();
+    crate::app::root::tick::activity::spec_reconciliation::finish::record_user_approved_delta(
+        project, task_uid, &proposal, &approval,
+    )
+    .map_err(|error| format!("Saved approval history could not be recovered: {error}"))?;
+    let retry_event = uuid::Uuid::new_v5(
+        &uuid::Uuid::parse_str(task_uid).map_err(|error| error.to_string())?,
+        format!(
+            "spec-delta-approved:v1:{}:{proposal_sha256}:{current_hash}",
+            task.revision
+        )
+        .as_bytes(),
+    )
+    .hyphenated()
+    .to_string();
+    lifecycle
+        .retry_spec_reconciliation(
+            task_uid,
+            task.revision,
+            &retry_event,
+            current_hash.to_owned(),
+        )
+        .map_err(|error| {
+            format!("Saved approval was recovered but retry could not be queued: {error}")
+        })?;
+    Ok(true)
 }
 
 fn now_ms() -> u64 {

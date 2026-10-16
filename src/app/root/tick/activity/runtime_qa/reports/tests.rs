@@ -14,6 +14,7 @@ fn task() -> TaskRecord {
         parent_task_uid: None,
         subtask_uids: vec![],
         dependency_task_uids: vec![],
+        approved_requirement_ids: vec![],
         phase: TaskPhase::AwaitingRuntimeQa,
         revision: 7,
         approved_plan_sha256: "a".repeat(64),

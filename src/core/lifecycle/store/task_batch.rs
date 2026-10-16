@@ -95,6 +95,8 @@ impl LifecycleStore<'_> {
                 "task batch requires a reviewed plan ready for execution".into(),
             ));
         }
+        self.ensure_product_specification_current(feature_uid)?;
+        self.ensure_no_pending_spec_triggers(feature_uid)?;
         let mut completed = feature
             .task_uids
             .iter()
@@ -142,6 +144,13 @@ impl LifecycleStore<'_> {
         }
         let namespace = uuid::Uuid::parse_str(feature_uid)
             .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        let graph_event_uid = uuid::Uuid::new_v5(
+            &namespace,
+            format!("{}:task-graph", approved_plan_sha256).as_bytes(),
+        )
+        .hyphenated()
+        .to_string();
+        let mut task_generation_events = vec![graph_event_uid];
         for index in order {
             let task = &tasks[index];
             let event_uid = uuid::Uuid::new_v5(
@@ -150,8 +159,15 @@ impl LifecycleStore<'_> {
             )
             .hyphenated()
             .to_string();
+            task_generation_events.push(event_uid.clone());
             self.create_task(task, &event_uid)?;
         }
+        let current_feature = self.load_feature(feature_uid)?;
+        super::spec_sync::record_approved_plan_revision(
+            self,
+            &current_feature,
+            &task_generation_events,
+        )?;
         Ok(())
     }
 }

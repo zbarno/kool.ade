@@ -230,6 +230,7 @@ mod tests {
         closed.pr_details = Some(crate::core::implementation::PullRequestDetails {
             number: 27,
             head_sha: head.clone(),
+            base_sha: None,
             base_branch: "develop".into(),
         });
         let closed_link = execution_linkage(&metadata, &closed);

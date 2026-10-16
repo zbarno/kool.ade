@@ -49,6 +49,13 @@ pub(crate) fn is_persisted(
     store::is_persisted(planning_store, snapshot)
 }
 
+pub(crate) fn load_persisted(
+    planning_store: &crate::artifacts::planning_store::PlanningStore,
+    uid: &str,
+) -> Result<Option<PlanSnapshotV1>, crate::artifacts::planning_store::StoreError> {
+    store::load_persisted(planning_store, uid)
+}
+
 pub(crate) fn review_change(
     planning_store: &crate::artifacts::planning_store::PlanningStore,
     snapshot: &PlanSnapshotV1,

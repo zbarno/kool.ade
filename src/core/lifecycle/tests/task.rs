@@ -15,6 +15,7 @@ fn stale_or_same_context_review_cannot_advance_task_to_done() {
         parent_task_uid: Some(id()),
         subtask_uids: Vec::new(),
         dependency_task_uids: Vec::new(),
+        approved_requirement_ids: Vec::new(),
         phase: TaskPhase::Ready,
         revision: 0,
         approved_plan_sha256: "b".repeat(64),
@@ -33,6 +34,14 @@ fn stale_or_same_context_review_cannot_advance_task_to_done() {
         spec_reconciliation_proposal_json: None,
         pr_work_item_uid: None,
     };
+    let mut legacy = serde_json::to_value(&task).unwrap();
+    legacy
+        .as_object_mut()
+        .unwrap()
+        .remove("approved_requirement_ids");
+    let legacy: TaskRecord = serde_json::from_value(legacy).unwrap();
+    assert!(legacy.approved_requirement_ids.is_empty());
+
     task.apply(0, TaskEvent::Start).unwrap();
     task.apply(
         1,
@@ -194,6 +203,7 @@ fn repair_cycles_and_review_history_are_bounded_and_replay_safe() {
         parent_task_uid: None,
         subtask_uids: Vec::new(),
         dependency_task_uids: Vec::new(),
+        approved_requirement_ids: Vec::new(),
         phase: TaskPhase::Ready,
         revision: 0,
         approved_plan_sha256: "b".repeat(64),

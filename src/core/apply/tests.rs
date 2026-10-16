@@ -126,6 +126,18 @@ fn approve_batch_feature(
         &markdown,
     )
     .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
+        .unwrap()
+        .unwrap();
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&state.planning_store);
+    let approved = lifecycle.load_feature(&identity.uid).unwrap();
+    let snapshot = crate::core::lifecycle::plan_snapshot::load_persisted(
+        &state.planning_store,
+        approved.plan_snapshot_uid.as_deref().unwrap(),
+    )
+    .unwrap()
+    .unwrap();
+    batch.stories[0].approved_requirement_ids = vec![snapshot.requirements[0].stable_id.clone()];
     state.baseline_planning_revision = state.planning_store.revision().unwrap();
     batch.specification = markdown;
 }
@@ -134,41 +146,6 @@ fn task_batch_turn(batch: crate::core::workflow::TaskBatch) -> NormalizedTurn {
     let mut turn = make_norm(None, None);
     turn.task_batch = Some(batch);
     turn
-}
-
-#[test]
-fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
-    let (mut state, root) = state_at("task_generation_revision");
-    let store = state.planning_store.clone();
-    let mut batch = task_batch();
-    approve_batch_feature(&mut state, &root, &mut batch);
-    let (_, revision) = crate::artifacts::task_docs::save_progress_expected(
-        &store,
-        "revision-fenced-run",
-        &batch,
-        1,
-        &state.baseline_planning_revision,
-    )
-    .unwrap();
-    state.baseline_planning_revision = revision;
-
-    let receipt = apply(&mut state, &task_batch_turn(batch)).unwrap();
-
-    assert_eq!(state.workflow.task_batches.len(), 1);
-    assert_eq!(
-        crate::artifacts::task_docs::load_workflow(&store)
-            .unwrap()
-            .task_batches,
-        state.workflow.task_batches
-    );
-    assert!(
-        receipt
-            .repo_relative_paths
-            .iter()
-            .any(|path| { path.ends_with(".koolade-progress.json") })
-    );
-    assert_eq!(state.baseline_planning_revision, store.revision().unwrap());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -283,5 +260,8 @@ fn refresh_discovery_tasks_are_committed_with_the_planning_transaction() {
 
 #[path = "tests/feature_workflow.rs"]
 mod feature_workflow;
+
+#[path = "tests/task_generation.rs"]
+mod task_generation;
 
 mod miscellaneous;
