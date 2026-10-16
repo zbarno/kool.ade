@@ -20,91 +20,91 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
     let worker_binary = std::env::var_os("KOOLADE_TEST_WORKER_BINARY")
         .map(std::path::PathBuf::from)
         .expect("remote Docker E2E requires KOOLADE_TEST_WORKER_BINARY");
-    let root = std::env::temp_dir().join(format!(
-        "koolade-remote-two-controllers-{}",
-        uuid::Uuid::new_v4()
-    ));
-    fs::create_dir_all(&root).unwrap();
-    let task_home_path = root.join("task-home");
-    fs::create_dir_all(&task_home_path).unwrap();
-    let _home = support::task_home(&task_home_path);
-    let repository = root.join("repository");
-    fs::create_dir_all(&repository).unwrap();
-    support::initialize_project(&repository);
-    fs::write(repository.join("README.md"), "synthetic shared worker\n").unwrap();
-    support::commit(&repository);
-    let clone_a = support::create_task_clone(&repository, &task_home_path, "controller-a");
-    let clone_b = support::create_task_clone(&repository, &task_home_path, "controller-b");
-    let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
-    let sshd = sshd::SshdFixture::start(&root, &worker_binary)
-        .expect("CI must provide loopback sshd for concurrent controller E2E");
-    sshd.restore_known_host(&worker_id).unwrap();
-    let worker = sshd.worker_config(&worker_id);
-    crate::persistence::remote_workers::register(
-        &worker_id,
-        &worker.host_alias,
-        &worker.ssh_principal,
-        &sshd.host_fingerprint,
-    )
-    .unwrap();
+    // This guards an intermittent cross-controller regression; repeat independent
+    // worker setups in one hosted run so a single lucky schedule does not hide it.
+    for _scenario in 0..3 {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = root.path();
+        let task_home_path = root_path.join("task-home");
+        fs::create_dir_all(&task_home_path).unwrap();
+        let _home = support::task_home(&task_home_path);
+        let repository = root_path.join("repository");
+        fs::create_dir_all(&repository).unwrap();
+        support::initialize_project(&repository);
+        fs::write(repository.join("README.md"), "synthetic shared worker\n").unwrap();
+        support::commit(&repository);
+        let clone_a = support::create_task_clone(&repository, &task_home_path, "controller-a");
+        let clone_b = support::create_task_clone(&repository, &task_home_path, "controller-b");
+        let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
+        let sshd = sshd::SshdFixture::start(root_path, &worker_binary)
+            .expect("CI must provide loopback sshd for concurrent controller E2E");
+        sshd.restore_known_host(&worker_id).unwrap();
+        let worker = sshd.worker_config(&worker_id);
+        crate::persistence::remote_workers::register(
+            &worker_id,
+            &worker.host_alias,
+            &worker.ssh_principal,
+            &sshd.host_fingerprint,
+        )
+        .unwrap();
 
-    let generation_a = uuid::Uuid::new_v4().hyphenated().to_string();
-    let (authorization_a, active_a) = authorization::RevocableAuthorization::new(generation_a);
-    let session_a = Arc::new(connect_session(
-        &clone_a,
-        &worker,
-        Arc::new(authorization_a),
-    ));
-    let run_a = session_a.clone();
-    let mut controller_a = Some(std::thread::spawn(move || {
-        run_a.run_tool_command(
+        let generation_a = uuid::Uuid::new_v4().hyphenated().to_string();
+        let (authorization_a, active_a) = authorization::RevocableAuthorization::new(generation_a);
+        let session_a = Arc::new(connect_session(
+            &clone_a,
+            &worker,
+            Arc::new(authorization_a),
+        ));
+        let run_a = session_a.clone();
+        let mut controller_a = Some(std::thread::spawn(move || {
+            run_a.run_tool_command(
             "printf 'controller-a-started\\n'; sleep 30; printf 'stale-controller-a\\n' > stale-result.txt",
             Duration::from_secs(120),
         )
-    }));
-    wait_for_remote_stdout(
-        &session_a,
-        "controller-a-started",
-        &mut controller_a,
-        &root.join("sshd.log"),
-    );
+        }));
+        wait_for_remote_stdout(
+            &session_a,
+            "controller-a-started",
+            &mut controller_a,
+            &root_path.join("sshd.log"),
+        );
 
-    let generation_b = uuid::Uuid::new_v4().hyphenated().to_string();
-    let session_b = connect_session(
-        &clone_b,
-        &worker,
-        Arc::new(authorization::TestAuthorization(generation_b)),
-    );
-    let output_b = session_b
-        .run_tool_command(
-            "printf 'controller-b-result\\n' > controller-b-result.txt",
-            Duration::from_secs(120),
-        )
-        .expect("second SSH controller should execute concurrently on the worker");
-    assert_eq!(output_b.result.exit_code, Some(0));
-    assert_eq!(
-        fs::read(clone_b.join("controller-b-result.txt")).unwrap(),
-        b"controller-b-result\n"
-    );
+        let generation_b = uuid::Uuid::new_v4().hyphenated().to_string();
+        let session_b = connect_session(
+            &clone_b,
+            &worker,
+            Arc::new(authorization::TestAuthorization(generation_b)),
+        );
+        let output_b = session_b
+            .run_tool_command(
+                "printf 'controller-b-result\\n' > controller-b-result.txt",
+                Duration::from_secs(120),
+            )
+            .expect("second SSH controller should execute concurrently on the worker");
+        assert_eq!(output_b.result.exit_code, Some(0));
+        assert_eq!(
+            fs::read(clone_b.join("controller-b-result.txt")).unwrap(),
+            b"controller-b-result\n"
+        );
 
-    active_a.store(false, std::sync::atomic::Ordering::Release);
-    let stale_result = controller_a
-        .take()
-        .expect("first controller should still be running")
-        .join()
-        .expect("first controller thread should not panic");
-    assert!(matches!(
-        stale_result,
-        Err(ref error)
-            if error.kind == crate::execution::errors::ExecutionErrorKind::PolicyDenied
-    ));
-    assert!(
-        !clone_a.join("stale-result.txt").exists(),
-        "a controller whose authorization was revoked must not apply the worker result"
-    );
-    drop(session_a);
-    drop(sshd);
-    fs::remove_dir_all(root).unwrap();
+        active_a.store(false, std::sync::atomic::Ordering::Release);
+        let stale_result = controller_a
+            .take()
+            .expect("first controller should still be running")
+            .join()
+            .expect("first controller thread should not panic");
+        assert!(matches!(
+            stale_result,
+            Err(ref error)
+                if error.kind == crate::execution::errors::ExecutionErrorKind::PolicyDenied
+        ));
+        assert!(
+            !clone_a.join("stale-result.txt").exists(),
+            "a controller whose authorization was revoked must not apply the worker result"
+        );
+        drop(session_a);
+        drop(sshd);
+    }
 }
 
 pub(super) fn wait_for_remote_stdout<T: Debug>(
