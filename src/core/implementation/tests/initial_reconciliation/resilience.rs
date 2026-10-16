@@ -1,13 +1,20 @@
 use super::*;
+#[path = "resilience/fixtures.rs"]
+mod fixtures;
+use fixtures::interrupted;
+pub(super) use fixtures::{interrupted_with_build_ignore, interrupted_with_configuration};
 
 struct StopAfterVerification;
+
 impl AiHarness for StopAfterVerification {
     fn label(&self) -> String {
         "verification interruption fixture".into()
     }
+
     fn check_available(&self) -> Result<String, AppError> {
         Ok("fixture".into())
     }
+
     fn execute(&self, _: &PlanningRequest) -> Result<crate::harness::HarnessOutcome, AppError> {
         Ok(outcome(serde_json::json!({
             "schemaVersion":2,"status":"blocked","blocker_disposition":"environment_prerequisite",
@@ -15,85 +22,6 @@ impl AiHarness for StopAfterVerification {
             "verification":[],"remaining":["Resume verification."],"human_choices":[]
         })))
     }
-}
-
-fn interrupted() -> Sandbox {
-    interrupted_with_build_ignore()
-}
-
-pub(super) fn interrupted_with_configuration(granted: bool) -> Sandbox {
-    interrupted_with_configuration_and_build_ignore(granted, false)
-}
-
-pub(super) fn interrupted_with_build_ignore() -> Sandbox {
-    interrupted_with_configuration_and_build_ignore(false, true)
-}
-
-fn interrupted_with_configuration_and_build_ignore(granted: bool, build_ignore: bool) -> Sandbox {
-    let s = Sandbox::new();
-    fs::write(s.repo.join("AGENTS.md"), "# Instructions\n\n- Required quality gates: `mkdir -p .cache; if test -f .cache/ready; then test -f build/cache.txt; else mkdir -p build; printf cache > build/cache.txt; printf ready > .cache/ready; exit 1; fi`.\n").unwrap();
-    if build_ignore {
-        fs::write(s.repo.join(".gitignore"), "build/\n.cache/\n").unwrap();
-        s.git(&s.repo, &["add", ".gitignore"]);
-    }
-    s.git(&s.repo, &["add", "AGENTS.md"]);
-    s.git(
-        &s.repo,
-        &["commit", "-qm", "require generated artifact fixture"],
-    );
-    s.git(&s.repo, &["push", "-q", "origin", "main"]);
-    let (remote, local, common) = super::merge_recovery::make_divergent(&s);
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
-    let worktree = super::merge_recovery::task_worktree(&s);
-    fs::create_dir_all(worktree.parent().unwrap()).unwrap();
-    let branch = format!(
-        "koolade/{}",
-        crate::core::implementation::key_for_ticket(&s.ticket)
-    );
-    s.git(
-        &s.repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            worktree.to_str().unwrap(),
-            &remote,
-        ],
-    );
-    s.git(
-        &worktree,
-        &["merge", "--no-ff", "--no-commit", "--no-edit", &local],
-    );
-    fs::create_dir_all(worktree.join(".cache")).unwrap();
-    fs::write(
-        worktree.join(".cache/preexisting.txt"),
-        "preserve preexisting cache\n",
-    )
-    .unwrap();
-    fs::write(
-        worktree.join(".cache/.env"),
-        "SYNTHETIC_CONFIG=task-cache\n",
-    )
-    .unwrap();
-    if granted {
-        fs::create_dir_all(s.repo.join(".cache")).unwrap();
-        fs::write(
-            s.repo.join(".cache/.env"),
-            "SYNTHETIC_CONFIG=source-cache\n",
-        )
-        .unwrap();
-        super::runtime_config::approve_path(&s, ".cache/.env");
-    }
-    super::save_legacy_reconciliation_state(
-        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
-    );
-    let error = run_with_agent(&s, &StopAfterVerification, None)
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("interrupted"), "{error}");
-    assert!(dir.join("base-reconciliation-generated.json").exists());
-    s
 }
 
 #[test]
