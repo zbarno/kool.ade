@@ -6,13 +6,13 @@ use crate::{
         docker::images::{ImageLock, RuntimeProfile},
         session::ExecutionSession,
     },
-    project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource, TargetCapabilityState},
+    project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource},
 };
 
 use super::support::{Fixture, backend, workspace};
 
 #[test]
-fn approved_stack_recipes_run_processes_without_claiming_qa_readiness() {
+fn approved_stack_recipes_execute_across_runtime_profiles() {
     const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
     if std::env::var(OPT_IN).ok().as_deref() != Some("1") {
         eprintln!("skipping rootless Docker stack recipe integration; set {OPT_IN}=1 to opt in");
@@ -44,8 +44,6 @@ fn approved_stack_recipes_run_processes_without_claiming_qa_readiness() {
             ResourceBudgetV1::default(),
         )
         .expect("bounded recipe session");
-        let capability_state = TargetCapabilityState::ReadyButUntested;
-
         for recipe in [build, test, start] {
             recipe.validate().expect("approved recipe contract");
             let output = session
@@ -61,8 +59,6 @@ fn approved_stack_recipes_run_processes_without_claiming_qa_readiness() {
                 output.result.failure
             );
             assert!(!output.result.cancelled && !output.result.timed_out);
-            // A process exit is not persistent application readiness evidence.
-            assert_eq!(capability_state, TargetCapabilityState::ReadyButUntested);
         }
     }
 }
