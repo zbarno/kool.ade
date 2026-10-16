@@ -3,7 +3,7 @@ use crate::{
     core::lifecycle::{GateReceipt, TaskEvent, TaskPhase, TaskRecord},
 };
 
-use super::{LifecycleStore, runtime_qa::load_tasks};
+use super::{LifecycleStore, records::load_tasks};
 
 impl LifecycleStore<'_> {
     pub fn load_spec_delta_approval(

@@ -45,6 +45,12 @@ pub(super) fn paint(
             std::collections::HashSet::<String>::new(),
         );
     });
+    if let Some(error) = board.lifecycle_error.as_deref() {
+        ui.colored_label(
+            theme::WARNING,
+            format!("Lifecycle card status unavailable or incomplete: {error}"),
+        );
+    }
     opportunities::paint(ui, s, board, &mut planning_selection);
     columns::paint(ui, s, board, &mut selected_path, &mut planning_selection);
 

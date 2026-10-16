@@ -29,6 +29,39 @@ pub struct ViewModel {
     pub lifecycle_pr_error: Option<String>,
     pub lifecycle_spec_proposal: Option<LifecycleSpecProposal>,
     pub runtime_capability: Option<RuntimeCapabilityView>,
+    /// Read-only lifecycle state projected from the persisted #157 records.
+    pub lifecycle: Option<LifecycleView>,
+    pub lifecycle_error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct LifecycleView {
+    pub feature_phase: crate::core::lifecycle::FeaturePhase,
+    pub task_phase: crate::core::lifecycle::TaskPhase,
+    pub task_revision: u64,
+    pub code_review: Option<crate::core::lifecycle::GateReceipt>,
+    pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
+    pub spec_reconciliation: Option<crate::core::lifecycle::GateReceipt>,
+}
+
+pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {
+    use crate::core::lifecycle::TaskPhase as Phase;
+    match phase {
+        Phase::Ready => "Ready",
+        Phase::Blocked => "Blocked",
+        Phase::Running => "Running",
+        Phase::AwaitingReview => "Awaiting review",
+        Phase::Repairing => "Repairing",
+        Phase::ReReview => "Review after repair",
+        Phase::AwaitingRuntimeQa => "Awaiting runtime QA",
+        Phase::AwaitingSpecReconciliation => "Awaiting spec sync",
+        Phase::Done => "Implementation done",
+        Phase::PrPending => "PR preparation",
+        Phase::PrOpened => "PR opened",
+        Phase::PrMerged => "PR merged",
+        Phase::Failed => "Failed",
+        Phase::Cancelled => "Cancelled",
+    }
 }
 
 #[derive(Clone)]

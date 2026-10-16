@@ -22,6 +22,9 @@ pub struct ViewModel {
     pub eligible_item_ids: BTreeSet<String>,
     pub archived: BTreeSet<String>,
     pub cancelled: BTreeSet<String>,
+    /// Persisted lifecycle phase by task-document path; rendering only.
+    pub lifecycle_tasks: std::collections::BTreeMap<String, crate::core::lifecycle::TaskPhase>,
+    pub lifecycle_error: Option<String>,
 }
 
 impl ViewModel {

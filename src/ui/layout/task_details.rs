@@ -5,6 +5,7 @@ mod conversation;
 mod dependency;
 mod details;
 mod hero;
+mod lifecycle;
 mod planning;
 mod reply;
 mod review;

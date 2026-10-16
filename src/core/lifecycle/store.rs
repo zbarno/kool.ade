@@ -109,6 +109,11 @@ impl<'a> LifecycleStore<'a> {
         Ok(snapshot.record)
     }
 
+    /// Loads the validated lifecycle task snapshots in one planning-store pass.
+    pub fn list_tasks(&self) -> Result<Vec<TaskRecord>, StoreError> {
+        records::load_tasks(self.store)
+    }
+
     /// Resolve the lifecycle identity for a persisted planning task without
     /// assuming that its path or display key equals the lifecycle UUID.
     pub fn task_for_planning_item(
@@ -116,26 +121,7 @@ impl<'a> LifecycleStore<'a> {
         planning_item_uid: &str,
     ) -> Result<Option<TaskRecord>, StoreError> {
         let mut matches = self
-            .store
-            .list_record_paths("state/lifecycle_tasks")?
-            .into_iter()
-            .map(|path| {
-                let (snapshot, revision) = self.store.read_record::<Snapshot<TaskRecord>>(&path)?;
-                if snapshot.uid != snapshot.record.task_uid
-                    || snapshot.revision != revision
-                    || snapshot.revision != snapshot.record.revision
-                {
-                    return Err(StoreError::MalformedState(
-                        "task lookup found an inconsistent lifecycle record".into(),
-                    ));
-                }
-                snapshot
-                    .record
-                    .validate()
-                    .map_err(StoreError::MalformedState)?;
-                Ok(snapshot.record)
-            })
-            .collect::<Result<Vec<_>, _>>()?
+            .list_tasks()?
             .into_iter()
             .filter(|task| task.planning_item_uid.as_deref() == Some(planning_item_uid))
             .collect::<Vec<_>>();
