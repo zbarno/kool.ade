@@ -182,7 +182,7 @@ pub(super) fn reviewer_prompt(
 ) -> crate::harness::prompt_catalog::PromptManifest {
     use crate::harness::prompt_catalog::{EvidenceItem, RoleInputV1, RolePayloadV1, render};
     render(&RoleInputV1 {
-        role: crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer,
+        role: crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2,
         workspace_uid: request.feature_uid.clone(),
         feature_uid: request.feature_uid.clone(),
         task_uid: Some(request.parent_task_uid.clone()),

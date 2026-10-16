@@ -71,3 +71,46 @@ fn manager_v3_persisted_prompt_manifest_remains_readable() {
         PromptRole::ManagerV3
     );
 }
+
+#[test]
+fn runtime_qa_v1_identity_remains_readable_beside_the_v2_evidence_role() {
+    let input = |role| {
+        base(
+            role,
+            RolePayloadV1::Review {
+                subject_revision: "qa-run".into(),
+                subject_hash: "c".repeat(64),
+                author_run_id: "author".into(),
+                reviewer_run_id: "reviewer".into(),
+                author_session_id: Some("00000000-0000-4000-8000-000000000001".into()),
+                reviewer_session_id: Some("00000000-0000-4000-8000-000000000002".into()),
+                requirements_matrix: vec!["REQ-1".into()],
+                explicit_exclusions: vec![],
+            },
+        )
+    };
+
+    let v1 = render(&input(PromptRole::RuntimeQaReviewer))
+        .unwrap()
+        .manifest;
+    assert_eq!(v1.role_version, "runtime_qa/v1");
+    assert_eq!(
+        v1.system_template_sha256,
+        "b7862c1e4510b0c4b25bbcabee0571ecc5bc10db8c5822bf119d76e060aa12f9"
+    );
+    assert_eq!(
+        validate_prompt_manifest(&v1).unwrap(),
+        PromptRole::RuntimeQaReviewer
+    );
+
+    let v2 = render(&input(PromptRole::RuntimeQaReviewerV2))
+        .unwrap()
+        .manifest;
+    assert_eq!(v2.role_version, "runtime_qa/v2");
+    assert_ne!(v2.system_template_sha256, v1.system_template_sha256);
+    assert_ne!(v2.user_template_sha256, v1.user_template_sha256);
+    assert_eq!(
+        validate_prompt_manifest(&v2).unwrap(),
+        PromptRole::RuntimeQaReviewerV2
+    );
+}

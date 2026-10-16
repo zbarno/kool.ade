@@ -73,8 +73,13 @@ fn validate_gate_receipt(
         || receipt.author_session_id.as_deref() != Some(request.author_session_id.as_str())
         || receipt.reviewer_run_id.as_deref() != Some(result.reviewer_execution_id.as_str())
         || receipt.reviewer_session_id.as_deref() != Some(result.reviewer_session_id.as_str())
-        || receipt.prompt_role()
-            != Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer)
+        || !matches!(
+            receipt.prompt_role(),
+            Some(
+                crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
+                    | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
+            )
+        )
         || !receipt
             .evidence_refs
             .iter()

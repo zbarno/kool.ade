@@ -38,6 +38,9 @@ mod opportunity;
 #[path = "tests/planner.rs"]
 mod planner;
 
+#[path = "tests/planner_turn.rs"]
+mod planner_turn;
+
 #[path = "tests/evidence.rs"]
 mod evidence;
 #[path = "tests/manifest.rs"]
@@ -46,6 +49,8 @@ mod manifest;
 mod reviews;
 #[path = "tests/roles.rs"]
 mod roles;
+#[path = "tests/spec_delta.rs"]
+mod spec_delta;
 #[path = "tests/task_graph.rs"]
 mod task_graph;
 #[path = "tests/versions.rs"]
