@@ -47,6 +47,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
             "88d1cfcf1d08b2d3a28185d64422887eb6022f55d8db1f7b9984da9e09d31ab5",
         ),
         (
+            PromptRole::PlannerConversation,
+            "3c7bc74a492c8bbf68458a6b143dab9dc0b45e75c59af68bed7831316d48560b",
+            "98e0693846529ebc50343e77dccccd2b8aca76421272101f657c954dfe453df8",
+        ),
+        (
             PromptRole::PlanReviewer,
             "d656967124b8db6e1dfe20a51e85254982c6f075889b75ef0372b37953f8e607",
             "4baa18c2f176d80778e044f26a71099597aa9832044b3ec865bdbb0e76a6b195",
@@ -105,6 +110,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         template_hash(PromptRole::Manager.policy()),
         "6e75b5a03c81783c5c2e06babc7a3cf5d890b25e508e94e2e4ca4f16aad2ad9e",
         "manager's trusted operational policy changed without a version bump"
+    );
+    assert_eq!(
+        template_hash(PromptRole::PlannerConversation.policy()),
+        "ae7ca6d37ad955840df5b826e791e7b53ac02a43d2f6f2e2f7ce6383194b30ec",
+        "planner's trusted operational policy changed without a version bump"
     );
     let generic_policy_hash = "7d883b0198159f09d1f87d2f3ca4e3c09683d06617eb6082aa22e5147b4e871a";
     for role in [

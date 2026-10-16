@@ -59,6 +59,22 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
                 && (opportunity_origin.is_none()
                     || (user_value.is_some() && concrete_target_repo.is_some()))
         }
+        RolePayloadV1::PlannerTurn {
+            turn_context,
+            workflow_instructions,
+            operator_persona,
+            task_mode_note,
+        } => {
+            !turn_context.trim().is_empty()
+                && turn_context.len() <= 256 * 1024
+                && workflow_instructions
+                    .as_ref()
+                    .is_none_or(|instructions| instructions.len() <= 64 * 1024)
+                && operator_persona.len() <= 16 * 1024
+                && task_mode_note
+                    .as_ref()
+                    .is_none_or(|note| note.len() <= 16 * 1024)
+        }
         RolePayloadV1::Review {
             subject_revision,
             subject_hash,

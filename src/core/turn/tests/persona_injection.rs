@@ -1,10 +1,8 @@
 use super::*;
-use crate::core::prompt::{PERSONA_LAYER_INTRO, PLANNER_POLICY};
 use crate::persistence::persona::{SHIPPED_DEFAULT_PERSONA, persona_path, save_persona};
 
 /// The layer's header line, at the very start of the intro, so
 /// locating it locates the layer.
-const PERSONA_MARKER: &str = "OPERATOR PERSONA (subordinate overlay)";
 /// Multi-line sentinels, DELIBERATELY without a trailing newline:
 /// the composition must not tack one on.
 const SENTINEL_A: &str =
@@ -194,18 +192,14 @@ fn saved_sentinel_rides_both_conversation_modes_from_the_next_turn_on() {
                 return LegResult::Fatal("main-chat turn captured no instructions".into());
             }
         };
-        let intro = main_instr.find(PERSONA_MARKER);
-        let layout_ok = main_instr.matches(PERSONA_MARKER).count() == 1
-            && intro
-                .zip(main_instr.find("the closing JSON fence."))
-                .is_some_and(|(intro, fence)| fence < intro)
-            && main_instr
-                .find(PLANNER_POLICY)
-                .is_some_and(|pol| pol + PLANNER_POLICY.len() <= intro.expect("marker found"));
-        if !(main_instr.ends_with(SENTINEL_A) && layout_ok) {
+        let persona = captured_persona(&main_instr);
+        if persona.as_deref() != Some(SENTINEL_A)
+            || !main_instr.contains("Planning Analyst for Kool.ad/e")
+            || main_instr.contains(SENTINEL_A)
+        {
             obs.push(format!(
-                "main leg unbound at attempt {attempt}: ends_with_sentinel={}, acts={:?}",
-                main_instr.ends_with(SENTINEL_A),
+                "main leg unbound at attempt {attempt}: persona_matches={}, acts={:?}",
+                persona.as_deref() == Some(SENTINEL_A),
                 acts
             ));
             return LegResult::Crossing;
@@ -224,10 +218,12 @@ fn saved_sentinel_rides_both_conversation_modes_from_the_next_turn_on() {
         if !main_instr.contains("PRODUCT INTENT INTERVIEW")
             || main_instr.contains("TASK CONVERSATION MODE:")
         {
-            return LegResult::Fatal(
-                "main-mode topology drifted: interview section missing or task banner leaked"
-                    .into(),
-            );
+            return LegResult::Fatal(format!(
+                "main-mode topology drifted: interview={}, task_banner={}, user={}",
+                main_instr.contains("PRODUCT INTENT INTERVIEW"),
+                main_instr.contains("TASK CONVERSATION MODE:"),
+                main_instr.chars().take(1800).collect::<String>()
+            ));
         }
         LegResult::Bound
     });
@@ -287,16 +283,14 @@ fn saved_sentinel_rides_both_conversation_modes_from_the_next_turn_on() {
             Some(i) => i,
             None => return LegResult::Fatal("scoped turn captured no instructions".into()),
         };
-        let intro = task_instr.find(PERSONA_MARKER);
-        let layout_ok = task_instr.matches(PERSONA_MARKER).count() == 1
-            && intro
-                .zip(task_instr.find("TASK CONVERSATION MODE:"))
-                .is_some_and(|(intro, banner)| banner < intro);
-        if !(task_instr.ends_with(SENTINEL_A) && layout_ok) {
+        let persona = captured_persona(&task_instr);
+        if persona.as_deref() != Some(SENTINEL_A)
+            || !task_instr.contains("TASK CONVERSATION MODE")
+            || task_instr.contains(SENTINEL_A)
+        {
             obs.push(format!(
-                "task leg unbound at attempt {attempt}: ends_with_sentinel={}, marker_count={}",
-                task_instr.ends_with(SENTINEL_A),
-                task_instr.matches(PERSONA_MARKER).count()
+                "task leg unbound at attempt {attempt}: persona_matches={}",
+                persona.as_deref() == Some(SENTINEL_A)
             ));
             return LegResult::Crossing;
         }
@@ -343,10 +337,8 @@ fn unservable_persona_falls_back_to_shipped_default_with_surfaced_diagnostic() {
             Some(i) => i,
             None => return LegResult::Fatal("corrupt leg captured no instructions".into()),
         };
-        if instr.matches(PERSONA_MARKER).count() != 1 {
-            return LegResult::Fatal(
-                "the defaulted layer must still be labeled exactly once".into(),
-            );
+        if !instr.contains("Planning Analyst for Kool.ad/e") {
+            return LegResult::Fatal("the versioned planning role must remain present".into());
         }
         let path = persona_path().to_string_lossy().to_string();
         // The store diagnostic travels VERBATIM through the
@@ -357,10 +349,12 @@ fn unservable_persona_falls_back_to_shipped_default_with_surfaced_diagnostic() {
                 && a.contains(&path)
                 && a.ends_with(" is not valid UTF-8; serving the shipped default")
         });
-        if !(instr.ends_with(SHIPPED_DEFAULT_PERSONA) && verbatim_noticed) {
+        if !(captured_persona(&instr).as_deref() == Some(SHIPPED_DEFAULT_PERSONA)
+            && verbatim_noticed)
+        {
             obs.push(format!(
-                "corrupt leg unbound at attempt {attempt}: ends_with_default={}, acts={:?}",
-                instr.ends_with(SHIPPED_DEFAULT_PERSONA),
+                "corrupt leg unbound at attempt {attempt}: default_loaded={}, acts={:?}",
+                captured_persona(&instr).as_deref() == Some(SHIPPED_DEFAULT_PERSONA),
                 acts
             ));
             return LegResult::Crossing;
@@ -408,10 +402,10 @@ fn unservable_persona_falls_back_to_shipped_default_with_surfaced_diagnostic() {
                 && a.contains(&path)
                 && a.ends_with(" was absent; seeded the shipped default")
         });
-        if !(instr.ends_with(SHIPPED_DEFAULT_PERSONA) && noticed) {
+        if !(captured_persona(&instr).as_deref() == Some(SHIPPED_DEFAULT_PERSONA) && noticed) {
             obs.push(format!(
-                "delete leg unbound at attempt {attempt}: ends_with_default={}, acts={:?}",
-                instr.ends_with(SHIPPED_DEFAULT_PERSONA),
+                "delete leg unbound at attempt {attempt}: default_loaded={}, acts={:?}",
+                captured_persona(&instr).as_deref() == Some(SHIPPED_DEFAULT_PERSONA),
                 acts
             ));
             return LegResult::Crossing;
@@ -483,42 +477,23 @@ fn resaved_sentinel_reaches_the_second_controller_without_cache_or_restart() {
             Some(i) => i,
             None => return LegResult::Fatal("turn two captured no instructions".into()),
         };
-        if !(first.ends_with(SENTINEL_A) && second.ends_with(SENTINEL_B) && first != second) {
+        let first_persona = captured_persona(&first);
+        let second_persona = captured_persona(&second);
+        if !(first_persona.as_deref() == Some(SENTINEL_A)
+            && second_persona.as_deref() == Some(SENTINEL_B)
+            && first != second)
+        {
             obs.push(format!(
-                "nocache leg unbound at attempt {attempt}: first_ends_A={}, second_ends_B={}",
-                first.ends_with(SENTINEL_A),
-                second.ends_with(SENTINEL_B)
+                "nocache leg unbound at attempt {attempt}: first_A={}, second_B={}",
+                first_persona.as_deref() == Some(SENTINEL_A),
+                second_persona.as_deref() == Some(SENTINEL_B)
             ));
             return LegResult::Crossing;
         }
-        // Divergence topology: the captures differ ONLY from the
-        // persona-layer slot onward.
-        let pa = match first.find(PERSONA_MARKER) {
-            Some(p) => p,
-            None => return LegResult::Fatal("turn one intro missing".into()),
-        };
-        let pb = match second.find(PERSONA_MARKER) {
-            Some(p) => p,
-            None => return LegResult::Fatal("turn two intro missing".into()),
-        };
-        if first[..pa] != second[..pb] {
-            return LegResult::Fatal("standing prefixes must compare byte-equal".into());
-        }
-        if first[pa..pa + PERSONA_LAYER_INTRO.len()] != second[pb..pb + PERSONA_LAYER_INTRO.len()] {
+        if first_persona == second_persona {
             return LegResult::Fatal(
-                "the layer preamble must be byte-identical across turns".into(),
+                "persona changes must be visible in the next user prompt".into(),
             );
-        }
-        if &first[pa + PERSONA_LAYER_INTRO.len()..] != SENTINEL_A {
-            obs.push(
-                "nocache: turn-one document slice is neither sentinel nor default (crossing)"
-                    .into(),
-            );
-            return LegResult::Crossing;
-        }
-        if &second[pb + PERSONA_LAYER_INTRO.len()..] != SENTINEL_B {
-            obs.push("nocache: turn-two document slice is not sentinel B (crossing)".into());
-            return LegResult::Crossing;
         }
         LegResult::Bound
     });

@@ -38,6 +38,9 @@ mod opportunity;
 #[path = "tests/planner.rs"]
 mod planner;
 
+#[path = "tests/planner_turn.rs"]
+mod planner_turn;
+
 #[path = "tests/evidence.rs"]
 mod evidence;
 #[path = "tests/manifest.rs"]

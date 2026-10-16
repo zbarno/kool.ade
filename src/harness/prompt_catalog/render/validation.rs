@@ -77,6 +77,10 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
             PromptRole::Planner,
             RolePayloadV1::PlannerOpportunity { .. }
         ) | (PromptRole::PlannerV2, RolePayloadV1::Planner { .. })
+            | (
+                PromptRole::PlannerConversation,
+                RolePayloadV1::PlannerTurn { .. }
+            )
             | (PromptRole::PlanReviewer, RolePayloadV1::Review { .. })
             | (PromptRole::CodeReviewer, RolePayloadV1::Review { .. })
             | (PromptRole::RuntimeQaReviewer, RolePayloadV1::Review { .. })

@@ -20,10 +20,12 @@ pub enum RoleOutputV1 {
     SpecDelta(SpecDeltaV1),
     PrProposal(PrProposalV1),
     OpportunityDecision(OpportunityDecisionV1),
+    PlanningTurn(Box<crate::harness::TurnEnvelope>),
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct OutputValidationContext<'a> {
+    pub turn_purpose: crate::core::workflow::TurnPurpose,
     pub expected_feature_uid: Option<&'a str>,
     pub expected_approved_spec_ref: Option<&'a str>,
     pub expected_approved_plan_hash: Option<&'a str>,
@@ -68,11 +70,12 @@ pub fn validate_output_with_context(
     if text.len() > 1024 * 1024 {
         return Err("model response exceeds 1 MiB".into());
     }
-    let direct = decode(role, text);
+    let direct = decode(role, text, context.turn_purpose);
     let decoded = direct.or_else(|_| {
         decode(
             role,
             &extract_json(text).ok_or_else(|| "no JSON object found".to_owned())?,
+            context.turn_purpose,
         )
     })?;
     if let RoleOutputV1::Review(review) = &decoded {
@@ -228,6 +231,7 @@ fn validate_output_refs(
         }
         RoleOutputV1::PrProposal(value) => validate_refs(&value.evidence, &context.evidence_ids)?,
         RoleOutputV1::OpportunityDecision(_) => {}
+        RoleOutputV1::PlanningTurn(_) => {}
     }
     Ok(())
 }
@@ -250,7 +254,11 @@ fn validate_refs(refs: &[String], allowed: &HashSet<String>) -> Result<(), Strin
     Ok(())
 }
 
-fn decode(role: PromptRole, text: &str) -> Result<RoleOutputV1, String> {
+fn decode(
+    role: PromptRole,
+    text: &str,
+    turn_purpose: crate::core::workflow::TurnPurpose,
+) -> Result<RoleOutputV1, String> {
     macro_rules! parse {
         ($ty:ty, $variant:ident) => {
             serde_json::from_str::<$ty>(text)
@@ -263,6 +271,11 @@ fn decode(role: PromptRole, text: &str) -> Result<RoleOutputV1, String> {
         PromptRole::ManagerV2 => parse!(ManagerOutputV1, ManagerLegacy),
         PromptRole::Planner => parse!(PlannerOutputV2, PlannerV3),
         PromptRole::PlannerV2 => parse!(PlannerOutputV1, Planner),
+        PromptRole::PlannerConversation => {
+            crate::harness::responses::decode_turn(text, turn_purpose)
+                .map(Box::new)
+                .map(RoleOutputV1::PlanningTurn)
+        }
         PromptRole::PlanReviewer | PromptRole::CodeReviewer | PromptRole::RuntimeQaReviewer => {
             parse!(ReviewVerdictV1, Review)
         }

@@ -10,6 +10,12 @@ use crate::artifacts::config_io;
 use crate::domain::{CategoryOwners, ItemKind, Stakeholders};
 use crate::harness::{DocumentUpdate, HarnessOutcome, RetrievalPlan, TurnItem};
 
+fn captured_persona(prompt: &str) -> Option<String> {
+    let key = prompt.find("\"operator_persona\":")? + "\"operator_persona\":".len();
+    let mut decoder = serde_json::Deserializer::from_str(prompt[key..].trim_start());
+    <String as serde::Deserialize>::deserialize(&mut decoder).ok()
+}
+
 fn vision_update(text: &str) -> Vec<DocumentUpdate> {
     vec![DocumentUpdate {
         document_id: "product:overview".into(),
@@ -31,7 +37,21 @@ impl AiHarness for ScriptedHarness {
         Ok("test".into())
     }
     fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
-        assert!(req.system_instructions.contains(prompt::PLANNER_POLICY));
+        if req.mode == crate::harness::ExecutionMode::TaskGeneration {
+            assert!(req.system_instructions.contains(prompt::PLANNER_POLICY));
+            assert!(req.prompt_manifest.is_none());
+        } else {
+            assert!(
+                req.system_instructions
+                    .contains("Planning Analyst for Kool.ad/e")
+            );
+            assert_eq!(
+                req.prompt_manifest
+                    .as_ref()
+                    .map(|manifest| manifest.role_version.as_str()),
+                Some("planner/v4")
+            );
+        }
         let text = match (&self.raw, &self.canned) {
             (Some(raw), _) => raw.clone(),
             (_, Some(env)) => {
@@ -83,7 +103,18 @@ impl AiHarness for RetrievalPipelineHarness {
 
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
         assert_eq!(request.mode, crate::harness::ExecutionMode::Planning);
-        assert!(request.system_instructions.contains(prompt::PLANNER_POLICY));
+        assert!(
+            request
+                .system_instructions
+                .contains("Planning Analyst for Kool.ad/e")
+        );
+        assert_eq!(
+            request
+                .prompt_manifest
+                .as_ref()
+                .map(|manifest| manifest.role_version.as_str()),
+            Some("planner/v4")
+        );
         assert!(
             request
                 .prompt_body
@@ -344,7 +375,10 @@ impl AiHarness for CaptureHarness {
         Ok("test".into())
     }
     fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
-        *self.sink.lock().unwrap() = Some(req.system_instructions.clone());
+        *self.sink.lock().unwrap() = Some(format!(
+            "SYSTEM\n{}\nUSER\n{}",
+            req.system_instructions, req.prompt_body
+        ));
         Ok(HarnessOutcome {
             final_text: self.raw.clone(),
             envelope: None, // force the pipeline to extract + decode itself

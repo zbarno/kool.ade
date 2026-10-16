@@ -25,7 +25,12 @@ impl AiHarness for FixtureHarness {
     }
     fn execute(&self, req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
         let n = self.calls.fetch_add(1, Ordering::SeqCst);
-        assert!(req.system_instructions.contains("understand WHY"));
+        if self.generation {
+            assert!(req.system_instructions.contains("understand WHY"));
+        } else {
+            assert!(req.system_instructions.contains("Planning Analyst"));
+            assert!(req.prompt_body.contains("understand WHY"));
+        }
         let text = if !self.generation {
             assert!(
                 req.prompt_body

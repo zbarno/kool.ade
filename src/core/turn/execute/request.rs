@@ -241,8 +241,67 @@ pub(super) fn prepare(
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
         prompt_body.push_str(prompt::TASK_OUTLINE_STEP);
     }
+    let (prompt_body, system_instructions, prompt_manifest) = if inputs.purpose
+        == crate::core::workflow::TurnPurpose::GenerateTasks
+    {
+        (
+            prompt_body,
+            prompt::compose_system_instructions(task_note, &persona_load.document),
+            None,
+        )
+    } else {
+        let workspace_uid = inputs
+            .state
+            .planning_store
+            .project_id
+            .hyphenated()
+            .to_string();
+        let feature_uid = inputs
+            .state
+            .active_feature
+            .as_ref()
+            .and_then(|(_, markdown)| {
+                crate::domain::ArtifactIdentity::from_markdown(markdown)
+                    .ok()
+                    .flatten()
+                    .map(|identity| identity.uid)
+            })
+            .unwrap_or_else(|| format!("planning:{workspace_uid}"));
+        let rendered =
+            crate::harness::prompt_catalog::render(&crate::harness::prompt_catalog::RoleInputV1 {
+                role: crate::harness::prompt_catalog::PromptRole::PlannerConversation,
+                workspace_uid,
+                feature_uid,
+                task_uid: None,
+                original_goal: crate::core::context_build::clip(prompt_message, 16 * 1024),
+                approved_spec_ref: None,
+                approved_spec_hash: None,
+                decision_refs: vec![],
+                evidence_manifest: vec![],
+                execution_policy_ref: "planning-turn/application-validation-only/v1".into(),
+                output_schema_version:
+                    crate::harness::prompt_catalog::PromptRole::PlannerConversation
+                        .output_schema_version()
+                        .into(),
+                payload: crate::harness::prompt_catalog::RolePayloadV1::PlannerTurn {
+                    turn_context: prompt_body,
+                    workflow_instructions: task_note
+                        .is_none()
+                        .then(|| prompt::WORKFLOW_INSTRUCTIONS.to_owned()),
+                    operator_persona: persona_load.document,
+                    task_mode_note: task_note.map(str::to_owned),
+                },
+            })
+            .map_err(|error| {
+                Box::new(TurnOutcome::HarnessFailed {
+                    error: AppError::Other(format!("Could not render planning prompt: {error}")),
+                    elapsed: started.elapsed(),
+                })
+            })?;
+        (rendered.user, rendered.system, Some(rendered.manifest))
+    };
     let request = PlanningRequest {
-        prompt_manifest: None,
+        prompt_manifest,
         mode: if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
             crate::harness::ExecutionMode::TaskGeneration
         } else {
@@ -258,7 +317,7 @@ pub(super) fn prepare(
         repo_root: inputs.state.repo_root.clone(),
         runtime_config_source: None,
         prompt_body,
-        system_instructions: prompt::compose_system_instructions(task_note, &persona_load.document),
+        system_instructions,
         timeout,
         progress_tx,
         cancel: Arc::clone(cancel),

@@ -1,7 +1,9 @@
 mod decode;
 mod generation;
 mod request;
-pub(super) use decode::{EnvelopeDecode, decode_envelope};
+#[cfg(test)]
+pub(super) use decode::decode_envelope;
+pub(super) use decode::{EnvelopeDecode, decode_catalogued_envelope};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,7 +62,11 @@ pub(super) fn run_turn(
         };
     }
     // Decode (or discover the absence of) the structured block.
-    match decode_envelope(&outcome.final_text, inputs.purpose) {
+    match decode_catalogued_envelope(
+        &outcome.final_text,
+        inputs.purpose,
+        request.prompt_manifest.as_ref(),
+    ) {
         EnvelopeDecode::Env(env) => {
             if task.is_some_and(|key| {
                 crate::core::task_conversation::is_opportunity_conversation_key(key)
