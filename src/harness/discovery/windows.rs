@@ -79,13 +79,11 @@ fn resume_primary_thread(pid: u32) -> std::io::Result<()> {
     let mut primary_thread = None;
     let mut found = unsafe { Thread32First(snapshot, &mut entry) };
     while found != 0 {
-        if entry.th32OwnerProcessID == pid {
-            if primary_thread.replace(entry.th32ThreadID).is_some() {
-                unsafe { CloseHandle(snapshot) };
-                return Err(std::io::Error::other(
-                    "suspended provider has an unexpected thread count",
-                ));
-            }
+        if entry.th32OwnerProcessID == pid && primary_thread.replace(entry.th32ThreadID).is_some() {
+            unsafe { CloseHandle(snapshot) };
+            return Err(std::io::Error::other(
+                "suspended provider has an unexpected thread count",
+            ));
         }
         found = unsafe { Thread32Next(snapshot, &mut entry) };
     }
@@ -111,3 +109,7 @@ impl Drop for WindowsProcessTree {
         unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0) };
     }
 }
+
+#[cfg(all(test, windows))]
+#[path = "windows_tests.rs"]
+mod tests;
