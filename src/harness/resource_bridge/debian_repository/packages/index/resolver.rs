@@ -117,15 +117,15 @@ fn compatible_architecture(
     multi_arch: Option<&str>,
     target_architecture: &str,
 ) -> bool {
-    if candidate_architecture == "all" {
-        return true;
-    }
-    if candidate_architecture != target_architecture {
-        return false;
-    }
     match alternative.qualifier.as_deref() {
         Some("any") => multi_arch == Some("allowed"),
-        Some("native") | None => true,
-        Some(_) => false,
+        Some("native") | None => {
+            candidate_architecture == "all" || candidate_architecture == target_architecture
+        }
+        Some(qualified_architecture) => {
+            qualified_architecture == target_architecture
+                && (candidate_architecture == "all"
+                    || candidate_architecture == qualified_architecture)
+        }
     }
 }

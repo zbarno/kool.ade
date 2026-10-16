@@ -5,6 +5,9 @@ use flate2::{Compression, write::GzEncoder};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Write};
 
+#[path = "tests/architecture_qualifiers.rs"]
+mod architecture_qualifiers;
+
 fn record(name: &str, depends: Option<&str>) -> PackageRecord {
     let mut fields = BTreeMap::from([
         ("Package".into(), name.into()),

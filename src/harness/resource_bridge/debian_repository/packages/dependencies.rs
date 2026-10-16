@@ -97,7 +97,7 @@ fn parse_alternative(value: &str) -> anyhow::Result<DependencyAlternative> {
         .map_or((token, None), |(name, qualifier)| (name, Some(qualifier)));
     anyhow::ensure!(valid_name(name), "invalid Debian dependency package name");
     anyhow::ensure!(
-        qualifier.is_none_or(|q| q == "any" || q == "native"),
+        qualifier.is_none_or(valid_architecture_qualifier),
         "unsupported Debian package architecture qualifier"
     );
     let mut rest = value[token_end..].trim();
@@ -227,6 +227,21 @@ fn valid_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"+.-".contains(&b))
+}
+
+fn valid_architecture_qualifier(value: &str) -> bool {
+    matches!(value, "any" | "native")
+        || (!value.is_empty()
+            && value != "foreign"
+            && value.len() <= 32
+            && value.as_bytes()[0].is_ascii_lowercase()
+            && value
+                .as_bytes()
+                .last()
+                .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'))
 }
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ use crate::execution::{
 use bollard::Docker;
 
 mod lifecycle;
+mod prepared_image;
 mod qa;
 mod system_image;
 #[cfg(test)]
@@ -27,6 +28,7 @@ mod system_image;
 mod tests;
 mod workspace_resolver;
 use lifecycle::RuntimeExecution;
+pub(super) use prepared_image::PreparedDerivedImage;
 pub use workspace_resolver::{OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspaceResolver};
 
 /// Resolves a `WorkspaceRef` only to an app-owned task clone and provides a verified staging root.

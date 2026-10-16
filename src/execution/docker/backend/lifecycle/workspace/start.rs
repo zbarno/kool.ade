@@ -12,7 +12,7 @@ use crate::execution::{
             DockerExecutionBackend, internal_error_with_context, invalid_request, now_unix_ms,
             selected_image,
         },
-        sandbox::{create_body, staging},
+        sandbox::{create_body_with_derived_approval, staging},
     },
     errors::{ExecutionError, ExecutionErrorKind},
 };
@@ -102,12 +102,19 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
             .as_deref()
             .ok_or_else(invalid_request)?,
     )?;
-    tokio::time::timeout_at(deadline, backend.prepare_selected_image(&image))
-        .await
-        .map_err(|_| deadline_error())??;
+    let derived_approval =
+        tokio::time::timeout_at(deadline, backend.prepare_selected_image(&image))
+            .await
+            .map_err(|_| deadline_error())??;
     let mut identity = backend.identity.clone();
     identity.lease_expires_unix_ms = request.deadline_unix_ms.saturating_add(60_000);
-    let body = create_body(request, &workspace, &identity, &image)?;
+    let body = create_body_with_derived_approval(
+        request,
+        &workspace,
+        &identity,
+        &image,
+        derived_approval.as_ref(),
+    )?;
     let name = format!("koolade-exec-{}", request.execution_id);
     let mut execution = RuntimeExecution::new(
         request.clone(),

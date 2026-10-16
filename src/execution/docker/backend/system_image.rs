@@ -87,7 +87,7 @@ impl DockerExecutionBackend {
     pub(super) async fn prepare_selected_image(
         &self,
         image: &SelectedImage,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<Option<super::PreparedDerivedImage>, ExecutionError> {
         let registered = self
             .derived_images
             .lock()
@@ -95,21 +95,33 @@ impl DockerExecutionBackend {
             .get(&image.digest)
             .cloned();
         match registered {
-            Some(registered) if registered.image == *image => self
-                .engine
-                .prepare_derived_image(image, &registered.content_identity, &registered.base_digest)
-                .await
-                .map_err(super::prerequisite_error),
+            Some(registered) if registered.image == *image => {
+                self.engine
+                    .prepare_derived_image(
+                        image,
+                        &registered.content_identity,
+                        &registered.base_digest,
+                    )
+                    .await
+                    .map_err(super::prerequisite_error)?;
+                Ok(Some(super::PreparedDerivedImage {
+                    image: registered.image,
+                    content_identity: registered.content_identity,
+                    base_digest: registered.base_digest,
+                }))
+            }
             Some(_) => Err(ExecutionError::new(
                 ExecutionErrorKind::ImageUnavailable,
                 "Selected derived image differs from its registered identity",
                 false,
             )),
-            None => self
-                .engine
-                .prepare_image(image)
-                .await
-                .map_err(super::prerequisite_error),
+            None => {
+                self.engine
+                    .prepare_image(image)
+                    .await
+                    .map_err(super::prerequisite_error)?;
+                Ok(None)
+            }
         }
     }
 }
