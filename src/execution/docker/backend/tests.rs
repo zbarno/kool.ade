@@ -1,5 +1,7 @@
-use super::handle_matches;
-use crate::execution::{backend::ExecutionHandleV1, contract::ExecutionTarget};
+use super::{handle_matches, internal_error_with_detail};
+use crate::execution::{
+    backend::ExecutionHandleV1, contract::ExecutionTarget, errors::ExecutionErrorKind,
+};
 
 #[cfg(unix)]
 #[path = "tests/docker_engine.rs"]
@@ -52,4 +54,18 @@ fn execution_handle_is_bound_to_all_record_identity_fields() {
         &ExecutionTarget::local(),
         4,
     ));
+}
+
+#[test]
+fn internal_state_error_preserves_bounded_control_free_diagnostics() {
+    let detail = format!("event [31m{}", "x".repeat(2_000));
+    let error = internal_error_with_detail("reading execution events", &detail);
+
+    assert_eq!(error.kind, ExecutionErrorKind::WorkerDisconnected);
+    assert!(error.retryable);
+    assert!(error.message.starts_with(
+        "Execution state could not be accessed while reading execution events: event [31m"
+    ));
+    assert!(error.message.len() < 2_100);
+    error.validate().unwrap();
 }
