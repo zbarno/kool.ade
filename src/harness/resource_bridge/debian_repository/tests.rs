@@ -83,3 +83,44 @@ fn signed_index_size_and_digest_are_enforced() {
     assert!(verify_index_bytes(&release, "../Packages.gz", b"").is_err());
     assert!(verify_index_bytes(&release, "main/binary-amd64/Packages.gz", b"tampered").is_err());
 }
+
+#[test]
+fn release_without_valid_until_uses_a_bounded_date_window() {
+    let signed_date = Utc::now() - chrono::Duration::days(1);
+    let date = signed_date.format("%a, %d %b %Y %H:%M:%S +0000");
+    let body = format!(
+        "Origin: Debian\nLabel: Debian\nSuite: bookworm\nCodename: bookworm\nDate: {date}\nArchitectures: amd64 arm64\nComponents: main\nSHA256:\n e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz\n"
+    );
+    let release = parse_release_body(&body).expect("Valid-Until is optional for Debian stable");
+    assert_eq!(
+        release.valid_until_unix,
+        (signed_date + chrono::Duration::days(180)).timestamp()
+    );
+}
+
+#[test]
+fn release_without_valid_until_is_rejected_after_180_days() {
+    let date = (Utc::now() - chrono::Duration::days(181)).format("%a, %d %b %Y %H:%M:%S +0000");
+    let body = format!(
+        "Origin: Debian\nLabel: Debian\nSuite: bookworm\nCodename: bookworm\nDate: {date}\nArchitectures: amd64 arm64\nComponents: main\nSHA256:\n e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz\n"
+    );
+    assert!(parse_release_body(&body).is_err());
+}
+
+#[test]
+fn bookworm_release_accepts_debian_lifecycle_suite_label() {
+    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S +0000");
+    let body = format!(
+        "Origin: Debian\nLabel: Debian\nSuite: oldstable\nCodename: bookworm\nDate: {date}\nArchitectures: amd64 arm64\nComponents: main\nSHA256:\n e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz\n"
+    );
+    let release = parse_release_body(&body).unwrap();
+    assert_eq!(release.suite, "oldstable");
+    assert_eq!(release.codename, "bookworm");
+}
+
+#[test]
+fn supplied_valid_until_is_enforced_even_when_date_is_recent() {
+    let date = Utc::now().format("%a, %d %b %Y %H:%M:%S +0000");
+    let expiry = (Utc::now() - chrono::Duration::minutes(1)).format("%a, %d %b %Y %H:%M:%S +0000");
+    assert!(validate_release_window(&date.to_string(), Some(&expiry.to_string())).is_err());
+}

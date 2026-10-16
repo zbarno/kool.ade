@@ -121,7 +121,7 @@ fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
         codename: field(&fields, "Codename")?,
         valid_until_unix: validate_release_window(
             field(&fields, "Date")?.as_str(),
-            field(&fields, "Valid-Until")?.as_str(),
+            fields.get("Valid-Until").map(String::as_str),
         )?,
         architectures: field(&fields, "Architectures")?
             .split_ascii_whitespace()
@@ -136,7 +136,10 @@ fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
     anyhow::ensure!(
         release.origin == "Debian"
             && release.label == "Debian"
-            && release.suite == "bookworm"
+            // The codename is the immutable release identity. Debian updates
+            // Suite to oldstable/oldoldstable as releases age, including on
+            // the versioned dists/bookworm endpoint.
+            && matches!(release.suite.as_str(), "bookworm" | "oldstable" | "oldoldstable")
             && release.codename == "bookworm"
             && release
                 .components
@@ -149,15 +152,26 @@ fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
     Ok(release)
 }
 
-fn validate_release_window(date: &str, valid_until: &str) -> anyhow::Result<i64> {
+fn validate_release_window(date: &str, valid_until: Option<&str>) -> anyhow::Result<i64> {
     let date = parse_debian_date(date)?.with_timezone(&Utc);
-    let valid_until = parse_debian_date(valid_until)?.with_timezone(&Utc);
+    // Debian stable Release files can omit Valid-Until and may be published
+    // infrequently. Accept at most 180 days from the signed Date in that case;
+    // the finite cap accommodates Bookworm's observed ~97-day metadata age.
+    // When the repository supplies Valid-Until, enforce that signed value and
+    // retain the tighter 10-day maximum span.
+    let supplied_expiry = valid_until.is_some();
+    let valid_until = valid_until
+        .map(parse_debian_date)
+        .transpose()?
+        .map(|date| date.with_timezone(&Utc))
+        .unwrap_or_else(|| date + chrono::Duration::days(180));
+    let max_span = if supplied_expiry { 10 } else { 180 };
     let now = Utc::now();
     anyhow::ensure!(
         date <= now + chrono::Duration::minutes(5)
             && valid_until > now
             && valid_until > date
-            && valid_until - date <= chrono::Duration::days(10),
+            && valid_until - date <= chrono::Duration::days(max_span),
         "Debian Release metadata is expired or outside the accepted freshness window"
     );
     Ok(valid_until.timestamp())
