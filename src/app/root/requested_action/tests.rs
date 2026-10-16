@@ -193,10 +193,10 @@ fn former_trigger_phrases_are_sent_to_the_model_and_do_nothing_without_a_typed_a
 }
 
 #[test]
+#[ignore = "requires an explicitly prepared live approval fixture"]
 fn temporary_live_fixture_approval_dispatch() {
-    let Ok(root) = std::env::var("KOOLADE_APPROVAL_FIXTURE") else {
-        return;
-    };
+    let root = std::env::var("KOOLADE_APPROVAL_FIXTURE")
+        .expect("set KOOLADE_APPROVAL_FIXTURE to run this ignored live fixture");
     let root = std::path::PathBuf::from(root);
     let id = std::env::var("KOOLADE_APPROVAL_FEATURE").unwrap();
     let mut app = super::super::board_tests::fixture();

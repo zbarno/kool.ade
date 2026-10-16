@@ -131,7 +131,7 @@ fn relay_binding_rejects_task_mismatch_and_stale_generation() {
 }
 
 #[test]
-fn stale_or_cancelled_binding_interrupts_response_wait() {
+fn stale_binding_interrupts_response_wait_and_cancelled_verifier_is_rejected() {
     let verifier = Arc::new(Verifier {
         active: AtomicBool::new(false),
         generation: "00000000-0000-4000-8000-000000000001".into(),
@@ -206,7 +206,11 @@ fn remote_prepare_relays_broker_result_for_the_bound_execution() {
 
 #[test]
 fn remote_prepare_rejects_wrong_task_or_execution_before_socket_io() {
-    let bridge = binding(std::path::PathBuf::new());
+    let directory = tempfile::tempdir().unwrap();
+    let socket = directory.path().join("resource.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let bridge = binding(socket);
     let mut wrong_task = request();
     wrong_task.task_id = "00000000-0000-4000-8000-000000000008".into();
     wrong_task.workspace.task_id = wrong_task.task_id.clone();
@@ -215,6 +219,11 @@ fn remote_prepare_rejects_wrong_task_or_execution_before_socket_io() {
     let mut wrong_execution = request();
     wrong_execution.execution_id = "00000000-0000-4000-8000-000000000009".into();
     assert!(bridge.prepare(wrong_execution).is_err());
+
+    assert!(matches!(
+        listener.accept(),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock
+    ));
 }
 
 #[test]

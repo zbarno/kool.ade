@@ -65,7 +65,6 @@ fn reviewer_fixture_covers_explicit_and_task_scope_requirements() {
 fn planner_fixture_returns_the_expected_conversation_message() {
     let root = tempfile::tempdir().unwrap();
     let pi = super::create(root.path());
-    std::fs::write(root.path().join("004-task.started"), "").unwrap();
     let mut child = Command::new(&pi)
         .env_remove("KOOLADE_MCP_ARGS")
         .env_remove("KOOLADE_MCP_COMMAND")

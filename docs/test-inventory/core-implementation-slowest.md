@@ -1,6 +1,6 @@
 # Core implementation test inventory: slowest 20
 
-This is the first scoped slice of the #204 test inventory. It records the 20 slowest `core::implementation` cases in the baseline JUnit report, their protected invariants, fixture dependencies, and keep decisions. The full-suite inventory and legacy migration audit remain open.
+This report preserves the historical comparable timing table and adds a current-tree profile for the #204 completion pass. It records the slowest `core::implementation` cases, protected invariants, fixture dependencies, and keep decisions.
 
 ## Measurement
 
@@ -25,7 +25,41 @@ The complete local Nextest report from PR #212's latest source (`target/nextest/
 | `publication_checks` | 5 | 52.16 |
 | `initial_reconciliation::cache_reuse` | 2 | 51.95 |
 
-This report widens the measured scope beyond the historical slowest-20 table and identifies where further source-level review can focus. It does not establish that the remaining cases are duplicate-free; the complete duplicate/vacuous-test audit and the rest of the repository inventory remain open.
+This historical profile widens the measured scope beyond the slowest-20 table. The current-tree source review and complete test inventory are recorded in `full-suite.md` and `full-suite.csv`.
+
+
+## Current profile on the merged-main tree
+
+The local full-suite report for the tree merged with `origin/main` at `710db67` contains **193** `core::implementation` cases. Their cumulative case time is **1,342.265 s**; **75** exceed 10 s and **96** exceed 5 s. The full run passed 1,957 tests, skipped 4 environment-gated tests, and took 253.999 s. A focused Nextest run using `test(/core::implementation/)` passed 214 selected cases in 112.335 s; this regex also selects 21 fast `core::implementation_queue` cases. These are current-tree local measurements, not a controlled before/after comparison with the 2026-10-15 CI baseline.
+
+The longest 20 cases were timed again on this tree. The table records their full-suite case time and Git command launches from a temporary PATH wrapper during the focused profile. Source lines, protected invariants, fixture dependencies, and keep decisions are in `full-suite.csv`.
+
+| Test | Nextest case time (s) | Git launches |
+| --- | ---: | ---: |
+| `modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume` | 36.942 | 1052 |
+| `verified_reconciliation_and_generated_output_survive_publication_retry` | 35.389 | 974 |
+| `verified_disjoint_baseline_is_reused_by_followup_tasks` | 31.586 | 841 |
+| `failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot` | 30.155 | 852 |
+| `harness_failures_retry_and_saved_diagnostics_survive_lost_final_message` | 29.755 | 731 |
+| `verified_legacy_plan_refreshes_pending_checks_without_touching_task_edits` | 28.158 | 779 |
+| `resume_after_exhaustion_gets_full_budget_without_nested_history` | 26.241 | 774 |
+| `independent_check_gate_pushes_only_the_candidate_and_records_the_exact_result` | 24.080 | 606 |
+| `runtime_config_survives_recovery_and_never_enters_stash_or_task_commit` | 21.582 | 793 |
+| `an_interrupted_pinned_merge_is_snapshotted_and_retried` | 21.372 | 587 |
+| `fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline` | 20.491 | 545 |
+| `legacy_nested_project_check_is_rescoped_when_reconciliation_resumes` | 19.845 | 558 |
+| `missing_task_state_resumes_the_saved_commit_snapshots` | 18.599 | 518 |
+| `histories_already_in_task_base_skip_duplicate_reconciliation` | 18.233 | 497 |
+| `inherited_eof_whitespace_from_remote_history_is_preserved` | 17.853 | 493 |
+| `inherited_eof_whitespace_from_local_history_is_preserved` | 17.835 | 490 |
+| `divergent_histories_are_combined_before_the_task_agent_runs` | 17.831 | 493 |
+| `moved_whitespace_inherited_from_both_sources_is_preserved` | 17.789 | 489 |
+| `generated_output_survives_publication_retry_without_reconciliation_plan` | 17.722 | 476 |
+| `preface_and_json_fence_are_removed_before_report_validation` | 17.570 | not traced |
+
+A temporary trace of `lock_process_environment()` measured 4.660 ms total wait across 118 acquisitions, with 71 μs p95 and 338 μs maximum. This process-local mutex does not explain the suite long tail. The focused profile counted 36,381 Git launches across 138 test processes; the slowest case launched 1,052. In a parallel direct timing of that case, user plus system CPU was 1.66 s over 38.82 s elapsed, which points to process and filesystem wait rather than CPU-bound work. The test protects a full recovery path and is retained.
+
+Follow-up #239, owned by @zbarno at P1, tracks reducing avoidable Git fixture setup while retaining real local history and representative recovery E2E checks. It records the profile methodology and acceptance measures; no environment-lock refactor is indicated by these measurements.
 
 ## Inventory
 
@@ -58,11 +92,11 @@ This report widens the measured scope beyond the historical slowest-20 table and
 - #207 replaced two expensive invalid-history end-to-end repetitions with direct tests of the same recovery predicates while retaining an end-to-end invalid-phase test.
 - #208 removed a redundant fixture mode from the long harness-recovery case. Its traced Git process count fell from 1,237 to 883, with CPU and elapsed measurements included in that PR's description.
 - #208 measured the process-local environment mutex in 121 core tests: 5.11 ms cumulative wait, 44.4 μs mean, 59.6 μs p95, and 181 μs maximum. Since Nextest runs each case in a separate process, this mutex does not serialize cases across the suite.
-- Continue the inventory across the remaining tests, and separately audit legacy migration coverage before considering any further removals.
+- The full-suite inventory and repository-wide migration review are recorded in `full-suite.md` and `legacy-migrations-outside-implementation.md`. No further removal is justified by this profile; #239 tracks a focused fixture-cost follow-up.
 
 ## Legacy worktree and migration audit
 
-This audit covers `src/core/implementation`. It checked the legacy task repository discriminator, migration entry point, validation/snapshot code, and tests that construct legacy task or lifecycle state. The wider repository migration audit remains open.
+This audit covers `src/core/implementation`. It checked the legacy task repository discriminator, migration entry point, validation/snapshot code, and tests that construct legacy task or lifecycle state. The repository-wide test inventory review, including migration-related cases outside this module, is recorded in `full-suite.md` and `full-suite.csv`; this focused audit covers only the core implementation slice.
 
 `execution/task_state.rs` still dispatches `TaskRepositoryKind::LegacyWorktree` into `execution/task_state/legacy_workspace.rs`. That path validates the saved checkout and branch, captures staged and unstaged state, copies changes into an app-owned task clone, verifies the result, and preserves the original worktree. It records progress so an interrupted copy can resume safely. Related code also migrates legacy integration workspaces and attaches clone identity to old reconciliation plans. The production migration window is therefore still active.
 

@@ -19,10 +19,10 @@ impl crate::harness::AiHarness for LivePi {
 }
 
 #[test]
+#[ignore = "requires an explicitly prepared live approval fixture and provider"]
 fn temporary_live_fixture_prepare_and_generate() {
-    let Ok(root) = std::env::var("KOOLADE_APPROVAL_FIXTURE") else {
-        return;
-    };
+    let root = std::env::var("KOOLADE_APPROVAL_FIXTURE")
+        .expect("set KOOLADE_APPROVAL_FIXTURE to run this ignored live fixture");
     let root = std::path::PathBuf::from(root);
     let id = std::env::var("KOOLADE_APPROVAL_FEATURE").unwrap();
     let mut app = super::super::super::board_tests::fixture();

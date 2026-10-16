@@ -280,8 +280,8 @@ fn transient_peer_hold_clears_within_budget_so_save_proceeds_instead_of_flapping
             .write(true)
             .open(&lock_path)
             .unwrap();
-        ready_tx.send(()).unwrap();
         hold.lock().unwrap();
+        ready_tx.send(()).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         drop(hold);
     });
