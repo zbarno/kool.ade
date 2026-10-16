@@ -70,6 +70,25 @@ pub(super) fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::
     refresh_pr_with_store(&store, repo, ticket, runner)
 }
 
+#[cfg(test)]
+pub(crate) fn refresh_pr_with_store_for_test(
+    planning_store: &PlanningStore,
+    state_root: &Path,
+    ticket: &str,
+    gh: &str,
+) -> anyhow::Result<()> {
+    let (progress, _updates) = mpsc::channel();
+    let runner = Runner {
+        gh: gh.into(),
+        runtime_config_source: None,
+        deadline: Instant::now() + Duration::from_secs(20),
+        cancel: Arc::new(AtomicBool::new(false)),
+        progress,
+        authorization_verifier: None,
+    };
+    refresh_pr_with_store(planning_store, state_root, ticket, &runner)
+}
+
 fn refresh_pr_with_store(
     planning_store: &PlanningStore,
     state_root: &Path,

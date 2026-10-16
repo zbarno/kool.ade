@@ -5,7 +5,7 @@ use crate::core::lifecycle::{
     PullRequestPreparationStatus, TaskEvent, TaskPhase,
 };
 #[path = "pr_authorization/current_support.rs"]
-mod current_support;
+pub(super) mod current_support;
 
 /// Production boundary: file-backed queue/PR/current-evidence transaction;
 /// unit tests cannot prove record consistency. Synthetic repo, local Git;

@@ -56,7 +56,7 @@ pub(super) fn assert_merge_trigger(
     assert_eq!(trigger.source_revision, merged_revision);
 }
 
-pub(super) fn init_merged_repo(root: &Path) -> (String, String, String) {
+pub(crate) fn init_merged_repo(root: &Path) -> (String, String, String) {
     use std::process::Command;
     let git = |args: &[&str]| {
         assert!(

@@ -11,6 +11,8 @@ use crate::core::lifecycle::LifecycleStore;
 mod done_gates;
 #[path = "completion/pr_authorization.rs"]
 mod pr_authorization;
+#[path = "completion/provider_refresh.rs"]
+mod provider_refresh;
 
 #[test]
 fn replay_does_not_restore_parent_without_subtask_projection() {

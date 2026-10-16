@@ -207,6 +207,9 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     // implementation then starts from the selected task's board details.
     crate::app::root::feature_approval::tests::record_test_plan_author(&mut app, "CHG-001");
     app.approve_feature_only("CHG-001");
+    crate::app::root::feature_approval::tests::assert_current_test_plan_confirmation(
+        &mut app, "CHG-001",
+    );
     crate::app::root::feature_approval::tests::record_test_plan_review(
         &mut app,
         "CHG-001",

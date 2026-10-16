@@ -174,10 +174,11 @@ pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
     let event_uid = event_uid(
         work_item_uid,
         &format!(
-            "{:?}:{}:{}:{}",
+            "{:?}:{}:{}:{}:{}",
             status,
             details.number,
             details.head_sha,
+            work.revision,
             implementation
                 .merged_commit
                 .as_deref()

@@ -150,3 +150,65 @@ pub(crate) fn record_test_plan_author(app: &mut KooladeApp, id: &str) {
     readiness::seed_test_readiness(&project.state.planning_store, id, markdown);
     project.state.baseline_planning_revision = project.state.planning_store.revision().unwrap();
 }
+
+pub(crate) fn assert_current_test_plan_confirmation(app: &mut KooladeApp, id: &str) {
+    let (confirmed, has_approval, has_receipt, readiness, pending) = match &app.screen {
+        Screen::Connected(project) => {
+            let (_, markdown) = project
+                .state
+                .active_features
+                .iter()
+                .find(|(feature_id, _)| feature_id == id)
+                .expect("test feature is loaded");
+            let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+                .unwrap()
+                .unwrap();
+            let contract = crate::core::workflow::feature_contract(markdown);
+            let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+                &project.state.planning_store,
+                id,
+                &identity,
+                markdown,
+                &contract,
+            )
+            .unwrap();
+            let has_receipt = crate::core::lifecycle::plan_snapshot::has_user_confirmation(
+                &project.state.planning_store,
+                &snapshot,
+            )
+            .unwrap_or(false);
+            let has_approval = crate::persistence::feature_approvals::contains(
+                &project.state.planning_store.git_root(),
+                id,
+                &contract,
+            );
+            let readiness = crate::app::root::feature_approval::readiness::current(
+                &project.state.planning_store,
+                &snapshot,
+            )
+            .map_err(|error| error.to_string());
+            (
+                has_receipt && has_approval,
+                has_approval,
+                has_receipt,
+                readiness,
+                project.activity.pending.join(" | "),
+            )
+        }
+        Screen::Welcome => (
+            false,
+            false,
+            false,
+            Err("application is on Welcome".into()),
+            "application is on Welcome".into(),
+        ),
+    };
+    if !confirmed {
+        let toast = crate::app::root::board_tests::canvas_text(
+            &crate::app::root::board_tests::frame_toasting(app, &egui::Context::default()),
+        );
+        panic!(
+            "explicit test-plan approval was not persisted; feature_approval={has_approval}; user_confirmation_receipt={has_receipt}; readiness={readiness:?}; pending={pending:?}; toast={toast:?}"
+        );
+    }
+}
