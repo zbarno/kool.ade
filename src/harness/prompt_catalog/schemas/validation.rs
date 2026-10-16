@@ -5,6 +5,8 @@ use super::*;
 use crate::harness::prompt_catalog::PromptRole;
 
 mod opportunity;
+mod refs;
+mod spec_delta;
 mod task_graph;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -189,51 +191,8 @@ pub fn validate_output_with_context(
             }
         }
     }
-    validate_output_refs(&decoded, context)?;
+    refs::validate_output_refs(&decoded, context)?;
     Ok(decoded)
-}
-
-fn validate_output_refs(
-    output: &RoleOutputV1,
-    context: &OutputValidationContext<'_>,
-) -> Result<(), String> {
-    match output {
-        RoleOutputV1::Manager(value) => {
-            for action in &value.proposed_actions {
-                validate_refs(&action.evidence, &context.evidence_ids)?;
-            }
-            for proposal in &value.opportunities {
-                validate_refs(&proposal.evidence_refs, &context.evidence_ids)?;
-                opportunity::validate(proposal, context)?;
-            }
-        }
-        RoleOutputV1::ManagerLegacy(value) => {
-            for action in &value.proposed_actions {
-                validate_refs(&action.evidence, &context.evidence_ids)?;
-            }
-        }
-        RoleOutputV1::Planner(value) => {
-            validate_refs(&value.readiness.evidence, &context.evidence_ids)?
-        }
-        RoleOutputV1::PlannerV3(value) => {
-            validate_refs(&value.readiness.evidence, &context.evidence_ids)?;
-            for question in &value.proposed_questions {
-                validate_refs(&question.evidence_refs, &context.evidence_ids)?;
-            }
-        }
-        RoleOutputV1::Review(_) => {}
-        RoleOutputV1::TaskGraph(graph) => task_graph::validate(graph, context)?,
-        RoleOutputV1::WorkResult(_) => {}
-        RoleOutputV1::SpecDelta(value) => {
-            for delta in &value.deltas {
-                validate_refs(&delta.evidence, &context.evidence_ids)?;
-            }
-        }
-        RoleOutputV1::PrProposal(value) => validate_refs(&value.evidence, &context.evidence_ids)?,
-        RoleOutputV1::OpportunityDecision(_) => {}
-        RoleOutputV1::PlanningTurn(_) => {}
-    }
-    Ok(())
 }
 
 /// Validate output only after confirming that the persisted manifest names a
@@ -276,9 +235,10 @@ fn decode(
                 .map(Box::new)
                 .map(RoleOutputV1::PlanningTurn)
         }
-        PromptRole::PlanReviewer | PromptRole::CodeReviewer | PromptRole::RuntimeQaReviewer => {
-            parse!(ReviewVerdictV1, Review)
-        }
+        PromptRole::PlanReviewer
+        | PromptRole::CodeReviewer
+        | PromptRole::RuntimeQaReviewer
+        | PromptRole::RuntimeQaReviewerV2 => parse!(ReviewVerdictV1, Review),
         PromptRole::Decomposer => parse!(TaskGraphV1, TaskGraph),
         PromptRole::Implementer | PromptRole::RepairWorker => parse!(WorkResultV1, WorkResult),
         PromptRole::SpecReconciler => parse!(SpecDeltaV1, SpecDelta),

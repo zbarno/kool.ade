@@ -49,6 +49,8 @@ mod manifest;
 mod reviews;
 #[path = "tests/roles.rs"]
 mod roles;
+#[path = "tests/spec_delta.rs"]
+mod spec_delta;
 #[path = "tests/task_graph.rs"]
 mod task_graph;
 #[path = "tests/versions.rs"]

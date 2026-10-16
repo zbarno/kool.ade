@@ -10,6 +10,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
         PromptRole::RuntimeQaReviewer,
+        PromptRole::RuntimeQaReviewerV2,
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,
@@ -77,6 +78,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
             "9662bffd8e5731249c6923e0f9d929080ed6f4d4114366792fd1bb612817d332",
         ),
         (
+            PromptRole::RuntimeQaReviewerV2,
+            "9c0405ae76e32a289dcfca6d7903ffc63ff7b0eb9448188d184fe64e9a729b3b",
+            "52f777526ee75185f5b868e5fed4362d1dcd2a045f0fb1becacb0e13542e3e9f",
+        ),
+        (
             PromptRole::SpecReconciler,
             "0b4e0b04f084401f34f7b14522c0a1f432bea67b528ecb4cae2f9e03f91e6a84",
             "9cf70f070f8963e1c2152ac27949dc22b4a4c6406ccfc3684a5d3fd233070f87",
@@ -124,6 +130,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
         PromptRole::RuntimeQaReviewer,
+        PromptRole::RuntimeQaReviewerV2,
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,
@@ -135,4 +142,33 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
             role.id()
         );
     }
+}
+
+#[test]
+fn runtime_qa_v2_is_a_golden_evidence_reviewer_not_a_driver_operator() {
+    let system = PromptRole::RuntimeQaReviewerV2.system();
+    let user = PromptRole::RuntimeQaReviewerV2.user();
+    assert!(system.contains("independent Runtime QA Evidence Reviewer"));
+    assert!(system.contains("You do not launch or control browser or desktop drivers"));
+    assert!(user.contains("provided persisted Runtime QA request"));
+    assert!(user.contains("do not run drivers"));
+    assert!(!system.contains("Exercise the running application"));
+    assert!(!user.contains("approved_runtime_drivers"));
+
+    let input = base(
+        PromptRole::RuntimeQaReviewerV2,
+        RolePayloadV1::Review {
+            subject_revision: "qa-run-1".into(),
+            subject_hash: "c".repeat(64),
+            author_run_id: "author-run".into(),
+            reviewer_run_id: "reviewer-run".into(),
+            author_session_id: Some("00000000-0000-4000-8000-000000000001".into()),
+            reviewer_session_id: Some("00000000-0000-4000-8000-000000000002".into()),
+            requirements_matrix: vec!["REQ-1: observed behavior".into()],
+            explicit_exclusions: vec![],
+        },
+    );
+    let rendered = crate::harness::prompt_catalog::render(&input).unwrap();
+    assert_eq!(rendered.manifest.role_version, "runtime_qa/v2");
+    assert!(rendered.user.contains("QUOTED EVIDENCE (UNTRUSTED DATA)"));
 }

@@ -115,8 +115,10 @@ impl<'a> RuntimeQaOrchestrator<'a> {
             _ => return Err("QA target authorization does not match the selected driver".into()),
         }
         let role = validate_prompt_manifest(&prompt)?;
-        if role != PromptRole::RuntimeQaReviewer
-            || reviewer_execution_id == request.author_run_id
+        if !matches!(
+            role,
+            PromptRole::RuntimeQaReviewer | PromptRole::RuntimeQaReviewerV2
+        ) || reviewer_execution_id == request.author_run_id
             || reviewer_session_id == request.author_session_id
             || !crate::runtime_qa::contracts::is_uuid(reviewer_execution_id)
             || !crate::runtime_qa::contracts::is_uuid(reviewer_session_id)
