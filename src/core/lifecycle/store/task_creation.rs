@@ -21,6 +21,35 @@ impl LifecycleStore<'_> {
                 "task creation requires the feature's reviewed approved plan".into(),
             ));
         }
+        if !task.approved_requirement_ids.is_empty() {
+            let snapshot_uid = feature.plan_snapshot_uid.as_deref().ok_or_else(|| {
+                StoreError::MalformedState(
+                    "requirement-linked tasks require the approved plan snapshot".into(),
+                )
+            })?;
+            let snapshot =
+                crate::core::lifecycle::plan_snapshot::load_persisted(self.store, snapshot_uid)?
+                    .ok_or_else(|| {
+                        StoreError::MalformedState("approved plan snapshot is missing".into())
+                    })?;
+            let known = snapshot
+                .requirements
+                .iter()
+                .map(|requirement| requirement.stable_id.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            if snapshot.feature_uid != task.feature_uid
+                || snapshot.content_hash
+                    != feature.approved_plan_sha256.as_deref().unwrap_or_default()
+                || task
+                    .approved_requirement_ids
+                    .iter()
+                    .any(|requirement| !known.contains(requirement.as_str()))
+            {
+                return Err(StoreError::MalformedState(
+                    "task requirement links are outside the approved plan snapshot".into(),
+                ));
+            }
+        }
         if feature.task_uids.contains(&task.task_uid) {
             let existing = self.load_task(&task.task_uid)?;
             let event_exists = self
@@ -37,6 +66,7 @@ impl LifecycleStore<'_> {
                 && existing.parent_task_uid == task.parent_task_uid
                 && existing.subtask_uids == task.subtask_uids
                 && existing.dependency_task_uids == task.dependency_task_uids
+                && existing.approved_requirement_ids == task.approved_requirement_ids
                 && event_exists
             {
                 return Ok(());

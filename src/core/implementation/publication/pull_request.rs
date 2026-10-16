@@ -101,7 +101,7 @@ pub(in crate::core::implementation) fn create_pull_request(
             "--state",
             "all",
             "--json",
-            "url,state,number,headRefOid,baseRefName",
+            "url,state,number,headRefOid,baseRefOid,baseRefName",
         ],
     )?;
     let existing: Vec<serde_json::Value> = serde_json::from_str(&prs)?;
@@ -205,6 +205,10 @@ fn pull_request_details(
     let head_sha = value["headRefOid"]
         .as_str()
         .or(state.verified_head.as_deref())?;
+    let base_sha = value["baseRefOid"]
+        .as_str()
+        .filter(|sha| valid_sha(sha))
+        .map(str::to_owned);
     let base_branch = value["baseRefName"]
         .as_str()
         .or(state.destination_branch.as_deref())
@@ -213,6 +217,7 @@ fn pull_request_details(
         super::super::PullRequestDetails {
             number,
             head_sha: head_sha.to_owned(),
+            base_sha,
             base_branch: base_branch.to_owned(),
         }
     })

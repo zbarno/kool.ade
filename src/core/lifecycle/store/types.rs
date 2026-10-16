@@ -14,7 +14,7 @@ pub enum LifecycleActor {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct Snapshot<T> {
+pub(crate) struct Snapshot<T> {
     pub(super) uid: String,
     pub(super) schema_version: u16,
     pub(super) created_at_ms: u64,

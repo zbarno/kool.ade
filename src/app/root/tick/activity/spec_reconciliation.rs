@@ -4,6 +4,8 @@ use crate::{
 };
 use sha2::Digest as _;
 
+mod feature;
+
 pub(super) fn advance_spec_reconciliation(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
@@ -15,8 +17,16 @@ pub(super) fn advance_spec_reconciliation(
         let task_uid = controller.task_uid.clone();
         let expected_revision = controller.expected_revision;
         let spec_sha256 = controller.spec_sha256.clone();
+        let post_completion_pr_refresh = controller.post_completion_pr_refresh;
         project.activity.spec_reconciliation = None;
-        finish(project, task_uid, expected_revision, spec_sha256, result);
+        finish(
+            project,
+            task_uid,
+            expected_revision,
+            spec_sha256,
+            post_completion_pr_refresh,
+            result,
+        );
         return;
     }
 
@@ -31,8 +41,8 @@ pub(super) fn advance_spec_reconciliation(
             }
         };
     for mut task in candidates {
-        let current_spec_sha256 = match crate::app::root::spec_reconciliation::spec_binding_hash(
-            project.state.spec_text.as_deref(),
+        let current_spec_sha256 = match crate::core::lifecycle::product_spec::current_product_hash(
+            &project.state.planning_store,
         ) {
             Ok(hash) => hash,
             Err(error) => {
@@ -102,9 +112,11 @@ pub(super) fn advance_spec_reconciliation(
         }
         return;
     }
+
+    feature::advance_feature_spec_reconciliation(project, task_harness);
 }
 
-mod finish;
+pub(crate) mod finish;
 use finish::{finish, record_blocker};
 
 fn hash_text(value: &str) -> String {

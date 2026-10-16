@@ -1,7 +1,8 @@
 use super::{
-    GateActor, GateDecision, GateReceipt, MAX_REPAIR_ATTEMPTS, MAX_REVIEW_ATTEMPTS,
-    QaExecutionStateV1, QaExecutionStatusV1, TaskEvent, TaskPhase, TaskRecord, is_sha256, is_uuid,
+    GateReceipt, MAX_REPAIR_ATTEMPTS, MAX_REVIEW_ATTEMPTS, QaExecutionStateV1, QaExecutionStatusV1,
+    TaskEvent, TaskPhase, TaskRecord,
 };
+use crate::core::lifecycle::types::{GateActor, GateDecision, is_sha256, is_uuid};
 
 impl TaskRecord {
     pub fn apply(&mut self, expected_revision: u64, event: TaskEvent) -> Result<(), String> {

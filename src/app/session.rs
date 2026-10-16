@@ -16,6 +16,7 @@ mod task_status;
 pub(crate) mod test_support;
 
 pub struct Project {
+    pub specification_trace_navigation: Option<crate::core::lifecycle::SpecTraceNavigationV1>,
     pub task_chats: crate::persistence::task_chats::TaskChats,
     pub activity: super::manager::WorkspaceActivity,
     pub state: PlannerState,

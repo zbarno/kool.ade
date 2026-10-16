@@ -179,6 +179,9 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&repo).unwrap();
+        // Plan confirmation binds to the current product specification, just
+        // as a connected project does after its initial bootstrap.
+        project.state.bootstrap_missing().unwrap();
         project.task_documents = docs.clone();
         project.queue.max_parallel = 2;
         project.queue.auto_publish = true;
@@ -207,6 +210,9 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     // implementation then starts from the selected task's board details.
     crate::app::root::feature_approval::tests::record_test_plan_author(&mut app, "CHG-001");
     app.approve_feature_only("CHG-001");
+    crate::app::root::feature_approval::tests::assert_current_test_plan_confirmation(
+        &mut app, "CHG-001",
+    );
     crate::app::root::feature_approval::tests::record_test_plan_review(
         &mut app,
         "CHG-001",

@@ -1,5 +1,7 @@
 use super::*;
 
+mod lifecycle;
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
@@ -164,6 +166,19 @@ pub(super) fn paint(
             } else {
                 s.spec_text().to_owned()
             };
+            if view == 1
+                && let Some(feature_markdown) = selected.as_deref().and_then(|selected| {
+                    features
+                        .iter()
+                        .find(|(id, _)| id == selected)
+                        .map(|(_, body)| body.as_str())
+                })
+            {
+                lifecycle::paint(ui, s, feature_markdown);
+            }
+            if view == 0 {
+                lifecycle::paint_product_summary(ui, s, &features);
+            }
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(if view == 1 {

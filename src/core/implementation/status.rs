@@ -176,6 +176,7 @@ pub struct IndependentCheck {
 pub struct PullRequestDetails {
     pub number: u64,
     pub head_sha: String,
+    pub base_sha: Option<String>,
     pub base_branch: String,
 }
 

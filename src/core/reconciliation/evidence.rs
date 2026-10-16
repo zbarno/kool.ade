@@ -25,21 +25,25 @@ pub(super) fn implementation_evidence(
             &task.ticket,
         )?;
         let merged = task.merged_commit.as_deref().unwrap();
-        if git(
+        let pull_request_head = task
+            .verified_head
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Task has no verified pull request head"))?;
+        if crate::core::reconciliation::merge_verification::validate_merged_checkout(
             &repository,
-            &["cat-file", "-e", &format!("{merged}^{{commit}}")],
+            &task.base_commit,
+            pull_request_head,
+            merged,
         )
         .is_err()
         {
             git(&repository, &["fetch", "--no-tags", "origin"])?;
         }
-        git(
+        let verified = crate::core::reconciliation::merge_verification::validate_merged_checkout(
             &repository,
-            &["cat-file", "-e", &format!("{merged}^{{commit}}")],
-        )?;
-        git(
-            &repository,
-            &["merge-base", "--is-ancestor", &task.base_commit, merged],
+            &task.base_commit,
+            pull_request_head,
+            merged,
         )?;
         let paths = git(
             &repository,
@@ -53,10 +57,12 @@ pub(super) fn implementation_evidence(
             ],
         )?;
         text.push_str(&format!(
-            "\nTask: {}\nBase: {}\nMerged: {}\nChanged paths:\n{}\n",
+            "\nTask: {}\nBase: {}\nPR head: {}\nValidated merge: {}\nChecked out head: {}\nChanged paths:\n{}\n",
             task.ticket,
             task.base_commit,
-            merged,
+            verified.pull_request_head,
+            verified.merge_commit,
+            verified.checked_out_head,
             paths.lines().take(150).collect::<Vec<_>>().join("\n")
         ));
     }

@@ -5,7 +5,7 @@ use koolade::{
     artifacts::planning_store::{PlanningStore, StoreMode},
     core::lifecycle::{
         GateActor, GateDecision, GateReceipt, LifecycleStore, PullRequestPreparationStatus,
-        TaskEvent, TaskPhase,
+        SpecReconciliationStatusV1, SpecRevisionDraftV1, TaskEvent, TaskPhase,
     },
     runtime_qa::RuntimeQaStore,
 };
@@ -15,11 +15,33 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
     let temp = tempfile::tempdir().unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), temp.path(), StoreMode::ManagedLocal);
     let lifecycle = LifecycleStore::new(&store);
+    bootstrap_product(&store);
     let feature_uid = id();
     lifecycle
         .create_feature(&new_feature(feature_uid.clone()), &id())
         .unwrap();
     let feature = plan::reviewed_feature_plan(&store, &lifecycle, &feature_uid);
+    let feature_events = lifecycle.events_for_feature(&feature_uid).unwrap();
+    let origin_events = feature_events.into_iter().map(|event| event.uid).collect();
+    lifecycle
+        .append_spec_revision(
+            &feature_uid,
+            0,
+            SpecRevisionDraftV1 {
+                content_hash: product_hash(&store),
+                source_revision: feature.revision,
+                produced_by_run_id: None,
+                origin_events,
+                decision_refs: feature.decision_refs.clone(),
+                delta_approval_refs: Vec::new(),
+                approved_target_hash: feature.approved_plan_sha256.clone(),
+                implementation_head_sha: None,
+                reconciliation_status: SpecReconciliationStatusV1::Synchronized,
+                outcome_reason: None,
+                deltas: Vec::new(),
+            },
+        )
+        .unwrap();
     let plan_hash = feature.approved_plan_sha256.unwrap();
     let task_uid = id();
     lifecycle
@@ -96,6 +118,32 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
     assert!(task_record.runtime_qa.is_some());
 
     let work_uid = id();
+    let pending_origins = reopened
+        .list_spec_sync_queue(&feature_uid, false)
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.source_event_uid)
+        .collect();
+    let current_feature = reopened.load_feature(&feature_uid).unwrap();
+    reopened
+        .append_spec_revision(
+            &feature_uid,
+            1,
+            SpecRevisionDraftV1 {
+                content_hash: product_hash(&reopened_store),
+                source_revision: current_feature.revision,
+                produced_by_run_id: None,
+                origin_events: pending_origins,
+                decision_refs: current_feature.decision_refs,
+                delta_approval_refs: Vec::new(),
+                approved_target_hash: current_feature.approved_plan_sha256,
+                implementation_head_sha: None,
+                reconciliation_status: SpecReconciliationStatusV1::Synchronized,
+                outcome_reason: None,
+                deltas: Vec::new(),
+            },
+        )
+        .unwrap();
     let spec_receipt = GateReceipt {
         receipt_uid: id(),
         subject_uid: task_uid.clone(),

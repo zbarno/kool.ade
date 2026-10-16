@@ -3,6 +3,7 @@ use crate::core::state::PlannerState;
 pub(super) fn project_from(root: &std::path::Path) -> Project {
     let state = PlannerState::load(root).unwrap();
     Project {
+        specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
         state,

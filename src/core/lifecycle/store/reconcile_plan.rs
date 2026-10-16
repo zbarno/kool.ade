@@ -1,8 +1,6 @@
 use super::{FeatureEvent, FeatureGoal, LifecycleEventKind, LifecycleStore, Snapshot, records};
-use crate::{
-    artifacts::planning_store::StoreError,
-    core::lifecycle::{FeaturePhase, GateActor, GateDecision, GateReceipt, PlanSnapshotV1},
-};
+use crate::artifacts::planning_store::StoreError;
+use crate::core::lifecycle::{FeaturePhase, GateActor, GateDecision, GateReceipt, PlanSnapshotV1};
 
 impl LifecycleStore<'_> {
     /// Seed the canonical lifecycle from the exact persisted user and reviewer
@@ -17,6 +15,16 @@ impl LifecycleStore<'_> {
         review_receipt: &GateReceipt,
     ) -> Result<FeatureGoal, StoreError> {
         validate_receipts(plan, &readiness_evidence_refs, user_receipt, review_receipt)?;
+        let current_product_hash =
+            crate::core::lifecycle::product_spec::current_product_hash(self.store)?;
+        if crate::core::lifecycle::plan_snapshot::confirmed_product_spec_hash(user_receipt)
+            != Some(current_product_hash.as_str())
+        {
+            return Err(StoreError::MalformedState(
+                "product specification changed after plan confirmation; review current drift before task generation".into(),
+            ));
+        }
+        super::spec_sync::require_product_specification(self)?;
         let expected_event_uids = transition_ids(plan)?;
         let transitions = [
             FeatureEvent::ReadinessRecorded {
@@ -29,7 +37,7 @@ impl LifecycleStore<'_> {
             FeatureEvent::PlanReview(review_receipt.clone()),
         ];
         let feature_path = records::feature_path(&plan.feature_uid);
-        if let Ok(existing) = self
+        let feature = if let Ok(existing) = self
             .store
             .read_record::<Snapshot<FeatureGoal>>(&feature_path)
         {
@@ -61,37 +69,40 @@ impl LifecycleStore<'_> {
                     user_receipt,
                     review_receipt,
                 )?;
-                return Ok(snapshot.record);
+                snapshot.record
+            } else {
+                self.apply_reviewed_plan_suffix(
+                    snapshot.record,
+                    actual,
+                    plan,
+                    &expected_event_uids,
+                    &transitions,
+                )?
             }
-            return self.apply_reviewed_plan_suffix(
-                snapshot.record,
-                actual,
-                plan,
-                &expected_event_uids,
-                &transitions,
-            );
-        }
-
-        let goal = FeatureGoal {
-            schema_version: 1,
-            feature_uid: plan.feature_uid.clone(),
-            original_intent: plan.intent.trim().to_owned(),
-            draft: draft.to_owned(),
-            scope: plan.scope.clone(),
-            non_goals: plan.non_goals.clone(),
-            revision: 0,
-            phase: FeaturePhase::Exploring,
-            approved_plan_sha256: None,
-            plan_snapshot_uid: Some(plan.uid.clone()),
-            plan_snapshot_sha256: Some(plan.content_hash.clone()),
-            unresolved_questions: Vec::new(),
-            decision_refs: Vec::new(),
-            review_refs: Vec::new(),
-            readiness_evidence_refs: Vec::new(),
-            task_uids: Vec::new(),
+        } else {
+            let goal = FeatureGoal {
+                schema_version: 1,
+                feature_uid: plan.feature_uid.clone(),
+                original_intent: plan.intent.trim().to_owned(),
+                draft: draft.to_owned(),
+                scope: plan.scope.clone(),
+                non_goals: plan.non_goals.clone(),
+                revision: 0,
+                phase: FeaturePhase::Exploring,
+                approved_plan_sha256: None,
+                plan_snapshot_uid: Some(plan.uid.clone()),
+                plan_snapshot_sha256: Some(plan.content_hash.clone()),
+                unresolved_questions: Vec::new(),
+                decision_refs: Vec::new(),
+                review_refs: Vec::new(),
+                readiness_evidence_refs: Vec::new(),
+                task_uids: Vec::new(),
+            };
+            self.create_feature(&goal, &expected_event_uids[0])?;
+            self.apply_reviewed_plan_suffix(goal, 1, plan, &expected_event_uids, &transitions)?
         };
-        self.create_feature(&goal, &expected_event_uids[0])?;
-        self.apply_reviewed_plan_suffix(goal, 1, plan, &expected_event_uids, &transitions)
+        super::spec_sync::record_approved_plan_revision(self, &feature, &expected_event_uids)?;
+        Ok(feature)
     }
 
     fn apply_reviewed_plan_suffix(

@@ -16,7 +16,10 @@ pub(super) fn prepare(
     String,
 > {
     use crate::harness::prompt_catalog::{PromptRole, RoleInputV1, RolePayloadV1};
-    if task.phase != crate::core::lifecycle::TaskPhase::AwaitingSpecReconciliation
+    let post_completion_pr_refresh =
+        task.phase == crate::core::lifecycle::TaskPhase::Done && task.pr_work_item_uid.is_some();
+    if (task.phase != crate::core::lifecycle::TaskPhase::AwaitingSpecReconciliation
+        && !post_completion_pr_refresh)
         || task.implementation_sha256.is_none()
         || task.reviewed_code_head_sha.is_none()
         || task.reviewed_code_subject_sha256.is_none()
@@ -97,10 +100,11 @@ pub(super) fn prepare(
     if snapshot.requirements.is_empty() {
         return Err("approved plan has no stable requirements to reconcile".into());
     }
-    let current_spec = project.state.spec_text.as_deref();
-    let spec_sha256 = spec_binding_hash(current_spec)?;
     let current_spec =
-        current_spec.ok_or_else(|| "current product specification is missing".to_owned())?;
+        crate::artifacts::product_docs::render_product(&project.state.planning_store)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "current product specification is missing".to_owned())?;
+    let spec_sha256 = spec_binding_hash(Some(&current_spec))?;
     let review = task
         .code_review
         .as_ref()
@@ -146,7 +150,7 @@ pub(super) fn prepare(
     let review_ref = format!("review:{}", review.receipt_uid);
     let qa_ref = format!("qa:{}", qa.qa_run_id);
     let spec_ref = format!("current-spec:{spec_sha256}");
-    let evidence_manifest = vec![
+    let mut evidence_manifest = vec![
         evidence_item(&plan_ref, &workspace_uid, "approved-plan", feature_text)?,
         evidence_item(&task_ref, &workspace_uid, "approved-task", &task_doc.text)?,
         evidence_item(
@@ -173,9 +177,34 @@ pub(super) fn prepare(
             &spec_ref,
             &workspace_uid,
             "current-product-specification",
-            current_spec,
+            &current_spec,
         )?,
     ];
+    if post_completion_pr_refresh {
+        let work_uid = task.pr_work_item_uid.as_deref().unwrap();
+        let work = crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store)
+            .load_pr_preparation(work_uid)
+            .map_err(|error| error.to_string())?;
+        if work.task_uid != task.task_uid || work.feature_uid != task.feature_uid {
+            return Err("provider PR state is bound to a different task or feature".into());
+        }
+        let pr_ref = format!("provider-pr-state:{}:{}", work.work_item_uid, work.revision);
+        let pr_record = serde_json::to_string(&(
+            work.status,
+            work.provider_pr_id,
+            &work.provider_pr_url,
+            &work.head_sha,
+            &work.base_sha,
+            &work.merged_commit_sha,
+        ))
+        .map_err(|error| error.to_string())?;
+        evidence_manifest.push(evidence_item(
+            &pr_ref,
+            &workspace_uid,
+            "provider-reported-pr-state-not-current-checkout",
+            &pr_record,
+        )?);
+    }
     let evidence_ids = evidence_manifest
         .iter()
         .map(|item| item.id.clone())

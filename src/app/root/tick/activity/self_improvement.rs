@@ -137,7 +137,7 @@ fn synchronize_run(
         let Some((_user, review)) = reviewed_plan_receipts(&feature, &records, plan_hash) else {
             return Ok(());
         };
-        if feature.plan_snapshot_sha256.as_deref() != Some(plan_hash.as_str())
+        if feature.plan_snapshot_sha256.as_deref() != Some(plan_hash)
             || feature.task_uids.is_empty()
         {
             return Ok(());
@@ -164,10 +164,10 @@ fn synchronize_run(
             &mut run,
             &format!("approved:{plan_hash}"),
             Event::PlanApproved {
-                approval_sha256: plan_hash.clone(),
+                approval_sha256: plan_hash.to_owned(),
                 review_uid: review.receipt_uid.clone(),
-                source_ref: targets.source.clone(),
-                destination_ref: targets.destination.clone(),
+                source_ref: targets.source.to_owned(),
+                destination_ref: targets.destination.to_owned(),
                 task_uids: tasks.iter().map(|task| task.task_uid.clone()).collect(),
                 owner_task_uid: owner.task_uid.clone(),
                 parent_task_uids: roots.iter().map(|task| task.task_uid.clone()).collect(),

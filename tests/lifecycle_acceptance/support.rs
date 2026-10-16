@@ -30,6 +30,43 @@ pub(super) fn new_feature(feature_uid: String) -> FeatureGoal {
     }
 }
 
+pub(super) fn bootstrap_product(store: &koolade::artifacts::planning_store::PlanningStore) {
+    use koolade::artifacts::product_docs::ProductManifest;
+    let manifest = ProductManifest::core();
+    let mut changes = vec![
+        (
+            "planning/product/manifest.json".to_owned(),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        ),
+        (
+            "planning/product/index.md".to_owned(),
+            b"# Product Specification\n\nSynthetic acceptance fixture.\n".to_vec(),
+        ),
+    ];
+    for module in manifest.modules {
+        let content = format!(
+            "# {}\n\n## Summary\n\nSynthetic acceptance fixture product context.\n\n## Requirements\n\nThe fixture exercises approved lifecycle reconciliation.\n",
+            module.title
+        );
+        changes.push((
+            format!("planning/product/{}", module.path),
+            content.into_bytes(),
+        ));
+    }
+    store.transaction(&changes, None).unwrap();
+}
+
+pub(super) fn product_hash(store: &koolade::artifacts::planning_store::PlanningStore) -> String {
+    use sha2::Digest as _;
+    let rendered = koolade::artifacts::product_docs::render_product(store)
+        .unwrap()
+        .unwrap();
+    format!(
+        "{:x}",
+        sha2::Sha256::digest(serde_json::to_vec(&Some(rendered)).unwrap())
+    )
+}
+
 /// Deterministic fake role adapter. It produces only a typed review decision;
 /// lifecycle guards still validate the role manifest and artifact binding.
 pub(super) fn role_receipt(
@@ -107,6 +144,7 @@ pub(super) fn task(
         feature_uid: feature_uid.into(),
         planning_item_uid: None,
         task_spec_sha256: None,
+        approved_requirement_ids: Vec::new(),
         parent_task_uid: parent,
         subtask_uids: Vec::new(),
         dependency_task_uids: Vec::new(),

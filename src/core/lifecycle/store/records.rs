@@ -8,28 +8,10 @@ use super::{
     TaskEvent, TaskRecord,
 };
 
-pub(super) fn load_tasks(store: &PlanningStore) -> Result<Vec<TaskRecord>, StoreError> {
-    store
-        .list_record_paths("state/lifecycle_tasks")?
-        .into_iter()
-        .map(|path| {
-            let (snapshot, revision) = store.read_record::<Snapshot<TaskRecord>>(&path)?;
-            if snapshot.uid != snapshot.record.task_uid
-                || snapshot.revision != revision
-                || snapshot.revision != snapshot.record.revision
-            {
-                return Err(StoreError::MalformedState(
-                    "lifecycle task listing found an inconsistent task record".into(),
-                ));
-            }
-            snapshot
-                .record
-                .validate()
-                .map_err(StoreError::MalformedState)?;
-            Ok(snapshot.record)
-        })
-        .collect()
-}
+mod load;
+mod queue;
+pub(super) use load::load_tasks;
+use queue::queued_record;
 
 pub(super) struct AdditionalTransition {
     pub changes: Vec<(String, Vec<u8>)>,
@@ -74,9 +56,11 @@ pub(super) fn create_pair_with_extra<T: Serialize>(
     extra_changes: Vec<(String, Vec<u8>)>,
     extra_checks: &[RecordRevisionCheck],
 ) -> Result<(), StoreError> {
+    let (queue_path, queue_bytes, queue_check) = queued_record(&event)?;
     let mut changes = vec![
         (snapshot_path.clone(), encode(snapshot)?),
         (event_path.clone(), encode(&event)?),
+        (queue_path.clone(), queue_bytes),
     ];
     changes.extend(extra_changes);
     let mut checks = vec![
@@ -88,6 +72,7 @@ pub(super) fn create_pair_with_extra<T: Serialize>(
             path: event_path,
             expected_revision: 0,
         },
+        queue_check,
     ];
     checks.extend_from_slice(extra_checks);
     store
@@ -103,9 +88,11 @@ pub(super) fn append_transition<T: Serialize>(
     event_path: String,
     event: LifecycleEventRecord,
 ) -> Result<(), StoreError> {
+    let (queue_path, queue_bytes, queue_check) = queued_record(&event)?;
     let changes = vec![
         (path.to_owned(), encode(snapshot)?),
         (event_path.clone(), encode(&event)?),
+        (queue_path.clone(), queue_bytes),
     ];
     let checks = [
         RecordRevisionCheck {
@@ -116,6 +103,7 @@ pub(super) fn append_transition<T: Serialize>(
             path: event_path,
             expected_revision: 0,
         },
+        queue_check,
     ];
     store
         .transaction_with_record_revisions(&changes, &checks)
@@ -131,9 +119,11 @@ pub(super) fn append_transition_with_additional_checks<T: Serialize>(
     event: LifecycleEventRecord,
     additional: AdditionalTransition,
 ) -> Result<(), StoreError> {
+    let (queue_path, queue_bytes, queue_check) = queued_record(&event)?;
     let mut changes = vec![
         (path.to_owned(), encode(snapshot)?),
         (event_path.clone(), encode(&event)?),
+        (queue_path.clone(), queue_bytes),
     ];
     let mut checks = vec![
         RecordRevisionCheck {
@@ -144,6 +134,7 @@ pub(super) fn append_transition_with_additional_checks<T: Serialize>(
             path: event_path,
             expected_revision: 0,
         },
+        queue_check,
     ];
     for (path, contents) in additional.changes {
         checks.push(RecordRevisionCheck {

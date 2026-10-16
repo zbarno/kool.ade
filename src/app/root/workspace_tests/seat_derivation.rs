@@ -33,6 +33,7 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
 
     let state = crate::core::state::PlannerState::load(&root).unwrap();
     let mut proj = Project {
+        specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
         state,

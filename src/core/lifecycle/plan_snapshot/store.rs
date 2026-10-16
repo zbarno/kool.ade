@@ -190,6 +190,39 @@ pub(super) fn is_persisted(
     Ok(read_record(store, &snapshot_path(snapshot), snapshot)?.is_some())
 }
 
+pub(super) fn load_persisted(
+    store: &PlanningStore,
+    uid: &str,
+) -> Result<Option<PlanSnapshotV1>, StoreError> {
+    if !crate::core::lifecycle::types::is_uuid(uid) {
+        return Err(StoreError::MalformedState(
+            "plan snapshot identity is invalid".into(),
+        ));
+    }
+    let path = format!("state/lifecycle_plans/{uid}.json");
+    match store.read_record::<PlanSnapshotRecord>(&path) {
+        Ok((record, revision)) => {
+            if record.schema_version != 1
+                || record.uid != uid
+                || record.revision != revision
+                || record.data.uid != uid
+                || record.created_at_ms == 0
+                || record.updated_at_ms < record.created_at_ms
+            {
+                return Err(StoreError::MalformedState(
+                    "persisted plan snapshot identity is inconsistent".into(),
+                ));
+            }
+            record.data.validate().map_err(StoreError::MalformedState)?;
+            Ok(Some(record.data))
+        }
+        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn read_record(
     store: &PlanningStore,
     path: &str,

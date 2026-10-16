@@ -44,6 +44,16 @@ pub struct LifecycleView {
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
     pub spec_reconciliation: Option<crate::core::lifecycle::GateReceipt>,
+    pub current_spec_hash: Option<String>,
+    pub implementation_head_sha: Option<String>,
+    pub approved_target_hash: Option<String>,
+    pub deployed_spec_hash: Option<String>,
+    pub spec_revision: Option<u64>,
+    pub spec_status: Option<crate::core::lifecycle::SpecReconciliationStatusV1>,
+    pub pending_spec_triggers: usize,
+    pub specification_deltas: Vec<(u64, crate::core::lifecycle::SpecDeltaRecordV1)>,
+    pub pull_request_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
+    pub merged_commit_sha: Option<String>,
 }
 
 pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {

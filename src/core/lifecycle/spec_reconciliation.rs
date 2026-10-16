@@ -17,6 +17,60 @@ pub struct SpecDeltaApprovalV1 {
     pub receipt: GateReceipt,
 }
 
+/// Immutable provenance for an explicit user decision on a feature-only delta.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FeatureDeltaAuthorizationV1 {
+    pub schema_version: u16,
+    pub receipt_uid: String,
+    pub feature_uid: String,
+    pub source_spec_sequence: u64,
+    pub requirement_id: String,
+    pub event_uid: String,
+    pub old_target_sha256: Option<String>,
+    pub proposed_target_sha256: Option<String>,
+    pub resulting_product_sha256: Option<String>,
+    pub decision: crate::core::lifecycle::SpecDeltaOperatorChoiceV1,
+    pub actor: GateActor,
+    pub recorded_at_ms: u64,
+}
+
+impl FeatureDeltaAuthorizationV1 {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != 1
+            || !is_uuid(&self.receipt_uid)
+            || !is_uuid(&self.feature_uid)
+            || self.source_spec_sequence == 0
+            || self.requirement_id.trim().is_empty()
+            || self.requirement_id.len() > 128
+            || !is_uuid(&self.event_uid)
+            || self
+                .old_target_sha256
+                .as_deref()
+                .is_some_and(|hash| !is_sha256(hash))
+            || self
+                .proposed_target_sha256
+                .as_deref()
+                .is_some_and(|hash| !is_sha256(hash))
+            || self.old_target_sha256.is_none() && self.proposed_target_sha256.is_none()
+            || self.actor != GateActor::User
+            || self.recorded_at_ms == 0
+            || match self.decision {
+                crate::core::lifecycle::SpecDeltaOperatorChoiceV1::Adopted => self
+                    .resulting_product_sha256
+                    .as_deref()
+                    .is_none_or(|hash| !is_sha256(hash)),
+                crate::core::lifecycle::SpecDeltaOperatorChoiceV1::Declined => {
+                    self.resulting_product_sha256.is_some()
+                }
+            }
+        {
+            return Err("feature delta authorization is invalid".into());
+        }
+        Ok(())
+    }
+}
+
 /// A blocked proposal and the approved specification identity it was checked against.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

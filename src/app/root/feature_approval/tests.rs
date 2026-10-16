@@ -46,8 +46,10 @@ fn harness(replies: Vec<String>) -> (Box<dyn crate::harness::AiHarness>, Arc<Mut
 
 #[path = "tests/support.rs"]
 mod support;
+pub(crate) use support::{
+    assert_current_test_plan_confirmation, record_test_plan_author, record_test_plan_review,
+};
 use support::{decomposer_graph, setup};
-pub(crate) use support::{record_test_plan_author, record_test_plan_review};
 
 fn finish(app: &mut KooladeApp) -> bool {
     let Screen::Connected(p) = &app.screen else {

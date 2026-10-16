@@ -105,6 +105,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             crate::app::root::TestTempRoot(chat_root),
         ],
         screen: Screen::Connected(Box::new(Project {
+            specification_trace_navigation: None,
             task_chats: Default::default(),
             activity: Default::default(),
             state: crate::core::state::PlannerState::load(&root).unwrap(),

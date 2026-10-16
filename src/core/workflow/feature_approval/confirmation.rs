@@ -7,6 +7,7 @@ pub(super) fn record_user_approval(
     store: &crate::artifacts::planning_store::PlanningStore,
     snapshot: &PlanSnapshotV1,
 ) -> Result<Option<(String, Vec<u8>, RecordRevisionCheck)>, StoreError> {
+    let product_hash = crate::core::lifecycle::product_spec::current_product_hash(store)?;
     let receipt = crate::core::lifecycle::GateReceipt {
         receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         subject_uid: snapshot.uid.clone(),
@@ -18,7 +19,10 @@ pub(super) fn record_user_approval(
             .unwrap_or_default()
             .as_millis()
             .min(u64::MAX as u128) as u64,
-        evidence_refs: vec![format!("plan:{}", snapshot.uid)],
+        evidence_refs: vec![
+            format!("plan:{}", snapshot.uid),
+            format!("product-spec:{product_hash}"),
+        ],
         prompt_sha256: None,
         prompt_manifest: None,
         reviewer_run_id: None,

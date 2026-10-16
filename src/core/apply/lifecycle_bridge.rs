@@ -59,6 +59,24 @@ pub(super) fn record_task_batch(
             && !feature.review_refs.is_empty(),
         "lifecycle feature is missing exact snapshot, user approval, or PlanReviewer evidence"
     );
+    let snapshot = crate::core::lifecycle::plan_snapshot::load_persisted(
+        &state.planning_store,
+        feature
+            .plan_snapshot_uid
+            .as_deref()
+            .expect("checked snapshot UID"),
+    )
+    .map_err(anyhow::Error::msg)?
+    .ok_or_else(|| anyhow::anyhow!("approved task plan snapshot is missing"))?;
+    anyhow::ensure!(
+        snapshot.feature_uid == identity.uid && snapshot.content_hash == plan_hash,
+        "approved task plan snapshot does not match the approved feature identity and hash"
+    );
+    let approved_requirement_ids = snapshot
+        .requirements
+        .iter()
+        .map(|requirement| requirement.stable_id.as_str())
+        .collect::<std::collections::HashSet<_>>();
 
     let documents = crate::artifacts::task_docs::load_board(&state.planning_store, &state.workflow);
     let documents = documents
@@ -177,6 +195,13 @@ pub(super) fn record_task_batch(
                     .ok_or_else(|| anyhow::anyhow!("approved dependency index is invalid"))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
+        let task_requirement_ids = &batch.stories[story_index].approved_requirement_ids;
+        anyhow::ensure!(
+            task_requirement_ids
+                .iter()
+                .all(|requirement| { approved_requirement_ids.contains(requirement.as_str()) }),
+            "task requirement links must resolve to stable requirements in the approved plan snapshot"
+        );
         let persisted_dependencies = metadata
             .dependency_uids
             .iter()
@@ -212,6 +237,7 @@ pub(super) fn record_task_batch(
             parent_task_uid,
             subtask_uids: Vec::new(),
             dependency_task_uids,
+            approved_requirement_ids: task_requirement_ids.clone(),
             phase: TaskPhase::Ready,
             revision: 0,
             approved_plan_sha256: plan_hash.to_owned(),

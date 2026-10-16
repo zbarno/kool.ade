@@ -1,5 +1,7 @@
 use super::*;
 
+mod documentation_refresh;
+
 impl KooladeApp {
     pub(super) fn submit_task_reply(&mut self, key: &str) {
         let review_changes = matches!(&self.screen, Screen::Connected(project)
@@ -56,6 +58,7 @@ impl KooladeApp {
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
         let work = crate::core::planning_work::find(&project.state, key);
+        documentation_refresh::record(project, work.as_ref(), &sent_id);
         let purpose = if crate::core::task_conversation::is_opportunity_conversation_key(key)
             || work
                 .as_ref()

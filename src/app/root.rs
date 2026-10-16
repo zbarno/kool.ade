@@ -45,6 +45,7 @@ mod planning_work;
 mod repository_switcher;
 mod requested_action;
 mod setup_attention;
+mod specification_trace_navigation;
 mod surface;
 mod task_batch;
 #[cfg(test)]
@@ -299,7 +300,7 @@ impl KooladeApp {
 
 #[cfg(test)]
 #[path = "root/board_tests.rs"]
-mod board_tests;
+pub(crate) mod board_tests;
 #[cfg(test)]
 #[path = "root/icon_tests.rs"]
 mod icon_tests;

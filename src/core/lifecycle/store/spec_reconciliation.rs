@@ -6,6 +6,58 @@ use crate::{
 use super::{LifecycleStore, records::load_tasks};
 
 impl LifecycleStore<'_> {
+    /// Approved features with pending feature-scoped reconciliation work.
+    pub fn feature_spec_reconciliation_candidates(
+        &self,
+    ) -> Result<
+        Vec<(
+            super::super::FeatureGoal,
+            Vec<crate::core::lifecycle::SpecSyncQueueEntryV1>,
+        )>,
+        StoreError,
+    > {
+        let mut candidates = Vec::new();
+        for path in self.store.list_record_paths("state/lifecycle_features")? {
+            let feature_uid = path
+                .strip_prefix("state/lifecycle_features/")
+                .and_then(|path| path.strip_suffix(".json"))
+                .ok_or_else(|| StoreError::MalformedState("feature path is invalid".into()))?;
+            let feature = self.load_feature(feature_uid)?;
+            if feature.plan_snapshot_uid.is_none() || feature.approved_plan_sha256.is_none() {
+                continue;
+            }
+            let queue = self.list_spec_sync_queue(feature_uid, false)?;
+            let feature_events = queue
+                .into_iter()
+                .filter(|entry| {
+                    entry.source_task_uid.is_none()
+                        && matches!(
+                            entry.trigger,
+                            crate::core::lifecycle::SpecSyncTriggerKindV1::FeatureClarification
+                                | crate::core::lifecycle::SpecSyncTriggerKindV1::UserDecision
+                                | crate::core::lifecycle::SpecSyncTriggerKindV1::PlanReview
+                                | crate::core::lifecycle::SpecSyncTriggerKindV1::TaskGeneration
+                                | crate::core::lifecycle::SpecSyncTriggerKindV1::ManualRefresh
+                        )
+                })
+                .collect::<Vec<_>>();
+            if let Some(revision) = self.load_spec_revision(feature_uid)?
+                && revision.reconciliation_status
+                    == crate::core::lifecycle::SpecReconciliationStatusV1::NeedsHumanDecision
+                && feature_events
+                    .iter()
+                    .all(|entry| revision.origin_events.contains(&entry.source_event_uid))
+            {
+                continue;
+            }
+            if !feature_events.is_empty() {
+                candidates.push((feature, feature_events));
+            }
+        }
+        candidates.sort_by(|(left, _), (right, _)| left.feature_uid.cmp(&right.feature_uid));
+        Ok(candidates)
+    }
+
     pub fn load_spec_delta_approval(
         &self,
         task_uid: &str,
@@ -34,11 +86,30 @@ impl LifecycleStore<'_> {
     /// Reopen-safe tasks eligible for the one bounded SpecReconciler pass.
     pub fn spec_reconciliation_candidates(&self) -> Result<Vec<TaskRecord>, StoreError> {
         let mut tasks = load_tasks(self.store)?;
+        let mut pending_pr_tasks = std::collections::HashSet::new();
+        for task in tasks
+            .iter()
+            .filter(|task| task.phase == TaskPhase::Done && task.pr_work_item_uid.is_some())
+        {
+            let has_pending_pr = self
+                .list_spec_sync_queue(&task.feature_uid, false)?
+                .iter()
+                .any(|entry| {
+                    entry.source_task_uid.as_deref() == Some(task.task_uid.as_str())
+                        && entry.trigger
+                            == crate::core::lifecycle::SpecSyncTriggerKindV1::PullRequest
+                });
+            if has_pending_pr {
+                pending_pr_tasks.insert(task.task_uid.clone());
+            }
+        }
         tasks.retain(|task| {
-            task.phase == TaskPhase::AwaitingSpecReconciliation
-                && task.qa_execution.as_ref().is_some_and(|qa| {
-                    qa.status == crate::core::lifecycle::QaExecutionStatusV1::Completed
-                })
+            let qa_complete = task.qa_execution.as_ref().is_some_and(|qa| {
+                qa.status == crate::core::lifecycle::QaExecutionStatusV1::Completed
+            });
+            let task_pass = task.phase == TaskPhase::AwaitingSpecReconciliation && qa_complete;
+            let pr_refresh = pending_pr_tasks.contains(&task.task_uid) && qa_complete;
+            task_pass || pr_refresh
         });
         tasks.sort_by(|left, right| left.task_uid.cmp(&right.task_uid));
         Ok(tasks)

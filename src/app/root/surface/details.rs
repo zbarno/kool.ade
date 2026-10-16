@@ -4,6 +4,7 @@ mod lifecycle_spec;
 mod lifecycle_ui;
 mod planning_board;
 mod runtime_capability;
+pub(super) mod specification_status;
 mod target_choices;
 mod telemetry;
 
@@ -80,7 +81,7 @@ impl KooladeApp {
                     .task_chats
                     .messages
                     .get(ticket)
-                    .cloned()
+                    .map(|messages| messages.to_vec())
                     .unwrap_or_default(),
                 project.activity.tasks.get(ticket).cloned(),
                 project.task_turns.contains_key(ticket),

@@ -40,6 +40,8 @@ use execution::run_with_project_options;
 pub use pr_refresh::PrRefresh;
 #[cfg(test)]
 use pr_refresh::refresh_pr;
+#[cfg(test)]
+pub(crate) use pr_refresh::refresh_pr_with_store_for_test;
 use publication::pr_body;
 #[cfg(test)]
 use publication::remote_repository;
