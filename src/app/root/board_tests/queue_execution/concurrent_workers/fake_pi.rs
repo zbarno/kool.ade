@@ -156,8 +156,8 @@ implementation_call = 'koolade_dependency' in tool_names or mcp_access == 'imple
 if ticket_line is None and not implementation_call:
     with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
         trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'mcp_access':mcp_access,'argv':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
-    # Keep both provider calls active until the Rust test observes their overlap.
-    if (root / '004-task.started').exists():
+    # In the queue E2E, hold planning until Rust observes real worker overlap.
+    if (root / 'require-planning-overlap-handshake').exists():
         wait_for_marker('planning-overlap-observed')
     report = {'schema_version':2,'assistant_message':'Planning fixture: I can discuss this while the worker runs.','document_updates':[],'open_items_added':[],'open_items_updated':[],'open_items_resolved':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':json.dumps(report)}]}]}))
@@ -204,7 +204,7 @@ if output_path is None:
         sys.exit(1)
     output_path = response['result']['content'][0]['text'].splitlines()[0]
 output = pathlib.Path(output_path)
-if output.name == 'task-4.rs':
+if output.name == 'task-4.rs' and (root / 'require-planning-overlap-handshake').exists():
     (root / '004-task.started').touch()
     wait_for_marker('planning-overlap-observed')
 if output.name == 'task-3.rs':
