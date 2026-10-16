@@ -68,6 +68,50 @@ Reviewed all 10 `artifacts::time_ledger::tests` against canonical row parsing, a
 
 Reviewed all 10 `task_generation::tests::story_schema` cases against outline decoding, approved-scope mapping, story parsing, and repair feedback. Kept all 10: malformed syntax, missing content, incomplete prefixes, nested element types, envelope placement, prompt budgets, and parent-task/scope preservation are distinct response boundaries. Tests use inline values and checked-in fixtures only; no provider is called and no files or external services are used. Related failure tests exercise separate parsing and repair causes; no removal candidate was found. Per-test evidence is recorded in `full-suite.csv`.
 
+## Operation-specific response decoding review
+
+Reviewed all 14 `harness::responses::tests` against purpose-specific JSON decoding and normalization. Kept all 14: they cover cross-purpose field rejection, narrowly allowed null/legacy compatibility, schema versions, advisory comparison envelopes, operation-specific normalization, and decoder error contracts for planning, task generation, reconciliation, investigation, and decision briefs. Fixtures use inline JSON/serde values only; no model or external service is called. Story-schema tests cover story-content repair, while this batch covers operation envelopes and normalization, so the boundaries are complementary. Per-test evidence is recorded in `full-suite.csv`.
+
+## Planning turn validation and routing review
+
+Reviewed all 10 `core::validation::tests` against turn-level item validation and routing. Kept all 10: they cover follow-up offer scope, deterministic numbering and collision handling, question-routing authority, ownership exclusion, fatal unknown resolution/spec errors, allowed item patches, and stable diagnostics including scoped resolution. Fixtures use synthetic turn data with a temporary PlannerState directory; identity resolution invokes local `git rev-parse`, but no network, Docker, or SSH is used. Similar numbering and routing tests protect different allocation, history, and decision paths; no removal candidate was found. Per-test evidence is recorded in `full-suite.csv`.
+
+## Container request and workspace policy review
+
+Reviewed all 10 `execution::docker::sandbox::tests` against generated container requests and workspace validation. Kept all 10: they cover nonroot isolation/resources, the host-mount allowlist and bounded tmpfs, mode-specific workspace permissions, locked images, runtime-specific temp paths, lease identity, and symlink/replacement defenses. Despite the Docker module path, tests inspect `create_body` values using temporary workspace fixtures and a bundled image lock; they do not contact a Docker daemon or start a container. These policy checks complement staging tests that exercise filesystem capture and synchronization. Per-test evidence is recorded in `full-suite.csv`.
+
+## Planning store path and checkout isolation review
+
+Reviewed all 10 `artifacts::planning_store::tests` against path anchoring, symlink rejection, revision CAS, legacy roots, and checkout independence. Kept all 10: they cover identical relative paths under separate roots, portable path validation, legacy and dangling root symlinks, working-directory anchoring, stale writes, and shared planning data across code checkouts/branches. Fixtures use temporary directories; selected cases use Unix symlinks, local Git repositories, or a child test process with another working directory. No remote, Docker, or SSH is used. The question-store tests cover record semantics and migration, not these root/path protections. Per-test evidence is recorded in `full-suite.csv`.
+
+## Required validation command parsing review
+
+Reviewed all 11 `quality_checks::parser::tests` against command extraction, path scoping, and reported-check matching. Kept all 11: they distinguish informational guidance from explicit required gates, enforce changed-path selection and instruction-directory boundaries, preserve command order, and require an unambiguous matching cwd/body. Tests use inline Markdown and paths with in-memory vectors; they inspect commands but do not execute them or use external services. Parsing and report-coverage cases protect separate pipeline stages. Per-test evidence is recorded in `full-suite.csv`.
+
+## Provider discovery subprocess security review
+
+Reviewed all 11 `harness::discovery::tests` against probe execution, process supervision, and environment isolation. Kept all 11: they cover output bounds, deadlines and cancellation, process-tree cleanup, crash handling, private cwd/home, startup-hook and secret-environment filtering, and the explicit allowlist. These are subprocess integration tests using temporary Unix shell probes, process groups, shell utilities, and writable temp directories; no provider binary, network, Docker, or SSH is required. Function-level tests cannot establish OS process and inherited-environment behavior. Cancellation, timeout, and pipe-holding descendant cases cover different termination paths. Per-test evidence is recorded in `full-suite.csv`.
+
+## Planning artifact import review
+
+Reviewed all eight `artifacts::imports_io::tests` against source import, managed-store writes, and safe listing. Kept all eight: they cover text companion/collision policy, Markdown and binary behavior, self-copy protection for code and managed stores, selected-store revision output, deterministic listing, and symlink rejection. Fixtures use temporary directories and local Git initialization; one case uses Unix symlinks. No remote Git, network, Docker, or SSH is used. These boundaries complement the PlanningStore root/path tests. Per-test evidence is recorded in `full-suite.csv`.
+
+## Task conversation persistence review
+
+Reviewed all eight `persistence::task_chats::tests` against durable message streams, cross-window merge/retry, and context projection. Kept all eight: they cover pending-reply drain and drop recovery, corrupt-store preservation, idempotent stale-window retries, lock retry, cross-window refresh, task identity/focus, and long independent streams across restart. Fixtures use temporary directories, synthetic messages, and local file locks coordinated by threads/channels; no Git or external service is used. The lock and retry cases exercise distinct timing and recovery paths. Per-test evidence is recorded in `full-suite.csv`.
+
+## Provider event-fold review
+
+Reviewed all 14 `harness::pi_events::tests::event_fold` cases against incremental provider-event folding and live diagnostics. Kept all 14: they cover final-message lifecycle, stream deltas and thoughts, usage snapshots, tool activity, checklist revision handling, safe error classification, large payloads, and response-ID deduplication. Tests use in-memory folds and synthetic JSON events; they do not launch providers or use external services. Similar tests cover opposite lifecycle edges or distinct event types, so no removal candidate was found. Per-test evidence is recorded in `full-suite.csv`.
+
+## Provider process I/O and environment review
+
+Reviewed all 10 `harness::pi_proc::tests` against child-process streaming, exit handling, stdin, and environment controls. Kept all 10: they cover exact prompt delivery, line framing and event ordering, delayed output, cancellation, exit status, stderr failure, and inherited/explicit environment filtering. Tests spawn local shell/env utilities with OS pipes; they do not launch provider binaries or use network, Docker, or SSH. These direct spawn-adapter contracts complement discovery tests that exercise bounded probe supervision and private cwd. Per-test evidence is recorded in `full-suite.csv`.
+
+## Provider response-envelope extraction review
+
+Reviewed all nine `harness::pi_extract::tests` against JSON candidate extraction and brace/fence scanning. Kept all nine: they cover prose/fence selection, quoted and escaped braces, embedded story fences, bare-object boundaries, unbalanced input, and preservation of malformed candidates for precise downstream errors. Tests use inline strings and serde parsing only; no provider or external service is called. These scanner primitives are separate from operation-schema validation and story-content repair. Per-test evidence is recorded in `full-suite.csv`.
+
 ## Reviewed test overlap and removal decisions
 
 The 23 `koolade::runtime_qa::tests` rows were source-reviewed and retained. They cover bounded request/scenario validation, subject-bound applicability and approval records, browser relay origin and action policy, desktop capability/action isolation, report/evidence integrity, durable screenshot/disposition storage, and stack-specific recipe selection. Most use in-memory synthetic contracts; persistence checks use temporary stores, while stack discovery uses checked-in synthetic fixtures. No test here starts a browser, executes project code, uses Docker, or accesses a live network; the Python/polyglot paths model approved receipts and QA evidence.
@@ -130,6 +174,6 @@ The 23 pending `harness::resource_bridge::tests` rows were source-reviewed and r
 
 These decisions document the specific cases reviewed for #204; they do not complete the suite-wide semantic review. Other tests remain unreviewed until their invariant and production boundary are compared with existing coverage.
 
-The remaining 1,298 rows have no exact test-name collision; semantic overlap review is pending. A lack of name collision does not establish uniqueness. Do not remove or consolidate a test from this inventory alone: compare its invariant and production boundary with existing coverage, then record the evidence and decision. The 20 core implementation cases in the focused long-tail profile now have matching invariant and keep decisions in `full-suite.csv`; the profile is in [core-implementation-slowest.md](core-implementation-slowest.md). Migration coverage outside that module is reviewed in [legacy-migrations-outside-implementation.md](legacy-migrations-outside-implementation.md).
+The remaining 1,183 rows have no exact test-name collision; semantic overlap review is pending. A lack of name collision does not establish uniqueness. Do not remove or consolidate a test from this inventory alone: compare its invariant and production boundary with existing coverage, then record the evidence and decision. The 20 core implementation cases in the focused long-tail profile now have matching invariant and keep decisions in `full-suite.csv`; the profile is in [core-implementation-slowest.md](core-implementation-slowest.md). Migration coverage outside that module is reviewed in [legacy-migrations-outside-implementation.md](legacy-migrations-outside-implementation.md).
 
 To refresh the inventory, capture `cargo +1.98.1 nextest list --locked --all-targets --message-format json` and the JUnit artifact from a successful full-suite CI run at the same commit. Run `python3 scripts/generate-test-inventory.py --nextest-json <list.json> --junit <nextest.xml> --repo . --output docs/test-inventory/full-suite.csv`. The generator carries forward explicit review decisions for matching test IDs. Keep the exact source revision, workflow run URL, outcomes, and wall time together; do not compare different suite revisions as a before/after result.
