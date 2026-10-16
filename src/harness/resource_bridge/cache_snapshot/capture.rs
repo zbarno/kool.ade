@@ -2,11 +2,19 @@ use super::manifest::{CacheSnapshotEntry, CacheSnapshotManifest, hex, validate_r
 use crate::execution::contract::DependencyCacheEcosystemV1;
 use crate::harness::resource_bridge::cache_snapshot::DependencyCacheRef;
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    io::Read,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+mod unix;
 
 const MAX_ENTRIES: usize = 4_096;
 
@@ -44,8 +52,7 @@ impl CacheSnapshot {
         }
         let root = root.canonicalize()?;
         anyhow::ensure!(root.is_dir(), "cache snapshot root is not a directory");
-        let mut files = Vec::new();
-        collect_files(&root, &root, &mut files)?;
+        let mut files = capture_files_platform(&root)?;
         anyhow::ensure!(
             !files.is_empty() && files.len() <= MAX_ENTRIES,
             "cache snapshot entry count is invalid"
@@ -55,34 +62,12 @@ impl CacheSnapshot {
         let mut entries = Vec::with_capacity(files.len());
         let mut payloads = Vec::with_capacity(files.len());
         let mut total_bytes = 0_u64;
-        for (relative, path) in files {
+        for (relative, bytes) in files {
             validate_relative(&relative)?;
-            let before = fs::symlink_metadata(&path)?;
-            anyhow::ensure!(
-                before.is_file() && !before.file_type().is_symlink(),
-                "cache snapshot path changed during capture"
-            );
-            anyhow::ensure!(
-                path.canonicalize()?.starts_with(&root),
-                "cache snapshot file escaped its root"
-            );
-            let file = fs::File::open(&path)?;
-            let metadata = file.metadata()?;
-            anyhow::ensure!(
-                metadata.is_file() && metadata.len() == before.len(),
-                "cache snapshot file changed during capture"
-            );
-            total_bytes = total_bytes.saturating_add(metadata.len());
+            total_bytes = total_bytes.saturating_add(bytes.len() as u64);
             anyhow::ensure!(
                 total_bytes <= super::super::MAX_CACHE_SNAPSHOT_BYTES,
                 "cache snapshot exceeds the transfer limit"
-            );
-            let mut bytes = Vec::with_capacity(metadata.len() as usize);
-            file.take(super::super::MAX_CACHE_SNAPSHOT_BYTES + 1)
-                .read_to_end(&mut bytes)?;
-            anyhow::ensure!(
-                bytes.len() as u64 == metadata.len(),
-                "cache file changed during snapshot capture"
             );
             entries.push(CacheSnapshotEntry {
                 path: relative,
@@ -144,28 +129,30 @@ impl CacheSnapshot {
     }
 }
 
-fn collect_files(
-    root: &Path,
-    directory: &Path,
-    output: &mut Vec<(String, PathBuf)>,
-) -> anyhow::Result<()> {
-    for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        let kind = entry.file_type()?;
-        anyhow::ensure!(!kind.is_symlink(), "cache snapshot contains a symlink");
-        let path = entry.path();
-        if kind.is_dir() {
-            collect_files(root, &path, output)?;
-        } else if kind.is_file() {
-            output.push((
-                path.strip_prefix(root)?
-                    .to_string_lossy()
-                    .replace('\\', "/"),
-                path,
-            ));
-        } else {
-            anyhow::bail!("cache snapshot contains a special file");
-        }
-    }
-    Ok(())
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn capture_files_platform(root: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    unix::capture_files(root, super::super::MAX_CACHE_SNAPSHOT_BYTES, MAX_ENTRIES)
+}
+
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
+fn capture_files_platform(_root: &Path) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    anyhow::bail!("safe cache snapshot capture is unavailable on this platform")
 }
