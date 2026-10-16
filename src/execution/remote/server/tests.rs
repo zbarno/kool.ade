@@ -154,6 +154,28 @@ fn unavailable<T: Send + 'static>() -> BackendFuture<'static, T> {
     )))
 }
 
+#[test]
+fn request_failure_names_the_operation_and_preserves_error_policy() {
+    let original = ExecutionError::new(
+        crate::execution::errors::ExecutionErrorKind::WorkerDisconnected,
+        format!("{}界", "x".repeat(4_100)),
+        true,
+    );
+    let contextual = super::request_error(&EnvelopeKindV1::Exec, original);
+
+    assert_eq!(
+        contextual.kind,
+        crate::execution::errors::ExecutionErrorKind::WorkerDisconnected
+    );
+    assert!(contextual.retryable);
+    assert!(
+        contextual
+            .message
+            .starts_with("Remote worker Exec request failed: ")
+    );
+    contextual.validate().unwrap();
+}
+
 fn envelope(execution_id: &str) -> EnvelopeV1 {
     EnvelopeV1 {
         version: protocol::PROTOCOL_VERSION_V1,

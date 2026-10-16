@@ -179,7 +179,7 @@ pub fn load_events(
             .map_err(|_| "execution journal event is invalid")?;
         validator
             .accept(&event)
-            .map_err(|_| "execution journal event order is invalid")?;
+            .map_err(|error| format!("execution journal event order is invalid: {error}"))?;
         if event.sequence != *sequence || event.execution_id != execution_id {
             return Err("execution journal event identity does not match its path".into());
         }

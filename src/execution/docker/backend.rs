@@ -216,6 +216,19 @@ pub(super) fn internal_error_with_context(context: &'static str) -> ExecutionErr
     )
 }
 
+pub(super) fn internal_error_with_detail(context: &'static str, detail: &str) -> ExecutionError {
+    let detail = detail
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(512)
+        .collect::<String>();
+    ExecutionError::new(
+        ExecutionErrorKind::WorkerDisconnected,
+        format!("Execution state could not be accessed while {context}: {detail}"),
+        true,
+    )
+}
+
 fn invalid_request() -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::PolicyDenied,

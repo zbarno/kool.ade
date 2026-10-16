@@ -151,7 +151,7 @@ fn serve_stdio_with_journal(
             Ok(response) => response,
             Err(error) => (
                 EnvelopeKindV1::Error,
-                serde_json::to_value(error).unwrap_or_default(),
+                serde_json::to_value(request_error(&request.kind, error)).unwrap_or_default(),
             ),
         };
         let response = EnvelopeV1 {
@@ -167,6 +167,21 @@ fn serve_stdio_with_journal(
         write_frame(&mut output, &response)?;
     }
     Ok(())
+}
+
+fn request_error(kind: &EnvelopeKindV1, error: ExecutionError) -> ExecutionError {
+    let context = format!("Remote worker {kind:?} request failed: ");
+    let maximum_message_bytes =
+        crate::execution::errors::MAX_EXECUTION_ERROR_MESSAGE_BYTES - context.len();
+    let mut detail_end = error.message.len().min(maximum_message_bytes);
+    while !error.message.is_char_boundary(detail_end) {
+        detail_end -= 1;
+    }
+    ExecutionError::new(
+        error.kind,
+        format!("{context}{}", &error.message[..detail_end]),
+        error.retryable,
+    )
 }
 
 pub(super) fn incompatible(message: &'static str) -> ExecutionError {
