@@ -7,78 +7,172 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+const MODE_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_MODE";
 const STARTED_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_STARTED";
 const SURVIVED_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_SURVIVED";
-const PID_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_PID";
+const DESCENDANT_PID_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_DESCENDANT_PID";
+const GRANDCHILD_PID_ENV: &str = "KOOLADE_TEST_DISCOVERY_TREE_GRANDCHILD_PID";
 
-// Boundary: Windows discovery's job-object cleanup. A real child and grandchild
-// are needed because a mock cannot prove kernel process-tree termination. This
-// uses Windows system executables and takes about six seconds.
+// Boundary: Windows discovery's job-object cleanup. This starts a real owner,
+// child, and grandchild because mocks cannot prove kernel process-tree cleanup.
+// No external dependencies; it uses only the test executable and takes about
+// two seconds when successful.
 #[test]
 fn windows_process_tree_terminates_descendants_when_owner_exits() {
-    if let (Some(started), Some(survived), Some(pid)) = (
-        std::env::var_os(STARTED_ENV),
-        std::env::var_os(SURVIVED_ENV),
-        std::env::var_os(PID_ENV),
-    ) {
-        descendant_helper(started.into(), survived.into(), pid.into());
-        return;
+    match std::env::var(MODE_ENV).as_deref() {
+        Ok("owner") => run_owner_helper(),
+        Ok("descendant") => run_descendant_helper(),
+        Ok("grandchild") => run_grandchild_helper(),
+        _ => run_process_tree_assertions(),
     }
+}
 
+fn run_process_tree_assertions() {
     let directory = TestDirectory::new();
-    let started = directory.0.join("descendant-started");
-    let survived = directory.0.join("descendant-survived");
-    let pid = directory.0.join("descendant-pid");
-    let mut owner = Command::new(std::env::current_exe().expect("test executable"));
+    let started = directory.0.join("grandchild-started");
+    let survived = directory.0.join("grandchild-survived");
+    let descendant_pid = directory.0.join("descendant-pid");
+    let grandchild_pid = directory.0.join("grandchild-pid");
+    let mut owner = spawn_test_process("owner");
     owner
-        .args([
-            "--exact",
-            "windows::tests::windows_process_tree_terminates_descendants_when_owner_exits",
-            "--nocapture",
-        ])
         .env(STARTED_ENV, &started)
         .env(SURVIVED_ENV, &survived)
-        .env(PID_ENV, &pid)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .env(DESCENDANT_PID_ENV, &descendant_pid)
+        .env(GRANDCHILD_PID_ENV, &grandchild_pid)
         .creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
 
     let mut child = owner.spawn().expect("spawn suspended test process");
     let tree = WindowsProcessTree::attach(child.id()).expect("assign child to a job object");
-    let status = child.wait().expect("wait for helper process");
-    assert!(status.success(), "helper process failed: {status}");
-    assert!(
-        started.exists(),
-        "the descendant started before its owner exited"
+    let status = child.wait().expect("wait for owner helper process");
+    assert!(status.success(), "owner helper failed: {status}");
+    assert!(started.exists(), "the grandchild did not start");
+
+    let descendant = open_process(read_pid(&descendant_pid));
+    let grandchild = open_process(read_pid(&grandchild_pid));
+    assert_process_in_job(descendant, tree.0, "descendant");
+    assert_process_in_job(grandchild, tree.0, "grandchild");
+    assert_job_kills_on_close(tree.0);
+    assert_job_handle_is_not_inheritable(tree.0);
+
+    drop(tree);
+    let descendant_wait = wait_or_terminate(descendant);
+    let grandchild_wait = wait_or_terminate(grandchild);
+    unsafe {
+        windows_sys::Win32::Foundation::CloseHandle(descendant);
+        windows_sys::Win32::Foundation::CloseHandle(grandchild);
+    }
+    assert_eq!(
+        descendant_wait,
+        windows_sys::Win32::Foundation::WAIT_OBJECT_0,
+        "descendant survived closing its owner's job object"
     );
-    let descendant_pid = fs::read_to_string(&pid)
-        .expect("read descendant process ID")
+    assert_eq!(
+        grandchild_wait,
+        windows_sys::Win32::Foundation::WAIT_OBJECT_0,
+        "grandchild survived closing its owner's job object"
+    );
+    assert!(
+        !survived.exists(),
+        "the grandchild wrote its survival marker"
+    );
+}
+
+fn spawn_test_process(mode: &str) -> Command {
+    let mut command = Command::new(std::env::current_exe().expect("test executable"));
+    command
+        .args([
+            "--exact",
+            "windows::tests::windows_process_tree_terminates_descendants_when_owner_exits",
+        ])
+        .env(MODE_ENV, mode)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
+fn run_owner_helper() {
+    let mut descendant = spawn_test_process("descendant")
+        .spawn()
+        .expect("spawn descendant helper");
+    write_pid(DESCENDANT_PID_ENV, descendant.id());
+    wait_for_started_marker();
+    let _ = descendant.try_wait();
+}
+
+fn run_descendant_helper() {
+    let mut grandchild = spawn_test_process("grandchild")
+        .spawn()
+        .expect("spawn grandchild helper");
+    write_pid(GRANDCHILD_PID_ENV, grandchild.id());
+    wait_for_started_marker();
+    std::thread::sleep(Duration::from_secs(30));
+    let _ = grandchild.try_wait();
+}
+
+fn run_grandchild_helper() {
+    let started = std::env::var_os(STARTED_ENV).expect("started marker path");
+    let survived = std::env::var_os(SURVIVED_ENV).expect("survival marker path");
+    fs::write(started, "started").expect("write grandchild start marker");
+    std::thread::sleep(Duration::from_secs(30));
+    fs::write(survived, "survived").expect("write grandchild survival marker");
+}
+
+fn wait_for_started_marker() {
+    let started = std::env::var_os(STARTED_ENV).expect("started marker path");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !std::path::Path::new(&started).exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        std::path::Path::new(&started).exists(),
+        "grandchild did not start before the deadline"
+    );
+}
+
+fn write_pid(path_env: &str, pid: u32) {
+    let path = std::env::var_os(path_env).expect("process ID path");
+    fs::write(path, pid.to_string()).expect("write process ID");
+}
+
+fn read_pid(path: &std::path::Path) -> u32 {
+    fs::read_to_string(path)
+        .expect("read process ID")
         .parse()
-        .expect("parse descendant process ID");
-    let process = unsafe {
-        windows_sys::Win32::System::Threading::OpenProcess(
-            windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION,
-            0,
-            descendant_pid,
-        )
-    };
-    assert!(!process.is_null(), "open descendant process for job check");
+        .expect("parse process ID")
+}
+
+fn open_process(pid: u32) -> windows_sys::Win32::Foundation::HANDLE {
+    let rights = windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION
+        | windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE
+        | windows_sys::Win32::System::Threading::PROCESS_TERMINATE;
+    let process = unsafe { windows_sys::Win32::System::Threading::OpenProcess(rights, 0, pid) };
+    assert!(!process.is_null(), "open process {pid}");
+    process
+}
+
+fn assert_process_in_job(
+    process: windows_sys::Win32::Foundation::HANDLE,
+    job: windows_sys::Win32::Foundation::HANDLE,
+    name: &str,
+) {
     let mut is_in_job = 0;
     let checked = unsafe {
-        windows_sys::Win32::System::JobObjects::IsProcessInJob(process, tree.0, &mut is_in_job)
+        windows_sys::Win32::System::JobObjects::IsProcessInJob(process, job, &mut is_in_job)
     };
-    unsafe { windows_sys::Win32::Foundation::CloseHandle(process) };
-    assert_ne!(checked, 0, "check descendant job membership");
+    assert_ne!(checked, 0, "check {name} job membership");
     assert_ne!(
         is_in_job, 0,
-        "descendant was not assigned to the production job object"
+        "{name} was not assigned to the production job"
     );
+}
+
+fn assert_job_kills_on_close(job: windows_sys::Win32::Foundation::HANDLE) {
     let mut limits =
         windows_sys::Win32::System::JobObjects::JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     let queried = unsafe {
         windows_sys::Win32::System::JobObjects::QueryInformationJobObject(
-            tree.0,
+            job,
             windows_sys::Win32::System::JobObjects::JobObjectExtendedLimitInformation,
             (&mut limits as *mut windows_sys::Win32::System::JobObjects::JOBOBJECT_EXTENDED_LIMIT_INFORMATION)
                 .cast::<std::ffi::c_void>(),
@@ -93,74 +187,31 @@ fn windows_process_tree_terminates_descendants_when_owner_exits() {
         0,
         "production job lacks kill-on-close limit"
     );
+}
+
+fn assert_job_handle_is_not_inheritable(job: windows_sys::Win32::Foundation::HANDLE) {
     let mut handle_flags = 0;
-    let handle_checked =
-        unsafe { windows_sys::Win32::Foundation::GetHandleInformation(tree.0, &mut handle_flags) };
-    assert_ne!(handle_checked, 0, "query production job handle flags");
+    let checked =
+        unsafe { windows_sys::Win32::Foundation::GetHandleInformation(job, &mut handle_flags) };
+    assert_ne!(checked, 0, "query production job handle flags");
     assert_eq!(
         handle_flags & windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
         0,
         "production job handle must not be inherited"
     );
-
-    drop(tree);
-    std::thread::sleep(Duration::from_millis(6500));
-    assert!(
-        !survived.exists(),
-        "the descendant survived closing its owner's job object"
-    );
 }
 
-fn descendant_helper(
-    started: std::path::PathBuf,
-    survived: std::path::PathBuf,
-    pid: std::path::PathBuf,
-) {
-    let command_processor = std::path::Path::new(
-        &std::env::var_os("SystemRoot").expect("Windows system root is available"),
-    )
-    .join("System32")
-    .join("cmd.exe");
-    let script = format!(
-        "echo started>\"{}\" & ping -n 7 127.0.0.1 >nul & echo leaked>\"{}\"",
-        started.display(),
-        survived.display()
-    );
-    let mut descendant = Command::new(command_processor)
-        .arg("/C")
-        .raw_arg(format!(" {script}"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn descendant process");
-    fs::write(pid, descendant.id().to_string()).expect("record descendant process ID");
-
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !started.exists() && Instant::now() < deadline {
-        if let Some(status) = descendant
-            .try_wait()
-            .expect("query descendant process status")
-        {
-            let output = descendant
-                .wait_with_output()
-                .expect("collect failed descendant output");
-            panic!(
-                "descendant exited before creating its start marker ({status}); stdout: {}; stderr: {}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
+fn wait_or_terminate(
+    process: windows_sys::Win32::Foundation::HANDLE,
+) -> windows_sys::Win32::Foundation::WAIT_EVENT {
+    let wait = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(process, 5000) };
+    if wait != windows_sys::Win32::Foundation::WAIT_OBJECT_0 {
+        unsafe {
+            windows_sys::Win32::System::Threading::TerminateProcess(process, 1);
+            windows_sys::Win32::System::Threading::WaitForSingleObject(process, 5000);
         }
-        std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(started.exists(), "descendant did not start");
-    assert!(
-        descendant
-            .try_wait()
-            .expect("query descendant process status")
-            .is_none(),
-        "descendant exited before its owner was closed"
-    );
+    wait
 }
 
 struct TestDirectory(PathBuf);
