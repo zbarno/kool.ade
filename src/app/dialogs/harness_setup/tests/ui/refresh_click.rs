@@ -1,8 +1,9 @@
 use super::*;
 
 /// Drives the production Settings Rediscover button twice. The real egui click path proves that
-/// refresh invalidates and persists discovery state, cancels the previous generation, and starts
-/// the replacement; direct state-method tests cannot prove the visible control is wired correctly.
+/// refresh preserves cached discovery state while persisting the scan, cancels the previous
+/// generation, and starts the replacement; direct state-method tests cannot prove the visible
+/// control is wired correctly.
 /// Only worker launch is stubbed, so there is no Docker, SSH, network, or host-CLI dependency; setup
 /// cost is two short frames and settings writes.
 #[test]
@@ -107,7 +108,7 @@ fn rediscover_button_double_click_cancels_the_first_scan_generation() {
             click(&mut dialog, center);
             let first_generation = dialog.scan_generation;
             let first_cancel = dialog.scan_cancel.as_ref().unwrap().clone();
-            assert_discovery_invalidated_and_persisted();
+            assert_cached_discovery_is_persisted();
             click(&mut dialog, center);
 
             assert!(dialog.scan_generation > first_generation);
@@ -122,7 +123,7 @@ fn rediscover_button_double_click_cancels_the_first_scan_generation() {
                     .as_ref()
                     .is_some_and(|cancel| !cancel.load(std::sync::atomic::Ordering::Acquire))
             );
-            assert_discovery_invalidated_and_persisted();
+            assert_cached_discovery_is_persisted();
             assert_eq!(
                 crate::app::dialogs::harness_setup::discovery::test_hooks::launched_generations(),
                 vec![first_generation, dialog.scan_generation]
@@ -132,11 +133,11 @@ fn rediscover_button_double_click_cancels_the_first_scan_generation() {
     std::fs::remove_dir_all(state_dir).unwrap();
 }
 
-fn assert_discovery_invalidated_and_persisted() {
+fn assert_cached_discovery_is_persisted() {
     let settings = crate::persistence::harness_settings::load().0;
     let detected = &settings.discovered["pi"];
     assert_eq!(settings.default_harness.as_deref(), Some("pi"));
-    assert_eq!(detected.checked_at_unix_ms, 0);
-    assert!(!detected.implementation_available);
-    assert!(detected.capability_snapshot.is_none());
+    assert!(detected.checked_at_unix_ms > 0);
+    assert!(detected.implementation_available);
+    assert!(detected.capability_snapshot.is_some());
 }

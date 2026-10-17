@@ -1,11 +1,12 @@
 use super::*;
 
-/// Production boundary: persisted readiness is invalidated before scans start, and closing the
-/// dialog cancels the live generation. Reopening must not resurrect the prior authorization.
-/// Uses the real settings file and dialog constructor with only worker launch stubbed; no host
-/// provider, Docker, or network dependency. Setup cost is two short settings transactions.
+/// Production boundary: full discovery keeps the last provider results visible, while closing the
+/// dialog cancels only the live generation. Reopening starts a fresh generation without dropping
+/// the cached capability. Uses the real settings file and dialog constructor with only worker
+/// launch stubbed; no host provider, Docker, or network dependency. Setup cost is two short settings
+/// transactions.
 #[test]
-fn closing_and_reopening_keeps_discovery_stale_until_a_new_scan_finishes() {
+fn closing_and_reopening_keeps_cached_discovery_until_a_new_result_arrives() {
     let root = std::env::temp_dir().join(format!(
         "koolade-discovery-close-reopen-{}",
         uuid::Uuid::new_v4()
@@ -41,7 +42,7 @@ fn closing_and_reopening_keeps_discovery_stale_until_a_new_scan_finishes() {
         crate::app::dialogs::harness_setup::discovery::test_hooks::with_worker_launch_stub(|| {
             let mut dialog = DlgHarnessSetup::new();
             assert!(
-                !crate::app::dialogs::harness_setup::has_current_provider_capabilities(
+                crate::app::dialogs::harness_setup::has_current_provider_capabilities(
                     "pi",
                     &dialog.settings.discovered["pi"],
                     crate::persistence::harness_settings::current_unix_ms()
@@ -59,7 +60,7 @@ fn closing_and_reopening_keeps_discovery_stale_until_a_new_scan_finishes() {
             assert!(
                 reopened.settings.discovered["pi"]
                     .capability_snapshot
-                    .is_none()
+                    .is_some()
             );
             assert_eq!(
                 crate::app::dialogs::harness_setup::discovery::test_hooks::launched_generations(),
@@ -67,8 +68,8 @@ fn closing_and_reopening_keeps_discovery_stale_until_a_new_scan_finishes() {
             );
         });
         let persisted = crate::persistence::harness_settings::load().0;
-        assert_eq!(persisted.discovered["pi"].checked_at_unix_ms, 0);
-        assert!(persisted.discovered["pi"].capability_snapshot.is_none());
+        assert!(persisted.discovered["pi"].checked_at_unix_ms > 0);
+        assert!(persisted.discovered["pi"].capability_snapshot.is_some());
     });
     std::fs::remove_dir_all(root).unwrap();
 }

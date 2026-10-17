@@ -16,13 +16,6 @@ pub(crate) fn ready_snapshot(provider: &str) -> HarnessCapabilitySnapshotV1 {
     snapshot(provider, ReadinessState::Ready)
 }
 
-pub(crate) fn capability_snapshot(
-    provider: &str,
-    authentication: ReadinessState,
-) -> HarnessCapabilitySnapshotV1 {
-    snapshot(provider, authentication)
-}
-
 fn snapshot(provider: &str, auth: ReadinessState) -> HarnessCapabilitySnapshotV1 {
     HarnessCapabilitySnapshotV1 {
         schema_version: 1,
@@ -240,15 +233,16 @@ fn unknown_provider_authentication_blocks_route_validation_and_task_execution() 
         let routes = std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route.clone())]);
 
         let validation_error = validate_task_routes(&settings, &routes).unwrap_err();
-        assert!(validation_error.contains("Authentication"), "{validation_error}");
-        let task_harness = routed_harness(
-            &settings,
-            Some(IMPLEMENTATION),
-            None,
-            Some(&route),
+        assert!(
+            validation_error.contains("Authentication"),
+            "{validation_error}"
         );
+        let task_harness = routed_harness(&settings, Some(IMPLEMENTATION), None, Some(&route));
         let execution_error = task_harness.check_available().unwrap_err().detail();
-        assert!(execution_error.contains("Authentication"), "{execution_error}");
+        assert!(
+            execution_error.contains("Authentication"),
+            "{execution_error}"
+        );
         assert!(execution_error.contains("no fallback"), "{execution_error}");
     }
 }
