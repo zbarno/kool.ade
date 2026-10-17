@@ -24,6 +24,7 @@ fn production_decline_authorization_preserves_missing_prior_target() {
             &proposal.feature_uid,
             current.seq,
             SpecRevisionDraftV1 {
+                no_change_reason: None,
                 content_hash: current.content_hash.clone(),
                 source_revision: feature.revision,
                 produced_by_run_id: None,

@@ -205,6 +205,7 @@ pub(super) fn seed(app: &mut crate::app::root::KooladeApp) -> TraceTargets {
         recorded_at_ms: 1,
     };
     let draft = SpecRevisionDraftV1 {
+        no_change_reason: None,
         content_hash: crate::core::lifecycle::product_spec::current_product_hash(store).unwrap(),
         source_revision: feature.revision,
         produced_by_run_id: None,

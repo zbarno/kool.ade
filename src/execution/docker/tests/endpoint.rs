@@ -85,6 +85,59 @@ fn accepts_only_local_transport_addresses() {
 }
 
 #[test]
+fn macos_default_and_desktop_context_select_the_local_desktop_socket() {
+    let home = std::path::Path::new("/Users/example");
+    let expected = DockerEndpoint::Unix {
+        path: home.join(".docker/run/docker.sock"),
+        desktop: true,
+    };
+
+    assert_eq!(
+        DockerEndpoint::from_environment(None, None, None, Some(home), None, HostPlatform::MacOs)
+            .unwrap(),
+        expected
+    );
+    assert_eq!(
+        DockerEndpoint::from_environment(
+            None,
+            Some("desktop-linux"),
+            None,
+            Some(home),
+            None,
+            HostPlatform::MacOs,
+        )
+        .unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn windows_default_and_desktop_context_select_the_local_named_pipe() {
+    let expected = DockerEndpoint::NamedPipe {
+        path: r"\\.\pipe\docker_engine".into(),
+        desktop: true,
+    };
+
+    assert_eq!(
+        DockerEndpoint::from_environment(None, None, None, None, None, HostPlatform::Windows)
+            .unwrap(),
+        expected
+    );
+    assert_eq!(
+        DockerEndpoint::from_environment(
+            None,
+            Some("desktop-linux"),
+            None,
+            None,
+            None,
+            HostPlatform::Windows,
+        )
+        .unwrap(),
+        expected
+    );
+}
+
+#[test]
 #[cfg(target_os = "linux")]
 fn untrusted_xdg_runtime_directory_cannot_redirect_docker_discovery() {
     let endpoint = DockerEndpoint::from_environment(

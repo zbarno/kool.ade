@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::artifacts::planning_store::StoreError;
 
-use super::super::SpecRevisionHistoryV1;
+use super::super::SpecRevisionHistory;
 
 pub(in crate::core::lifecycle::store) fn revision_uid(
     feature_uid: &str,
@@ -18,7 +18,7 @@ pub(in crate::core::lifecycle::store) fn revision_uid(
 }
 
 pub(in crate::core::lifecycle::store) fn validate_history(
-    history: &SpecRevisionHistoryV1,
+    history: &SpecRevisionHistory,
     record_revision: u64,
 ) -> Result<(), StoreError> {
     history
@@ -27,7 +27,9 @@ pub(in crate::core::lifecycle::store) fn validate_history(
         .map_err(StoreError::MalformedState)?;
     let expected_uid = revision_uid(&history.feature_uid, history.sequence)?;
     let mut requirements = HashSet::new();
-    if history.schema_version != 1
+    if !matches!(history.schema_version, 1 | 2)
+        || (history.schema_version == 2 && history.origin_dispositions.is_none())
+        || (history.schema_version == 1 && history.origin_dispositions.is_some())
         || history.uid != expected_uid
         || record_revision != 1
         || history.revision != record_revision
@@ -46,5 +48,6 @@ pub(in crate::core::lifecycle::store) fn validate_history(
             "immutable specification revision history is inconsistent".into(),
         ));
     }
+    super::super::origins::validate(history)?;
     Ok(())
 }

@@ -108,6 +108,7 @@ fn seed_proposal(app: &mut KooladeApp) -> Proposal {
             &identity.uid,
             0,
             SpecRevisionDraftV1 {
+                no_change_reason: None,
                 content_hash: hash,
                 source_revision: feature.revision,
                 produced_by_run_id: Some(uuid::Uuid::new_v4().hyphenated().to_string()),

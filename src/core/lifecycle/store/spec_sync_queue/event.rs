@@ -11,12 +11,6 @@ pub(in crate::core::lifecycle::store) fn queued_for_event(
     event: &LifecycleEventRecord,
 ) -> Result<SpecSyncQueueEntryV1, StoreError> {
     let (trigger, declined) = trigger_for_event(event);
-    let completed = matches!(
-        &event.event,
-        LifecycleEventKind::Task(
-            TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. }
-        )
-    );
     let entry = SpecSyncQueueEntryV1 {
         schema_version: 1,
         uid: event.uid.clone(),
@@ -31,13 +25,11 @@ pub(in crate::core::lifecycle::store) fn queued_for_event(
         trigger,
         status: if declined.is_some() {
             SpecSyncQueueStatusV1::Declined
-        } else if completed {
-            SpecSyncQueueStatusV1::Completed
         } else {
             SpecSyncQueueStatusV1::Pending
         },
         decline_reason: declined,
-        attempts: if completed { 1 } else { 0 },
+        attempts: 0,
         revision: 1,
         created_at_ms: event.created_at_ms,
         updated_at_ms: event.updated_at_ms,
@@ -80,10 +72,13 @@ fn trigger_for_event(event: &LifecycleEventRecord) -> (SpecSyncTriggerKindV1, Op
             | TaskEvent::RuntimeQaBlocked { .. }
             | TaskEvent::RuntimeQaUnavailable { .. }
             | TaskEvent::RuntimeQaCompleted { .. } => (SpecSyncTriggerKindV1::RuntimeQa, None),
-            TaskEvent::ReconcileSpec { .. }
-            | TaskEvent::SpecReconciliationBlocked { .. }
+            TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. } => (
+                SpecSyncTriggerKindV1::SpecificationReconciliation,
+                Some("validated reconciliation completion records the preceding specification review; it introduces no new implementation evidence or requirement change".into()),
+            ),
+            TaskEvent::SpecReconciliationBlocked { .. }
             | TaskEvent::SpecReconciliationRetry { .. }
-            | TaskEvent::SubtaskReconciled { .. } => {
+             => {
                 (SpecSyncTriggerKindV1::SpecificationReconciliation, None)
             }
             TaskEvent::Start | TaskEvent::Cancel => (

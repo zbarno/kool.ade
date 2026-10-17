@@ -15,9 +15,10 @@ pub use spec_history::{
     ProductSpecAggregateStatusV1, ProductSpecAggregateV1, ProductSpecFeatureSummaryV1,
     ProductSpecFindingV1, SpecDeltaApprovalRefV1, SpecDeltaClassificationV1,
     SpecDeltaOperatorChoiceV1, SpecDeltaOperatorDecisionV1, SpecDeltaRecordV1,
-    SpecReconciliationStatusV1, SpecRequirementTraceV1, SpecRevisionDraftV1, SpecRevisionV1,
-    SpecSyncQueueEntryV1, SpecSyncQueueStatusV1, SpecSyncTriggerKindV1, SpecTraceNavigationV1,
-    SpecTraceReferenceKindV1, SpecTraceTargetKindV1,
+    SpecDeltaReferenceV1, SpecOriginDispositionV1, SpecOriginOutcomeV1, SpecReconciliationStatusV1,
+    SpecRequirementTraceV1, SpecRevisionDraftV1, SpecRevisionV1, SpecSyncQueueEntryV1,
+    SpecSyncQueueStatusV1, SpecSyncTriggerKindV1, SpecTraceNavigationV1, SpecTraceReferenceKindV1,
+    SpecTraceTargetKindV1,
 };
 pub use spec_reconciliation::{
     FeatureDeltaAuthorizationV1, SpecDeltaApprovalV1, SpecReconciliationBlockV1,

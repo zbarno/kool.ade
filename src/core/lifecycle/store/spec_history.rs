@@ -9,6 +9,7 @@ use super::LifecycleStore;
 #[cfg(test)]
 use crate::core::lifecycle::SpecRevisionDraftV1;
 
+mod origins;
 mod persist;
 mod trace;
 mod validation;
@@ -21,7 +22,7 @@ mod tests;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct SpecRevisionHistoryV1 {
+struct SpecRevisionHistory {
     schema_version: u16,
     uid: String,
     revision: u64,
@@ -31,6 +32,9 @@ struct SpecRevisionHistoryV1 {
     sequence: u64,
     entry: SpecRevisionV1,
     deltas: Vec<SpecDeltaRecordV1>,
+    /// Absent on legacy history; never invent outcomes while loading it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin_dispositions: Option<Vec<crate::core::lifecycle::SpecOriginDispositionV1>>,
 }
 
 impl<'a> LifecycleStore<'a> {
@@ -66,7 +70,7 @@ impl<'a> LifecycleStore<'a> {
             .list_record_paths("state/spec_revision_history")?
             .into_iter()
             .map(|path| {
-                let (history, revision) = self.store.read_record::<SpecRevisionHistoryV1>(&path)?;
+                let (history, revision) = self.store.read_record::<SpecRevisionHistory>(&path)?;
                 validate_history(&history, revision)?;
                 Ok(history)
             })
