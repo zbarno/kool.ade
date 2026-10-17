@@ -239,6 +239,8 @@ mod tests {
             specification_deltas: Vec::new(),
             pull_request_status: Some(PullRequestPreparationStatus::Merged),
             merged_commit_sha: Some("provider-merge-sha".into()),
+            runtime_qa_evidence: None,
+            runtime_qa_evidence_error: None,
         };
         let context = egui::Context::default();
         let mut output = context.run_ui(

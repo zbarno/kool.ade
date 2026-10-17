@@ -18,7 +18,7 @@ pub use orchestrator::{
     QaExecutionContext, QaReviewer, QaScenarioDriver, QaTargetAuthorization, RuntimeQaOrchestrator,
 };
 pub(crate) use recipe_queue_handle::RuntimeRecipeWorkerHandle;
-pub use store::RuntimeQaStore;
+pub use store::{QaPersistedRunV1, RuntimeQaStore};
 pub(crate) use worker_handle::QaWorkerHandle;
 
 /// App-owned line-independent protocol entrypoint for the pinned Linux

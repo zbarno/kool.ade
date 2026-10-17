@@ -12,13 +12,22 @@ mod storage_root;
 
 use super::{
     QaEvidenceManifestV1, QaFindingDispositionV1, QaResultV1, QaRunRequestV1, QaScenarioProposalV1,
-    QaScenarioV1, QaScreenshotArtifactV1, validate_report, validate_screenshot_artifact,
+    QaScenarioV1, QaScreenshotArtifactV1, validate_report,
 };
 
 /// Append-only filesystem store for runtime QA run records.
 #[derive(Clone, Debug)]
 pub struct RuntimeQaStore {
     pub(super) root: PathBuf,
+}
+
+/// A validated QA run together with its locally stored screenshot bytes.
+pub struct QaPersistedRunV1 {
+    pub request: QaRunRequestV1,
+    pub scenarios: Vec<QaScenarioV1>,
+    pub evidence: QaEvidenceManifestV1,
+    pub result: QaResultV1,
+    pub screenshots: Vec<QaScreenshotArtifactV1>,
 }
 
 impl RuntimeQaStore {
@@ -98,35 +107,8 @@ impl RuntimeQaStore {
         ),
         String,
     > {
-        let run = safe_uuid(qa_run_id)?;
-        let dir = self.root.join(run);
-        let request: QaRunRequestV1 = read_json(&dir.join("request.json"))?;
-        let scenarios: Vec<QaScenarioV1> = read_json(&dir.join("scenarios.json"))?;
-        let evidence: QaEvidenceManifestV1 = read_json(&dir.join("evidence.json"))?;
-        let result: QaResultV1 = read_json(&dir.join("result.json"))?;
-        if request.qa_run_id != qa_run_id {
-            return Err("runtime QA record path does not match its request identity".into());
-        }
-        validate_report(&request, &scenarios, &evidence, &result)?;
-        let mut total_screenshot_bytes = 0_u64;
-        for screenshot in &evidence.screenshots {
-            let bytes = self.read_screenshot(
-                &screenshot.storage_ref,
-                request.bounded_limits.max_evidence_bytes,
-            )?;
-            total_screenshot_bytes = total_screenshot_bytes.saturating_add(bytes.len() as u64);
-            if total_screenshot_bytes > request.bounded_limits.max_evidence_bytes {
-                return Err(
-                    "persisted runtime QA screenshot set exceeds its evidence quota".into(),
-                );
-            }
-            validate_screenshot_artifact(
-                screenshot,
-                &bytes,
-                request.bounded_limits.max_evidence_bytes,
-            )?;
-        }
-        Ok((request, scenarios, evidence, result))
+        let run = self.load_run_with_screenshots(qa_run_id)?;
+        Ok((run.request, run.scenarios, run.evidence, run.result))
     }
 
     /// Persist an explicit applicability decision alongside the exact run

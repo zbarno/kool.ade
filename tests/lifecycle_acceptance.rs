@@ -1,6 +1,7 @@
-//! Persisted lifecycle acceptance fixtures for #157–#165 and #172.
-//! These exercise production record reducers and stores; they do not launch a
-//! real browser or desktop QA driver.
+//! Persisted lifecycle acceptance fixtures for #157–#166 and #172.
+//! The completed path exercises the production QA orchestrator and lifecycle
+//! stores with deterministic adapters; rootless candidate-image workflows
+//! separately prove browser and desktop interaction.
 
 #[path = "lifecycle_acceptance/blocked_path.rs"]
 mod blocked_path;

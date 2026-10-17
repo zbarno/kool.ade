@@ -1,11 +1,87 @@
 use std::path::Path;
 
 use super::super::{
-    QaEvidenceManifestV1, QaRunRequestV1, QaScreenshotArtifactV1, validate_screenshot_artifact,
+    QaEvidenceManifestV1, QaResultV1, QaRunRequestV1, QaScenarioV1, QaScreenshotArtifactV1,
+    validate_report, validate_screenshot_artifact,
 };
-use super::RuntimeQaStore;
+use super::{QaPersistedRunV1, RuntimeQaStore, read_json, safe_uuid};
 
 impl RuntimeQaStore {
+    /// Load a complete QA report and its image bytes in one validated pass.
+    pub fn load_run_with_screenshots(&self, qa_run_id: &str) -> Result<QaPersistedRunV1, String> {
+        let dir = self.root.join(safe_uuid(qa_run_id)?);
+        let request: QaRunRequestV1 = read_json(&dir.join("request.json"))?;
+        let scenarios: Vec<QaScenarioV1> = read_json(&dir.join("scenarios.json"))?;
+        let evidence: QaEvidenceManifestV1 = read_json(&dir.join("evidence.json"))?;
+        let result: QaResultV1 = read_json(&dir.join("result.json"))?;
+        if request.qa_run_id != qa_run_id {
+            return Err("runtime QA record path does not match its request identity".into());
+        }
+        validate_report(&request, &scenarios, &evidence, &result)?;
+        let mut total_bytes = 0_u64;
+        let screenshots = evidence
+            .screenshots
+            .iter()
+            .map(|metadata| {
+                let bytes = self.read_screenshot(
+                    &metadata.storage_ref,
+                    request.bounded_limits.max_evidence_bytes,
+                )?;
+                total_bytes = total_bytes.saturating_add(bytes.len() as u64);
+                if total_bytes > request.bounded_limits.max_evidence_bytes {
+                    return Err(
+                        "persisted runtime QA screenshot set exceeds its evidence quota".into(),
+                    );
+                }
+                validate_screenshot_artifact(
+                    metadata,
+                    &bytes,
+                    request.bounded_limits.max_evidence_bytes,
+                )?;
+                Ok(QaScreenshotArtifactV1 {
+                    id: metadata.id.clone(),
+                    bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok(QaPersistedRunV1 {
+            request,
+            scenarios,
+            evidence,
+            result,
+            screenshots,
+        })
+    }
+
+    /// Load all screenshot artifacts for a run after validating the persisted
+    /// report, so projections do not reread and revalidate the run per image.
+    pub fn load_screenshots(&self, qa_run_id: &str) -> Result<Vec<QaScreenshotArtifactV1>, String> {
+        self.load_run_with_screenshots(qa_run_id)
+            .map(|run| run.screenshots)
+    }
+
+    /// Load screenshot bytes only after the complete run and its artifact hashes
+    /// have been revalidated. The returned bytes remain local to the caller.
+    pub fn load_screenshot(
+        &self,
+        qa_run_id: &str,
+        screenshot_id: &str,
+    ) -> Result<QaScreenshotArtifactV1, String> {
+        let run = self.load_run_with_screenshots(qa_run_id)?;
+        if !run
+            .evidence
+            .screenshots
+            .iter()
+            .any(|screenshot| screenshot.id == screenshot_id)
+        {
+            return Err("runtime QA screenshot is not part of this run".into());
+        }
+        run.screenshots
+            .into_iter()
+            .find(|artifact| artifact.id == screenshot_id)
+            .ok_or_else(|| "runtime QA screenshot bytes are missing".to_owned())
+    }
+
     pub(super) fn write_screenshot(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
         let planning = self.planning_store();
         match planning.atomic_create(path, bytes) {

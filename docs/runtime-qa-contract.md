@@ -47,3 +47,22 @@ the isolated Docker session, target-recipe checks, lifecycle queue, Manager
 finding routing, and desktop/browser drivers; the complete application-level
 implementation-to-QA-to-repair-to-spec-sync path still needs an end-to-end CI
 run against the pinned images before Runtime QA can be called release-ready.
+
+Task Details projects the persisted run outcome, requirement coverage, findings,
+action trace, and validated screenshots from the user's local Runtime QA store.
+The projection checks the run request and result hash against the lifecycle
+task receipt before displaying it. Missing or corrupt evidence is reported as
+unavailable; it is never presented as a pass. This UI is an evidence browser,
+not proof that the app interaction happened on the current machine.
+
+The `qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item`
+acceptance test exercises the production Runtime QA orchestrator and lifecycle
+stores through failure, repair, fresh review, pass, and spec reconciliation
+using deterministic in-process driver and reviewer adapters. It covers the
+orchestrator-to-lifecycle persistence boundary and stale-evidence invariant;
+a unit test cannot establish that the durable records compose through the full
+transition sequence. It has no Docker, browser, model, or network dependency
+and negligible setup cost. It does not satisfy the pinned-image application
+E2E requirement: real desktop/browser interaction, private screenshot
+collection, release security negatives, and setup UX remain separately
+required.

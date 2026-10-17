@@ -1,5 +1,7 @@
 use crate::{app::session::Project, core::lifecycle::LifecycleStore};
 
+mod runtime_qa_evidence;
+
 pub(super) fn for_ticket(
     project: &Project,
     ticket: &str,
@@ -55,6 +57,8 @@ pub(super) fn for_ticket(
     let current_spec_hash =
         crate::core::lifecycle::product_spec::current_product_hash(&project.state.planning_store)
             .ok();
+    let (runtime_qa_evidence, runtime_qa_evidence_error) =
+        runtime_qa_evidence::for_task(project, &task);
     (
         Some(crate::ui::task_detail::LifecycleView {
             feature_phase: feature.phase,
@@ -79,6 +83,8 @@ pub(super) fn for_ticket(
             specification_deltas,
             pull_request_status: pr_preparation.as_ref().map(|pr| pr.status),
             merged_commit_sha: pr_preparation.and_then(|pr| pr.merged_commit_sha),
+            runtime_qa_evidence,
+            runtime_qa_evidence_error,
         }),
         None,
     )

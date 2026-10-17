@@ -229,6 +229,25 @@ fn missing_or_forged_screenshot_bytes_are_rejected_and_load_rechecks_hashes() {
         )
         .unwrap();
     assert!(store.load_run(&fixture.request.qa_run_id).is_ok());
+    assert_eq!(
+        store
+            .load_screenshot(
+                &fixture.request.qa_run_id,
+                &fixture.evidence.screenshots[0].id,
+            )
+            .unwrap()
+            .bytes,
+        fixture.screenshot.bytes
+    );
+    let screenshots = store.load_screenshots(&fixture.request.qa_run_id).unwrap();
+    assert_eq!(screenshots.len(), 1);
+    assert_eq!(screenshots[0].id, fixture.screenshot.id);
+    assert_eq!(screenshots[0].bytes, fixture.screenshot.bytes);
+    assert!(
+        store
+            .load_screenshot(&fixture.request.qa_run_id, "unknown-screenshot")
+            .is_err()
+    );
 
     let artifact_path = store
         .root()

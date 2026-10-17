@@ -64,6 +64,26 @@ pub struct LifecycleView {
     pub specification_deltas: Vec<(u64, crate::core::lifecycle::SpecDeltaRecordV1)>,
     pub pull_request_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub merged_commit_sha: Option<String>,
+    pub runtime_qa_evidence: Option<RuntimeQaEvidenceView>,
+    pub runtime_qa_evidence_error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaEvidenceView {
+    pub run_id: String,
+    pub outcome: crate::runtime_qa::QaOutcome,
+    pub coverage: Vec<crate::runtime_qa::QaRequirementCoverageV1>,
+    pub findings: Vec<crate::runtime_qa::QaFindingV1>,
+    pub actions: Vec<crate::runtime_qa::QaActionEvidenceV1>,
+    pub screenshots: Vec<RuntimeQaScreenshotView>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaScreenshotView {
+    pub id: String,
+    pub width: u16,
+    pub height: u16,
+    pub bytes: Vec<u8>,
 }
 
 pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {

@@ -1,4 +1,5 @@
 use super::*;
+mod lifecycle_qa;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
@@ -193,6 +194,7 @@ pub(super) fn paint(
         presentation.view.lifecycle.as_ref(),
         presentation.view.lifecycle_error.as_deref(),
     );
+    lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
     linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming_cancel = ui
