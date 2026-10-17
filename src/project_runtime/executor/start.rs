@@ -98,8 +98,13 @@ pub(super) fn execute(
         .result
         .artifacts
         .iter()
-        .map(|artifact| (artifact.relative_path.clone(), artifact.sha256.clone()))
-        .collect::<BTreeMap<_, _>>();
+        .map(|artifact| {
+            Ok((
+                super::join_workspace_path(&target.project_relative_root, &artifact.relative_path)?,
+                artifact.sha256.clone(),
+            ))
+        })
+        .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
     let passed = process.is_some()
         && output.result.exit_code == Some(0)
         && !output.result.cancelled
@@ -154,14 +159,13 @@ fn start_script(
     start: &crate::project_runtime::ExecutionRecipeV1,
     probe: &crate::project_runtime::ReadinessProbeV1,
 ) -> anyhow::Result<String> {
-    let project_root = &target.project_relative_root;
-    let start_directory =
-        super::join_workspace_path(project_root, &start.working_directory_relative)?;
+    let project_root = ".";
+    let start_directory = &start.working_directory_relative;
     let start_command = shell_argv(&start.executable_id, &start.argv);
     let readiness = readiness_command(manifest, target, probe)?;
     let launch = format!(
         "(cd {} && exec {})",
-        shell_quote(&start_directory),
+        shell_quote(start_directory),
         start_command
     );
     Ok(format!(
@@ -215,13 +219,9 @@ fn readiness_command(
                 recipe.is_explicitly_user_approved(),
                 "custom readiness recipe requires explicit approval"
             );
-            let directory = super::join_workspace_path(
-                &target.project_relative_root,
-                &recipe.working_directory_relative,
-            )?;
             Ok(format!(
                 "(cd {} && {}) >/dev/null 2>&1",
-                shell_quote(&directory),
+                shell_quote(&recipe.working_directory_relative),
                 shell_argv(&recipe.executable_id, &recipe.argv)
             ))
         }

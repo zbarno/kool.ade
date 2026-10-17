@@ -78,7 +78,27 @@ impl ExecutionSession {
             .iter()
             .find(|target| target.target_id == target_id)
             .ok_or_else(|| policy_error("Approved runtime target is missing"))?;
-        self.run_scoped_recipe(runtime, target_id, recipe, &target.project_relative_root)
+        let mut workspace_recipe = recipe.clone();
+        workspace_recipe.working_directory_relative = join_target_root(
+            &target.project_relative_root,
+            &recipe.working_directory_relative,
+        )?;
+        workspace_recipe.allowed_output_paths = recipe
+            .allowed_output_paths
+            .iter()
+            .map(|path| join_target_root(&target.project_relative_root, path))
+            .collect::<Result<_, _>>()?;
+        workspace_recipe.expected_artifacts = recipe
+            .expected_artifacts
+            .iter()
+            .map(|path| join_target_root(&target.project_relative_root, path))
+            .collect::<Result<_, _>>()?;
+        self.run_scoped_recipe(
+            runtime,
+            target_id,
+            &workspace_recipe,
+            &target.project_relative_root,
+        )
     }
 
     /// Runs one explicitly approved recipe with a task clone mounted as only
@@ -215,13 +235,63 @@ impl ExecutionSession {
                 .chain(target.test_recipe_refs.iter())
                 .chain(target.start_recipe_ref.iter())
                 .any(|recipe_id| recipe_id == &recipe.recipe_id)
-            || !runtime.recipe_is_locally_approved(&manifest, target, recipe)
+            || !approved_recipe_matches(runtime, &manifest, target, recipe)
         {
             return Err(policy_error(
                 "Recipe has no matching local approval for this selected task target",
             ));
         }
         Ok(())
+    }
+}
+
+fn approved_recipe_matches(
+    runtime: &crate::project_runtime::ProjectRuntimeStore<'_>,
+    manifest: &crate::project_runtime::ProjectCapabilityManifestV1,
+    target: &crate::project_runtime::AppTargetV1,
+    recipe: &crate::project_runtime::ExecutionRecipeV1,
+) -> bool {
+    let mut approved = recipe.clone();
+    let root = &target.project_relative_root;
+    let normalize = |path: &str| {
+        if root == "." {
+            Ok(path.to_owned())
+        } else {
+            strip_target_root(root, path)
+        }
+    };
+    let Ok(working_directory_relative) = normalize(&recipe.working_directory_relative) else {
+        return false;
+    };
+    approved.working_directory_relative = working_directory_relative;
+    approved.allowed_output_paths = match recipe
+        .allowed_output_paths
+        .iter()
+        .map(|path| normalize(path))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(paths) => paths,
+        Err(_) => return false,
+    };
+    approved.expected_artifacts = match recipe
+        .expected_artifacts
+        .iter()
+        .map(|path| normalize(path))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(paths) => paths,
+        Err(_) => return false,
+    };
+    runtime.recipe_is_locally_approved(manifest, target, &approved)
+}
+
+fn join_target_root(target_root: &str, path: &str) -> Result<String, ExecutionError> {
+    if target_root == "." {
+        Ok(path.to_owned())
+    } else if path == "." {
+        Ok(target_root.to_owned())
+    } else {
+        Ok(format!("{target_root}/{path}"))
     }
 }
 

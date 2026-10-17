@@ -61,14 +61,15 @@ pub(super) fn build_artifacts(
             .ok_or_else(|| anyhow::anyhow!("runtime build recipe is missing"))?
             .expected_artifacts
             .clone()
-    }
-    .iter()
-    .map(|path| super::super::join_workspace_path(&target.project_relative_root, path))
-    .collect::<anyhow::Result<Vec<_>>>()?;
+    };
+    let workspace_paths = artifact_paths
+        .iter()
+        .map(|path| super::super::join_workspace_path(&target.project_relative_root, path))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let hashes = build.artifact_hashes.clone();
     anyhow::ensure!(
-        hashes.len() == artifact_paths.len()
-            && artifact_paths.iter().all(|path| hashes.contains_key(path)),
+        hashes.len() == workspace_paths.len()
+            && workspace_paths.iter().all(|path| hashes.contains_key(path)),
         "successful build receipt does not match the approved artifact specification"
     );
     Ok(Some(BuildArtifacts {
