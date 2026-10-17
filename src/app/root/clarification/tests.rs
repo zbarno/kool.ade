@@ -33,7 +33,7 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
 
     let mut app = crate::app::root::board_tests::fixture();
     let feature_id = "CHG-997";
-    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification answers are not covered by this fixture.\n\n## Desired Behavior\n\nAnswers are checked against the current specification.\n\n## Scope\n\n- Bind answers to active specifications.\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Acceptance Criteria\n\n- AC-1: Stale answers are rejected.\n";
+    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification replies can outlive the feature revision they reference.\n\n## Desired Behavior\n\nAnswers apply only to the specification they were written for.\n\n## Scope\n\n- Preserve each clarification against the active specification.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Decisions and Assumptions\n\n- No retention choice recorded yet.\n\n## Acceptance Criteria\n\n- AC-1: Stale answers are rejected.\n";
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         draft,
         None,
@@ -53,6 +53,12 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
     let Screen::Connected(project) = &mut app.screen else {
         panic!("fixture must be connected")
     };
+    crate::artifacts::migration::bootstrap_product_with_store(
+        &project.state.repo_root,
+        &project.state.planning_store,
+        "Clarification fence",
+    )
+    .unwrap();
     project
         .state
         .planning_store
@@ -124,6 +130,58 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
         )
         .unwrap();
     (app, question, feature)
+}
+
+#[test]
+fn changed_snapshot_replaces_a_stale_running_planner_without_restarting_the_same_snapshot() {
+    let (mut app, question, feature) = setup();
+    let Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture must be connected")
+    };
+    let changed = feature.replace(
+        "REQ-1: Answers are bound to the active specification.",
+        "REQ-1: Answers are bound to the active specification and decision history.",
+    );
+    project
+        .state
+        .planning_store
+        .transaction(
+            &[(
+                "planning/changes/CHG-997-clarification-fence/specification.md".into(),
+                changed.as_bytes().to_vec(),
+            )],
+            None,
+        )
+        .unwrap();
+    project.state.active_features = vec![("CHG-997".into(), changed.clone())];
+    project.state.active_feature = Some(("CHG-997".into(), changed.clone()));
+    let revision = crate::app::root::planner_pass::spec_revision_for_markdown(
+        &question.feature_uid,
+        "CHG-997",
+        &changed,
+    )
+    .unwrap();
+    project.activity.clarification_planner_identity = Some((
+        question.feature_uid.clone(),
+        question.plan_revision,
+        revision,
+    ));
+
+    assert_eq!(
+        super::planner_for_changed_active_feature(project).unwrap(),
+        None,
+        "the already-running current-snapshot pass must not duplicate"
+    );
+    project.activity.clarification_planner_identity = Some((
+        question.feature_uid.clone(),
+        question.plan_revision,
+        "stale-spec-revision".into(),
+    ));
+    assert_eq!(
+        super::planner_for_changed_active_feature(project).unwrap(),
+        Some((question.feature_uid, 5)),
+        "a new snapshot must replace the stale in-flight pass"
+    );
 }
 
 #[test]

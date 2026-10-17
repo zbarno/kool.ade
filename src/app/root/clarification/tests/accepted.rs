@@ -1,6 +1,32 @@
 use super::*;
 use crate::ui::Surface;
 
+struct FixedClarificationHarness(String);
+
+impl crate::harness::AiHarness for FixedClarificationHarness {
+    fn label(&self) -> String {
+        "clarification lifecycle fixture".into()
+    }
+
+    fn check_available(&self) -> Result<String, crate::error::AppError> {
+        Ok(self.label())
+    }
+
+    fn execute(
+        &self,
+        _request: &crate::harness::PlanningRequest,
+    ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+        // Leave the caller time to install the second scripted harness before
+        // the Manager completion dispatches its follow-up Planner.
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        Ok(crate::harness::HarnessOutcome {
+            final_text: self.0.clone(),
+            envelope: None,
+            stderr_tail: String::new(),
+        })
+    }
+}
+
 #[test]
 // Production boundary: an accepted answer must persist on its own durable thread
 // and start the Manager reconciliation turn with the exact user decision. A unit
@@ -124,3 +150,8 @@ fn declined_choice_stays_unresolved_without_manager_reconciliation() {
     );
     let _ = std::fs::remove_dir_all(chat_root);
 }
+
+#[path = "accepted/initial_planner.rs"]
+mod initial_planner;
+#[path = "accepted/successful_followup.rs"]
+mod successful_followup;
