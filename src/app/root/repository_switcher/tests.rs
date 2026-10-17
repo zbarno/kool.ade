@@ -101,11 +101,20 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     };
     app.open_registered_repository("worker");
 
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !captured.exists() && Instant::now() < deadline {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let child_cwd = loop {
+        if let Ok(child_cwd) = std::fs::read_to_string(&captured)
+            && !child_cwd.is_empty()
+        {
+            break child_cwd;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "spawned process did not record its working directory"
+        );
         std::thread::sleep(Duration::from_millis(20));
-    }
-    let child_cwd = PathBuf::from(std::fs::read_to_string(&captured).unwrap());
+    };
+    let child_cwd = PathBuf::from(child_cwd);
     assert_eq!(child_cwd, worker.canonicalize().unwrap());
     let shared = std::fs::read_to_string(manifest_path).unwrap();
     assert!(shared.contains("API"));

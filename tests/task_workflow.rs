@@ -164,8 +164,8 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
         }),
     );
     // The workflow advances across worker threads and repository-backed
-    // persistence; leave enough scheduling and I/O time under parallel nextest.
-    let deadline = Instant::now() + Duration::from_secs(60);
+    // persistence; retain a bounded three-minute window under parallel nextest.
+    let deadline = Instant::now() + Duration::from_secs(180);
     loop {
         assert!(Instant::now() < deadline, "workflow timed out");
         if let Some(TurnEvt::Done(outcome)) = ctrl.poll(Duration::from_millis(50)) {
