@@ -6,6 +6,9 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub(in crate::core::implementation) struct LifecyclePublication {
     work_item_uid: String,
@@ -35,6 +38,18 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
             "lifecycle task is {:?}; independent QA and specification reconciliation must complete before PR preparation",
             task.phase
         )));
+    }
+    // Integration can produce a new verified commit after the task's review,
+    // QA, and specification receipts were frozen. Verification alone cannot
+    // transfer those approvals to the integrated head, including on retries.
+    if implementation
+        .verified_head
+        .as_deref()
+        .is_none_or(|head| task.reviewed_code_head_sha.as_deref() != Some(head))
+    {
+        return Ok(LifecyclePublicationGate::Blocked(
+            "publication head differs from the independently reviewed task head; refresh code review, runtime QA, and specification reconciliation for the integrated head before publication".into(),
+        ));
     }
     let Some(work_item_uid) = task.pr_work_item_uid.clone() else {
         anyhow::bail!("completed lifecycle task has no PR preparation item");

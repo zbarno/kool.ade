@@ -105,6 +105,7 @@ fn reserving_new_work_compacts_expired_entries_and_reclaims_capacity() {
             execution_id: expired.execution_id.clone(),
             request_sha256: fingerprint(&expired).unwrap(),
             created_unix_ms: 1,
+            state: RequestIndexState::Unknown,
         },
     )
     .unwrap();
@@ -116,7 +117,12 @@ fn reserving_new_work_compacts_expired_entries_and_reclaims_capacity() {
     };
     assert_eq!(journal.reserve(&next).unwrap(), Lookup::New);
     let (_, mut index, _) = journal.open_index_locked().unwrap();
-    assert_eq!(read_index(&mut index).unwrap().len(), 1);
+    assert_eq!(
+        super::index::fold(&read_index(&mut index).unwrap())
+            .unwrap()
+            .len(),
+        1
+    );
     let (_, mut log, _) = journal.open_locked(&next.execution_id).unwrap();
     assert_eq!(read_entries(&mut log).unwrap().len(), 1);
 }
@@ -127,12 +133,14 @@ fn full_expired_request_index_is_compacted_before_capacity_is_checked() {
     let journal = RequestJournal::new(root.path().to_owned());
     let index_path = root.path().join("request-index.jsonl");
     let mut contents = Vec::new();
+    let absent_execution = uuid::Uuid::new_v4().hyphenated().to_string();
     for _ in 0..MAX_JOURNAL_ENTRIES {
         let entry = RequestIndexEntry {
             request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-            execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            execution_id: absent_execution.clone(),
             request_sha256: "a".repeat(64),
             created_unix_ms: 1,
+            state: RequestIndexState::Unknown,
         };
         serde_json::to_writer(&mut contents, &entry).unwrap();
         contents.push(b'\n');
@@ -141,5 +149,15 @@ fn full_expired_request_index_is_compacted_before_capacity_is_checked() {
     let next = request("00000000-0000-4000-8000-000000000009");
     assert_eq!(journal.reserve(&next).unwrap(), Lookup::New);
     let (_, mut index, _) = journal.open_index_locked().unwrap();
-    assert_eq!(read_index(&mut index).unwrap().len(), 1);
+    let folded = super::index::fold(&read_index(&mut index).unwrap()).unwrap();
+    assert_eq!(folded.len(), 1);
+    assert!(
+        folded
+            .iter()
+            .any(|entry| entry.request_id == next.request_id)
+    );
+    assert!(!root.path().join(absent_execution).exists());
 }
+
+#[path = "tests/index.rs"]
+mod index_tests;

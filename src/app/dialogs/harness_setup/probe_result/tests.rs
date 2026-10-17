@@ -12,7 +12,7 @@ fn probe() -> HarnessProbe {
         default_model: Some("model-a".into()),
         model_catalog_fresh: true,
         configuration_required: false,
-        authentication_required: false,
+        authentication: ReadinessState::Unknown,
         implementation_available: false,
     }
 }
@@ -35,6 +35,7 @@ fn conversion_keeps_provider_failure_and_runtime_capability_separate() {
         ReadinessState::Unknown
     );
     assert_eq!(result.model_catalog_status, ModelCatalogStatus::Fresh);
+    assert_eq!(result.authentication, ReadinessState::Unknown);
 }
 
 #[test]
@@ -42,7 +43,7 @@ fn authentication_and_optional_catalog_failures_have_stable_codes() {
     let mut auth = probe();
     auth.ready = false;
     auth.configuration_required = true;
-    auth.authentication_required = true;
+    auth.authentication = ReadinessState::Unavailable;
     auth.diagnostic = Some("Sign in at https://user:secret@example.test/login".into());
     let auth_result = from_harness_probe(&auth, 1, 10, 20);
     assert_eq!(auth_result.status, ProbeStatus::NeedsAuthentication);
@@ -105,4 +106,19 @@ fn typed_result_converts_back_to_legacy_saved_settings() {
     assert!(legacy.ready);
     assert!(legacy.implementation_available);
     assert!(legacy.model_catalog_fresh);
+}
+
+#[test]
+fn provider_readiness_does_not_infer_authentication() {
+    let mut successful_version_probe = probe();
+    successful_version_probe.ready = true;
+    successful_version_probe.authentication = ReadinessState::Unknown;
+
+    let result = from_harness_probe(&successful_version_probe, 9, 100, 5);
+    assert_eq!(result.status, ProbeStatus::Available);
+    assert_eq!(result.authentication, ReadinessState::Unknown);
+
+    let legacy = into_harness_probe(&result);
+    assert!(legacy.ready);
+    assert_eq!(legacy.authentication, ReadinessState::Unknown);
 }

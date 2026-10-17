@@ -43,6 +43,15 @@ pub(crate) fn validate_task_routes(
                 route.harness
             ));
         }
+        if !detected.has_current_authenticated_capability(
+            &route.harness,
+            crate::persistence::harness_settings::current_unix_ms(),
+        ) {
+            return Err(format!(
+                "Authentication for harness '{}' is unconfirmed or unavailable; refresh Coding tools and verify provider login before task routing",
+                route.harness
+            ));
+        }
         if !detected.implementation_available
             || !crate::harness::implementation_route_available(&route.harness)
         {
@@ -140,6 +149,18 @@ fn routed_harness(
     if work_type.is_some() && !detected.is_some_and(|entry| entry.ready) {
         return Box::new(UnavailableHarness(format!(
             "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."
+        )));
+    }
+    if work_type.is_some()
+        && !detected.is_some_and(|entry| {
+            entry.has_current_authenticated_capability(
+                harness_id,
+                crate::persistence::harness_settings::current_unix_ms(),
+            )
+        })
+    {
+        return Box::new(UnavailableHarness(format!(
+            "Authentication for harness {harness_id} is unconfirmed or unavailable. Refresh Coding tools and verify provider login before starting this task; no fallback will run it."
         )));
     }
     // Route selection establishes provider and model identity. Whether this

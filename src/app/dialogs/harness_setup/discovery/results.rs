@@ -12,7 +12,7 @@ pub(super) fn failed_probe(id: &str, message: &str) -> HarnessProbe {
         default_model: None,
         model_catalog_fresh: false,
         configuration_required: false,
-        authentication_required: false,
+        authentication: crate::execution::contract::ReadinessState::Unknown,
         implementation_available: false,
     }
 }
@@ -130,13 +130,7 @@ fn snapshot_from_probe(
     } else {
         ReadinessState::Unavailable
     };
-    let authentication = if report.authentication_required {
-        ReadinessState::Unavailable
-    } else if report.ready {
-        ReadinessState::Ready
-    } else {
-        ReadinessState::Unknown
-    };
+    let authentication = report.authentication;
     let model_catalog = match super::super::probe_result::model_catalog_status(report) {
         crate::harness::discovery::ModelCatalogStatus::Fresh => ReadinessState::Ready,
         crate::harness::discovery::ModelCatalogStatus::Stale
