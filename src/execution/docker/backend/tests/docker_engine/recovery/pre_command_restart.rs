@@ -108,9 +108,14 @@ async fn run_restart_before_command(legacy_record: bool) {
     assert!(after.command_started);
     if legacy_record {
         assert_eq!(
-            after.phase_timings,
-            crate::persistence::execution_records::ExecutionPhaseTimingsV1::default(),
-            "recovery cannot reconstruct phase timings absent from the legacy record"
+            after.phase_timings.image_preparation_ms, None,
+            "recovery cannot reconstruct legacy image preparation timing"
+        );
+        assert_eq!(after.phase_timings.workspace_stage_in_ms, None);
+        assert_eq!(after.phase_timings.dependency_cache_stage_ms, None);
+        assert!(
+            after.phase_timings.workspace_stage_out_ms.is_some(),
+            "the resumed execution should record its new stage-out timing"
         );
     } else {
         assert!(after.phase_timings.image_preparation_ms.is_some());

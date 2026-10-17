@@ -26,7 +26,7 @@ async fn cancellation_before_collecting_keeps_terminal_journal_valid() {
     );
     let request = request(
         workspace.clone(),
-        "printf 'cancel-race-output\\n' > cancel-race.txt",
+        "printf 'cancel-race-output\\n' > cancel-race.txt && printf 'cancel-race-write-complete\\n'",
     );
     let _cleanup = container_cleanup(&request);
     let (_lease, handle) = prepare_and_start(&backend, &request).await;
@@ -41,6 +41,7 @@ async fn cancellation_before_collecting_keeps_terminal_journal_valid() {
         let request = request.clone();
         async move { backend.exec(&handle, &request).await }
     });
+    wait_for_stdout(&backend, &handle, "cancel-race-write-complete").await;
     tokio::time::timeout(Duration::from_secs(60), finish_paused)
         .await
         .expect("command did not reach the pre-collecting test boundary")
@@ -50,6 +51,12 @@ async fn cancellation_before_collecting_keeps_terminal_journal_valid() {
         .cancel(&handle, request.cancellation_generation)
         .await
         .expect("active cancellation should win before success finalization");
+    assert_eq!(
+        fs::read_to_string(task_clone.join("cancel-race.txt"))
+            .expect("cancelled workspace file should be present"),
+        "cancel-race-output\n",
+        "cancellation must stage the completed workspace back before finalization resumes"
+    );
     resume_finish
         .send(())
         .expect("resume the exec finalizer after cancellation has committed");

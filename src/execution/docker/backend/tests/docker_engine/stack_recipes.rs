@@ -112,7 +112,7 @@ fn stack_recipes() -> Vec<(
             RuntimeProfile::Rust,
             "cargo",
             recipe("rust-build", "cargo", &["build", "--offline"]),
-            recipe("rust-test", "cargo", &["test", "--offline"]),
+            recipe("rust-test", "cargo", &["test", "--offline", "-vv"]),
             recipe("rust-start", "cargo", &["run", "--offline", "--quiet"]),
         ),
         (
@@ -159,7 +159,7 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
                 ".cargo/config.toml",
                 // The executor's /tmp is intentionally mounted noexec, so
                 // Cargo's test binary must live on the executable workspace tmpfs.
-                "[build]\ntarget-dir = \".koolade-target\"\n",
+                "[build]\ntarget-dir = \"/workspace/.koolade-target\"\n",
             ),
         ],
         "node" => &[

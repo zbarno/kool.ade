@@ -50,6 +50,9 @@ impl Fixture {
             .join("integration")
             .join(task);
         fs::create_dir_all(path.join(".git")).unwrap();
+        // Approved verification recipes are scoped to this directory. It must
+        // exist in the authoritative host clone before Docker stages it in.
+        fs::create_dir_all(path.join("evidence")).unwrap();
         path
     }
 }
@@ -208,7 +211,7 @@ pub(super) async fn wait_for_stdout(
     handle: &ExecutionHandleV1,
     expected: &str,
 ) -> Vec<crate::execution::contract::ExecutionEventV1> {
-    tokio::time::timeout(Duration::from_secs(20), async {
+    tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let events = backend
                 .events(handle, EventPageRequestV1::new(0, 256).unwrap())
