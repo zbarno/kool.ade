@@ -15,7 +15,7 @@ impl IsolatedRootlessDaemon {
     pub(super) async fn start(fixture_root: &std::path::Path) -> Self {
         let id = uuid::Uuid::new_v4().simple().to_string();
         let root = fixture_root.join(format!("isolated-rootless-{id}"));
-        for path in ["home", "tmp", "data", "exec"] {
+        for path in ["home", "tmp", "data"] {
             fs::create_dir_all(root.join(path)).expect("create private daemon directory");
         }
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
@@ -43,6 +43,10 @@ impl IsolatedRootlessDaemon {
     }
 
     async fn launch(&mut self) {
+        let exec_root = self.runtime.join("exec");
+        fs::create_dir_all(&exec_root).expect("create private daemon execution directory");
+        fs::set_permissions(&exec_root, fs::Permissions::from_mode(0o700))
+            .expect("restrict private daemon execution directory");
         let host_runtime_dir = std::env::var_os("XDG_RUNTIME_DIR")
             .expect("CI rootless Docker session must set XDG_RUNTIME_DIR");
         let dbus_address = std::env::var_os("DBUS_SESSION_BUS_ADDRESS").unwrap_or_else(|| {
@@ -57,7 +61,7 @@ impl IsolatedRootlessDaemon {
         let child = Command::new("dockerd-rootless.sh")
             .arg(format!("--host=unix://{}", self.socket.display()))
             .arg(format!("--data-root={}", self.root.join("data").display()))
-            .arg(format!("--exec-root={}", self.root.join("exec").display()))
+            .arg(format!("--exec-root={}", exec_root.display()))
             .arg(format!(
                 "--pidfile={}",
                 self.root.join("dockerd.pid").display()
@@ -124,6 +128,7 @@ impl IsolatedRootlessDaemon {
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_dir_all(self.runtime.join("rootlesskit"));
         let _ = fs::remove_dir_all(self.runtime.join("containerd-rootlesskit"));
+        let _ = fs::remove_dir_all(self.runtime.join("exec"));
         let _ = fs::remove_dir_all(self.runtime.join("docker"));
         self.launch().await;
     }
