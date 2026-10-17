@@ -15,7 +15,7 @@ fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
         default_model: None,
         model_catalog_fresh: false,
         configuration_required: true,
-        authentication_required: true,
+        authentication: crate::execution::contract::ReadinessState::Unavailable,
         implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
@@ -45,7 +45,7 @@ fn configured_codex_default_is_preserved_when_ready() {
         default_model: Some("gpt-configured".into()),
         model_catalog_fresh: true,
         configuration_required: false,
-        authentication_required: false,
+        authentication: crate::execution::contract::ReadinessState::Ready,
         implementation_available: false,
     };
     let mut settings = HarnessSettings::default();
@@ -56,6 +56,30 @@ fn configured_codex_default_is_preserved_when_ready() {
         1,
     );
     assert_eq!(settings.default_harness.as_deref(), Some("codex"));
+}
+
+#[test]
+fn ready_executable_with_unknown_authentication_is_not_saved_as_authenticated() {
+    let mut report = report(true);
+    report.authentication = crate::execution::contract::ReadinessState::Unknown;
+    assert!(report.ready);
+    assert_eq!(
+        report.authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+
+    let mut settings = HarnessSettings::default();
+    super::super::super::discovery::apply_probe_results(&mut settings, &[report], None, 1);
+
+    assert_eq!(settings.default_harness, None);
+    assert_eq!(
+        settings.discovered["pi"]
+            .capability_snapshot
+            .as_ref()
+            .unwrap()
+            .authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
 }
 
 #[test]
@@ -79,7 +103,7 @@ fn unrelated_provider_failure_preserves_saved_manual_path_and_default() {
         default_model: None,
         model_catalog_fresh: false,
         configuration_required: false,
-        authentication_required: false,
+        authentication: crate::execution::contract::ReadinessState::Unknown,
         implementation_available: false,
     };
     let mut settings = settings_before.clone();
