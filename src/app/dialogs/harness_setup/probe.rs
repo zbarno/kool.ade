@@ -1,3 +1,5 @@
+use crate::execution::contract::ReadinessState;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct HarnessProbe {
     pub id: String,
@@ -10,7 +12,9 @@ pub(super) struct HarnessProbe {
     pub default_model: Option<String>,
     pub model_catalog_fresh: bool,
     pub configuration_required: bool,
-    pub authentication_required: bool,
+    /// Provider-specific evidence. A successful executable/version check alone
+    /// does not establish that the provider is authenticated.
+    pub authentication: ReadinessState,
     pub implementation_available: bool,
 }
 

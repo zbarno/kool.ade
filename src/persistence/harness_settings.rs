@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, path::Path};
 
 const FILE: &str = "harness-settings.json";
 pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
+const CURRENT_SCHEMA_VERSION: u8 = 4;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -61,6 +62,24 @@ pub struct DetectedHarness {
 }
 
 impl DetectedHarness {
+    pub fn has_current_authenticated_capability(
+        &self,
+        provider_id: &str,
+        now_unix_ms: u64,
+    ) -> bool {
+        use crate::execution::contract::ReadinessState;
+
+        if !self.is_fresh_at(now_unix_ms) || !self.ready {
+            return false;
+        }
+        self.capability_snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.provider_id == provider_id
+                && snapshot.validate().is_ok()
+                && snapshot.cli_binary == ReadinessState::Ready
+                && snapshot.authentication == ReadinessState::Ready
+        })
+    }
+
     pub fn model_catalog_status(&self) -> crate::harness::discovery::ModelCatalogStatus {
         use crate::harness::discovery::ModelCatalogStatus;
 
@@ -115,8 +134,19 @@ pub fn load() -> (HarnessSettings, Option<String>) {
 fn load_from(path: &Path) -> (HarnessSettings, Option<String>) {
     match std::fs::read(path) {
         Ok(bytes) => match serde_json::from_slice::<HarnessSettings>(&bytes) {
-            Ok(mut settings) if (1..=3).contains(&settings.schema_version) => {
-                settings.schema_version = 3;
+            Ok(mut settings) if (1..=CURRENT_SCHEMA_VERSION).contains(&settings.schema_version) => {
+                if settings.schema_version < CURRENT_SCHEMA_VERSION {
+                    // Before schema 4, successful executable probes were also
+                    // persisted as positive authentication evidence. That
+                    // inference is not valid; force a fresh provider auth probe.
+                    for detected in settings.discovered.values_mut() {
+                        if let Some(snapshot) = detected.capability_snapshot.as_mut() {
+                            snapshot.authentication =
+                                crate::execution::contract::ReadinessState::Unknown;
+                        }
+                    }
+                }
+                settings.schema_version = CURRENT_SCHEMA_VERSION;
                 (settings, None)
             }
             Ok(settings) => (
@@ -148,7 +178,7 @@ pub fn save(settings: &HarnessSettings) -> anyhow::Result<()> {
 
 fn save_to(path: &Path, settings: &HarnessSettings) -> anyhow::Result<()> {
     let mut next = settings.clone();
-    next.schema_version = 3;
+    next.schema_version = CURRENT_SCHEMA_VERSION;
     let json = serde_json::to_string_pretty(&next)?;
     crate::artifacts::atomic_write(path, &json)
 }
