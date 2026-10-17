@@ -5,6 +5,8 @@ use std::{fs::File, io, path::PathBuf};
 use super::super::protocol::EnvelopeV1;
 use fs2::FileExt;
 
+mod completion;
+mod index;
 mod record;
 mod storage;
 
@@ -12,7 +14,7 @@ mod storage;
 #[path = "journal/tests.rs"]
 mod tests;
 
-use record::{EntryState, JournalEntry, RequestIndexEntry};
+use record::{EntryState, JournalEntry, RequestIndexEntry, RequestIndexState};
 use storage::{
     append_entry, append_index, compact_entries, compact_index, create_private_dir, fingerprint,
     invalid_data, now_unix_ms, open_private, read_entries, read_index,
@@ -45,8 +47,15 @@ impl RequestJournal {
         let (index_lock, index, index_path) = self.open_index_locked()?;
         let mut index = index;
         let now = now_unix_ms();
-        let existing_index = read_index(&mut index)?;
-        let (mut index, index_entries) = compact_index(
+        let mut existing_index = read_index(&mut index)?;
+        index::migrate_legacy(
+            self,
+            &mut index,
+            &mut existing_index,
+            now,
+            crate::persistence::remote_requests::REPLAY_RETENTION_MS,
+        )?;
+        let (mut index, mut index_entries) = compact_index(
             index,
             &index_path,
             &existing_index,
@@ -54,32 +63,37 @@ impl RequestJournal {
             now,
             crate::persistence::remote_requests::REPLAY_RETENTION_MS,
         )?;
-        let mut indexed = false;
-        for entry in &index_entries {
-            if entry.request_id == request.request_id {
-                if entry.execution_id != request.execution_id
-                    || entry.request_sha256 != request_hash
-                {
-                    return Err(invalid_data(
-                        "remote request ID conflicts with a prior request",
-                    ));
-                }
-                indexed = true;
+        let prior_index = index_entries
+            .iter()
+            .find(|entry| entry.request_id == request.request_id)
+            .cloned();
+        if let Some(entry) = &prior_index {
+            if entry.execution_id != request.execution_id || entry.request_sha256 != request_hash {
+                return Err(invalid_data(
+                    "remote request ID conflicts with a prior request",
+                ));
             }
-        }
-        if !indexed {
+            if matches!(&entry.state, RequestIndexState::Expired) {
+                return Ok(Lookup::Expired);
+            }
+            if matches!(&entry.state, RequestIndexState::Completed { completed_unix_ms }
+                if now.saturating_sub(*completed_unix_ms) > crate::persistence::remote_requests::REPLAY_RETENTION_MS)
+            {
+                return Ok(Lookup::Expired);
+            }
+        } else {
             if index_entries.len() >= MAX_JOURNAL_ENTRIES {
                 return Err(invalid_data("remote request index is full"));
             }
-            append_index(
-                &mut index,
-                RequestIndexEntry {
-                    request_id: request.request_id.clone(),
-                    execution_id: request.execution_id.clone(),
-                    request_sha256: request_hash.clone(),
-                    created_unix_ms: now,
-                },
-            )?;
+            let reservation = RequestIndexEntry {
+                request_id: request.request_id.clone(),
+                execution_id: request.execution_id.clone(),
+                request_sha256: request_hash.clone(),
+                created_unix_ms: now,
+                state: RequestIndexState::Reserved,
+            };
+            append_index(&mut index, reservation.clone())?;
+            index_entries.push(reservation);
         }
 
         let (lock, log, log_path) = self.open_locked(&request.execution_id)?;
@@ -110,10 +124,45 @@ impl RequestJournal {
             {
                 return Ok(Lookup::Expired);
             }
+            let target_state = match &entry.state {
+                EntryState::Pending => RequestIndexState::Pending,
+                EntryState::Completed { .. } => RequestIndexState::Completed {
+                    completed_unix_ms: entry.created_unix_ms,
+                },
+            };
+            let mut indexed = index_entries
+                .iter()
+                .find(|row| row.request_id == request.request_id)
+                .cloned()
+                .ok_or_else(|| invalid_data("remote request index is inconsistent"))?;
+            match &indexed.state {
+                RequestIndexState::Completed { completed_unix_ms }
+                    if target_state == RequestIndexState::Pending
+                        || *completed_unix_ms != entry.created_unix_ms =>
+                {
+                    return Err(invalid_data("remote request journal state is inconsistent"));
+                }
+                _ => {}
+            }
+            if indexed.state != target_state {
+                indexed.state = target_state;
+                append_index(&mut index, indexed)?;
+            }
+            FileExt::unlock(&lock)?;
+            FileExt::unlock(&index_lock)?;
             return match entry.state {
                 EntryState::Pending => Ok(Lookup::Pending),
                 EntryState::Completed { response } => Ok(Lookup::Replay(response)),
             };
+        }
+        if index_entries.iter().any(|row| {
+            row.request_id == request.request_id
+                && matches!(
+                    &row.state,
+                    RequestIndexState::Pending | RequestIndexState::Completed { .. }
+                )
+        }) {
+            return Err(invalid_data("remote request journal state is inconsistent"));
         }
         if entries.len() >= MAX_JOURNAL_ENTRIES {
             return Err(invalid_data("remote execution request journal is full"));
@@ -127,6 +176,13 @@ impl RequestJournal {
                 state: EntryState::Pending,
             },
         )?;
+        let mut indexed = index_entries
+            .iter()
+            .find(|row| row.request_id == request.request_id)
+            .cloned()
+            .ok_or_else(|| invalid_data("remote request index is inconsistent"))?;
+        indexed.state = RequestIndexState::Pending;
+        append_index(&mut index, indexed)?;
         FileExt::unlock(&lock)?;
         FileExt::unlock(&index_lock)?;
         Ok(Lookup::New)
@@ -135,39 +191,7 @@ impl RequestJournal {
     /// Append the response only after dispatch has produced it. A crash while
     /// pending is deliberately not retried because execution may have begun.
     pub fn complete(&self, request: &EnvelopeV1, response: &EnvelopeV1) -> io::Result<()> {
-        let (lock, mut log, _) = self.open_locked(&request.execution_id)?;
-        let entries = read_entries(&mut log)?;
-        let request_hash = fingerprint(request)?;
-        if response.request_id != request.request_id
-            || response.execution_id != request.execution_id
-            || response.sequence != request.sequence
-            || response.version != request.version
-        {
-            return Err(invalid_data(
-                "remote request journal response identity is invalid",
-            ));
-        }
-        let pending = entries.iter().any(|entry| {
-            entry.request_id == request.request_id
-                && entry.request_sha256 == request_hash
-                && matches!(entry.state, EntryState::Pending)
-        });
-        if !pending {
-            return Err(invalid_data("remote request journal state is inconsistent"));
-        }
-        append_entry(
-            &mut log,
-            JournalEntry {
-                request_id: request.request_id.clone(),
-                request_sha256: request_hash,
-                created_unix_ms: now_unix_ms(),
-                state: EntryState::Completed {
-                    response: response.clone(),
-                },
-            },
-        )?;
-        FileExt::unlock(&lock)?;
-        Ok(())
+        completion::complete(self, request, response)
     }
 
     fn open_locked(&self, execution_id: &str) -> io::Result<(File, File, PathBuf)> {
