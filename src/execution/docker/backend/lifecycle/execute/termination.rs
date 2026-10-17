@@ -13,14 +13,14 @@ use crate::execution::{
 
 #[cfg(test)]
 static TERMINATION_ARCHIVE_OBSERVERS: std::sync::LazyLock<
-    std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
+    std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
 
 #[cfg(test)]
 pub(in crate::execution::docker::backend) fn observe_cancel_race_archive(
     execution_id: String,
 ) -> (
-    tokio::sync::oneshot::Receiver<bool>,
+    tokio::sync::oneshot::Receiver<String>,
     TerminationArchiveObserverGuard,
 ) {
     let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -120,18 +120,42 @@ fn observe_archive_path(execution_id: &str, archive_bytes: &[u8]) {
         .ok()
         .and_then(|mut observers| observers.remove(execution_id));
     if let Some(observer) = observer {
-        let contains_path = tar::Archive::new(std::io::Cursor::new(archive_bytes))
-            .entries()
-            .ok()
-            .is_some_and(|entries| {
-                entries.filter_map(Result::ok).any(|entry| {
-                    entry
-                        .path()
-                        .ok()
-                        .is_some_and(|path| is_cancel_race_path(&path))
-                })
-            });
-        let _ = observer.send(contains_path);
+        let summary = match tar::Archive::new(std::io::Cursor::new(archive_bytes)).entries() {
+            Ok(entries) => {
+                let mut names = Vec::new();
+                let mut contains_path = false;
+                for entry in entries {
+                    let Ok(entry) = entry else {
+                        if names.len() < 16 {
+                            names.push("<entry-error>".to_owned());
+                        }
+                        continue;
+                    };
+                    let Ok(path) = entry.path() else {
+                        if names.len() < 16 {
+                            names.push("<path-error>".to_owned());
+                        }
+                        continue;
+                    };
+                    contains_path |= is_cancel_race_path(&path);
+                    if names.len() < 16 {
+                        names.push(
+                            path.to_string_lossy()
+                                .chars()
+                                .filter(|character| !character.is_control())
+                                .take(120)
+                                .collect(),
+                        );
+                    }
+                }
+                format!(
+                    "bytes={}, cancel-race-present={contains_path}, first_entries={names:?}",
+                    archive_bytes.len()
+                )
+            }
+            Err(_) => format!("bytes={}, archive-parse=failed", archive_bytes.len()),
+        };
+        let _ = observer.send(summary);
     }
 }
 

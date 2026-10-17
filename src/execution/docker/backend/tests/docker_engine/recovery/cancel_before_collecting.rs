@@ -26,7 +26,7 @@ async fn cancellation_before_collecting_keeps_terminal_journal_valid() {
     );
     let request = request(
         workspace.clone(),
-        "printf 'cancel-race-output\\n' > cancel-race.txt && printf 'cancel-race-write-complete\\n'",
+        "printf 'cancel-race-output\\n' > /workspace/cancel-race.txt && test -s /workspace/cancel-race.txt && printf 'cancel-race-write-complete\\n'",
     );
     let _cleanup = container_cleanup(&request);
     let (_lease, handle) = prepare_and_start(&backend, &request).await;
@@ -54,21 +54,18 @@ async fn cancellation_before_collecting_keeps_terminal_journal_valid() {
     let cancellation = backend
         .cancel(&handle, request.cancellation_generation)
         .await;
-    let archive_contains_file = archive_observation.try_recv().ok();
+    let archive_summary = archive_observation
+        .try_recv()
+        .unwrap_or_else(|_| "archive observation unavailable".into());
     let host_file = task_clone.join("cancel-race.txt");
     let host_file_present = host_file.is_file();
-    let archive_presence = match archive_contains_file {
-        Some(true) => "present",
-        Some(false) => "absent",
-        None => "unavailable",
-    };
     assert!(
         cancellation.is_ok(),
-        "active cancellation should succeed; returned archive `cancel-race.txt`: {archive_presence}; host path present: {host_file_present}"
+        "active cancellation should succeed; returned archive: {archive_summary}; host path present: {host_file_present}"
     );
     assert!(
         host_file_present,
-        "cancelled workspace file should be present; returned archive `cancel-race.txt`: {archive_presence}; host path present: {host_file_present}"
+        "cancelled workspace file should be present; returned archive: {archive_summary}; host path present: {host_file_present}"
     );
     assert_eq!(
         fs::read_to_string(&host_file).expect("read present cancelled workspace file"),
