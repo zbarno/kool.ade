@@ -84,6 +84,12 @@ fn exploration_settings_are_opt_in_durable_bounded_and_revision_checked() {
         ..saved
     };
     assert!(opportunities.save_discovery_settings(&invalid, 1).is_err());
+
+    let invalid = crate::core::opportunity::OpportunityDiscoverySettingsV1 {
+        active_self_improvement_limit: 11,
+        ..opportunities.discovery_settings().unwrap()
+    };
+    assert!(opportunities.save_discovery_settings(&invalid, 2).is_err());
 }
 
 #[test]

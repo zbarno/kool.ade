@@ -11,6 +11,10 @@ pub struct OpportunityDiscoverySettingsV1 {
     /// Maximum advisory proposals in one UTC calendar day. This limits output,
     /// not user decisions or implementation work.
     pub daily_proposal_limit: u8,
+    /// Maximum concurrent Kool.ad/e self-improvement runs requiring a user
+    /// decision, planning, implementation, review, or recovery action.
+    #[serde(default = "default_active_self_improvement_limit")]
+    pub active_self_improvement_limit: u8,
     #[serde(default)]
     pub last_exploration_at_ms: Option<u64>,
     pub revision: u64,
@@ -29,6 +33,7 @@ impl Default for OpportunityDiscoverySettingsV1 {
             schema_version: 1,
             exploration: OpportunityExploreModeV1::Disabled,
             daily_proposal_limit: 3,
+            active_self_improvement_limit: default_active_self_improvement_limit(),
             last_exploration_at_ms: None,
             revision: 0,
         }
@@ -39,10 +44,15 @@ impl OpportunityDiscoverySettingsV1 {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1
             || !(1..=10).contains(&self.daily_proposal_limit)
+            || !(1..=10).contains(&self.active_self_improvement_limit)
             || self.last_exploration_at_ms == Some(0)
         {
             return Err("opportunity discovery settings are invalid".into());
         }
         Ok(())
     }
+}
+
+fn default_active_self_improvement_limit() -> u8 {
+    2
 }
