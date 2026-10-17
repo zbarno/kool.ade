@@ -1,7 +1,7 @@
-//! Probe the adapter-to-settings boundary with a synthetic OpenCode process. The invariant
-//! is that catalog-only failure remains installed/ready in persisted discovery state; a
-//! unit test of the provider parser cannot prove the application mapping. Unix shell and
-//! temporary files are the only external requirements; setup cost is a single short process.
+//! Probe provider discovery boundaries with synthetic CLI processes. These tests cover
+//! adapter-to-settings mapping and provider-local failures that parser unit tests cannot
+//! prove. They require Unix `/bin/sh` and temporary files only; no Docker or SSH setup is
+//! needed. Each probe has a short bounded setup cost.
 
 use super::*;
 use std::os::unix::fs::PermissionsExt;
@@ -43,6 +43,68 @@ fn opencode_catalog_failure_keeps_provider_ready_without_fresh_models() {
             .to_ascii_lowercase()
             .contains("model catalog unavailable")
     );
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn nonzero_version_probe_is_provider_local_for_all_six_supported_adapters() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-provider-version-failure-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("fake-cli");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\necho synthetic-version-failure >&2\nexit 9\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    for variable in [
+        crate::harness::pi_harness::PI_BINARY_ENV,
+        crate::harness::codex_harness::CODEX_BINARY_ENV,
+        crate::harness::claude_harness::CLAUDE_BINARY_ENV,
+        crate::harness::opencode_harness::OPENCODE_BINARY_ENV,
+        crate::harness::copilot_harness::COPILOT_BINARY_ENV,
+        crate::harness::antigravity_harness::ANTIGRAVITY_BINARY_ENV,
+    ] {
+        environment.set(variable, binary.as_os_str());
+    }
+
+    for provider in PROVIDERS {
+        let report = discover_provider(provider, true);
+        assert_eq!(report.id, provider);
+        assert!(
+            !report.ready,
+            "{provider} must reject a failed version probe"
+        );
+        assert!(
+            report.executable.is_some(),
+            "{provider} should retain the located executable identity"
+        );
+        assert!(
+            report.version.is_none(),
+            "{provider} must not invent a version"
+        );
+        let result = super::super::super::probe_result::from_harness_probe(&report, 7, 10, 1);
+        assert_eq!(
+            result.status,
+            crate::harness::discovery::ProbeStatus::Installed,
+            "{provider} failure must remain provider-local, not appear missing"
+        );
+        assert_eq!(
+            result.failure_stage,
+            Some(crate::harness::discovery::ProbeKind::Version),
+            "{provider} should report the failed stage"
+        );
+        assert!(
+            result.diagnostic_message.is_some(),
+            "{provider} needs a diagnostic"
+        );
+    }
 
     std::fs::remove_dir_all(root).unwrap();
 }
