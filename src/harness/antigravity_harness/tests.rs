@@ -74,7 +74,7 @@ fn readiness_discovers_version_and_models_without_auth_probe() {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
     let report = probe(&cli, Duration::from_secs(1)).unwrap();
-    assert_eq!(report.version, "agy 1.2.3");
+    assert_eq!(report.version, "1.2.3");
     assert_eq!(report.models, vec!["gemini-3.8-flash-high"]);
     std::fs::remove_dir_all(root).unwrap();
 }

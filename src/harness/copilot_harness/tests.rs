@@ -175,16 +175,16 @@ fn probe_reports_missing_and_validates_version_command() {
     let (output, ok) = run(&path, &["--version"]).unwrap();
     assert!(ok);
     assert!(output.contains("1.0.82"));
-    assert_eq!(
-        copilot_version(&output).as_deref(),
-        Some("GitHub Copilot CLI 1.0.82.")
-    );
+    assert_eq!(copilot_version(&output).as_deref(), Some("1.0.82"));
     assert_eq!(copilot_version("Unrelated CLI 1.0.82"), None);
     assert_eq!(copilot_version("SuperCopilot 1.2.3"), None);
     assert_eq!(
         copilot_version("Copilot CLI v0.2.1").as_deref(),
-        Some("Copilot CLI v0.2.1")
+        Some("0.2.1")
     );
+    let normalized = copilot_version("GitHub Copilot CLI 1.0.82 token=synthetic-secret").unwrap();
+    assert_eq!(normalized, "1.0.82");
+    assert!(!normalized.contains("synthetic-secret"));
     let _ = std::fs::remove_dir_all(root);
 }
 

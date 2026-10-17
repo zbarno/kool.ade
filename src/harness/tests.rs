@@ -188,6 +188,30 @@ fn missing_manual_entry_leaves_automatic_discovery_available() {
     );
 }
 
+#[test]
+#[cfg(unix)]
+fn manual_path_rejects_relative_executable_paths() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_dir();
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("relative-cli");
+    std::fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let settings = HarnessSettings {
+        manual_executable_paths: std::collections::BTreeMap::from([(
+            "codex".into(),
+            "relative-cli".into(),
+        )]),
+        ..HarnessSettings::default()
+    };
+
+    let error = manual_executable_path_from(&settings, "codex").unwrap_err();
+
+    assert!(error.detail().contains("must be absolute"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn manual_selection_wins_when_multiple_installations_exist() {

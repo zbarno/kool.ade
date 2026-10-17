@@ -53,4 +53,9 @@ pub(super) fn paint_probe_status(ui: &mut Ui, dialog: &DlgHarnessSetup, id: &str
             stage.label()
         )));
     }
+    if result.status == crate::harness::discovery::ProbeStatus::Failed
+        && let Some(message) = result.diagnostic_message.as_deref()
+    {
+        ui.colored_label(theme::DANGER, message);
+    }
 }

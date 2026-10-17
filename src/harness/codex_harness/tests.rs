@@ -149,7 +149,7 @@ fn installed_codex_without_authentication_is_reported_as_setup_required() {
     let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
     let report = CodexHarness::probe_report();
     assert_eq!(report.readiness, CodexReadiness::AuthenticationRequired);
-    assert_eq!(report.version.as_deref(), Some("codex-cli 1.2.3"));
+    assert_eq!(report.version.as_deref(), Some("1.2.3"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -170,15 +170,12 @@ fn installed_codex_is_ready_when_login_confirmation_is_on_stderr() {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-    assert_eq!(
-        CodexHarness::check_binary(&binary).unwrap(),
-        "codex-cli 0.160.1"
-    );
+    assert_eq!(CodexHarness::check_binary(&binary).unwrap(), "0.160.1");
     let _env = EnvOverride::set(CODEX_BINARY_ENV, &binary);
     let report = CodexHarness::probe_report();
     assert!(report.ready);
     assert_eq!(report.readiness, CodexReadiness::Ready);
-    assert_eq!(report.version.as_deref(), Some("codex-cli 0.160.1"));
+    assert_eq!(report.version.as_deref(), Some("0.160.1"));
 
     std::fs::remove_dir_all(root).unwrap();
 }

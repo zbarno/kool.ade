@@ -1,4 +1,4 @@
-use super::readiness::parse_version;
+use super::readiness::{parse_models, parse_version};
 use super::*;
 use crate::harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest};
 use std::sync::atomic::AtomicBool;
@@ -46,6 +46,14 @@ fn version_parser_accepts_cli_prefix_and_rejects_malformed_versions() {
     assert_eq!(parse_version("unknown"), None);
 }
 
+#[test]
+fn model_catalog_keeps_only_identifiers_and_drops_embedded_cli_output() {
+    assert_eq!(
+        parse_models("openai/gpt-5 token=synthetic-secret\nollama/llama3.2"),
+        ["ollama/llama3.2"]
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn probe_distinguishes_ready_invalid_and_unconfigured() {
@@ -80,8 +88,8 @@ fn probe_distinguishes_ready_invalid_and_unconfigured() {
         "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi; echo 'Authentication required' >&2; exit 1",
     );
     let report = probe(&auth, Duration::from_secs(1)).unwrap();
-    assert_eq!(report.readiness, OpenCodeReadiness::AuthenticationRequired);
-    assert!(report.diagnostic.contains("auth login"));
+    assert_eq!(report.readiness, OpenCodeReadiness::CatalogUnavailable);
+    assert!(report.diagnostic.contains("model discovery failed"));
     assert!(!report.diagnostic.contains("Authentication required"));
     std::fs::remove_dir_all(root).unwrap();
 }

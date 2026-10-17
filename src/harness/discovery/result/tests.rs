@@ -53,6 +53,24 @@ fn invalid_optional_catalog_does_not_hide_a_ready_provider() {
 }
 
 #[test]
+fn model_identifiers_reject_embedded_output_or_credentials() {
+    for value in ["openai/gpt-5", "ollama/llama3.2", "auto", "claude-opus-4-1"] {
+        assert!(super::super::is_valid_model_identifier(value), "{value}");
+    }
+    for value in [
+        "openai/gpt token=synthetic-secret",
+        "openai/gpt?token=synthetic-secret",
+        "openai/gpt=synthetic-secret",
+        "../gpt-5",
+        "openai/../gpt-5",
+        "openai//gpt-5",
+        "model\nsecret",
+    ] {
+        assert!(!super::super::is_valid_model_identifier(value), "{value}");
+    }
+}
+
+#[test]
 fn invalid_binary_evidence_fails_closed_and_is_removed() {
     let mut result = available_result();
     result.binary_path = Some(format!("/{}", "x".repeat(MAX_BINARY_PATH_BYTES)));

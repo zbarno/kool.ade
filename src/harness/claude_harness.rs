@@ -129,33 +129,35 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
             None,
         ));
     }
-    let version = version_output.lines().next().unwrap_or_default().trim();
-    let parsed = parse_version(version).ok_or_else(|| {
-        (
-            ClaudeReadiness::Unsupported,
-            "Claude Code did not report a parseable version".to_owned(),
-            None,
-        )
-    })?;
+    let version =
+        crate::harness::discovery::normalize_cli_version(&version_output, &["Claude Code"], true)
+            .ok_or_else(|| {
+            (
+                ClaudeReadiness::Unsupported,
+                "Claude Code did not report a parseable version".to_owned(),
+                None,
+            )
+        })?;
+    let parsed = parse_version(&version).expect("normalized version has three numeric fields");
     if parsed < MINIMUM_VERSION {
         return Err((
             ClaudeReadiness::Unsupported,
             format!(
                 "Claude Code {version} is too old for restricted unattended mode; update to 2.1.268 or later"
             ),
-            Some(version.to_owned()),
+            Some(version.clone()),
         ));
     }
     crate::harness::execution_security::ProfileProbeEvidence::probe(
         crate::harness::execution_security::CliProvider::Claude,
         path,
-        version.to_owned(),
+        version.clone(),
     )
     .map_err(|error| {
         (
             ClaudeReadiness::Unsupported,
             error.to_string(),
-            Some(version.to_owned()),
+            Some(version.clone()),
         )
     })?;
     let auth = run(path, &["auth", "status"]);
@@ -166,7 +168,7 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
                 .and_then(|value| value["authMethod"].as_str().map(str::to_owned))
                 .is_some_and(is_supported_auth_method) =>
         {
-            Ok(version.to_owned())
+            Ok(version)
         }
         Ok((output, _)) if serde_json::from_str::<serde_json::Value>(&output)
             .ok()
@@ -218,8 +220,7 @@ fn is_supported_auth_method(method: String) -> bool {
 }
 
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
-    let start = text.find(|ch: char| ch.is_ascii_digit())?;
-    let version = text[start..].split_whitespace().next()?;
+    let version = crate::harness::discovery::normalize_cli_version(text, &["Claude Code"], true)?;
     let mut components = version.split('.').map(str::parse::<u64>);
     Some((
         components.next()?.ok()?,
