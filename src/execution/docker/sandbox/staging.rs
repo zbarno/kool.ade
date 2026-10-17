@@ -64,10 +64,12 @@ impl WorkspaceSnapshot {
             let path = PathBuf::from(&entry.relative_path);
             archive::validate_relative(&path)
                 .map_err(|_| failure("Persisted workspace baseline is invalid"))?;
-            if scope_root
-                .as_ref()
-                .is_some_and(|scope| scope != std::path::Path::new(".") && !path.starts_with(scope))
-            {
+            let scoped_ancestor = scope_root.as_ref().is_some_and(|scope| {
+                scope != std::path::Path::new(".") && scope.starts_with(&path)
+            });
+            if scope_root.as_ref().is_some_and(|scope| {
+                scope != std::path::Path::new(".") && !path.starts_with(scope) && !scoped_ancestor
+            }) {
                 return Err(failure(
                     "Persisted workspace baseline escapes its scoped write grant",
                 ));
@@ -88,6 +90,11 @@ impl WorkspaceSnapshot {
                     mode: entry.mode,
                 },
             };
+            if scoped_ancestor && fingerprint != archive::Fingerprint::Directory {
+                return Err(failure(
+                    "Persisted scoped workspace ancestor is not a directory",
+                ));
+            }
             if manifest.insert(path, fingerprint).is_some() {
                 return Err(failure(
                     "Persisted workspace baseline contains duplicate paths",
@@ -137,6 +144,19 @@ pub(crate) fn capture_scoped(
         .into_iter()
         .map(|(path, fingerprint)| (prefix.join(path), fingerprint))
         .collect();
+    let mut ancestor = PathBuf::new();
+    let components = prefix.components().collect::<Vec<_>>();
+    for component in components {
+        ancestor.push(component);
+        snapshot
+            .manifest
+            .insert(ancestor.clone(), archive::Fingerprint::Directory);
+    }
+    if snapshot.manifest.len() > MAX_ENTRIES {
+        return Err(failure(
+            "Scoped workspace has too many entries to stage safely",
+        ));
+    }
     snapshot.scope_root = Some(PathBuf::from(root_relative));
     Ok(snapshot)
 }
