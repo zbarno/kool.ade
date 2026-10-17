@@ -91,11 +91,29 @@ impl IsolatedRootlessDaemon {
         let child = &mut self.process.as_mut().expect("daemon process exists").child;
         let ready = wait_for_daemon(endpoint, child).await;
         if let Err(error) = ready {
+            let log = self.failure_log_tail();
             panic!(
-                "isolated rootless daemon did not become ready: {error}; log: {}",
-                self.root.join("dockerd.log").display()
+                "isolated rootless daemon did not become ready: {error}; daemon log tail:\n{log}"
             );
         }
+    }
+
+    fn failure_log_tail(&self) -> String {
+        const MAX_LOG_BYTES: usize = 8 * 1024;
+        let Ok(bytes) = fs::read(self.root.join("dockerd.log")) else {
+            return "<daemon log unavailable>".into();
+        };
+        let tail = &bytes[bytes.len().saturating_sub(MAX_LOG_BYTES)..];
+        let mut text = String::from_utf8_lossy(tail).into_owned();
+        for path in [
+            self.root.as_path(),
+            self.runtime.as_path(),
+            self.socket.as_path(),
+        ] {
+            let path = path.to_string_lossy();
+            text = text.replace(path.as_ref(), "<isolated-path>");
+        }
+        text
     }
 
     pub(super) async fn restart(&mut self) {
