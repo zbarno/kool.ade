@@ -58,13 +58,40 @@ pub(crate) fn render_markdown(question: &QuestionV1) -> Result<Vec<u8>, String> 
     for evidence in &question.evidence_refs {
         output.push_str(&format!("\n- {evidence}"));
     }
-    if matches!(
+    if let Some(deferred) = &question.deferred {
+        output.push_str(&format!(
+            "\n\n## Deferred assumption\n\n{}\n\n- Owner: {}\n- Risk: {}\n- Verification test: {}\n- Follow-up task: {}\n- Deferred by: {}\n- Deferred at (Unix ms): {}\n",
+            escape_html(&deferred.assumption),
+            escape_html(&deferred.owner),
+            escape_html(&deferred.risk),
+            escape_html(&deferred.verification_test),
+            escape_html(&deferred.follow_up_task),
+            escape_html(question.deferred_by.as_deref().unwrap_or("")),
+            question.deferred_at_ms.unwrap_or_default()
+        ));
+    }
+    let has_recorded_decision = matches!(
         question.status,
-        super::QuestionStatus::Answered | super::QuestionStatus::Declined
-    ) {
+        super::QuestionStatus::Answered
+            | super::QuestionStatus::EvidenceResolved
+            | super::QuestionStatus::Declined
+    ) || (question.status == super::QuestionStatus::Superseded
+        && (question.answer_text.is_some()
+            || question.selected_option.is_some()
+            || question.answered_by.is_some()
+            || question.answered_at_ms.is_some()));
+    if has_recorded_decision {
         output.push_str("\n\n## Recorded decision\n\n");
         if question.status == super::QuestionStatus::Declined {
             output.push_str("The user declined to answer; no product decision was inferred.\n\n");
+        } else if question.status == super::QuestionStatus::EvidenceResolved {
+            output.push_str("Man.ager resolved this technical question using repository evidence; this is not a user decision.\n\n");
+        } else if question.status == super::QuestionStatus::Superseded
+            && question.answer_text.is_none()
+            && question.selected_option.is_none()
+        {
+            output
+                .push_str("A prior response was recorded before this question was superseded.\n\n");
         }
         if let Some(option_id) = question.selected_option.as_deref()
             && let Some(option) = question

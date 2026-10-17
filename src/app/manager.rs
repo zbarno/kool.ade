@@ -33,7 +33,7 @@ pub struct WorkspaceActivity {
     pub conversations: BTreeMap<String, LiveProgress>,
     pub tasks: BTreeMap<String, LiveProgress>,
     pub manager: Option<Manager>,
-    /// One queued Planner v3 pass, armed only by a saved clarification answer.
+    /// One queued Planner v4 pass, armed only by a saved clarification answer.
     pub(crate) pending_clarification_planner: Option<(String, u64)>,
     pub(crate) clarification_planner: Option<crate::app::root::planner_pass::ClarificationPlanner>,
     pub(crate) clarification_planner_identity: Option<(String, u64, String)>,

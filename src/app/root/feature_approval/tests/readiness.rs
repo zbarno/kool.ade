@@ -44,6 +44,13 @@ pub(super) fn seed_test_readiness(
         feature_uid: identity.uid.clone(),
         plan_revision: 1,
         spec_revision: Some(snapshot.spec_revision),
+        required_requirement_ids: Some(
+            snapshot
+                .requirements
+                .iter()
+                .map(|requirement| requirement.stable_id.clone())
+                .collect(),
+        ),
         assessed_axes: axes,
         acceptance_tests,
         evidence_refs: vec!["test-fixture:approved-plan-readiness".into()],

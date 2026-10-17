@@ -36,16 +36,21 @@ pub(super) fn stable_requirement_id(text: &str) -> String {
         .next()
         .unwrap_or_default()
         .trim_matches(|character: char| !character.is_ascii_alphanumeric() && character != '-');
-    if token.starts_with("REQ-")
-        && token[4..]
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || character == '-')
-    {
+    if token.strip_prefix("REQ-").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    }) {
         token.to_owned()
     } else {
         format!("REQ-{}", &sha256(text.as_bytes())[..12])
     }
 }
+
+#[cfg(test)]
+#[path = "content_tests.rs"]
+mod tests;
 
 pub(super) fn snapshot_uid(feature_uid: &str, content_hash: &str) -> Result<String, String> {
     let feature_uid = uuid::Uuid::parse_str(feature_uid).map_err(|error| error.to_string())?;

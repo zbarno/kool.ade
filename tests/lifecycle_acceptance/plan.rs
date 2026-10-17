@@ -60,6 +60,8 @@ pub(super) fn reviewed_feature_plan(
         selected_option: None,
         answered_by: None,
         answered_at_ms: None,
+        deferred_by: None,
+        deferred_at_ms: None,
         revision: 0,
     };
     QuestionStore::new(store).save(&card, 0).unwrap();
