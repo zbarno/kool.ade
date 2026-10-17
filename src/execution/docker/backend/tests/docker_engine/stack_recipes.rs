@@ -50,7 +50,11 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
         let manifest = runtime_store
             .discover_and_save(&clone, &context, 0)
             .expect("test project capability discovery");
-        let target_id = manifest.candidate_targets[0].target_id.clone();
+        let discovered_target = manifest
+            .candidate_targets
+            .first()
+            .expect("stack fixture metadata should produce a runtime target");
+        let target_id = discovered_target.target_id.clone();
         let mut manifest = runtime_store
             .select_target_and_save(&workspace.task_id, &target_id, manifest.revision)
             .expect("select integration target");
@@ -220,6 +224,10 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "node" => &[
+            (
+                "package.json",
+                "{\"name\":\"stack_fixture\",\"private\":true}\n",
+            ),
             ("app.js", "console.log('STARTED');\n"),
             (
                 "app.test.js",
@@ -227,6 +235,10 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "python" => &[
+            (
+                "pyproject.toml",
+                "[project]\nname = \"stack-fixture\"\nversion = \"0.1.0\"\n",
+            ),
             (
                 "app.py",
                 "def main(): print('STARTED')\nif __name__ == '__main__': main()\n",
