@@ -7,6 +7,26 @@ use crate::execution::{
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
+#[cfg(test)]
+pub(super) const EXEC_CREATED: u8 = 1 << 0;
+#[cfg(test)]
+pub(super) const EXEC_ATTACHED: u8 = 1 << 1;
+#[cfg(test)]
+pub(super) const INPUT_WRITTEN: u8 = 1 << 2;
+#[cfg(test)]
+pub(super) const INPUT_CLOSED: u8 = 1 << 3;
+#[cfg(test)]
+pub(super) const OUTPUT_RECEIVED: u8 = 1 << 4;
+
+#[cfg(test)]
+pub(super) fn mark_diagnostic_progress(execution: &Arc<Mutex<RuntimeExecution>>, progress: u8) {
+    if let Ok(state) = execution.lock() {
+        state
+            .diagnostic_progress
+            .fetch_or(progress, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 pub(super) fn finish(
     execution: &Arc<Mutex<RuntimeExecution>>,
     lifecycle: ExecutionLifecycleV1,

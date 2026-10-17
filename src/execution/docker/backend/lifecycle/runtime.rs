@@ -28,6 +28,8 @@ pub(in crate::execution::docker::backend) struct RuntimeExecution {
     pub output_bytes: u64,
     pub(super) docker_usage: crate::persistence::execution_records::DockerResourceUsageV1,
     pub(super) phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1,
+    #[cfg(test)]
+    pub(in crate::execution::docker::backend) diagnostic_progress: std::sync::atomic::AtomicU8,
     next_event_sequence: u64,
     owner_instance_id: String,
     policy_version: String,
@@ -75,6 +77,8 @@ impl RuntimeExecution {
             docker_usage: crate::persistence::execution_records::DockerResourceUsageV1::default(),
             phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1::default(
             ),
+            #[cfg(test)]
+            diagnostic_progress: std::sync::atomic::AtomicU8::new(0),
             next_event_sequence: 1,
             owner_instance_id: context.owner_instance_id,
             policy_version: context.policy_version,
@@ -222,6 +226,8 @@ impl RuntimeExecution {
             output_bytes: record.output_bytes,
             docker_usage,
             phase_timings: record.phase_timings.clone(),
+            #[cfg(test)]
+            diagnostic_progress: std::sync::atomic::AtomicU8::new(0),
             next_event_sequence: cursor.saturating_add(1),
             owner_instance_id: record.owner_instance_id.clone(),
             policy_version: record.policy_version.clone(),

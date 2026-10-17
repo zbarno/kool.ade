@@ -141,6 +141,17 @@ impl DockerExecutionBackend {
         Ok(execution)
     }
 
+    #[cfg(test)]
+    pub(super) fn diagnostic_progress(&self, handle: &ExecutionHandleV1) -> Option<u8> {
+        let execution = self.lookup_execution(handle).ok()?;
+        let state = execution.lock().ok()?;
+        Some(
+            state
+                .diagnostic_progress
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
+    }
+
     pub(super) fn reserve_start(
         &self,
         execution_id: &str,

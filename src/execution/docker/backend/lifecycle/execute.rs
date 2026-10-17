@@ -70,6 +70,8 @@ pub(super) async fn run(
             return cleanup::deadline_failure(backend, &execution).await;
         }
     };
+    #[cfg(test)]
+    state::mark_diagnostic_progress(&execution, state::EXEC_CREATED);
     {
         let mut state = execution
             .lock()
@@ -101,6 +103,8 @@ pub(super) async fn run(
             return cleanup::deadline_failure(backend, &execution).await;
         }
     };
+    #[cfg(test)]
+    state::mark_diagnostic_progress(&execution, state::EXEC_ATTACHED);
     let stream_budget = cleanup::remaining(deadline);
     let (metrics_stop, metrics_stop_rx) = tokio::sync::oneshot::channel();
     let metrics_execution = Arc::downgrade(&execution);
@@ -124,6 +128,8 @@ pub(super) async fn run(
                     .unwrap_or_default()
                     .as_bytes()
                     .to_vec();
+                #[cfg(test)]
+                let input_execution = execution.clone();
                 let write_input = async move {
                     if !script.is_empty() {
                         input.write_all(&script).await.map_err(|_| {
@@ -134,13 +140,18 @@ pub(super) async fn run(
                             )
                         })?;
                     }
+                    #[cfg(test)]
+                    state::mark_diagnostic_progress(&input_execution, state::INPUT_WRITTEN);
                     input.shutdown().await.map_err(|_| {
                         ExecutionError::new(
                             ExecutionErrorKind::ExecutionFailed,
                             "Container command input could not be closed",
                             false,
                         )
-                    })
+                    })?;
+                    #[cfg(test)]
+                    state::mark_diagnostic_progress(&input_execution, state::INPUT_CLOSED);
+                    Ok(())
                 };
                 futures_util::try_join!(
                     write_input,

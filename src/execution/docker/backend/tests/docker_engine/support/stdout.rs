@@ -112,9 +112,11 @@ async fn wait_for_stdout_inner(
             );
         }
         if started.elapsed() >= STDOUT_WAIT {
+            let execution_progress = diagnostic_progress(backend, handle);
             panic!(
-                "timed out waiting for expected stdout {expected:?}: {}; observed_events={events:?}",
-                record_status(record.as_ref())
+                "timed out waiting for expected stdout {expected:?}: {}; exec_task_finished={}; {execution_progress}; observed_events={events:?}",
+                record_status(record.as_ref()),
+                task.is_some_and(JoinHandle::is_finished),
             );
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -140,8 +142,29 @@ fn record_status(
         .and_then(|result| result.failure.as_ref())
         .map(ToString::to_string);
     format!(
-        "state={:?}, exit_code={:?}, failure={failure:?}",
-        record.state, record.exit_code
+        "state={:?}, exit_code={:?}, failure={failure:?}, command_id_present={}, output_bytes={}, phase_timings={:?}",
+        record.state,
+        record.exit_code,
+        record.command_id.is_some(),
+        record.output_bytes,
+        record.phase_timings
+    )
+}
+
+fn diagnostic_progress(
+    backend: &crate::execution::docker::backend::DockerExecutionBackend,
+    handle: &ExecutionHandleV1,
+) -> String {
+    let Some(progress) = backend.diagnostic_progress(handle) else {
+        return "exec_progress=unavailable".into();
+    };
+    format!(
+        "exec_progress={{created:{},attached:{},input_written:{},input_closed:{},output_received:{}}}",
+        progress & (1 << 0) != 0,
+        progress & (1 << 1) != 0,
+        progress & (1 << 2) != 0,
+        progress & (1 << 3) != 0,
+        progress & (1 << 4) != 0,
     )
 }
 

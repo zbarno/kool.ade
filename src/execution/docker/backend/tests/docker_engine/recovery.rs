@@ -1,7 +1,7 @@
 use super::*;
 use support::{
     Fixture, OPT_IN, backend_with_owner, container_cleanup, container_id, prepare_and_start,
-    request, verification_request_with_artifacts, wait_for_stdout, workspace,
+    request, verification_request_with_artifacts, wait_for_stdout_with_task, workspace,
 };
 
 #[path = "recovery/cancel_before_collecting.rs"]
@@ -60,7 +60,7 @@ async fn restarted_worker_interrupts_without_replaying_or_discarding_dirty_clone
             .exec(&running_handle, &running_request)
             .await
     });
-    wait_for_stdout(&backend, &handle, "restart-ready").await;
+    wait_for_stdout_with_task(&backend, &handle, "restart-ready", &running).await;
     // Aborting exec closes the stats reader's stop channel; the reader must not
     // own RuntimeExecution or its task lock while unwinding for recovery.
     running.abort();
