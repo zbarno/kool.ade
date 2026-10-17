@@ -87,6 +87,10 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
                 PromptRole::RuntimeQaReviewer | PromptRole::RuntimeQaReviewerV2,
                 RolePayloadV1::Review { .. }
             )
+            | (
+                PromptRole::RuntimeQaScenarioSynthesizer,
+                RolePayloadV1::QaScenarioSynthesis { .. }
+            )
             | (PromptRole::Decomposer, RolePayloadV1::Decomposer { .. })
             | (PromptRole::Implementer, RolePayloadV1::Worker { .. })
             | (PromptRole::RepairWorker, RolePayloadV1::Repair { .. })

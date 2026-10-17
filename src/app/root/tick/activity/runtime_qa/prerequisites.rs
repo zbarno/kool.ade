@@ -10,6 +10,8 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
+use super::request::verify_provenance_for_request;
+
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
     uuid::Uuid::new_v5(&namespace, format!("{label}:{revision}").as_bytes())
@@ -57,6 +59,12 @@ pub(super) fn unavailable_reason(
         return Some(
             "this task has multiple project runtime targets; explicitly select the target that owns the approved QA recipe before retrying.".into(),
         );
+    }
+    let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
+    if let Err(error) = verify_provenance_for_request(&runtime, &manifest, target) {
+        return Some(format!(
+            "the selected target no longer has current operator-local approval for its build and start recipes ({error}); approve the exact recipes again before runtime QA."
+        ));
     }
     let requested_surface = match request.relevant_platforms.as_slice() {
         [QaPlatform::Web] => Some(AppSurface::Web),

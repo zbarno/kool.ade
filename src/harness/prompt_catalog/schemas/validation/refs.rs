@@ -41,6 +41,7 @@ pub(super) fn validate_output_refs(
             super::validate_refs(&value.evidence, &context.evidence_ids)?
         }
         RoleOutputV1::OpportunityDecision(_) => {}
+        RoleOutputV1::QaScenarioDraft(_) => {}
         RoleOutputV1::PlanningTurn(_) => {}
     }
     Ok(())

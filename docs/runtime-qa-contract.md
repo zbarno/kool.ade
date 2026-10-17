@@ -14,12 +14,20 @@ findings, missing screenshots, or failed/untested assertions. The result must
 also come from a reviewer run and session distinct from the implementation run
 and session.
 
-`RuntimeQaStore` persists request, scenario, evidence, result, and finding
-disposition records as collision-safe immutable JSON files. `approved_gate_receipt`
-converts a validated report into a lifecycle receipt bound to the task, source
-SHA, exact current Runtime QA reviewer prompt, reviewer/author identities, and
-evidence references. Non-pass outcomes request changes; they do not approve the
-task.
+`RuntimeQaStore` persists request, scenario, evidence, result, screenshots, and
+finding disposition records as collision-safe immutable files below the
+current user's application data directory, scoped by workspace ID. It does not
+write screenshots, logs, or reviewer output into a project checkout or planning
+Git repository. Linux uses `$XDG_DATA_HOME` or `$HOME/.local/share`; macOS uses
+`~/Library/Application Support`; Windows uses `%LOCALAPPDATA%`. If the local
+data directory cannot be resolved, QA stops with an explicit storage error.
+Older development records under an embedded `.koolade-packet/state/runtime-qa`
+directory are left intact and are not automatically imported.
+
+`approved_gate_receipt` converts a validated report into a lifecycle receipt
+bound to the task, source SHA, exact current Runtime QA reviewer prompt,
+reviewer/author identities, and evidence references. Non-pass outcomes request
+changes; they do not approve the task.
 
 `containers/runtime-qa/browser/driver.mjs` is the first concrete platform
 driver. It launches an ephemeral Playwright/Chromium context, executes only
@@ -29,12 +37,13 @@ console errors, and failed requests. The Python fixture at
 `tests/fixtures/runtime_qa/browser/server.py` supplies a non-Node target and
 seeded functional/visual failures.
 
-The verified MCR base digest and offline derived-image recipe are in the image
-lock/build workflow. Runtime selection deliberately fails closed because the
-derived image release digest and app Docker session are not yet wired. Linux
-desktop input and lifecycle Manager routing are also unavailable. The runtime
-must report those surfaces unavailable; source code, a fixture, or a stored
-report alone is not evidence that desktop or browser behavior was exercised.
-Task-queue orchestration, test-data provisioning, screenshot collection into
-user-local storage, repair routing, and the end-to-end gate lifecycle remain
-release blockers.
+The verified MCR base digests and offline derived-image recipes are in the
+rootless image workflow. CI builds and exercises candidate browser and desktop
+drivers, including real interactions against synthetic apps. Runtime selection
+still fails closed while reviewed derived-image digests are absent from
+`containers/images.lock.json`. This prevents a candidate image or synthetic
+fixture from being treated as a released QA capability. The source contains
+the isolated Docker session, target-recipe checks, lifecycle queue, Manager
+finding routing, and desktop/browser drivers; the complete application-level
+implementation-to-QA-to-repair-to-spec-sync path still needs an end-to-end CI
+run against the pinned images before Runtime QA can be called release-ready.

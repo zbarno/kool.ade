@@ -12,6 +12,9 @@ pub use discovery::{
 };
 pub use executor::ProjectRuntimeExecutor;
 pub use recipe::{ExecutionRecipeV1, NetworkRequirement, RecipeSource};
+pub(crate) use recipe::{
+    normalize_custom_target_root, validate_custom_artifact_paths, validate_custom_target_root,
+};
 pub use store::ProjectRuntimeStore;
 pub use target::{
     AppSurface, AppTargetV1, ProjectCapabilityManifestV1, ReadinessProbeV1, RuntimeOperation,

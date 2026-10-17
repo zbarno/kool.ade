@@ -164,7 +164,10 @@ fn typed_event_content(
             ..
         }) => {
             let qa_store = crate::runtime_qa::RuntimeQaStore::new(
-                project.state.planning_store.root.join("state/runtime-qa"),
+                crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
+                    project.state.planning_store.project_id,
+                )
+                .ok()?,
             );
             match qa_store.load_run(request_id) {
                 Ok((request, _, _, result))

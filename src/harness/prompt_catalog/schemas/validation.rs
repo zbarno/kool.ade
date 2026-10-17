@@ -23,6 +23,7 @@ pub enum RoleOutputV1 {
     PrProposal(PrProposalV1),
     OpportunityDecision(OpportunityDecisionV1),
     PlanningTurn(Box<crate::harness::TurnEnvelope>),
+    QaScenarioDraft(crate::harness::prompt_catalog::QaScenarioDraftV1),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -239,6 +240,9 @@ fn decode(
         | PromptRole::CodeReviewer
         | PromptRole::RuntimeQaReviewer
         | PromptRole::RuntimeQaReviewerV2 => parse!(ReviewVerdictV1, Review),
+        PromptRole::RuntimeQaScenarioSynthesizer => {
+            parse!(QaScenarioDraftV1, QaScenarioDraft)
+        }
         PromptRole::Decomposer => parse!(TaskGraphV1, TaskGraph),
         PromptRole::Implementer | PromptRole::RepairWorker => parse!(WorkResultV1, WorkResult),
         PromptRole::SpecReconciler => parse!(SpecDeltaV1, SpecDelta),

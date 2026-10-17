@@ -15,10 +15,25 @@ pub(super) fn dispatch_queued_worker(
             Some(crate::persistence::harness_settings::QA),
             &prepared.task_routes,
         );
-        let store = crate::runtime_qa::RuntimeQaStore::new(
-            project.state.planning_store.root.join("state/runtime-qa"),
-        );
-        match store.load_approved_scenarios(&prepared.request) {
+        let store = match crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
+            project.state.planning_store.project_id,
+        ) {
+            Ok(root) => crate::runtime_qa::RuntimeQaStore::new(root),
+            Err(error) => {
+                notices.push(format!(
+                    "Runtime QA local evidence storage is unavailable: {error}"
+                ));
+                return;
+            }
+        };
+        let lifecycle = crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store);
+        let current_revision = lifecycle
+            .load_task(&task_uid)
+            .map(|task| task.revision)
+            .map_err(|error| error.to_string());
+        match current_revision
+            .and_then(|revision| store.load_approved_scenario_proposal(&prepared.request, revision))
+        {
             Ok(approved) => match worker::start(project, prepared, approved.scenarios, harness) {
                 Ok(worker) => {
                     notices.push(format!("Runtime QA for task {task_uid} dispatched to the selected independent reviewer and isolated Docker session."));

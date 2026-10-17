@@ -28,6 +28,10 @@ impl KooladeApp {
                     project.specification_trace_navigation = None;
                 }
             }
+            ApplicationCommand::GenerateRuntimeQaScenarios { ticket } => self.generate_runtime_qa_scenarios(&ticket),
+            ApplicationCommand::ApproveRuntimeQaScenarios { ticket, expected_task_revision, proposal_sha256 } => {
+                self.approve_runtime_qa_scenarios(&ticket, expected_task_revision, &proposal_sha256)
+            }
             ApplicationCommand::DecideFeatureSpecDelta { feature_uid, requirement_id, expected_sequence, adopt } => {
                 match &mut self.screen {
                     Screen::Connected(project) => match crate::app::root::spec_reconciliation::decide_feature_delta(
@@ -233,6 +237,7 @@ impl KooladeApp {
                     ticket,
                     target_id,
                     operation,
+                    approval_proof,
                     executable_id,
                     argv_lines,
                     readiness_port,
@@ -242,8 +247,34 @@ impl KooladeApp {
                     &ticket,
                     &target_id,
                     operation,
+                    approval_proof,
                     &executable_id,
                     &argv_lines,
+                    &readiness_port,
+                    &readiness_path,
+                    expected_manifest_revision,
+                ),
+                TaskDetailCommand::AddRuntimeTarget {
+                    ticket,
+                    app_surface,
+                    project_relative_root,
+                    artifact_paths,
+                    build,
+                    test,
+                    start,
+                    approval_proof,
+                    readiness_port,
+                    readiness_path,
+                    expected_manifest_revision,
+                } => self.add_runtime_target(
+                    &ticket,
+                    app_surface,
+                    &project_relative_root,
+                    &artifact_paths,
+                    &build,
+                    &test,
+                    &start,
+                    approval_proof,
                     &readiness_port,
                     &readiness_path,
                     expected_manifest_revision,

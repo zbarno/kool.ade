@@ -34,6 +34,16 @@ pub struct ViewModel {
     /// Read-only lifecycle state projected from the persisted #157 records.
     pub lifecycle: Option<LifecycleView>,
     pub lifecycle_error: Option<String>,
+    pub runtime_qa_scenario_proposal: Option<RuntimeQaScenarioProposal>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaScenarioProposal {
+    pub task_revision: u64,
+    pub proposal_sha256: Option<String>,
+    pub scenarios: Vec<crate::runtime_qa::QaScenarioV1>,
+    pub approved: bool,
+    pub stale: bool,
 }
 
 #[derive(Clone)]
@@ -101,6 +111,12 @@ pub enum RuntimeRecipeOperation {
     Build,
     Test,
     Start,
+}
+
+#[derive(Clone, Default)]
+pub struct RuntimeRecipeInput {
+    pub executable_id: String,
+    pub argv_lines: String,
 }
 
 #[derive(Clone)]
@@ -178,8 +194,22 @@ pub enum Command {
         ticket: String,
         target_id: String,
         operation: RuntimeRecipeOperation,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         executable_id: String,
         argv_lines: String,
+        readiness_port: String,
+        readiness_path: String,
+        expected_manifest_revision: u64,
+    },
+    AddRuntimeTarget {
+        ticket: String,
+        app_surface: crate::project_runtime::AppSurface,
+        project_relative_root: String,
+        artifact_paths: String,
+        build: RuntimeRecipeInput,
+        test: RuntimeRecipeInput,
+        start: RuntimeRecipeInput,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         readiness_port: String,
         readiness_path: String,
         expected_manifest_revision: u64,

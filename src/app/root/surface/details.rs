@@ -4,6 +4,7 @@ mod lifecycle_spec;
 mod lifecycle_ui;
 mod planning_board;
 mod runtime_capability;
+mod runtime_qa_scenario_proposal;
 pub(super) mod specification_status;
 mod target_choices;
 mod telemetry;
@@ -117,6 +118,10 @@ impl KooladeApp {
             Screen::Connected(project) => runtime_capability::for_ticket(project, ticket),
             Screen::Welcome => None,
         };
+        let runtime_qa_scenario_proposal = match &self.screen {
+            Screen::Connected(project) => runtime_qa_scenario_proposal::for_ticket(project, ticket),
+            Screen::Welcome => None,
+        };
         let failure = queued_failure.or_else(|| {
             (!implementation_active)
                 .then(|| {
@@ -208,6 +213,7 @@ impl KooladeApp {
             runtime_capability,
             lifecycle,
             lifecycle_error,
+            runtime_qa_scenario_proposal,
         })
     }
 }

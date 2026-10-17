@@ -9,6 +9,8 @@ use crate::{
     runtime_qa::QaRunRequestV1,
 };
 mod artifact;
+mod provenance;
+pub(super) use provenance::{verify_prepared_candidate, verify_provenance_for_request};
 mod task_spec;
 mod validated;
 use artifact::recipe_sha256;
@@ -30,6 +32,7 @@ pub(super) struct ReviewedTaskInputs<'a> {
 pub(super) struct PreparedRequest {
     pub request: QaRunRequestV1,
     pub task_clone: std::path::PathBuf,
+    pub planning_store: crate::artifacts::planning_store::PlanningStore,
     pub workspace: crate::execution::contract::WorkspaceRef,
     pub target: AppTargetV1,
     pub startup_recipe: crate::project_runtime::ExecutionRecipeV1,
@@ -78,6 +81,8 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
                 )
         })
         .ok_or_else(|| "the manifest has no supported target for this exact task".to_owned())?;
+    let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
+    verify_provenance_for_request(&runtime, &manifest, target)?;
     let recipe = manifest
         .recipes
         .iter()
@@ -201,6 +206,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
     Ok(PreparedRequest {
         request,
         task_clone: implementation.task_repository.clone(),
+        planning_store: project.state.planning_store.clone(),
         workspace,
         target: target.clone(),
         startup_recipe,
@@ -216,7 +222,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
 }
 
 fn workspace_target_path(target_root: &str, path: &str) -> Result<String, String> {
-    if target_root == "." {
+    if target_root == "." || target_root == "./" {
         Ok(path.to_owned())
     } else if path == "." {
         Ok(target_root.to_owned())

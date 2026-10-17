@@ -7,7 +7,44 @@ use crate::{
     ui::task_detail::RuntimeRecipeOperation,
 };
 
+mod target_override;
+
 impl KooladeApp {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn add_runtime_target(
+        &mut self,
+        ticket: &str,
+        app_surface: AppSurface,
+        project_relative_root: &str,
+        artifact_paths: &str,
+        build: &crate::ui::task_detail::RuntimeRecipeInput,
+        test: &crate::ui::task_detail::RuntimeRecipeInput,
+        start: &crate::ui::task_detail::RuntimeRecipeInput,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
+        readiness_port: &str,
+        readiness_path: &str,
+        expected_revision: u64,
+    ) {
+        let result = match &self.screen {
+            Screen::Connected(project) => target_override::add(
+                project,
+                ticket,
+                app_surface,
+                project_relative_root,
+                artifact_paths,
+                build,
+                test,
+                start,
+                approval_proof,
+                readiness_port,
+                readiness_path,
+                expected_revision,
+            ),
+            Screen::Welcome => Err("Connect a project before adding a runtime target.".into()),
+        };
+        self.runtime_capability_result(result);
+    }
+
     pub(super) fn discover_runtime_targets(&mut self, ticket: &str) {
         let result = match &self.screen {
             Screen::Connected(project) => (|| {
@@ -107,6 +144,7 @@ impl KooladeApp {
         ticket: &str,
         target_id: &str,
         ui_operation: RuntimeRecipeOperation,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         executable_id: &str,
         argv_lines: &str,
         readiness_port: &str,
@@ -164,8 +202,8 @@ impl KooladeApp {
                     {
                         return Err("Recipe arguments contain control characters or exceed the argument limit.".into());
                     }
-                    let approval_id = uuid::Uuid::new_v4();
-                    let recipe_id = format!("user-{}", approval_id.simple());
+                    let approval_id = approval_proof.receipt_uid();
+                    let recipe_id = format!("user-{}", approval_id.replace('-', ""));
                     let recipe = ExecutionRecipeV1 {
                         schema_version: 1,
                         recipe_id: recipe_id.clone(),
@@ -209,7 +247,14 @@ impl KooladeApp {
                     } else {
                         None
                     };
-                    store.approve_recipe_with_readiness_and_save(target_id, operation, recipe, readiness, expected_revision)
+                    store.approve_recipe_with_readiness_and_save(
+                        target_id,
+                        operation,
+                        recipe,
+                        readiness,
+                        approval_proof,
+                        expected_revision,
+                    )
                     .map(|_| "Runtime recipe explicitly approved and saved. It has not been executed.".to_owned())
                     .map_err(|error| error.to_string())
                 })()

@@ -181,6 +181,8 @@ fn report_is_bound_to_exact_code_build_spec_and_driver() {
 
 #[path = "evidence/dispositions.rs"]
 mod dispositions;
+#[path = "evidence/git_object_ids.rs"]
+mod git_object_ids;
 
 #[test]
 fn missing_or_forged_screenshot_bytes_are_rejected_and_load_rechecks_hashes() {

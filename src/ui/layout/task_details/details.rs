@@ -2,7 +2,8 @@ use super::*;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
-mod runtime_capability;
+pub(super) mod runtime_capability;
+mod runtime_qa_scenarios;
 mod target;
 
 pub(super) fn paint(
@@ -185,6 +186,7 @@ pub(super) fn paint(
     target::paint(ui, s, presentation.ticket, presentation.view);
     target::paint_execution_evidence(ui, presentation.view);
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
+    runtime_qa_scenarios::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle::paint(
         ui,

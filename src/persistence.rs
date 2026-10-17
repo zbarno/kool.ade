@@ -21,6 +21,7 @@ pub mod harness_settings;
 pub mod persona;
 pub mod remote_requests;
 pub mod remote_workers;
+pub(crate) mod runtime_target_approvals;
 pub mod task_chats;
 pub mod telemetry;
 
