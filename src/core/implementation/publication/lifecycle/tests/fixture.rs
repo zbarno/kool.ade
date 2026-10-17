@@ -85,6 +85,10 @@ impl Fixture {
                     implementation_head_sha: None,
                     reconciliation_status: SpecReconciliationStatusV1::Synchronized,
                     outcome_reason: None,
+                    no_change_reason: Some(
+                        "Synthetic fixture records an explicit unchanged-specification result."
+                            .into(),
+                    ),
                     deltas: Vec::new(),
                 },
             )
