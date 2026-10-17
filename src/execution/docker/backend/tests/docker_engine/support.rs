@@ -25,6 +25,7 @@ pub(super) const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
 
 pub(super) struct Fixture {
     pub(super) root: PathBuf,
+    home_root: PathBuf,
     _home: crate::test_support::KooladeHomeGuard,
 }
 
@@ -44,16 +45,28 @@ impl Fixture {
             git_init.success(),
             "initialize the Docker backend fixture repository"
         );
-        let home = crate::test_support::KooladeHomeGuard::set(&root.join("koolade-home"));
-        Self { root, _home: home }
+        // Operator-local approvals must live outside the fixture repository.
+        // Keeping this state beneath `root` now correctly fails the production
+        // guard that prevents local authorization from entering project Git.
+        let home_root = std::env::temp_dir().join(format!(
+            "koolade-docker-backend-home-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&home_root).unwrap();
+        let home = crate::test_support::KooladeHomeGuard::set(&home_root);
+        Self {
+            root,
+            home_root,
+            _home: home,
+        }
     }
 
     pub(super) fn task_clone(&self, workspace: &WorkspaceRef) -> PathBuf {
         let project = format!("{}-integration", workspace.project_id);
         let task = format!("task-{}", workspace.task_id);
         let path = self
-            .root
-            .join("koolade-home/projects")
+            .home_root
+            .join("projects")
             .join(project)
             .join("task-repositories")
             .join("integration")
@@ -66,6 +79,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+        let _ = fs::remove_dir_all(&self.home_root);
     }
 }
 
