@@ -5,7 +5,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use super::record::{JournalEntry, RequestIndexEntry};
+use super::{
+    index,
+    record::{JournalEntry, RequestIndexEntry},
+};
 
 const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_JOURNAL_ENTRIES: usize = 16_384;
@@ -74,7 +77,7 @@ pub(super) fn read_index(index: &mut File) -> io::Result<Vec<RequestIndexEntry>>
         }
         entries.push(entry);
     }
-    if entries.len() > MAX_JOURNAL_ENTRIES {
+    if entries.len() > MAX_JOURNAL_ENTRIES * 3 {
         return Err(invalid_data("remote request index has too many entries"));
     }
     Ok(entries)
@@ -130,15 +133,17 @@ pub(super) fn compact_index(
     now_unix_ms: u64,
     retention_ms: u64,
 ) -> io::Result<(File, Vec<RequestIndexEntry>)> {
-    let retained = entries
-        .iter()
-        .filter(|entry| {
-            entry.request_id == preserve_request_id
-                || now_unix_ms.saturating_sub(entry.created_unix_ms) <= retention_ms
-        })
-        .cloned()
+    let folded = index::fold(entries)?;
+    let retained = folded
+        .into_iter()
+        .filter(|entry| index::retain(entry, preserve_request_id, now_unix_ms, retention_ms))
         .collect::<Vec<_>>();
-    let index = if retained.len() != entries.len() {
+    let rewrite = retained.len() != entries.len()
+        || retained
+            .iter()
+            .zip(entries)
+            .any(|(current, original)| current != original);
+    let index = if rewrite {
         drop(index);
         rewrite_lines(path, retained.iter(), "remote request index")?;
         open_private(path, false)?
