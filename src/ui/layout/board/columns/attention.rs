@@ -67,6 +67,16 @@ fn feature_id_in_task_path(path: &str) -> Option<String> {
     crate::artifacts::product_docs::valid_feature_id(&candidate).then_some(candidate)
 }
 
+pub(super) fn clarification_is_visible(status: crate::core::planning::QuestionStatus) -> bool {
+    matches!(
+        status,
+        crate::core::planning::QuestionStatus::Draft
+            | crate::core::planning::QuestionStatus::Open
+            | crate::core::planning::QuestionStatus::Declined
+            | crate::core::planning::QuestionStatus::Deferred
+    )
+}
+
 fn recovery_kind(recovery: crate::core::implementation::RecoveryDisposition) -> Kind {
     match recovery {
         crate::core::implementation::RecoveryDisposition::UserAction
@@ -145,12 +155,7 @@ pub(super) fn paint(
         fallback_order += 1;
     }
     for question in lane.clarifications {
-        if matches!(
-            question.status,
-            crate::core::planning::QuestionStatus::Draft
-                | crate::core::planning::QuestionStatus::Open
-                | crate::core::planning::QuestionStatus::Declined
-        ) {
+        if clarification_is_visible(question.status) {
             entries.push((Entry::Clarification(question), None, fallback_order));
             fallback_order += 1;
         }

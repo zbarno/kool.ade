@@ -19,7 +19,7 @@ fn drain(controller: &TurnController) -> TurnOutcome {
     // be treated as a vanished turn. True vanishing is detected directly
     // via the worker handle; a bounded run of idle probes catches a
     // wedged worker (same shape as the persona-home probe budgets). The
-    // generous wall-clock bound avoids mistaking parallel test load for a
+    // bounded 30-second window avoids mistaking parallel test load for a
     // vanished worker.
     const IDLE_BUDGET: usize = 120;
     let mut idle = 0usize;

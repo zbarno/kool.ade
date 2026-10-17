@@ -3,6 +3,8 @@ use crate::core::planning::{
     QuestionPriority, QuestionStatus, ReadinessChecklistV1, ReadinessResult,
 };
 
+mod answer;
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ReadinessRecord {
@@ -124,12 +126,11 @@ impl QuestionStore<'_> {
                     && question.plan_revision == checklist.plan_revision
             })
             .collect::<Vec<_>>();
-        let mut required = questions
-            .iter()
-            .flat_map(|question| question.origin_requirement_ids.iter().cloned())
-            .collect::<Vec<_>>();
-        required.sort();
-        required.dedup();
+        let required = checklist.required_requirement_ids.clone().ok_or_else(|| {
+            StoreError::MalformedState(
+                "readiness checklist has no specification requirement snapshot".into(),
+            )
+        })?;
         let result = super::super::assess_readiness(&questions, &checklist, &required);
         checklist.ready = matches!(&result, ReadinessResult::Ready);
         checklist.unresolved_blocker_ids = questions
@@ -151,6 +152,56 @@ impl QuestionStore<'_> {
         self.save_readiness_fenced(&checklist, record_revision, Some(&planning_revision))?;
         Ok(Some(result))
     }
+}
+
+pub(super) fn readiness_record_changes(
+    store: &QuestionStore<'_>,
+    checklist: &ReadinessChecklistV1,
+    expected_revision: u64,
+) -> Result<super::RecordChangesWithChecks, StoreError> {
+    checklist.validate().map_err(StoreError::MalformedState)?;
+    let uid = canonical_uid(&checklist.feature_uid)?;
+    let path = format!("state/readiness/{uid}.json");
+    let now = now_unix_ms();
+    let (created_at_ms, record_revision) = if expected_revision == 0 {
+        if checklist.revision != 0 {
+            return Err(StoreError::MalformedState(
+                "new readiness records must start at data revision zero".into(),
+            ));
+        }
+        (now, 1)
+    } else {
+        let (previous, revision) = store.store.read_record::<ReadinessRecord>(&path)?;
+        validate_readiness_record(&previous, revision, &path)?;
+        if revision != expected_revision
+            || previous.uid != uid
+            || checklist.revision != previous.data.revision.saturating_add(1)
+        {
+            return Err(StoreError::StaleRecordRevision {
+                path,
+                expected: expected_revision,
+                actual: revision,
+            });
+        }
+        (previous.created_at_ms, expected_revision.saturating_add(1))
+    };
+    let record = ReadinessRecord {
+        schema_version: 1,
+        uid,
+        created_at_ms,
+        updated_at_ms: now,
+        revision: record_revision,
+        data: checklist.clone(),
+    };
+    let bytes = serde_json::to_vec_pretty(&record)
+        .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+    Ok((
+        vec![(path.clone(), bytes)],
+        vec![RecordRevisionCheck {
+            path,
+            expected_revision,
+        }],
+    ))
 }
 
 fn canonical_uid(uid: &str) -> Result<String, StoreError> {

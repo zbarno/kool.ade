@@ -45,8 +45,8 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         ),
         (
             PromptRole::Planner,
-            "41709cb904f48b8743acf8434ec65b000835b8e2698f5512ba2923a7e468edfa",
-            "88d1cfcf1d08b2d3a28185d64422887eb6022f55d8db1f7b9984da9e09d31ab5",
+            "2f754aeacabeeb8b9a9c5ee7f62fc530d55a4585173caadcc3aa45eb6de48b12",
+            "a314b43f01133cc3f580d68776795502e14e6a099992c4c1a38abab2a14f584d",
         ),
         (
             PromptRole::PlannerConversation,

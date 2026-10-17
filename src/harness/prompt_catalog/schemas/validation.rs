@@ -35,6 +35,8 @@ pub struct OutputValidationContext<'a> {
     pub approved_decision_refs: Vec<String>,
     pub expected_subject_hash: Option<&'a str>,
     pub evidence_ids: HashSet<String>,
+    /// Current open clarification records the Planner may resolve by evidence.
+    pub allowed_question_uids: HashSet<String>,
     pub required_requirements: Vec<String>,
     /// Repository ID to exact portable identity mapping.
     pub allowed_repositories: HashMap<String, String>,

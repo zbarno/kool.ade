@@ -15,7 +15,7 @@ pub use opportunity::{
 pub use planner::{
     AcceptanceTestRefV1, ClarificationCategory, ClarificationOptionV1, ClarificationPriority,
     ClarificationProposalV1, PlannerOutputV1, PlannerOutputV2, PlannerQuestionV1, ReadinessV1,
-    ReadinessV2,
+    ReadinessV2, TechnicalResolutionV1,
 };
 pub use review::{
     CoverageStatus, CoverageV1, FindingKind, ReviewFindingV1, ReviewVerdictV1, Severity,

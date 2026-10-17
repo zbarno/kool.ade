@@ -27,6 +27,15 @@ pub(super) fn validate_output_refs(
             for question in &value.proposed_questions {
                 super::validate_refs(&question.evidence_refs, &context.evidence_ids)?;
             }
+            for resolution in &value.resolved_questions {
+                if !context
+                    .allowed_question_uids
+                    .contains(&resolution.question_uid)
+                {
+                    return Err("planner resolved a question outside the current open set".into());
+                }
+                super::validate_refs(&resolution.evidence_refs, &context.evidence_ids)?;
+            }
         }
         RoleOutputV1::Review(_) => {}
         RoleOutputV1::TaskGraph(graph) => task_graph::validate(graph, context)?,

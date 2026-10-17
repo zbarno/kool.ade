@@ -103,6 +103,11 @@ impl KooladeApp {
                     selected_option.as_deref(),
                 );
             }
+            ApplicationCommand::DeferClarification {
+                uid,
+                expected_revision,
+                details,
+            } => self.defer_clarification(&uid, expected_revision, details),
             ApplicationCommand::DecideOpportunity {
                 uid,
                 expected_revision,
