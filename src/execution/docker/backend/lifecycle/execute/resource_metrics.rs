@@ -56,9 +56,13 @@ pub(super) async fn collect(
 ) {
     #[cfg(test)]
     mark_diagnostic(&execution, DIAGNOSTIC_COLLECT_STARTED);
+    // Persist one bounded snapshot before opening the long-lived stream. Some
+    // Engines delay the first streamed stats frame even though a direct
+    // snapshot is available; the task record should still capture real usage.
+    let mut initial_snapshot_pending = true;
     let mut samples = docker.stats(
         &container_id,
-        Some(StatsOptionsBuilder::default().stream(true).build()),
+        Some(StatsOptionsBuilder::default().stream(false).build()),
     );
     let mut consecutive_failures = 0_u8;
     let mut persisted_sample_count = 0_u32;
@@ -71,12 +75,20 @@ pub(super) async fn collect(
         #[cfg(test)]
         let stream_problem = match &next {
             Ok(Some(Err(_))) => Some(DIAGNOSTIC_STREAM_ERROR),
-            Ok(None) => Some(DIAGNOSTIC_STREAM_ENDED),
+            Ok(None) if !initial_snapshot_pending => Some(DIAGNOSTIC_STREAM_ENDED),
+            Ok(None) => None,
             Err(_) => Some(DIAGNOSTIC_STREAM_TIMEOUT),
             Ok(Some(Ok(_))) => None,
         };
         match next {
             Ok(Some(Ok(sample))) => {
+                if initial_snapshot_pending {
+                    initial_snapshot_pending = false;
+                    samples = docker.stats(
+                        &container_id,
+                        Some(StatsOptionsBuilder::default().stream(true).build()),
+                    );
+                }
                 #[cfg(test)]
                 mark_diagnostic(&execution, DIAGNOSTIC_SAMPLE_RECEIVED);
                 consecutive_failures = 0;
@@ -140,7 +152,15 @@ pub(super) async fn collect(
                     last_persisted_at = Instant::now();
                 }
             }
+            Ok(None) if initial_snapshot_pending => {
+                initial_snapshot_pending = false;
+                samples = docker.stats(
+                    &container_id,
+                    Some(StatsOptionsBuilder::default().stream(true).build()),
+                );
+            }
             Ok(Some(Err(_))) | Ok(None) | Err(_) => {
+                initial_snapshot_pending = false;
                 #[cfg(test)]
                 mark_diagnostic(&execution, stream_problem.expect("failure progress flag"));
                 consecutive_failures = consecutive_failures.saturating_add(1);
