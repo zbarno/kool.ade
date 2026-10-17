@@ -29,7 +29,7 @@ async fn restart_after_stage_out_before_result_commit_preserves_clone_without_re
     let owner_id = backend.identity.owner_instance_id.clone();
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "printf 'single-run\\n' >> command-count.txt; mkdir -p evidence; printf 'stage-out-data\\n' > evidence/result.txt",
+        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'command-count.txt').open('a').write('single-run\\n'); (p / 'result.txt').write_text('stage-out-data\\n')",
         vec!["evidence/result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);
@@ -95,7 +95,7 @@ async fn restart_after_stage_out_before_result_commit_preserves_clone_without_re
     assert!(recovered.command_started);
     assert_eq!(recovered.artifacts, before_restart.artifacts);
     assert_eq!(
-        fs::read_to_string(task_clone.join("command-count.txt")).unwrap(),
+        fs::read_to_string(task_clone.join("evidence/command-count.txt")).unwrap(),
         "single-run\n",
         "recovery must not replay the command after stage-out"
     );

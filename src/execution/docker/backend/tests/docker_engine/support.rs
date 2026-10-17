@@ -133,12 +133,23 @@ pub(super) fn verification_request_with_artifacts(
 ) -> ExecutionRequestV1 {
     let mut request = request(workspace, script);
     request.mode = ExecutionModeV1::Verification;
-    request.policy = ExecutionPolicyV1::for_mode(
-        ExecutionModeV1::Verification,
+    let image = ImageLock::bundled()
+        .expect("bundled image lock")
+        .select(RuntimeProfile::Python, native_docker_arch())
+        .expect("Python image for native architecture");
+    request.image_digest = image.digest;
+    request.argv = vec!["python".into(), "-c".into(), script.into()];
+    request.stdin = None;
+    request.policy = ExecutionPolicyV1::for_approved_recipe(
         request.resource_budget.clone(),
-        request.allowed_service_ports.clone(),
+        "evidence".into(),
+        "user-approval:docker-recovery-test".into(),
+        "python".into(),
+        vec!["-c".into(), script.into()],
+        ".".into(),
+        BTreeSet::new(),
     )
-    .expect("verification policy")
+    .expect("exact approved verification recipe")
     .with_artifact_paths(artifact_paths)
     .expect("artifact policy should accept bounded relative paths");
     request

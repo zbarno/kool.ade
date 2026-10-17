@@ -27,7 +27,7 @@ async fn restart_preserves_terminal_artifacts_and_completes_pending_cleanup() {
     let owner_id = backend.identity.owner_instance_id.clone();
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "mkdir -p evidence; printf 'durable-result\\n' > evidence/result.txt; printf 'single-command\\n' >> command-count.txt",
+        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'result.txt').write_text('durable-result\\n'); (p / 'command-count.txt').open('a').write('single-command\\n')",
         vec!["evidence/result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);
@@ -74,7 +74,7 @@ async fn restart_preserves_terminal_artifacts_and_completes_pending_cleanup() {
         .expect("terminal result should be available after restart");
     assert_eq!(recovered, result);
     assert_eq!(
-        fs::read_to_string(task_clone.join("command-count.txt")).unwrap(),
+        fs::read_to_string(task_clone.join("evidence/command-count.txt")).unwrap(),
         "single-command\n",
         "recovery must return the persisted result without rerunning the command"
     );

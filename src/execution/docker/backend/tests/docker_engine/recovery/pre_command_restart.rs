@@ -106,7 +106,15 @@ async fn run_restart_before_command(legacy_record: bool) {
         crate::persistence::execution_records::ExecutionRecordStateV1::Succeeded
     );
     assert!(after.command_started);
-    assert!(after.phase_timings.image_preparation_ms.is_some());
-    assert!(after.phase_timings.workspace_stage_in_ms.is_some());
-    assert!(after.phase_timings.dependency_cache_stage_ms.is_some());
+    if legacy_record {
+        assert_eq!(
+            after.phase_timings,
+            crate::persistence::execution_records::ExecutionPhaseTimingsV1::default(),
+            "recovery cannot reconstruct phase timings absent from the legacy record"
+        );
+    } else {
+        assert!(after.phase_timings.image_preparation_ms.is_some());
+        assert!(after.phase_timings.workspace_stage_in_ms.is_some());
+        assert!(after.phase_timings.dependency_cache_stage_ms.is_some());
+    }
 }

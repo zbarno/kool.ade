@@ -25,7 +25,7 @@ async fn cancellation_after_stage_out_keeps_durable_artifact_manifest() {
     );
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "printf 'single-run\\n' >> command-count.txt; mkdir -p evidence; printf 'stage-out-data\\n' > evidence/result.txt",
+        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'command-count.txt').open('a').write('single-run\\n'); (p / 'result.txt').write_text('stage-out-data\\n')",
         vec!["evidence/result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);

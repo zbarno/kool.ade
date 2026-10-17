@@ -30,7 +30,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                     .status
                     .strip_prefix("pi ")
                     .map(str::to_owned)
-                    .filter(|_| pi.binary.is_some()),
+                    .filter(|_| pi.binary.is_some() && pi.ok),
                 executable: pi.binary.as_ref().map(|p| p.to_string_lossy().into()),
                 diagnostic: (!pi.diagnostic.is_empty()).then_some(pi.diagnostic),
                 ready: pi.ok,

@@ -27,7 +27,7 @@ async fn persisted_cancellation_keeps_previously_collected_artifact_manifest() {
     let owner_id = backend.identity.owner_instance_id.clone();
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "mkdir -p evidence; printf 'persisted-cancel-data\\n' > evidence/result.txt",
+        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'result.txt').write_text('persisted-cancel-data\\n')",
         vec!["evidence/result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);
