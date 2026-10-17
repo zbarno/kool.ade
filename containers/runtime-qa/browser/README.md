@@ -33,8 +33,10 @@ browser-driver image.
 
 ## Current availability
 
-The derived image recipe and strict local smoke are present, but the app does
-not yet have a pinned released image digest or route Runtime QA through the
-two-network Docker session. Browser QA remains unavailable until that app-owned
-lifecycle is wired. The driver source and fixture alone are not a QA pass or a
-release claim.
+The app-owned Runtime QA path is wired through the two-network Docker session,
+and CI builds and exercises this candidate image. The candidate image digest
+is not yet promoted into `containers/images.lock.json`; runtime selection
+therefore remains unavailable until that digest has been reviewed and pinned.
+The current CI fixture proves browser-driver interaction in isolation, not the
+full application implementation-to-QA-to-repair lifecycle. Neither the driver
+source nor fixture alone is a QA pass or release claim.

@@ -165,7 +165,7 @@ pub(super) fn backend_with_owner(
     owner_id: String,
 ) -> (DockerExecutionBackend, PathBuf) {
     let clone = fixture.task_clone(&workspace);
-    let projects = fixture.root.join("koolade-home/projects");
+    let projects = fixture.home_root.join("projects");
     let resolver = Arc::new(
         OwnedTaskWorkspaceResolver::new(&projects, workspace, &clone)
             .expect("synthetic task clone must be accepted"),
