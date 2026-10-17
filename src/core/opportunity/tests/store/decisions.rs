@@ -59,6 +59,88 @@ fn authenticated_decision_is_durable_and_idempotent_but_rejects_forgery_and_stal
 }
 
 #[test]
+fn concurrent_users_cannot_authorize_the_same_proposal_twice() {
+    use std::{sync::mpsc, time::Duration};
+
+    let (_temp, store) = setup();
+    let opportunities = OpportunityStore::new(&store);
+    let OpportunitySaveResult::Created {
+        proposal,
+        record_revision,
+    } = opportunities.save_advisory(proposal()).unwrap()
+    else {
+        panic!("proposal should be created")
+    };
+    let contenders = [
+        ("synthetic-user-a", OpportunityChoice::Pursue),
+        ("synthetic-user-b", OpportunityChoice::Decline),
+    ];
+    let contender_count = contenders.len();
+    let (ready_tx, ready_rx) = mpsc::sync_channel(2);
+    let (result_tx, result_rx) = mpsc::sync_channel(2);
+    let mut starts = Vec::new();
+    for (user, choice) in contenders {
+        let store = store.clone();
+        let proposal = proposal.clone();
+        let (start_tx, start_rx) = mpsc::sync_channel(1);
+        starts.push(start_tx);
+        let ready_tx = ready_tx.clone();
+        let result_tx = result_tx.clone();
+        std::thread::spawn(move || {
+            ready_tx
+                .send(user)
+                .expect("test coordinator remains active");
+            start_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("test coordinator releases each decision worker");
+            let decision = prompt_decision(&proposal, user, choice);
+            let result = OpportunityStore::new(&store).record_user_decision(
+                record_revision,
+                &decision,
+                user,
+            );
+            result_tx
+                .send((user, result))
+                .expect("test coordinator collects each decision result");
+        });
+    }
+    drop(ready_tx);
+    drop(result_tx);
+
+    for _ in 0..contender_count {
+        ready_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("both decision workers become ready before release");
+    }
+    for start in starts {
+        start.send(()).expect("decision worker is waiting to start");
+    }
+
+    let results = (0..contender_count)
+        .map(|_| {
+            result_rx
+                .recv_timeout(Duration::from_secs(10))
+                .expect("both decision workers return a result")
+                .1
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+    assert!(results.iter().any(|result| matches!(
+        result,
+        Err(crate::artifacts::planning_store::StoreError::StaleRecordRevision { .. })
+    )));
+
+    let reopened = OpportunityStore::new(&store);
+    assert_eq!(reopened.list_decisions().unwrap().len(), 1);
+    let (saved, _) = reopened.load(&proposal.opportunity_uid).unwrap();
+    assert!(matches!(
+        saved.status,
+        OpportunityStatusV1::ApprovedToPlan | OpportunityStatusV1::Declined
+    ));
+}
+
+#[test]
 fn all_explicit_choices_persist_their_distinct_lifecycle_state() {
     let cases = [
         (
