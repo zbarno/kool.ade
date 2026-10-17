@@ -1,5 +1,43 @@
 use std::path::{Path, PathBuf};
 
+fn authenticated_capability_snapshot() -> crate::execution::contract::HarnessCapabilitySnapshotV1 {
+    use crate::execution::contract::{
+        HarnessCapabilitySnapshotV1, ModeReadinessV1, ReadinessState, RoleReadinessV1,
+    };
+
+    HarnessCapabilitySnapshotV1 {
+        schema_version: 1,
+        provider_id: "pi".into(),
+        probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        probe_cancellation_generation: 1,
+        probe_sequence: 1,
+        cli_binary: ReadinessState::Ready,
+        cli_version: Some("1.0".into()),
+        authentication: ReadinessState::Ready,
+        model_catalog: ReadinessState::Ready,
+        scriptable_invocation: ReadinessState::Ready,
+        docker_mcp_bridge: ReadinessState::Ready,
+        execution_target: ReadinessState::Ready,
+        failure: None,
+        modes: crate::harness::ExecutionMode::ALL
+            .into_iter()
+            .map(|mode| ModeReadinessV1 {
+                mode,
+                available: ReadinessState::Ready,
+                failure: None,
+            })
+            .collect(),
+        roles: crate::execution::contract::HarnessRole::ALL
+            .into_iter()
+            .map(|role| RoleReadinessV1 {
+                role,
+                available: ReadinessState::Ready,
+                failure: None,
+            })
+            .collect(),
+    }
+}
+
 pub(super) fn sandbox_available() -> bool {
     crate::harness::runtime_capabilities::RuntimeCapabilities::detect().implementation
 }
@@ -67,7 +105,7 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
                     configuration_required: false,
                     implementation_available: true,
                     checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                    capability_snapshot: None,
+                    capability_snapshot: Some(authenticated_capability_snapshot()),
                 },
             )]),
             ..Default::default()
