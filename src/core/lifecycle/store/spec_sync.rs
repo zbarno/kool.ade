@@ -43,6 +43,28 @@ impl LifecycleStore<'_> {
         Ok(())
     }
 
+    pub(super) fn ensure_task_specification_current(
+        &self,
+        task: &crate::core::lifecycle::TaskRecord,
+    ) -> Result<(), StoreError> {
+        self.ensure_product_specification_current(&task.feature_uid)?;
+        if self
+            .list_spec_sync_queue(&task.feature_uid, false)?
+            .iter()
+            .any(|entry| {
+                entry.source_task_uid.as_deref().is_none_or(|uid| {
+                    uid == task.task_uid || task.subtask_uids.iter().any(|child| child == uid)
+                })
+            })
+        {
+            return Err(StoreError::MalformedState(
+                "task specification has unresolved lifecycle trigger(s) in its completion scope"
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn ensure_no_pending_spec_triggers(&self, feature_uid: &str) -> Result<(), StoreError> {
         let pending = self.list_spec_sync_queue(feature_uid, false)?;
         if !pending.is_empty() {

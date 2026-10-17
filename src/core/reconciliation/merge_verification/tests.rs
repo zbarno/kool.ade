@@ -276,3 +276,6 @@ fn fetch_timeout_kills_a_spawned_remote_helper_descendant() {
     );
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[path = "tests/whitespace.rs"]
+mod whitespace;

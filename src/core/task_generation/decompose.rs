@@ -33,7 +33,7 @@ pub(super) fn run(
         && goal.plan_snapshot_sha256.as_deref() == Some(plan_hash.as_str())
         && goal.approved_plan_sha256.as_deref() == Some(plan_hash.as_str())
         && crate::core::lifecycle::plan_snapshot::is_persisted(&state.planning_store, snapshot)?
-        && crate::core::lifecycle::plan_snapshot::has_user_confirmation(
+        && crate::core::lifecycle::plan_snapshot::has_current_user_confirmation(
             &state.planning_store,
             snapshot,
         )?

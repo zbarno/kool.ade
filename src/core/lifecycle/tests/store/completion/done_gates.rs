@@ -3,7 +3,7 @@ use crate::core::lifecycle::{
     GateActor, GateDecision, GateReceipt, LifecycleStore, TaskEvent, TaskPhase,
 };
 
-fn spec_receipt(task_uid: &str, code_hash: String) -> GateReceipt {
+pub(super) fn spec_receipt(task_uid: &str, code_hash: String) -> GateReceipt {
     GateReceipt {
         receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         subject_uid: task_uid.to_owned(),

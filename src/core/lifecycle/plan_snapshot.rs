@@ -8,9 +8,9 @@ mod persistence;
 #[cfg(not(test))]
 pub(crate) use persistence::recorded_review_decision;
 pub(crate) use persistence::{
-    from_feature_with_author, has_approved_review, has_user_confirmation, is_persisted,
-    load_persisted, plan_review_receipt, record_author, record_change, review_change,
-    user_confirmation_change, user_confirmation_receipt,
+    from_feature_with_author, has_approved_review, has_current_user_confirmation,
+    has_user_confirmation, is_persisted, load_persisted, plan_review_receipt, record_author,
+    record_change, review_change, user_confirmation_change, user_confirmation_receipt,
 };
 
 pub(crate) fn confirmed_product_spec_hash(

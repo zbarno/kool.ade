@@ -199,7 +199,7 @@ pub fn feature_approved<R: crate::artifacts::planning_store::PlanningRoot + ?Siz
         return false;
     };
     crate::core::lifecycle::plan_snapshot::is_persisted(&store, &snapshot).unwrap_or(false)
-        && crate::core::lifecycle::plan_snapshot::has_user_confirmation(&store, &snapshot)
+        && crate::core::lifecycle::plan_snapshot::has_current_user_confirmation(&store, &snapshot)
             .unwrap_or(false)
         && crate::core::lifecycle::plan_snapshot::has_approved_review(&store, &snapshot)
             .unwrap_or(false)

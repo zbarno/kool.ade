@@ -226,3 +226,6 @@ fn task_generation_rejects_spec_drift_before_persisting_tasks() {
     assert!(error.to_string().contains("drifted"));
     assert!(lifecycle.list_tasks().unwrap().is_empty());
 }
+
+#[path = "task_batch/interrupted.rs"]
+mod interrupted;

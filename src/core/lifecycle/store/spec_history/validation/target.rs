@@ -58,7 +58,6 @@ pub(super) fn validate_approved_target(
         expected_sequence,
         draft,
         pending_authorization,
-        current.and_then(|revision| revision.approved_target_hash.as_deref()),
     )?;
     receipts.extend(feature_receipts);
     if let Some(current) = current {
@@ -119,7 +118,6 @@ fn validate_feature_authorization(
     source_sequence: u64,
     draft: &SpecRevisionDraftV1,
     pending: Option<&FeatureDeltaAuthorizationV1>,
-    prior_target_hash: Option<&str>,
 ) -> Result<(bool, HashSet<String>), StoreError> {
     let mut receipts = HashSet::new();
     let mut adopted = false;
@@ -154,11 +152,28 @@ fn validate_feature_authorization(
         let text_hash = |value: Option<&str>| {
             value.map(|text| format!("{:x}", sha2::Sha256::digest(text.as_bytes())))
         };
+        let current_authorization = authorization.source_spec_sequence == source_sequence;
+        let historical_authorization = authorization.source_spec_sequence < source_sequence
+            && lifecycle
+                .spec_revision_history(feature_uid)?
+                .iter()
+                .any(|(entry, deltas)| {
+                    entry.seq == authorization.source_spec_sequence + 1
+                        && deltas.iter().any(|prior| prior == delta)
+                        && (decision.decision == SpecDeltaOperatorChoiceV1::Declined
+                            || (entry.approved_target_hash
+                                == authorization.resulting_product_sha256
+                                && Some(entry.content_hash.as_str())
+                                    == authorization.resulting_product_sha256.as_deref()))
+                });
+        let approves_current_target = current_authorization
+            && decision.decision == SpecDeltaOperatorChoiceV1::Adopted
+            && authorization.resulting_product_sha256.as_deref()
+                == draft.approved_target_hash.as_deref()
+            && authorization.resulting_product_sha256.as_deref()
+                == Some(draft.content_hash.as_str());
         let exact = authorization.feature_uid == feature_uid
-            && (authorization.source_spec_sequence == source_sequence
-                || (authorization.source_spec_sequence < source_sequence
-                    && (decision.decision == SpecDeltaOperatorChoiceV1::Declined
-                        || prior_target_hash == draft.approved_target_hash.as_deref())))
+            && (current_authorization || historical_authorization)
             && authorization.requirement_id == delta.requirement_id
             && authorization.event_uid == delta.event_id
             && authorization.old_target_sha256 == text_hash(delta.old_target.as_deref())
@@ -170,16 +185,14 @@ fn validate_feature_authorization(
             && authorization.resulting_product_sha256.as_deref()
                 == decision.resulting_spec_sha256.as_deref()
             && (decision.decision == SpecDeltaOperatorChoiceV1::Declined
-                || (authorization.resulting_product_sha256.as_deref()
-                    == draft.approved_target_hash.as_deref()
-                    && authorization.resulting_product_sha256.as_deref()
-                        == Some(draft.content_hash.as_str())));
+                || historical_authorization
+                || approves_current_target);
         if !exact {
             return Err(StoreError::MalformedState(
                 "feature operator decision does not match its persisted authorization".into(),
             ));
         }
-        adopted |= decision.decision == SpecDeltaOperatorChoiceV1::Adopted;
+        adopted |= approves_current_target;
         receipts.insert(decision.receipt_uid.clone());
     }
     if let Some(pending) = pending

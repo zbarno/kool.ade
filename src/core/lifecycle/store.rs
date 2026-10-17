@@ -5,6 +5,8 @@ mod current_implementation;
 mod feature_delta_authorization;
 mod feature_event;
 mod pr_state;
+#[cfg(test)]
+pub(super) use pr_state::authorize_before_commit as authorize_pr_before_commit_for_test;
 mod reconcile_plan;
 mod records;
 mod replay;

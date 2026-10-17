@@ -67,8 +67,7 @@ fn record_internal(
         .iter()
         .filter(|entry| {
             entry.status != crate::core::lifecycle::SpecSyncQueueStatusV1::Declined
-                && (entry.source_task_uid.as_deref() == Some(task_uid)
-                    || entry.source_task_uid.is_none())
+                && entry.source_task_uid.as_deref() == Some(task_uid)
         })
         .map(|entry| entry.source_event_uid.clone())
         .collect::<Vec<_>>();

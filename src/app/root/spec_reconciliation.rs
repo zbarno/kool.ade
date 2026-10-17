@@ -254,3 +254,6 @@ pub(crate) fn spec_binding_hash(spec: Option<&str>) -> Result<String, String> {
     let encoded = serde_json::to_vec(&spec).map_err(|error| error.to_string())?;
     Ok(format!("{:x}", sha2::Sha256::digest(encoded)))
 }
+
+#[cfg(test)]
+pub(crate) mod test_support;
