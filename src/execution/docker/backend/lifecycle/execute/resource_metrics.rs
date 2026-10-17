@@ -119,7 +119,8 @@ fn should_persist_sample(
     persisted_sample_count: u32,
     elapsed: Duration,
 ) -> bool {
-    sample_count.saturating_sub(persisted_sample_count) >= PERSIST_EVERY_SAMPLES
+    (persisted_sample_count == 0 && sample_count > 0)
+        || sample_count.saturating_sub(persisted_sample_count) >= PERSIST_EVERY_SAMPLES
         || elapsed >= PERSIST_INTERVAL
 }
 

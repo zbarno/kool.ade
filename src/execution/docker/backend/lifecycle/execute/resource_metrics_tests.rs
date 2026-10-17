@@ -15,17 +15,18 @@ fn stats_stream_retries_are_bounded_at_three_consecutive_failures() {
 
 #[test]
 fn stats_records_are_batched_by_sample_count_or_elapsed_time() {
+    assert!(should_persist_sample(1, 0, Duration::ZERO));
     assert!(!should_persist_sample(
         PERSIST_EVERY_SAMPLES - 1,
-        0,
+        1,
         PERSIST_INTERVAL / 2,
     ));
     assert!(should_persist_sample(
-        PERSIST_EVERY_SAMPLES,
-        0,
+        PERSIST_EVERY_SAMPLES + 1,
+        1,
         PERSIST_INTERVAL / 2
     ));
-    assert!(should_persist_sample(1, 0, PERSIST_INTERVAL));
+    assert!(should_persist_sample(2, 1, PERSIST_INTERVAL));
     assert!(!should_persist_sample(2, 2, PERSIST_INTERVAL / 2));
 }
 
