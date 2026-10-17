@@ -1,5 +1,5 @@
 use super::support::{
-    Fixture, OPT_IN, container_cleanup, container_id, request, wait_for_stdout, workspace,
+    Fixture, OPT_IN, container_cleanup, container_id, request, wait_for_stdout_with_task, workspace,
 };
 use crate::execution::{
     backend::ExecutionBackend,
@@ -103,8 +103,8 @@ async fn cancelling_one_parallel_task_preserves_the_other_same_named_branch_clon
     let exec_b_request = request_b.clone();
     let running_b =
         tokio::spawn(async move { exec_b_backend.exec(&exec_b_handle, &exec_b_request).await });
-    wait_for_stdout(&backend_a, &handle_a, "task-a-ready").await;
-    wait_for_stdout(&backend_b, &handle_b, "task-b-complete").await;
+    wait_for_stdout_with_task(&backend_a, &handle_a, "task-a-ready", &running_a).await;
+    wait_for_stdout_with_task(&backend_b, &handle_b, "task-b-complete", &running_b).await;
     wait_for_sample(
         backend_a.as_ref(),
         &handle_a,

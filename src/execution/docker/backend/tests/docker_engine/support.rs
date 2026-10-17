@@ -4,14 +4,13 @@ use std::{
     path::PathBuf,
     process::Command,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::execution::{
     backend::{ExecutionBackend, ExecutionHandleV1, WorkspaceLeaseV1},
     contract::{
-        EventPageRequestV1, ExecutionEventKindV1, ExecutionModeV1, ExecutionRequestV1,
-        ExecutionTarget, ResourceBudgetV1, WorkspaceRef,
+        ExecutionModeV1, ExecutionRequestV1, ExecutionTarget, ResourceBudgetV1, WorkspaceRef,
     },
     docker::{
         backend::{DockerExecutionBackend, OwnedTaskWorkspaceResolver},
@@ -20,6 +19,10 @@ use crate::execution::{
     },
     policy::ExecutionPolicyV1,
 };
+
+#[path = "support/stdout.rs"]
+mod stdout;
+pub(super) use stdout::{wait_for_stdout, wait_for_stdout_with_task};
 
 pub(super) const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
 
@@ -204,29 +207,6 @@ pub(super) async fn prepare_and_start(
         .await
         .expect("start isolated container");
     (lease, handle)
-}
-
-pub(super) async fn wait_for_stdout(
-    backend: &DockerExecutionBackend,
-    handle: &ExecutionHandleV1,
-    expected: &str,
-) -> Vec<crate::execution::contract::ExecutionEventV1> {
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            let events = backend
-                .events(handle, EventPageRequestV1::new(0, 256).unwrap())
-                .await
-                .expect("read execution events");
-            if events.iter().any(|event| {
-                matches!(&event.event, ExecutionEventKindV1::Stdout { chunk } if chunk.contains(expected))
-            }) {
-                return events;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .expect("execution did not emit expected stdout")
 }
 
 pub(super) fn now_unix_ms() -> u64 {
