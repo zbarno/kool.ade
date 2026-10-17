@@ -123,12 +123,17 @@ only reads metadata and leaves all candidates `ready_but_untested`; the web
 fixture's build script is never executed. The typed contracts, bounded
 metadata-only discovery, revision-fenced manifest and receipt persistence,
 explicit task target selection and recipe/readiness approval in Task Details,
-capability assessment, Docker-backed build/test dispatch, and a bounded
-start/readiness executor are present. Approval records discrete argv and an
-explicit user-approval reference; it does not launch the recipe. Bounded Docker
-artifact collection now feeds Build/Test and Start/readiness receipts. The
-existing QA artifact snapshot verifies those hashes before uploading only the
-selected files to web preview or desktop sessions. Broker-backed toolchain
+capability assessment, Docker-backed build/test/start dispatch, and a bounded
+start/readiness executor are present. The task queue dispatches Start only
+after the exact Build and any declared Test receipts pass, and requires a passed
+start/readiness receipt before creating the visual QA request. Each receipt is
+bound to the selected target, task, source SHA, and approved recipe. Recipe
+approval records discrete argv and an explicit user-approval reference in the
+shared manifest plus an app-owned local approval record bound to the complete
+recipe and target identity; a shared marker by itself cannot authorize dispatch.
+Approval does not launch the recipe. Bounded Docker artifact collection feeds Build/Test and
+Start/readiness receipts. The existing QA artifact snapshot verifies those
+hashes before uploading only the selected files to web preview or desktop sessions. Broker-backed toolchain
 provisioning and inventory, and headless service evidence remain unintegrated.
 Until those paths land, the application must not present a detected candidate
 as a verified runnable target or claim runtime QA coverage.

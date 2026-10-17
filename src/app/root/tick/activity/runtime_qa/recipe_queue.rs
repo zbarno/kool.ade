@@ -20,7 +20,7 @@ use crate::{
 };
 
 mod candidate;
-use candidate::{approved_candidate, latest_receipt, now_unix_ms, receipt_allows_next};
+use candidate::{approved_candidate, next_operation, now_unix_ms};
 
 type RecipeCandidate = (String, RuntimeOperation, PathBuf, WorkspaceRef, Vec<String>);
 
@@ -45,9 +45,7 @@ pub(crate) fn start(
     let recipe_ids: Vec<&str> = match operation {
         RuntimeOperation::Build => target.build_recipe_ref.iter().map(String::as_str).collect(),
         RuntimeOperation::Test => target.test_recipe_refs.iter().map(String::as_str).collect(),
-        RuntimeOperation::Start => {
-            return Err("start recipes are not dispatched by the build/test queue".into());
-        }
+        RuntimeOperation::Start => target.start_recipe_ref.iter().map(String::as_str).collect(),
     };
     let mut claim_time = store
         .receipts_for_task(&workspace.task_id)
@@ -220,43 +218,26 @@ fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandid
     let receipts = store
         .receipts_for_task(item_uid)
         .map_err(|error| error.to_string())?;
-    let matching = |operation, recipe_id: &str| {
-        latest_receipt(
-            &receipts,
-            operation,
-            &target.target_id,
-            source_sha,
-            recipe_id,
-        )
-    };
-    let Some(build_id) = target.build_recipe_ref.as_deref() else {
+    let Some((operation, recipe_ids)) = next_operation(target, &receipts, source_sha)? else {
         return Ok(None);
     };
-    if let Some(receipt) = matching(RuntimeOperation::Build, build_id) {
-        receipt_allows_next(receipt, "build")?;
-    } else {
-        return approved_candidate(
-            &manifest,
-            target,
-            &implementation.task_repository,
-            workspace,
-            RuntimeOperation::Build,
-            vec![build_id],
-        );
-    }
-    for test_id in &target.test_recipe_refs {
-        if let Some(receipt) = matching(RuntimeOperation::Test, test_id) {
-            receipt_allows_next(receipt, "test")?;
-        } else {
-            return approved_candidate(
-                &manifest,
-                target,
-                &implementation.task_repository,
-                workspace,
-                RuntimeOperation::Test,
-                target.test_recipe_refs.iter().map(String::as_str).collect(),
-            );
+    for recipe_id in &recipe_ids {
+        let recipe = manifest
+            .recipes
+            .iter()
+            .chain(manifest.user_overrides.iter())
+            .find(|recipe| recipe.recipe_id == *recipe_id)
+            .ok_or("approved target recipe is missing")?;
+        if !store.recipe_is_locally_approved(&manifest, target, recipe) {
+            return Ok(None);
         }
     }
-    Ok(None)
+    approved_candidate(
+        &manifest,
+        target,
+        &implementation.task_repository,
+        workspace,
+        operation,
+        recipe_ids.iter().map(String::as_str).collect(),
+    )
 }

@@ -1,5 +1,5 @@
 use super::{
-    artifact_capture_paths, join_workspace_path, receipt_artifact_hashes,
+    artifact_capture_paths, join_workspace_path, next_timestamp, receipt_artifact_hashes,
     validate_manifest_candidate,
 };
 use crate::{
@@ -130,6 +130,24 @@ fn recipe_candidate_requires_exact_task_source_and_user_approval() {
             .to_string()
             .contains("explicit approval")
     );
+
+    let mut forged_adapter = unapproved;
+    forged_adapter.recipes[0].source = RecipeSource::TrustedAdapter;
+    forged_adapter.recipes[0].evidence_refs = vec!["adapter:forged".into()];
+    assert!(
+        validate_manifest_candidate(
+            &forged_adapter,
+            &workspace,
+            "web-app",
+            RuntimeOperation::Build
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn receipt_timestamp_moves_past_a_same_millisecond_running_claim() {
+    assert_eq!(next_timestamp(500, 500), 501);
 }
 
 #[test]

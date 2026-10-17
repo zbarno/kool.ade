@@ -53,9 +53,10 @@ impl WorkspaceSnapshot {
         if scope_root.as_ref().is_some_and(|scope| {
             scope.as_os_str().is_empty()
                 || scope.is_absolute()
-                || scope
-                    .components()
-                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+                || (scope != std::path::Path::new(".")
+                    && scope
+                        .components()
+                        .any(|part| !matches!(part, std::path::Component::Normal(_))))
         }) {
             return Err(failure("Persisted scoped workspace root is invalid"));
         }
@@ -63,10 +64,12 @@ impl WorkspaceSnapshot {
             let path = PathBuf::from(&entry.relative_path);
             archive::validate_relative(&path)
                 .map_err(|_| failure("Persisted workspace baseline is invalid"))?;
-            if scope_root
-                .as_ref()
-                .is_some_and(|scope| !path.starts_with(scope))
-            {
+            let scoped_ancestor = scope_root.as_ref().is_some_and(|scope| {
+                scope != std::path::Path::new(".") && scope.starts_with(&path)
+            });
+            if scope_root.as_ref().is_some_and(|scope| {
+                scope != std::path::Path::new(".") && !path.starts_with(scope) && !scoped_ancestor
+            }) {
                 return Err(failure(
                     "Persisted workspace baseline escapes its scoped write grant",
                 ));
@@ -87,6 +90,11 @@ impl WorkspaceSnapshot {
                     mode: entry.mode,
                 },
             };
+            if scoped_ancestor && fingerprint != archive::Fingerprint::Directory {
+                return Err(failure(
+                    "Persisted scoped workspace ancestor is not a directory",
+                ));
+            }
             if manifest.insert(path, fingerprint).is_some() {
                 return Err(failure(
                     "Persisted workspace baseline contains duplicate paths",
@@ -126,13 +134,30 @@ pub(crate) fn capture_scoped(
     let limit = budget.min(MAX_STAGED_BYTES);
     let mut snapshot = archive::capture(&scope, limit, false, MAX_ENTRIES)
         .map_err(|_| failure("Scoped workspace cannot be staged safely within its size limit"))?;
-    let prefix = PathBuf::from(root_relative);
+    let prefix = if root_relative == "." {
+        PathBuf::new()
+    } else {
+        PathBuf::from(root_relative)
+    };
     snapshot.manifest = snapshot
         .manifest
         .into_iter()
         .map(|(path, fingerprint)| (prefix.join(path), fingerprint))
         .collect();
-    snapshot.scope_root = Some(prefix);
+    let mut ancestor = PathBuf::new();
+    let components = prefix.components().collect::<Vec<_>>();
+    for component in components {
+        ancestor.push(component);
+        snapshot
+            .manifest
+            .insert(ancestor.clone(), archive::Fingerprint::Directory);
+    }
+    if snapshot.manifest.len() > MAX_ENTRIES {
+        return Err(failure(
+            "Scoped workspace has too many entries to stage safely",
+        ));
+    }
+    snapshot.scope_root = Some(PathBuf::from(root_relative));
     Ok(snapshot)
 }
 
@@ -157,7 +182,9 @@ pub(crate) fn synchronize_with_artifacts(
     let parsed = archive::parse_returned(returned_archive, limit, MAX_ENTRIES)
         .map_err(|_| failure("Container returned an invalid or oversized workspace archive"))?;
     let artifacts = collect_parsed_artifacts(&parsed, artifact_paths, limit)?;
-    let entries = if let Some(scope) = &snapshot.scope_root {
+    let entries = if let Some(scope) = &snapshot.scope_root
+        && scope != std::path::Path::new(".")
+    {
         parsed
             .into_iter()
             .map(|(path, entry)| (scope.join(path), entry))
@@ -191,6 +218,11 @@ fn collect_parsed_artifacts(
 }
 
 fn checked_scope(root: &std::path::Path, relative: &str) -> Result<PathBuf, ExecutionError> {
+    if relative == "." {
+        return root
+            .canonicalize()
+            .map_err(|_| failure("Scoped workspace directory is unavailable"));
+    }
     let path = PathBuf::from(relative);
     if relative.is_empty()
         || relative.contains('\\')

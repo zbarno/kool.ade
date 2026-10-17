@@ -216,6 +216,12 @@ async fn wait_for_sample(
         return;
     }
 
+    let durable_sample_count = crate::persistence::execution_records::load(task_id, execution_id)
+        .expect("read durable Docker telemetry after timeout")
+        .map(|record| record.docker_usage.sample_count)
+        .unwrap_or_default();
+    let metric_progress = backend.diagnostic_metrics(handle).unwrap_or_default();
+
     let mut stats = backend.docker.stats(
         &container_id(backend, handle),
         Some(
@@ -251,7 +257,9 @@ async fn wait_for_sample(
             )
         }
     };
-    panic!("Docker did not emit a bounded resource metric sample; {probe}");
+    panic!(
+        "Docker did not emit a bounded resource metric sample; {probe}; durable_sample_count={durable_sample_count}; metrics_progress_mask={metric_progress:#06x}",
+    );
 }
 
 fn init_branch(path: &Path) {

@@ -37,13 +37,10 @@ pub(super) fn approved_candidate(
                 .ok_or("approved target recipe is missing")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if recipes.iter().any(|recipe| {
-        recipe.source != crate::project_runtime::RecipeSource::UserApproved
-            || !recipe
-                .evidence_refs
-                .iter()
-                .any(|reference| reference.starts_with("user-approval:"))
-    }) {
+    if recipes
+        .iter()
+        .any(|recipe| !recipe.is_explicitly_user_approved())
+    {
         return Ok(None);
     }
     let required_tools = recipes
@@ -95,6 +92,63 @@ pub(super) fn receipt_allows_next(
         RuntimeReceiptState::Failed | RuntimeReceiptState::NotApplicable => Err(format!(
             "an immutable failed {operation} receipt exists for this source SHA; revise the recipe or create a fresh task revision before retrying"
         )),
+    }
+}
+
+pub(super) fn next_operation(
+    target: &AppTargetV1,
+    receipts: &[RuntimeReceiptV1],
+    source_sha: &str,
+) -> Result<Option<(RuntimeOperation, Vec<String>)>, String> {
+    let Some(build_id) = target.build_recipe_ref.as_deref() else {
+        return Ok(None);
+    };
+    if let Some(receipt) = latest_receipt(
+        receipts,
+        RuntimeOperation::Build,
+        &target.target_id,
+        source_sha,
+        build_id,
+    ) {
+        receipt_allows_next(receipt, "build")?;
+    } else {
+        return Ok(Some((RuntimeOperation::Build, vec![build_id.to_owned()])));
+    }
+
+    for recipe_id in &target.test_recipe_refs {
+        if let Some(receipt) = latest_receipt(
+            receipts,
+            RuntimeOperation::Test,
+            &target.target_id,
+            source_sha,
+            recipe_id,
+        ) {
+            receipt_allows_next(receipt, "test")?;
+        } else {
+            return Ok(Some((
+                RuntimeOperation::Test,
+                target.test_recipe_refs.clone(),
+            )));
+        }
+    }
+
+    let Some(start_id) = target.start_recipe_ref.as_deref() else {
+        return Ok(None);
+    };
+    if target.readiness_probe_ref.is_none() {
+        return Err("approved runtime target has no readiness probe".into());
+    }
+    if let Some(receipt) = latest_receipt(
+        receipts,
+        RuntimeOperation::Start,
+        &target.target_id,
+        source_sha,
+        start_id,
+    ) {
+        receipt_allows_next(receipt, "start")?;
+        Ok(None)
+    } else {
+        Ok(Some((RuntimeOperation::Start, vec![start_id.to_owned()])))
     }
 }
 

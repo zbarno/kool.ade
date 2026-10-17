@@ -335,6 +335,41 @@ fn scoped_stage_and_sync_cannot_modify_sibling_projects() {
 
 #[cfg(unix)]
 #[test]
+fn scoped_stage_and_sync_supports_an_explicit_project_root_target() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.0).unwrap();
+    fs::write(fixture.0.join("app.txt"), b"original").unwrap();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture_scoped(&workspace, ".", 1024 * 1024).unwrap();
+    assert_eq!(snapshot.scope_root.as_deref(), Some(Path::new(".")));
+    assert!(snapshot.manifest.contains_key(Path::new("app.txt")));
+    let recovered = super::WorkspaceSnapshot::from_record_entries(
+        &snapshot.record_entries(),
+        snapshot.scope_root.clone(),
+    )
+    .unwrap();
+
+    synchronize(
+        &workspace,
+        &recovered,
+        &returned(&[("app.txt", b"updated")]),
+        1024 * 1024,
+    )
+    .unwrap();
+    assert_eq!(fs::read(fixture.0.join("app.txt")).unwrap(), b"updated");
+    assert!(
+        synchronize(
+            &workspace,
+            &recovered,
+            &traversal_returned("../outside.txt", b"escape"),
+            1024 * 1024,
+        )
+        .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn scoped_staging_rejects_symlinked_target_roots() {
     use std::os::unix::fs::symlink;
     let fixture = Fixture::new();

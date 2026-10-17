@@ -2,7 +2,7 @@ use crate::{
     app::session::Project,
     core::lifecycle::TaskRecord,
     execution::docker::images::{ImageLock, RuntimeProfile},
-    project_runtime::{AppSurface, ProjectRuntimeStore, RecipeSource},
+    project_runtime::{AppSurface, ProjectRuntimeStore},
     project_runtime_capability::{
         ApprovedCapabilityInventory, CapabilityGap, assess_manifest_target,
     },
@@ -22,7 +22,8 @@ pub(super) fn unavailable_reason(
     task: &TaskRecord,
     request: &crate::runtime_qa::QaRunRequestV1,
 ) -> Option<String> {
-    let manifest = match ProjectRuntimeStore::new(&project.state.planning_store).load_manifest() {
+    let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
+    let manifest = match runtime.load_manifest() {
         Ok(Some(manifest)) => manifest,
         Ok(None) => {
             return Some(
@@ -123,15 +124,9 @@ pub(super) fn unavailable_reason(
             "the manifest target's startup recipe is missing; restore or approve that exact recipe before retrying QA.".into(),
         );
     };
-    if recipe.source == RecipeSource::ValidatedProjectConfig
-        || (recipe.source == RecipeSource::UserApproved
-            && !recipe
-                .evidence_refs
-                .iter()
-                .any(|reference| reference.starts_with("user-approval:")))
-    {
+    if !runtime.recipe_is_locally_approved(&manifest, target, recipe) {
         return Some(
-            "the startup recipe lacks an explicit user approval or trusted-adapter identity; approve a supported recipe before runtime QA.".into(),
+            "the startup recipe has no matching local approval record; approve that exact recipe before runtime QA.".into(),
         );
     }
 

@@ -89,6 +89,38 @@ impl ExecutionSession {
         timeout: Duration,
         artifact_paths: &[String],
     ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
+        self.start_runtime_process_with_policy_and_artifacts(script, timeout, artifact_paths, None)
+    }
+
+    pub(crate) fn start_scoped_runtime_process_with_artifacts(
+        &self,
+        script: &str,
+        timeout: Duration,
+        root_relative: &str,
+        artifact_paths: &[String],
+    ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
+        let policy = crate::execution::policy::ExecutionPolicyV1::for_scoped_workspace_write(
+            self.mode,
+            self.resources.clone(),
+            root_relative.to_owned(),
+        )
+        .and_then(|policy| policy.with_artifact_paths(artifact_paths.to_vec()))
+        .map_err(|_| policy_error("Scoped runtime process authorization is invalid"))?;
+        self.start_runtime_process_with_policy_and_artifacts(
+            script,
+            timeout,
+            artifact_paths,
+            Some(policy),
+        )
+    }
+
+    fn start_runtime_process_with_policy_and_artifacts(
+        &self,
+        script: &str,
+        timeout: Duration,
+        artifact_paths: &[String],
+        policy_override: Option<crate::execution::policy::ExecutionPolicyV1>,
+    ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
         self.verify_authorization()?;
         if script.len() > crate::execution::contract::MAX_SCRIPT_BYTES
             || script.contains('\0')
@@ -119,7 +151,7 @@ impl ExecutionSession {
             timeout,
             request_sequence: sequence,
             cancellation_generation,
-            policy_override: None,
+            policy_override,
             artifact_paths: artifact_paths.to_vec(),
         });
         let request = match request {

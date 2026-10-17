@@ -40,6 +40,25 @@ fn invalidating_a_manual_provider_keeps_only_stale_diagnostics() {
 }
 
 #[test]
+fn full_refresh_keeps_cached_provider_results_until_each_result_arrives() {
+    let pi = report(true);
+    let mut claude = report(true);
+    claude.id = "claude".into();
+    claude.executable = Some("/example/bin/claude".into());
+    let mut settings = HarnessSettings::default();
+    super::super::discovery::apply_probe_results(&mut settings, &[pi.clone(), claude], None, 1);
+    let before = settings.discovered.clone();
+
+    invalidate_discovery(&mut settings, None);
+
+    assert_eq!(settings.discovered, before);
+    assert!(settings.discovered["pi"].ready);
+    assert!(settings.discovered["pi"].capability_snapshot.is_some());
+    assert!(settings.discovered["claude"].ready);
+    assert!(settings.discovered["claude"].capability_snapshot.is_some());
+}
+
+#[test]
 fn setup_selection_requires_a_valid_current_capability_snapshot() {
     let generation = crate::persistence::harness_settings::current_unix_ms();
     let mut settings = HarnessSettings::default();

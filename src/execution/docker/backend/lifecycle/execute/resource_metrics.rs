@@ -17,12 +17,45 @@ const STATS_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 const PERSIST_EVERY_SAMPLES: u32 = 8;
 const PERSIST_INTERVAL: Duration = Duration::from_secs(5);
 
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_COLLECT_STARTED: u16 = 1 << 0;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_SAMPLE_RECEIVED: u16 = 1 << 1;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_SAMPLE_ACCEPTED: u16 = 1 << 2;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_PERSIST_ATTEMPTED: u16 = 1 << 3;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_PERSISTED: u16 = 1 << 4;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_STREAM_ERROR: u16 = 1 << 5;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_STREAM_ENDED: u16 = 1 << 6;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_STREAM_TIMEOUT: u16 = 1 << 7;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_RETRIES_EXHAUSTED: u16 = 1 << 8;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_TERMINAL: u16 = 1 << 9;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_PERSIST_FAILED: u16 = 1 << 10;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_SAMPLE_LIMIT: u16 = 1 << 11;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_FINAL_PERSIST_ATTEMPTED: u16 = 1 << 12;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_FINAL_PERSISTED: u16 = 1 << 13;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_FINAL_PERSIST_FAILED: u16 = 1 << 14;
+
 pub(super) async fn collect(
     docker: bollard::Docker,
     container_id: String,
     execution: std::sync::Weak<Mutex<RuntimeExecution>>,
     mut stop: oneshot::Receiver<()>,
 ) {
+    #[cfg(test)]
+    mark_diagnostic(&execution, DIAGNOSTIC_COLLECT_STARTED);
     let mut samples = docker.stats(
         &container_id,
         Some(StatsOptionsBuilder::default().stream(true).build()),
@@ -35,8 +68,17 @@ pub(super) async fn collect(
             _ = &mut stop => break,
             next = tokio::time::timeout(STATS_REQUEST_TIMEOUT, samples.next()) => next,
         };
+        #[cfg(test)]
+        let stream_problem = match &next {
+            Ok(Some(Err(_))) => Some(DIAGNOSTIC_STREAM_ERROR),
+            Ok(None) => Some(DIAGNOSTIC_STREAM_ENDED),
+            Err(_) => Some(DIAGNOSTIC_STREAM_TIMEOUT),
+            Ok(Some(Ok(_))) => None,
+        };
         match next {
             Ok(Some(Ok(sample))) => {
+                #[cfg(test)]
+                mark_diagnostic(&execution, DIAGNOSTIC_SAMPLE_RECEIVED);
                 consecutive_failures = 0;
                 let Some(execution) = execution.upgrade() else {
                     break;
@@ -44,33 +86,67 @@ pub(super) async fn collect(
                 let Ok(mut state) = execution.lock() else {
                     break;
                 };
-                if state.terminal || state.docker_usage.sample_count >= MAX_RESOURCE_SAMPLES {
+                if state.terminal {
+                    #[cfg(test)]
+                    state
+                        .diagnostic_metrics
+                        .fetch_or(DIAGNOSTIC_TERMINAL, std::sync::atomic::Ordering::Relaxed);
+                    break;
+                }
+                if state.docker_usage.sample_count >= MAX_RESOURCE_SAMPLES {
+                    #[cfg(test)]
+                    state.diagnostic_metrics.fetch_or(
+                        DIAGNOSTIC_SAMPLE_LIMIT,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                     break;
                 }
                 let Some(usage) = merge_sample(&state.docker_usage, &sample) else {
                     continue;
                 };
+                #[cfg(test)]
+                state.diagnostic_metrics.fetch_or(
+                    DIAGNOSTIC_SAMPLE_ACCEPTED,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 state.docker_usage = usage;
                 if should_persist_sample(
                     state.docker_usage.sample_count,
                     persisted_sample_count,
                     last_persisted_at.elapsed(),
                 ) {
-                    if persist_pending_samples(
+                    #[cfg(test)]
+                    state.diagnostic_metrics.fetch_or(
+                        DIAGNOSTIC_PERSIST_ATTEMPTED,
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    let persisted = persist_pending_samples(
                         state.docker_usage.sample_count,
                         &mut persisted_sample_count,
                         || state.persist(),
-                    )
-                    .is_err()
-                    {
+                    );
+                    #[cfg(test)]
+                    state.diagnostic_metrics.fetch_or(
+                        if persisted.is_ok() {
+                            DIAGNOSTIC_PERSISTED
+                        } else {
+                            DIAGNOSTIC_PERSIST_FAILED
+                        },
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    if persisted.is_err() {
                         break;
                     }
                     last_persisted_at = Instant::now();
                 }
             }
             Ok(Some(Err(_))) | Ok(None) | Err(_) => {
+                #[cfg(test)]
+                mark_diagnostic(&execution, stream_problem.expect("failure progress flag"));
                 consecutive_failures = consecutive_failures.saturating_add(1);
                 if stream_retry_exhausted(consecutive_failures) {
+                    #[cfg(test)]
+                    mark_diagnostic(&execution, DIAGNOSTIC_RETRIES_EXHAUSTED);
                     break;
                 }
                 // Docker stats streams can be interrupted during a daemon
@@ -93,11 +169,49 @@ pub(super) async fn collect(
     if let Some(execution) = execution.upgrade()
         && let Ok(state) = execution.lock()
     {
+        #[cfg(test)]
+        let pending_samples = state.docker_usage.sample_count > persisted_sample_count;
+        #[cfg(test)]
+        if pending_samples {
+            state.diagnostic_metrics.fetch_or(
+                DIAGNOSTIC_FINAL_PERSIST_ATTEMPTED,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+        #[cfg(test)]
+        let persisted = persist_pending_samples(
+            state.docker_usage.sample_count,
+            &mut persisted_sample_count,
+            || state.persist(),
+        );
+        #[cfg(not(test))]
         let _ = persist_pending_samples(
             state.docker_usage.sample_count,
             &mut persisted_sample_count,
             || state.persist(),
         );
+        #[cfg(test)]
+        if pending_samples {
+            state.diagnostic_metrics.fetch_or(
+                if persisted.is_ok() {
+                    DIAGNOSTIC_FINAL_PERSISTED
+                } else {
+                    DIAGNOSTIC_FINAL_PERSIST_FAILED
+                },
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+fn mark_diagnostic(execution: &std::sync::Weak<Mutex<RuntimeExecution>>, progress: u16) {
+    if let Some(execution) = execution.upgrade()
+        && let Ok(state) = execution.lock()
+    {
+        state
+            .diagnostic_metrics
+            .fetch_or(progress, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

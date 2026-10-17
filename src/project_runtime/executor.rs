@@ -3,8 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use crate::{
     execution::session::ExecutionSession,
     project_runtime::{
-        AppSurface, ProjectRuntimeStore, RecipeSource, RuntimeOperation, RuntimeReceiptState,
-        RuntimeReceiptV1,
+        AppSurface, ProjectRuntimeStore, RuntimeOperation, RuntimeReceiptState, RuntimeReceiptV1,
     },
 };
 
@@ -64,6 +63,8 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .map(|path| join_workspace_path(&target.project_relative_root, path))
                 .collect::<anyhow::Result<_>>()?;
             let output = match session.run_scoped_recipe_with_artifacts(
+                self.store,
+                &target.target_id,
                 &recipe,
                 &target.project_relative_root,
                 &capture_paths,
@@ -152,6 +153,24 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
             .ok_or_else(|| anyhow::anyhow!("project runtime manifest is missing"))?;
         let target =
             validate_manifest_candidate(&manifest, session.workspace(), target_id, operation)?;
+        let recipe_ids = match operation {
+            RuntimeOperation::Build => target.build_recipe_ref.iter().collect::<Vec<_>>(),
+            RuntimeOperation::Test => target.test_recipe_refs.iter().collect::<Vec<_>>(),
+            RuntimeOperation::Start => target.start_recipe_ref.iter().collect::<Vec<_>>(),
+        };
+        for recipe_id in recipe_ids {
+            let recipe = manifest
+                .recipes
+                .iter()
+                .chain(manifest.user_overrides.iter())
+                .find(|recipe| recipe.recipe_id == recipe_id.as_str())
+                .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
+            anyhow::ensure!(
+                self.store
+                    .recipe_is_locally_approved(&manifest, &target, recipe),
+                "project recipe has no matching local approval record"
+            );
+        }
         Ok((manifest, target))
     }
 }
@@ -205,12 +224,7 @@ fn validate_manifest_candidate(
             .find(|recipe| recipe.recipe_id == recipe_id.as_str())
             .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
         anyhow::ensure!(
-            matches!(recipe.source, RecipeSource::TrustedAdapter)
-                || (recipe.source == RecipeSource::UserApproved
-                    && recipe
-                        .evidence_refs
-                        .iter()
-                        .any(|reference| reference.starts_with("user-approval:"))),
+            recipe.is_explicitly_user_approved(),
             "project metadata recipes require explicit approval before execution"
         );
     }
@@ -253,7 +267,11 @@ fn next_receipt_timestamp(store: &ProjectRuntimeStore<'_>, task_id: &str) -> any
         .map(|receipt| receipt.observed_at_unix_ms)
         .max()
         .unwrap_or_default();
-    Ok(now_unix_ms().max(latest.saturating_add(1)))
+    Ok(next_timestamp(now_unix_ms(), latest))
+}
+
+fn next_timestamp(now: u64, latest: u64) -> u64 {
+    now.max(latest.saturating_add(1))
 }
 
 #[cfg(test)]

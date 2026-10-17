@@ -25,7 +25,18 @@ fn scoped_write_grant_is_typed_relative_and_default_denied() {
         "apps/web"
     );
     assert!(valid.validate().is_ok());
-    for invalid in [".", "", "../outside", "apps/../outside", "/tmp/outside"] {
+    let project_root = ExecutionPolicyV1::for_scoped_workspace_write(
+        ExecutionModeV1::Verification,
+        budget(1024 * 1024 * 1024, 2000),
+        ".".into(),
+    )
+    .unwrap();
+    assert_eq!(
+        project_root.workspace_write_scope().unwrap().root_relative,
+        "."
+    );
+    assert!(project_root.validate().is_ok());
+    for invalid in ["", "../outside", "apps/../outside", "/tmp/outside"] {
         assert!(
             ExecutionPolicyV1::for_scoped_workspace_write(
                 ExecutionModeV1::Verification,
