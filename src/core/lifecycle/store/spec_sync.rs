@@ -91,6 +91,9 @@ pub(super) fn record_approved_plan_revision(
         &feature.feature_uid,
         expected_sequence,
         SpecRevisionDraftV1 {
+            no_change_reason: Some(
+                "Application policy recorded the approved plan and task-graph bookkeeping against the unchanged rendered product specification; this transition establishes no implementation or product-text change.".into(),
+            ),
             content_hash,
             source_revision: feature.revision,
             produced_by_run_id: None,

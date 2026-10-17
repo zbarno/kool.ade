@@ -2,8 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use super::types::{is_git_oid, is_sha256, is_uuid};
 mod delta;
+mod origin;
 mod product;
 pub use delta::*;
+pub use origin::*;
 pub use product::*;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -53,6 +55,10 @@ pub struct SpecRevisionDraftV1 {
     pub implementation_head_sha: Option<String>,
     pub reconciliation_status: SpecReconciliationStatusV1,
     pub outcome_reason: Option<String>,
+    /// Required for a successful empty-delta result. It describes why the
+    /// application policy accepted no specification change for these origins.
+    #[serde(default)]
+    pub no_change_reason: Option<String>,
     pub deltas: Vec<SpecDeltaRecordV1>,
 }
 

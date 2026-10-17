@@ -28,6 +28,10 @@ fn multiple_proposals_can_be_adopted_or_declined_without_losing_prior_consent() 
                 &proposal.feature_uid,
                 current.seq,
                 SpecRevisionDraftV1 {
+                    no_change_reason: Some(
+                        "Synthetic fixture records an explicit unchanged-specification result."
+                            .into(),
+                    ),
                     content_hash: current.content_hash,
                     source_revision: current.source_revision,
                     produced_by_run_id: None,

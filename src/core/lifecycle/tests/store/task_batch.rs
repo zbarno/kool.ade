@@ -24,6 +24,9 @@ fn record_approved_spec_baseline(lifecycle: &LifecycleStore<'_>, feature_uid: &s
             feature_uid,
             0,
             crate::core::lifecycle::SpecRevisionDraftV1 {
+                no_change_reason: Some(
+                    "Synthetic fixture records an explicit unchanged-specification result.".into(),
+                ),
                 content_hash: crate::core::lifecycle::product_spec::current_product_hash(
                     lifecycle.store,
                 )

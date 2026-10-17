@@ -39,6 +39,9 @@ pub(super) fn append_current_revision(
             feature_uid,
             expected_sequence,
             SpecRevisionDraftV1 {
+                no_change_reason: Some(
+                    "Synthetic fixture records an explicit unchanged-specification result.".into(),
+                ),
                 content_hash,
                 source_revision: feature.revision,
                 produced_by_run_id: None,

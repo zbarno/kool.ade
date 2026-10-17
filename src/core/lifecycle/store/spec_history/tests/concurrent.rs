@@ -54,4 +54,23 @@ fn concurrent_distinct_revisions_cannot_overwrite_each_other() {
             .len(),
         1
     );
+    let lifecycle = LifecycleStore::new(&store);
+    let dispositions = lifecycle
+        .specification_origin_dispositions(&feature_uid, 1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(dispositions.len(), 1);
+    let winning_origin = &dispositions[0].origin_event_uid;
+    let queue = lifecycle.list_spec_sync_queue(&feature_uid, true).unwrap();
+    assert_eq!(
+        queue
+            .iter()
+            .filter(|entry| entry.status == SpecSyncQueueStatusV1::Completed)
+            .count(),
+        1
+    );
+    assert!(
+        queue.iter().any(|entry| &entry.uid == winning_origin
+            && entry.status == SpecSyncQueueStatusV1::Completed)
+    );
 }

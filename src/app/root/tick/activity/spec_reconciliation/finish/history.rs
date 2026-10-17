@@ -136,6 +136,9 @@ fn record_internal(
         })
         .and_then(|_| task.reviewed_code_head_sha.clone());
     let draft = SpecRevisionDraftV1 {
+        no_change_reason: proposal.filter(|proposal| proposal.deltas.is_empty()).map(|_| {
+            "Application policy accepted the validated SpecReconciler's empty delta result for the exact current specification, reviewed task, QA and included lifecycle origins; no requirement change was proposed.".into()
+        }),
         content_hash: crate::core::lifecycle::product_spec::current_product_hash(
             &project.state.planning_store,
         )

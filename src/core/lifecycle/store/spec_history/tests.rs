@@ -11,6 +11,8 @@ use sha2::Digest as _;
 mod concurrent;
 #[path = "tests/manual_refresh.rs"]
 mod manual_refresh;
+#[path = "tests/origins.rs"]
+mod origins;
 #[path = "tests/reverse_references.rs"]
 mod reverse_references;
 #[path = "tests/traceability.rs"]
@@ -81,6 +83,9 @@ impl Fixture {
             sha2::Sha256::digest(serde_json::to_vec(&Some(spec)).unwrap())
         );
         SpecRevisionDraftV1 {
+            no_change_reason: Some(
+                "Synthetic fixture records an explicit unchanged-specification result.".into(),
+            ),
             content_hash,
             source_revision: feature_revision,
             produced_by_run_id: None,
