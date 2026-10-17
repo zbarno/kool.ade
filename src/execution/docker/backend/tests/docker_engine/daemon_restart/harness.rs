@@ -68,11 +68,11 @@ impl IsolatedRootlessDaemon {
             .env("DBUS_SESSION_BUS_ADDRESS", dbus_address)
             .env(
                 "DOCKERD_ROOTLESS_ROOTLESSKIT_STATE_DIR",
-                self.root.join("rootlesskit"),
+                self.runtime.join("rootlesskit"),
             )
             .env(
                 "CONTAINERD_ROOTLESS_ROOTLESSKIT_STATE_DIR",
-                self.root.join("containerd-rootlesskit"),
+                self.runtime.join("containerd-rootlesskit"),
             )
             .stdin(Stdio::null())
             .stdout(Stdio::from(log.try_clone().unwrap()))
@@ -122,7 +122,8 @@ impl IsolatedRootlessDaemon {
             "the isolated rootless daemon process group did not terminate"
         );
         let _ = fs::remove_file(&self.socket);
-        let _ = fs::remove_dir_all(self.root.join("rootlesskit"));
+        let _ = fs::remove_dir_all(self.runtime.join("rootlesskit"));
+        let _ = fs::remove_dir_all(self.runtime.join("containerd-rootlesskit"));
         let _ = fs::remove_dir_all(self.runtime.join("docker"));
         self.launch().await;
     }
