@@ -61,7 +61,24 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
                 target.app_surface, target.project_relative_root
             ),
             selected: manifest.is_active_target(&identity.uid, &target.target_id),
-            state: format!("{:?}", target.capability_state),
+            state: if target
+                .build_recipe_ref
+                .iter()
+                .chain(target.test_recipe_refs.iter())
+                .chain(target.start_recipe_ref.iter())
+                .filter_map(|id| {
+                    manifest
+                        .recipes
+                        .iter()
+                        .chain(manifest.user_overrides.iter())
+                        .find(|recipe| recipe.recipe_id == *id)
+                })
+                .any(|recipe| !store.recipe_is_locally_approved(&manifest, target, recipe))
+            {
+                "UnauthorizedRecipe".into()
+            } else {
+                format!("{:?}", target.capability_state)
+            },
             recipes: [
                 target
                     .build_recipe_ref

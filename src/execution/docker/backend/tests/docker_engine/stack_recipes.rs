@@ -1,12 +1,17 @@
 use std::{fs, process::Command, sync::Arc};
 
 use crate::{
+    artifacts::planning_store::PlanningStore,
     execution::{
         contract::{ExecutionModeV1, ExecutionTarget, ResourceBudgetV1},
         docker::images::{ImageLock, RuntimeProfile},
+        errors::ExecutionErrorKind,
         session::ExecutionSession,
     },
-    project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource},
+    project_runtime::{
+        DiscoveryContext, ExecutionRecipeV1, NetworkRequirement, ProjectRuntimeStore,
+        ReadinessProbeV1, RecipeSource, RuntimeOperation,
+    },
 };
 
 use super::support::{Fixture, backend, workspace};
@@ -30,7 +35,33 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
         let fixture = Fixture::new();
         let workspace = workspace();
         let (docker, clone) = backend(&fixture, workspace.clone());
-        write_stack_fixture(&clone, tool);
+        write_stack_fixture(&clone.join("apps/web"), tool);
+        let planning = PlanningStore::legacy_embedded(
+            uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
+            &fixture.root,
+        );
+        let runtime_store = ProjectRuntimeStore::new(&planning);
+        let context = DiscoveryContext {
+            workspace_id: workspace.project_id.clone(),
+            repository_id: "integration-repository".into(),
+            owning_task_id: workspace.task_id.clone(),
+            source_sha: workspace.source_sha.clone(),
+        };
+        let manifest = runtime_store
+            .discover_and_save(&clone, &context, 0)
+            .expect("test project capability discovery");
+        let discovered_target = manifest
+            .candidate_targets
+            .first()
+            .expect("stack fixture metadata should produce a runtime target");
+        let target_id = discovered_target.target_id.clone();
+        let mut manifest = runtime_store
+            .select_target_and_save(&workspace.task_id, &target_id, manifest.revision)
+            .expect("select integration target");
+        assert_eq!(
+            manifest.candidate_targets[0].project_relative_root,
+            "apps/web"
+        );
         let image = lock
             .select(profile, native_docker_arch())
             .expect("profile image for host architecture");
@@ -44,10 +75,40 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
             ResourceBudgetV1::default(),
         )
         .expect("bounded recipe session");
-        for recipe in [build, test, start] {
+        for (operation, recipe) in [
+            (RuntimeOperation::Build, build),
+            (RuntimeOperation::Test, test),
+            (RuntimeOperation::Start, start),
+        ] {
+            manifest = if operation == RuntimeOperation::Start {
+                runtime_store
+                    .approve_recipe_with_readiness_and_save(
+                        &target_id,
+                        operation,
+                        recipe.clone(),
+                        Some(ReadinessProbeV1::ProcessAlive {
+                            executable_id: recipe.executable_id.clone(),
+                        }),
+                        manifest.revision,
+                    )
+                    .expect("explicitly approve start recipe and probe")
+            } else {
+                runtime_store
+                    .approve_recipe_and_save(
+                        &target_id,
+                        operation,
+                        recipe.clone(),
+                        manifest.revision,
+                    )
+                    .expect("explicitly approve stack recipe")
+            };
             recipe.validate().expect("approved recipe contract");
+            let widened_root = session
+                .run_scoped_recipe(&runtime_store, &target_id, &recipe, ".")
+                .expect_err("a broader caller-selected root must be denied");
+            assert_eq!(widened_root.kind, ExecutionErrorKind::PolicyDenied);
             let output = session
-                .run_recipe(&recipe)
+                .run_recipe(&runtime_store, &target_id, &recipe)
                 .unwrap_or_else(|error| panic!("{} recipe failed: {error}", recipe.recipe_id));
             assert_eq!(
                 output.result.exit_code,
@@ -163,6 +224,10 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "node" => &[
+            (
+                "package.json",
+                "{\"name\":\"stack_fixture\",\"private\":true}\n",
+            ),
             ("app.js", "console.log('STARTED');\n"),
             (
                 "app.test.js",
@@ -170,6 +235,10 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "python" => &[
+            (
+                "pyproject.toml",
+                "[project]\nname = \"stack-fixture\"\nversion = \"0.1.0\"\n",
+            ),
             (
                 "app.py",
                 "def main(): print('STARTED')\nif __name__ == '__main__': main()\n",

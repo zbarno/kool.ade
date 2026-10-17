@@ -1,13 +1,12 @@
 use std::{collections::BTreeMap, time::Duration};
 
 mod artifacts;
-use artifacts::{build_artifacts, failed_start, receipt};
+use artifacts::{ReceiptData, build_artifacts, failed_start, receipt};
 
 use crate::{
     execution::session::ExecutionSession,
     project_runtime::{
-        ProjectCapabilityManifestV1, ProjectRuntimeStore, RecipeSource, RuntimeReceiptV1,
-        TargetCapabilityState,
+        ProjectCapabilityManifestV1, ProjectRuntimeStore, RuntimeReceiptV1, TargetCapabilityState,
     },
 };
 
@@ -20,10 +19,7 @@ pub(super) fn execute(
     manifest: &ProjectCapabilityManifestV1,
     target: &super::super::AppTargetV1,
 ) -> anyhow::Result<Vec<RuntimeReceiptV1>> {
-    anyhow::ensure!(
-        target.capability_state == TargetCapabilityState::Ready,
-        "runtime target is not approved as ready to start"
-    );
+    require_startable_state(&target.capability_state)?;
     let recipe_id = target
         .start_recipe_ref
         .as_deref()
@@ -39,10 +35,7 @@ pub(super) fn execute(
         .find(|recipe| recipe.recipe_id.as_str() == recipe_id)
         .ok_or_else(|| anyhow::anyhow!("runtime start recipe is missing"))?;
     anyhow::ensure!(
-        matches!(
-            recipe.source,
-            RecipeSource::UserApproved | RecipeSource::TrustedAdapter
-        ),
+        store.recipe_is_locally_approved(manifest, target, recipe),
         "project metadata recipes require explicit approval before execution"
     );
     let probe = manifest
@@ -52,6 +45,18 @@ pub(super) fn execute(
     probe
         .validate()
         .map_err(|_| anyhow::anyhow!("runtime readiness probe failed validation"))?;
+    if let crate::project_runtime::ReadinessProbeV1::CustomApprovedProbe { recipe_id } = probe {
+        let probe_recipe = manifest
+            .recipes
+            .iter()
+            .chain(manifest.user_overrides.iter())
+            .find(|candidate| candidate.recipe_id == *recipe_id)
+            .ok_or_else(|| anyhow::anyhow!("custom readiness recipe is missing"))?;
+        anyhow::ensure!(
+            store.recipe_is_locally_approved(manifest, target, probe_recipe),
+            "custom readiness recipe requires a local approval record"
+        );
+    }
     let receipts = store.receipts_for_task(&session.workspace().task_id)?;
     let Some(build_artifacts) =
         build_artifacts(manifest, target, &receipts, &session.workspace().source_sha)?
@@ -62,29 +67,44 @@ pub(super) fn execute(
     let build_hashes = build_artifacts.hashes;
     let script = start_script(manifest, target, recipe, probe)?;
     let timeout = Duration::from_secs(recipe.timeout_seconds.min(MAX_START_SECONDS));
-    let (output, process) =
-        match session.start_runtime_process_with_artifacts(&script, timeout, &artifact_paths) {
-            Ok(result) => result,
-            Err(_) => {
-                let receipt = receipt(
-                    session,
-                    target,
-                    recipe.recipe_id.clone(),
-                    None,
-                    None,
-                    BTreeMap::new(),
-                    false,
-                );
-                store.append_receipt(&receipt)?;
-                return Ok(vec![receipt]);
-            }
-        };
+    let (output, process) = match session.start_scoped_runtime_process_with_artifacts(
+        &script,
+        timeout,
+        &target.project_relative_root,
+        &artifact_paths,
+    ) {
+        Ok(result) => result,
+        Err(_) => {
+            let receipt = receipt(
+                session,
+                target,
+                ReceiptData {
+                    recipe_id: recipe.recipe_id.clone(),
+                    exit_code: None,
+                    log_reference: None,
+                    artifact_hashes: BTreeMap::new(),
+                    passed: false,
+                    observed_at_unix_ms: super::next_receipt_timestamp(
+                        store,
+                        &session.workspace().task_id,
+                    )?,
+                },
+            );
+            store.append_receipt(&receipt)?;
+            return Ok(vec![receipt]);
+        }
+    };
     let observed_hashes = output
         .result
         .artifacts
         .iter()
-        .map(|artifact| (artifact.relative_path.clone(), artifact.sha256.clone()))
-        .collect::<BTreeMap<_, _>>();
+        .map(|artifact| {
+            Ok((
+                super::join_workspace_path(&target.project_relative_root, &artifact.relative_path)?,
+                artifact.sha256.clone(),
+            ))
+        })
+        .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
     let passed = process.is_some()
         && output.result.exit_code == Some(0)
         && !output.result.cancelled
@@ -94,11 +114,17 @@ pub(super) fn execute(
     let receipt = receipt(
         session,
         target,
-        recipe.recipe_id.clone(),
-        output.result.exit_code,
-        Some(output.result.execution_id),
-        observed_hashes,
-        passed,
+        ReceiptData {
+            recipe_id: recipe.recipe_id.clone(),
+            exit_code: output.result.exit_code,
+            log_reference: Some(output.result.execution_id),
+            artifact_hashes: observed_hashes,
+            passed,
+            observed_at_unix_ms: super::next_receipt_timestamp(
+                store,
+                &session.workspace().task_id,
+            )?,
+        },
     );
     if !passed {
         if let Some(process) = process {
@@ -116,20 +142,30 @@ pub(super) fn execute(
     Ok(vec![receipt])
 }
 
+fn require_startable_state(state: &TargetCapabilityState) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        matches!(
+            state,
+            TargetCapabilityState::Ready | TargetCapabilityState::ReadyButUntested
+        ),
+        "runtime target is not approved as ready to start"
+    );
+    Ok(())
+}
+
 fn start_script(
     manifest: &ProjectCapabilityManifestV1,
     target: &super::super::AppTargetV1,
     start: &crate::project_runtime::ExecutionRecipeV1,
     probe: &crate::project_runtime::ReadinessProbeV1,
 ) -> anyhow::Result<String> {
-    let project_root = &target.project_relative_root;
-    let start_directory =
-        super::join_workspace_path(project_root, &start.working_directory_relative)?;
+    let project_root = ".";
+    let start_directory = &start.working_directory_relative;
     let start_command = shell_argv(&start.executable_id, &start.argv);
     let readiness = readiness_command(manifest, target, probe)?;
     let launch = format!(
         "(cd {} && exec {})",
-        shell_quote(&start_directory),
+        shell_quote(start_directory),
         start_command
     );
     Ok(format!(
@@ -180,19 +216,12 @@ fn readiness_command(
                 .find(|recipe| recipe.recipe_id.as_str() == recipe_id.as_str())
                 .ok_or_else(|| anyhow::anyhow!("custom readiness recipe is missing"))?;
             anyhow::ensure!(
-                matches!(
-                    recipe.source,
-                    RecipeSource::UserApproved | RecipeSource::TrustedAdapter
-                ),
+                recipe.is_explicitly_user_approved(),
                 "custom readiness recipe requires explicit approval"
             );
-            let directory = super::join_workspace_path(
-                &target.project_relative_root,
-                &recipe.working_directory_relative,
-            )?;
             Ok(format!(
                 "(cd {} && {}) >/dev/null 2>&1",
-                shell_quote(&directory),
+                shell_quote(&recipe.working_directory_relative),
                 shell_argv(&recipe.executable_id, &recipe.argv)
             ))
         }

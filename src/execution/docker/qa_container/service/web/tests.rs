@@ -20,7 +20,7 @@ fn fixture() -> (
     let recipe = ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "python-preview".into(),
-        source: RecipeSource::TrustedAdapter,
+        source: RecipeSource::UserApproved,
         working_directory_relative: ".".into(),
         executable_id: "python3".into(),
         argv: vec!["/workspace/server.py".into()],
@@ -32,7 +32,7 @@ fn fixture() -> (
         cache_scope: None,
         prerequisite_tool_ids: vec!["python3".into()],
         network_requirement: NetworkRequirement::ApprovedServicePorts,
-        evidence_refs: vec!["fixture:python-web-server".into()],
+        evidence_refs: vec!["user-approval:fixture-python-web-server".into()],
     };
     let recipe_bytes = serde_json::to_vec(&recipe).unwrap();
     let recipe_sha = format!("{:x}", sha2::Sha256::digest(recipe_bytes));

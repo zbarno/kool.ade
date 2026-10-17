@@ -1,11 +1,11 @@
 use super::*;
-use crate::project_runtime::{RuntimeOperation, RuntimeReceiptState};
+use crate::project_runtime::{RecipeSource, RuntimeOperation, RuntimeReceiptState};
 
 fn recipe() -> crate::project_runtime::ExecutionRecipeV1 {
     crate::project_runtime::ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "start-web".into(),
-        source: RecipeSource::TrustedAdapter,
+        source: RecipeSource::UserApproved,
         working_directory_relative: "packages/web".into(),
         executable_id: "npm".into(),
         argv: vec![
@@ -22,7 +22,7 @@ fn recipe() -> crate::project_runtime::ExecutionRecipeV1 {
         cache_scope: None,
         prerequisite_tool_ids: Vec::new(),
         network_requirement: crate::project_runtime::NetworkRequirement::Denied,
-        evidence_refs: Vec::new(),
+        evidence_refs: vec!["user-approval:test-fixture".into()],
     }
 }
 
@@ -111,7 +111,7 @@ fn start_requires_a_build_receipt_matching_target_source_and_artifact_spec() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(selected.paths, ["apps/dist/index.html"]);
+    assert_eq!(selected.paths, ["dist/index.html"]);
     assert_eq!(selected.hashes["apps/dist/index.html"], "b".repeat(64));
     assert!(
         build_artifacts(
@@ -192,7 +192,7 @@ fn start_uses_build_recipe_outputs_when_the_target_has_no_artifact_spec() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(selected.paths, ["apps/dist/index.html"]);
+    assert_eq!(selected.paths, ["dist/index.html"]);
 }
 
 #[test]
@@ -206,9 +206,9 @@ fn start_script_scopes_working_directory_quotes_argv_and_leaves_process_running(
     )
     .unwrap();
 
-    assert!(script.contains("cd 'apps' || exit 70"));
+    assert!(script.contains("cd '.' || exit 70"));
     assert!(script.contains(
-        "cd 'apps/packages/web' && exec 'npm' 'run' 'start' '$(touch /tmp/host)' 'it'\\''s quoted'"
+        "cd 'packages/web' && exec 'npm' 'run' 'start' '$(touch /tmp/host)' 'it'\\''s quoted'"
     ));
     assert!(!script.contains("trap cleanup"));
     assert!(!script.contains("kill -TERM \"$pid\""));
@@ -276,7 +276,7 @@ fn custom_readiness_uses_only_a_declared_approved_recipe_in_the_workspace() {
         recipe_id: "probe-web".into(),
     };
     let command = readiness_command(&manifest, &manifest.candidate_targets[0], &probe).unwrap();
-    assert!(command.contains("cd 'apps/tools' && 'python3' 'runtime_probe.py'"));
+    assert!(command.contains("cd 'tools' && 'python3' 'runtime_probe.py'"));
 }
 
 #[test]
@@ -286,4 +286,10 @@ fn process_probe_must_match_the_approved_start_executable() {
         executable_id: "node".into(),
     };
     assert!(readiness_command(&manifest, &manifest.candidate_targets[0], &probe).is_err());
+}
+
+#[test]
+fn start_can_prove_a_discovered_target_is_ready() {
+    assert!(require_startable_state(&TargetCapabilityState::ReadyButUntested).is_ok());
+    assert!(require_startable_state(&TargetCapabilityState::MissingToolchain).is_err());
 }

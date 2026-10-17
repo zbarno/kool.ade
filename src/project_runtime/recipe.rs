@@ -42,6 +42,15 @@ pub struct ExecutionRecipeV1 {
 }
 
 impl ExecutionRecipeV1 {
+    pub fn is_explicitly_user_approved(&self) -> bool {
+        self.source == RecipeSource::UserApproved
+            && self.evidence_refs.iter().any(|reference| {
+                reference
+                    .strip_prefix("user-approval:")
+                    .is_some_and(|receipt| !receipt.trim().is_empty())
+            })
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 || !valid_id(&self.recipe_id) {
             return Err("recipe version or identifier is invalid".into());
@@ -86,12 +95,7 @@ impl ExecutionRecipeV1 {
         {
             return Err("recipe evidence references are invalid".into());
         }
-        if self.source == RecipeSource::UserApproved
-            && !self
-                .evidence_refs
-                .iter()
-                .any(|reference| reference.starts_with("user-approval:"))
-        {
+        if self.source == RecipeSource::UserApproved && !self.is_explicitly_user_approved() {
             return Err("user-approved recipes must reference an explicit approval receipt".into());
         }
         Ok(())
