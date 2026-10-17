@@ -217,6 +217,7 @@ pub(super) fn connect_session_with_ids(
                 temporary_disk_bytes: 1024 * 1024 * 1024,
                 output_bytes: 1024 * 1024,
             },
+            destination_sha: None,
             authorization_verifier: Some(authorization_verifier),
             task_clone: Some(task_clone),
         },

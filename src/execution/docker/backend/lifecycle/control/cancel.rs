@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bollard::query_parameters::InspectContainerOptionsBuilder;
 
@@ -40,7 +40,8 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
     else {
         super::super::recovery::mark_interrupted(
             &mut record,
-            true,
+            false,
+            None,
             "Execution container identity was lost before cancellation",
         )?;
         return Err(super::disconnected());
@@ -67,6 +68,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
             .unwrap_or_default(),
     )?;
     let request = record.request.as_ref().ok_or_else(super::disconnected)?;
+    let stage_out_expected = super::super::execute::workspace_stage_out_enabled(request);
     let workspace_path = backend.resolver.resolve_owned_clone(&request.workspace)?;
     let workspace =
         crate::execution::docker::sandbox::ValidatedWorkspace::inspect(&workspace_path)?;
@@ -90,28 +92,40 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_persisted(
                 false,
             )
         })?;
-    if let Err(error) = super::super::execute::terminate_and_sync(
+    let stage_out_started = Instant::now();
+    let synchronized = super::super::execute::terminate_and_sync(
         backend,
         container_id,
         &workspace,
         Some(&snapshot),
         request,
     )
-    .await
-    {
-        super::super::recovery::mark_interrupted(
-            &mut record,
-            true,
-            "Cancellation could not preserve the workspace; task clone was retained",
-        )?;
-        return Err(error);
+    .await;
+    let stage_out_ms = super::elapsed_millis(stage_out_started);
+    if stage_out_expected {
+        record.phase_timings.workspace_stage_out_ms = Some(stage_out_ms);
     }
-    mark_cancelled(&mut record)?;
+    let artifacts = match synchronized {
+        Ok(artifacts) => artifacts,
+        Err(error) => {
+            super::super::recovery::mark_interrupted(
+                &mut record,
+                false,
+                None,
+                "Cancellation could not preserve the workspace; task clone was retained",
+            )?;
+            return Err(error);
+        }
+    };
+    mark_cancelled(&mut record, artifacts)?;
     execution_records::save(&record)
         .map_err(|_| super::internal_error_with_context("persisting cancelled execution state"))
 }
 
-fn mark_cancelled(record: &mut ExecutionRecordV1) -> Result<(), ExecutionError> {
+fn mark_cancelled(
+    record: &mut ExecutionRecordV1,
+    artifacts: Vec<crate::execution::contract::ArtifactManifestEntryV1>,
+) -> Result<(), ExecutionError> {
     let now = crate::execution::docker::backend::now_unix_ms().max(record.started_at_unix_ms);
     let cursor = execution_records::journal_cursor(&record.task_id, &record.execution_id)
         .map_err(|_| super::internal_error_with_context("reading the cancellation event cursor"))?;
@@ -153,13 +167,20 @@ fn mark_cancelled(record: &mut ExecutionRecordV1) -> Result<(), ExecutionError> 
     record.updated_at_unix_ms = now;
     record.ended_at_unix_ms = Some(now);
     record.exit_code = None;
-    record.result = Some(super::result(
-        &record.execution_id,
-        Some(failure),
-        None,
-        false,
-        true,
-    ));
+    record.artifacts = artifacts
+        .iter()
+        .map(
+            |artifact| crate::persistence::execution_records::ExecutionArtifactV1 {
+                relative_path: artifact.relative_path.clone(),
+                sha256: format!("sha256:{}", artifact.sha256),
+                size_bytes: artifact.size_bytes,
+                media_type: Some(artifact.media_type.clone()),
+            },
+        )
+        .collect();
+    let mut result = super::result(&record.execution_id, Some(failure), None, false, true);
+    result.artifacts = artifacts;
+    record.result = Some(result);
     record.event_cursor = sequence;
     record.cleanup = ExecutionCleanupStateV1::Pending;
     Ok(())

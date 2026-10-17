@@ -1,7 +1,17 @@
 use super::BrokerContext;
 use crate::harness::DependencyRequest;
 
-pub(super) fn set_dependency_request(context: &BrokerContext<'_>, request: &mut DependencyRequest) {
+pub(super) fn set_dependency_request(
+    context: &BrokerContext<'_>,
+    request: &mut DependencyRequest,
+) -> anyhow::Result<()> {
+    if let Some(session) = context.execution_session.as_deref()
+        && let Some(waiting) = dependency_execution_waiting(request.status)
+    {
+        session
+            .set_dependency_approval_waiting(waiting)
+            .map_err(|error| anyhow::anyhow!("could not persist dependency wait state: {error}"))?;
+    }
     if matches!(
         request.status,
         crate::harness::DependencyRequestStatus::AwaitingUser
@@ -71,6 +81,16 @@ pub(super) fn set_dependency_request(context: &BrokerContext<'_>, request: &mut 
         dependency_requests: vec![request.clone()],
         ..Default::default()
     });
+    Ok(())
+}
+
+fn dependency_execution_waiting(status: crate::harness::DependencyRequestStatus) -> Option<bool> {
+    use crate::harness::DependencyRequestStatus as Status;
+    match status {
+        Status::ManagerReviewing | Status::AwaitingUser => Some(true),
+        Status::Authorized | Status::Denied | Status::Prepared | Status::Failed => Some(false),
+        Status::Pending => None,
+    }
 }
 
 pub(in crate::harness::resource_bridge::broker) fn store_dependency_request(
@@ -106,5 +126,32 @@ pub(super) fn authorization_source(
         }
         crate::harness::DependencyDecision::RequiresUserAuthorization
         | crate::harness::DependencyDecision::Reject => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dependency_execution_waiting;
+    use crate::harness::DependencyRequestStatus as Status;
+
+    #[test]
+    fn dependency_broker_blocking_statuses_map_to_durable_execution_waits() {
+        assert_eq!(
+            dependency_execution_waiting(Status::ManagerReviewing),
+            Some(true)
+        );
+        assert_eq!(
+            dependency_execution_waiting(Status::AwaitingUser),
+            Some(true)
+        );
+        for status in [
+            Status::Authorized,
+            Status::Denied,
+            Status::Prepared,
+            Status::Failed,
+        ] {
+            assert_eq!(dependency_execution_waiting(status), Some(false));
+        }
+        assert_eq!(dependency_execution_waiting(Status::Pending), None);
     }
 }

@@ -1,7 +1,10 @@
 use std::sync::{Arc, atomic::AtomicUsize};
 
 use crate::execution::{
-    contract::{ExecutionEventV1, ExecutionLifecycleV1, ExecutionRequestV1, ExecutionResultV1},
+    contract::{
+        ArtifactManifestEntryV1, ExecutionEventV1, ExecutionLifecycleV1, ExecutionRequestV1,
+        ExecutionResultV1,
+    },
     docker::sandbox::{ValidatedWorkspace, WorkspaceSnapshot},
 };
 
@@ -16,12 +19,15 @@ pub(in crate::execution::docker::backend) struct RuntimeExecution {
     pub workspace_snapshot: Option<WorkspaceSnapshot>,
     pub events: Vec<ExecutionEventV1>,
     pub result: Option<ExecutionResultV1>,
+    pub artifacts: Vec<ArtifactManifestEntryV1>,
     pub executed: bool,
     pub terminal: bool,
     pub cancellation_requests: Arc<AtomicUsize>,
     pub workspace_sync: Arc<tokio::sync::Mutex<()>>,
     lifecycle_state: ExecutionLifecycleV1,
     pub output_bytes: u64,
+    pub(super) docker_usage: crate::persistence::execution_records::DockerResourceUsageV1,
+    pub(super) phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1,
     next_event_sequence: u64,
     owner_instance_id: String,
     policy_version: String,
@@ -44,6 +50,7 @@ pub(super) struct RuntimeExecutionContext {
 }
 
 mod events;
+mod persist;
 
 impl RuntimeExecution {
     pub(super) fn new(request: ExecutionRequestV1, context: RuntimeExecutionContext) -> Self {
@@ -58,12 +65,16 @@ impl RuntimeExecution {
             workspace_snapshot: context.workspace_snapshot,
             events: Vec::new(),
             result: None,
+            artifacts: Vec::new(),
             executed: false,
             terminal: false,
             cancellation_requests: Arc::new(AtomicUsize::new(0)),
             workspace_sync: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle_state: ExecutionLifecycleV1::Queued,
             output_bytes: 0,
+            docker_usage: crate::persistence::execution_records::DockerResourceUsageV1::default(),
+            phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1::default(
+            ),
             next_event_sequence: 1,
             owner_instance_id: context.owner_instance_id,
             policy_version: context.policy_version,
@@ -135,6 +146,29 @@ impl RuntimeExecution {
                 false,
             )
         })?;
+        let docker_usage = record.docker_usage.clone();
+        let artifacts = record.result.as_ref().map_or_else(
+            || {
+                record
+                    .artifacts
+                    .iter()
+                    .map(|artifact| ArtifactManifestEntryV1 {
+                        relative_path: artifact.relative_path.clone(),
+                        size_bytes: artifact.size_bytes,
+                        sha256: artifact
+                            .sha256
+                            .strip_prefix("sha256:")
+                            .unwrap_or(&artifact.sha256)
+                            .to_owned(),
+                        media_type: artifact
+                            .media_type
+                            .clone()
+                            .unwrap_or_else(|| "application/octet-stream".into()),
+                    })
+                    .collect()
+            },
+            |result| result.artifacts.clone(),
+        );
         let workspace_snapshot = record
             .workspace_manifest
             .as_deref()
@@ -159,6 +193,7 @@ impl RuntimeExecution {
             workspace_snapshot,
             events,
             result: record.result.clone(),
+            artifacts,
             executed: record.command_started,
             terminal: matches!(
                 record.state,
@@ -171,9 +206,13 @@ impl RuntimeExecution {
             workspace_sync: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle_state: match record.state {
                 ExecutionRecordStateV1::Preparing => ExecutionLifecycleV1::Preparing,
+                ExecutionRecordStateV1::WaitingForDependencyApproval => {
+                    ExecutionLifecycleV1::WaitingForDependencyApproval
+                }
+                ExecutionRecordStateV1::WaitingForRuntime => {
+                    ExecutionLifecycleV1::WaitingForRuntime
+                }
                 ExecutionRecordStateV1::Running => ExecutionLifecycleV1::Running,
-                ExecutionRecordStateV1::WaitingForDependencyApproval
-                | ExecutionRecordStateV1::WaitingForRuntime => ExecutionLifecycleV1::Preparing,
                 ExecutionRecordStateV1::CollectingResults => ExecutionLifecycleV1::Collecting,
                 ExecutionRecordStateV1::Succeeded => ExecutionLifecycleV1::Succeeded,
                 ExecutionRecordStateV1::Failed => ExecutionLifecycleV1::Failed,
@@ -181,6 +220,8 @@ impl RuntimeExecution {
                 ExecutionRecordStateV1::Interrupted => ExecutionLifecycleV1::Interrupted,
             },
             output_bytes: record.output_bytes,
+            docker_usage,
+            phase_timings: record.phase_timings.clone(),
             next_event_sequence: cursor.saturating_add(1),
             owner_instance_id: record.owner_instance_id.clone(),
             policy_version: record.policy_version.clone(),
@@ -189,93 +230,6 @@ impl RuntimeExecution {
             cleanup_complete: record.cleanup
                 == crate::persistence::execution_records::ExecutionCleanupStateV1::Complete,
             _task_lock: task_lock,
-        })
-    }
-
-    pub(super) fn persist(&self) -> Result<(), crate::execution::errors::ExecutionError> {
-        use crate::persistence::execution_records::{
-            ExecutionArtifactV1, ExecutionCleanupStateV1, ExecutionRecordStateV1, ExecutionRecordV1,
-        };
-        let now = crate::execution::docker::backend::now_unix_ms().max(self.started_at_unix_ms);
-        let state = match self.lifecycle_state {
-            ExecutionLifecycleV1::Queued | ExecutionLifecycleV1::Preparing => {
-                ExecutionRecordStateV1::Preparing
-            }
-            ExecutionLifecycleV1::Running => ExecutionRecordStateV1::Running,
-            ExecutionLifecycleV1::Collecting => ExecutionRecordStateV1::CollectingResults,
-            ExecutionLifecycleV1::Succeeded => ExecutionRecordStateV1::Succeeded,
-            ExecutionLifecycleV1::Failed => ExecutionRecordStateV1::Failed,
-            ExecutionLifecycleV1::Cancelled => ExecutionRecordStateV1::Cancelled,
-            ExecutionLifecycleV1::Interrupted => ExecutionRecordStateV1::Interrupted,
-        };
-        let record = ExecutionRecordV1 {
-            schema_version: 1,
-            execution_id: self.request.execution_id.clone(),
-            request: Some(self.request.clone()),
-            project_id: self.request.project_id.clone(),
-            task_id: self.request.task_id.clone(),
-            target_id: self.request.target.target_id.clone(),
-            controller_target_id: self.request.controller_target_id.clone(),
-            owner_instance_id: self.owner_instance_id.clone(),
-            container_name: Some(self.container_name.clone()),
-            workspace_lease_id: Some(self.lease_id.clone()),
-            workspace_source_sha: self.request.workspace.source_sha.clone(),
-            destination_sha: None,
-            workspace_manifest: self
-                .workspace_snapshot
-                .as_ref()
-                .map(|snapshot| snapshot.record_entries()),
-            container_id: (!self.container_id.is_empty()).then(|| self.container_id.clone()),
-            command_id: self.command_id.clone(),
-            command_started: self.command_started,
-            result: self.result.clone(),
-            image_digest: self.request.image_digest.clone(),
-            policy_version: self.policy_version.clone(),
-            lease_generation: self.request.cancellation_generation,
-            lease_expires_at_unix_ms: Some(self.lease_expires_at_unix_ms),
-            attempt: u32::try_from(self.request.request_sequence)
-                .unwrap_or(u32::MAX)
-                .max(1),
-            state,
-            event_cursor: self.next_event_sequence.saturating_sub(1),
-            output_bytes: self.output_bytes,
-            started_at_unix_ms: self.started_at_unix_ms,
-            updated_at_unix_ms: now,
-            ended_at_unix_ms: self.terminal.then_some(now),
-            exit_code: self.result.as_ref().and_then(|result| result.exit_code),
-            artifacts: self.result.as_ref().map_or_else(Vec::new, |result| {
-                result
-                    .artifacts
-                    .iter()
-                    .map(|artifact| ExecutionArtifactV1 {
-                        relative_path: artifact.relative_path.clone(),
-                        sha256: artifact.sha256.clone(),
-                        size_bytes: artifact.size_bytes,
-                    })
-                    .collect()
-            }),
-            cleanup: if self.cleanup_complete {
-                ExecutionCleanupStateV1::Complete
-            } else {
-                ExecutionCleanupStateV1::Pending
-            },
-        };
-        crate::persistence::execution_records::save(&record).map_err(|error| {
-            let detail = if error.starts_with("cannot atomically write ") {
-                error
-                    .rsplit_once(": ")
-                    .map(|(_, kind)| format!("atomic write failed ({kind})"))
-                    .unwrap_or_else(|| "atomic write failed".into())
-            } else {
-                error.clone()
-            };
-            crate::execution::errors::ExecutionError::new(
-                crate::execution::errors::ExecutionErrorKind::ExecutionFailed,
-                format!(
-                    "Execution state could not be persisted ({detail}); task execution cannot continue"
-                ),
-                false,
-            )
         })
     }
 }

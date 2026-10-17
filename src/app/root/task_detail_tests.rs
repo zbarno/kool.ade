@@ -10,13 +10,16 @@ fn task_details_show_the_latest_persisted_execution_target_and_image() {
     let mut app = board_tests::fixture();
     let ticket = ".koolade-packet/planning/tasks/fixture/002-task.md";
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    if let Screen::Connected(project) = &mut app.screen {
+    let project_slug = if let Screen::Connected(project) = &mut app.screen {
         project
             .implementation_states
             .get_mut(ticket)
             .expect("fixture task exists")
             .task_uid = Some(task_id.clone());
-    }
+        project.chat_slug.clone()
+    } else {
+        panic!("fixture project should be connected")
+    };
     let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let record = crate::persistence::execution_records::ExecutionRecordV1 {
         schema_version: 1,
@@ -49,9 +52,34 @@ fn task_details_show_the_latest_persisted_execution_target_and_image() {
         ended_at_unix_ms: Some(20),
         exit_code: None,
         artifacts: Vec::new(),
+        docker_usage: crate::persistence::execution_records::DockerResourceUsageV1 {
+            cpu_time_ms: Some(4),
+            sampled_peak_memory_bytes: Some(2048),
+            latest_process_count: Some(2),
+            sample_count: 1,
+        },
+        phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1 {
+            image_preparation_ms: Some(12),
+            ..Default::default()
+        },
         cleanup: crate::persistence::execution_records::ExecutionCleanupStateV1::Complete,
     };
     crate::persistence::execution_records::save(&record).unwrap();
+
+    let mut harness_usage =
+        crate::persistence::telemetry::InvocationRecord::new(&project_slug, "synthetic harness");
+    harness_usage.task = Some(task_id.clone());
+    harness_usage.phase = Some("implementation".into());
+    harness_usage.duration_millis = Some(45);
+    harness_usage.model_calls = Some(1);
+    harness_usage.input_tokens = Some(10);
+    harness_usage.output_tokens = Some(5);
+    harness_usage.total_tokens = Some(15);
+    crate::persistence::telemetry::append(&project_slug, &harness_usage).unwrap();
+    let mut unrelated_usage = harness_usage.clone();
+    unrelated_usage.task = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    unrelated_usage.total_tokens = Some(9_999);
+    crate::persistence::telemetry::append(&project_slug, &unrelated_usage).unwrap();
 
     let view = app.task_detail_view(ticket).expect("connected task model");
     let evidence = view.execution_evidence.expect("saved execution is visible");
@@ -61,6 +89,15 @@ fn task_details_show_the_latest_persisted_execution_target_and_image() {
     );
     assert_eq!(evidence.image_digest, record.image_digest);
     assert_eq!(evidence.state, record.state);
+    assert_eq!(evidence.docker_usage, record.docker_usage);
+    assert_eq!(evidence.phase_timings, record.phase_timings);
+    let metrics = view
+        .implementation_metrics
+        .expect("task-linked harness metrics are visible");
+    assert_eq!(metrics.ai_execution_millis, 45);
+    assert_eq!(metrics.model_calls, Some(1));
+    assert_eq!(metrics.input_tokens, Some(10));
+    assert_eq!(metrics.total_tokens, Some(15));
     drop(_home);
     let _ = std::fs::remove_dir_all(root);
 }

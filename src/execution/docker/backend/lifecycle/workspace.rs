@@ -17,6 +17,8 @@ pub(super) use archive::extract_archive;
 pub(super) use prepare::prepare;
 pub(super) use probe::probe;
 pub(super) use start::start;
+#[cfg(test)]
+pub(super) use start::{persist_runtime_wait_error, record_start_registration_failure};
 
 pub(super) fn release_workspace<'a>(
     backend: &'a DockerExecutionBackend,

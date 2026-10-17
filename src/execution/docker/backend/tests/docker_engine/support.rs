@@ -102,6 +102,7 @@ pub(super) fn request(workspace: WorkspaceRef, script: &str) -> ExecutionRequest
         target: ExecutionTarget::local(),
         controller_target_id: None,
         workspace,
+        destination_sha: None,
         mode: ExecutionModeV1::Implementation,
         image_digest: image.digest,
         authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -123,6 +124,24 @@ pub(super) fn request(workspace: WorkspaceRef, script: &str) -> ExecutionRequest
         )
         .expect("implementation policy"),
     }
+}
+
+pub(super) fn verification_request_with_artifacts(
+    workspace: WorkspaceRef,
+    script: &str,
+    artifact_paths: Vec<String>,
+) -> ExecutionRequestV1 {
+    let mut request = request(workspace, script);
+    request.mode = ExecutionModeV1::Verification;
+    request.policy = ExecutionPolicyV1::for_mode(
+        ExecutionModeV1::Verification,
+        request.resource_budget.clone(),
+        request.allowed_service_ports.clone(),
+    )
+    .expect("verification policy")
+    .with_artifact_paths(artifact_paths)
+    .expect("artifact policy should accept bounded relative paths");
+    request
 }
 
 pub(super) fn backend(

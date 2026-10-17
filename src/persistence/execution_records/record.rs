@@ -5,6 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 
+mod phase_timings;
+mod resource_usage;
+mod workspace_manifest;
+pub use phase_timings::ExecutionPhaseTimingsV1;
+pub use resource_usage::DockerResourceUsageV1;
+
 pub(super) const SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -51,6 +57,10 @@ pub struct ExecutionRecordV1 {
     pub ended_at_unix_ms: Option<u64>,
     pub exit_code: Option<i32>,
     pub artifacts: Vec<ExecutionArtifactV1>,
+    #[serde(default)]
+    pub docker_usage: DockerResourceUsageV1,
+    #[serde(default)]
+    pub phase_timings: ExecutionPhaseTimingsV1,
     pub cleanup: ExecutionCleanupStateV1,
 }
 
@@ -99,6 +109,8 @@ pub struct ExecutionArtifactV1 {
     pub relative_path: String,
     pub sha256: String,
     pub size_bytes: u64,
+    #[serde(default)]
+    pub media_type: Option<String>,
 }
 
 impl ExecutionRecordV1 {
@@ -175,6 +187,7 @@ impl ExecutionRecordV1 {
                 || request.task_id != self.task_id
                 || request.project_id != self.project_id
                 || request.workspace.source_sha != self.workspace_source_sha
+                || request.destination_sha != self.destination_sha
                 || request.target.target_id != self.target_id
                 || request.controller_target_id != self.controller_target_id
                 || request.image_digest != self.image_digest
@@ -201,6 +214,9 @@ impl ExecutionRecordV1 {
                 | ExecutionRecordStateV1::Cancelled
                 | ExecutionRecordStateV1::Interrupted
         );
+        if !self.docker_usage.validate() {
+            return Err("execution resource metrics are invalid".into());
+        }
         let artifact_bytes = self
             .artifacts
             .iter()
@@ -209,6 +225,7 @@ impl ExecutionRecordV1 {
             || self.artifacts.len() > 256
             || !artifact_bytes.is_some_and(|bytes| bytes <= 1024 * 1024 * 1024)
             || (self.cleanup == ExecutionCleanupStateV1::Complete && !terminal)
+            || !self.phase_timings.validate()
         {
             return Err("execution record result or cleanup fields are invalid".into());
         }
@@ -223,67 +240,17 @@ impl ExecutionRecordV1 {
                     .components()
                     .all(|part| matches!(part, std::path::Component::Normal(_)))
                 || !is_sha256(&artifact.sha256)
+                || artifact
+                    .media_type
+                    .as_ref()
+                    .is_some_and(|media_type| media_type.is_empty() || media_type.len() > 256)
                 || !artifact_paths.insert(&artifact.relative_path)
             {
                 return Err("execution record artifact manifest is invalid".into());
             }
         }
         if let Some(entries) = &self.workspace_manifest {
-            if entries.len() > 100_000
-                || entries
-                    .iter()
-                    .try_fold(0_u64, |sum, entry| sum.checked_add(entry.size_bytes))
-                    .is_none_or(|bytes| bytes > 512 * 1024 * 1024)
-            {
-                return Err("execution workspace baseline exceeds its limit".into());
-            }
-            let path_bytes = entries.iter().try_fold(0_usize, |sum, entry| {
-                sum.checked_add(entry.relative_path.len())
-            });
-            if path_bytes.is_none_or(|bytes| bytes > 16 * 1024 * 1024) {
-                return Err("execution workspace baseline paths exceed their limit".into());
-            }
-            let mut seen = std::collections::BTreeSet::new();
-            let mut kinds = std::collections::BTreeMap::new();
-            for entry in entries {
-                let path = std::path::Path::new(&entry.relative_path);
-                if entry.relative_path.is_empty()
-                    || entry.relative_path.len() > 4096
-                    || path.is_absolute()
-                    || entry.relative_path.contains('\\')
-                    || entry.relative_path.chars().any(char::is_control)
-                    || !path
-                        .components()
-                        .all(|part| matches!(part, std::path::Component::Normal(_)))
-                    || entry.relative_path == ".git"
-                    || entry.relative_path.starts_with(".git/")
-                    || !seen.insert(&entry.relative_path)
-                    || entry.mode > 0o777
-                    || match entry.kind {
-                        ExecutionWorkspaceEntryKindV1::Directory => {
-                            entry.sha256.is_some() || entry.size_bytes != 0
-                        }
-                        ExecutionWorkspaceEntryKindV1::File => {
-                            !entry.sha256.as_deref().is_some_and(|sha| {
-                                sha.len() == 64 && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
-                            })
-                        }
-                    }
-                {
-                    return Err("execution workspace baseline entry is invalid".into());
-                }
-                kinds.insert(entry.relative_path.as_str(), entry.kind);
-            }
-            for entry in entries {
-                let path = std::path::Path::new(&entry.relative_path);
-                if let Some(parent) = path.parent()
-                    && !parent.as_os_str().is_empty()
-                    && kinds.get(parent.to_str().unwrap_or_default())
-                        != Some(&ExecutionWorkspaceEntryKindV1::Directory)
-                {
-                    return Err("execution workspace baseline parent directory is missing".into());
-                }
-            }
+            workspace_manifest::validate(entries)?;
         }
         Ok(())
     }

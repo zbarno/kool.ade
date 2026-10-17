@@ -3,7 +3,7 @@ use super::{
     ExecutionHandleV1, ExecutionLifecycleV1, cancel_persisted, internal_error_with_context,
     invalid_request, terminal,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 pub(in crate::execution::docker::backend::lifecycle) async fn cancel_active(
     backend: &DockerExecutionBackend,
@@ -49,24 +49,36 @@ pub(in crate::execution::docker::backend::lifecycle) async fn cancel_active(
     {
         return Ok(());
     }
-    if let Err(error) = super::super::execute::terminate_and_sync(
+    let stage_out_expected = super::super::execute::workspace_stage_out_enabled(&request);
+    let stage_out_started = Instant::now();
+    let synchronized = super::super::execute::terminate_and_sync(
         backend,
         &container_id,
         &workspace,
         snapshot.as_ref(),
         &request,
     )
-    .await
-    {
-        terminal(
-            &execution,
-            ExecutionLifecycleV1::Interrupted,
-            Some(error.clone()),
-            None,
-            false,
-            false,
-        )?;
-        return Err(error);
+    .await;
+    let stage_out_ms = super::elapsed_millis(stage_out_started);
+    let artifacts = match synchronized {
+        Ok(artifacts) => artifacts,
+        Err(error) => {
+            if stage_out_expected {
+                super::super::execute::persist_stage_out(&execution, stage_out_ms, None)?;
+            }
+            terminal(
+                &execution,
+                ExecutionLifecycleV1::Interrupted,
+                Some(error.clone()),
+                None,
+                false,
+                false,
+            )?;
+            return Err(error);
+        }
+    };
+    if stage_out_expected {
+        super::super::execute::persist_stage_out(&execution, stage_out_ms, Some(&artifacts))?;
     }
     terminal(
         &execution,

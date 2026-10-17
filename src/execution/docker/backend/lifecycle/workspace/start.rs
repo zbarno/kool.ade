@@ -1,12 +1,11 @@
-use std::sync::Arc;
+use std::time::Instant;
 
 use bollard::query_parameters::CreateContainerOptionsBuilder;
 
-use super::super::runtime::{RuntimeExecution, RuntimeExecutionContext};
 use super::extract_archive;
 use crate::execution::{
     backend::{ExecutionHandleV1, WorkspaceLeaseV1},
-    contract::{ExecutionEventKindV1, ExecutionLifecycleV1, ExecutionRequestV1, ExecutionTarget},
+    contract::{ExecutionRequestV1, ExecutionTarget},
     docker::{
         backend::{
             DockerExecutionBackend, internal_error_with_context, invalid_request, now_unix_ms,
@@ -19,8 +18,15 @@ use crate::execution::{
 
 use self::start_helpers::{deadline_error, deadline_instant, engine_operation_error};
 use super::cleanup::{cleanup_created_container, cleanup_named_container};
+use reservation::WorkspaceStartReservation;
 mod cache;
+mod execution;
+mod reservation;
 mod start_helpers;
+#[cfg(test)]
+pub(in crate::execution::docker::backend::lifecycle) use execution::{
+    persist_runtime_wait_error, record_start_registration_failure,
+};
 
 pub(in crate::execution::docker::backend::lifecycle) async fn start(
     backend: &DockerExecutionBackend,
@@ -91,9 +97,22 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         )?
     };
     let deadline = deadline_instant(request.deadline_unix_ms);
-    let readiness = tokio::time::timeout_at(deadline, super::ensure_ready(backend, &workspace))
-        .await
-        .map_err(|_| deadline_error())??;
+    let mut identity = backend.identity.clone();
+    identity.lease_expires_unix_ms = request.deadline_unix_ms.saturating_add(60_000);
+    let name = format!("koolade-exec-{}", request.execution_id);
+    let (readiness, task_lock) = execution::ensure_runtime_ready(
+        backend,
+        lease,
+        request,
+        &workspace,
+        &snapshot,
+        &name,
+        identity.lease_expires_unix_ms,
+        task_lock,
+        deadline,
+    )
+    .await?;
+    let image_preparation_started = Instant::now();
     let image = selected_image(
         backend,
         &request.image_digest,
@@ -106,8 +125,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         tokio::time::timeout_at(deadline, backend.prepare_selected_image(&image))
             .await
             .map_err(|_| deadline_error())??;
-    let mut identity = backend.identity.clone();
-    identity.lease_expires_unix_ms = request.deadline_unix_ms.saturating_add(60_000);
+    let image_preparation_ms = start_helpers::elapsed_millis(image_preparation_started);
     let body = create_body_with_derived_approval(
         request,
         &workspace,
@@ -115,32 +133,17 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         &image,
         derived_approval.as_ref(),
     )?;
-    let name = format!("koolade-exec-{}", request.execution_id);
-    let mut execution = RuntimeExecution::new(
-        request.clone(),
-        RuntimeExecutionContext {
-            container_id: String::new(),
-            container_name: name.clone(),
-            workspace: workspace.clone(),
-            lease_id: lease.lease_id.clone(),
-            owner_instance_id: backend.identity.owner_instance_id.clone(),
-            policy_version: backend.identity.policy_version.clone(),
-            lease_expires_at_unix_ms: identity.lease_expires_unix_ms,
-            task_lock,
-            workspace_snapshot: Some(crate::execution::docker::sandbox::WorkspaceSnapshot {
-                archive: Vec::new(),
-                manifest: snapshot.manifest.clone(),
-                scope_root: snapshot.scope_root.clone(),
-            }),
-        },
-    );
-    execution.persist()?;
-    execution.push(ExecutionEventKindV1::Lifecycle {
-        state: ExecutionLifecycleV1::Queued,
-    })?;
-    execution.push(ExecutionEventKindV1::Lifecycle {
-        state: ExecutionLifecycleV1::Preparing,
-    })?;
+    let mut execution = execution::new_execution(
+        backend,
+        lease,
+        request,
+        workspace.clone(),
+        &snapshot,
+        name.clone(),
+        identity.lease_expires_unix_ms,
+        task_lock,
+    )?;
+    execution.phase_timings.image_preparation_ms = Some(image_preparation_ms);
     let options = CreateContainerOptionsBuilder::default().name(&name).build();
     let created = match tokio::time::timeout_at(
         deadline,
@@ -150,16 +153,23 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     {
         Ok(Ok(created)) => created,
         Ok(Err(error)) => {
-            return Err(engine_operation_error("create container", error));
+            cleanup_named_container(backend, &name, &request.execution_id).await;
+            let error = engine_operation_error("create container", error);
+            execution.fail_start(error.clone())?;
+            return Err(error);
         }
         Err(_) => {
             cleanup_named_container(backend, &name, &request.execution_id).await;
-            return Err(deadline_error());
+            let error = deadline_error();
+            execution.fail_start(error.clone())?;
+            return Err(error);
         }
     };
     if created.id.is_empty() {
         cleanup_named_container(backend, &name, &request.execution_id).await;
-        return Err(super::super::disconnected());
+        let error = super::super::disconnected();
+        execution.fail_start(error.clone())?;
+        return Err(error);
     }
     execution.container_id = created.id.clone();
     if let Err(error) = execution.persist() {
@@ -168,6 +178,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     }
     if let Err(error) = workspace.revalidate() {
         cleanup_created_container(backend, &created.id, &request.execution_id).await;
+        execution.fail_start(error.clone())?;
         return Err(error);
     }
     match tokio::time::timeout_at(deadline, backend.docker.start_container(&created.id, None)).await
@@ -175,29 +186,43 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
-            return Err(engine_operation_error("start container", error));
+            let error = engine_operation_error("start container", error);
+            execution.fail_start(error.clone())?;
+            return Err(error);
         }
         Err(_) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
-            return Err(deadline_error());
+            let error = deadline_error();
+            execution.fail_start(error.clone())?;
+            return Err(error);
         }
     }
-    match tokio::time::timeout_at(
+    let dependency_cache_started = Instant::now();
+    let dependency_cache = tokio::time::timeout_at(
         deadline,
         cache::install_dependency_caches(backend, &created.id, request),
     )
-    .await
-    {
+    .await;
+    execution.phase_timings.dependency_cache_stage_ms =
+        Some(start_helpers::elapsed_millis(dependency_cache_started));
+    if let Err(error) = execution.persist() {
+        cleanup_created_container(backend, &created.id, &request.execution_id).await;
+        return Err(error);
+    }
+    match dependency_cache {
         Ok(true) => {}
         result => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
-            return if result.is_err() {
-                Err(deadline_error())
+            let error = if result.is_err() {
+                deadline_error()
             } else {
-                Err(crate::execution::docker::backend::invalid_request())
+                crate::execution::docker::backend::invalid_request()
             };
+            execution.fail_start(error.clone())?;
+            return Err(error);
         }
     }
+    let stage_in_started = Instant::now();
     let upload = tokio::time::timeout_at(
         deadline,
         extract_archive(
@@ -209,22 +234,25 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         ),
     )
     .await;
+    execution.phase_timings.workspace_stage_in_ms =
+        Some(start_helpers::elapsed_millis(stage_in_started));
+    if let Err(error) = execution.persist() {
+        cleanup_created_container(backend, &created.id, &request.execution_id).await;
+        return Err(error);
+    }
     match upload {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
+            execution.fail_start(error.clone())?;
             return Err(error);
         }
         Err(_) => {
             cleanup_created_container(backend, &created.id, &request.execution_id).await;
-            return Err(deadline_error());
+            let error = deadline_error();
+            execution.fail_start(error.clone())?;
+            return Err(error);
         }
-    }
-    if let Err(error) = execution.push(ExecutionEventKindV1::Lifecycle {
-        state: ExecutionLifecycleV1::Running,
-    }) {
-        cleanup_created_container(backend, &created.id, &request.execution_id).await;
-        return Err(error);
     }
     let handle = ExecutionHandleV1 {
         execution_id: request.execution_id.clone(),
@@ -232,49 +260,15 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         target: request.target.clone(),
         request_sequence: request.request_sequence,
     };
-    backend
-        .executions
-        .lock()
-        .map_err(|_| internal_error_with_context("updating the execution registry"))?
-        .insert(
-            handle.execution_id.clone(),
-            Arc::new(std::sync::Mutex::new(execution)),
-        );
-    reservation.activate(&handle.execution_id)?;
+    if let Err(failure) =
+        execution::register_started_execution(backend, &handle, execution, &mut reservation)
+    {
+        let (mut execution, error) = *failure;
+        cleanup_created_container(backend, &created.id, &request.execution_id).await;
+        return Err(execution::record_start_registration_failure(
+            &mut execution,
+            error,
+        ));
+    }
     Ok(handle)
-}
-
-struct WorkspaceStartReservation {
-    prepared: Arc<std::sync::Mutex<super::super::super::PreparedWorkspace>>,
-    active: bool,
-}
-
-impl WorkspaceStartReservation {
-    fn new(prepared: Arc<std::sync::Mutex<super::super::super::PreparedWorkspace>>) -> Self {
-        Self {
-            prepared,
-            active: true,
-        }
-    }
-
-    fn activate(&mut self, execution_id: &str) -> Result<(), ExecutionError> {
-        let mut prepared = self
-            .prepared
-            .lock()
-            .map_err(|_| internal_error_with_context("activating the workspace execution"))?;
-        prepared.starting = false;
-        prepared.active_execution_id = Some(execution_id.to_owned());
-        self.active = false;
-        Ok(())
-    }
-}
-
-impl Drop for WorkspaceStartReservation {
-    fn drop(&mut self) {
-        if self.active
-            && let Ok(mut prepared) = self.prepared.lock()
-        {
-            prepared.starting = false;
-        }
-    }
 }

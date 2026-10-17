@@ -20,13 +20,19 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_and_sync
     workspace: &ValidatedWorkspace,
     snapshot: Option<&WorkspaceSnapshot>,
     request: &ExecutionRequestV1,
-) -> Result<(), ExecutionError> {
+) -> Result<Vec<crate::execution::contract::ArtifactManifestEntryV1>, ExecutionError> {
     super::super::control::verify_owned(backend, container_id, &request.execution_id).await?;
     let mut guard = guard::StopOnDrop::new(backend, container_id, &request.execution_id);
-    let captured = if super::sync::workspace_write_enabled(request) {
+    let writable = super::sync::workspace_write_enabled(request);
+    let artifact_paths = request.policy.artifact_paths();
+    let captured = if writable || !artifact_paths.is_empty() {
         tokio::time::timeout(Duration::from_secs(60), async {
             backend.verify_authorization(&request.authorization_generation)?;
-            let baseline = snapshot.ok_or_else(super::state::disconnected)?;
+            let baseline = if writable {
+                Some(snapshot.ok_or_else(super::state::disconnected)?)
+            } else {
+                None
+            };
             quiesce::stop_tasks(backend, container_id, &request.execution_id).await?;
             let archive = super::sync::download_workspace(
                 backend,
@@ -50,12 +56,21 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_and_sync
     stopped?;
     if let Some((baseline, archive)) = captured? {
         backend.verify_authorization(&request.authorization_generation)?;
-        staging::synchronize(
-            workspace,
-            baseline,
-            &archive,
-            request.resource_budget.temporary_disk_bytes,
-        )?;
+        return if let Some(baseline) = baseline {
+            staging::synchronize_with_artifacts(
+                workspace,
+                baseline,
+                &archive,
+                request.resource_budget.temporary_disk_bytes,
+                artifact_paths,
+            )
+        } else {
+            staging::collect_artifacts(
+                &archive,
+                request.resource_budget.temporary_disk_bytes,
+                artifact_paths,
+            )
+        };
     }
-    Ok(())
+    Ok(Vec::new())
 }

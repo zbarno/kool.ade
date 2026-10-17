@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bollard::query_parameters::InspectContainerOptionsBuilder;
 
@@ -22,6 +22,7 @@ pub(super) async fn release_persisted(
         ));
     }
     if record.cleanup != ExecutionCleanupStateV1::Complete {
+        let cleanup_started = Instant::now();
         let container_id = record
             .container_id
             .as_deref()
@@ -79,6 +80,12 @@ pub(super) async fn release_persisted(
             }
         }
         record.cleanup = ExecutionCleanupStateV1::Complete;
+        record.phase_timings.cleanup_ms = Some(
+            cleanup_started
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
+        );
         record.updated_at_unix_ms =
             crate::execution::docker::backend::now_unix_ms().max(record.started_at_unix_ms);
         execution_records::save(&record).map_err(|_| {

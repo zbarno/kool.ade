@@ -1,15 +1,23 @@
 use bollard::exec::StartExecOptions;
+use std::{sync::Arc, time::Instant};
 use tokio::io::AsyncWriteExt;
 
 mod cleanup;
 mod failure;
 mod finish;
 mod initial;
+mod resource_metrics;
 mod state;
 mod stream;
 mod termination;
 pub(super) use termination::terminate_and_sync;
 mod sync;
+#[cfg(test)]
+pub(in crate::execution::docker::backend) use finish::{
+    inject_crash_after_stage_out, pause_after_stage_out, pause_before_collecting,
+};
+pub(in crate::execution::docker::backend::lifecycle) use state::persist_stage_out;
+pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_stage_out_enabled;
 pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_write_enabled;
 
 use crate::execution::{
@@ -92,6 +100,19 @@ pub(super) async fn run(
         }
     };
     let stream_budget = cleanup::remaining(deadline);
+    let (metrics_stop, metrics_stop_rx) = tokio::sync::oneshot::channel();
+    let metrics_execution = Arc::downgrade(&execution);
+    let metrics_docker = backend.docker.clone();
+    let metrics_container_id = container_id.clone();
+    let metrics_task = tokio::spawn(async move {
+        resource_metrics::collect(
+            metrics_docker,
+            metrics_container_id,
+            metrics_execution,
+            metrics_stop_rx,
+        )
+        .await;
+    });
     let collect = async {
         match stream {
             bollard::exec::StartExecResults::Attached { output, mut input } => {
@@ -132,7 +153,18 @@ pub(super) async fn run(
             )),
         }
     };
-    match tokio::time::timeout(stream_budget, collect).await {
+    let command_started = Instant::now();
+    let collected = tokio::time::timeout(stream_budget, collect).await;
+    let _ = metrics_stop.send(());
+    let _ = metrics_task.await;
+    if request.mode == crate::execution::contract::ExecutionModeV1::RuntimeQa {
+        let mut state = execution
+            .lock()
+            .map_err(|_| internal_error_with_context("recording runtime QA execution telemetry"))?;
+        state.phase_timings.qa_ms = Some(elapsed_millis(command_started));
+        state.persist()?;
+    }
+    match collected {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
             failure::finalize_failure(backend, &execution, error, false).await?;
@@ -153,4 +185,8 @@ pub(super) async fn run(
         snapshot.as_ref(),
     )
     .await
+}
+
+fn elapsed_millis(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }

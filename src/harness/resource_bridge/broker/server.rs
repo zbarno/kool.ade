@@ -52,7 +52,8 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
             return client.flush();
         }
         Ok(BrokerWireRequest::Resource(request)) => {
-            match prepare_request(context, &request, monitor.disconnected()) {
+            let started = std::time::Instant::now();
+            let mut response = match prepare_request(context, &request, monitor.disconnected()) {
                 Ok(response) => response,
                 Err(error) => ResourceResponse {
                     status: "error".into(),
@@ -64,7 +65,17 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
                     preparation: None,
                     bytes: 0,
                 },
+            };
+            if let Some(dependency) = response.dependency_request.as_mut() {
+                let preparation = dependency
+                    .preparation
+                    .get_or_insert_with(crate::harness::DependencyPreparationTelemetry::default);
+                preparation.broker_duration_millis =
+                    Some(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
+                response.preparation = Some(preparation.clone());
+                response.dependency_result = response.preparation.clone();
             }
+            response
         }
         Err(error) => ResourceResponse {
             status: "rejected".into(),

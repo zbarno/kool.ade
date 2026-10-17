@@ -41,9 +41,7 @@ pub(super) fn finish_with_artifacts(
     if state.terminal || state.cancellation_requests.load(Ordering::Acquire) > 0 {
         return Ok(());
     }
-    state.push(ExecutionEventKindV1::Lifecycle {
-        state: ExecutionLifecycleV1::Collecting,
-    })?;
+    state.mark_collecting()?;
     state.terminal = true;
     let mut result = super::super::control::result(
         &state.request.execution_id,
@@ -52,10 +50,43 @@ pub(super) fn finish_with_artifacts(
         timed_out,
         cancelled,
     );
-    result.artifacts = artifacts;
+    if !artifacts.is_empty() {
+        state.artifacts = artifacts;
+    }
+    result.artifacts = state.artifacts.clone();
     state.result = Some(result);
     state.push(ExecutionEventKindV1::Lifecycle { state: lifecycle })?;
     Ok(())
+}
+
+pub(super) fn mark_collecting(
+    execution: &Arc<Mutex<RuntimeExecution>>,
+) -> Result<bool, ExecutionError> {
+    let mut state = execution.lock().map_err(|_| disconnected())?;
+    if state.terminal || state.cancellation_requests.load(Ordering::Acquire) > 0 {
+        return Ok(false);
+    }
+    state.mark_collecting().map(|()| true)
+}
+
+pub(in crate::execution::docker::backend::lifecycle) fn persist_stage_out(
+    execution: &Arc<Mutex<RuntimeExecution>>,
+    elapsed_ms: u64,
+    artifacts: Option<&[crate::execution::contract::ArtifactManifestEntryV1]>,
+) -> Result<(), ExecutionError> {
+    let mut state = execution.lock().map_err(|_| {
+        crate::execution::docker::backend::internal_error_with_context(
+            "recording workspace synchronization telemetry",
+        )
+    })?;
+    if state.terminal {
+        return Ok(());
+    }
+    state.phase_timings.workspace_stage_out_ms = Some(elapsed_ms);
+    if let Some(artifacts) = artifacts {
+        state.artifacts = artifacts.to_vec();
+    }
+    state.persist()
 }
 
 pub(super) fn interrupted(execution: &Arc<Mutex<RuntimeExecution>>) -> Result<(), ExecutionError> {
