@@ -1,4 +1,4 @@
-use super::{approved_candidate, latest_receipt, receipt_allows_next};
+use super::{approved_candidate, latest_receipt, next_operation, receipt_allows_next};
 use crate::{
     execution::contract::WorkspaceRef,
     project_runtime::{
@@ -9,20 +9,114 @@ use crate::{
 };
 
 fn receipt(state: RuntimeReceiptState, observed_at_unix_ms: u64) -> RuntimeReceiptV1 {
+    operation_receipt(
+        RuntimeOperation::Build,
+        "build-v1",
+        state,
+        observed_at_unix_ms,
+    )
+}
+
+fn operation_receipt(
+    operation: RuntimeOperation,
+    recipe_id: &str,
+    state: RuntimeReceiptState,
+    observed_at_unix_ms: u64,
+) -> RuntimeReceiptV1 {
     RuntimeReceiptV1 {
         schema_version: 1,
         receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        operation: RuntimeOperation::Build,
+        operation,
         task_id: "task-1".into(),
         target_id: "web".into(),
         source_sha: "a".repeat(40),
-        recipe_id: Some("build-v1".into()),
+        recipe_id: Some(recipe_id.into()),
         state,
         exit_code: (state == RuntimeReceiptState::Passed).then_some(0),
         artifact_hashes: Default::default(),
         log_reference: None,
         observed_at_unix_ms,
     }
+}
+
+#[test]
+fn runtime_recipe_queue_requires_build_test_then_start_readiness_receipts() {
+    let mut target = AppTargetV1 {
+        target_id: "web".into(),
+        owning_task_id: "task-1".into(),
+        repository_id: "repo".into(),
+        app_surface: AppSurface::Web,
+        project_relative_root: "apps/web".into(),
+        build_recipe_ref: Some("build-v1".into()),
+        test_recipe_refs: vec!["test-v1".into()],
+        start_recipe_ref: Some("start-v1".into()),
+        readiness_probe_ref: Some("ready-v1".into()),
+        artifact_spec_ref: None,
+        fixture_ref: None,
+        required_dependencies: Vec::new(),
+        supported_driver_ids: Vec::new(),
+        port_needs: Vec::new(),
+        environment_policy_ref: "default".into(),
+        capability_state: TargetCapabilityState::ReadyButUntested,
+    };
+    let source_sha = "a".repeat(40);
+    let build = operation_receipt(
+        RuntimeOperation::Build,
+        "build-v1",
+        RuntimeReceiptState::Passed,
+        10,
+    );
+    let test = operation_receipt(
+        RuntimeOperation::Test,
+        "test-v1",
+        RuntimeReceiptState::Passed,
+        20,
+    );
+    let start = operation_receipt(
+        RuntimeOperation::Start,
+        "start-v1",
+        RuntimeReceiptState::Passed,
+        30,
+    );
+
+    assert_eq!(
+        next_operation(&target, &[], &source_sha).unwrap(),
+        Some((RuntimeOperation::Build, vec!["build-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(&target, std::slice::from_ref(&build), &source_sha).unwrap(),
+        Some((RuntimeOperation::Test, vec!["test-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(&target, &[build.clone(), test.clone()], &source_sha).unwrap(),
+        Some((RuntimeOperation::Start, vec!["start-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(
+            &target,
+            &[build.clone(), test.clone(), start.clone()],
+            &source_sha
+        )
+        .unwrap(),
+        None
+    );
+
+    let failed_start = operation_receipt(
+        RuntimeOperation::Start,
+        "start-v1",
+        RuntimeReceiptState::Failed,
+        40,
+    );
+    assert!(
+        next_operation(
+            &target,
+            &[build.clone(), test.clone(), failed_start],
+            &source_sha
+        )
+        .is_err()
+    );
+    target.readiness_probe_ref = None;
+    assert!(next_operation(&target, &[build, test], &source_sha).is_err());
 }
 
 #[test]

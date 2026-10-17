@@ -35,6 +35,15 @@ impl Fixture {
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&root).unwrap();
+        let git_init = Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&root)
+            .status()
+            .expect("git must be available for the Docker backend fixture");
+        assert!(
+            git_init.success(),
+            "initialize the Docker backend fixture repository"
+        );
         let home = crate::test_support::KooladeHomeGuard::set(&root.join("koolade-home"));
         Self { root, _home: home }
     }

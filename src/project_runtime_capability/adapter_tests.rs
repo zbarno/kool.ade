@@ -1,11 +1,14 @@
 use super::*;
-use crate::project_runtime::{ExecutionRecipeV1, NetworkRequirement, ReadinessProbeV1};
+use crate::{
+    project_runtime::{ExecutionRecipeV1, NetworkRequirement, ReadinessProbeV1, RecipeSource},
+    project_runtime_capability::CapabilityInventory,
+};
 
 fn recipe(id: &str, tool: &str) -> ExecutionRecipeV1 {
     ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: id.into(),
-        source: RecipeSource::TrustedAdapter,
+        source: RecipeSource::UserApproved,
         working_directory_relative: ".".into(),
         executable_id: tool.into(),
         argv: vec!["--version".into()],
@@ -17,7 +20,7 @@ fn recipe(id: &str, tool: &str) -> ExecutionRecipeV1 {
         cache_scope: None,
         prerequisite_tool_ids: vec![tool.into()],
         network_requirement: NetworkRequirement::Denied,
-        evidence_refs: vec![],
+        evidence_refs: vec!["user-approval:adapter-fixture".into()],
     }
 }
 
@@ -123,4 +126,24 @@ fn selected_target_cannot_be_guessed_from_another_task_or_manifest() {
         available_driver_ids: &BTreeSet::new(),
     };
     assert!(assess_manifest_target(&manifest, "FastAPI", "different-task", &inventory).is_err());
+}
+
+#[test]
+fn persisted_trusted_adapter_label_does_not_authorize_a_recipe() {
+    let mut manifest = manifest(
+        "Python",
+        "FastAPI",
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+    );
+    manifest.recipes[0].source = RecipeSource::TrustedAdapter;
+    manifest.recipes[0].evidence_refs.clear();
+    let tools = ["node".to_owned()].into();
+    let inventory = ApprovedCapabilityInventory {
+        manifest: &manifest,
+        available_tool_ids: &tools,
+        available_dependency_ids: &BTreeSet::new(),
+        available_driver_ids: &BTreeSet::new(),
+    };
+    assert!(!inventory.recipe("Python-build").unwrap().authorized);
 }

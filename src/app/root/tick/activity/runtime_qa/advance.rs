@@ -36,7 +36,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 Ok(true) => match recipe_queue::start(project, &task) {
                     Ok(worker) => {
                         notices.push(format!(
-                            "Approved runtime build/test recipe for task {} dispatched to the isolated task workspace.",
+                            "Approved runtime recipe for task {} dispatched to the isolated task workspace.",
                             task.task_uid
                         ));
                         project.activity.runtime_recipe_worker = Some(worker);

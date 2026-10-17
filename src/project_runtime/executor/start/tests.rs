@@ -1,11 +1,11 @@
 use super::*;
-use crate::project_runtime::{RuntimeOperation, RuntimeReceiptState};
+use crate::project_runtime::{RecipeSource, RuntimeOperation, RuntimeReceiptState};
 
 fn recipe() -> crate::project_runtime::ExecutionRecipeV1 {
     crate::project_runtime::ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "start-web".into(),
-        source: RecipeSource::TrustedAdapter,
+        source: RecipeSource::UserApproved,
         working_directory_relative: "packages/web".into(),
         executable_id: "npm".into(),
         argv: vec![
@@ -22,7 +22,7 @@ fn recipe() -> crate::project_runtime::ExecutionRecipeV1 {
         cache_scope: None,
         prerequisite_tool_ids: Vec::new(),
         network_requirement: crate::project_runtime::NetworkRequirement::Denied,
-        evidence_refs: Vec::new(),
+        evidence_refs: vec!["user-approval:test-fixture".into()],
     }
 }
 
@@ -286,4 +286,10 @@ fn process_probe_must_match_the_approved_start_executable() {
         executable_id: "node".into(),
     };
     assert!(readiness_command(&manifest, &manifest.candidate_targets[0], &probe).is_err());
+}
+
+#[test]
+fn start_can_prove_a_discovered_target_is_ready() {
+    assert!(require_startable_state(&TargetCapabilityState::ReadyButUntested).is_ok());
+    assert!(require_startable_state(&TargetCapabilityState::MissingToolchain).is_err());
 }

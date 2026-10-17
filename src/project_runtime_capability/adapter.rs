@@ -1,8 +1,6 @@
 //! Adapter from the persisted runtime contract to the generic capability resolver.
 use super::*;
-use crate::project_runtime::{
-    AppSurface, ProjectCapabilityManifestV1, RecipeSource, TargetCapabilityState,
-};
+use crate::project_runtime::{AppSurface, ProjectCapabilityManifestV1, TargetCapabilityState};
 
 /// Capability facts must come from the selected Docker image, dependency broker,
 /// and installed runtime-driver registry. Host PATH and user environment are not inputs.
@@ -29,10 +27,7 @@ impl CapabilityInventory for ApprovedCapabilityInventory<'_> {
             .chain(self.manifest.recipes.iter())
             .find(|recipe| recipe.recipe_id == recipe_id)?;
         Some(RecipeCapabilityView {
-            authorized: matches!(
-                recipe.source,
-                RecipeSource::UserApproved | RecipeSource::TrustedAdapter
-            ),
+            authorized: recipe.is_explicitly_user_approved(),
             prerequisite_tool_ids: &recipe.prerequisite_tool_ids,
         })
     }

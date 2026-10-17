@@ -182,6 +182,9 @@ impl ExecutionPolicyV1 {
 
 pub(super) fn validate_write_scope(value: &str) -> anyhow::Result<()> {
     let path = std::path::Path::new(value);
+    if value == "." {
+        return Ok(());
+    }
     anyhow::ensure!(
         !value.is_empty()
             && value.len() <= 1024

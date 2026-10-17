@@ -1,28 +1,45 @@
 use super::super::*;
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
-struct Fixture(std::path::PathBuf, PlanningStore);
+struct Fixture {
+    root: std::path::PathBuf,
+    store: PlanningStore,
+    _home_guard: crate::test_support::KooladeHomeGuard,
+}
 
 impl Fixture {
     fn new() -> Self {
         let root =
             std::env::temp_dir().join(format!("koolade-runtime-store-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "--quiet"])
+                .current_dir(&root)
+                .status()
+                .expect("git must be available for the project runtime fixture")
+                .success()
+        );
+        let home = crate::test_support::KooladeHomeGuard::set(&root.join("koolade-home"));
         let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
-        Self(root, store)
+        Self {
+            root,
+            store,
+            _home_guard: home,
+        }
     }
 }
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        let _ = std::fs::remove_dir_all(&self.root);
     }
 }
 
 #[test]
 fn manifest_saves_with_revision_fence_and_loads_from_the_planning_store() {
     let fixture = Fixture::new();
-    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let runtime = ProjectRuntimeStore::new(&fixture.store);
     let manifest = ProjectCapabilityManifestV1 {
         schema_version: 1,
         workspace_id: uuid::Uuid::new_v4().to_string(),
@@ -52,14 +69,14 @@ fn manifest_saves_with_revision_fence_and_loads_from_the_planning_store() {
 #[test]
 fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
     let fixture = Fixture::new();
-    let project = fixture.0.join("project");
+    let project = fixture.root.join("project");
     std::fs::create_dir_all(&project).unwrap();
     std::fs::write(
         project.join("pyproject.toml"),
         "[project]\ndependencies=['fastapi']\n",
     )
     .unwrap();
-    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let runtime = ProjectRuntimeStore::new(&fixture.store);
     let context = DiscoveryContext {
         workspace_id: "workspace-1".into(),
         repository_id: "repo-1".into(),
@@ -92,6 +109,33 @@ fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
         .unwrap();
     assert_eq!(manifest.revision, 2);
     assert_eq!(runtime.load_manifest().unwrap(), Some(manifest.clone()));
+    let target = &manifest.candidate_targets[0];
+    let recipe = &manifest.user_overrides[0];
+    assert!(runtime.recipe_is_locally_approved(&manifest, target, recipe));
+    let mut forged = manifest.clone();
+    forged.user_overrides[0].evidence_refs = vec!["user-approval:made-up".into()];
+    assert!(!runtime.recipe_is_locally_approved(
+        &forged,
+        &forged.candidate_targets[0],
+        &forged.user_overrides[0]
+    ));
+    let mut changed_recipe = recipe.clone();
+    changed_recipe.argv.push("--changed".into());
+    assert!(!runtime.recipe_is_locally_approved(&manifest, target, &changed_recipe));
+    let mut changed_manifest = manifest.clone();
+    changed_manifest.source_sha = "f".repeat(40);
+    assert!(!runtime.recipe_is_locally_approved(
+        &changed_manifest,
+        &changed_manifest.candidate_targets[0],
+        &changed_manifest.user_overrides[0]
+    ));
+    let mut changed_target = manifest.candidate_targets[0].clone();
+    changed_target.project_relative_root = "private".into();
+    assert!(!runtime.recipe_is_locally_approved(
+        &manifest,
+        &changed_target,
+        &manifest.user_overrides[0]
+    ));
     assert!(matches!(
         runtime.approve_recipe_and_save(
             &target_id,
@@ -109,7 +153,7 @@ fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
 #[test]
 fn multiple_discovered_targets_require_explicit_selection() {
     let fixture = Fixture::new();
-    let project = fixture.0.join("polyglot");
+    let project = fixture.root.join("polyglot");
     std::fs::create_dir_all(project.join("apps/web")).unwrap();
     std::fs::create_dir_all(project.join("services/api")).unwrap();
     std::fs::write(project.join("apps/web/package.json"), r#"{"name":"web"}"#).unwrap();
@@ -118,7 +162,7 @@ fn multiple_discovered_targets_require_explicit_selection() {
         "[project]\nname='api'\n",
     )
     .unwrap();
-    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let runtime = ProjectRuntimeStore::new(&fixture.store);
     let context = DiscoveryContext {
         workspace_id: "workspace-polyglot".into(),
         repository_id: "repo-polyglot".into(),
@@ -160,14 +204,14 @@ fn multiple_discovered_targets_require_explicit_selection() {
 #[test]
 fn approved_start_recipe_and_readiness_probe_commit_together() {
     let fixture = Fixture::new();
-    let project = fixture.0.join("web");
+    let project = fixture.root.join("web");
     std::fs::create_dir_all(&project).unwrap();
     std::fs::write(
         project.join("package.json"),
         r#"{"name":"web","dependencies":{"vite":"1"}}"#,
     )
     .unwrap();
-    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let runtime = ProjectRuntimeStore::new(&fixture.store);
     let context = DiscoveryContext {
         workspace_id: "workspace-web".into(),
         repository_id: "repo-web".into(),
@@ -223,7 +267,7 @@ fn approved_start_recipe_and_readiness_probe_commit_together() {
 #[test]
 fn receipt_records_are_append_only_and_task_source_pinned() {
     let fixture = Fixture::new();
-    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let runtime = ProjectRuntimeStore::new(&fixture.store);
     let receipt_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let receipt = RuntimeReceiptV1 {
         schema_version: 1,
@@ -261,12 +305,12 @@ fn receipt_records_are_append_only_and_task_source_pinned() {
 #[test]
 fn runtime_store_rejects_symlinked_state_paths() {
     let fixture = Fixture::new();
-    let external = fixture.0.join("outside");
+    let external = fixture.root.join("outside");
     std::fs::create_dir_all(&external).unwrap();
-    std::fs::create_dir_all(&fixture.1.root).unwrap();
-    let state = fixture.1.root.join("state");
+    std::fs::create_dir_all(&fixture.store.root).unwrap();
+    let state = fixture.store.root.join("state");
     std::os::unix::fs::symlink(&external, &state).unwrap();
-    let runtime = ProjectRuntimeStore::new(&fixture.1);
+    let runtime = ProjectRuntimeStore::new(&fixture.store);
     assert!(matches!(
         runtime.load_manifest(),
         Err(StoreError::InvalidPath(_))

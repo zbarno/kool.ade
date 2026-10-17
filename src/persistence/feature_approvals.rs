@@ -35,6 +35,10 @@ pub(crate) fn contains(repo: &std::path::Path, feature: &str, contract: &str) ->
         })
 }
 
+pub(crate) fn contains_scoped(repo: &std::path::Path, scope: &str, digest: &str) -> bool {
+    contains(repo, &format!("scoped:{scope}"), digest)
+}
+
 pub(crate) fn record(repo: &std::path::Path, feature: &str, contract: &str) -> anyhow::Result<()> {
     let path = path(repo)?;
     let parent = path.parent().expect("approval file has a parent");
@@ -67,4 +71,20 @@ pub(crate) fn record(repo: &std::path::Path, feature: &str, contract: &str) -> a
     fs::write(&temporary, bytes)?;
     fs::rename(&temporary, path)?;
     Ok(())
+}
+
+pub(crate) fn record_scoped(
+    repo: &std::path::Path,
+    scope: &str,
+    digest: &str,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !scope.is_empty() && scope.len() <= 256,
+        "approval scope is invalid"
+    );
+    anyhow::ensure!(
+        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "approval digest is invalid"
+    );
+    record(repo, &format!("scoped:{scope}"), digest)
 }

@@ -13,6 +13,15 @@ pub(super) struct BuildArtifacts {
     pub hashes: BTreeMap<String, String>,
 }
 
+pub(super) struct ReceiptData {
+    pub recipe_id: String,
+    pub exit_code: Option<i32>,
+    pub log_reference: Option<String>,
+    pub artifact_hashes: BTreeMap<String, String>,
+    pub passed: bool,
+    pub observed_at_unix_ms: u64,
+}
+
 pub(super) fn build_artifacts(
     manifest: &ProjectCapabilityManifestV1,
     target: &AppTargetV1,
@@ -77,11 +86,17 @@ pub(super) fn failed_start(
     let receipt = receipt(
         session,
         target,
-        recipe_id,
-        None,
-        None,
-        BTreeMap::new(),
-        false,
+        ReceiptData {
+            recipe_id,
+            exit_code: None,
+            log_reference: None,
+            artifact_hashes: BTreeMap::new(),
+            passed: false,
+            observed_at_unix_ms: super::super::next_receipt_timestamp(
+                store,
+                &session.workspace().task_id,
+            )?,
+        },
     );
     store.append_receipt(&receipt)?;
     Ok(vec![receipt])
@@ -90,11 +105,7 @@ pub(super) fn failed_start(
 pub(super) fn receipt(
     session: &ExecutionSession,
     target: &AppTargetV1,
-    recipe_id: String,
-    exit_code: Option<i32>,
-    log_reference: Option<String>,
-    artifact_hashes: BTreeMap<String, String>,
-    passed: bool,
+    data: ReceiptData,
 ) -> RuntimeReceiptV1 {
     RuntimeReceiptV1 {
         schema_version: 1,
@@ -103,15 +114,15 @@ pub(super) fn receipt(
         task_id: session.workspace().task_id.clone(),
         target_id: target.target_id.clone(),
         source_sha: session.workspace().source_sha.clone(),
-        recipe_id: Some(recipe_id),
-        state: if passed {
+        recipe_id: Some(data.recipe_id),
+        state: if data.passed {
             RuntimeReceiptState::Passed
         } else {
             RuntimeReceiptState::Failed
         },
-        exit_code,
-        artifact_hashes,
-        log_reference,
-        observed_at_unix_ms: super::super::now_unix_ms(),
+        exit_code: data.exit_code,
+        artifact_hashes: data.artifact_hashes,
+        log_reference: data.log_reference,
+        observed_at_unix_ms: data.observed_at_unix_ms,
     }
 }

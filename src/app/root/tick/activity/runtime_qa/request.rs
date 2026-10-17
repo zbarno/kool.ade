@@ -3,8 +3,8 @@ use crate::{
     core::{implementation::Implementation, lifecycle::TaskRecord},
     execution::docker::images::{ImageLock, RuntimeProfile},
     project_runtime::{
-        AppSurface, AppTargetV1, ProjectRuntimeStore, RecipeSource, RuntimeOperation,
-        RuntimeReceiptState, RuntimeReceiptV1,
+        AppSurface, AppTargetV1, ProjectRuntimeStore, RuntimeOperation, RuntimeReceiptState,
+        RuntimeReceiptV1,
     },
     runtime_qa::QaRunRequestV1,
 };
@@ -61,7 +61,8 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         .implementation_states
         .get(&document.path)
         .ok_or_else(|| "the verified task clone is unavailable".to_owned())?;
-    let manifest = ProjectRuntimeStore::new(&project.state.planning_store)
+    let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
+    let manifest = runtime
         .load_manifest()
         .map_err(|error| format!("project runtime manifest could not be validated: {error}"))?
         .ok_or_else(|| "the project has no approved runtime capability manifest".to_owned())?;
@@ -83,38 +84,17 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         .chain(manifest.user_overrides.iter())
         .find(|recipe| Some(recipe.recipe_id.as_str()) == target.start_recipe_ref.as_deref())
         .ok_or_else(|| "the approved target startup recipe is missing".to_owned())?;
-    if !matches!(
-        recipe.source,
-        RecipeSource::UserApproved | RecipeSource::TrustedAdapter
-    ) || (recipe.source == RecipeSource::UserApproved
-        && !recipe
-            .evidence_refs
-            .iter()
-            .any(|value| value.starts_with("user-approval:")))
-    {
-        return Err(
-            "the target startup recipe has no explicit user approval or trusted adapter".into(),
-        );
+    if !runtime.recipe_is_locally_approved(&manifest, target, recipe) {
+        return Err("the target startup recipe has no explicit user approval".into());
     }
-    let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
     let build_recipe = manifest
         .recipes
         .iter()
         .chain(manifest.user_overrides.iter())
         .find(|recipe| Some(recipe.recipe_id.as_str()) == target.build_recipe_ref.as_deref())
         .ok_or_else(|| "the approved target build recipe is missing".to_owned())?;
-    if !matches!(
-        build_recipe.source,
-        RecipeSource::UserApproved | RecipeSource::TrustedAdapter
-    ) || (build_recipe.source == RecipeSource::UserApproved
-        && !build_recipe
-            .evidence_refs
-            .iter()
-            .any(|value| value.starts_with("user-approval:")))
-    {
-        return Err(
-            "the target build recipe has no explicit user approval or trusted adapter".into(),
-        );
+    if !runtime.recipe_is_locally_approved(&manifest, target, build_recipe) {
+        return Err("the target build recipe has no explicit user approval".into());
     }
     let build_receipts = runtime
         .receipts_for_task(planning_item_uid)
@@ -128,6 +108,32 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
     .ok_or_else(|| {
         "no successful build receipt exists for the verified task head and target".to_owned()
     })?;
+    let start_recipe_id = target
+        .start_recipe_ref
+        .as_deref()
+        .ok_or_else(|| "the approved target has no startup recipe".to_owned())?;
+    if target.readiness_probe_ref.is_none() {
+        return Err("the approved target has no readiness probe".into());
+    }
+    let start = latest_start_receipt(
+        &build_receipts,
+        planning_item_uid,
+        &target.target_id,
+        &build.source_sha,
+        start_recipe_id,
+    )
+    .ok_or_else(|| {
+        "no successful start/readiness receipt exists for the verified task head and target"
+            .to_owned()
+    })?;
+    if start.state != RuntimeReceiptState::Passed || start.exit_code != Some(0) {
+        return Err("the latest start/readiness receipt did not pass".into());
+    }
+    if start.artifact_hashes != build.artifact_hashes {
+        return Err(
+            "the successful start receipt does not match the approved build artifacts".into(),
+        );
+    }
     let artifact_ref = target
         .artifact_spec_ref
         .as_deref()
@@ -230,6 +236,25 @@ pub(super) fn latest_successful_build_receipt<'a>(
         .filter(|receipt| {
             receipt.operation == RuntimeOperation::Build
                 && receipt.state == RuntimeReceiptState::Passed
+                && receipt.target_id == target_id
+                && receipt.source_sha == source_sha
+                && receipt.recipe_id.as_deref() == Some(recipe_id)
+        })
+        .max_by_key(|receipt| (receipt.observed_at_unix_ms, receipt.receipt_id.clone()))
+}
+
+pub(super) fn latest_start_receipt<'a>(
+    receipts: &'a [RuntimeReceiptV1],
+    task_id: &str,
+    target_id: &str,
+    source_sha: &str,
+    recipe_id: &str,
+) -> Option<&'a RuntimeReceiptV1> {
+    receipts
+        .iter()
+        .filter(|receipt| {
+            receipt.operation == RuntimeOperation::Start
+                && receipt.task_id == task_id
                 && receipt.target_id == target_id
                 && receipt.source_sha == source_sha
                 && receipt.recipe_id.as_deref() == Some(recipe_id)

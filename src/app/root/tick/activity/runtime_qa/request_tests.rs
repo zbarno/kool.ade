@@ -1,5 +1,6 @@
 use super::{
-    latest_successful_build_receipt, task_spec::acceptance_criteria, workspace_target_path,
+    latest_start_receipt, latest_successful_build_receipt, task_spec::acceptance_criteria,
+    workspace_target_path,
 };
 use crate::project_runtime::{RuntimeOperation, RuntimeReceiptState, RuntimeReceiptV1};
 
@@ -52,6 +53,31 @@ fn qa_build_lookup_uses_only_the_latest_pass_for_exact_target_and_sha() {
     ];
     let matched = latest_successful_build_receipt(&receipts, "web", &sha, "web-build").unwrap();
     assert_eq!(matched.observed_at_unix_ms, 13);
+}
+
+#[test]
+fn qa_start_lookup_requires_the_exact_task_target_head_and_approved_recipe() {
+    let sha = "a".repeat(40);
+    let mut passed = build_receipt(RuntimeReceiptState::Passed, "web", &sha, 13);
+    passed.operation = RuntimeOperation::Start;
+    passed.recipe_id = Some("web-start".into());
+    let mut wrong_task = passed.clone();
+    wrong_task.task_id = "other-task".into();
+    let mut wrong_operation = passed.clone();
+    wrong_operation.operation = RuntimeOperation::Test;
+    let receipts = [wrong_task, wrong_operation, passed.clone()];
+
+    let matched =
+        latest_start_receipt(&receipts, "planning-item", "web", &sha, "web-start").unwrap();
+    assert_eq!(matched.receipt_id, passed.receipt_id);
+
+    let mut failed = passed.clone();
+    failed.state = RuntimeReceiptState::Failed;
+    failed.observed_at_unix_ms += 1;
+    let receipts = [passed, failed];
+    let latest =
+        latest_start_receipt(&receipts, "planning-item", "web", &sha, "web-start").unwrap();
+    assert_eq!(latest.state, RuntimeReceiptState::Failed);
 }
 
 #[test]
