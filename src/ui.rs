@@ -113,6 +113,11 @@ pub enum ApplicationCommand {
         answer: String,
         selected_option: Option<String>,
     },
+    DeferClarification {
+        uid: String,
+        expected_revision: u64,
+        details: crate::core::planning::DeferredAssumption,
+    },
     DecideOpportunity {
         uid: String,
         expected_revision: u64,

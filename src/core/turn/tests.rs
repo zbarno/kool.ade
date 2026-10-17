@@ -233,7 +233,10 @@ fn drain(controller: &TurnController) -> TurnOutcome {
     // be treated as a vanished turn. True vanishing is detected directly
     // via the worker handle; a bounded run of idle probes catches a
     // wedged worker (same shape as the persona-home probe budgets).
-    const IDLE_BUDGET: usize = 8;
+    // Parallel all-target runs can briefly starve fixture workers while
+    // unrelated integration tests consume CPU. Keep the wedge guard bounded,
+    // but allow a full 30 seconds of scheduler silence before declaring loss.
+    const IDLE_BUDGET: usize = 120;
     let mut idle = 0usize;
     loop {
         match controller.poll(Duration::from_millis(250)) {

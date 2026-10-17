@@ -1,6 +1,12 @@
 use super::{KooladeApp, Screen};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 
+mod defer;
+mod fence;
+#[cfg(test)]
+#[path = "clarification/tests.rs"]
+mod tests;
+
 impl KooladeApp {
     pub(super) fn start_clarification_planner(&mut self, feature_uid: &str, plan_revision: u64) {
         let harness = super::configured_harness_for(
@@ -64,6 +70,16 @@ impl KooladeApp {
             );
             return;
         }
+        let planning_revision =
+            match fence::current_question_planning_revision(project, &store, &question) {
+                Ok(revision) => revision,
+                Err(error) => {
+                    self.toasts.warning(format!(
+                    "This clarification is stale or its current plan cannot be verified: {error}"
+                ));
+                    return;
+                }
+            };
         let answer = (!answer.trim().is_empty()).then_some(answer);
         let answered_by = project.state.effective_user().name;
         let answered_by = if answered_by.trim().is_empty() {
@@ -77,7 +93,8 @@ impl KooladeApp {
             .as_millis()
             .min(u64::MAX as u128) as u64;
         let plan_revision = question.plan_revision;
-        let reconciliation = if answer.is_none() && selected_option.is_none() {
+        let declined = answer.is_none() && selected_option.is_none();
+        let reconciliation = if declined {
             crate::core::planning::decline_question(
                 &mut question,
                 expected_revision,
@@ -101,50 +118,55 @@ impl KooladeApp {
                 .warning(format!("Clarification could not be answered: {error}"));
             return;
         }
-        if let Err(error) = store.save(&question, record_revision) {
-            self.toasts.warning(format!(
-                "Clarification changed before the answer was saved: {error}"
-            ));
-            return;
-        }
-        let next_plan_revision = match plan_revision.checked_add(1) {
-            Some(revision) => revision,
-            None => {
-                self.toasts.warning("The answer was saved, but the planning revision is exhausted; no follow-up Planner pass was started.");
+        let readiness = match store.save_question_and_reassess(
+            &question,
+            record_revision,
+            &planning_revision,
+        ) {
+            Ok(readiness) => readiness,
+            Err(error) => {
+                self.toasts.warning(format!(
+                    "Clarification changed before the answer was saved: {error}"
+                ));
                 return;
             }
         };
-        project.activity.pending_clarification_planner =
-            Some((question.feature_uid.clone(), next_plan_revision));
-        let readiness_message = match store.reassess_readiness(&question.feature_uid, plan_revision)
-        {
-            Ok(Some(crate::core::planning::ReadinessResult::Ready)) => {
+        if !declined {
+            let next_plan_revision = match plan_revision.checked_add(1) {
+                Some(revision) => revision,
+                None => {
+                    self.toasts.warning("The answer was saved, but the planning revision is exhausted; no follow-up Planner pass was started.");
+                    return;
+                }
+            };
+            project.activity.pending_clarification_planner =
+                Some((question.feature_uid.clone(), next_plan_revision));
+        }
+        let readiness_message = match readiness {
+            Some(crate::core::planning::ReadinessResult::Ready) => {
                 "The recorded planning readiness checklist is complete.".to_owned()
             }
-            Ok(Some(crate::core::planning::ReadinessResult::NeedsWork {
+            Some(crate::core::planning::ReadinessResult::NeedsWork {
                 blockers,
                 unassessed,
                 untraced_requirements,
                 missing_acceptance_tests,
-            })) => format!(
+            }) => format!(
                 "Readiness still needs work: {} blocking questions, {} unassessed areas, {} untraced requirements, missing acceptance tests: {}.",
                 blockers.len(),
                 unassessed.len(),
                 untraced_requirements.len(),
                 if missing_acceptance_tests { "yes" } else { "no" }
             ),
-            Ok(Some(crate::core::planning::ReadinessResult::PlanningStalled { .. })) => {
+            Some(crate::core::planning::ReadinessResult::PlanningStalled { .. }) => {
                 "Planning readiness is stalled; review its repeated no-progress evidence.".into()
             }
-            Ok(Some(crate::core::planning::ReadinessResult::InvalidEvidence { reasons })) => {
+            Some(crate::core::planning::ReadinessResult::InvalidEvidence { reasons }) => {
                 format!("Readiness evidence is invalid: {}", reasons.join("; "))
             }
-            Ok(None) => {
+            None => {
                 "No readiness checklist is recorded for this plan; it remains unready until the planner records assessment evidence.".into()
             }
-            Err(error) => format!(
-                "The answer was saved, but readiness could not be reassessed: {error}"
-            ),
         };
         let mut message_text = answer.unwrap_or_default().trim().to_owned();
         if let Some(option_id) = selected_option
@@ -185,15 +207,17 @@ impl KooladeApp {
                     .warning(format!("Clarification answer saved. {readiness_message}"));
             }
         }
-        let follow_up = format!(
-            "Reconcile the user's recorded answer to clarification {uid} for feature {}.\n\nQuestion: {}\nAnswer: {}\n\nTreat the answer as explicit product intent. Update the feature decisions/specification with the answer, reassess material ambiguity and acceptance-test traceability, and raise only materially new follow-up questions. Do not change phase or approve the feature.",
-            question.feature_uid, question.question, message_text
-        );
-        self.start_turn_with_purpose(&follow_up, crate::core::workflow::TurnPurpose::Interview);
-        if let Screen::Connected(project) = &mut self.screen
-            && project.active_turn.is_none()
-        {
-            project.activity.pending_clarification_planner = None;
+        if !declined {
+            let follow_up = format!(
+                "Reconcile the user's recorded answer to clarification {uid} for feature {}.\n\nQuestion: {}\nAnswer: {}\n\nTreat the answer as explicit product intent. Update the feature decisions/specification with the answer, reassess material ambiguity and acceptance-test traceability, and raise only materially new follow-up questions. Do not change phase or approve the feature.",
+                question.feature_uid, question.question, message_text
+            );
+            self.start_turn_with_purpose(&follow_up, crate::core::workflow::TurnPurpose::Interview);
+            if let Screen::Connected(project) = &mut self.screen
+                && project.active_turn.is_none()
+            {
+                project.activity.pending_clarification_planner = None;
+            }
         }
     }
 }

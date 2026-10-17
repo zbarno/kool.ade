@@ -25,14 +25,28 @@ pub struct ReadinessV1 {
     pub evidence: Vec<String>,
 }
 
-/// Planner v3 proposal shape. Feature identity and plan revision are supplied
+/// Planner v4 proposal shape. Feature identity and plan revision are supplied
 /// by the application when it creates persisted clarification cards.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlannerOutputV2 {
     pub proposed_questions: Vec<ClarificationProposalV1>,
+    #[serde(default)]
+    pub resolved_questions: Vec<TechnicalResolutionV1>,
     pub draft_changes: Vec<String>,
     pub readiness: ReadinessV2,
+}
+
+/// A typed, evidence-backed implementation decision that clears an existing
+/// technical question without claiming user intent.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TechnicalResolutionV1 {
+    pub question_uid: String,
+    pub decision: String,
+    pub rationale: String,
+    pub selected_option_id: Option<String>,
+    pub evidence_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -108,6 +122,7 @@ impl PlannerOutputV2 {
     pub fn validate(&self) -> Result<(), String> {
         let bounded = |text: &str, limit: usize| !text.trim().is_empty() && text.len() <= limit;
         if self.proposed_questions.len() > 64
+            || self.resolved_questions.len() > 64
             || self.draft_changes.len() > 128
             || self.readiness.blockers.len() > 128
             || self.readiness.evidence.len() > 128
@@ -115,6 +130,24 @@ impl PlannerOutputV2 {
             || self.readiness.acceptance_tests.len() > 256
         {
             return Err("planner output exceeds collection limits".into());
+        }
+        let mut resolved_ids = HashSet::new();
+        for resolution in &self.resolved_questions {
+            if !uuid::Uuid::parse_str(&resolution.question_uid)
+                .is_ok_and(|uid| uid.hyphenated().to_string() == resolution.question_uid)
+                || !resolved_ids.insert(&resolution.question_uid)
+                || !bounded(&resolution.decision, 4096)
+                || !bounded(&resolution.rationale, 8192)
+                || resolution.evidence_refs.is_empty()
+                || resolution.evidence_refs.len() > 128
+                || resolution.evidence_refs.iter().any(|id| !bounded(id, 128))
+                || resolution
+                    .selected_option_id
+                    .as_ref()
+                    .is_some_and(|id| !bounded(id, 128))
+            {
+                return Err("technical resolutions must be unique, evidenced, and bounded".into());
+            }
         }
         for question in &self.proposed_questions {
             if !bounded(&question.decision_subject, 2048)

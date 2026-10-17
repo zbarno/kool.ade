@@ -6,11 +6,24 @@ pub(crate) fn persist(
     output: crate::harness::prompt_catalog::PlannerOutputV2,
 ) -> Result<crate::core::planning::ReadinessResult, String> {
     use crate::core::planning::{
-        AcceptanceTestTrace, QuestionCategory, QuestionOption, QuestionPriority, QuestionProposal,
-        QuestionStatus, QuestionStore, ReadinessChecklistV1, propose_questions,
+        AcceptanceTestTrace, DEFAULT_NO_PROGRESS_THRESHOLD, QuestionCategory, QuestionOption,
+        QuestionPriority, QuestionProposal, QuestionStatus, QuestionStore, ReadinessChecklistV1,
+        propose_questions,
     };
+
     let questions = QuestionStore::new(store);
-    let current = questions.list().map_err(|error| error.to_string())?;
+    let planning_revision = store.revision().map_err(|error| error.to_string())?;
+    let required_requirement_ids =
+        required_requirement_ids_for_snapshot(store, feature_uid, spec_revision)?;
+    let mut current = questions.list().map_err(|error| error.to_string())?;
+    let resolved = resolutions::apply(
+        &questions,
+        &mut current,
+        feature_uid,
+        plan_revision,
+        output.resolved_questions,
+    )?;
+    let superseded = supersede_older_questions(&questions, &current, feature_uid, plan_revision)?;
     let proposals = output
         .proposed_questions
         .into_iter()
@@ -87,15 +100,22 @@ pub(crate) fn persist(
         })
         .collect();
     let created = propose_questions(proposals, &current).map_err(|error| error.to_string())?;
-    for question in &created {
-        questions
-            .save(question, 0)
-            .map_err(|error| error.to_string())?;
+    let mut all_questions = current
+        .iter()
+        .filter(|question| {
+            question.feature_uid == feature_uid && question.plan_revision == plan_revision
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for (question, _) in &superseded {
+        if let Some(prior) = all_questions
+            .iter_mut()
+            .find(|prior| prior.uid == question.uid)
+        {
+            *prior = question.clone();
+        }
     }
-    let mut all_questions = questions.list().map_err(|error| error.to_string())?;
-    all_questions.retain(|question| {
-        question.feature_uid == feature_uid && question.plan_revision == plan_revision
-    });
+    all_questions.extend(created.iter().cloned());
     let existing = questions
         .load_readiness(feature_uid)
         .map_err(|error| error.to_string())?;
@@ -107,6 +127,7 @@ pub(crate) fn persist(
         feature_uid: feature_uid.to_owned(),
         plan_revision,
         spec_revision: Some(spec_revision.to_owned()),
+        required_requirement_ids: Some(required_requirement_ids.clone()),
         assessed_axes: output
             .readiness
             .assessed_axes
@@ -148,43 +169,46 @@ pub(crate) fn persist(
             .checked_add(1)
             .ok_or("readiness data revision exhausted")?;
     }
-    crate::core::planning::observe_progress(&mut checklist, &all_questions, 3);
+    crate::core::planning::observe_progress(
+        &mut checklist,
+        &all_questions,
+        DEFAULT_NO_PROGRESS_THRESHOLD,
+    );
+    let assessment = crate::core::planning::assess_readiness(
+        &all_questions,
+        &checklist,
+        &required_requirement_ids,
+    );
+    checklist.ready = matches!(&assessment, crate::core::planning::ReadinessResult::Ready);
+    checklist.unresolved_blocker_ids = all_questions
+        .iter()
+        .filter(|question| {
+            question.priority == QuestionPriority::Blocking
+                && matches!(
+                    question.status,
+                    QuestionStatus::Draft | QuestionStatus::Open | QuestionStatus::Declined
+                )
+                && question.deferred.is_none()
+        })
+        .map(|question| question.uid.clone())
+        .collect();
+    let mut changed_questions = superseded;
+    changed_questions.extend(resolved);
+    changed_questions.extend(created.into_iter().map(|question| (question, 0)));
     questions
-        .save_readiness(&checklist, record_revision)
+        .save_batch_with_readiness(
+            &changed_questions,
+            &checklist,
+            record_revision,
+            &planning_revision,
+        )
         .map_err(|error| error.to_string())?;
-    questions
-        .reassess_readiness(feature_uid, plan_revision)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "readiness record disappeared after persistence".into())
+    Ok(assessment)
 }
 
-fn parse_axis(value: &str) -> Option<crate::core::planning::ReadinessAxis> {
-    use crate::core::planning::ReadinessAxis as Axis;
-    Some(
-        match value
-            .trim()
-            .to_ascii_lowercase()
-            .replace([' ', '-', '_'], "")
-            .as_str()
-        {
-            "who" => Axis::Who,
-            "what" => Axis::What,
-            "when" => Axis::When,
-            "where" => Axis::Where,
-            "why" => Axis::Why,
-            "how" => Axis::How,
-            "outofscope" => Axis::OutOfScope,
-            "criticalpath" => Axis::CriticalPath,
-            "systemboundaries" => Axis::SystemBoundaries,
-            "failurebehavior" => Axis::FailureBehavior,
-            "dataownership" => Axis::DataOwnership,
-            "authorization" => Axis::Authorization,
-            "measurablesuccess" => Axis::MeasurableSuccess,
-            "testcases" => Axis::TestCases,
-            _ => return None,
-        },
-    )
-}
+mod helpers;
+mod resolutions;
+use helpers::{parse_axis, required_requirement_ids_for_snapshot, supersede_older_questions};
 
 #[cfg(test)]
 mod tests;
