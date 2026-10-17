@@ -27,8 +27,8 @@ async fn persisted_cancellation_keeps_previously_collected_artifact_manifest() {
     let owner_id = backend.identity.owner_instance_id.clone();
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'result.txt').write_text('persisted-cancel-data\\n')",
-        vec!["evidence/result.txt".into()],
+        "from pathlib import Path; Path('result.txt').write_text('persisted-cancel-data\\n')",
+        vec!["result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);
     let (_lease, handle) = prepare_and_start(&backend, &request).await;
@@ -54,7 +54,7 @@ async fn persisted_cancellation_keeps_previously_collected_artifact_manifest() {
             .expect("stage-out execution record should be durable");
     assert_eq!(staged.state, ExecutionRecordStateV1::CollectingResults);
     assert_eq!(staged.artifacts.len(), 1);
-    assert_eq!(staged.artifacts[0].relative_path, "evidence/result.txt");
+    assert_eq!(staged.artifacts[0].relative_path, "result.txt");
     assert_eq!(staged.artifacts[0].size_bytes, 22);
     assert_eq!(
         staged.artifacts[0].media_type.as_deref(),
@@ -89,7 +89,7 @@ async fn persisted_cancellation_keeps_previously_collected_artifact_manifest() {
         .expect("persisted cancellation result should remain available");
     assert!(result.cancelled);
     assert_eq!(result.artifacts.len(), 1);
-    assert_eq!(result.artifacts[0].relative_path, "evidence/result.txt");
+    assert_eq!(result.artifacts[0].relative_path, "result.txt");
     assert_eq!(result.artifacts[0].size_bytes, 22);
     assert_eq!(result.artifacts[0].media_type, "text/plain");
     assert_eq!(

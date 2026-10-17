@@ -29,8 +29,8 @@ async fn restart_after_stage_out_before_result_commit_preserves_clone_without_re
     let owner_id = backend.identity.owner_instance_id.clone();
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'command-count.txt').open('a').write('single-run\\n'); (p / 'result.txt').write_text('stage-out-data\\n')",
-        vec!["evidence/result.txt".into()],
+        "from pathlib import Path; Path('command-count.txt').open('a').write('single-run\\n'); Path('result.txt').write_text('stage-out-data\\n')",
+        vec!["result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);
     let (_lease, handle) = prepare_and_start(&backend, &request).await;
@@ -71,10 +71,7 @@ async fn restart_after_stage_out_before_result_commit_preserves_clone_without_re
     assert!(before_restart.command_started);
     assert!(before_restart.result.is_none());
     assert_eq!(before_restart.artifacts.len(), 1);
-    assert_eq!(
-        before_restart.artifacts[0].relative_path,
-        "evidence/result.txt"
-    );
+    assert_eq!(before_restart.artifacts[0].relative_path, "result.txt");
     assert_eq!(before_restart.artifacts[0].size_bytes, 15);
     assert_eq!(
         before_restart.artifacts[0].media_type.as_deref(),
@@ -114,7 +111,7 @@ async fn restart_after_stage_out_before_result_commit_preserves_clone_without_re
         "an incomplete result commit must remain interrupted, never successful"
     );
     assert_eq!(result.artifacts.len(), 1);
-    assert_eq!(result.artifacts[0].relative_path, "evidence/result.txt");
+    assert_eq!(result.artifacts[0].relative_path, "result.txt");
     assert_eq!(result.artifacts[0].size_bytes, 15);
     assert_eq!(result.artifacts[0].media_type, "text/plain");
     assert_eq!(

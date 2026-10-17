@@ -1,4 +1,6 @@
-use super::support::{Fixture, OPT_IN, container_cleanup, request, wait_for_stdout, workspace};
+use super::support::{
+    Fixture, OPT_IN, container_cleanup, container_id, request, wait_for_stdout, workspace,
+};
 use crate::execution::{
     backend::ExecutionBackend,
     docker::{
@@ -6,6 +8,7 @@ use crate::execution::{
         engine::{DockerEndpoint, HostPlatform},
     },
 };
+use futures_util::StreamExt;
 use std::{fs, path::Path, process::Command, sync::Arc, time::Duration};
 
 /// Production boundary: app-owned task clone resolution, two Docker container
@@ -102,7 +105,13 @@ async fn cancelling_one_parallel_task_preserves_the_other_same_named_branch_clon
         tokio::spawn(async move { exec_b_backend.exec(&exec_b_handle, &exec_b_request).await });
     wait_for_stdout(&backend_a, &handle_a, "task-a-ready").await;
     wait_for_stdout(&backend_b, &handle_b, "task-b-complete").await;
-    wait_for_sample(&task_a.task_id, &request_a.execution_id).await;
+    wait_for_sample(
+        backend_a.as_ref(),
+        &handle_a,
+        &task_a.task_id,
+        &request_a.execution_id,
+    )
+    .await;
 
     backend_a
         .cancel(&handle_a, request_a.cancellation_generation)
@@ -186,8 +195,13 @@ async fn cancelling_one_parallel_task_preserves_the_other_same_named_branch_clon
     assert!(released_a.phase_timings.cleanup_ms.is_some());
 }
 
-async fn wait_for_sample(task_id: &str, execution_id: &str) {
-    tokio::time::timeout(Duration::from_secs(10), async {
+async fn wait_for_sample(
+    backend: &DockerExecutionBackend,
+    handle: &crate::execution::backend::ExecutionHandleV1,
+    task_id: &str,
+    execution_id: &str,
+) {
+    let collected = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let record = crate::persistence::execution_records::load(task_id, execution_id)
                 .expect("read durable Docker telemetry");
@@ -197,8 +211,47 @@ async fn wait_for_sample(task_id: &str, execution_id: &str) {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     })
-    .await
-    .expect("Docker did not emit a bounded resource metric sample");
+    .await;
+    if collected.is_ok() {
+        return;
+    }
+
+    let mut stats = backend.docker.stats(
+        &container_id(backend, handle),
+        Some(
+            bollard::query_parameters::StatsOptionsBuilder::default()
+                .stream(true)
+                .build(),
+        ),
+    );
+    let probe = match tokio::time::timeout(Duration::from_secs(3), stats.next()).await {
+        Err(_) => "direct stats probe timed out".to_owned(),
+        Ok(None) => "direct stats stream ended".to_owned(),
+        Ok(Some(Err(_))) => "direct stats probe returned an error".to_owned(),
+        Ok(Some(Ok(sample))) => {
+            let has_cpu = sample
+                .cpu_stats
+                .as_ref()
+                .and_then(|stats| stats.cpu_usage.as_ref())
+                .and_then(|usage| usage.total_usage)
+                .is_some();
+            let has_memory = sample
+                .memory_stats
+                .as_ref()
+                .and_then(|stats| stats.max_usage.or(stats.usage))
+                .is_some();
+            let has_processes = sample
+                .pids_stats
+                .as_ref()
+                .and_then(|stats| stats.current)
+                .is_some();
+            format!(
+                "direct stats response (os_type={:?}, cpu={has_cpu}, memory={has_memory}, processes={has_processes})",
+                sample.os_type
+            )
+        }
+    };
+    panic!("Docker did not emit a bounded resource metric sample; {probe}");
 }
 
 fn init_branch(path: &Path) {

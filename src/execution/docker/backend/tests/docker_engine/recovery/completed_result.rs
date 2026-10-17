@@ -27,8 +27,8 @@ async fn restart_preserves_terminal_artifacts_and_completes_pending_cleanup() {
     let owner_id = backend.identity.owner_instance_id.clone();
     let request = verification_request_with_artifacts(
         workspace.clone(),
-        "from pathlib import Path; p = Path('evidence'); p.mkdir(exist_ok=True); (p / 'result.txt').write_text('durable-result\\n'); (p / 'command-count.txt').open('a').write('single-command\\n')",
-        vec!["evidence/result.txt".into()],
+        "from pathlib import Path; Path('result.txt').write_text('durable-result\\n'); Path('command-count.txt').open('a').write('single-command\\n')",
+        vec!["result.txt".into()],
     );
     let _cleanup = container_cleanup(&request);
     let (_lease, handle) = prepare_and_start(&backend, &request).await;
@@ -43,6 +43,7 @@ async fn restart_preserves_terminal_artifacts_and_completes_pending_cleanup() {
         .expect("completed command result should be available");
     assert_eq!(result.exit_code, Some(0));
     assert_eq!(result.artifacts.len(), 1);
+    assert_eq!(result.artifacts[0].relative_path, "result.txt");
     assert_eq!(
         fs::read_to_string(task_clone.join("evidence/result.txt")).unwrap(),
         "durable-result\n"
