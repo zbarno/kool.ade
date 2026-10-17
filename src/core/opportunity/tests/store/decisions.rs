@@ -59,6 +59,52 @@ fn authenticated_decision_is_durable_and_idempotent_but_rejects_forgery_and_stal
 }
 
 #[test]
+fn concurrent_users_cannot_authorize_the_same_proposal_twice() {
+    use std::sync::{Arc, Barrier};
+
+    let (_temp, store) = setup();
+    let opportunities = OpportunityStore::new(&store);
+    let OpportunitySaveResult::Created {
+        proposal,
+        record_revision,
+    } = opportunities.save_advisory(proposal()).unwrap()
+    else {
+        panic!("proposal should be created")
+    };
+    let barrier = Arc::new(Barrier::new(2));
+    let contenders = [
+        ("synthetic-user-a", OpportunityChoice::Pursue),
+        ("synthetic-user-b", OpportunityChoice::Decline),
+    ];
+    let handles = contenders.map(|(user, choice)| {
+        let store = store.clone();
+        let proposal = proposal.clone();
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            let decision = prompt_decision(&proposal, user, choice);
+            barrier.wait();
+            OpportunityStore::new(&store).record_user_decision(record_revision, &decision, user)
+        })
+    });
+
+    let results = handles.map(|handle| handle.join().expect("decision worker must finish"));
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+    assert!(results.iter().any(|result| matches!(
+        result,
+        Err(crate::artifacts::planning_store::StoreError::StaleRecordRevision { .. })
+    )));
+
+    let reopened = OpportunityStore::new(&store);
+    assert_eq!(reopened.list_decisions().unwrap().len(), 1);
+    let (saved, _) = reopened.load(&proposal.opportunity_uid).unwrap();
+    assert!(matches!(
+        saved.status,
+        OpportunityStatusV1::ApprovedToPlan | OpportunityStatusV1::Declined
+    ));
+}
+
+#[test]
 fn all_explicit_choices_persist_their_distinct_lifecycle_state() {
     let cases = [
         (

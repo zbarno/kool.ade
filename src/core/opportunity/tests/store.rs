@@ -166,18 +166,27 @@ fn advisory_proposals_are_deduplicated_across_store_reopen() {
     let first = proposal();
     let created = opportunities.save_advisory(first.clone()).unwrap();
     let OpportunitySaveResult::Created {
-        proposal: saved, ..
+        proposal: saved,
+        record_revision,
     } = created
     else {
         panic!("first save should create a proposal")
     };
+    let decision = prompt_decision(&saved, "synthetic-user", OpportunityChoice::Decline);
+    opportunities
+        .record_user_decision(record_revision, &decision, "synthetic-user")
+        .unwrap();
+    let (declined, _) = opportunities.load(&saved.opportunity_uid).unwrap();
     let reopened = OpportunityStore::new(&store);
     let mut duplicate = first;
     duplicate.opportunity_uid = uuid::Uuid::new_v4().to_string();
     duplicate.problem_or_opportunity = " repeated provider discovery failures ".into();
     let result = reopened.save_advisory(duplicate).unwrap();
     assert!(matches!(result, OpportunitySaveResult::Duplicate { .. }));
-    assert_eq!(reopened.list().unwrap(), vec![saved]);
+    let proposals = reopened.list().unwrap();
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(proposals[0], declined);
+    assert_eq!(proposals[0].status, OpportunityStatusV1::Declined);
     assert!(reopened.approved_to_plan().unwrap().is_empty());
 }
 
