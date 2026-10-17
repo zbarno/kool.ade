@@ -52,9 +52,11 @@ pub enum QuestionStatus {
     Draft,
     Open,
     Answered,
+    EvidenceResolved,
     Declined,
     Superseded,
     Cancelled,
+    Deferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +105,10 @@ pub struct QuestionV1 {
     pub selected_option: Option<String>,
     pub answered_by: Option<String>,
     pub answered_at_ms: Option<u64>,
+    #[serde(default)]
+    pub deferred_by: Option<String>,
+    #[serde(default)]
+    pub deferred_at_ms: Option<u64>,
     pub revision: u64,
 }
 
@@ -170,18 +176,54 @@ impl QuestionV1 {
         if self.deferred.is_some() && self.priority != QuestionPriority::Optional {
             return Err("only optional questions may be deferred".into());
         }
+        let deferred_status = self.status == QuestionStatus::Deferred;
+        let superseded = self.status == QuestionStatus::Superseded;
+        let has_deferral = self.deferred.is_some();
+        let has_deferral_metadata = self.deferred_by.is_some() || self.deferred_at_ms.is_some();
+        let complete_deferral =
+            has_deferral && self.deferred_by.is_some() && self.deferred_at_ms.is_some();
+        if (deferred_status && !complete_deferral)
+            || (!deferred_status && !superseded && (has_deferral || has_deferral_metadata))
+            || (has_deferral_metadata && !complete_deferral)
+            || self
+                .deferred_by
+                .as_ref()
+                .is_some_and(|value| value.trim().is_empty() || value.len() > 256)
+            || self.deferred_at_ms == Some(0)
+        {
+            return Err(
+                "deferred status requires complete deferral details and attribution".into(),
+            );
+        }
         let resolved = matches!(
             self.status,
-            QuestionStatus::Answered | QuestionStatus::Declined
+            QuestionStatus::Answered | QuestionStatus::EvidenceResolved | QuestionStatus::Declined
         );
+        let answer_attribution_complete =
+            self.answered_by.is_some() && self.answered_at_ms.is_some();
+        let answer_attribution_partial =
+            self.answered_by.is_some() != self.answered_at_ms.is_some();
         let declined = self.status == QuestionStatus::Declined;
-        if resolved != self.answered_at_ms.is_some()
-            || resolved != self.answered_by.is_some()
-            || (!resolved && (self.answer_text.is_some() || self.selected_option.is_some()))
-            || (self.status == QuestionStatus::Answered
-                && self.answer_text.is_none()
+        if answer_attribution_partial
+            || (resolved && !answer_attribution_complete)
+            || (!resolved && !superseded && answer_attribution_complete)
+            || (!resolved
+                && !superseded
+                && (self.answer_text.is_some() || self.selected_option.is_some()))
+            || (superseded
+                && (self.answer_text.is_some() || self.selected_option.is_some())
+                && !answer_attribution_complete)
+            || (matches!(
+                self.status,
+                QuestionStatus::Answered | QuestionStatus::EvidenceResolved
+            ) && self.answer_text.is_none()
                 && self.selected_option.is_none())
             || (declined && (self.answer_text.is_some() || self.selected_option.is_some()))
+            || (deferred_status
+                && (self.answer_text.is_some()
+                    || self.selected_option.is_some()
+                    || self.answered_by.is_some()
+                    || self.answered_at_ms.is_some()))
         {
             return Err("question answer fields do not match its status".into());
         }

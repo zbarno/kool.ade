@@ -16,6 +16,19 @@ fn attention_cards_sort_newest_activity_first_and_keep_fallback_order() {
 }
 
 #[test]
+fn deferred_clarifications_remain_visible_in_attention_for_review() {
+    assert!(clarification_is_visible(
+        crate::core::planning::QuestionStatus::Deferred
+    ));
+    assert!(!clarification_is_visible(
+        crate::core::planning::QuestionStatus::Answered
+    ));
+    assert!(!clarification_is_visible(
+        crate::core::planning::QuestionStatus::EvidenceResolved
+    ));
+}
+
+#[test]
 fn task_recency_uses_the_latest_persisted_progress_update() {
     let progress = crate::harness::LiveProgress {
         telemetry: crate::harness::ActivityTelemetry {

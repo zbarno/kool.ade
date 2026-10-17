@@ -233,8 +233,8 @@ fn drain(controller: &TurnController) -> TurnOutcome {
     // be treated as a vanished turn. True vanishing is detected directly
     // via the worker handle; a bounded run of idle probes catches a
     // wedged worker (same shape as the persona-home probe budgets).
-    // Keep a finite timeout without mistaking parallel-suite scheduler delays
-    // for a vanished worker.
+    // A full parallel nextest run can starve fixture workers for tens of
+    // seconds on a loaded host; retain a 60 second bound before declaring loss.
     const IDLE_BUDGET: usize = 240;
     let mut idle = 0usize;
     loop {

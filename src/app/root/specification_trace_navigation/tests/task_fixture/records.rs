@@ -229,6 +229,8 @@ pub(super) fn save_decision(
         selected_option: Some("record".into()),
         answered_by: Some("Fixture operator".into()),
         answered_at_ms: Some(1),
+        deferred_by: None,
+        deferred_at_ms: None,
         revision: 0,
     };
     crate::core::planning::QuestionStore::new(store)

@@ -37,6 +37,10 @@ pub struct ReadinessChecklistV1 {
     /// Missing legacy bindings are not eligible for plan confirmation.
     #[serde(default)]
     pub spec_revision: Option<String>,
+    /// Complete requirement set parsed from the assessed specification.
+    /// Missing legacy values fail readiness closed until Planner reassesses it.
+    #[serde(default)]
+    pub required_requirement_ids: Option<Vec<String>>,
     pub assessed_axes: Vec<ReadinessAxis>,
     pub acceptance_tests: Vec<AcceptanceTestTrace>,
     #[serde(default)]
@@ -56,6 +60,20 @@ impl ReadinessChecklistV1 {
         if uuid::Uuid::parse_str(&self.feature_uid).is_err()
             || self.assessed_axes.len() > MATERIAL_AXIS_COUNT
             || self.acceptance_tests.len() > 2048
+            || self
+                .required_requirement_ids
+                .as_ref()
+                .is_some_and(|requirements| {
+                    requirements.len() > 256
+                        || requirements.iter().any(|id| {
+                            id.strip_prefix("REQ-").is_none_or(|suffix| {
+                                suffix.is_empty()
+                                    || !suffix.chars().all(|character| {
+                                        character.is_ascii_alphanumeric() || character == '-'
+                                    })
+                            })
+                        })
+                })
             || self.evidence_refs.len() > 128
             || self
                 .evidence_refs
@@ -100,6 +118,15 @@ impl ReadinessChecklistV1 {
                     self.acceptance_tests[..index]
                         .iter()
                         .any(|prior| prior == entry)
+                })
+            || self
+                .required_requirement_ids
+                .as_ref()
+                .is_some_and(|requirements| {
+                    requirements
+                        .iter()
+                        .enumerate()
+                        .any(|(index, id)| requirements[..index].contains(id))
                 })
             || self
                 .unresolved_blocker_ids

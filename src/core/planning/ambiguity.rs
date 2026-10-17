@@ -9,28 +9,50 @@ pub struct QuestionKey {
     pub requirements: Vec<String>,
 }
 
-pub fn normalize_decision_key(subject: &str, domain: &str, requirements: &[String]) -> QuestionKey {
-    fn normalize(text: &str) -> String {
-        let mut out = String::new();
-        for c in text.chars().flat_map(char::to_lowercase) {
-            if c.is_alphanumeric() {
-                out.push(c);
-            } else if !out.is_empty() && !out.ends_with(' ') {
-                out.push(' ');
-            }
+fn normalize_decision_part(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars().flat_map(char::to_lowercase) {
+        if c.is_alphanumeric() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with(' ') {
+            out.push(' ');
         }
-        out.trim().to_owned()
     }
+    out.trim().to_owned()
+}
+
+fn is_canonical_requirement_id(requirement: &str) -> bool {
+    requirement.strip_prefix("REQ-").is_some_and(|suffix| {
+        !suffix.is_empty()
+            && suffix
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    })
+}
+
+fn canonicalize_requirement_ids(requirements: &mut Vec<String>) {
+    requirements.sort_by_cached_key(|requirement| {
+        (
+            normalize_decision_part(requirement),
+            !is_canonical_requirement_id(requirement),
+            requirement.clone(),
+        )
+    });
+    requirements
+        .dedup_by(|left, right| normalize_decision_part(left) == normalize_decision_part(right));
+}
+
+pub fn normalize_decision_key(subject: &str, domain: &str, requirements: &[String]) -> QuestionKey {
     let requirements = requirements
         .iter()
-        .map(|s| normalize(s))
+        .map(|s| normalize_decision_part(s))
         .filter(|s| !s.is_empty())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
     QuestionKey {
-        subject: normalize(subject),
-        domain: normalize(domain),
+        subject: normalize_decision_part(subject),
+        domain: normalize_decision_part(domain),
         requirements,
     }
 }
@@ -69,8 +91,7 @@ pub fn propose_questions(
         {
             return Err("proposal requires a feature UUID and question".into());
         }
-        proposal.origin_requirement_ids.sort();
-        proposal.origin_requirement_ids.dedup();
+        canonicalize_requirement_ids(&mut proposal.origin_requirement_ids);
         proposal.evidence_refs.sort();
         proposal.evidence_refs.dedup();
         let key = normalize_decision_key(
@@ -85,8 +106,7 @@ pub fn propose_questions(
                 existing
                     .origin_requirement_ids
                     .extend(proposal.origin_requirement_ids.clone());
-                existing.origin_requirement_ids.sort();
-                existing.origin_requirement_ids.dedup();
+                canonicalize_requirement_ids(&mut existing.origin_requirement_ids);
                 existing
                     .evidence_refs
                     .extend(proposal.evidence_refs.clone());
@@ -105,6 +125,14 @@ pub fn propose_questions(
                 existing.options.dedup_by(|a, b| a.id == b.id);
             })
             .or_insert(proposal);
+    }
+    if grouped.values().any(|proposal| {
+        proposal
+            .origin_requirement_ids
+            .iter()
+            .any(|requirement| !is_canonical_requirement_id(requirement))
+    }) {
+        return Err("proposal requirement IDs must match canonical REQ- identifiers".into());
     }
     let existing_keys: BTreeSet<_> = current
         .iter()
@@ -151,6 +179,8 @@ pub fn propose_questions(
                 selected_option: None,
                 answered_by: None,
                 answered_at_ms: None,
+                deferred_by: None,
+                deferred_at_ms: None,
                 revision: 0,
             })
         })
@@ -160,6 +190,10 @@ pub fn propose_questions(
     }
     Ok(questions)
 }
+
+#[cfg(test)]
+#[path = "tests/dedup.rs"]
+mod tests;
 
 pub fn reconcile_answer(
     question: &mut QuestionV1,
@@ -229,6 +263,31 @@ pub fn decline_question(
     question.status = QuestionStatus::Declined;
     question.answered_by = Some(declined_by.to_owned());
     question.answered_at_ms = Some(now_ms);
+    question.revision += 1;
+    question.validate()
+}
+
+/// Retire a question after a newer plan revision has been assessed, preserving
+/// its answer or explicit deferral as historical evidence.
+pub fn supersede_question(
+    question: &mut QuestionV1,
+    expected_revision: u64,
+    current_plan_revision: u64,
+) -> Result<(), String> {
+    question.validate()?;
+    if question.revision != expected_revision || question.plan_revision >= current_plan_revision {
+        return Err("stale supersession: question or plan revision changed".into());
+    }
+    if matches!(
+        question.status,
+        QuestionStatus::Cancelled | QuestionStatus::Superseded
+    ) {
+        return Err("question is already retired".into());
+    }
+    if question.revision == u64::MAX {
+        return Err("question revision is exhausted".into());
+    }
+    question.status = QuestionStatus::Superseded;
     question.revision += 1;
     question.validate()
 }

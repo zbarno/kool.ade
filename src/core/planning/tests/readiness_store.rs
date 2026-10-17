@@ -5,6 +5,7 @@ fn checklist() -> ReadinessChecklistV1 {
         feature_uid: uuid::Uuid::from_u128(1).to_string(),
         plan_revision: 4,
         spec_revision: None,
+        required_requirement_ids: Some(vec!["REQ-1".into()]),
         assessed_axes: MATERIAL_AXES.to_vec(),
         acceptance_tests: vec![AcceptanceTestTrace {
             requirement_id: "REQ-1".into(),
@@ -73,6 +74,7 @@ fn answered_question_recomputes_and_persists_readiness() {
     question = loaded;
     let question_revision = question.revision;
     let plan_revision = question.plan_revision;
+    let planning_revision = store.revision().unwrap();
     reconcile_answer(
         &mut question,
         question_revision,
@@ -83,9 +85,8 @@ fn answered_question_recomputes_and_persists_readiness() {
         5,
     )
     .unwrap();
-    api.save(&question, record_revision).unwrap();
     assert_eq!(
-        api.reassess_readiness(&question.feature_uid, question.plan_revision)
+        api.save_question_and_reassess(&question, record_revision, &planning_revision)
             .unwrap(),
         Some(ReadinessResult::Ready)
     );
@@ -115,6 +116,57 @@ fn readiness_reassessment_rejects_a_different_plan_revision() {
     assert!(
         api.reassess_readiness(&question.feature_uid, question.plan_revision + 1)
             .is_err()
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+// Production boundary: an answer and its readiness projection commit atomically
+// under the shared planning revision. A record encoder test cannot prove that a
+// losing concurrent update leaves both durable records unchanged.
+// Dependencies: temporary managed-local planning store; no services.
+// Setup cost: low; one synthetic question and checklist.
+fn stale_answer_readiness_transaction_writes_neither_record() {
+    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
+    let root = std::env::temp_dir().join(format!("readiness-answer-cas-{}", uuid::Uuid::new_v4()));
+    let planning = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
+    let api = QuestionStore::new(&planning);
+    let question = question();
+    api.save(&question, 0).unwrap();
+    api.save_readiness(&checklist(), 0).unwrap();
+    let stale_planning_revision = planning.revision().unwrap();
+    let (mut answer, question_record_revision) = api.load(&question.uid).unwrap();
+    let question_revision = answer.revision;
+    let plan_revision = answer.plan_revision;
+    reconcile_answer(
+        &mut answer,
+        question_revision,
+        plan_revision,
+        Some("The project data steward owns it."),
+        None,
+        "operator",
+        5,
+    )
+    .unwrap();
+    let old_checklist = api.load_readiness(&question.feature_uid).unwrap().unwrap();
+    planning
+        .transaction(
+            &[("state/concurrent.json".into(), b"updated".to_vec())],
+            None,
+        )
+        .unwrap();
+
+    assert!(api
+        .save_question_and_reassess(
+            &answer,
+            question_record_revision,
+            &stale_planning_revision,
+        )
+        .is_err());
+    assert_eq!(api.load(&question.uid).unwrap().0, question);
+    assert_eq!(
+        api.load_readiness(&question.feature_uid).unwrap().unwrap(),
+        old_checklist
     );
     let _ = std::fs::remove_dir_all(root);
 }
