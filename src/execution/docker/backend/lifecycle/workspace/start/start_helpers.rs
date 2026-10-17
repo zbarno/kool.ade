@@ -1,5 +1,9 @@
 use crate::execution::errors::{ExecutionError, ExecutionErrorKind};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+pub(super) fn elapsed_millis(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+}
 
 pub(super) fn engine_operation_error(
     operation: &str,

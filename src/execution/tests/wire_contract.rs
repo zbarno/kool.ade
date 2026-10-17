@@ -21,3 +21,12 @@ fn versioned_request_round_trips_without_controller_paths_or_environment_values(
     assert!(!json.contains("/home/"));
     assert!(!json.contains("github_token"));
 }
+
+#[test]
+fn legacy_execution_requests_default_destination_sha_to_none() {
+    let mut value = serde_json::to_value(request()).unwrap();
+    value.as_object_mut().unwrap().remove("destination_sha");
+    let decoded: crate::execution::contract::ExecutionRequestV1 =
+        serde_json::from_value(value).unwrap();
+    assert_eq!(decoded.destination_sha, None);
+}

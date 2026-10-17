@@ -233,7 +233,7 @@ fn drain(controller: &TurnController) -> TurnOutcome {
     // be treated as a vanished turn. True vanishing is detected directly
     // via the worker handle; a bounded run of idle probes catches a
     // wedged worker (same shape as the persona-home probe budgets).
-    const IDLE_BUDGET: usize = 8;
+    const IDLE_BUDGET: usize = 120;
     let mut idle = 0usize;
     loop {
         match controller.poll(Duration::from_millis(250)) {

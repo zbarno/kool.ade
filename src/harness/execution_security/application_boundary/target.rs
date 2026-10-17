@@ -59,12 +59,13 @@ fn local_session(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
 ) -> anyhow::Result<ExecutionSession> {
-    ExecutionSession::connect_local_with_authorization(
+    ExecutionSession::connect_local_with_destination_sha_and_authorization(
         workspace,
         &request.repo_root,
         ExecutionModeV1::Implementation,
         profile,
         resources,
+        request.destination_sha.clone(),
         request.authorization_verifier.clone(),
     )
     .map_err(|error| {

@@ -7,6 +7,11 @@ use crate::execution::{
 
 #[path = "docker_engine/cache_isolation.rs"]
 mod cache_isolation;
+#[path = "docker_engine/concurrent_tasks.rs"]
+mod concurrent_tasks;
+#[cfg(target_os = "linux")]
+#[path = "docker_engine/daemon_restart.rs"]
+mod daemon_restart;
 #[path = "docker_engine/deadlines.rs"]
 mod deadlines;
 #[path = "docker_engine/planning_read_only.rs"]

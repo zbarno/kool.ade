@@ -86,7 +86,8 @@ pub(in crate::core::implementation) fn verify(
     quarantine_untrusted_ignored(runner, state, dir)?;
     let before = before(runner, state, dir)?;
     let workspace = runner.workspace_ref_for(state)?;
-    let result = runner.verify(&state.task_repository, command, &workspace);
+    let destination_sha = runner.destination_sha_for(state)?;
+    let result = runner.verify(&state.task_repository, command, &workspace, destination_sha);
     after(runner, state, dir, before)?;
     result
 }

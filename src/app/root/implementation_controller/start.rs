@@ -188,8 +188,11 @@ impl KooladeApp {
                 return;
             }
             if resuming {
-                match crate::core::implementation::mark_resume_started(&p.state.repo_root, &ticket)
-                {
+                match crate::core::implementation::mark_resume_started_for_action(
+                    &p.state.repo_root,
+                    &ticket,
+                    manual,
+                ) {
                     Ok(Some(state)) => {
                         p.implementation_states.insert(ticket.clone(), state);
                     }

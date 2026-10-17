@@ -31,6 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install isolated rootless-daemon prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes uidmap slirp4netns
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
@@ -136,6 +140,24 @@ jobs:
           set -e
           if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
           exit "$report_status"
+
+      - name: Verify isolated rootless-daemon restart prerequisites
+        run: |
+          set -euo pipefail
+          command -v dockerd-rootless.sh
+          command -v rootlesskit
+          command -v newuidmap
+          command -v newgidmap
+          grep --extended-regexp --quiet "^$USER:[0-9]+:65536$" /etc/subuid
+          grep --extended-regexp --quiet "^$USER:[0-9]+:65536$" /etc/subgid
+
+      - name: Run isolated Docker daemon restart recovery E2E
+        env:
+          KOOLADE_DOCKER_DAEMON_RESTART_INTEGRATION: "1"
+        run: |
+          unset DOCKER_CONTEXT
+          cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
+            -E 'test(restarted_rootless_daemon_preserves_dirty_clone_without_command_replay)'
 
       - name: Retain per-test timing inventory
         if: success()

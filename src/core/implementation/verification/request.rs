@@ -96,6 +96,7 @@ pub(super) fn build(
                     source_sha: state.base_commit.clone(),
                 },
             ),
+        destination_sha: runner.destination_sha_for(state)?,
         reasoning_level: "medium".into(),
         telemetry_phase: Some(
             if verification_corrections > 0 {

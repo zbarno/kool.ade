@@ -104,6 +104,10 @@ pub struct ExecutionRequestV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub controller_target_id: Option<String>,
     pub workspace: WorkspaceRef,
+    /// Selected destination branch head observed when execution was authorized.
+    /// This is provenance only; it grants no repository or publication authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination_sha: Option<String>,
     pub mode: ExecutionModeV1,
     pub image_digest: String,
     pub argv: Vec<String>,
@@ -146,6 +150,12 @@ impl ExecutionRequestV1 {
             "controller target identity is invalid"
         );
         self.workspace.validate()?;
+        anyhow::ensure!(
+            self.destination_sha
+                .as_deref()
+                .is_none_or(super::ids::is_valid_sha),
+            "destination SHA is invalid"
+        );
         validate_working_directory(&self.working_directory_relative)?;
         anyhow::ensure!(
             self.workspace.project_id == self.project_id,

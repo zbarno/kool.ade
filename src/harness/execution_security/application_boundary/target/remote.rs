@@ -66,6 +66,7 @@ pub(super) fn remote_session(
             mode: ExecutionModeV1::Implementation,
             profile,
             resources,
+            destination_sha: request.destination_sha.clone(),
             authorization_verifier: Some(verifier),
             task_clone: Some(&request.repo_root),
         },

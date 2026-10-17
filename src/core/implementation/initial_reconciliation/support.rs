@@ -182,7 +182,8 @@ pub(super) fn run_verification(
     for command in commands {
         let before = generated::before(runner, state, dir)?;
         let workspace = runner.workspace_ref_for(state)?;
-        let result = runner.verify(&state.task_repository, command, &workspace);
+        let destination_sha = runner.destination_sha_for(state)?;
+        let result = runner.verify(&state.task_repository, command, &workspace, destination_sha);
         let artifacts = generated::after(runner, state, dir, before);
         let (output, error) = match result {
             Ok(output) => (Some(crate::error::redact_secrets(&output)), None),
