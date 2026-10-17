@@ -19,6 +19,28 @@ the same draft is idempotent; a competing stale writer is rejected. Only a
 synchronized revision or one with outstanding nonblocking findings completes
 its origin queue entries.
 
+New immutable history envelopes use schema version 2 and contain a validated
+disposition for **every** origin event. A disposition either references the
+exact event/requirement deltas in that revision, records an explicit bounded
+application-policy reason for accepting an empty delta result, or records an
+unresolved reason while leaving the trigger pending. Origins reconciled in one
+batch reference its joint delta result; this does not assert that every origin
+independently caused every delta. No-change reasons describe the validated
+reconciler result or deterministic plan bookkeeping, not model-authored proof
+that implementation exists. Follow-on reconciliation-completion events are
+explicitly declined with a persisted no-new-evidence reason so they do not
+recursively schedule another pass.
+
+Dispositions, immutable history, current projection and queue acknowledgements
+commit in the same revision-checked transaction. Exact retries preserve the
+original bytes; changed explanations cannot overwrite them. The
+`specification_origin_dispositions` query returns `None` for legacy version 1
+history, without fabricating a past rationale. New version 2 history requires
+complete dispositions and rejects missing or mismatched references. Older
+binaries reject version 2 history: this is intentional fail-closed downgrade
+behavior, so a planning repository with new history requires a compatible
+reader. Historical approvals and version 1 records are not rewritten.
+
 ## Current application behavior
 
 | Event or operation | Durable queue behavior | Reconciliation behavior |

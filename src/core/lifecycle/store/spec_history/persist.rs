@@ -1,13 +1,12 @@
 use crate::{
     artifacts::planning_store::{RecordRevisionCheck, StoreError},
-    core::lifecycle::{
-        SpecDeltaRecordV1, SpecReconciliationStatusV1, SpecRevisionDraftV1, SpecRevisionV1,
-    },
+    core::lifecycle::{SpecReconciliationStatusV1, SpecRevisionDraftV1, SpecRevisionV1},
 };
 
 use super::super::{records::now_unix_ms, spec_sync_queue};
+use super::origins::draft_matches;
 use super::{
-    LifecycleStore, SpecRevisionHistoryV1,
+    LifecycleStore, SpecRevisionHistory,
     validation::{self, revision_uid, validate_history},
 };
 
@@ -97,9 +96,9 @@ impl LifecycleStore<'_> {
             );
             let (history, revision) = self
                 .store
-                .read_record::<SpecRevisionHistoryV1>(&history_path)?;
+                .read_record::<SpecRevisionHistory>(&history_path)?;
             validate_history(&history, revision)?;
-            if draft_matches(&draft, current, &history.deltas) {
+            if draft_matches(&draft, &history) {
                 return Ok(current.clone());
             }
         }
@@ -110,11 +109,9 @@ impl LifecycleStore<'_> {
             );
             let (history, revision) = self
                 .store
-                .read_record::<SpecRevisionHistoryV1>(&history_path)?;
+                .read_record::<SpecRevisionHistory>(&history_path)?;
             validate_history(&history, revision)?;
-            if history.entry.feature_uid == feature_uid
-                && draft_matches(&draft, &history.entry, &history.deltas)
-            {
+            if history.entry.feature_uid == feature_uid && draft_matches(&draft, &history) {
                 return Ok(history.entry);
             }
         }
@@ -174,6 +171,7 @@ impl LifecycleStore<'_> {
             .checked_add(1)
             .ok_or_else(|| StoreError::MalformedState("spec revision is exhausted".into()))?;
         let now = now_unix_ms();
+        let origin_dispositions = Some(super::origins::for_draft(&draft)?);
         let entry = SpecRevisionV1 {
             schema_version: 1,
             uid: feature_uid.to_owned(),
@@ -194,8 +192,8 @@ impl LifecycleStore<'_> {
         };
         entry.validate().map_err(StoreError::MalformedState)?;
         let history_uid = revision_uid(feature_uid, next_sequence)?;
-        let history = SpecRevisionHistoryV1 {
-            schema_version: 1,
+        let history = SpecRevisionHistory {
+            schema_version: 2,
             uid: history_uid.clone(),
             revision: 1,
             created_at_ms: now,
@@ -204,6 +202,7 @@ impl LifecycleStore<'_> {
             sequence: next_sequence,
             entry: entry.clone(),
             deltas: draft.deltas,
+            origin_dispositions,
         };
         validate_history(&history, 1)?;
         let history_path = format!("state/spec_revision_history/{history_uid}.json");
@@ -268,23 +267,6 @@ impl LifecycleStore<'_> {
         }
         Ok(entry)
     }
-}
-
-fn draft_matches(
-    draft: &SpecRevisionDraftV1,
-    entry: &SpecRevisionV1,
-    deltas: &[SpecDeltaRecordV1],
-) -> bool {
-    draft.content_hash == entry.content_hash
-        && draft.source_revision == entry.source_revision
-        && draft.produced_by_run_id == entry.produced_by_run_id
-        && draft.origin_events == entry.origin_events
-        && draft.decision_refs == entry.decision_refs
-        && draft.approved_target_hash == entry.approved_target_hash
-        && draft.implementation_head_sha == entry.implementation_head_sha
-        && draft.reconciliation_status == entry.reconciliation_status
-        && draft.outcome_reason == entry.outcome_reason
-        && draft.deltas == deltas
 }
 
 pub(super) fn current_path(feature_uid: &str) -> Result<String, StoreError> {

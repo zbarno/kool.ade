@@ -38,6 +38,7 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
                 implementation_head_sha: None,
                 reconciliation_status: SpecReconciliationStatusV1::Synchronized,
                 outcome_reason: None,
+                no_change_reason: Some("Synthetic lifecycle acceptance review found no specification delta for the approved task graph.".into()),
                 deltas: Vec::new(),
             },
         )
@@ -140,6 +141,7 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
                 implementation_head_sha: None,
                 reconciliation_status: SpecReconciliationStatusV1::Synchronized,
                 outcome_reason: None,
+                no_change_reason: Some("Synthetic reopened lifecycle review found no specification delta for the persisted task evidence.".into()),
                 deltas: Vec::new(),
             },
         )

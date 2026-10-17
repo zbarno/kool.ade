@@ -30,6 +30,7 @@ fn direct_store_append_rejects_fabricated_operator_adoption() {
     let mut decision_refs = current.decision_refs.clone();
     decision_refs.push(receipt_uid);
     let draft = SpecRevisionDraftV1 {
+        no_change_reason: None,
         content_hash: forged_hash.clone(),
         source_revision: feature.revision,
         produced_by_run_id: None,
@@ -140,6 +141,7 @@ fn stale_store_fence_rolls_back_product_prose_and_spec_revision_together() {
         recorded_at_ms: 1,
     };
     let draft = SpecRevisionDraftV1 {
+        no_change_reason: None,
         content_hash: content_hash.clone(),
         source_revision: current.source_revision,
         produced_by_run_id: None,

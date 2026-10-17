@@ -85,6 +85,9 @@ pub(in crate::app::root::tick::activity) fn record_feature(
         _ => None,
     };
     let revision = SpecRevisionDraftV1 {
+        no_change_reason: proposal.filter(|proposal| proposal.deltas.is_empty()).map(|_| {
+            "Application policy accepted the validated SpecReconciler's empty delta result for the exact persisted approved feature plan, current product specification and included feature triggers; no documentation or target change was proposed. This pass establishes no current implementation claim.".into()
+        }),
         content_hash: crate::core::lifecycle::product_spec::current_product_hash(
             &project.state.planning_store,
         )

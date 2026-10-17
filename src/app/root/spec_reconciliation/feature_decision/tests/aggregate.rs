@@ -31,6 +31,7 @@ fn resolving_one_finding_keeps_other_open_finding_visible() {
             &proposal.feature_uid,
             previous.seq,
             SpecRevisionDraftV1 {
+                no_change_reason: None,
                 content_hash: previous.content_hash,
                 source_revision: previous.source_revision,
                 produced_by_run_id: None,

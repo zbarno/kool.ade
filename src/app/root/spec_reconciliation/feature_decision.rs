@@ -162,6 +162,7 @@ pub(crate) fn decide_feature_delta(
     let mut decisions = current.decision_refs.clone();
     decisions.push(receipt_uid);
     let draft = SpecRevisionDraftV1 {
+        no_change_reason: None,
         content_hash: content_hash.clone(),
         source_revision: feature.revision,
         produced_by_run_id: None,
