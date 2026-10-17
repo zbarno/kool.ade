@@ -134,7 +134,10 @@ fn opencode_empty_success_requires_configuration_without_claiming_auth_failure()
     assert!(!report.ready);
     assert!(!report.implementation_available);
     assert!(report.configuration_required);
-    assert!(!report.authentication_required);
+    assert_eq!(
+        report.authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
     assert_eq!(report.version.as_deref(), Some("1.2.3"));
     assert_eq!(
         report.executable.as_deref(),
@@ -199,7 +202,10 @@ fn opencode_empty_success_requires_configuration_without_claiming_auth_failure()
     );
     let auth_report = discover_provider("opencode", true);
     assert!(!auth_report.ready);
-    assert!(auth_report.authentication_required);
+    assert_eq!(
+        auth_report.authentication,
+        crate::execution::contract::ReadinessState::Unavailable
+    );
     assert!(auth_report.configuration_required);
     super::super::super::discovery::apply_probe_results(&mut settings, &[auth_report], None, 2);
     assert_eq!(

@@ -34,7 +34,11 @@ fn report(ok: bool) -> HarnessProbe {
         default_model: None,
         model_catalog_fresh: true,
         configuration_required: false,
-        authentication_required: false,
+        authentication: if ok {
+            crate::execution::contract::ReadinessState::Ready
+        } else {
+            crate::execution::contract::ReadinessState::Unknown
+        },
         implementation_available: true,
     }
 }

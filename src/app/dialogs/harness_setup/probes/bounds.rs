@@ -102,7 +102,7 @@ mod tests {
             default_model: Some("model-a".into()),
             model_catalog_fresh: true,
             configuration_required: false,
-            authentication_required: false,
+            authentication: crate::execution::contract::ReadinessState::Unknown,
             implementation_available: true,
         }
     }

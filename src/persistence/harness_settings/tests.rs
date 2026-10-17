@@ -41,7 +41,7 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
     };
     save_to(&path, &settings).unwrap();
     let loaded: HarnessSettings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(loaded.schema_version, 3);
+    assert_eq!(loaded.schema_version, 4);
     assert_eq!(loaded.default_harness.as_deref(), Some("pi"));
     assert_eq!(loaded.work_routes["implementation"].harness, "codex");
     assert_eq!(
@@ -99,7 +99,7 @@ fn version_one_settings_migrate_without_losing_default_or_discovery() {
     .unwrap();
     let (settings, diagnostic) = load_from(&path);
     assert!(diagnostic.is_none());
-    assert_eq!(settings.schema_version, 3);
+    assert_eq!(settings.schema_version, 4);
     assert_eq!(settings.default_harness.as_deref(), Some("pi"));
     std::fs::remove_file(path).unwrap();
 }
@@ -148,4 +148,104 @@ fn legacy_discovery_without_a_freshness_timestamp_is_stale() {
     )
     .unwrap();
     assert!(!detected.is_fresh_at(current_unix_ms()));
+}
+
+#[test]
+fn schema_three_migrates_inferred_authentication_and_schema_four_preserves_explicit_evidence() {
+    use crate::execution::contract::{
+        HarnessCapabilitySnapshotV1, HarnessRole, ModeReadinessV1, ReadinessState, RoleReadinessV1,
+    };
+
+    let path = temp_file();
+    let snapshot = HarnessCapabilitySnapshotV1 {
+        schema_version: 1,
+        provider_id: "pi".into(),
+        probe_id: "123e4567-e89b-12d3-a456-426614174000".into(),
+        probe_cancellation_generation: 1,
+        probe_sequence: 1,
+        cli_binary: ReadinessState::Ready,
+        cli_version: Some("1.0.0".into()),
+        authentication: ReadinessState::Ready,
+        model_catalog: ReadinessState::Ready,
+        scriptable_invocation: ReadinessState::Unknown,
+        docker_mcp_bridge: ReadinessState::Unavailable,
+        execution_target: ReadinessState::Unavailable,
+        failure: None,
+        modes: crate::harness::ExecutionMode::ALL
+            .into_iter()
+            .map(|mode| ModeReadinessV1 {
+                mode,
+                available: ReadinessState::Unknown,
+                failure: None,
+            })
+            .collect(),
+        roles: HarnessRole::ALL
+            .into_iter()
+            .map(|role| RoleReadinessV1 {
+                role,
+                available: ReadinessState::Unknown,
+                failure: None,
+            })
+            .collect(),
+    };
+    let old = HarnessSettings {
+        schema_version: 3,
+        default_harness: Some("pi".into()),
+        discovered: BTreeMap::from([(
+            "pi".into(),
+            DetectedHarness {
+                status: "pi 1.0.0".into(),
+                version: Some("1.0.0".into()),
+                executable: Some("/tools/pi".into()),
+                diagnostic: None,
+                ready: true,
+                models: vec!["model-a".into()],
+                default_model: Some("model-a".into()),
+                model_catalog_fresh: true,
+                configuration_required: false,
+                implementation_available: true,
+                checked_at_unix_ms: current_unix_ms(),
+                capability_snapshot: Some(snapshot),
+            },
+        )]),
+        ..HarnessSettings::default()
+    };
+    std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+
+    let (mut migrated, diagnostic) = load_from(&path);
+    assert!(diagnostic.is_none());
+    assert_eq!(migrated.schema_version, 4);
+    let detected = &migrated.discovered["pi"];
+    assert!(detected.ready, "installed readiness is preserved");
+    assert_eq!(
+        detected
+            .capability_snapshot
+            .as_ref()
+            .unwrap()
+            .authentication,
+        ReadinessState::Unknown
+    );
+    assert!(!detected.has_current_authenticated_capability("pi", current_unix_ms()));
+
+    migrated
+        .discovered
+        .get_mut("pi")
+        .unwrap()
+        .capability_snapshot
+        .as_mut()
+        .unwrap()
+        .authentication = ReadinessState::Ready;
+    save_to(&path, &migrated).unwrap();
+    let (reloaded, diagnostic) = load_from(&path);
+    assert!(diagnostic.is_none());
+    assert_eq!(
+        reloaded.discovered["pi"]
+            .capability_snapshot
+            .as_ref()
+            .unwrap()
+            .authentication,
+        ReadinessState::Ready,
+        "schema 4 retains fresh positive authentication evidence"
+    );
+    std::fs::remove_file(path).unwrap();
 }

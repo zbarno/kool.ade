@@ -1,4 +1,5 @@
 use super::{HarnessProbe, catalog::configured_model_catalog, codex_models};
+use crate::execution::contract::ReadinessState;
 
 pub const PROVIDERS: [&str; 6] = [
     "pi",
@@ -38,7 +39,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 default_model,
                 model_catalog_fresh,
                 configuration_required: pi.configuration_required,
-                authentication_required: pi.configuration_required,
+                authentication: ReadinessState::Unknown,
                 implementation_available: pi.ok && runtime_available,
                 status: pi.status,
             }
@@ -82,8 +83,13 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 model_catalog_fresh,
                 configuration_required: codex.readiness
                     == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
-                authentication_required: codex.readiness
-                    == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
+                authentication: match codex.readiness {
+                    crate::harness::codex_harness::CodexReadiness::AuthenticationRequired => {
+                        ReadinessState::Unavailable
+                    }
+                    crate::harness::codex_harness::CodexReadiness::Ready => ReadinessState::Ready,
+                    _ => ReadinessState::Unknown,
+                },
                 implementation_available: codex.ready && runtime_available,
                 status: codex.status,
             }
@@ -104,8 +110,13 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 model_catalog_fresh,
                 configuration_required: probe.readiness
                     == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
-                authentication_required: probe.readiness
-                    == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
+                authentication: match probe.readiness {
+                    crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired => {
+                        ReadinessState::Unavailable
+                    }
+                    crate::harness::claude_harness::ClaudeReadiness::Ready => ReadinessState::Ready,
+                    _ => ReadinessState::Unknown,
+                },
                 implementation_available: ready && runtime_available,
                 status: probe.status,
             }
@@ -132,8 +143,13 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                     crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
                         | crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired
                 ),
-                authentication_required: probe.readiness
-                    == crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired,
+                authentication: if probe.readiness
+                    == crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
+                {
+                    ReadinessState::Unavailable
+                } else {
+                    ReadinessState::Unknown
+                },
                 implementation_available: ready && runtime_available,
                 status: probe.status,
             }
@@ -164,7 +180,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 default_model,
                 model_catalog_fresh,
                 configuration_required: false,
-                authentication_required: false,
+                authentication: ReadinessState::Unknown,
                 implementation_available: ready && runtime_available,
                 status,
             }
@@ -186,7 +202,11 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 .filter(|m| !m.trim().is_empty()),
                 model_catalog_fresh,
                 configuration_required: probe.configuration_required,
-                authentication_required: probe.configuration_required,
+                authentication: if probe.configuration_required {
+                    ReadinessState::Unavailable
+                } else {
+                    ReadinessState::Unknown
+                },
                 implementation_available: probe.ready && runtime_available,
                 status: probe.status,
             }
@@ -202,7 +222,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
             default_model: None,
             model_catalog_fresh: false,
             configuration_required: false,
-            authentication_required: false,
+            authentication: ReadinessState::Unknown,
             implementation_available: false,
         },
     }

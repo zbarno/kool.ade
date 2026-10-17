@@ -24,7 +24,7 @@ pub(super) fn from_harness_probe(
             Some(ProbeKind::Version),
             Some(ProbeDiagnosticCode::VersionUnavailable),
         )
-    } else if report.authentication_required {
+    } else if report.authentication == ReadinessState::Unavailable {
         (
             Some(ProbeKind::Authentication),
             Some(ProbeDiagnosticCode::AuthenticationRequired),
@@ -49,7 +49,7 @@ pub(super) fn from_harness_probe(
     };
     let status = if report.ready {
         ProbeStatus::Available
-    } else if report.authentication_required {
+    } else if report.authentication == ReadinessState::Unavailable {
         ProbeStatus::NeedsAuthentication
     } else if report.executable.is_some() {
         ProbeStatus::Installed
@@ -82,13 +82,7 @@ pub(super) fn from_harness_probe(
         duration_ms,
         binary_path: report.executable.clone(),
         version: report.version.clone(),
-        authentication: if report.authentication_required {
-            ReadinessState::Unavailable
-        } else if report.ready {
-            ReadinessState::Ready
-        } else {
-            ReadinessState::Unknown
-        },
+        authentication: report.authentication,
         model_catalog_status,
         models: report.models.clone(),
         default_model: report.default_model.clone(),
@@ -156,8 +150,7 @@ pub(super) fn into_harness_probe(result: &ProbeResult) -> HarnessProbe {
                     | ProbeDiagnosticCode::ConfigurationRequired
             )
         ),
-        authentication_required: result.diagnostic_code
-            == Some(ProbeDiagnosticCode::AuthenticationRequired),
+        authentication: result.authentication,
         implementation_available: result.execution_capability.safe_for_implementation
             == ReadinessState::Ready,
     }

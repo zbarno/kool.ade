@@ -25,7 +25,10 @@ fn configured_model_missing_from_refreshed_catalog_fails_closed() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: None,
+                capability_snapshot: Some(authentication::capability_snapshot(
+                    "pi",
+                    crate::execution::contract::ReadinessState::Ready,
+                )),
             },
         )]),
         ..HarnessSettings::default()
@@ -66,7 +69,10 @@ fn route_label_reports_configured_default_model_before_harness_usage() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: None,
+                capability_snapshot: Some(authentication::capability_snapshot(
+                    "pi",
+                    crate::execution::contract::ReadinessState::Ready,
+                )),
             },
         )]),
         ..HarnessSettings::default()
@@ -109,7 +115,10 @@ fn route_label_says_when_cli_does_not_report_its_default_model() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: None,
+                capability_snapshot: Some(authentication::capability_snapshot(
+                    "pi",
+                    crate::execution::contract::ReadinessState::Ready,
+                )),
             },
         )]),
         ..HarnessSettings::default()
@@ -195,7 +204,10 @@ fn failed_optional_catalog_probe_does_not_treat_saved_models_as_fresh() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: None,
+                capability_snapshot: Some(authentication::capability_snapshot(
+                    "codex",
+                    crate::execution::contract::ReadinessState::Ready,
+                )),
             },
         )]),
         ..HarnessSettings::default()

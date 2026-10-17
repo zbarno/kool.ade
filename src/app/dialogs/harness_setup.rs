@@ -67,18 +67,7 @@ pub(super) fn has_current_provider_capabilities(
     detected: &crate::persistence::harness_settings::DetectedHarness,
     now_unix_ms: u64,
 ) -> bool {
-    use crate::execution::contract::ReadinessState;
-
-    if !detected.is_fresh_at(now_unix_ms) || !detected.ready {
-        return false;
-    }
-    let Some(snapshot) = detected.capability_snapshot.as_ref() else {
-        return false;
-    };
-    snapshot.provider_id == id
-        && snapshot.validate().is_ok()
-        && snapshot.cli_binary == ReadinessState::Ready
-        && snapshot.authentication == ReadinessState::Ready
+    detected.has_current_authenticated_capability(id, now_unix_ms)
 }
 
 pub(super) fn has_current_model_catalog(
