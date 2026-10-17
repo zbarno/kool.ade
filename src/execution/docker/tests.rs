@@ -16,6 +16,8 @@ use super::{
     images::{ImageObservation, SelectedImage},
 };
 
+#[path = "tests/desktop_contract.rs"]
+mod desktop_contract;
 #[path = "tests/endpoint.rs"]
 mod endpoint;
 #[path = "tests/images.rs"]
