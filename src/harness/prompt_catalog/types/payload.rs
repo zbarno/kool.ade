@@ -99,6 +99,9 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
                 && list(requirements_matrix, 512, 4096)
                 && list(explicit_exclusions, 256, 4096)
         }
+        RolePayloadV1::QaScenarioSynthesis {
+            immutable_request_json,
+        } => text(immutable_request_json, 64 * 1024),
         RolePayloadV1::Decomposer {
             approved_plan_hash,
             approved_scope,

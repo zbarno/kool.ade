@@ -115,7 +115,10 @@ pub(super) fn prepare(
         .and_then(|state| state.request.as_ref())
         .ok_or_else(|| "current runtime QA request is missing".to_owned())?;
     let qa_store = crate::runtime_qa::RuntimeQaStore::new(
-        project.state.planning_store.root.join("state/runtime-qa"),
+        crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
+            project.state.planning_store.project_id,
+        )
+        .map_err(|error| format!("local runtime QA evidence storage is unavailable: {error}"))?,
     );
     let (persisted_request, scenarios, evidence, result) = qa_store
         .load_run(&qa.qa_run_id)

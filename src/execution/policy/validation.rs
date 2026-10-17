@@ -193,7 +193,7 @@ pub(super) fn validate_write_scope(value: &str) -> anyhow::Result<()> {
             && path
                 .components()
                 .all(|component| matches!(component, std::path::Component::Normal(_))),
-        "workspace write scope must be a non-root relative directory"
+        "workspace write scope must be a canonical relative directory"
     );
     anyhow::ensure!(
         !path

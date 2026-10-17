@@ -105,7 +105,7 @@ mod dependency_review;
 mod opportunities;
 mod plan_review;
 mod reconcile;
-mod runtime_qa;
+pub(crate) mod runtime_qa;
 mod self_improvement;
 pub(crate) mod spec_reconciliation;
 

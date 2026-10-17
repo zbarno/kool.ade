@@ -5,12 +5,14 @@ use std::{
 
 mod browser_binding;
 mod gate;
+mod proposal;
 mod scenarios;
 mod screenshots;
+mod storage_root;
 
 use super::{
-    QaEvidenceManifestV1, QaFindingDispositionV1, QaResultV1, QaRunRequestV1, QaScenarioV1,
-    QaScreenshotArtifactV1, validate_report, validate_screenshot_artifact,
+    QaEvidenceManifestV1, QaFindingDispositionV1, QaResultV1, QaRunRequestV1, QaScenarioProposalV1,
+    QaScenarioV1, QaScreenshotArtifactV1, validate_report, validate_screenshot_artifact,
 };
 
 /// Append-only filesystem store for runtime QA run records.
@@ -22,6 +24,13 @@ pub struct RuntimeQaStore {
 impl RuntimeQaStore {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
+    }
+
+    /// Return the persistent per-workspace evidence directory in the current
+    /// user's application data area. Runtime QA screenshots and logs must not
+    /// be written into a project checkout or its planning Git repository.
+    pub fn local_root_for_workspace(workspace_id: uuid::Uuid) -> Result<PathBuf, String> {
+        storage_root::local_root_for_workspace(workspace_id)
     }
 
     pub fn save_run(

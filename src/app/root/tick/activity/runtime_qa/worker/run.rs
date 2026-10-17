@@ -46,6 +46,20 @@ pub(super) fn run(
             "the approved startup recipe changed after the QA request was persisted".into(),
         );
     }
+    let runtime = crate::project_runtime::ProjectRuntimeStore::new(&prepared.planning_store);
+    let manifest = runtime
+        .load_manifest()
+        .map_err(|error| format!("project runtime manifest could not be revalidated: {error}"))?
+        .ok_or_else(|| "project runtime manifest disappeared before QA dispatch".to_owned())?;
+    super::super::request::verify_prepared_candidate(
+        &runtime,
+        &manifest,
+        &prepared.workspace,
+        &prepared.target,
+        &prepared.startup_recipe,
+        prepared.readiness_probe.as_ref(),
+        &prepared.artifact_paths,
+    )?;
     let (artifact_upload, artifact_sha) = snapshot_selected_files(
         &prepared.task_clone,
         &prepared.artifact_paths,
@@ -177,3 +191,7 @@ fn run_reviewed(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "run/tests.rs"]
+mod tests;

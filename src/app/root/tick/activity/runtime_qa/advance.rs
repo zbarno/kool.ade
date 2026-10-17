@@ -8,6 +8,22 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
 ) {
+    let synthesis_result = project
+        .activity
+        .runtime_qa_scenario_synthesis
+        .as_ref()
+        .and_then(|worker| worker.take_result());
+    if let Some(result) = synthesis_result {
+        project.activity.runtime_qa_scenario_synthesis = None;
+        let notice = match result {
+            Ok((request, proposal)) => match super::persist_synthesized_proposal(project, &request, &proposal) {
+                Ok(()) => "Runtime QA scenario proposal was saved. Review the exact scenarios in Task Details and approve them before execution.".into(),
+                Err(error) => format!("Runtime QA scenario proposal was discarded because its request or task revision changed: {error}"),
+            },
+            Err(error) => format!("Runtime QA scenario synthesis failed: {error}"),
+        };
+        project.activity.pending.push(notice);
+    }
     recipe::record_recipe_worker_completion(project);
     let completed_worker = worker_completion::completed_worker_state(project);
     let completed_worker_identity = completed_worker.identity;
@@ -139,9 +155,17 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
         if project.activity.runtime_qa_worker.is_some() {
             continue;
         }
-        let qa_store = crate::runtime_qa::RuntimeQaStore::new(
-            project.state.planning_store.root.join("state/runtime-qa"),
-        );
+        let qa_store = match crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
+            project.state.planning_store.project_id,
+        ) {
+            Ok(root) => crate::runtime_qa::RuntimeQaStore::new(root),
+            Err(error) => {
+                notices.push(format!(
+                    "Runtime QA local evidence storage is unavailable: {error}"
+                ));
+                continue;
+            }
+        };
         if completed_worker_identity
             .as_ref()
             .is_some_and(|(run_id, uid)| run_id == &request.qa_run_id && uid == &task.task_uid)
@@ -205,9 +229,9 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 continue;
             }
         }
-        if let Err(error) = qa_store.load_approved_scenarios(request) {
+        if let Err(error) = qa_store.load_approved_scenario_proposal(request, task.revision) {
             notices.push(format!(
-                "Runtime QA for task {} is waiting for an explicit user approval of its exact scenario set ({error}). No scenarios have been inferred or executed.",
+                "Runtime QA for task {} is waiting for explicit approval of its current synthesized scenario proposal ({error}). No scenarios have been executed.",
                 task.planning_item_uid.as_deref().unwrap_or(task.task_uid.as_str())
             ));
             continue;

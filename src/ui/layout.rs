@@ -30,6 +30,30 @@ pub enum HeaderAction {
     Disconnect,
 }
 
+/// Opaque one-shot proof emitted only by the explicit custom-target approval
+/// button. Its constructor stays private to this UI module and descendants.
+#[derive(Clone)]
+pub struct RuntimeTargetApprovalProof {
+    nonce: uuid::Uuid,
+}
+
+impl RuntimeTargetApprovalProof {
+    fn from_user_approval_click() -> Self {
+        Self {
+            nonce: uuid::Uuid::new_v4(),
+        }
+    }
+
+    pub(crate) fn receipt_uid(&self) -> String {
+        self.nonce.hyphenated().to_string()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test() -> Self {
+        Self::from_user_approval_click()
+    }
+}
+
 pub fn paint(ui: &mut egui::Ui, s: &mut dyn Surface) {
     s.dispatch(ApplicationCommand::DrainTaskChatSaves);
     let board = s.planning_board();
@@ -52,6 +76,25 @@ pub(crate) use activity::task_card_activity_band;
 pub(crate) use board_state::{planning_column, planning_parent_label, task_document_board_column};
 pub(crate) use task_cards::task_key;
 pub(crate) use task_properties::paint_task_properties;
+
+#[cfg(test)]
+pub(crate) fn paint_custom_runtime_target_action(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    doc: &crate::artifacts::task_docs::TaskDocument,
+) {
+    let height = ui.available_height();
+    task_details::paint(ui, surface, doc, height, &mut None);
+}
+
+#[cfg(test)]
+pub(crate) fn seed_custom_runtime_target_repository_root_draft(
+    context: &egui::Context,
+    ticket: &str,
+    app_surface: crate::project_runtime::AppSurface,
+) {
+    task_details::seed_custom_target_repository_root_draft(context, ticket, app_surface);
+}
 
 #[cfg(test)]
 mod tests;

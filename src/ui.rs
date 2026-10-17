@@ -42,6 +42,14 @@ pub enum ApplicationCommand {
         reference: String,
     },
     CloseSpecificationTrace,
+    GenerateRuntimeQaScenarios {
+        ticket: String,
+    },
+    ApproveRuntimeQaScenarios {
+        ticket: String,
+        expected_task_revision: u64,
+        proposal_sha256: String,
+    },
     DecideFeatureSpecDelta {
         feature_uid: String,
         requirement_id: String,

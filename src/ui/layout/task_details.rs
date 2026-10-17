@@ -11,6 +11,19 @@ mod reply;
 mod review;
 mod state;
 
+#[cfg(test)]
+pub(super) fn seed_custom_target_repository_root_draft(
+    context: &egui::Context,
+    ticket: &str,
+    app_surface: crate::project_runtime::AppSurface,
+) {
+    details::runtime_capability::seed_custom_target_repository_root_draft(
+        context,
+        ticket,
+        app_surface,
+    );
+}
+
 pub(super) fn paint_clarification(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,

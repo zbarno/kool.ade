@@ -116,7 +116,7 @@ pub(super) fn valid_executable_id(value: &str) -> bool {
     valid_id(value) && !value.contains('/') && !matches!(value, "sh" | "bash" | "cmd" | "pwsh")
 }
 
-pub(super) fn validate_relative_path(value: &str) -> Result<(), String> {
+pub(crate) fn validate_relative_path(value: &str) -> Result<(), String> {
     let path = std::path::Path::new(value);
     if value.is_empty()
         || value.len() > 1024
@@ -132,6 +132,56 @@ pub(super) fn validate_relative_path(value: &str) -> Result<(), String> {
         || value.contains('\0')
     {
         return Err("recipe path must remain relative to the approved workspace".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_custom_target_root(value: &str) -> Result<(), &'static str> {
+    if validate_relative_path(value).is_err()
+        || value.contains('\\')
+        || value.chars().any(char::is_control)
+    {
+        return Err("Choose a repository-relative app root without traversal components.");
+    }
+    Ok(())
+}
+
+pub(crate) fn normalize_custom_target_root(value: &str) -> Result<String, &'static str> {
+    validate_custom_target_root(value)?;
+    let normalized = std::path::Path::new(value)
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::CurDir => None,
+            std::path::Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    Ok(if normalized.is_empty() {
+        ".".into()
+    } else {
+        normalized
+    })
+}
+
+pub(crate) fn validate_custom_artifact_paths(paths: &[String]) -> Result<(), &'static str> {
+    if paths.is_empty() || paths.len() > 128 {
+        return Err("custom targets require 1 to 128 build artifact paths");
+    }
+    let mut unique = std::collections::BTreeSet::new();
+    for path in paths {
+        if path.chars().any(char::is_control) {
+            return Err("artifact paths cannot contain control characters");
+        }
+        validate_relative_path(path).map_err(|_| "artifact paths must be safe and relative")?;
+        if path.contains('\\')
+            || path
+                .split('/')
+                .any(|part| matches!(part, "" | "." | ".." | ".git"))
+            || !unique.insert(path)
+        {
+            return Err("artifact paths must be canonical, unique, and exclude Git metadata");
+        }
     }
     Ok(())
 }
@@ -155,4 +205,43 @@ fn valid_env_key(key: &str) -> bool {
         && !["TOKEN", "SECRET", "PASSWORD", "PRIVATE_KEY", "CREDENTIAL"]
             .iter()
             .any(|marker| upper.contains(marker))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        normalize_custom_target_root, validate_custom_artifact_paths, validate_custom_target_root,
+    };
+
+    #[test]
+    fn custom_target_root_accepts_repository_root_and_safe_relative_paths() {
+        assert!(validate_custom_target_root(".").is_ok());
+        assert!(validate_custom_target_root("./").is_ok());
+        assert!(validate_custom_target_root("apps/site").is_ok());
+        assert_eq!(normalize_custom_target_root("./").unwrap(), ".");
+        assert_eq!(
+            normalize_custom_target_root("./apps/site").unwrap(),
+            "apps/site"
+        );
+    }
+
+    #[test]
+    fn custom_target_root_rejects_absolute_and_traversal_paths() {
+        assert!(validate_custom_target_root("/workspace/app").is_err());
+        assert!(validate_custom_target_root("../outside").is_err());
+        assert!(validate_custom_target_root("apps/../../outside").is_err());
+        assert!(validate_custom_target_root("apps\\\\site").is_err());
+        assert!(validate_custom_target_root("apps/\nsite").is_err());
+    }
+
+    #[test]
+    fn custom_artifact_paths_reject_curdir_and_duplicates() {
+        assert!(validate_custom_artifact_paths(&["dist/index.html".into()]).is_ok());
+        assert!(validate_custom_artifact_paths(&["./dist/index.html".into()]).is_err());
+        assert!(
+            validate_custom_artifact_paths(&["dist/index.html".into(), "dist/index.html".into()])
+                .is_err()
+        );
+        assert!(validate_custom_artifact_paths(&["dist/\tindex.html".into()]).is_err());
+    }
 }

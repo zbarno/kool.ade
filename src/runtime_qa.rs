@@ -6,6 +6,7 @@ pub(crate) mod drivers;
 mod gate;
 mod orchestrator;
 mod recipe_queue_handle;
+pub(crate) mod scenario_synthesis;
 mod store;
 #[cfg(test)]
 mod tests;

@@ -1,8 +1,12 @@
 use super::super::*;
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
+#[path = "store/receipt_records.rs"]
+mod receipt_records;
+
 struct Fixture {
     root: std::path::PathBuf,
+    home_root: std::path::PathBuf,
     store: PlanningStore,
     _home_guard: crate::test_support::KooladeHomeGuard,
 }
@@ -20,10 +24,13 @@ impl Fixture {
                 .expect("git must be available for the project runtime fixture")
                 .success()
         );
-        let home = crate::test_support::KooladeHomeGuard::set(&root.join("koolade-home"));
+        let home_root =
+            std::env::temp_dir().join(format!("koolade-runtime-home-{}", uuid::Uuid::new_v4()));
+        let home = crate::test_support::KooladeHomeGuard::set(&home_root);
         let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
         Self {
             root,
+            home_root,
             store,
             _home_guard: home,
         }
@@ -33,6 +40,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.root);
+        let _ = std::fs::remove_dir_all(&self.home_root);
     }
 }
 
@@ -78,15 +86,19 @@ fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
     .unwrap();
     let runtime = ProjectRuntimeStore::new(&fixture.store);
     let context = DiscoveryContext {
-        workspace_id: "workspace-1".into(),
+        workspace_id: uuid::Uuid::new_v4().to_string(),
         repository_id: "repo-1".into(),
-        owning_task_id: "task-1".into(),
+        owning_task_id: uuid::Uuid::new_v4().to_string(),
         source_sha: "c".repeat(40),
     };
+    let _approval_cleanup =
+        crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(&context.workspace_id);
     let mut manifest = runtime.discover_and_save(&project, &context, 0).unwrap();
     assert_eq!(manifest.revision, 1);
     assert_eq!(manifest.detected_languages, ["Python"]);
     let target_id = manifest.candidate_targets[0].target_id.clone();
+    let approval_proof = crate::ui::layout::RuntimeTargetApprovalProof::for_test();
+    let approval_id = approval_proof.receipt_uid();
     let recipe = ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "python-build".into(),
@@ -102,10 +114,16 @@ fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
         cache_scope: None,
         prerequisite_tool_ids: vec!["python".into()],
         network_requirement: NetworkRequirement::Denied,
-        evidence_refs: vec!["user-approval:approval-1".into()],
+        evidence_refs: vec![format!("user-approval:{approval_id}")],
     };
     manifest = runtime
-        .approve_recipe_and_save(&target_id, RuntimeOperation::Build, recipe, 1)
+        .approve_recipe_and_save(
+            &target_id,
+            RuntimeOperation::Build,
+            recipe,
+            approval_proof,
+            1,
+        )
         .unwrap();
     assert_eq!(manifest.revision, 2);
     assert_eq!(runtime.load_manifest().unwrap(), Some(manifest.clone()));
@@ -136,14 +154,22 @@ fn discovery_and_user_recipe_approval_are_persisted_with_manifest_cas() {
         &changed_target,
         &manifest.user_overrides[0]
     ));
+    let stale_proof = crate::ui::layout::RuntimeTargetApprovalProof::for_test();
+    let stale_id = stale_proof.receipt_uid();
+    let mut stale_recipe = manifest.user_overrides[0].clone();
+    stale_recipe.recipe_id = "another-build".into();
+    stale_recipe.evidence_refs.retain(|reference| {
+        !reference.starts_with("user-approval:") && !reference.starts_with("user-recipe-approval:")
+    });
+    stale_recipe
+        .evidence_refs
+        .push(format!("user-approval:{stale_id}"));
     assert!(matches!(
         runtime.approve_recipe_and_save(
             &target_id,
             RuntimeOperation::Build,
-            ExecutionRecipeV1 {
-                recipe_id: "another-build".into(),
-                ..manifest.user_overrides[0].clone()
-            },
+            stale_recipe,
+            stale_proof,
             1,
         ),
         Err(StoreError::StaleRecordRevision { .. })
@@ -164,11 +190,13 @@ fn multiple_discovered_targets_require_explicit_selection() {
     .unwrap();
     let runtime = ProjectRuntimeStore::new(&fixture.store);
     let context = DiscoveryContext {
-        workspace_id: "workspace-polyglot".into(),
+        workspace_id: uuid::Uuid::new_v4().to_string(),
         repository_id: "repo-polyglot".into(),
-        owning_task_id: "task-polyglot".into(),
+        owning_task_id: uuid::Uuid::new_v4().to_string(),
         source_sha: "d".repeat(40),
     };
+    let _approval_cleanup =
+        crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(&context.workspace_id);
     let manifest = runtime.discover_and_save(&project, &context, 0).unwrap();
     assert_eq!(manifest.candidate_targets.len(), 2);
     assert!(manifest.selected_target_id.is_none());
@@ -213,13 +241,17 @@ fn approved_start_recipe_and_readiness_probe_commit_together() {
     .unwrap();
     let runtime = ProjectRuntimeStore::new(&fixture.store);
     let context = DiscoveryContext {
-        workspace_id: "workspace-web".into(),
+        workspace_id: uuid::Uuid::new_v4().to_string(),
         repository_id: "repo-web".into(),
-        owning_task_id: "task-web".into(),
+        owning_task_id: uuid::Uuid::new_v4().to_string(),
         source_sha: "e".repeat(40),
     };
+    let _approval_cleanup =
+        crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(&context.workspace_id);
     let manifest = runtime.discover_and_save(&project, &context, 0).unwrap();
     let target_id = manifest.candidate_targets[0].target_id.clone();
+    let approval_proof = crate::ui::layout::RuntimeTargetApprovalProof::for_test();
+    let approval_id = approval_proof.receipt_uid();
     let recipe = ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "web-start".into(),
@@ -235,7 +267,7 @@ fn approved_start_recipe_and_readiness_probe_commit_together() {
         cache_scope: None,
         prerequisite_tool_ids: vec!["node".into()],
         network_requirement: NetworkRequirement::Denied,
-        evidence_refs: vec!["user-approval:approved-start".into()],
+        evidence_refs: vec![format!("user-approval:{approval_id}")],
     };
     let saved = runtime
         .approve_recipe_with_readiness_and_save(
@@ -247,6 +279,7 @@ fn approved_start_recipe_and_readiness_probe_commit_together() {
                 path: "/health".into(),
                 expected_status: 200,
             }),
+            approval_proof,
             manifest.revision,
         )
         .unwrap();
@@ -262,57 +295,4 @@ fn approved_start_recipe_and_readiness_probe_commit_together() {
             expected_status: 200,
         })
     );
-}
-
-#[test]
-fn receipt_records_are_append_only_and_task_source_pinned() {
-    let fixture = Fixture::new();
-    let runtime = ProjectRuntimeStore::new(&fixture.store);
-    let receipt_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let receipt = RuntimeReceiptV1 {
-        schema_version: 1,
-        receipt_id: receipt_id.clone(),
-        operation: RuntimeOperation::Build,
-        task_id: "task-001".into(),
-        target_id: "web".into(),
-        source_sha: "b".repeat(40),
-        recipe_id: Some("build-web".into()),
-        state: RuntimeReceiptState::Passed,
-        exit_code: Some(0),
-        artifact_hashes: Default::default(),
-        log_reference: Some("log-001".into()),
-        observed_at_unix_ms: 1,
-    };
-    runtime.append_receipt(&receipt).unwrap();
-    assert_eq!(
-        runtime.load_receipt(&receipt_id).unwrap(),
-        Some(receipt.clone())
-    );
-    let other_task = RuntimeReceiptV1 {
-        receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        task_id: "task-002".into(),
-        ..receipt.clone()
-    };
-    runtime.append_receipt(&other_task).unwrap();
-    assert_eq!(
-        runtime.receipts_for_task("task-001").unwrap(),
-        vec![receipt.clone()]
-    );
-    assert!(runtime.append_receipt(&receipt).is_err());
-}
-
-#[cfg(unix)]
-#[test]
-fn runtime_store_rejects_symlinked_state_paths() {
-    let fixture = Fixture::new();
-    let external = fixture.root.join("outside");
-    std::fs::create_dir_all(&external).unwrap();
-    std::fs::create_dir_all(&fixture.store.root).unwrap();
-    let state = fixture.store.root.join("state");
-    std::os::unix::fs::symlink(&external, &state).unwrap();
-    let runtime = ProjectRuntimeStore::new(&fixture.store);
-    assert!(matches!(
-        runtime.load_manifest(),
-        Err(StoreError::InvalidPath(_))
-    ));
 }
