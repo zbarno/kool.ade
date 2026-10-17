@@ -53,8 +53,11 @@ pub(super) fn invalidate_discovery(
     settings: &mut crate::persistence::harness_settings::HarnessSettings,
     provider: Option<&str>,
 ) {
+    let Some(provider) = provider else {
+        return;
+    };
     for (id, entry) in &mut settings.discovered {
-        if provider.is_none_or(|provider| provider == id) {
+        if provider == id {
             entry.checked_at_unix_ms = 0;
             entry.implementation_available = false;
             entry.capability_snapshot = None;
