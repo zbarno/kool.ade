@@ -1,4 +1,6 @@
 use super::*;
+#[path = "routing/authentication.rs"]
+pub(super) mod authentication;
 #[path = "routing/model_catalog.rs"]
 mod model_catalog;
 #[test]
@@ -151,7 +153,10 @@ fn provider_selection_is_not_blocked_before_the_request_mode_is_known() {
         configuration_required: false,
         implementation_available,
         checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-        capability_snapshot: None,
+        capability_snapshot: Some(authentication::capability_snapshot(
+            id,
+            crate::execution::contract::ReadinessState::Ready,
+        )),
     };
     let settings = HarnessSettings {
         default_harness: Some("pi".into()),
@@ -201,7 +206,10 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
                 configuration_required: false,
                 implementation_available: false,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: None,
+                capability_snapshot: Some(authentication::capability_snapshot(
+                    "codex",
+                    crate::execution::contract::ReadinessState::Ready,
+                )),
             },
         )]),
         ..Default::default()
