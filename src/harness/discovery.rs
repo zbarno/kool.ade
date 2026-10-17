@@ -280,3 +280,7 @@ pub(crate) mod windows;
 #[cfg(all(test, unix))]
 #[path = "discovery/tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "discovery/cancellation_tests.rs"]
+mod cancellation_tests;
