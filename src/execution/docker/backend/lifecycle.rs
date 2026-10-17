@@ -18,7 +18,8 @@ mod runtime;
 mod workspace;
 #[cfg(test)]
 pub(in crate::execution::docker::backend) use execute::{
-    inject_crash_after_stage_out, pause_after_stage_out, pause_before_collecting,
+    inject_crash_after_stage_out, observe_cancel_race_archive, pause_after_stage_out,
+    pause_before_collecting,
 };
 #[cfg(test)]
 pub(in crate::execution::docker::backend::lifecycle) use recovery::reconcile_missing_container_404;

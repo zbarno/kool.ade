@@ -10,6 +10,8 @@ mod resource_metrics;
 mod state;
 mod stream;
 mod termination;
+#[cfg(test)]
+pub(in crate::execution::docker::backend) use termination::observe_cancel_race_archive;
 pub(super) use termination::terminate_and_sync;
 mod sync;
 #[cfg(test)]

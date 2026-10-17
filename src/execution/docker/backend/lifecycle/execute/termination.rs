@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::execution::{
@@ -8,6 +10,40 @@ use crate::execution::{
     },
     errors::ExecutionError,
 };
+
+#[cfg(test)]
+static TERMINATION_ARCHIVE_OBSERVERS: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+#[cfg(test)]
+pub(in crate::execution::docker::backend) fn observe_cancel_race_archive(
+    execution_id: String,
+) -> (
+    tokio::sync::oneshot::Receiver<bool>,
+    TerminationArchiveObserverGuard,
+) {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    TERMINATION_ARCHIVE_OBSERVERS
+        .lock()
+        .expect("termination archive observer lock")
+        .insert(execution_id.clone(), sender);
+    (receiver, TerminationArchiveObserverGuard { execution_id })
+}
+
+#[cfg(test)]
+pub(in crate::execution::docker::backend) struct TerminationArchiveObserverGuard {
+    execution_id: String,
+}
+
+#[cfg(test)]
+impl Drop for TerminationArchiveObserverGuard {
+    fn drop(&mut self) {
+        if let Ok(mut observers) = TERMINATION_ARCHIVE_OBSERVERS.lock() {
+            observers.remove(&self.execution_id);
+        }
+    }
+}
 
 mod guard;
 mod quiesce;
@@ -40,6 +76,8 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_and_sync
                 request.resource_budget.temporary_disk_bytes,
             )
             .await?;
+            #[cfg(test)]
+            observe_archive_path(&request.execution_id, &archive);
             Ok::<_, ExecutionError>(Some((baseline, archive)))
         })
         .await
@@ -73,4 +111,33 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_and_sync
         };
     }
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+fn observe_archive_path(execution_id: &str, archive_bytes: &[u8]) {
+    let observer = TERMINATION_ARCHIVE_OBSERVERS
+        .lock()
+        .ok()
+        .and_then(|mut observers| observers.remove(execution_id));
+    if let Some(observer) = observer {
+        let contains_path = tar::Archive::new(std::io::Cursor::new(archive_bytes))
+            .entries()
+            .ok()
+            .is_some_and(|entries| {
+                entries.filter_map(Result::ok).any(|entry| {
+                    entry
+                        .path()
+                        .ok()
+                        .is_some_and(|path| is_cancel_race_path(&path))
+                })
+            });
+        let _ = observer.send(contains_path);
+    }
+}
+
+#[cfg(test)]
+fn is_cancel_race_path(path: &std::path::Path) -> bool {
+    path.components()
+        .filter(|component| *component != std::path::Component::CurDir)
+        .eq(std::path::Path::new("cancel-race.txt").components())
 }

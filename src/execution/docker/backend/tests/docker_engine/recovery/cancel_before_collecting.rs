@@ -47,13 +47,31 @@ async fn cancellation_before_collecting_keeps_terminal_journal_valid() {
         .expect("command did not reach the pre-collecting test boundary")
         .expect("pre-collecting test hook closed before reporting its boundary");
 
-    backend
+    let (mut archive_observation, _archive_observer_guard) =
+        crate::execution::docker::backend::lifecycle::observe_cancel_race_archive(
+            request.execution_id.clone(),
+        );
+    let cancellation = backend
         .cancel(&handle, request.cancellation_generation)
-        .await
-        .expect("active cancellation should win before success finalization");
+        .await;
+    let archive_contains_file = archive_observation.try_recv().ok();
+    let host_file = task_clone.join("cancel-race.txt");
+    let host_file_present = host_file.is_file();
+    let archive_presence = match archive_contains_file {
+        Some(true) => "present",
+        Some(false) => "absent",
+        None => "unavailable",
+    };
+    assert!(
+        cancellation.is_ok(),
+        "active cancellation should succeed; returned archive `cancel-race.txt`: {archive_presence}; host path present: {host_file_present}"
+    );
+    assert!(
+        host_file_present,
+        "cancelled workspace file should be present; returned archive `cancel-race.txt`: {archive_presence}; host path present: {host_file_present}"
+    );
     assert_eq!(
-        fs::read_to_string(task_clone.join("cancel-race.txt"))
-            .expect("cancelled workspace file should be present"),
+        fs::read_to_string(&host_file).expect("read present cancelled workspace file"),
         "cancel-race-output\n",
         "cancellation must stage the completed workspace back before finalization resumes"
     );
