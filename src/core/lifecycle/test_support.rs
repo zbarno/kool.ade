@@ -181,6 +181,12 @@ fn seed_readiness(
         feature_uid: plan.feature_uid.clone(),
         plan_revision: 1,
         spec_revision: Some(plan.spec_revision.clone()),
+        required_requirement_ids: Some(
+            plan.requirements
+                .iter()
+                .map(|requirement| requirement.stable_id.clone())
+                .collect(),
+        ),
         assessed_axes: axes,
         acceptance_tests,
         evidence_refs: vec!["test-fixture:approved-plan-readiness".to_owned()],

@@ -26,6 +26,7 @@ impl LifecycleStore<'_> {
                     && matches!(
                         question.status,
                         crate::core::planning::QuestionStatus::Answered
+                            | crate::core::planning::QuestionStatus::EvidenceResolved
                             | crate::core::planning::QuestionStatus::Declined
                     )
             })

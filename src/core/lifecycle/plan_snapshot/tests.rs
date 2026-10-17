@@ -117,6 +117,22 @@ fn snapshot_is_stable_content_addressed_and_detects_edits() {
 }
 
 #[test]
+fn empty_explicit_requirement_id_uses_a_deterministic_generated_id() {
+    let malformed = spec().replace("REQ-001: Exports", "REQ-: Exports");
+    let (identity, markdown) = identified(&malformed);
+    let contract = crate::core::workflow::feature_contract(&markdown);
+    let first = PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, &contract).unwrap();
+    let again = PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, &contract).unwrap();
+    assert_ne!(first.requirements[0].stable_id, "REQ-");
+    assert!(first.requirements[0].stable_id.starts_with("REQ-"));
+    assert_eq!(first.requirements[0].stable_id.len(), 16);
+    assert_eq!(
+        first.requirements[0].stable_id,
+        again.requirements[0].stable_id
+    );
+}
+
+#[test]
 fn snapshot_record_is_create_only_and_survives_reopen() {
     use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     let root = std::env::temp_dir().join(format!("plan-snapshot-{}", uuid::Uuid::new_v4()));

@@ -22,6 +22,8 @@ pub const MATERIAL_AXES: [ReadinessAxis; 14] = [
     ReadinessAxis::TestCases,
 ];
 
+pub const DEFAULT_NO_PROGRESS_THRESHOLD: u32 = 3;
+
 pub fn assess_readiness(
     questions: &[QuestionV1],
     checklist: &ReadinessChecklistV1,
@@ -45,6 +47,13 @@ pub fn assess_readiness(
     }
     if !invalid.is_empty() {
         return ReadinessResult::InvalidEvidence { reasons: invalid };
+    }
+    if checklist.required_requirement_ids.as_deref() != Some(required_requirements) {
+        return ReadinessResult::InvalidEvidence {
+            reasons: vec![
+                "required requirement IDs do not match the persisted specification snapshot".into(),
+            ],
+        };
     }
     let axes: BTreeSet<_> = checklist.assessed_axes.iter().cloned().collect();
     let unassessed = MATERIAL_AXES
@@ -122,6 +131,16 @@ pub fn observe_progress(
     hash.update(serde_json::to_vec(&checklist.acceptance_tests).unwrap_or_default());
     hash.update(serde_json::to_vec(&checklist.evidence_refs).unwrap_or_default());
     hash.update(serde_json::to_vec(&checklist.blocker_notes).unwrap_or_default());
+    hash.update(serde_json::to_vec(&checklist.required_requirement_ids).unwrap_or_default());
+    hash.update(b"spec_revision\0");
+    hash.update(
+        checklist
+            .spec_revision
+            .as_deref()
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    hash.update([0]);
     for item in stable {
         hash.update(item.as_bytes());
         hash.update([0]);

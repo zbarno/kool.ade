@@ -91,8 +91,12 @@ pub(super) fn paint(
                                     let count = cards.len()
                                         + questions.len()
                                         + planning.len()
-                                        + clarifications.iter().filter(|question| matches!(question.status,
-                                            crate::core::planning::QuestionStatus::Draft | crate::core::planning::QuestionStatus::Open | crate::core::planning::QuestionStatus::Declined)).count()
+                                        + clarifications
+                                            .iter()
+                                            .filter(|question| {
+                                                attention::clarification_is_visible(question.status)
+                                            })
+                                            .count()
                                         + usize::from(column == 3) * feature_approvals.len()
                                         + usize::from(
                                             column == 3 && board.setup_attention.is_some(),
@@ -154,8 +158,12 @@ pub(super) fn paint(
                                 let visible_count = cards.len()
                                     + questions.len()
                                     + planning.len()
-                                    + clarifications.iter().filter(|question| matches!(question.status,
-                                        crate::core::planning::QuestionStatus::Draft | crate::core::planning::QuestionStatus::Open | crate::core::planning::QuestionStatus::Declined)).count()
+                                    + clarifications
+                                        .iter()
+                                        .filter(|question| {
+                                            attention::clarification_is_visible(question.status)
+                                        })
+                                        .count()
                                     + usize::from(column == 3) * feature_approvals.len()
                                     + usize::from(column == 3 && board.setup_attention.is_some());
                                 if visible_count == 0 {

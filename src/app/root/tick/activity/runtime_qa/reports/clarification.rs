@@ -60,7 +60,19 @@ pub(super) fn persist_user_decisions(
             plan_revision,
             decision_subject: subject,
             decision_domain: "runtime_qa_observation".into(),
-            origin_requirement_ids: finding.requirement_uids.clone(),
+            origin_requirement_ids: finding
+                .requirement_uids
+                .iter()
+                .filter(|requirement| {
+                    requirement.strip_prefix("REQ-").is_some_and(|suffix| {
+                        !suffix.is_empty()
+                            && suffix.chars().all(|character| {
+                                character.is_ascii_alphanumeric() || character == '-'
+                            })
+                    })
+                })
+                .cloned()
+                .collect(),
             category: QuestionCategory::Testing,
             priority: QuestionPriority::Optional,
             question: format!(

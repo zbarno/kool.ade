@@ -1,6 +1,6 @@
 use super::*;
 
-fn planner_v3_output() -> String {
+fn planner_v4_output() -> String {
     serde_json::json!({
         "proposedQuestions": [{
             "decisionSubject": "Authentication mode",
@@ -20,6 +20,7 @@ fn planner_v3_output() -> String {
             "assumptionIfDeferred": null,
             "dependsOnQuestionIds": []
         }],
+        "resolvedQuestions": [],
         "draftChanges": [],
         "readiness": {
             "ready": false,
@@ -33,10 +34,10 @@ fn planner_v3_output() -> String {
 }
 
 #[test]
-fn planner_v3_accepts_typed_question_and_readiness_contract() {
+fn planner_v4_accepts_typed_question_and_readiness_contract() {
     let output = validate_output_with_context(
         PromptRole::Planner,
-        &planner_v3_output(),
+        &planner_v4_output(),
         &OutputValidationContext {
             evidence_ids: ["e1".to_owned()].into(),
             required_requirements: vec!["REQ-1".into()],
@@ -48,8 +49,8 @@ fn planner_v3_accepts_typed_question_and_readiness_contract() {
 }
 
 #[test]
-fn planner_v3_rejects_unknown_evidence_and_invalid_recommendation() {
-    let mut output: serde_json::Value = serde_json::from_str(&planner_v3_output()).unwrap();
+fn planner_v4_rejects_unknown_evidence_and_invalid_recommendation() {
+    let mut output: serde_json::Value = serde_json::from_str(&planner_v4_output()).unwrap();
     output["proposedQuestions"][0]["evidenceRefs"] = serde_json::json!(["not-in-manifest"]);
     assert!(validate_output(PromptRole::Planner, &output.to_string(), None).is_err());
 
@@ -59,13 +60,43 @@ fn planner_v3_rejects_unknown_evidence_and_invalid_recommendation() {
 }
 
 #[test]
-fn planner_v3_cannot_invent_requirement_ids_outside_the_active_plan() {
+fn planner_v4_cannot_invent_requirement_ids_outside_the_active_plan() {
     let context = OutputValidationContext {
         evidence_ids: ["e1".to_owned()].into(),
         required_requirements: vec!["REQ-2".into()],
         ..Default::default()
     };
     assert!(
-        validate_output_with_context(PromptRole::Planner, &planner_v3_output(), &context).is_err()
+        validate_output_with_context(PromptRole::Planner, &planner_v4_output(), &context).is_err()
+    );
+}
+
+#[test]
+fn planner_v4_resolves_only_current_questions_with_manifest_evidence() {
+    let uid = uuid::Uuid::new_v4().to_string();
+    let mut output: serde_json::Value = serde_json::from_str(&planner_v4_output()).unwrap();
+    output["resolvedQuestions"] = serde_json::json!([{
+        "questionUid": uid.clone(),
+        "decision": "Reuse the existing response envelope",
+        "rationale": "The repository evidence documents the established interface.",
+        "selectedOptionId": "session",
+        "evidenceRefs": ["e1"]
+    }]);
+    let context = OutputValidationContext {
+        evidence_ids: ["e1".to_owned()].into(),
+        allowed_question_uids: [uid.clone()].into(),
+        ..Default::default()
+    };
+    assert!(
+        validate_output_with_context(PromptRole::Planner, &output.to_string(), &context).is_ok()
+    );
+
+    let invalid_context = OutputValidationContext {
+        allowed_question_uids: Default::default(),
+        ..context
+    };
+    assert!(
+        validate_output_with_context(PromptRole::Planner, &output.to_string(), &invalid_context)
+            .is_err()
     );
 }

@@ -4,6 +4,13 @@ use serde::{Deserialize, Serialize};
 
 mod readiness;
 
+type RecordChanges = Vec<(String, Vec<u8>)>;
+type RecordChangesWithChecks = (RecordChanges, Vec<RecordRevisionCheck>);
+
+#[cfg(test)]
+#[path = "store/tests/deferral.rs"]
+mod deferral_tests;
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct QuestionRecord {
@@ -83,76 +90,141 @@ impl<'a> QuestionStore<'a> {
         question: &QuestionV1,
         expected_revision: u64,
     ) -> Result<String, StoreError> {
-        question.validate().map_err(StoreError::MalformedState)?;
-        let state_path = question_state_path(&question.uid)?;
-        let content_path = format!("planning/items/{}.md", question.uid);
-        let markdown = render_markdown(question).map_err(StoreError::MalformedState)?;
-        let now = now_unix_ms();
-        let canonical = read_question_record(self.store, &state_path)?;
-        let legacy_path = legacy_question_state_path(&question.uid)?;
-        let legacy = if canonical.is_none() {
-            read_question_record(self.store, &legacy_path)?
+        self.save_inner(question, expected_revision, None)
+    }
+
+    pub fn save_with_planning_revision(
+        &self,
+        question: &QuestionV1,
+        expected_revision: u64,
+        expected_planning_revision: &str,
+    ) -> Result<String, StoreError> {
+        self.save_inner(
+            question,
+            expected_revision,
+            Some(expected_planning_revision),
+        )
+    }
+
+    fn save_inner(
+        &self,
+        question: &QuestionV1,
+        expected_revision: u64,
+        expected_planning_revision: Option<&str>,
+    ) -> Result<String, StoreError> {
+        let (changes, checks) = question_record_changes(self.store, question, expected_revision)?;
+        let (_, revision) = if let Some(planning_revision) = expected_planning_revision {
+            self.store.transaction_with_revision_and_record_revisions(
+                &changes,
+                Some(planning_revision),
+                &checks,
+            )?
         } else {
-            None
+            self.store
+                .transaction_with_record_revisions(&changes, &checks)?
         };
-        let previous = canonical.as_ref().or(legacy.as_ref());
-        let (created_at_ms, record_revision) = match previous {
-            None => {
-                if question.revision != 0 {
-                    return Err(StoreError::MalformedState(
-                        "new questions must start at data revision zero".into(),
-                    ));
-                }
-                (now, 1)
-            }
-            Some(previous) => {
-                if previous.revision != expected_revision
-                    || previous.uid != question.uid
-                    || question.revision != previous.data.revision.saturating_add(1)
-                {
-                    return Err(StoreError::StaleRecordRevision {
-                        path: state_path,
-                        expected: expected_revision,
-                        actual: previous.revision,
-                    });
-                }
-                // A migrated canonical path is a new record even when it is
-                // copied from a legacy path with an existing outer revision.
-                (
-                    previous.created_at_ms,
-                    if canonical.is_some() {
-                        expected_revision.saturating_add(1)
-                    } else {
-                        1
-                    },
-                )
-            }
-        };
-        let record = QuestionRecord {
-            record_kind: Some("clarification_question_v1".into()),
-            schema_version: 1,
-            uid: question.uid.clone(),
-            created_at_ms,
-            updated_at_ms: now,
-            revision: record_revision,
-            data: question.clone(),
-        };
-        let json = serde_json::to_vec_pretty(&record)
-            .map_err(|e| StoreError::MalformedState(e.to_string()))?;
-        let changes = vec![(state_path.clone(), json), (content_path, markdown)];
-        let checks = vec![RecordRevisionCheck {
-            path: state_path.clone(),
-            expected_revision: if canonical.is_some() {
-                expected_revision
-            } else {
-                0
-            },
-        }];
-        let (_, revision) = self
-            .store
-            .transaction_with_record_revisions(&changes, &checks)?;
         Ok(revision)
     }
+
+    /// Commit question records, their Markdown projections, and readiness in
+    /// one store transaction guarded by snapshot and per-record revisions.
+    pub(crate) fn save_batch_with_readiness(
+        &self,
+        questions: &[(QuestionV1, u64)],
+        checklist: &super::ReadinessChecklistV1,
+        expected_readiness_revision: u64,
+        expected_planning_revision: &str,
+    ) -> Result<String, StoreError> {
+        let mut changes = Vec::new();
+        let mut checks = Vec::new();
+        for (question, expected_revision) in questions {
+            let (question_changes, question_checks) =
+                question_record_changes(self.store, question, *expected_revision)?;
+            changes.extend(question_changes);
+            checks.extend(question_checks);
+        }
+        let (readiness_changes, readiness_checks) =
+            readiness::readiness_record_changes(self, checklist, expected_readiness_revision)?;
+        changes.extend(readiness_changes);
+        checks.extend(readiness_checks);
+        let (_, revision) = self.store.transaction_with_revision_and_record_revisions(
+            &changes,
+            Some(expected_planning_revision),
+            &checks,
+        )?;
+        Ok(revision)
+    }
+}
+
+fn question_record_changes(
+    store: &PlanningStore,
+    question: &QuestionV1,
+    expected_revision: u64,
+) -> Result<RecordChangesWithChecks, StoreError> {
+    question.validate().map_err(StoreError::MalformedState)?;
+    let state_path = question_state_path(&question.uid)?;
+    let content_path = format!("planning/items/{}.md", question.uid);
+    let markdown = render_markdown(question).map_err(StoreError::MalformedState)?;
+    let now = now_unix_ms();
+    let canonical = read_question_record(store, &state_path)?;
+    let legacy_path = legacy_question_state_path(&question.uid)?;
+    let legacy = if canonical.is_none() {
+        read_question_record(store, &legacy_path)?
+    } else {
+        None
+    };
+    let previous = canonical.as_ref().or(legacy.as_ref());
+    let (created_at_ms, record_revision) = match previous {
+        None => {
+            if question.revision != 0 {
+                return Err(StoreError::MalformedState(
+                    "new questions must start at data revision zero".into(),
+                ));
+            }
+            (now, 1)
+        }
+        Some(previous) => {
+            if previous.revision != expected_revision
+                || previous.uid != question.uid
+                || question.revision != previous.data.revision.saturating_add(1)
+            {
+                return Err(StoreError::StaleRecordRevision {
+                    path: state_path,
+                    expected: expected_revision,
+                    actual: previous.revision,
+                });
+            }
+            (
+                previous.created_at_ms,
+                if canonical.is_some() {
+                    expected_revision.saturating_add(1)
+                } else {
+                    1
+                },
+            )
+        }
+    };
+    let record = QuestionRecord {
+        record_kind: Some("clarification_question_v1".into()),
+        schema_version: 1,
+        uid: question.uid.clone(),
+        created_at_ms,
+        updated_at_ms: now,
+        revision: record_revision,
+        data: question.clone(),
+    };
+    let json = serde_json::to_vec_pretty(&record)
+        .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+    let changes = vec![(state_path.clone(), json), (content_path, markdown)];
+    let checks = vec![RecordRevisionCheck {
+        path: state_path,
+        expected_revision: if canonical.is_some() {
+            expected_revision
+        } else {
+            0
+        },
+    }];
+    Ok((changes, checks))
 }
 
 fn now_unix_ms() -> u64 {
