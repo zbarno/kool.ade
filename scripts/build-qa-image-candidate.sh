@@ -18,7 +18,7 @@ docker info --format '{{json .SecurityOptions}}' \
 output_directory="$RUNNER_TEMP/executor-image-candidate-${profile}-${architecture}"
 metadata_file="$RUNNER_TEMP/qa-image-build.json"
 tag="koolade-runtime-qa:${profile}-candidate"
-build_output=--load
+build_output=(--output "type=docker,rewrite-timestamp=true")
 if [[ "$build_mode" == publish ]]; then
   case "$profile" in
     browser_qa) tag="ghcr.io/zbarno/koolade-runtime-qa-browser:trusted-$GITHUB_SHA" ;;
@@ -44,7 +44,7 @@ case "$profile" in
     docker buildx inspect --bootstrap
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-      --metadata-file "$metadata_file" "$build_output" --tag "$tag" containers/runtime-qa/browser
+      --metadata-file "$metadata_file" "${build_output[@]}" --tag "$tag" containers/runtime-qa/browser
     test "$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}} {{.Config.User}}')" \
       = "linux/amd64 10001:10001"
     smoke="$RUNNER_TEMP/qa-browser-smoke.mjs"
@@ -94,10 +94,23 @@ SMOKE
   desktop_qa)
     repository=ghcr.io/zbarno/koolade-runtime-qa-desktop
     export SOURCE_DATE_EPOCH=0 CARGO_INCREMENTAL=0
-    cargo +1.98.1 build --locked --release --bin koolade-qa-desktop
+    cargo +1.98.1 build --locked --release --features qa-desktop-driver-image --bin koolade-qa-desktop
     binary="$RUNNER_TEMP/koolade-qa-desktop"
     cp target/release/koolade-qa-desktop "$binary"
     cp "$binary" "$output_directory/koolade-qa-desktop"
+    # Boundary: inspect the linked driver artifact, because unit tests cannot
+    # prove the image digest was removed from the shipped executable. External
+    # dependency: the pinned Rust toolchain and rootless Docker. Setup cost:
+    # one optimized driver build and isolated image smoke below.
+    python3 - "$binary" containers/images.lock.json <<'PY'
+import json, pathlib, sys
+binary = pathlib.Path(sys.argv[1]).read_bytes()
+lock = json.loads(pathlib.Path(sys.argv[2]).read_text())
+for profile in ("browser_qa", "desktop_qa"):
+    for variant in lock["profiles"][profile]:
+        if variant["digest"].encode() in binary:
+            raise SystemExit("desktop driver binary embeds its own QA image lock digest")
+PY
     recipe_sha256="$(python3 - "$binary" <<'PY'
 import hashlib, pathlib, sys
 files = [
@@ -117,7 +130,7 @@ PY
     docker buildx inspect --bootstrap
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-      --metadata-file "$metadata_file" "$build_output" --tag "$tag" "$context"
+      --metadata-file "$metadata_file" "${build_output[@]}" --tag "$tag" "$context"
     test "$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}} {{.Config.User}}')" \
       = "linux/amd64 10001:10001"
     docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -206,7 +219,8 @@ if [[ "$build_mode" == publish ]]; then
   publish_metadata="$RUNNER_TEMP/qa-image-publish.json"
   docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
     --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-    --metadata-file "$publish_metadata" --push --tag "$tag" "$build_context"
+    --metadata-file "$publish_metadata" \
+    --output "type=image,name=$tag,push=true,rewrite-timestamp=true" "$build_context"
   metadata_file="$publish_metadata"
 fi
 
