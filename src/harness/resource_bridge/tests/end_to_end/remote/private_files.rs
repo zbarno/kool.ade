@@ -3,6 +3,7 @@ use crate::execution::remote::private_files::{
     PrivateDataClassV1, PrivateFileSpecV1, RemotePrivateFileGrantV1,
     UserConfirmedPrivateFileGrantV1,
 };
+use sha2::Digest;
 
 /// Production boundary: authenticates over SSH, stages a confirmed private
 /// file, bind-mounts it into the rootless Docker executor, checks read-only

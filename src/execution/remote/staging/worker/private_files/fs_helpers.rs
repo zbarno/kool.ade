@@ -1,5 +1,6 @@
 use std::{
     fs::{self, File, OpenOptions},
+    io::Write,
     path::Path,
 };
 
@@ -33,7 +34,7 @@ pub(super) fn open_stage_file(path: &Path, create: bool) -> anyhow::Result<File>
     Ok(options.open(path)?)
 }
 
-fn set_private_directory(path: &Path) -> anyhow::Result<()> {
+pub(super) fn set_private_directory(path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -121,4 +122,43 @@ pub(super) fn validate_uuid(value: &str) -> anyhow::Result<()> {
 pub(super) fn digest(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(bytes))
+}
+
+pub(super) fn write_started_marker(root: &Path, execution_id: &str) -> anyhow::Result<()> {
+    let marker = root.join(format!("{execution_id}.started"));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    match options.open(&marker) {
+        Ok(mut file) => {
+            file.write_all(b"private-file-mount-v1\n")?;
+            file.sync_all()?;
+            sync_directory(root)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let metadata = fs::symlink_metadata(&marker)?;
+            anyhow::ensure!(
+                metadata.is_file() && !metadata.file_type().is_symlink(),
+                "private-file recovery marker is unsafe"
+            );
+            anyhow::ensure!(
+                fs::read(&marker)? == b"private-file-mount-v1\n",
+                "private-file recovery marker is invalid"
+            );
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn sync_directory(path: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    fs::File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }

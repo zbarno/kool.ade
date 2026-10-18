@@ -15,8 +15,8 @@ mod lifecycle;
 #[cfg(test)]
 mod tests;
 use fs_helpers::{
-    create_parent_directories, digest, open_stage_file, seal_mount_tree, set_readonly_private_file,
-    validate_uuid,
+    create_parent_directories, digest, open_stage_file, seal_mount_tree, set_private_directory,
+    set_readonly_private_file, validate_uuid, write_started_marker,
 };
 
 #[derive(Default)]
@@ -286,52 +286,4 @@ impl PrivateFiles {
         crate::execution::remote::private_files::validate_private_path(relative_path)?;
         Ok(self.execution_root(execution_id)?.join(relative_path))
     }
-}
-
-fn set_private_directory(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
-}
-
-fn write_started_marker(root: &Path, execution_id: &str) -> anyhow::Result<()> {
-    let marker = root.join(format!("{execution_id}.started"));
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    match options.open(&marker) {
-        Ok(mut file) => {
-            file.write_all(b"private-file-mount-v1\n")?;
-            file.sync_all()?;
-            sync_directory(root)?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let metadata = fs::symlink_metadata(&marker)?;
-            anyhow::ensure!(
-                metadata.is_file() && !metadata.file_type().is_symlink(),
-                "private-file recovery marker is unsafe"
-            );
-            anyhow::ensure!(
-                fs::read(&marker)? == b"private-file-mount-v1\n",
-                "private-file recovery marker is invalid"
-            );
-        }
-        Err(error) => return Err(error.into()),
-    }
-    Ok(())
-}
-
-fn sync_directory(path: &Path) -> anyhow::Result<()> {
-    #[cfg(unix)]
-    fs::File::open(path)?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
 }
