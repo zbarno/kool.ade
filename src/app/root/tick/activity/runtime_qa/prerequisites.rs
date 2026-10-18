@@ -88,12 +88,13 @@ pub(super) fn unavailable_reason(
         }
     };
     let (tools, drivers) = locked_capabilities(&lock);
+    let task_progress =
+        task_progress_for_target(&project.task_documents, &project.activity.tasks, target);
+    let available_dependencies = available_broker_dependencies(target, task, task_progress);
     let inventory = ApprovedCapabilityInventory {
         manifest: &manifest,
         available_tool_ids: &tools,
-        // No broker inventory is wired into this call site yet. Treat every
-        // declared dependency as missing until an approved inventory exists.
-        available_dependency_ids: &BTreeSet::new(),
+        available_dependency_ids: &available_dependencies,
         available_driver_ids: &drivers,
     };
     let assessment = match assess_manifest_target(
@@ -165,6 +166,53 @@ pub(super) fn unavailable_reason(
     None
 }
 
+fn task_progress_for_target<'a>(
+    documents: &'a [crate::artifacts::task_docs::TaskDocument],
+    activities: &'a std::collections::BTreeMap<String, crate::harness::LiveProgress>,
+    target: &crate::project_runtime::AppTargetV1,
+) -> Option<&'a crate::harness::LiveProgress> {
+    let document = documents.iter().find(|document| {
+        document
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.uid == target.owning_task_id)
+    })?;
+    activities.get(&document.path)
+}
+
+/// A manifest dependency reference is the ID of a broker request explicitly
+/// attached to this target. Authorization alone is insufficient: the broker
+/// must report successful preparation for this task before QA can use it.
+fn available_broker_dependencies(
+    target: &crate::project_runtime::AppTargetV1,
+    task: &TaskRecord,
+    progress: Option<&crate::harness::LiveProgress>,
+) -> BTreeSet<String> {
+    let Some(progress) = progress else {
+        return BTreeSet::new();
+    };
+    progress
+        .dependency_requests
+        .iter()
+        .filter(|request| {
+            target.required_dependencies.contains(&request.id)
+                && (request.task_id == task.task_uid
+                    || task.planning_item_uid.as_deref() == Some(request.task_id.as_str()))
+                && request.status == crate::harness::DependencyRequestStatus::Prepared
+                && request.preparation.as_ref().is_some_and(|preparation| {
+                    matches!(
+                        preparation.status,
+                        Some(
+                            crate::harness::DependencyPreparationStatus::Prepared
+                                | crate::harness::DependencyPreparationStatus::AlreadyAvailable
+                        )
+                    )
+                })
+        })
+        .map(|request| request.id.clone())
+        .collect()
+}
+
 fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
     let profiles = [
         RuntimeProfile::General,
@@ -202,43 +250,4 @@ fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn capability_inventory_uses_only_locked_tools_and_enabled_qa_drivers() {
-        let lock = ImageLock::bundled().unwrap();
-        let (tools, drivers) = locked_capabilities(&lock);
-        let mut expected_tools = BTreeSet::new();
-        for profile in [
-            RuntimeProfile::General,
-            RuntimeProfile::Rust,
-            RuntimeProfile::Node,
-            RuntimeProfile::Python,
-            RuntimeProfile::Go,
-        ] {
-            for architecture in ["amd64", "arm64"] {
-                if let Ok(image) = lock.select(profile, architecture) {
-                    expected_tools.extend(
-                        image
-                            .tool_versions
-                            .into_keys()
-                            .filter(|tool| !matches!(tool.as_str(), "base" | "shell")),
-                    );
-                }
-            }
-        }
-        assert_eq!(tools, expected_tools);
-        assert!(!tools.contains("base"));
-        assert!(!tools.contains("shell"));
-        for (driver, profile) in [
-            ("web-driver", RuntimeProfile::BrowserQa),
-            ("linux-desktop-driver", RuntimeProfile::DesktopQa),
-        ] {
-            let enabled = ["amd64", "arm64"]
-                .into_iter()
-                .any(|architecture| lock.select(profile, architecture).is_ok());
-            assert_eq!(drivers.contains(driver), enabled);
-        }
-    }
-}
+mod tests;

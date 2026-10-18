@@ -106,19 +106,25 @@ The generic start executor requires a passing Build receipt for the same task,
 target, source SHA, and recipe. It launches the approved process in the Docker
 workspace, captures the exact build artifact paths again, and requires their
 hashes to match before recording readiness. The bounded in-session process is
-then terminated and reaped. Start is not yet dispatched by the normal task
-queue.
+then terminated and reaped. The task queue advances approved Build, Test, and
+Start recipes in order, retains receipts for every attempt, and refuses to
+start until the matching build artifacts are verified.
 HTTP readiness uses an application-generated loopback request through a declared
 Node or Python standard-library prerequisite in the selected executor image;
 it never downloads or invokes curl. Targets without that approved prerequisite
 fail closed for HTTP readiness. Process health alone does not mean functional
 or visual QA passed. Capability assessment uses an
 explicit inventory of toolchains, dependencies, and surface drivers from the
-approved execution environment; it never consults host `PATH`.
-The queued QA prerequisite gate applies this assessment to the selected task
-target and reviewed source SHA using toolchain and driver IDs from the pinned
-image lock. Until dependency-broker inventory is wired into this gate, declared
-dependencies remain unavailable and block QA; they are never assumed present.
+approved execution environment and task activity; it never consults host
+`PATH`. The queued QA prerequisite gate applies this assessment to the selected
+task target and reviewed source SHA using toolchain and driver IDs from the
+pinned image lock. A target's `required_dependencies` entries identify
+dependency-broker request IDs. QA considers one available only when the same
+task's persisted activity records that exact request as `Prepared` and its
+preparation telemetry reports `Prepared` or `AlreadyAvailable`. Authorization,
+another task's request, missing telemetry, or a failed preparation never marks
+a dependency available. Toolchain gaps are still reported as unavailable-image
+results and are not yet converted into Man.ager broker requests.
 Unsupported native mobile, Windows/macOS desktop, and hardware targets must be
 reported as unsupported until their execution and QA drivers exist.
 

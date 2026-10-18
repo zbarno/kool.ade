@@ -115,28 +115,26 @@ impl Drop for LockedPersonaHome {
 /// send no real progress, so anything collected here is the
 /// pre-execution diagnostic notice. Incumbent-paced 250ms polls:
 /// gitops subprocess launches open LiveProgress gaps in the tens
-/// of ms, so the probe interval must exceed them. A bounded
-/// run of consecutive idle probes distinguishes ordinary silence
-/// from a truly vanished turn (closed channel idles forever).
+/// of ms, so the probe interval must exceed them. A bounded terminal deadline
+/// distinguishes ordinary silence from a truly vanished turn (closed channel
+/// idles forever) without assuming the worker will run within two seconds.
 fn drain_collecting(controller: &TurnController) -> (TurnOutcome, Vec<String>) {
-    const IDLE_BUDGET: usize = 8;
+    const TERMINAL_TIMEOUT: Duration = Duration::from_secs(30);
     let mut activities = Vec::new();
-    let mut idle = 0usize;
+    let deadline = std::time::Instant::now() + TERMINAL_TIMEOUT;
     loop {
-        match controller.poll(Duration::from_millis(250)) {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            panic!("turn vanished: no terminal event within {TERMINAL_TIMEOUT:?}");
+        }
+        match controller.poll(Duration::from_millis(250).min(remaining)) {
             Some(TurnEvt::Progress(p)) => {
-                idle = 0;
                 if let Some(activity) = p.activity {
                     activities.push(activity);
                 }
             }
             Some(TurnEvt::Done(o)) => return (*o, activities),
-            None => {
-                idle += 1;
-                if idle >= IDLE_BUDGET {
-                    panic!("turn vanished: no terminal event within {IDLE_BUDGET} idle probes");
-                }
-            }
+            None => {}
         }
     }
 }
