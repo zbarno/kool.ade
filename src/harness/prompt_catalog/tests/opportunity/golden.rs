@@ -36,6 +36,9 @@ fn versioned_opportunity_golden_outputs_match_policy_contract_and_validate() {
         "public-confidentiality",
         "wrong-target-repository",
         "no-background-hallucination",
+        "specification-documentation-finding",
+        "telemetry-regression",
+        "provider-capability-mismatch",
     ] {
         assert!(
             ids.contains(required),
@@ -43,12 +46,15 @@ fn versioned_opportunity_golden_outputs_match_policy_contract_and_validate() {
         );
     }
 
-    let manager_system = include_str!("../../../../../prompts/v5/manager.system.md");
-    let manager_user = include_str!("../../../../../prompts/v5/manager.user.md");
+    let manager_system = include_str!("../../../../../prompts/v6/manager.system.md");
+    let manager_user = include_str!("../../../../../prompts/v6/manager.user.md");
     assert!(manager_system.contains("Only an explicit user choice may start planning"));
     assert!(manager_system.contains("Before proposing a missing feature, verify existing general-purpose capabilities and workarounds"));
     assert!(manager_system.contains("A generic capability that solves the task is not a blocker"));
     assert!(manager_system.contains("koolade-product-opportunity-contract"));
+    assert!(manager_system.contains("spec-finding:"));
+    assert!(manager_system.contains("telemetry-regression:"));
+    assert!(manager_system.contains("provider-capability-mismatch:"));
     assert!(manager_system.contains("do not create a duplicate unsolicited opportunity card"));
     assert!(manager_user.contains("if it is absent or invalid, say capability state is unknown"));
     assert!(manager_user.contains("Never claim an unverified capability is missing"));

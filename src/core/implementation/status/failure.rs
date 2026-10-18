@@ -9,6 +9,7 @@ pub enum FailureKind {
     ChangeConflict,
     NoImplementationChanges,
     ExternalPrerequisite,
+    ProviderCapabilityMismatch,
     Harness,
     Verification,
     Git,
@@ -80,6 +81,18 @@ impl Failure {
     }
 
     pub fn from_error(error: &anyhow::Error) -> Self {
+        if let Some(crate::error::AppError::ProviderCapabilityMismatch { provider, missing }) =
+            error.downcast_ref::<crate::error::AppError>()
+        {
+            return Self::new(
+                FailureKind::ProviderCapabilityMismatch,
+                RecoveryDisposition::UserAction,
+                format!(
+                    "{provider} is missing required capabilities: {}",
+                    missing.join(", ")
+                ),
+            );
+        }
         error
             .downcast_ref::<FailureCause>()
             .map(|cause| cause.0.clone())
@@ -97,3 +110,21 @@ impl fmt::Display for FailureCause {
 }
 
 impl std::error::Error for FailureCause {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_capability_mismatch_survives_task_failure_classification() {
+        let app_error = crate::error::AppError::ProviderCapabilityMismatch {
+            provider: "Fixture Provider".into(),
+            missing: vec!["json output".into()],
+        };
+        let failure = Failure::from_error(&anyhow::Error::new(app_error));
+
+        assert_eq!(failure.kind, FailureKind::ProviderCapabilityMismatch);
+        assert_eq!(failure.recovery, RecoveryDisposition::UserAction);
+        assert!(failure.message.contains("json output"));
+    }
+}

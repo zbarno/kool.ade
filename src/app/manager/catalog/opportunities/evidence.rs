@@ -5,6 +5,10 @@ use crate::{
     harness::prompt_catalog::{EvidenceConfidentiality, EvidenceItem, EvidenceOrigin},
 };
 
+mod events;
+use events::typed_event_content;
+mod telemetry;
+
 mod broker;
 use broker::dependency_request_evidence;
 
@@ -28,6 +32,7 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         source: "validated project capability inventory".into(),
         content: capability_inventory(project),
     }];
+    items.extend(telemetry::regression_evidence(project, &workspace_uid));
     items.extend(dependency_request_evidence(project, &workspace_uid));
     let feature_uids = project
         .state
@@ -41,6 +46,14 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         })
         .collect::<std::collections::BTreeSet<_>>();
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store);
+    let specification_findings = lifecycle
+        .product_specification_aggregate()
+        .map(|aggregate| aggregate.findings)
+        .unwrap_or_default();
+    items.extend(events::specification_finding_evidence(
+        &workspace_uid,
+        &specification_findings,
+    ));
     let mut events = feature_uids
         .iter()
         .flat_map(|uid| lifecycle.events_for_feature(uid).unwrap_or_default())
@@ -80,18 +93,41 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             "{:x}",
             sha2::Sha256::digest(format!("{workspace_uid}\0{task_uid}").as_bytes())
         );
+        let mismatch =
+            failure.kind == crate::core::implementation::FailureKind::ProviderCapabilityMismatch;
         items.push(EvidenceItem {
-            id: format!("implementation-failure:{}", &digest[..24]),
+            id: format!(
+                "{}:{}",
+                if mismatch {
+                    "provider-capability-mismatch"
+                } else {
+                    "implementation-failure"
+                },
+                &digest[..24]
+            ),
             workspace_uid: workspace_uid.clone(),
             origin: EvidenceOrigin::Application,
             confidentiality: EvidenceConfidentiality::WorkspacePrivate,
-            source: "typed implementation queue failure".into(),
-            content: format!(
-                "task_uid={task_uid} failure_kind={:?} recovery={:?} observed_failure={}",
-                failure.kind,
-                failure.recovery,
-                crate::core::context_build::clip(&failure.message, 1200)
-            ),
+            source: if mismatch {
+                "typed provider capability mismatch"
+            } else {
+                "typed implementation queue failure"
+            }
+            .into(),
+            content: if mismatch {
+                format!(
+                    "task_uid={task_uid} recovery={:?} observed_capability_mismatch={}",
+                    failure.recovery,
+                    crate::core::context_build::clip(&failure.message, 512)
+                )
+            } else {
+                format!(
+                    "task_uid={task_uid} failure_kind={:?} recovery={:?} observed_failure={}",
+                    failure.kind,
+                    failure.recovery,
+                    crate::core::context_build::clip(&failure.message, 1200)
+                )
+            },
         });
     }
     items
@@ -165,97 +201,4 @@ fn capability_inventory(project: &Project) -> String {
         Ok(None) => "No validated project runtime capability manifest is currently persisted. Do not infer that generic CLI, provider, or repository capabilities are absent from this fact alone; inspect the supplied workspace summary and existing recipes before proposing a missing capability.".into(),
         Err(error) => format!("Project runtime capability inventory could not be validated: {}. Treat capability state as unknown and do not claim a capability is missing based on this inventory.", crate::core::context_build::clip(&error.to_string(), 500)),
     }
-}
-
-fn typed_event_content(
-    project: &Project,
-    event: &crate::core::lifecycle::LifecycleEventRecord,
-) -> Option<String> {
-    use crate::core::lifecycle::{FeatureEvent, LifecycleEventKind, TaskEvent};
-    let summary = match &event.event {
-        LifecycleEventKind::Feature(FeatureEvent::PlanReview(receipt)) => format!(
-            "feature plan review: decision={:?} subject_sha256={} actor={:?}",
-            receipt.decision, receipt.subject_sha256, receipt.actor
-        ),
-        LifecycleEventKind::Feature(event) => format!("feature lifecycle transition: {event:?}"),
-        LifecycleEventKind::Task(TaskEvent::RuntimeQaCompleted {
-            request_id,
-            receipt,
-            result_sha256,
-            evidence_manifest_sha256,
-            ..
-        }) => {
-            let qa_store = crate::runtime_qa::RuntimeQaStore::new(
-                project.state.planning_store.root.join("state/runtime-qa"),
-            );
-            match qa_store.load_run(request_id) {
-                Ok((request, _, _, result))
-                    if request.qa_run_id == *request_id
-                        && request.parent_task_uid
-                            == event.task_uid.as_deref().unwrap_or_default()
-                        && format!(
-                            "{:x}",
-                            sha2::Sha256::digest(serde_json::to_vec(&result).ok()?)
-                        ) == *result_sha256 =>
-                {
-                    let findings = result
-                        .findings
-                        .iter()
-                        .take(32)
-                        .map(|finding| {
-                            format!(
-                                "finding={} severity={:?} requirement={} expected={} observed={} steps={}",
-                                finding.finding_uid,
-                                finding.severity,
-                                finding.requirement_uids.join(","),
-                                crate::core::context_build::clip(&finding.expected, 500),
-                                crate::core::context_build::clip(&finding.actual, 500),
-                                crate::core::context_build::clip(
-                                    &finding.reproducible_steps.join(" -> "),
-                                    1000
-                                )
-                            )
-                        })
-                        .collect::<Vec<_>>();
-                    format!(
-                        "accepted typed runtime QA report: outcome={:?} receipt={:?} result_sha256={} evidence_sha256={} findings=[{}]",
-                        result.outcome,
-                        receipt.decision,
-                        result_sha256,
-                        evidence_manifest_sha256,
-                        findings.join("; ")
-                    )
-                }
-                _ => return None,
-            }
-        }
-        LifecycleEventKind::Task(TaskEvent::CodeReview { receipt, .. }) => format!(
-            "independent code review: decision={:?} subject_sha256={} actor={:?}",
-            receipt.decision, receipt.subject_sha256, receipt.actor
-        ),
-        LifecycleEventKind::Task(TaskEvent::ReconcileSpec { receipt, .. })
-        | LifecycleEventKind::Task(TaskEvent::SubtaskReconciled { receipt }) => format!(
-            "specification reconciliation receipt: decision={:?} subject_sha256={} actor={:?}",
-            receipt.decision, receipt.subject_sha256, receipt.actor
-        ),
-        LifecycleEventKind::PullRequestState {
-            work_item_uid,
-            status,
-        } => format!("pull request work item {work_item_uid} state: {status:?}"),
-        LifecycleEventKind::Task(event) => format!("task lifecycle transition: {event:?}"),
-        LifecycleEventKind::FeatureCreated => "feature created".into(),
-        LifecycleEventKind::TaskCreated => "task created".into(),
-        LifecycleEventKind::SubtaskCreated { parent_task_uid } => {
-            format!("subtask created under parent {parent_task_uid}")
-        }
-    };
-    Some(format!(
-        "event_uid={} feature_uid={} task_uid={:?} actor={:?} created_at_ms={} revision={} typed_event={summary}",
-        event.uid,
-        event.feature_uid,
-        event.task_uid,
-        event.actor,
-        event.created_at_ms,
-        event.revision
-    ))
 }

@@ -54,6 +54,54 @@ fn event_origin_requires_a_typed_application_evidence_reference() {
 }
 
 #[test]
+fn specification_drift_accepts_only_supplied_persisted_finding_evidence() {
+    let mut proposal = proposal();
+    proposal.origin = OpportunityOrigin::SpecDrift;
+    proposal.evidence_refs.push("spec-finding:abc123".into());
+    let mut validation = context();
+    validation.evidence_ids.insert("spec-finding:abc123".into());
+
+    assert!(
+        validate_output_with_context(PromptRole::Manager, &manager_output(&proposal), &validation)
+            .is_ok()
+    );
+
+    proposal.evidence_refs.pop();
+    proposal.evidence_refs.push("spec-finding:invented".into());
+    assert!(
+        validate_output_with_context(PromptRole::Manager, &manager_output(&proposal), &validation)
+            .is_err()
+    );
+}
+
+#[test]
+fn telemetry_backed_run_failure_requires_a_supplied_application_reference() {
+    let mut proposal = proposal();
+    proposal.origin = OpportunityOrigin::RunFailure;
+    proposal
+        .evidence_refs
+        .push("telemetry-regression:trend-1".into());
+    let mut validation = context();
+    validation
+        .evidence_ids
+        .insert("telemetry-regression:trend-1".into());
+
+    assert!(
+        validate_output_with_context(PromptRole::Manager, &manager_output(&proposal), &validation)
+            .is_ok()
+    );
+
+    proposal.evidence_refs.pop();
+    proposal
+        .evidence_refs
+        .push("telemetry-regression:invented".into());
+    assert!(
+        validate_output_with_context(PromptRole::Manager, &manager_output(&proposal), &validation)
+            .is_err()
+    );
+}
+
+#[test]
 fn every_improvement_kind_and_event_origin_can_be_validated_with_grounded_evidence() {
     use super::super::schemas::{OpportunityKind, OpportunityOrigin};
 

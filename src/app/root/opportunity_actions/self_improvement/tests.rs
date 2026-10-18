@@ -85,6 +85,9 @@ fn pursuing_koolade_product_persists_a_planning_run_from_the_user_receipt() {
 
     let (feature_id, feature_uid, markdown, _) =
         super::super::feature::create_draft_feature(&planning, &proposal).unwrap();
+    assert!(markdown.contains(&proposal.target.repository_uid));
+    assert!(markdown.contains(&proposal.target.source_sha));
+    assert!(!markdown.contains(&proposal.target.canonical_remote));
     assert!(
         crate::artifacts::product_docs::active_features(&planning)
             .iter()

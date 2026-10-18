@@ -230,7 +230,10 @@ fn decode(
         };
     }
     match role {
-        PromptRole::Manager | PromptRole::ManagerV4 | PromptRole::ManagerV3 => {
+        PromptRole::Manager
+        | PromptRole::ManagerV5
+        | PromptRole::ManagerV4
+        | PromptRole::ManagerV3 => {
             parse!(ManagerOutputV2, Manager)
         }
         PromptRole::ManagerV2 => parse!(ManagerOutputV1, ManagerLegacy),

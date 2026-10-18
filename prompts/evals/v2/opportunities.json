@@ -370,5 +370,170 @@
       "proposed_actions": [],
       "opportunities": []
     }
+  },
+  {
+    "id": "specification-documentation-finding",
+    "evidence": "A persisted specification finding identifies documentation drift for a reviewed requirement and points to its verification test.",
+    "expected": "valid_proposal",
+    "origin": "spec_drift",
+    "kind": "documentation",
+    "event_evidence": [
+      "spec-finding:spec-7"
+    ],
+    "output": {
+      "summary": "A persisted specification finding identifies documentation drift for a reviewed requirement and points to its verification test.",
+      "proposed_actions": [],
+      "opportunities": [
+        {
+          "origin": "spec_drift",
+          "kind": "documentation",
+          "target": "active_user_project",
+          "target_repository": "https://github.com/example/project",
+          "target_repository_ref": "project",
+          "related_feature_uids": [],
+          "related_task_uids": [],
+          "observation_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evidence_refs": [
+            "workspace-summary",
+            "generic-capability-inventory",
+            "spec-finding:spec-7"
+          ],
+          "problem_or_opportunity": "A persisted specification finding identifies documentation drift for a reviewed requirement and points to its verification test.",
+          "user_value": "Reduce repeated user effort without changing the current task.",
+          "expected_outcome": "The user can rely on the verified capability or improvement.",
+          "possible_approaches": [
+            "Use the existing supported workflow",
+            "Add a narrowly scoped improvement"
+          ],
+          "recommended_approach": "Use only the approach supported by the cited evidence.",
+          "alternatives": "Continue with the current supported workflow.",
+          "estimated_scope": "small",
+          "impact": "Fewer repeated interruptions.",
+          "cost_or_risk": "Small maintenance cost.",
+          "affected_systems": [
+            "verified-workflow"
+          ],
+          "current_capability_state": "Based on the cited capability inventory and typed event.",
+          "generic_workaround": "Use the existing generic workflow when it meets the goal.",
+          "proposed_approach": "Keep the proposal advisory and route any Pursue choice through normal planning.",
+          "dedup_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "inference": "This conclusion follows from the cited evidence.",
+          "confidence": "medium",
+          "speculative": false,
+          "generic_capability_check": "Checked generic-capability-inventory against the supplied workflow evidence.",
+          "deduplication_basis": "No matching active proposal with materially new evidence was supplied."
+        }
+      ]
+    }
+  },
+  {
+    "id": "telemetry-regression",
+    "evidence": "Application-local telemetry shows the recent invocation failure rate increased materially against the prior week with sufficient samples.",
+    "expected": "valid_proposal",
+    "origin": "run_failure",
+    "kind": "quality",
+    "event_evidence": [
+      "telemetry-regression:trend-7"
+    ],
+    "output": {
+      "summary": "Application-local telemetry shows the recent invocation failure rate increased materially against the prior week with sufficient samples.",
+      "proposed_actions": [],
+      "opportunities": [
+        {
+          "origin": "run_failure",
+          "kind": "quality",
+          "target": "active_user_project",
+          "target_repository": "https://github.com/example/project",
+          "target_repository_ref": "project",
+          "related_feature_uids": [],
+          "related_task_uids": [],
+          "observation_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evidence_refs": [
+            "workspace-summary",
+            "generic-capability-inventory",
+            "telemetry-regression:trend-7"
+          ],
+          "problem_or_opportunity": "Application-local telemetry shows the recent invocation failure rate increased materially against the prior week with sufficient samples.",
+          "user_value": "Reduce repeated user effort without changing the current task.",
+          "expected_outcome": "The user can rely on the verified capability or improvement.",
+          "possible_approaches": [
+            "Use the existing supported workflow",
+            "Add a narrowly scoped improvement"
+          ],
+          "recommended_approach": "Use only the approach supported by the cited evidence.",
+          "alternatives": "Continue with the current supported workflow.",
+          "estimated_scope": "small",
+          "impact": "Fewer repeated interruptions.",
+          "cost_or_risk": "Small maintenance cost.",
+          "affected_systems": [
+            "verified-workflow"
+          ],
+          "current_capability_state": "Based on the cited capability inventory and typed event.",
+          "generic_workaround": "Use the existing generic workflow when it meets the goal.",
+          "proposed_approach": "Keep the proposal advisory and route any Pursue choice through normal planning.",
+          "dedup_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "inference": "This conclusion follows from the cited evidence.",
+          "confidence": "medium",
+          "speculative": false,
+          "generic_capability_check": "Checked generic-capability-inventory against the supplied workflow evidence.",
+          "deduplication_basis": "No matching active proposal with materially new evidence was supplied."
+        }
+      ]
+    }
+  },
+  {
+    "id": "provider-capability-mismatch",
+    "evidence": "A typed provider profile failure records that the selected provider lacks a required supported capability.",
+    "expected": "valid_proposal",
+    "origin": "run_failure",
+    "kind": "integration",
+    "event_evidence": [
+      "provider-capability-mismatch:provider-1"
+    ],
+    "output": {
+      "summary": "A typed provider profile failure records that the selected provider lacks a required supported capability.",
+      "proposed_actions": [],
+      "opportunities": [
+        {
+          "origin": "run_failure",
+          "kind": "integration",
+          "target": "active_user_project",
+          "target_repository": "https://github.com/example/project",
+          "target_repository_ref": "project",
+          "related_feature_uids": [],
+          "related_task_uids": [],
+          "observation_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evidence_refs": [
+            "workspace-summary",
+            "generic-capability-inventory",
+            "provider-capability-mismatch:provider-1"
+          ],
+          "problem_or_opportunity": "A typed provider profile failure records that the selected provider lacks a required supported capability.",
+          "user_value": "Reduce repeated user effort without changing the current task.",
+          "expected_outcome": "The user can rely on the verified capability or improvement.",
+          "possible_approaches": [
+            "Use the existing supported workflow",
+            "Add a narrowly scoped improvement"
+          ],
+          "recommended_approach": "Use only the approach supported by the cited evidence.",
+          "alternatives": "Continue with the current supported workflow.",
+          "estimated_scope": "small",
+          "impact": "Fewer repeated interruptions.",
+          "cost_or_risk": "Small maintenance cost.",
+          "affected_systems": [
+            "verified-workflow"
+          ],
+          "current_capability_state": "Based on the cited capability inventory and typed event.",
+          "generic_workaround": "Use the existing generic workflow when it meets the goal.",
+          "proposed_approach": "Keep the proposal advisory and route any Pursue choice through normal planning.",
+          "dedup_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "inference": "This conclusion follows from the cited evidence.",
+          "confidence": "medium",
+          "speculative": false,
+          "generic_capability_check": "Checked generic-capability-inventory against the supplied workflow evidence.",
+          "deduplication_basis": "No matching active proposal with materially new evidence was supplied."
+        }
+      ]
+    }
   }
 ]

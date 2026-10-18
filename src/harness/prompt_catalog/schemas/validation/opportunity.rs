@@ -127,12 +127,19 @@ pub(super) fn validate(
         );
     }
     let typed_event_required = match &proposal.origin {
-        super::super::OpportunityOrigin::RunFailure => {
-            Some(&["implementation-failure:", "broker-prerequisite:"][..])
-        }
+        super::super::OpportunityOrigin::RunFailure => Some(
+            &[
+                "implementation-failure:",
+                "broker-prerequisite:",
+                "provider-capability-mismatch:",
+                "telemetry-regression:",
+            ][..],
+        ),
         super::super::OpportunityOrigin::QaFinding
-        | super::super::OpportunityOrigin::ReviewFinding
-        | super::super::OpportunityOrigin::SpecDrift => Some(&["lifecycle-event:"][..]),
+        | super::super::OpportunityOrigin::ReviewFinding => Some(&["lifecycle-event:"][..]),
+        super::super::OpportunityOrigin::SpecDrift => {
+            Some(&["lifecycle-event:", "spec-finding:"][..])
+        }
         _ => None,
     };
     if !matches!(&proposal.target, OpportunityTarget::ActiveUserProject)

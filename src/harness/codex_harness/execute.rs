@@ -69,7 +69,7 @@ impl AiHarness for CodexHarness {
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             provider, &binary, version,
         )
-        .map_err(|error| AppError::Other(format!("Codex profile probe failed: {error}")))?;
+        .map_err(AppError::from_provider_profile_error)?;
         let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
             evidence,
             argv,
