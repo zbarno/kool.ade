@@ -21,6 +21,7 @@ use crate::{
 
 mod candidate;
 use candidate::{approved_candidate, next_operation, now_unix_ms};
+mod toolchains;
 
 type RecipeCandidate = (String, RuntimeOperation, PathBuf, WorkspaceRef, Vec<String>);
 
@@ -143,8 +144,51 @@ pub(crate) fn start(
     ))
 }
 
-pub(crate) fn ready(project: &Project, task: &TaskRecord) -> Result<bool, String> {
-    candidate(project, task).map(|candidate| candidate.is_some())
+pub(crate) fn ready(project: &mut Project, task: &TaskRecord) -> Result<bool, String> {
+    let Some((target_id, operation, _, workspace, required_tools)) = candidate(project, task)?
+    else {
+        return Ok(false);
+    };
+    let lock =
+        crate::execution::docker::images::ImageLock::bundled().map_err(|error| error.message)?;
+    let missing_tools = toolchains::missing_toolchains(&lock, &required_tools);
+    if !missing_tools.is_empty() {
+        let store = ProjectRuntimeStore::new(&project.state.planning_store);
+        let manifest = store
+            .load_manifest()
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "runtime manifest disappeared before toolchain review".to_owned())?;
+        let target = manifest
+            .candidate_targets
+            .iter()
+            .find(|target| target.target_id == target_id)
+            .ok_or_else(|| "runtime target disappeared before toolchain review".to_owned())?;
+        let recipe_ids = match operation {
+            RuntimeOperation::Build => target.build_recipe_ref.iter().cloned().collect(),
+            RuntimeOperation::Test => target.test_recipe_refs.clone(),
+            RuntimeOperation::Start => target.start_recipe_ref.iter().cloned().collect(),
+        };
+        super::prerequisites::queue_missing_recipe_toolchain_reviews(
+            project,
+            task,
+            &target_id,
+            &workspace.project_id,
+            &workspace.source_sha,
+            &recipe_ids,
+            &missing_tools,
+        );
+        return Err(format!(
+            "No approved image provides the declared toolchains [{}] for this target's next recipe. Man.ager review is queued or already pending; no installation command was run.",
+            missing_tools.join(", ")
+        ));
+    }
+    if !toolchains::has_compatible_image(&lock, &required_tools) {
+        return Err(format!(
+            "No single approved pinned image provides all toolchains declared by this target's next recipe: {}.",
+            required_tools.join(", ")
+        ));
+    }
+    Ok(true)
 }
 
 fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandidate>, String> {

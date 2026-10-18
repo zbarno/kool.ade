@@ -98,9 +98,12 @@ Queued build and test recipes use the generic executor. Its image selection
 matches each approved recipe's logical tool requirements against pinned image
 inventory instead of inferring a language from executable names. A custom tool
 can be recorded without a Kool.ad/e code change; execution still fails closed
-unless an approved image advertises that tool. Missing tools currently produce
-an unavailable-image result; they are not yet converted into Man.ager broker
-requests.
+unless an approved image advertises that tool. Before a queued Build, Test, or
+Start attempt opens a Docker session, missing target-declared toolchains are
+recorded as stable Man.ager review requests bound to the workspace, target, and
+source SHA. The requests identify the tool but contain no install command,
+preparation, or authority to execute one. An exact compatible reviewed image
+or separately approved broker adapter is still required before execution.
 
 The generic start executor requires a passing Build receipt for the same task,
 target, source SHA, and recipe. It launches the approved process in the Docker
@@ -125,8 +128,9 @@ preparation telemetry reports `Prepared`, and its retained cache snapshot is
 retrievable and passes manifest and archive integrity checks. Authorization,
 another task's request, missing telemetry, a
 missing or corrupt snapshot, or a failed preparation never marks a dependency
-available. Toolchain gaps are still reported as unavailable-image results and
-are not yet converted into Man.ager broker requests.
+available. Missing target-declared toolchains are routed to the same
+source-bound, non-executable Man.ager review queue; QA remains blocked until the
+approved runtime inventory can satisfy the target recipes.
 Unsupported native mobile, Windows/macOS desktop, and hardware targets must be
 reported as unsupported until their execution and QA drivers exist.
 

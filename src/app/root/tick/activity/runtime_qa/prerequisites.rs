@@ -15,7 +15,9 @@ use super::request::verify_provenance_for_request;
 mod cache_refs;
 pub(super) use cache_refs::{available_broker_dependencies, selected_broker_cache_refs};
 mod manager_requests;
-pub(super) use manager_requests::queue_missing_toolchain_reviews;
+pub(super) use manager_requests::{
+    queue_missing_recipe_toolchain_reviews, queue_missing_toolchain_reviews,
+};
 
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
