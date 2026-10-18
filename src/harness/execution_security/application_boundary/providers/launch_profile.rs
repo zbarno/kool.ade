@@ -91,12 +91,13 @@ impl ProfileProbeEvidence {
             .map(String::as_str)
             .collect::<Vec<_>>();
         let missing = requirements.missing_capabilities(&available);
-        anyhow::ensure!(
-            missing.is_empty(),
-            "{} profile probe is missing capabilities: {}",
-            self.provider.name(),
-            missing.join(", ")
-        );
+        if !missing.is_empty() {
+            return Err(crate::error::ProviderCapabilityMismatchCause {
+                provider: self.provider.name().to_owned(),
+                missing: missing.into_iter().map(str::to_owned).collect(),
+            }
+            .into());
+        }
         Ok(())
     }
 }

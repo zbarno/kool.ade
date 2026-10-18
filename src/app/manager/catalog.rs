@@ -53,8 +53,23 @@ pub(super) fn render(
             id,
         )
     });
+    let koolade_product_repository_ref = project
+        .state
+        .repositories
+        .repositories
+        .iter()
+        .find(|repository| is_koolade_product_remote(&repository.remote))
+        .map(|repository| repository.id.clone());
     let summary = super::Manager::prompt_body(project, events);
-    let trusted_evidence = opportunities::trusted_opportunity_evidence(project);
+    let mut trusted_evidence = opportunities::trusted_opportunity_evidence(project);
+    let mut public_evidence_ids = HashSet::new();
+    let mut evidence_repository_refs = std::collections::HashMap::new();
+    if let Some(repository_ref) = &koolade_product_repository_ref {
+        let product_evidence = opportunities::koolade_product_contract_evidence(&workspace_uid);
+        public_evidence_ids.insert(product_evidence.id.clone());
+        evidence_repository_refs.insert(product_evidence.id.clone(), repository_ref.clone());
+        trusted_evidence.push(product_evidence);
+    }
     let mut evidence_hashes = std::collections::HashMap::from([(
         "workspace-summary".into(),
         format!("{:x}", sha2::Sha256::digest(summary.as_bytes())),
@@ -85,13 +100,6 @@ pub(super) fn render(
         })
         .collect();
     let active_repository_ref = active_repository_ref(project);
-    let koolade_product_repository_ref = project
-        .state
-        .repositories
-        .repositories
-        .iter()
-        .find(|repository| is_koolade_product_remote(&repository.remote))
-        .map(|repository| repository.id.clone());
     let input = RoleInputV1 {
         role: PromptRole::Manager,
         workspace_uid: workspace_uid.clone(),
@@ -135,6 +143,8 @@ pub(super) fn render(
             allowed_repositories,
             active_repository_ref,
             koolade_product_repository_ref,
+            public_evidence_ids,
+            evidence_repository_refs,
             ..Default::default()
         },
         evidence_hashes,

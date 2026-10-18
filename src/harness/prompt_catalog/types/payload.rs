@@ -55,7 +55,7 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
                 && user_value.as_ref().is_none_or(|value| text(value, 4096))
                 && concrete_target_repo
                     .as_ref()
-                    .is_none_or(|value| text(value, 128))
+                    .is_none_or(|value| text(value, 4096))
                 && (opportunity_origin.is_none()
                     || (user_value.is_some() && concrete_target_repo.is_some()))
         }

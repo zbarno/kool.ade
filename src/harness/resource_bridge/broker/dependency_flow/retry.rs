@@ -61,7 +61,7 @@ pub(super) fn record_retry_result(
             request.rationale
         );
         let response = ResourceResponse::dependency_outcome("prepared", request.clone());
-        set_dependency_request(context, &mut request);
+        set_dependency_request(context, &mut request)?;
         Ok(response)
     } else {
         preparation.status = Some(crate::harness::DependencyPreparationStatus::Error);
@@ -70,7 +70,7 @@ pub(super) fn record_retry_result(
             "{} The bounded offline package operation retry failed.",
             request.rationale
         );
-        set_dependency_request(context, &mut request);
+        set_dependency_request(context, &mut request)?;
         Ok(ResourceResponse::dependency_outcome(
             "needs_attention",
             request,

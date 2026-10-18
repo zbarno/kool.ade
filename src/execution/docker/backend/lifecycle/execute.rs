@@ -1,15 +1,25 @@
 use bollard::exec::StartExecOptions;
+use std::{sync::Arc, time::Instant};
 use tokio::io::AsyncWriteExt;
 
 mod cleanup;
 mod failure;
 mod finish;
 mod initial;
+mod resource_metrics;
 mod state;
 mod stream;
 mod termination;
+#[cfg(test)]
+pub(in crate::execution::docker::backend) use termination::observe_cancel_race_archive;
 pub(super) use termination::terminate_and_sync;
 mod sync;
+#[cfg(test)]
+pub(in crate::execution::docker::backend) use finish::{
+    inject_crash_after_stage_out, pause_after_stage_out, pause_before_collecting,
+};
+pub(in crate::execution::docker::backend::lifecycle) use state::persist_stage_out;
+pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_stage_out_enabled;
 pub(in crate::execution::docker::backend::lifecycle) use sync::workspace_write_enabled;
 
 use crate::execution::{
@@ -60,6 +70,8 @@ pub(super) async fn run(
             return cleanup::deadline_failure(backend, &execution).await;
         }
     };
+    #[cfg(test)]
+    state::mark_diagnostic_progress(&execution, state::EXEC_CREATED);
     {
         let mut state = execution
             .lock()
@@ -91,7 +103,22 @@ pub(super) async fn run(
             return cleanup::deadline_failure(backend, &execution).await;
         }
     };
+    #[cfg(test)]
+    state::mark_diagnostic_progress(&execution, state::EXEC_ATTACHED);
     let stream_budget = cleanup::remaining(deadline);
+    let (metrics_stop, metrics_stop_rx) = tokio::sync::oneshot::channel();
+    let metrics_execution = Arc::downgrade(&execution);
+    let metrics_docker = backend.docker.clone();
+    let metrics_container_id = container_id.clone();
+    let metrics_task = tokio::spawn(async move {
+        resource_metrics::collect(
+            metrics_docker,
+            metrics_container_id,
+            metrics_execution,
+            metrics_stop_rx,
+        )
+        .await;
+    });
     let collect = async {
         match stream {
             bollard::exec::StartExecResults::Attached { output, mut input } => {
@@ -101,6 +128,8 @@ pub(super) async fn run(
                     .unwrap_or_default()
                     .as_bytes()
                     .to_vec();
+                #[cfg(test)]
+                let input_execution = execution.clone();
                 let write_input = async move {
                     if !script.is_empty() {
                         input.write_all(&script).await.map_err(|_| {
@@ -111,13 +140,18 @@ pub(super) async fn run(
                             )
                         })?;
                     }
+                    #[cfg(test)]
+                    state::mark_diagnostic_progress(&input_execution, state::INPUT_WRITTEN);
                     input.shutdown().await.map_err(|_| {
                         ExecutionError::new(
                             ExecutionErrorKind::ExecutionFailed,
                             "Container command input could not be closed",
                             false,
                         )
-                    })
+                    })?;
+                    #[cfg(test)]
+                    state::mark_diagnostic_progress(&input_execution, state::INPUT_CLOSED);
+                    Ok(())
                 };
                 futures_util::try_join!(
                     write_input,
@@ -132,25 +166,60 @@ pub(super) async fn run(
             )),
         }
     };
-    match tokio::time::timeout(stream_budget, collect).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            failure::finalize_failure(backend, &execution, error, false).await?;
-            return Ok(());
-        }
-        Err(_) => {
-            cleanup::deadline_failure(backend, &execution).await?;
-            return Ok(());
+    let command_started = Instant::now();
+    let collected = tokio::time::timeout(stream_budget, collect).await;
+    if request.mode == crate::execution::contract::ExecutionModeV1::RuntimeQa {
+        let persisted = execution
+            .lock()
+            .map_err(|_| internal_error_with_context("recording runtime QA execution telemetry"))
+            .and_then(|mut state| {
+                state.phase_timings.qa_ms = Some(elapsed_millis(command_started));
+                state.persist()
+            });
+        if let Err(error) = persisted {
+            stop_resource_metrics(metrics_stop, metrics_task).await;
+            return Err(error);
         }
     }
-    finish::finish_command(
-        backend,
-        &execution,
-        request,
-        &container_id,
-        &exec.id,
-        &workspace,
-        snapshot.as_ref(),
-    )
-    .await
+    match collected {
+        Ok(Ok(())) => {
+            // Docker can close the attached output stream while the exec is
+            // still running. Keep sampling until inspect_exec observes its
+            // exit and the execution record is finalized.
+            let result = finish::finish_command(
+                backend,
+                &execution,
+                request,
+                &container_id,
+                &exec.id,
+                &workspace,
+                snapshot.as_ref(),
+            )
+            .await;
+            stop_resource_metrics(metrics_stop, metrics_task).await;
+            result
+        }
+        Ok(Err(error)) => {
+            stop_resource_metrics(metrics_stop, metrics_task).await;
+            failure::finalize_failure(backend, &execution, error, false).await?;
+            Ok(())
+        }
+        Err(_) => {
+            stop_resource_metrics(metrics_stop, metrics_task).await;
+            cleanup::deadline_failure(backend, &execution).await?;
+            Ok(())
+        }
+    }
+}
+
+async fn stop_resource_metrics(
+    stop: tokio::sync::oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<()>,
+) {
+    let _ = stop.send(());
+    let _ = task.await;
+}
+
+fn elapsed_millis(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }

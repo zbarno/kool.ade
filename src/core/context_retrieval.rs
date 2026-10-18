@@ -74,6 +74,7 @@ pub fn select(
         progress_tx,
         cancel,
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

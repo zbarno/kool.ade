@@ -31,7 +31,9 @@ pub use board_states::{
 };
 pub use controller::Controller;
 pub(crate) use controller::ProjectStartRequest;
+#[cfg(test)]
 pub(crate) use execution::mark_resume_started;
+pub(crate) use execution::mark_resume_started_for_action;
 pub(crate) use execution::record_failed_attempt;
 pub use execution::run;
 use execution::run_with_planning_store_options;

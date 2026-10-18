@@ -19,7 +19,8 @@ pub(super) fn run(
             }
             let verification_path = report_check_clone.as_ref().unwrap().path();
             let workspace = runner.workspace_ref_for(state)?;
-            runner.verify(verification_path, command, &workspace)
+            let destination_sha = runner.destination_sha_for(state)?;
+            runner.verify(verification_path, command, &workspace, destination_sha)
         };
         evidence.push(serde_json::json!({
             "command": command,

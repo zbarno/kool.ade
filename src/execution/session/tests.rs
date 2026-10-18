@@ -25,6 +25,7 @@ struct FakeBackend {
     prepare_delay: Mutex<std::time::Duration>,
     invalidate_authorization_on_exec: Mutex<Option<Arc<AtomicBool>>>,
     invalidate_authorization_on_events: Mutex<Option<Arc<AtomicBool>>>,
+    lifecycle_updates: Mutex<Vec<ExecutionLifecycleV1>>,
 }
 
 impl ExecutionBackend for FakeBackend {
@@ -86,6 +87,15 @@ impl ExecutionBackend for FakeBackend {
                 request_sequence: request.request_sequence,
             })
         })
+    }
+
+    fn set_lifecycle_state(
+        &self,
+        _: &ExecutionHandleV1,
+        state: ExecutionLifecycleV1,
+    ) -> Result<(), ExecutionError> {
+        self.lifecycle_updates.lock().unwrap().push(state);
+        Ok(())
     }
 
     fn release_workspace<'a>(&'a self, _: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()> {
@@ -238,6 +248,7 @@ fn backend() -> Arc<FakeBackend> {
         prepare_delay: Mutex::new(std::time::Duration::ZERO),
         invalidate_authorization_on_exec: Mutex::new(None),
         invalidate_authorization_on_events: Mutex::new(None),
+        lifecycle_updates: Mutex::new(Vec::new()),
     })
 }
 
@@ -288,4 +299,28 @@ fn expired_workspace_lease_is_rejected_and_released_before_start() {
     assert_eq!(error.kind, ExecutionErrorKind::WorkerDisconnected);
     assert!(backend.workspace_released.load(Ordering::Acquire));
     assert!(backend.request.lock().unwrap().is_none());
+}
+
+#[test]
+fn dependency_approval_wait_is_forwarded_to_the_active_local_execution() {
+    let backend = backend();
+    let session = session(backend.clone());
+    let handle = ExecutionHandleV1 {
+        execution_id: execution_id(),
+        task_id: session.workspace.task_id.clone(),
+        target: ExecutionTarget::local(),
+        request_sequence: 1,
+    };
+    *session.active.lock().unwrap() = Some((handle, 1));
+
+    session.set_dependency_approval_waiting(true).unwrap();
+    session.set_dependency_approval_waiting(false).unwrap();
+
+    assert_eq!(
+        *backend.lifecycle_updates.lock().unwrap(),
+        vec![
+            ExecutionLifecycleV1::WaitingForDependencyApproval,
+            ExecutionLifecycleV1::Running,
+        ]
+    );
 }

@@ -44,6 +44,28 @@ fn evidence_enforces_discoverable_version_and_capability_requirements() {
 }
 
 #[test]
+fn missing_profile_capability_has_a_typed_failure_for_manager_evidence() {
+    let error = ProfileProbeEvidence::validated(
+        CliProvider::Codex,
+        Path::new("/bin/true"),
+        "codex 1.0.0".into(),
+        &["--json"],
+    )
+    .unwrap_err();
+    let cause = error
+        .downcast_ref::<crate::error::ProviderCapabilityMismatchCause>()
+        .expect("missing profile capability remains typed");
+
+    assert_eq!(cause.provider, "Codex");
+    assert!(
+        cause
+            .missing
+            .iter()
+            .any(|capability| capability == "--model")
+    );
+}
+
+#[test]
 fn every_provider_launch_profile_binds_its_required_arguments_and_environment() {
     for provider in [
         CliProvider::Codex,

@@ -37,6 +37,26 @@ impl ExecutionSession {
         resources: ResourceBudgetV1,
         authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     ) -> Result<Self, ExecutionError> {
+        Self::connect_local_with_destination_sha_and_authorization(
+            workspace,
+            task_clone,
+            mode,
+            profile,
+            resources,
+            None,
+            authorization_verifier,
+        )
+    }
+
+    pub(crate) fn connect_local_with_destination_sha_and_authorization(
+        workspace: WorkspaceRef,
+        task_clone: &Path,
+        mode: ExecutionModeV1,
+        profile: RuntimeProfile,
+        resources: ResourceBudgetV1,
+        destination_sha: Option<String>,
+        authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+    ) -> Result<Self, ExecutionError> {
         connect_local_with_image_selection(
             workspace,
             task_clone,
@@ -44,6 +64,7 @@ impl ExecutionSession {
             &[profile],
             &[],
             resources,
+            destination_sha,
             authorization_verifier,
         )
     }
@@ -71,6 +92,7 @@ impl ExecutionSession {
             PROFILES,
             required_tools,
             resources,
+            None,
             None,
         )
     }
@@ -110,6 +132,7 @@ impl ExecutionSession {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn connect_local_with_image_selection(
     workspace: WorkspaceRef,
     task_clone: &Path,
@@ -117,6 +140,7 @@ fn connect_local_with_image_selection(
     profiles: &[RuntimeProfile],
     required_tools: &[String],
     resources: ResourceBudgetV1,
+    destination_sha: Option<String>,
     authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
 ) -> Result<ExecutionSession, ExecutionError> {
     let endpoint =
@@ -162,13 +186,14 @@ fn connect_local_with_image_selection(
                 error.retryable,
             )
         })?;
-    ExecutionSession::new_with_authorization(
+    ExecutionSession::new_with_destination_authorization(
         backend,
         workspace,
         ExecutionTarget::local(),
         mode,
         image.digest,
         resources,
+        destination_sha,
         authorization_verifier,
     )
     .map_err(|_| prerequisite_message())

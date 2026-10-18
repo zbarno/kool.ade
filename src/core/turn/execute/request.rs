@@ -322,6 +322,7 @@ pub(super) fn prepare(
         progress_tx,
         cancel: Arc::clone(cancel),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,
