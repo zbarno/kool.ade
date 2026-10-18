@@ -87,6 +87,7 @@ fn envelope() -> TurnEnvelope {
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     }
 }
 

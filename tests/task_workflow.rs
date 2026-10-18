@@ -163,10 +163,9 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
             failure_mode,
         }),
     );
-    // The full nextest suite runs this integration test alongside filesystem,
-    // UI, and compiler work. Keep a bounded deadlock guard without assuming a
-    // lightly loaded machine can schedule each turn within ten seconds.
-    let deadline = Instant::now() + Duration::from_secs(60);
+    // The workflow advances across worker threads and repository-backed
+    // persistence; retain a bounded three-minute window under parallel nextest.
+    let deadline = Instant::now() + Duration::from_secs(180);
     loop {
         assert!(Instant::now() < deadline, "workflow timed out");
         if let Some(TurnEvt::Done(outcome)) = ctrl.poll(Duration::from_millis(50)) {

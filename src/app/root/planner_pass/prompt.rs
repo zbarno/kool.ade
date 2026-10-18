@@ -1,5 +1,37 @@
 use super::repository_evidence;
 
+fn opportunity_planner_context(
+    project: &super::super::session::Project,
+    feature_text: &str,
+    feature_uid: &str,
+) -> Result<Option<crate::core::opportunity::OpportunityV1>, String> {
+    let marker = "<!-- opportunity-uid: ";
+    let Some(uid) = feature_text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(marker)?.strip_suffix(" -->"))
+    else {
+        return Ok(None);
+    };
+    let (proposal, _) =
+        crate::core::opportunity::OpportunityStore::new(&project.state.planning_store)
+            .load(uid)
+            .map_err(|error| format!("could not load pursued opportunity context: {error}"))?;
+    if proposal.opportunity_uid != uid
+        || !proposal
+            .related_feature_uids
+            .iter()
+            .any(|uid| uid == feature_uid)
+        || !matches!(
+            proposal.status,
+            crate::core::opportunity::OpportunityStatusV1::Planning
+                | crate::core::opportunity::OpportunityStatusV1::Implemented
+        )
+    {
+        return Err("the pursued opportunity no longer matches this planning feature".into());
+    }
+    Ok(Some(proposal))
+}
+
 fn deferred_context(question: &crate::core::planning::QuestionV1) -> String {
     question.deferred.as_ref().map_or_else(
         || "(none)".to_owned(),
@@ -42,6 +74,7 @@ pub(super) fn render(
     let identity = crate::domain::ArtifactIdentity::from_markdown(feature_text)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "the clarified feature has no stable identity".to_owned())?;
+    let opportunity_context = opportunity_planner_context(project, feature_text, feature_uid)?;
     let contract = crate::core::workflow::feature_contract(feature_text);
     let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
         feature_id,
@@ -156,12 +189,43 @@ pub(super) fn render(
             requested_scope: format!(
                 "Reassess feature plan revision {plan_revision} after the recorded clarification. Inspect the supplied read-only repository overview before asking. Use strong repository precedent to resolve technical choices, cite its evidence ID and rationale, and ask only when a choice changes user intent or exceeds agent authority. Put an evidence-backed resolution for an existing technical question in resolvedQuestions. Only resolve Integration, Api, Performance, Operations, Testing, or Deployment choices; never resolve user intent, scope, UX, security, privacy, data ownership, or failure policy for the user. Do not repeat a resolved question. Preserve explicit optional deferrals with their owner, risk, verification test, and follow-up task; do not treat a deferral as a product decision. Propose only material new questions and traceable readiness evidence."
             ),
-            opportunity_origin: None,
-            existing_support_evidence: vec![],
-            workaround: None,
-            user_value: None,
-            confidentiality_class: EvidenceConfidentiality::WorkspacePrivate,
-            concrete_target_repo: None,
+            opportunity_origin: opportunity_context
+                .as_ref()
+                .map(|proposal| format!("{:?}", proposal.origin)),
+            existing_support_evidence: opportunity_context
+                .as_ref()
+                .map(|proposal| {
+                    proposal
+                        .evidence_refs
+                        .iter()
+                        .map(|evidence| format!("{}#{}", evidence.evidence_uid, evidence.sha256))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            workaround: opportunity_context
+                .as_ref()
+                .and_then(|proposal| proposal.generic_workaround.clone()),
+            user_value: opportunity_context
+                .as_ref()
+                .map(|proposal| proposal.user_value.clone()),
+            confidentiality_class: if opportunity_context.as_ref().is_some_and(|proposal| {
+                proposal.evidence_refs.iter().any(|evidence| {
+                    evidence.confidentiality
+                        == crate::core::opportunity::EvidenceConfidentialityV1::UserLocal
+                })
+            }) {
+                EvidenceConfidentiality::Restricted
+            } else {
+                EvidenceConfidentiality::WorkspacePrivate
+            },
+            concrete_target_repo: opportunity_context.as_ref().map(|proposal| {
+                format!(
+                    "{:?}; repository_uid={}; source_sha={}",
+                    proposal.target.kind,
+                    proposal.target.repository_uid,
+                    proposal.target.source_sha
+                )
+            }),
         },
     };
     let rendered = crate::harness::prompt_catalog::render(&input)?;

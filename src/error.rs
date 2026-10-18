@@ -18,6 +18,11 @@ pub enum AppError {
     HarnessFailed { reason: String, stderr_tail: String },
     /// The harness exceeded its wall-clock budget.
     HarnessTimedOut { secs: u64 },
+    /// An installed provider failed its application-defined capability profile.
+    ProviderCapabilityMismatch {
+        provider: String,
+        missing: Vec<String>,
+    },
     /// The structured response failed validation; no files were mutated.
     InvalidResponse { problems: Vec<String> },
     /// Generic filesystem or IO failure.
@@ -54,6 +59,9 @@ impl AppError {
                 }
             }
             Self::HarnessTimedOut { secs } => format!("Pi took longer than {secs}s"),
+            Self::ProviderCapabilityMismatch { provider, .. } => {
+                format!("{provider} does not satisfy its required capability profile")
+            }
             Self::InvalidResponse { problems } => {
                 format!(
                     "Rejected invalid planning response ({})",
@@ -84,9 +92,45 @@ impl AppError {
                     "The configured planning budget expired after {secs}s. Already saved stories are preserved; retry task generation to resume. Set KOOLADE_TURN_TIMEOUT_SECS before starting Kool.ad/e to change the budget."
                 )
             }
+            Self::ProviderCapabilityMismatch { provider, missing } => format!(
+                "Provider {provider} is missing required capabilities: {}",
+                missing.join(", ")
+            ),
             Self::InvalidResponse { problems } => redact_secrets(&problems.join("\n")),
             Self::Io { op, detail } => redact_secrets(&format!("{op}: {detail}")),
             Self::Other(m) => redact_secrets(m),
+        }
+    }
+}
+
+/// Typed cause preserved from the provider's validated launch-profile probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderCapabilityMismatchCause {
+    pub provider: String,
+    pub missing: Vec<String>,
+}
+
+impl std::fmt::Display for ProviderCapabilityMismatchCause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "provider {} is missing required capabilities: {}",
+            self.provider,
+            self.missing.join(", ")
+        )
+    }
+}
+
+impl std::error::Error for ProviderCapabilityMismatchCause {}
+
+impl AppError {
+    pub fn from_provider_profile_error(error: anyhow::Error) -> Self {
+        match error.downcast::<ProviderCapabilityMismatchCause>() {
+            Ok(cause) => Self::ProviderCapabilityMismatch {
+                provider: cause.provider,
+                missing: cause.missing,
+            },
+            Err(error) => Self::Other(redact_secrets(&error.to_string())),
         }
     }
 }

@@ -131,6 +131,9 @@ impl KooladeApp {
             ApplicationCommand::ApproveFeatureForBoard { id } => {
                 self.approve_feature_from_board(&id)
             }
+            ApplicationCommand::RequestFeatureChanges { id, candidate_hash } => {
+                self.request_feature_changes(&id, &candidate_hash)
+            }
             ApplicationCommand::GenerateTasksForFeature {
                 work_key,
                 feature_id,

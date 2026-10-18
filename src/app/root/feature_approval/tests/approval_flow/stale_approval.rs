@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "stale_approval/readiness_generation.rs"]
+mod readiness_generation;
+
 struct MutatingHarness {
     response: String,
     specification_path: std::path::PathBuf,

@@ -8,6 +8,8 @@ pub(crate) use payload::validate_payload;
 #[serde(rename_all = "snake_case")]
 pub enum PromptRole {
     Manager,
+    ManagerV5,
+    ManagerV4,
     ManagerV3,
     ManagerV2,
     Planner,
@@ -28,7 +30,9 @@ pub enum PromptRole {
 impl PromptRole {
     pub fn id(self) -> &'static str {
         match self {
-            Self::Manager => "manager/v4",
+            Self::Manager => "manager/v6",
+            Self::ManagerV5 => "manager/v5",
+            Self::ManagerV4 => "manager/v4",
             Self::ManagerV3 => "manager/v3",
             Self::ManagerV2 => "manager/v2",
             Self::Planner => "planner/v5",
@@ -49,7 +53,9 @@ impl PromptRole {
 
     pub fn output_schema_version(self) -> &'static str {
         match self {
-            Self::Manager | Self::ManagerV3 => "ManagerOutputV2",
+            Self::Manager | Self::ManagerV5 | Self::ManagerV4 | Self::ManagerV3 => {
+                "ManagerOutputV2"
+            }
             Self::ManagerV2 => "ManagerOutputV1",
             Self::Planner => "PlannerOutputV2",
             Self::PlannerV2 => "PlannerOutputV1",
@@ -68,7 +74,9 @@ impl PromptRole {
 
     pub(crate) fn system(self) -> &'static str {
         match self {
-            Self::Manager => include_str!("../../../prompts/v4/manager.system.md"),
+            Self::Manager => include_str!("../../../prompts/v6/manager.system.md"),
+            Self::ManagerV5 => include_str!("../../../prompts/v5/manager.system.md"),
+            Self::ManagerV4 => include_str!("../../../prompts/v4/manager.system.md"),
             Self::ManagerV3 => include_str!("../../../prompts/v3/manager.system.md"),
             Self::ManagerV2 => include_str!("../../../prompts/v2/manager.system.md"),
             Self::Planner => include_str!("../../../prompts/v5/planner.system.md"),
@@ -93,7 +101,9 @@ impl PromptRole {
 
     pub(crate) fn user(self) -> &'static str {
         match self {
-            Self::Manager => include_str!("../../../prompts/v4/manager.user.md"),
+            Self::Manager => include_str!("../../../prompts/v6/manager.user.md"),
+            Self::ManagerV5 => include_str!("../../../prompts/v5/manager.user.md"),
+            Self::ManagerV4 => include_str!("../../../prompts/v4/manager.user.md"),
             Self::ManagerV3 => include_str!("../../../prompts/v3/manager.user.md"),
             Self::ManagerV2 => include_str!("../../../prompts/v2/manager.user.md"),
             Self::Planner => include_str!("../../../prompts/v5/planner.user.md"),
@@ -117,6 +127,8 @@ impl PromptRole {
     pub(crate) fn privileges(self) -> &'static str {
         match self {
             Self::Manager
+            | Self::ManagerV5
+            | Self::ManagerV4
             | Self::ManagerV3
             | Self::ManagerV2
             | Self::Planner
@@ -138,7 +150,11 @@ impl PromptRole {
 
     pub(crate) fn policy(self) -> &'static str {
         match self {
-            Self::Manager | Self::ManagerV3 | Self::ManagerV2 => {
+            Self::Manager
+            | Self::ManagerV5
+            | Self::ManagerV4
+            | Self::ManagerV3
+            | Self::ManagerV2 => {
                 include_str!("../../../prompts/v2/manager.policy.md")
             }
             Self::PlannerConversation => include_str!("../../../prompts/v4/planner.policy.md"),

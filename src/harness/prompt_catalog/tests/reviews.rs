@@ -105,6 +105,29 @@ fn known_failed_requirement_cannot_be_hidden_by_zero_findings() {
 }
 
 #[test]
+fn plan_reviewer_must_make_unverified_coverage_actionable() {
+    let hash = "d".repeat(64);
+    let unable_without_finding = format!(
+        r#"{{"subject_hash":"{hash}","pass":false,"coverage":[{{"requirement":"R1","status":"untested","evidence":["plan:approved"]}}],"findings":[],"untested":["R1 could not be checked"]}}"#
+    );
+    let context = super::schemas::OutputValidationContext {
+        expected_subject_hash: Some(&hash),
+        evidence_ids: ["plan:approved".to_owned()].into(),
+        required_requirements: vec!["R1".into()],
+        ..Default::default()
+    };
+    assert!(
+        super::schemas::validate_output_with_context(
+            PromptRole::PlanReviewer,
+            &unable_without_finding,
+            &context
+        )
+        .unwrap_err()
+        .contains("actionable finding")
+    );
+}
+
+#[test]
 fn praise_only_review_cannot_omit_required_coverage() {
     let hash = "e".repeat(64);
     let praise_only = format!(
@@ -123,6 +146,42 @@ fn praise_only_review_cannot_omit_required_coverage() {
         )
         .unwrap_err()
         .contains("omits a required acceptance check")
+    );
+}
+
+#[test]
+fn review_cannot_pass_or_raise_findings_without_cited_evidence() {
+    let hash = "f".repeat(64);
+    let context = super::schemas::OutputValidationContext {
+        expected_subject_hash: Some(&hash),
+        evidence_ids: ["plan:approved".to_owned()].into(),
+        required_requirements: vec!["R1".into()],
+        ..Default::default()
+    };
+    let unsupported_pass = format!(
+        r#"{{"subject_hash":"{hash}","pass":true,"coverage":[{{"requirement":"R1","status":"pass","evidence":[]}}],"findings":[],"untested":[]}}"#
+    );
+    assert!(
+        super::schemas::validate_output_with_context(
+            PromptRole::PlanReviewer,
+            &unsupported_pass,
+            &context,
+        )
+        .unwrap_err()
+        .contains("cited evidence")
+    );
+
+    let unsupported_finding = format!(
+        r#"{{"subject_hash":"{hash}","pass":false,"coverage":[{{"requirement":"R1","status":"fail","evidence":["plan:approved"]}}],"findings":[{{"id":"F1","requirement":"R1","severity":"high","kind":"requirements","location":"R1","evidence":[],"repro":"Counterexample","proposed_correction":"Clarify R1."}}],"untested":[]}}"#
+    );
+    assert!(
+        super::schemas::validate_output_with_context(
+            PromptRole::PlanReviewer,
+            &unsupported_finding,
+            &context,
+        )
+        .unwrap_err()
+        .contains("cited evidence")
     );
 }
 

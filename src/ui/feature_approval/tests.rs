@@ -28,6 +28,7 @@ fn action() -> Action {
     Action {
         id: "F7".into(),
         specification: String::new(),
+        candidate: None,
         approved: false,
         prepare_tasks: false,
         compare_plans: false,

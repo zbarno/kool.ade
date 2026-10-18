@@ -133,12 +133,26 @@ fn grant_writer_child_process() {
     for index in 0..20 {
         let task = format!("TASK-{worker}-{index}");
         let package = format!("package-{worker}-{index}");
-        save(
-            Path::new(&project),
-            &request(&task, &package),
-            DependencyAuthorizationScope::Project,
-        )
-        .unwrap();
+        let request = request(&task, &package);
+        let mut attempts = 0;
+        loop {
+            match save(
+                Path::new(&project),
+                &request,
+                DependencyAuthorizationScope::Project,
+            ) {
+                Ok(()) => break,
+                Err(error)
+                    if error.to_string().contains(
+                        "Another Kool.ad/e instance is updating dependency permissions",
+                    ) && attempts < 20 =>
+                {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(error) => panic!("grant write failed: {error:#}"),
+            }
+        }
     }
 }
 

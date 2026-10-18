@@ -3,7 +3,10 @@ use crate::artifacts::planning_store::{RecordRevisionCheck, StoreError};
 use super::records::{
     encode, now_unix_ms, read_transition, run_path, transition_path, validate_run_record,
 };
-use super::{RunRecord, SelfImprovementEventV1, SelfImprovementStore, SelfImprovementTransitionV1};
+use super::{
+    RunRecord, SelfImprovementEventV1, SelfImprovementPhaseV1, SelfImprovementStore,
+    SelfImprovementTransitionV1, active_runs,
+};
 
 impl SelfImprovementStore<'_> {
     pub fn transitions(&self, uid: &str) -> Result<Vec<SelfImprovementTransitionV1>, StoreError> {
@@ -79,23 +82,30 @@ impl SelfImprovementStore<'_> {
             event: Some(event),
             opportunity_decision_uid: None,
         };
-        let changes = vec![
+        let mut changes = vec![
             (path.clone(), encode(&record)?),
             (event_path.clone(), encode(&transition)?),
         ];
-        self.store.transaction_with_record_revisions(
-            &changes,
-            &[
-                RecordRevisionCheck {
-                    path,
-                    expected_revision,
-                },
-                RecordRevisionCheck {
-                    path: event_path,
-                    expected_revision: 0,
-                },
-            ],
-        )?;
+        let mut checks = vec![
+            RecordRevisionCheck {
+                path,
+                expected_revision,
+            },
+            RecordRevisionCheck {
+                path: event_path,
+                expected_revision: 0,
+            },
+        ];
+        if matches!(
+            record.data.phase,
+            SelfImprovementPhaseV1::Activated | SelfImprovementPhaseV1::Cancelled
+        ) && let Some(slot) = active_runs::release(self.store, run_uid)?
+        {
+            changes.push((slot.path, slot.bytes));
+            checks.push(slot.check);
+        }
+        self.store
+            .transaction_with_record_revisions(&changes, &checks)?;
         Ok(record.data)
     }
 }

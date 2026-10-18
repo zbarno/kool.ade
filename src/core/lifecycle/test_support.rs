@@ -74,12 +74,20 @@ pub(crate) fn approve_and_review_feature(
     .manifest;
     let review = crate::core::lifecycle::GateReceipt {
         receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
-        subject_uid: snapshot.uid,
-        subject_sha256: snapshot.content_hash,
+        subject_uid: snapshot.uid.clone(),
+        subject_sha256: snapshot.content_hash.clone(),
         actor: crate::core::lifecycle::GateActor::IndependentReviewer,
         decision: crate::core::lifecycle::GateDecision::Approved,
         recorded_at_unix_ms: 1,
-        evidence_refs: vec!["test-only/explicit-plan-review".into()],
+        evidence_refs: std::iter::once(format!("plan:{}", snapshot.uid))
+            .chain(
+                snapshot
+                    .requirements
+                    .iter()
+                    .map(|requirement| format!("requirement:{}", requirement.stable_id)),
+            )
+            .chain(std::iter::once("test-only/explicit-plan-review".into()))
+            .collect(),
         prompt_sha256: Some(manifest.identity_sha256()),
         prompt_manifest: Some(manifest),
         reviewer_run_id: Some(reviewer_run_id),
@@ -88,7 +96,22 @@ pub(crate) fn approve_and_review_feature(
         author_session_id: Some(author_session_id),
     };
     let revision = store.revision()?;
-    workflow::record_plan_review_if_current(store, feature_id, &review, &revision)?;
+    let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
+        subject_hash: snapshot.content_hash.clone(),
+        pass: true,
+        coverage: snapshot
+            .requirements
+            .iter()
+            .map(|requirement| crate::harness::prompt_catalog::CoverageV1 {
+                requirement: requirement.stable_id.clone(),
+                status: crate::harness::prompt_catalog::CoverageStatus::Pass,
+                evidence: vec![format!("requirement:{}", requirement.stable_id)],
+            })
+            .collect(),
+        findings: Vec::new(),
+        untested: Vec::new(),
+    };
+    workflow::record_plan_review_if_current(store, feature_id, &review, &verdict, &revision)?;
     *workflow_record = crate::artifacts::task_docs::load_workflow(store)?;
 
     snapshot_for_lifecycle(store, feature_id, markdown)?;

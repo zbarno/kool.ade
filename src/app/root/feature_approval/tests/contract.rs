@@ -61,7 +61,7 @@ fn changed_contract_stops_authorized_continuation_and_manager_uses_current_state
     );
     assert_eq!(
         app.feature_actions(None)[0].label(),
-        "Approve CHG-004 and prepare tasks"
+        "Confirm CHG-004 and prepare tasks"
     );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();

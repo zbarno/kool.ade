@@ -75,6 +75,14 @@ fn paint_settings(ui: &mut egui::Ui, surface: &mut dyn Surface, board: &ViewMode
                 changed = true;
             }
         });
+        let mut active_limit = u32::from(settings.active_self_improvement_limit);
+        if ui
+            .add(egui::Slider::new(&mut active_limit, 1..=10).text("Active self-improvements"))
+            .changed()
+        {
+            settings.active_self_improvement_limit = active_limit as u8;
+            changed = true;
+        }
         ui.small("Exploration runs only when this workspace is idle. Proposals remain advisory and require your separate decision.");
         if changed {
             surface.dispatch(crate::ui::ApplicationCommand::SetOpportunityDiscoverySettings {
