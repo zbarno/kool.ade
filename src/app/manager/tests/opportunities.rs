@@ -133,6 +133,42 @@ fn manager_generation_persists_only_valid_opportunity_proposals() {
 }
 
 #[test]
+fn manager_prompt_supplies_public_product_evidence_only_for_linked_product_repo() {
+    let (_temp, mut project, _) = initialized_repository();
+    let events = ["manager-refresh".to_owned()];
+    let unlinked = super::super::catalog::render(&project, &events).unwrap();
+    assert!(
+        !unlinked
+            .validation
+            .evidence_ids
+            .contains("koolade-product-opportunity-contract")
+    );
+
+    project.state.repositories.repositories[0].remote = "https://github.com/zbarno/kool.ade".into();
+    let linked = super::super::catalog::render(&project, &events).unwrap();
+    assert!(
+        linked
+            .validation
+            .public_evidence_ids
+            .contains("koolade-product-opportunity-contract")
+    );
+    assert_eq!(
+        linked
+            .validation
+            .evidence_repository_refs
+            .get("koolade-product-opportunity-contract")
+            .map(String::as_str),
+        Some("root")
+    );
+    assert!(
+        linked
+            .rendered
+            .user
+            .contains("koolade-product-opportunity-contract")
+    );
+}
+
+#[test]
 fn manager_rejects_opportunity_for_unlinked_repository() {
     let (_temp, project, _repository) = initialized_repository();
     let output = serde_json::json!({

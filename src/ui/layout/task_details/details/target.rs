@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::ui::{Surface, task_detail};
 
 pub(super) fn paint(
@@ -48,6 +50,105 @@ pub(super) fn paint(
             ui.label(egui::RichText::new(&choice.reason).small().weak());
         }
         ui.label(egui::RichText::new("A preference does not grant execution permission. Unavailable or unapproved targets block execution; Kool.ad/e will not silently select another target or run on the host.").small().weak());
+        ui.add_space(6.0);
+        ui.label(egui::RichText::new("Remote private-file grants").strong());
+        ui.label(egui::RichText::new("Approval is scoped to the selected files, task workspace, and one remote worker, and expires after 15 minutes. Approved files are sent only when this task starts on that worker and are mounted read-only in its container.").small().weak());
+        if let Some(error) = &view.remote_private_file_candidates_error {
+            ui.colored_label(crate::ui::theme::DANGER, format!("Excluded file scan unavailable: {error}"));
+        } else if view.remote_private_file_candidates_loading {
+            ui.label(egui::RichText::new("Scanning excluded files…").small().weak());
+        } else if !view.remote_private_file_candidates.is_empty() {
+            ui.label(egui::RichText::new("Private files excluded from the remote workspace snapshot:").small());
+            let selection_id = ui.make_persistent_id(("remote_private_file_selection", ticket));
+            let mut selected = ui
+                .ctx()
+                .data(|data| data.get_temp::<HashSet<String>>(selection_id))
+                .unwrap_or_default();
+            for file in &view.remote_private_file_candidates {
+                let mut checked = selected.contains(&file.path);
+                let response = ui.checkbox(
+                    &mut checked,
+                    format!("{} · {:?} · {} bytes", file.path, file.data_class, file.size_bytes),
+                );
+                response.on_hover_text(format!("SHA-256: {}", file.sha256));
+                if checked {
+                    selected.insert(file.path.clone());
+                } else {
+                    selected.remove(&file.path);
+                }
+            }
+            ui.ctx().data_mut(|data| data.insert_temp(selection_id, selected.clone()));
+            if !view.remote_private_file_workers.is_empty() {
+                let worker_id = ui.make_persistent_id(("remote_private_file_worker", ticket));
+                let saved_worker = ui.ctx().data(|data| data.get_temp::<String>(worker_id));
+                let default_worker = match &view.target_preference {
+                    crate::execution::contract::TargetPreference::Worker(id)
+                        if view.remote_private_file_workers.iter().any(|worker| worker.worker_id == *id) => Some(id.clone()),
+                    _ => view.remote_private_file_workers.first().map(|worker| worker.worker_id.clone()),
+                };
+                let mut selected_worker = saved_worker
+                    .filter(|id| view.remote_private_file_workers.iter().any(|worker| worker.worker_id == *id))
+                    .or(default_worker)
+                    .unwrap_or_default();
+                let destination = view.remote_private_file_workers.iter()
+                    .find(|worker| worker.worker_id == selected_worker)
+                    .map(|worker| worker.destination.as_str())
+                    .unwrap_or("Select a healthy enrolled worker");
+                egui::ComboBox::from_id_salt(worker_id)
+                    .selected_text(destination)
+                    .show_ui(ui, |ui| {
+                        for worker in &view.remote_private_file_workers {
+                            ui.selectable_value(&mut selected_worker, worker.worker_id.clone(), &worker.destination);
+                        }
+                    });
+                ui.ctx().data_mut(|data| data.insert_temp(worker_id, selected_worker.clone()));
+                let mut paths = selected.into_iter().collect::<Vec<_>>();
+                paths.sort();
+                if ui.add_enabled(
+                    !paths.is_empty() && !selected_worker.is_empty(),
+                    egui::Button::new("Record local approval for selected files"),
+                ).clicked() {
+                    surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
+                        task_detail::Command::GrantRemotePrivateFiles {
+                            ticket: ticket.to_owned(),
+                            worker_id: selected_worker,
+                            paths,
+                        },
+                    ));
+                }
+            } else {
+                ui.label(egui::RichText::new("Connect an enabled, healthy worker to record an approval.").small().weak());
+            }
+        } else if view.remote_private_file_candidates_error.is_none() && !view.remote_private_file_candidates_loading {
+            ui.label(egui::RichText::new("No excluded private files were found in this task clone.").small().weak());
+        }
+        if let Some(error) = &view.remote_private_file_grants_error {
+            ui.colored_label(crate::ui::theme::DANGER, format!("Grant state unavailable: {error}"));
+        } else if view.remote_private_file_grants.is_empty() {
+            ui.label(egui::RichText::new("No active grants for this task.").small().weak());
+        } else {
+            for grant in &view.remote_private_file_grants {
+                ui.group(|ui| {
+                    let remaining_minutes = grant.expires_at_unix_ms
+                        .saturating_sub(crate::persistence::harness_settings::current_unix_ms())
+                        .div_ceil(60_000);
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Worker: {} · expires in about {remaining_minutes} min", grant.worker_id));
+                        if ui.button("Revoke").on_hover_text("Remove this local approval receipt").clicked() {
+                            surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
+                                task_detail::Command::RevokeRemotePrivateFileGrant {
+                                    ticket: ticket.to_owned(),
+                                    grant_id: grant.grant_id.clone(),
+                                },
+                            ));
+                        }
+                    });
+                    for (path, class) in &grant.files {
+                        ui.label(format!("{path} · {class:?}"));
+                    }
+                });
+            }
+        }
     });
 }
 

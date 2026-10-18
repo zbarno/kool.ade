@@ -11,7 +11,7 @@ use crate::execution::{
             DockerExecutionBackend, internal_error_with_context, invalid_request, now_unix_ms,
             selected_image,
         },
-        sandbox::{create_body_with_derived_approval, staging},
+        sandbox::{create_body_with_private_files, staging},
     },
     errors::{ExecutionError, ExecutionErrorKind},
 };
@@ -126,12 +126,16 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
             .await
             .map_err(|_| deadline_error())??;
     let image_preparation_ms = start_helpers::elapsed_millis(image_preparation_started);
-    let body = create_body_with_derived_approval(
+    let private_files_root = backend
+        .resolver
+        .private_files_mount_root(&request.execution_id)?;
+    let body = create_body_with_private_files(
         request,
         &workspace,
         &identity,
         &image,
         derived_approval.as_ref(),
+        private_files_root.as_deref(),
     )?;
     let mut execution = execution::new_execution(
         backend,

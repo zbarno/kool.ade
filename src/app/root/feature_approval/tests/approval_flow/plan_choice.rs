@@ -159,7 +159,7 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
     }
     assert_eq!(
         app.feature_actions(None)[0].label(),
-        "Approve CHG-004 and prepare tasks"
+        "Confirm CHG-004 and prepare tasks"
     );
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");

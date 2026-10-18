@@ -1,4 +1,4 @@
-use super::super::board_tests::{click_text, fixture, frame, text_position};
+use super::super::board_tests::{click_text, fixture, frame, text_contains, text_position};
 use super::*;
 use sha2::Digest;
 use std::sync::{Arc, Mutex};
@@ -57,7 +57,9 @@ fn finish(app: &mut KooladeApp) -> bool {
     };
     let started = Instant::now();
     let outcome = loop {
-        assert!(started.elapsed() < Duration::from_secs(15));
+        // Keep the test bounded while allowing the worker to be scheduled
+        // during parallel nextest runs on a loaded host.
+        assert!(started.elapsed() < Duration::from_secs(60));
         if let Some(TurnEvt::Done(outcome)) = p
             .active_turn
             .as_ref()

@@ -13,7 +13,10 @@ mod capacity;
 mod config;
 mod enrollment;
 mod probe;
-pub use capacity::{RemoteWorkerCapacityLease, reserve_capacity};
+pub use capacity::{
+    AutoWorkerCapacityCandidate, RemoteWorkerCapacityLease, order_auto_workers,
+    record_auto_worker_selection, reserve_auto_capacity, reserve_capacity,
+};
 pub(crate) use config::trust_reported_capabilities;
 pub use config::{configure, configure_resource_limit, list};
 pub use enrollment::{revoke, trust};

@@ -33,7 +33,7 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
 
     let mut app = crate::app::root::board_tests::fixture();
     let feature_id = "CHG-997";
-    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification answers are not covered by this fixture.\n\n## Desired Behavior\n\nAnswers are checked against the current specification.\n\n## Scope\n\n- Bind answers to active specifications.\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Acceptance Criteria\n\n- AC-1: Stale answers are rejected.\n";
+    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification answers are not covered by this fixture.\n\n## Desired Behavior\n\nAnswers are checked against the current specification.\n\n## Scope\n\n- Bind answers to active specifications.\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Acceptance Criteria\n\n- AC-001: Stale answers are rejected.\n";
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         draft,
         None,

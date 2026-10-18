@@ -79,14 +79,14 @@ pub(super) async fn restore_record(
     // it to Interrupted and remove only the container whose complete ownership
     // labels were just verified.
     if record.command_started && !is_terminal(record.state) {
-        super::reconcile_record(backend, record).await?;
+        super::reconcile_record(backend, record, false).await?;
         return Ok(());
     }
     // The v1 writer recorded Running only after dependency setup and workspace
     // upload completed. Older records therefore have no stage-in timing but
     // are complete. New incomplete starts remain Preparing and are discarded.
     if should_reconcile_before_command(record.command_started, record.state) {
-        super::reconcile_record(backend, record).await?;
+        super::reconcile_record(backend, record, false).await?;
         return Ok(());
     }
     let request = record

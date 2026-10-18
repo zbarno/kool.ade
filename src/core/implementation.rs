@@ -80,6 +80,10 @@ pub use status::{
     PublicationStatus, PullRequestDetails, PullRequestState, RecoveryDisposition,
 };
 
+pub(crate) fn validate_app_owned_task_clone(state: &Implementation) -> anyhow::Result<()> {
+    task_repository::validate_clone_path(state)
+}
+
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
 use serde::{Deserialize, Serialize};
 use std::{

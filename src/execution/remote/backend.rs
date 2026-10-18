@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -20,11 +20,12 @@ use super::{
     client::RemoteWorkerClient,
     protocol::EnvelopeKindV1,
     ssh::SshWorkerConfig,
-    staging::{StagingReceiver, TransferManifestV1, VerifiedWorkspaceResult, stream_file_chunks},
+    staging::{TransferManifestV1, VerifiedWorkspaceResult, stream_file_chunks},
 };
 
 mod apply;
 mod backend_impl;
+mod private_files;
 
 /// Controller-side backend bound to one preconfigured, host-key-verified worker.
 /// The worker protocol only carries typed execution values, never filesystem paths.
@@ -36,6 +37,16 @@ pub struct RemoteExecutionBackend {
     result_root: PathBuf,
     snapshots: Mutex<HashMap<WorkspaceRef, WorkspaceManifestV1>>,
     execution_snapshots: Mutex<HashMap<String, WorkspaceManifestV1>>,
+    execution_private_file_grants: Mutex<
+        HashMap<
+            String,
+            (
+                Vec<crate::execution::remote::private_files::RemotePrivateFileGrantV1>,
+                u64,
+            ),
+        >,
+    >,
+    revoked_private_file_executions: Mutex<HashSet<String>>,
     baselines: Mutex<HashMap<WorkspaceRef, (ValidatedWorkspace, WorkspaceSnapshot)>>,
     verified_results: Mutex<HashMap<String, VerifiedWorkspaceResult>>,
 }
@@ -95,6 +106,8 @@ impl RemoteExecutionBackend {
             result_root,
             snapshots: Mutex::new(HashMap::new()),
             execution_snapshots: Mutex::new(HashMap::new()),
+            execution_private_file_grants: Mutex::new(HashMap::new()),
+            revoked_private_file_executions: Mutex::new(HashSet::new()),
             baselines: Mutex::new(HashMap::new()),
             verified_results: Mutex::new(HashMap::new()),
         })

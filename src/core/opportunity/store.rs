@@ -12,6 +12,7 @@ use super::{
 };
 
 mod decisions;
+mod dedup;
 mod helpers;
 mod lifecycle;
 mod prompt;
@@ -103,8 +104,17 @@ impl<'a> OpportunityStore<'a> {
 
     fn save_advisory_record(
         &self,
+        proposal: OpportunityV1,
+        prompt_proposal: Option<PromptProposalV1>,
+    ) -> Result<OpportunitySaveResult, StoreError> {
+        self.save_advisory_record_with_before_commit(proposal, prompt_proposal, || Ok(()))
+    }
+
+    pub(super) fn save_advisory_record_with_before_commit(
+        &self,
         mut proposal: OpportunityV1,
         prompt_proposal: Option<PromptProposalV1>,
+        before_commit: impl FnOnce() -> Result<(), StoreError>,
     ) -> Result<OpportunitySaveResult, StoreError> {
         proposal.dedup_fingerprint = dedup_fingerprint(
             &proposal.workspace_uid,
@@ -124,12 +134,48 @@ impl<'a> OpportunityStore<'a> {
         proposal.status = OpportunityStatusV1::AwaitingDecision;
         proposal.validate().map_err(StoreError::MalformedState)?;
         let index_path = dedup_path(&proposal.dedup_fingerprint);
-        if let Some(index) = read_dedup(self.store, &index_path)? {
-            let (existing, revision) = self.load(&index.opportunity_uid)?;
-            return Ok(OpportunitySaveResult::Duplicate {
-                proposal: existing,
-                record_revision: revision,
-            });
+        let existing_index = read_dedup(self.store, &index_path)?;
+        let existing_record = if let Some(index) = &existing_index {
+            let record_path = opportunity_path(&index.opportunity_uid)?;
+            Some(load_record(self.store, &record_path)?.ok_or_else(|| {
+                StoreError::MalformedState(
+                    "opportunity dedup record points to a missing proposal".into(),
+                )
+            })?)
+        } else {
+            None
+        };
+        if let (Some(index), Some(existing)) = (&existing_index, &existing_record) {
+            if existing.data.dedup_fingerprint != index.uid {
+                return Err(StoreError::MalformedState(
+                    "opportunity dedup record points to a proposal with a different fingerprint"
+                        .into(),
+                ));
+            }
+            let newer_evidence = dedup::has_materially_new_evidence(
+                &existing.data,
+                existing.prompt_proposal.as_ref(),
+                &proposal,
+                prompt_proposal.as_ref(),
+            );
+            let can_reopen = match existing.data.status {
+                OpportunityStatusV1::Declined => newer_evidence,
+                OpportunityStatusV1::Deferred => {
+                    let expired = self
+                        .decision_for_opportunity(&existing.data.opportunity_uid)?
+                        .as_ref()
+                        .is_some_and(|decision| super::snooze_expired(decision, now_unix_ms()));
+                    expired && newer_evidence
+                }
+                _ => false,
+            };
+            if !can_reopen {
+                return Ok(OpportunitySaveResult::Duplicate {
+                    proposal: existing.data.clone(),
+                    record_revision: existing.revision,
+                });
+            }
+            debug_assert_eq!(index.opportunity_uid, existing.uid);
         }
         let quota = quota::reserve(self.store, &proposal)?;
         let opportunity_path = opportunity_path(&proposal.opportunity_uid)?;
@@ -151,9 +197,16 @@ impl<'a> OpportunityStore<'a> {
         let dedup = OpportunityDedupRecord {
             schema_version: 1,
             uid: proposal.dedup_fingerprint.clone(),
-            created_at_ms: now,
+            created_at_ms: existing_index
+                .as_ref()
+                .map_or(now, |index| index.created_at_ms),
             updated_at_ms: now,
-            revision: 1,
+            revision: match existing_index.as_ref() {
+                Some(index) => index.revision.checked_add(1).ok_or_else(|| {
+                    StoreError::MalformedState("opportunity dedup revision overflow".into())
+                })?,
+                None => 1,
+            },
             opportunity_uid: proposal.opportunity_uid.clone(),
         };
         let markdown_path = format!("planning/opportunities/{}.md", proposal.opportunity_uid);
@@ -170,10 +223,24 @@ impl<'a> OpportunityStore<'a> {
             },
             RecordRevisionCheck {
                 path: index_path,
-                expected_revision: 0,
+                expected_revision: existing_index.as_ref().map_or(0, |index| index.revision),
             },
         ];
+        if let Some(existing) = existing_record.as_ref().filter(|_| {
+            existing_index
+                .as_ref()
+                .is_some_and(|index| index.opportunity_uid != proposal.opportunity_uid)
+        }) {
+            // Fence the declined/deferred proposal whose state authorized
+            // reopening. A concurrent NotNow decision must invalidate this
+            // transaction even though it does not write that older record.
+            checks.push(RecordRevisionCheck {
+                path: records::opportunity_path(&existing.uid)?,
+                expected_revision: existing.revision,
+            });
+        }
         checks.push(quota.check);
+        before_commit()?;
         match self
             .store
             .transaction_with_record_revisions(&changes, &checks)

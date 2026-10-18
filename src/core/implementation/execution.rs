@@ -146,7 +146,10 @@ pub(super) fn run_with_planning_store_options(
         .and_then(|_| runner.check_storage(&state.task_repository))
         .and_then(|_| {
             lifecycle::execute(
-                planning_store,
+                lifecycle::LifecycleExecutionContext {
+                    planning_store,
+                    state_root,
+                },
                 &lifecycle_repository,
                 &dir,
                 &mut state,

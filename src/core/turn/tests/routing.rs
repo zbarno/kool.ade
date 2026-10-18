@@ -81,6 +81,7 @@ fn routing_law_rejects_misroute_with_zero_mutation_and_applies_seat_inheritance(
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     };
     let ctrl = TurnController::start(
         inputs.clone(),
@@ -136,6 +137,7 @@ fn routing_law_rejects_misroute_with_zero_mutation_and_applies_seat_inheritance(
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     };
     let ctrl = TurnController::start(
         inputs.clone(),
@@ -186,6 +188,7 @@ fn routing_law_rejects_misroute_with_zero_mutation_and_applies_seat_inheritance(
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     };
     let ctrl = TurnController::start(
         inputs.clone(),

@@ -41,6 +41,7 @@ pub struct PlanningTurnResponse {
     #[serde(alias = "plan_alternatives")]
     pub plans: Option<Vec<PlanAlternative>>,
     pub recommendation: Option<PlanRecommendation>,
+    pub plan_remediation: Option<crate::core::lifecycle::PlanRemediationV1>,
 }
 
 impl From<PlanningTurnResponse> for TurnEnvelope {
@@ -65,6 +66,7 @@ impl From<PlanningTurnResponse> for TurnEnvelope {
             task_outline: None,
             plans: response.plans,
             recommendation: response.recommendation,
+            plan_remediation: response.plan_remediation,
         }
     }
 }
@@ -124,6 +126,7 @@ impl From<TaskGenerationResponse> for TurnEnvelope {
             task_outline: None,
             plans: None,
             recommendation: None,
+            plan_remediation: None,
         }
     }
 }
@@ -169,6 +172,7 @@ impl From<InvestigationResponse> for TurnEnvelope {
             task_outline: None,
             plans: None,
             recommendation: None,
+            plan_remediation: None,
         }
     }
 }
@@ -214,6 +218,7 @@ impl From<ReconciliationResponse> for TurnEnvelope {
             task_outline: None,
             plans: None,
             recommendation: None,
+            plan_remediation: None,
         }
     }
 }

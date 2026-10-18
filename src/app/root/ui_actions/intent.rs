@@ -3,6 +3,10 @@ use crate::ui::{HeaderAction, Intent, Surface};
 
 impl KooladeApp {
     pub(super) fn apply_user_intent(&mut self, intent: Intent) {
+        if let Some((id, candidate_hash)) = &intent.request_feature_changes {
+            self.request_feature_changes(id, candidate_hash);
+            return;
+        }
         if let Some(id) = &intent.approve_feature {
             if let Screen::Connected(project) = &mut self.screen {
                 project.remember_chat(vec![crate::domain::ChatMessage::new(

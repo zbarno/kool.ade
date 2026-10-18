@@ -3,6 +3,7 @@ use crate::execution::{backend::BackendProbeV1, contract::ExecutionTarget};
 
 pub(super) fn dispatch(
     backend: Arc<dyn ExecutionBackend>,
+    stager: Option<&crate::execution::remote::staging::WorkerStager>,
     runtime: &tokio::runtime::Runtime,
     capacity: Option<&crate::execution::remote::WorkerCapacityPool>,
     system_image_capability_key: &mut Option<[u8; 32]>,
@@ -34,12 +35,27 @@ pub(super) fn dispatch(
         *system_image_capability_key = Some(key);
     }
     let mut probe: BackendProbeV1 = runtime.block_on(backend.probe(&ExecutionTarget::local()))?;
+    if let Some(stager) = stager {
+        stager
+            .cleanup_recovered_private_file_executions()
+            .map_err(|_| {
+                super::super::incompatible("recovered private files could not be cleaned")
+            })?;
+    }
     if let (Some(capabilities), Some(pool)) = (&mut probe.capabilities, capacity) {
         capabilities.maximum_execution_count = Some(pool.max_jobs());
     }
+    let authenticated_principal = crate::execution::remote::worker::authenticated_ssh_principal()
+        .map_err(|_| {
+        super::super::incompatible("authenticated worker account identity is unavailable")
+    })?;
     Ok((
         Kind::Acknowledge,
-        json!({"wire_version": request.wire_version, "probe": probe}),
+        json!({
+            "wire_version": request.wire_version,
+            "authenticated_principal": authenticated_principal,
+            "probe": probe,
+        }),
     ))
 }
 

@@ -15,6 +15,26 @@ use crate::execution::{
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
+/// Revalidate a task clone's pinned source identity before reading a private
+/// file into a remote transfer buffer.
+pub(super) fn verify_private_file_source(
+    workspace: &WorkspaceRef,
+    root: &Path,
+) -> anyhow::Result<()> {
+    workspace.validate()?;
+    let root_metadata = fs::symlink_metadata(root)?;
+    anyhow::ensure!(
+        root_metadata.is_dir() && !root_metadata.file_type().is_symlink(),
+        "private source root is not a task clone directory"
+    );
+    let git_metadata = fs::symlink_metadata(root.join(".git"))?;
+    anyhow::ensure!(
+        git_metadata.is_dir() && !git_metadata.file_type().is_symlink(),
+        "private source root has no trusted Git metadata"
+    );
+    verify_source_revision(root, &workspace.source_sha).map_err(anyhow::Error::msg)
+}
+
 pub(super) fn stream_file(
     path: &Path,
     expected_size: u64,

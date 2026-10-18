@@ -25,9 +25,33 @@ pub(super) async fn reconcile(backend: &DockerExecutionBackend) -> Result<(), Ex
     let records = execution_records::unfinished_for_owner(&backend.identity.owner_instance_id)
         .map_err(|_| recovery_error("Durable execution state could not be read"))?;
     for mut record in records {
+        let private_mount_recovery =
+            crate::execution::remote::staging::lock_private_file_execution_for_recovery(
+                &crate::persistence::state_root(),
+                &record.execution_id,
+            )
+            .map_err(|_| recovery_error("Private-file recovery state could not be read"))?;
+        if matches!(
+            &private_mount_recovery,
+            crate::execution::remote::staging::PrivateFileExecutionRecovery::Active
+        ) {
+            continue;
+        }
+        let private_mount_needs_recovery = matches!(
+            &private_mount_recovery,
+            crate::execution::remote::staging::PrivateFileExecutionRecovery::Orphaned { .. }
+        );
+        // Keep an orphaned mount's owner lock until the container and durable
+        // execution record have both been reconciled.
+        let _private_mount_recovery = private_mount_recovery;
         let task_lock = execution_records::try_task_lock(&record.task_id)
             .map_err(|_| recovery_error("Task execution ownership could not be checked"))?;
         let Some(task_lock) = task_lock else {
+            if private_mount_needs_recovery {
+                return Err(recovery_error(
+                    "A private-file execution is still owned and cannot be safely recovered",
+                ));
+            }
             continue;
         };
         if record.target_id != "local" {
@@ -35,8 +59,8 @@ pub(super) async fn reconcile(backend: &DockerExecutionBackend) -> Result<(), Ex
                 "A pending execution targets an unsupported recovery backend",
             ));
         }
-        if lease_expired(&record, now_unix_ms())? {
-            reconcile_record(backend, &mut record).await?;
+        if private_mount_needs_recovery || lease_expired(&record, now_unix_ms())? {
+            reconcile_record(backend, &mut record, private_mount_needs_recovery).await?;
         } else {
             restore::restore_record(backend, &mut record, task_lock).await?;
         }
@@ -47,6 +71,7 @@ pub(super) async fn reconcile(backend: &DockerExecutionBackend) -> Result<(), Ex
 async fn reconcile_record(
     backend: &DockerExecutionBackend,
     record: &mut ExecutionRecordV1,
+    require_container_stopped: bool,
 ) -> Result<(), ExecutionError> {
     let cleanup_started = std::time::Instant::now();
     let name = record
@@ -96,6 +121,12 @@ async fn reconcile_record(
             }) => {}
             Err(_) => return Err(recovery_error("Docker recovery inspection failed")),
         }
+    }
+
+    if require_container_stopped && !removed {
+        return Err(recovery_error(
+            "A private-file container could not be confirmed stopped; its staged files were retained",
+        ));
     }
 
     mark_interrupted(

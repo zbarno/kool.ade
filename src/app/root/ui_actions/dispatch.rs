@@ -127,6 +127,9 @@ impl KooladeApp {
             ApplicationCommand::ApproveFeatureForBoard { id } => {
                 self.approve_feature_from_board(&id)
             }
+            ApplicationCommand::RequestFeatureChanges { id, candidate_hash } => {
+                self.request_feature_changes(&id, &candidate_hash)
+            }
             ApplicationCommand::GenerateTasksForFeature {
                 work_key,
                 feature_id,
@@ -221,6 +224,14 @@ impl KooladeApp {
                             .toasts
                             .warning(format!("Could not save task execution target: {error}")),
                     }
+                }
+                TaskDetailCommand::GrantRemotePrivateFiles {
+                    ticket,
+                    worker_id,
+                    paths,
+                } => self.record_remote_private_file_grant(&ticket, &worker_id, &paths),
+                TaskDetailCommand::RevokeRemotePrivateFileGrant { ticket, grant_id } => {
+                    self.revoke_remote_private_file_grant(&ticket, &grant_id)
                 }
                 TaskDetailCommand::DiscoverRuntimeTargets { ticket } => {
                     self.discover_runtime_targets(&ticket)

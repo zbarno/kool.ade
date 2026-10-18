@@ -81,7 +81,7 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     let captured = base.join("child-cwd.txt");
     std::fs::write(
         &probe,
-        "#!/bin/sh\nprobe_dir=${0%/*}\npwd -P > \"$probe_dir/child-cwd.txt.tmp\" && mv \"$probe_dir/child-cwd.txt.tmp\" \"$probe_dir/child-cwd.txt\"\n",
+        "#!/bin/sh\nprobe_dir=${0%/*}\nprintf '%s' \"$(pwd -P)\" > \"$probe_dir/child-cwd.txt.tmp\" && mv \"$probe_dir/child-cwd.txt.tmp\" \"$probe_dir/child-cwd.txt\"\n",
     )
     .unwrap();
     #[cfg(unix)]
@@ -99,10 +99,19 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     app.open_registered_repository("worker");
 
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !captured.exists() && Instant::now() < deadline {
+    let child_cwd = loop {
+        if let Ok(child_cwd) = std::fs::read_to_string(&captured)
+            && !child_cwd.is_empty()
+        {
+            break child_cwd;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "spawned process did not record its working directory"
+        );
         std::thread::sleep(Duration::from_millis(20));
-    }
-    let child_cwd = PathBuf::from(std::fs::read_to_string(&captured).unwrap().trim());
+    };
+    let child_cwd = PathBuf::from(child_cwd);
     assert_eq!(child_cwd, worker.canonicalize().unwrap());
     let shared = std::fs::read_to_string(manifest_path).unwrap();
     assert!(shared.contains("API"));

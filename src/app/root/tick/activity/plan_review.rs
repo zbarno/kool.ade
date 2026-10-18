@@ -44,7 +44,7 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                     .unwrap_or_default()
                     .as_millis()
                     .min(u64::MAX as u128) as u64,
-                evidence_refs: vec![format!("plan:{}", outcome.snapshot_uid)],
+                evidence_refs: outcome.evidence_refs.clone(),
                 prompt_sha256: Some(outcome.prompt.identity_sha256()),
                 prompt_manifest: Some(outcome.prompt),
                 reviewer_run_id: Some(outcome.reviewer_run_id),
@@ -59,6 +59,7 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                 &project.state.planning_store,
                 &outcome.feature_id,
                 &receipt,
+                &outcome.verdict,
                 &expected_revision,
             ) {
                 Ok(revision) => {
@@ -69,6 +70,25 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                         Ok(())
                     };
                     let lifecycle_error = lifecycle_result.err();
+                    let findings = outcome.verdict.findings.iter().map(|finding| {
+                        format!(
+                            "{} [{:?} / {}] at {} ({:?}): Counterexample: {} Remedy: {} Evidence: {}",
+                            finding.id,
+                            finding.severity,
+                            finding.requirement,
+                            finding.location,
+                            finding.kind,
+                            finding.repro.as_deref().unwrap_or("not provided"),
+                            finding.proposed_correction,
+                            finding.evidence.join(", "),
+                        )
+                    }).collect::<Vec<_>>();
+                    let findings = if findings.is_empty() {
+                        "Reviewer did not approve the plan; no detailed findings were returned."
+                            .to_owned()
+                    } else {
+                        findings.join("; ")
+                    };
                     task_gate = if approved && lifecycle_error.is_none() {
                         (
                             crate::core::planning_work::WorkStatus::Todo,
@@ -85,7 +105,9 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                     } else {
                         (
                             crate::core::planning_work::WorkStatus::NeedsAttention,
-                            "Blocked: the independent PlanReviewer requested changes. Resolve findings in the Manager, revise the plan, and obtain fresh user approval.".into(),
+                            format!(
+                                "Blocked: resolve these persisted independent-review findings in the Manager, revise the plan, and obtain fresh user approval. {findings}"
+                            ),
                         )
                     };
                     if approved && lifecycle_error.is_none() {
@@ -102,23 +124,6 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                             "Plan review was approved, but lifecycle synchronization failed: {error}. Task generation remains blocked."
                         )
                     } else {
-                        let findings = outcome
-                            .verdict
-                            .findings
-                            .iter()
-                            .map(|finding| {
-                                format!(
-                                    "{} ({}): {}",
-                                    finding.id, finding.requirement, finding.proposed_correction
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        let findings = if findings.is_empty() {
-                            "Reviewer did not approve the plan; no detailed findings were returned."
-                                .to_owned()
-                        } else {
-                            findings.join("; ")
-                        };
                         project.activity.pending.push(format!(
                             "Independent PlanReviewer requested changes for {}: {}. Resolve findings in the Manager, revise the plan, and obtain fresh user approval before another review.", outcome.feature_id, findings
                         ));

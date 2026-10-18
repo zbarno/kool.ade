@@ -76,4 +76,35 @@ mod tests {
         ));
         assert!(exploration_due(&settings, now + EXPLORATION_INTERVAL_MS));
     }
+
+    #[test]
+    fn application_scheduler_queues_exploration_only_after_explicit_opt_in() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut project = crate::app::session::test_support::project_from(temp.path());
+        schedule_due(&mut project);
+        assert!(project.activity.pending.is_empty());
+
+        let defaults = OpportunityStore::new(&project.state.planning_store)
+            .discovery_settings()
+            .unwrap();
+        let opted_in = OpportunityDiscoverySettingsV1 {
+            exploration: OpportunityExploreModeV1::OptedIn,
+            ..defaults.clone()
+        };
+        OpportunityStore::new(&project.state.planning_store)
+            .save_discovery_settings(&opted_in, defaults.revision)
+            .unwrap();
+
+        schedule_due(&mut project);
+        assert_eq!(project.activity.pending.len(), 1);
+        assert!(project.activity.pending[0].contains("opted in"));
+        let settings = OpportunityStore::new(&project.state.planning_store)
+            .discovery_settings()
+            .unwrap();
+        assert!(settings.last_exploration_at_ms.is_some());
+
+        project.activity.pending.clear();
+        schedule_due(&mut project);
+        assert!(project.activity.pending.is_empty());
+    }
 }

@@ -82,6 +82,11 @@ pub fn select_target(
                                 .last_probe
                                 .as_ref()
                                 .map_or(u32::MAX, |p| p.running_jobs),
+                            requirements
+                                .eligible_worker_ids
+                                .iter()
+                                .position(|id| id == &candidate.registration.worker_id)
+                                .unwrap_or(usize::MAX),
                             candidate.registration.worker_id.as_str(),
                         )
                     })
@@ -117,6 +122,7 @@ fn candidate_eligible(
         .map_or(worker.max_jobs, |maximum| maximum.min(worker.max_jobs));
     if !worker.enabled
         || !requirements.dependencies_prepared
+        || candidate.capabilities.docker_rootless != Some(true)
         || !worker
             .supported_architectures
             .iter()
@@ -167,7 +173,8 @@ fn request_fits(request: &ResourceBudgetV1, ceiling: &ResourceBudgetV1) -> bool 
 fn unusable_health(health: &RemoteWorkerHealth) -> bool {
     matches!(
         health,
-        RemoteWorkerHealth::Disconnected
+        RemoteWorkerHealth::Busy
+            | RemoteWorkerHealth::Disconnected
             | RemoteWorkerHealth::Untrusted
             | RemoteWorkerHealth::Incompatible
             | RemoteWorkerHealth::PolicyBlocked

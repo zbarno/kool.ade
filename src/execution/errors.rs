@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 pub const MAX_EXECUTION_ERROR_MESSAGE_BYTES: usize = 4096;
+pub const REMOTE_START_CAPACITY_REJECTION: &str = "remote worker execution capacity is full";
+pub const REMOTE_START_CAPACITY_REJECTION_MESSAGE: &str =
+    "Remote worker Start request failed: remote worker execution capacity is full";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

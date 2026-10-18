@@ -19,6 +19,7 @@ pub mod execution_records;
 pub(crate) mod feature_approvals;
 pub mod harness_settings;
 pub mod persona;
+pub(crate) mod remote_private_file_grants;
 pub mod remote_requests;
 pub mod remote_workers;
 pub mod task_chats;

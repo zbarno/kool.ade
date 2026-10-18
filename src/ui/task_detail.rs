@@ -24,6 +24,12 @@ pub struct ViewModel {
     pub feature_metrics: Option<crate::persistence::telemetry::ImplementationMetrics>,
     pub target_preference: crate::execution::contract::TargetPreference,
     pub target_choices: Vec<TargetChoice>,
+    pub remote_private_file_candidates: Vec<RemotePrivateFileGrantCandidate>,
+    pub remote_private_file_candidates_error: Option<String>,
+    pub remote_private_file_candidates_loading: bool,
+    pub remote_private_file_workers: Vec<RemotePrivateFileGrantWorker>,
+    pub remote_private_file_grants: Vec<RemotePrivateFileGrantView>,
+    pub remote_private_file_grants_error: Option<String>,
     pub execution_evidence: Option<crate::persistence::execution_records::ExecutionRecordV1>,
     pub execution_evidence_error: Option<String>,
     pub lifecycle_pr_work_uid: Option<String>,
@@ -37,9 +43,38 @@ pub struct ViewModel {
 }
 
 #[derive(Clone)]
+pub struct RemotePrivateFileGrantView {
+    pub grant_id: String,
+    pub worker_id: String,
+    pub files: Vec<(
+        String,
+        crate::execution::remote::private_files::PrivateDataClassV1,
+    )>,
+    pub expires_at_unix_ms: u64,
+}
+
+#[derive(Clone)]
+pub struct RemotePrivateFileGrantCandidate {
+    pub path: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub data_class: crate::execution::remote::private_files::PrivateDataClassV1,
+}
+
+#[derive(Clone)]
+pub struct RemotePrivateFileGrantWorker {
+    pub worker_id: String,
+    pub destination: String,
+}
+
+#[derive(Clone)]
 pub struct LifecycleView {
     pub feature_phase: crate::core::lifecycle::FeaturePhase,
     pub task_phase: crate::core::lifecycle::TaskPhase,
+    pub parent_task_uid: Option<String>,
+    pub parent_task: Option<TaskRelationView>,
+    pub dependencies: Vec<TaskRelationView>,
+    pub subtasks: Vec<TaskRelationView>,
     pub task_revision: u64,
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
@@ -54,6 +89,13 @@ pub struct LifecycleView {
     pub specification_deltas: Vec<(u64, crate::core::lifecycle::SpecDeltaRecordV1)>,
     pub pull_request_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub merged_commit_sha: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct TaskRelationView {
+    pub title: String,
+    pub status: String,
+    pub acceptance_criteria: Vec<String>,
 }
 
 pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {
@@ -165,6 +207,15 @@ pub enum Command {
     SetExecutionTarget {
         ticket: String,
         preference: crate::execution::contract::TargetPreference,
+    },
+    GrantRemotePrivateFiles {
+        ticket: String,
+        worker_id: String,
+        paths: Vec<String>,
+    },
+    RevokeRemotePrivateFileGrant {
+        ticket: String,
+        grant_id: String,
     },
     DiscoverRuntimeTargets {
         ticket: String,

@@ -37,6 +37,17 @@ pub use workspace_resolver::{OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspac
 pub trait TaskWorkspaceResolver: Send + Sync {
     fn resolve_owned_clone(&self, workspace: &WorkspaceRef) -> Result<PathBuf, ExecutionError>;
     fn staging_root(&self) -> PathBuf;
+
+    /// Return a separately staged private-file directory for this exact run.
+    /// Implementations must bind it to an active, unrevoked receipt matching
+    /// the execution, workspace, enrolled worker identity, and expiry. A
+    /// structurally sealed directory or execution ID alone grants no access.
+    fn private_files_mount_root(
+        &self,
+        _execution_id: &str,
+    ) -> Result<Option<PathBuf>, ExecutionError> {
+        Ok(None)
+    }
 }
 
 pub struct DockerExecutionBackend {

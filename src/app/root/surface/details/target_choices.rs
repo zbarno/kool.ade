@@ -67,7 +67,10 @@ fn choices(
         };
         choices.push(TargetChoice {
             preference: TargetPreference::Worker(worker.worker_id.clone()),
-            label: format!("Specific remote worker · {}", worker.worker_id),
+            label: format!(
+                "{}@{} · {}",
+                worker.ssh_principal, worker.ssh_host_alias, worker.worker_id
+            ),
             available,
             reason,
         });

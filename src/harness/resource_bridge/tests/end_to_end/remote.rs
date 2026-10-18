@@ -17,6 +17,7 @@ use std::{
 
 mod authorization;
 mod claim_takeover;
+mod private_files;
 mod sshd;
 mod task_roundtrip;
 mod two_controllers;

@@ -68,9 +68,19 @@ impl ExecutionSession {
             let _ = self.backend.release_workspace(&lease).await;
             return Err(error);
         }
+        if let Err(error) = self.refresh_and_prepare_remote_capacity().await {
+            let _ = self.backend.release_workspace(&lease).await;
+            return Err(error);
+        }
         let handle = match self.backend.start(&lease, &request).await {
             Ok(handle) => handle,
             Err(error) => {
+                if error.kind == ExecutionErrorKind::WorkerIncompatible
+                    && error.message
+                        == crate::execution::errors::REMOTE_START_CAPACITY_REJECTION_MESSAGE
+                {
+                    let _ = self.rollback_rejected_remote_capacity_start();
+                }
                 let _ = self.backend.release_workspace(&lease).await;
                 return Err(error);
             }
@@ -82,6 +92,15 @@ impl ExecutionSession {
             let _ = self.backend.release(&handle).await;
             let _ = self.backend.release_workspace(&lease).await;
             return Err(internal_error());
+        }
+        if let Err(error) = self.mark_remote_capacity_running() {
+            let _ = self
+                .backend
+                .cancel(&handle, request.cancellation_generation)
+                .await;
+            let _ = self.backend.release(&handle).await;
+            let _ = self.backend.release_workspace(&lease).await;
+            return Err(error);
         }
         if let Err(error) = self.verify_authorization() {
             let _ = self
@@ -131,6 +150,52 @@ impl ExecutionSession {
             (Err(error), _, _) => Err(error),
             (_, Err(error), _) | (_, _, Err(error)) => Err(error),
         }
+    }
+
+    async fn refresh_and_prepare_remote_capacity(&self) -> Result<(), ExecutionError> {
+        let crate::execution::contract::TargetLocation::Remote { worker_id } =
+            &self.target.location
+        else {
+            return Ok(());
+        };
+        if !self.has_remote_capacity_lease()? {
+            return Ok(());
+        }
+        let probe = self.backend.probe(&self.target).await?;
+        let capabilities = probe.capabilities.ok_or_else(|| {
+            ExecutionError::new(
+                ExecutionErrorKind::WorkerIncompatible,
+                "Remote worker did not report execution capacity",
+                false,
+            )
+        })?;
+        let registration = crate::persistence::remote_workers::get(worker_id)
+            .map_err(|_| internal_error())?
+            .ok_or_else(|| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerIncompatible,
+                    "Remote worker enrollment is unavailable",
+                    false,
+                )
+            })?;
+        if !registration.enabled {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::WorkerIncompatible,
+                "Remote worker is disabled",
+                false,
+            ));
+        }
+        let max_jobs = capabilities
+            .maximum_execution_count
+            .map_or(registration.max_jobs, |maximum| {
+                maximum.min(registration.max_jobs)
+            });
+        self.prepare_remote_capacity_start(
+            max_jobs,
+            capabilities.current_execution_count,
+            worker_id,
+            &registration.host_key_fingerprint,
+        )
     }
 }
 

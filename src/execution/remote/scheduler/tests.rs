@@ -122,6 +122,112 @@ fn auto_selects_deterministically_by_load_and_excludes_stale_probes() {
 }
 
 #[test]
+fn auto_never_selects_a_worker_reported_busy_even_if_a_probe_snapshot_has_room() {
+    let now = 1_900_000_000_000;
+    let mut busy = worker("worker-busy", 0, now);
+    busy.last_probe.as_mut().unwrap().health = RemoteWorkerHealth::Busy;
+    let caps = capabilities(0);
+    let candidates = [WorkerCandidate {
+        registration: &busy,
+        capabilities: &caps,
+    }];
+    let budget = budget();
+    let requirements = requirements(&budget, &[]);
+
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &candidates,
+            &requirements,
+            now,
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+}
+
+#[test]
+fn auto_rejects_workers_without_verified_rootless_docker() {
+    let now = 1_900_000_000_000;
+    let worker = worker("worker-rootful", 0, now);
+    let mut caps = capabilities(0);
+    caps.docker_rootless = Some(false);
+    let candidates = [WorkerCandidate {
+        registration: &worker,
+        capabilities: &caps,
+    }];
+    let budget = budget();
+    let requirements = requirements(&budget, &[]);
+
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &candidates,
+            &requirements,
+            now,
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+
+    caps.docker_rootless = None;
+    let candidates = [WorkerCandidate {
+        registration: &worker,
+        capabilities: &caps,
+    }];
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &candidates,
+            &requirements,
+            now,
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+}
+
+#[test]
+fn auto_rotates_equal_load_workers_in_the_durable_cursor_order() {
+    let now = 1_900_000_000_000;
+    let worker_a = worker("worker-a", 0, now);
+    let worker_b = worker("worker-b", 0, now);
+    let worker_c = worker("worker-c", 0, now);
+    let caps_a = capabilities(0);
+    let caps_b = capabilities(0);
+    let caps_c = capabilities(0);
+    let candidates = [
+        WorkerCandidate {
+            registration: &worker_a,
+            capabilities: &caps_a,
+        },
+        WorkerCandidate {
+            registration: &worker_b,
+            capabilities: &caps_b,
+        },
+        WorkerCandidate {
+            registration: &worker_c,
+            capabilities: &caps_c,
+        },
+    ];
+    let budget = budget();
+    let cursor_order = vec!["worker-c".into(), "worker-a".into(), "worker-b".into()];
+    let requirements = requirements(&budget, &cursor_order);
+
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &candidates,
+            &requirements,
+            now,
+        )
+        .unwrap(),
+        ExecutionTarget::remote("worker-c")
+    );
+}
+
+#[test]
 fn auto_never_sends_to_remote_without_task_approval_and_honors_user_constraint() {
     let now = 1_900_000_000_000;
     let worker = worker("worker-a", 0, now);

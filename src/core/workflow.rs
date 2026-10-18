@@ -23,6 +23,8 @@ pub const WORKFLOW_FILE: &str = crate::artifacts::layout::canonical::WORKFLOW;
 pub enum TurnPurpose {
     #[default]
     Interview,
+    /// Apply a persisted independent-review verdict to a specific plan candidate.
+    PlanRemediation,
     /// Answer an investigative question without creating a feature spec.
     Question,
     /// Refresh a stale brief for an already authorized generation action.

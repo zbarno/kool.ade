@@ -64,7 +64,17 @@ pub(super) fn auto_session(
         });
     }
     let lock = ImageLock::bundled().map_err(|failure| anyhow::anyhow!(failure.message))?;
-    let mut remote_choices = Vec::<(u32, String)>::new();
+    let worker_ids = observed
+        .iter()
+        .map(|worker| worker.registration.worker_id.clone())
+        .collect::<Vec<_>>();
+    let worker_order = remote_workers::order_auto_workers(&worker_ids).unwrap_or_else(|_| {
+        let mut ids = worker_ids;
+        ids.sort();
+        ids.dedup();
+        ids
+    });
+    let mut remote_choices = Vec::<(u32, usize, String)>::new();
     let architectures = observed
         .iter()
         .filter_map(|worker| {
@@ -90,10 +100,15 @@ pub(super) fn auto_session(
             .collect::<Vec<_>>();
         let mut excluded = Vec::<String>::new();
         loop {
-            let eligible_ids = candidates
+            let eligible_ids = worker_order
                 .iter()
-                .map(|candidate| candidate.registration.worker_id.clone())
-                .filter(|worker_id| !excluded.contains(worker_id))
+                .filter(|worker_id| {
+                    !excluded.contains(worker_id)
+                        && candidates.iter().any(|candidate| {
+                            candidate.registration.worker_id.as_str() == worker_id.as_str()
+                        })
+                })
+                .cloned()
                 .collect::<Vec<_>>();
             let requirements = SchedulingRequirements {
                 architecture: &architecture,
@@ -124,19 +139,50 @@ pub(super) fn auto_session(
                 .find(|worker| worker.registration.worker_id == worker_id)
                 .and_then(|worker| worker.registration.last_probe.as_ref())
                 .map_or(u32::MAX, |probe| probe.running_jobs);
-            if !remote_choices.iter().any(|(_, id)| id == &worker_id) {
-                remote_choices.push((load, worker_id));
+            let order = worker_order
+                .iter()
+                .position(|id| id == &worker_id)
+                .unwrap_or(usize::MAX);
+            if !remote_choices.iter().any(|(_, _, id)| id == &worker_id) {
+                remote_choices.push((load, order, worker_id));
             }
         }
     }
     remote_choices.sort();
-    for (_, worker_id) in remote_choices {
-        match super::remote::remote_session(
+    let mut remaining = remote_choices
+        .iter()
+        .filter_map(|(load, _, worker_id)| {
+            let worker = observed
+                .iter()
+                .find(|worker| worker.registration.worker_id == *worker_id)?;
+            worker.registration.last_probe.as_ref()?;
+            let max_jobs = worker
+                .capabilities
+                .maximum_execution_count
+                .map_or(worker.registration.max_jobs, |maximum| {
+                    maximum.min(worker.registration.max_jobs)
+                });
+            Some(remote_workers::AutoWorkerCapacityCandidate {
+                worker_id: worker_id.clone(),
+                host_key_fingerprint: worker.registration.host_key_fingerprint.clone(),
+                max_jobs,
+                observed_running_jobs: *load,
+            })
+        })
+        .collect::<Vec<_>>();
+    while !remaining.is_empty() {
+        let Ok(Some(capacity)) = remote_workers::reserve_auto_capacity(&remaining) else {
+            break;
+        };
+        let worker_id = capacity.worker_id().to_owned();
+        remaining.retain(|candidate| candidate.worker_id != worker_id);
+        match super::remote::remote_session_with_capacity(
             request,
             workspace.clone(),
             profile,
             resources.clone(),
             &worker_id,
+            Some(capacity),
         ) {
             Ok(session) => return Ok(session),
             Err(_) => continue,

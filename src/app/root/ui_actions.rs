@@ -5,6 +5,7 @@ mod cancellation;
 mod dispatch;
 mod intent;
 mod pr_publication;
+mod private_file_grants;
 mod runtime_capability;
 
 impl KooladeApp {

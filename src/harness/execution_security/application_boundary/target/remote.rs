@@ -6,7 +6,9 @@ use crate::{
         session::ExecutionSession,
     },
     harness::PlanningRequest,
-    persistence::remote_workers::{self, RemoteWorkerRegistration, reserve_capacity},
+    persistence::remote_workers::{
+        self, RemoteWorkerCapacityLease, RemoteWorkerRegistration, reserve_capacity,
+    },
 };
 use std::path::PathBuf;
 
@@ -16,6 +18,17 @@ pub(super) fn remote_session(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     worker_id: &str,
+) -> anyhow::Result<ExecutionSession> {
+    remote_session_with_capacity(request, workspace, profile, resources, worker_id, None)
+}
+
+pub(super) fn remote_session_with_capacity(
+    request: &PlanningRequest,
+    workspace: crate::execution::contract::WorkspaceRef,
+    profile: RuntimeProfile,
+    resources: ResourceBudgetV1,
+    worker_id: &str,
+    reserved_capacity: Option<RemoteWorkerCapacityLease>,
 ) -> anyhow::Result<ExecutionSession> {
     let verifier = request
         .authorization_verifier
@@ -59,12 +72,23 @@ pub(super) fn remote_session(
         .map_or(registration.max_jobs, |maximum| {
             maximum.min(registration.max_jobs)
         });
-    let capacity = reserve_capacity(
-        &registration.worker_id,
-        &registration.host_key_fingerprint,
-        worker_capacity,
-        running_jobs,
-    )?;
+    let capacity = match reserved_capacity {
+        Some(capacity) => {
+            anyhow::ensure!(
+                capacity
+                    .matches_worker(&registration.worker_id, &registration.host_key_fingerprint),
+                "Auto worker capacity reservation no longer matches the enrolled identity"
+            );
+            capacity.revalidate(worker_capacity, running_jobs)?;
+            capacity
+        }
+        None => reserve_capacity(
+            &registration.worker_id,
+            &registration.host_key_fingerprint,
+            worker_capacity,
+            running_jobs,
+        )?,
+    };
     drop(observer);
     let target = ExecutionTarget::remote(worker_id.to_owned());
     let session = ExecutionSession::connect_remote_with_task_clone(
@@ -105,6 +129,7 @@ fn verify_registration_capabilities(
         .capabilities
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Remote worker did not report capabilities"))?;
+    require_rootless_docker(capabilities)?;
     let effective_max = capabilities
         .maximum_execution_count
         .map_or(registration.max_jobs, |maximum| {
@@ -190,6 +215,16 @@ fn verify_registration_capabilities(
     Ok(())
 }
 
+fn require_rootless_docker(
+    capabilities: &crate::execution::backend::BackendCapabilitiesV1,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        capabilities.docker_rootless == Some(true),
+        "Remote worker must report rootless Docker"
+    );
+    Ok(())
+}
+
 pub(super) fn worker_config(
     registration: &RemoteWorkerRegistration,
 ) -> anyhow::Result<SshWorkerConfig> {
@@ -222,4 +257,44 @@ pub(super) fn worker_config(
 #[cfg(unix)]
 unsafe extern "C" {
     fn geteuid() -> u32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_rootless_docker;
+    use crate::execution::backend::BackendCapabilitiesV1;
+
+    fn capabilities(rootless: Option<bool>) -> BackendCapabilitiesV1 {
+        BackendCapabilitiesV1 {
+            app_version: "test".into(),
+            docker_version: Some("test".into()),
+            docker_api_version: None,
+            docker_rootless: rootless,
+            docker_desktop: Some(false),
+            linux_containers: Some(true),
+            seccomp_enabled: Some(true),
+            memory_limit: Some(true),
+            cpu_quota: Some(true),
+            pids_limit: Some(true),
+            disk_available_bytes: Some(1024),
+            current_execution_count: 0,
+            maximum_execution_count: Some(1),
+            resource_ceiling: crate::execution::contract::ResourceBudgetV1 {
+                cpu_millis: 1,
+                memory_bytes: 1,
+                process_count: 1,
+                temporary_disk_bytes: 1,
+                output_bytes: 1,
+            },
+            trusted_image_digests: Vec::new(),
+            policy_hash: "sha256:test".into(),
+        }
+    }
+
+    #[test]
+    fn explicit_remote_target_requires_rootless_docker_evidence() {
+        assert!(require_rootless_docker(&capabilities(Some(true))).is_ok());
+        assert!(require_rootless_docker(&capabilities(Some(false))).is_err());
+        assert!(require_rootless_docker(&capabilities(None)).is_err());
+    }
 }
