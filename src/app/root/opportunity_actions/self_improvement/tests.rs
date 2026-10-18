@@ -10,6 +10,9 @@ use crate::{
     harness::prompt_catalog::{OpportunityChoice, OpportunityDecisionV1},
 };
 
+#[path = "tests/retry_recovery.rs"]
+mod retry_recovery;
+
 fn app_product_proposal(project: &mut crate::app::session::Project) -> String {
     let planning = &project.state.planning_store;
     crate::artifacts::migration::bootstrap_product_with_store(
