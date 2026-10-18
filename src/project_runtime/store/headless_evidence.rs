@@ -21,6 +21,11 @@ impl ProjectRuntimeStore<'_> {
         })?;
         if target.app_surface != AppSurface::HeadlessService
             || !manifest.is_active_target(task_id, &target.target_id)
+            || manifest
+                .candidate_targets
+                .iter()
+                .find(|candidate| candidate.target_id == target.target_id)
+                != Some(target)
             || manifest.source_sha != source_sha
             || target.owning_task_id != task_id
         {

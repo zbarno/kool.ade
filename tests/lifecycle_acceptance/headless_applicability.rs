@@ -125,6 +125,14 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
     };
     runtime_store.save_manifest(&manifest, 0).unwrap();
     let manifest = runtime_store.load_manifest().unwrap().unwrap();
+    let mut forged_target = manifest.candidate_targets[0].clone();
+    forged_target.build_recipe_ref = None;
+    forged_target.test_recipe_refs.clear();
+    assert!(
+        runtime_store
+            .headless_service_test_receipts(&task_uid, &forged_target, &manifest.source_sha,)
+            .is_err()
+    );
     let manifest_hash = format!(
         "{:x}",
         sha2::Sha256::digest(serde_json::to_vec(&manifest).unwrap())
