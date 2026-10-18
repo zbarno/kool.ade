@@ -48,6 +48,7 @@ pub struct LifecycleView {
     pub task_revision: u64,
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
+    pub runtime_qa_run_id: Option<String>,
     pub spec_reconciliation: Option<crate::core::lifecycle::GateReceipt>,
     pub current_spec_hash: Option<String>,
     pub implementation_head_sha: Option<String>,
@@ -59,6 +60,20 @@ pub struct LifecycleView {
     pub specification_deltas: Vec<(u64, crate::core::lifecycle::SpecDeltaRecordV1)>,
     pub pull_request_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub merged_commit_sha: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaScreenshotView {
+    pub id: String,
+    pub scenario_id: String,
+    pub sha256: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaScreenshotGalleryView {
+    pub total: usize,
+    pub screenshots: Vec<RuntimeQaScreenshotView>,
 }
 
 #[derive(Clone)]

@@ -1,9 +1,11 @@
 use super::*;
+mod qa_gallery;
 mod references;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
     surface: &mut Option<&mut dyn crate::ui::Surface>,
+    ticket: &str,
     lifecycle: Option<&crate::ui::task_detail::LifecycleView>,
     error: Option<&str>,
 ) {
@@ -74,6 +76,7 @@ pub(super) fn paint(
         references::deltas(ui, surface, lifecycle);
         ui.label("Recorded gates");
         references::receipts(ui, surface, lifecycle);
+        qa_gallery::paint(ui, surface, ticket, lifecycle);
         ui.label(theme::helper_text(
             "Read-only lifecycle receipts. Missing evidence is shown as not recorded.",
         ));
@@ -191,6 +194,7 @@ mod tests {
             task_revision: 4,
             code_review: None,
             runtime_qa: None,
+            runtime_qa_run_id: None,
             spec_reconciliation: None,
             current_spec_hash: Some("current-hash".into()),
             implementation_head_sha: Some("reviewed-head".into()),
@@ -215,7 +219,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    paint(ui, &mut surface, Some(&lifecycle), None);
+                    paint(ui, &mut surface, "task.md", Some(&lifecycle), None);
                 });
             },
         );

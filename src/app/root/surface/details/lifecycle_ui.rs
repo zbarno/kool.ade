@@ -101,6 +101,14 @@ pub(super) fn for_ticket(
             task_revision: task.revision,
             code_review: task.code_review,
             runtime_qa: task.runtime_qa,
+            runtime_qa_run_id: task
+                .qa_execution
+                .as_ref()
+                .filter(|execution| {
+                    execution.status == crate::core::lifecycle::QaExecutionStatusV1::Completed
+                })
+                .and_then(|execution| execution.request.as_ref())
+                .map(|request| request.qa_run_id.clone()),
             spec_reconciliation: task.spec_reconciliation,
             current_spec_hash,
             implementation_head_sha: spec_revision

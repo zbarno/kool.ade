@@ -1,11 +1,94 @@
 use std::path::Path;
 
 use super::super::{
-    QaEvidenceManifestV1, QaRunRequestV1, QaScreenshotArtifactV1, validate_screenshot_artifact,
+    QaEvidenceManifestV1, QaRunRequestV1, QaScreenshotArtifactV1, validate_report,
+    validate_screenshot_artifact,
 };
-use super::RuntimeQaStore;
+use super::{RuntimeQaStore, read_json, safe_uuid};
 
 impl RuntimeQaStore {
+    /// Load and verify one screenshot page without decoding unrelated images.
+    pub fn load_screenshot_gallery(
+        &self,
+        qa_run_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<
+        (
+            super::super::QaRunRequestV1,
+            QaEvidenceManifestV1,
+            Vec<QaScreenshotArtifactV1>,
+        ),
+        String,
+    > {
+        if !(1..=24).contains(&limit) || offset > 100_000 {
+            return Err("runtime QA screenshot page is outside its bounds".into());
+        }
+        let run = safe_uuid(qa_run_id)?;
+        let directory = self.root.join(run);
+        let request: QaRunRequestV1 = read_json(&directory.join("request.json"))?;
+        let scenarios: Vec<super::super::QaScenarioV1> =
+            read_json(&directory.join("scenarios.json"))?;
+        let evidence: QaEvidenceManifestV1 = read_json(&directory.join("evidence.json"))?;
+        let result: super::super::QaResultV1 = read_json(&directory.join("result.json"))?;
+        if request.qa_run_id != qa_run_id {
+            return Err("runtime QA record path does not match its request identity".into());
+        }
+        validate_report(&request, &scenarios, &evidence, &result)?;
+
+        let Some(first) = evidence.screenshots.first() else {
+            return Ok((request, evidence, Vec::new()));
+        };
+        let parent = Path::new(&first.storage_ref)
+            .parent()
+            .ok_or_else(|| "runtime QA screenshot path is invalid".to_owned())?;
+        let planning = self.planning_store();
+        let files = planning
+            .list_files(parent)
+            .map_err(|error| format!("cannot inspect local runtime QA screenshots: {error}"))?;
+        let mut total_bytes = 0_u64;
+        for metadata in &evidence.screenshots {
+            let name = Path::new(&metadata.storage_ref)
+                .file_name()
+                .ok_or_else(|| "runtime QA screenshot path is invalid".to_owned())?
+                .to_string_lossy();
+            let file = files
+                .iter()
+                .find(|file| file.name == name)
+                .ok_or_else(|| "runtime QA screenshot artifact is missing".to_owned())?;
+            total_bytes = total_bytes.saturating_add(file.bytes);
+            if file.bytes > request.bounded_limits.max_evidence_bytes
+                || total_bytes > request.bounded_limits.max_evidence_bytes
+            {
+                return Err(
+                    "persisted runtime QA screenshot set exceeds its evidence quota".into(),
+                );
+            }
+        }
+
+        let artifacts = evidence
+            .screenshots
+            .iter()
+            .skip(offset)
+            .take(limit)
+            .map(|metadata| {
+                let bytes = planning
+                    .read(Path::new(&metadata.storage_ref))
+                    .map_err(|error| format!("cannot read local runtime QA screenshot: {error}"))?;
+                validate_screenshot_artifact(
+                    metadata,
+                    &bytes,
+                    request.bounded_limits.max_evidence_bytes,
+                )?;
+                Ok(QaScreenshotArtifactV1 {
+                    id: metadata.id.clone(),
+                    bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        Ok((request, evidence, artifacts))
+    }
+
     pub(super) fn write_screenshot(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
         let planning = self.planning_store();
         match planning.atomic_create(path, bytes) {

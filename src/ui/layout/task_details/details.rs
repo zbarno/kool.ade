@@ -233,6 +233,7 @@ pub(super) fn paint(
         lifecycle::paint(
             ui,
             &mut lifecycle_surface,
+            ticket,
             presentation.view.lifecycle.as_ref(),
             presentation.view.lifecycle_error.as_deref(),
         );

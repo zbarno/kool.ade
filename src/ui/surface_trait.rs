@@ -78,6 +78,15 @@ pub trait Surface {
     fn task_messages(&self, _key: &str) -> &[ChatMessage] {
         &[]
     }
+    fn load_runtime_qa_screenshots(
+        &self,
+        _ticket: &str,
+        _qa_run_id: &str,
+        _offset: usize,
+        _limit: usize,
+    ) -> Result<task_detail::RuntimeQaScreenshotGalleryView, String> {
+        Err("Runtime QA screenshots are unavailable in this workspace.".into())
+    }
     fn task_chat_context(&self, _key: &str) -> Option<String> {
         None
     }
