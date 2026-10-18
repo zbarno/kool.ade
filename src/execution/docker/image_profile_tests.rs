@@ -100,6 +100,8 @@ fn enabled_desktop_profile_requires_candidate_chromium_and_dbus_metadata() {
     let desktop = lock.profiles.get_mut("desktop_qa").unwrap();
     assert!(desktop.iter().all(|variant| !variant.runtime_enabled));
 
+    desktop[0].tool_versions.remove("chromium");
+    desktop[0].tool_versions.remove("dbus");
     desktop[0].runtime_enabled = true;
     assert!(lock.validate().is_err());
 
