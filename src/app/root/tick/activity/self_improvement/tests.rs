@@ -1,4 +1,4 @@
-use super::{reviewed_plan_receipts, transition_uid};
+use super::{reviewed_plan_receipts, synchronize_run, transition_uid};
 use crate::core::lifecycle::{
     FeatureEvent, FeatureGoal, GateActor, GateDecision, GateReceipt, LifecycleActor,
     LifecycleEventKind, LifecycleEventRecord,
@@ -138,3 +138,6 @@ fn event(feature_uid: &str, event: FeatureEvent) -> LifecycleEventRecord {
         pr_preparation_after: None,
     }
 }
+
+#[path = "tests/persisted_projection.rs"]
+mod persisted_projection;
