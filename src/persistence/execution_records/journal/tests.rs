@@ -1,6 +1,25 @@
 use std::fs;
 
-use super::inspect_journal_entry;
+use super::{
+    MAX_EVENT_RECORD_BYTES, MAX_JOURNAL_BYTES, MAX_JOURNAL_EVENTS, inspect_journal_entry,
+    within_journal_limits,
+};
+
+#[test]
+fn journal_append_enforces_prospective_event_and_byte_quotas() {
+    assert!(within_journal_limits(
+        MAX_JOURNAL_EVENTS - 1,
+        MAX_JOURNAL_BYTES - 1,
+        1
+    ));
+    assert!(!within_journal_limits(MAX_JOURNAL_EVENTS + 1, 0, 1));
+    assert!(!within_journal_limits(
+        MAX_JOURNAL_EVENTS - 1,
+        MAX_JOURNAL_BYTES,
+        1
+    ));
+    assert!(!within_journal_limits(0, 0, MAX_EVENT_RECORD_BYTES + 1));
+}
 
 #[test]
 fn removed_atomic_temp_entry_is_skipped_before_metadata_lookup() {

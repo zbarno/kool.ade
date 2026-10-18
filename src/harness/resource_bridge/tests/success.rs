@@ -94,6 +94,14 @@ fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
             .map(|request| request.status),
         Some(DependencyRequestStatus::Prepared)
     );
+    assert!(
+        response
+            .dependency_request
+            .as_ref()
+            .and_then(|request| request.preparation.as_ref())
+            .and_then(|preparation| preparation.broker_duration_millis)
+            .is_some()
+    );
     let snapshot = bridge
         .cache_snapshot(
             "00000000-0000-4000-8000-000000000001",

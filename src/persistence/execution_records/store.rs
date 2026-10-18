@@ -18,8 +18,36 @@ pub fn save(record: &ExecutionRecordV1) -> Result<(), String> {
     if bytes.len() as u64 > MAX_RECORD_BYTES {
         return Err("execution record exceeds its size limit".into());
     }
-    crate::artifacts::atomic_write_bytes(&record_path(record), &bytes)
+    let owner = is_terminal_and_clean(record)
+        .then(super::owner::owner_instance_id)
+        .transpose()?;
+    super::retention::with_retention_lock(|| {
+        persist_record(record, &bytes)?;
+        if let Some(owner) = owner {
+            super::retention::prune_completed_locked(
+                &owner,
+                &record.task_id,
+                &record.execution_id,
+            )?;
+        }
+        Ok(())
+    })?;
+    Ok(())
+}
+
+fn persist_record(record: &ExecutionRecordV1, bytes: &[u8]) -> Result<(), String> {
+    crate::artifacts::atomic_write_bytes(&record_path(record), bytes)
         .map_err(|error| error.to_string())
+}
+
+fn is_terminal_and_clean(record: &ExecutionRecordV1) -> bool {
+    matches!(
+        record.state,
+        super::ExecutionRecordStateV1::Succeeded
+            | super::ExecutionRecordStateV1::Failed
+            | super::ExecutionRecordStateV1::Cancelled
+            | super::ExecutionRecordStateV1::Interrupted
+    ) && record.cleanup == super::ExecutionCleanupStateV1::Complete
 }
 
 /// Load a task's execution record. Malformed or unsupported records fail closed.

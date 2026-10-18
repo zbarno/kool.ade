@@ -4,14 +4,13 @@ use std::{
     path::PathBuf,
     process::Command,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::execution::{
     backend::{ExecutionBackend, ExecutionHandleV1, WorkspaceLeaseV1},
     contract::{
-        EventPageRequestV1, ExecutionEventKindV1, ExecutionModeV1, ExecutionRequestV1,
-        ExecutionTarget, ResourceBudgetV1, WorkspaceRef,
+        ExecutionModeV1, ExecutionRequestV1, ExecutionTarget, ResourceBudgetV1, WorkspaceRef,
     },
     docker::{
         backend::{DockerExecutionBackend, OwnedTaskWorkspaceResolver},
@@ -20,6 +19,10 @@ use crate::execution::{
     },
     policy::ExecutionPolicyV1,
 };
+
+#[path = "support/stdout.rs"]
+mod stdout;
+pub(super) use stdout::{wait_for_stdout, wait_for_stdout_with_task};
 
 pub(super) const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
 
@@ -59,6 +62,9 @@ impl Fixture {
             .join("integration")
             .join(task);
         fs::create_dir_all(path.join(".git")).unwrap();
+        // Approved verification recipes are scoped to this directory. It must
+        // exist in the authoritative host clone before Docker stages it in.
+        fs::create_dir_all(path.join("evidence")).unwrap();
         path
     }
 }
@@ -111,6 +117,7 @@ pub(super) fn request(workspace: WorkspaceRef, script: &str) -> ExecutionRequest
         target: ExecutionTarget::local(),
         controller_target_id: None,
         workspace,
+        destination_sha: None,
         mode: ExecutionModeV1::Implementation,
         image_digest: image.digest,
         authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -132,6 +139,35 @@ pub(super) fn request(workspace: WorkspaceRef, script: &str) -> ExecutionRequest
         )
         .expect("implementation policy"),
     }
+}
+
+pub(super) fn verification_request_with_artifacts(
+    workspace: WorkspaceRef,
+    script: &str,
+    artifact_paths: Vec<String>,
+) -> ExecutionRequestV1 {
+    let mut request = request(workspace, script);
+    request.mode = ExecutionModeV1::Verification;
+    let image = ImageLock::bundled()
+        .expect("bundled image lock")
+        .select(RuntimeProfile::Python, native_docker_arch())
+        .expect("Python image for native architecture");
+    request.image_digest = image.digest;
+    request.argv = vec!["python".into(), "-c".into(), script.into()];
+    request.stdin = None;
+    request.policy = ExecutionPolicyV1::for_approved_recipe(
+        request.resource_budget.clone(),
+        "evidence".into(),
+        "user-approval:docker-recovery-test".into(),
+        "python".into(),
+        vec!["-c".into(), script.into()],
+        ".".into(),
+        BTreeSet::new(),
+    )
+    .expect("exact approved verification recipe")
+    .with_artifact_paths(artifact_paths)
+    .expect("artifact policy should accept bounded relative paths");
+    request
 }
 
 pub(super) fn backend(
@@ -180,29 +216,6 @@ pub(super) async fn prepare_and_start(
         .await
         .expect("start isolated container");
     (lease, handle)
-}
-
-pub(super) async fn wait_for_stdout(
-    backend: &DockerExecutionBackend,
-    handle: &ExecutionHandleV1,
-    expected: &str,
-) -> Vec<crate::execution::contract::ExecutionEventV1> {
-    tokio::time::timeout(Duration::from_secs(20), async {
-        loop {
-            let events = backend
-                .events(handle, EventPageRequestV1::new(0, 256).unwrap())
-                .await
-                .expect("read execution events");
-            if events.iter().any(|event| {
-                matches!(&event.event, ExecutionEventKindV1::Stdout { chunk } if chunk.contains(expected))
-            }) {
-                return events;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .expect("execution did not emit expected stdout")
 }
 
 pub(super) fn now_unix_ms() -> u64 {

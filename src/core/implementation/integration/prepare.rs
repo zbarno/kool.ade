@@ -181,7 +181,8 @@ pub(super) fn prepare_integration(
                     }
                     let verification_path = report_check_clone.as_ref().unwrap().path();
                     let workspace = runner.workspace_ref_for(&integration)?;
-                    runner.verify(verification_path, command, &workspace)
+                    let destination_sha = runner.destination_sha_for(&integration)?;
+                    runner.verify(verification_path, command, &workspace, destination_sha)
                 };
                 evidence.push(serde_json::json!({
                     "command": command,

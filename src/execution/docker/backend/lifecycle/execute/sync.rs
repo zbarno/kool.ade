@@ -64,6 +64,12 @@ pub(in crate::execution::docker::backend::lifecycle) fn workspace_write_enabled(
         })
 }
 
+pub(in crate::execution::docker::backend::lifecycle) fn workspace_stage_out_enabled(
+    request: &ExecutionRequestV1,
+) -> bool {
+    workspace_write_enabled(request) || !request.policy.artifact_paths().is_empty()
+}
+
 pub(super) async fn download_workspace(
     backend: &DockerExecutionBackend,
     container_id: &str,

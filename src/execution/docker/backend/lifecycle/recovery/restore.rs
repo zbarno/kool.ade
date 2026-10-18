@@ -25,9 +25,17 @@ pub(super) async fn restore_record(
         .as_deref()
         .or(record.container_name.as_deref());
     let Some(name) = name else {
-        mark_interrupted(record, true, "Execution container identity was lost")?;
+        if preserve_missing_runtime_wait(
+            record.state,
+            record.command_started,
+            record.container_id.is_some(),
+        ) {
+            return Ok(());
+        }
+        mark_interrupted(record, false, None, "Execution container identity was lost")?;
         return Ok(());
     };
+    let cleanup_started = std::time::Instant::now();
     let inspected = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         backend.docker.inspect_container(
@@ -46,7 +54,13 @@ pub(super) async fn restore_record(
         Err(bollard::errors::Error::DockerResponseServerError {
             status_code: 404, ..
         }) => {
-            mark_interrupted(record, true, "Execution container no longer exists")?;
+            reconcile_missing_container_404(
+                record,
+                cleanup_started
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64,
+            )?;
             return Ok(());
         }
         Err(_) => return Err(recovery_error("Docker resume inspection failed")),
@@ -68,6 +82,13 @@ pub(super) async fn restore_record(
         super::reconcile_record(backend, record).await?;
         return Ok(());
     }
+    // The v1 writer recorded Running only after dependency setup and workspace
+    // upload completed. Older records therefore have no stage-in timing but
+    // are complete. New incomplete starts remain Preparing and are discarded.
+    if should_reconcile_before_command(record.command_started, record.state) {
+        super::reconcile_record(backend, record).await?;
+        return Ok(());
+    }
     let request = record
         .request
         .clone()
@@ -79,6 +100,7 @@ pub(super) async fn restore_record(
         mark_interrupted(
             record,
             false,
+            None,
             "Execution worker stopped before its result was saved",
         )?;
     }
@@ -126,6 +148,60 @@ fn is_terminal(state: execution_records::ExecutionRecordStateV1) -> bool {
             | execution_records::ExecutionRecordStateV1::Interrupted
     )
 }
+
+fn is_waiting(state: execution_records::ExecutionRecordStateV1) -> bool {
+    matches!(
+        state,
+        execution_records::ExecutionRecordStateV1::WaitingForDependencyApproval
+            | execution_records::ExecutionRecordStateV1::WaitingForRuntime
+    )
+}
+
+pub(super) fn preserve_missing_runtime_wait(
+    state: execution_records::ExecutionRecordStateV1,
+    command_started: bool,
+    has_container_id: bool,
+) -> bool {
+    state == execution_records::ExecutionRecordStateV1::WaitingForRuntime
+        && !command_started
+        && !has_container_id
+}
+
+/// Apply the complete state reconciliation for the Docker inspect 404 branch.
+/// A pre-command runtime wait has no container to recover and remains retryable.
+pub(in crate::execution::docker::backend::lifecycle) fn reconcile_missing_container_404(
+    record: &mut ExecutionRecordV1,
+    cleanup_ms: u64,
+) -> Result<bool, ExecutionError> {
+    if preserve_missing_runtime_wait(
+        record.state,
+        record.command_started,
+        record.container_id.is_some(),
+    ) {
+        return Ok(true);
+    }
+    mark_interrupted(
+        record,
+        true,
+        Some(cleanup_ms),
+        "Execution container no longer exists",
+    )?;
+    Ok(false)
+}
+
+fn should_reconcile_before_command(
+    command_started: bool,
+    state: execution_records::ExecutionRecordStateV1,
+) -> bool {
+    !command_started
+        && !is_terminal(state)
+        && state != execution_records::ExecutionRecordStateV1::Running
+        && !is_waiting(state)
+}
+
+#[cfg(test)]
+#[path = "restore/tests.rs"]
+mod tests;
 
 fn recovery_error(message: &str) -> ExecutionError {
     ExecutionError::new(ExecutionErrorKind::WorkerDisconnected, message, true)
