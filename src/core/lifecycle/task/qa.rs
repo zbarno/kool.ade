@@ -249,7 +249,9 @@ impl QaExecutionStateV1 {
         &mut self,
         assessment: crate::runtime_qa::QaApplicabilityAssessmentV1,
     ) -> Result<(), String> {
-        if self.status != QaExecutionStatusV1::Pending
+        let eligible = self.status == QaExecutionStatusV1::Pending
+            || (self.status == QaExecutionStatusV1::Blocked && self.request.is_none());
+        if !eligible
             || self.request.is_some()
             || assessment.validate().is_err()
             || assessment.applicability != crate::runtime_qa::QaApplicability::NotApplicable
@@ -257,6 +259,11 @@ impl QaExecutionStateV1 {
             return Err("runtime QA applicability decision is not pending or valid".into());
         }
         self.status = QaExecutionStatusV1::NotApplicable;
+        self.blocked_reason = None;
+        self.result_sha256 = None;
+        self.evidence_manifest_sha256 = None;
+        self.reviewer_execution_id = None;
+        self.reviewer_session_id = None;
         self.applicability = Some(assessment);
         Ok(())
     }

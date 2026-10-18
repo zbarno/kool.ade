@@ -8,6 +8,24 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
 ) {
+    let applicability_result = project
+        .activity
+        .runtime_qa_applicability_review
+        .as_ref()
+        .and_then(|worker| worker.take_result());
+    if let Some(result) = applicability_result {
+        project.activity.runtime_qa_applicability_review = None;
+        let notice = match result {
+            Ok(proposal) => match crate::app::root::runtime_qa_applicability::persist_review(
+                project, &proposal,
+            ) {
+                Ok(()) => "Independent headless applicability review is ready in Task Details for Manager approval.".into(),
+                Err(error) => format!("Headless applicability review was discarded because its task or target changed: {error}"),
+            },
+            Err(error) => format!("Headless applicability review did not produce an approved proposal: {error}"),
+        };
+        project.activity.pending.push(notice);
+    }
     let synthesis_result = project
         .activity
         .runtime_qa_scenario_synthesis
@@ -89,6 +107,13 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     }
                     continue;
                 }
+            }
+            if request::selected_headless_target(project, &task) {
+                notices.push(format!(
+                    "Task {} targets a headless service. Visual QA is not a pass or an inferred skip; review and record applicability in Task Details.",
+                    task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                ));
+                continue;
             }
             match request::prepare(project, &task) {
                 Ok(prepared) => {

@@ -1,5 +1,6 @@
 //! Versioned, evidence-backed contracts for independent runtime QA.
 
+pub(crate) mod applicability_review;
 mod browser_driver;
 mod contracts;
 pub(crate) mod drivers;

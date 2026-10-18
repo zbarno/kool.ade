@@ -40,15 +40,26 @@ impl LifecycleStore<'_> {
             .candidate_targets
             .iter()
             .find(|target| target.target_id == assessment.target_id);
+        let manifest_hash = sha256(
+            &serde_json::to_vec(&manifest)
+                .map_err(|error| StoreError::MalformedState(error.to_string()))?,
+        );
         if !manifest.is_active_target(owning_task_id, &assessment.target_id)
             || target.is_none_or(|target| {
                 target.app_surface != crate::project_runtime::AppSurface::HeadlessService
                     || target.repository_id != manifest.repository_id
             })
             || assessment.app_surface != crate::project_runtime::AppSurface::HeadlessService
+            || manifest.source_sha != assessment.code_sha
+            || task.reviewed_code_head_sha.as_deref() != Some(&manifest.source_sha)
+            || assessment.approved_spec_hash != task.approved_plan_sha256
+            || !assessment
+                .evidence_refs
+                .iter()
+                .any(|reference| reference == &format!("runtime-manifest:{manifest_hash}"))
         {
             return Err(StoreError::MalformedState(
-                "runtime QA applicability target is not the active headless target for this task"
+                "runtime QA applicability target or manifest does not match the reviewed task"
                     .into(),
             ));
         }
@@ -244,4 +255,8 @@ impl LifecycleStore<'_> {
             }
         }
     }
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    format!("{:x}", sha2::Sha256::digest(bytes))
 }

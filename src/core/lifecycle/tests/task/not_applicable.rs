@@ -100,6 +100,62 @@ fn headless_not_applicable_requires_exact_reviewer_assessment_and_manager_signof
         format!("gate-receipt:{}", reviewer_receipt.receipt_uid),
     ];
 
+    let mut previously_unavailable = task.clone();
+    previously_unavailable
+        .apply(
+            previously_unavailable.revision,
+            TaskEvent::RuntimeQaUnavailable {
+                reason: "Runtime QA infrastructure is unavailable".into(),
+            },
+        )
+        .unwrap();
+    previously_unavailable
+        .apply(
+            previously_unavailable.revision,
+            TaskEvent::RuntimeQaNotApplicable {
+                assessment: Box::new(assessment.clone()),
+                reviewer_receipt: Box::new(reviewer_receipt.clone()),
+                receipt: Box::new(signoff.clone()),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        previously_unavailable.qa_execution.as_ref().unwrap().status,
+        QaExecutionStatusV1::NotApplicable
+    );
+
+    let mut blocked_request = task.clone();
+    let request = qa_request(&blocked_request);
+    blocked_request
+        .apply(
+            blocked_request.revision,
+            TaskEvent::RuntimeQaRequested(request.clone()),
+        )
+        .unwrap();
+    blocked_request
+        .apply(
+            blocked_request.revision,
+            TaskEvent::RuntimeQaBlocked {
+                request_id: request.qa_run_id,
+                reason: "The requested QA run was blocked".into(),
+                result_sha256: None,
+                evidence_manifest_sha256: None,
+            },
+        )
+        .unwrap();
+    assert!(
+        blocked_request
+            .apply(
+                blocked_request.revision,
+                TaskEvent::RuntimeQaNotApplicable {
+                    assessment: Box::new(assessment.clone()),
+                    reviewer_receipt: Box::new(reviewer_receipt.clone()),
+                    receipt: Box::new(signoff.clone()),
+                },
+            )
+            .is_err()
+    );
+
     let mut stale = assessment.clone();
     stale.code_sha = "2".repeat(40);
     assert!(

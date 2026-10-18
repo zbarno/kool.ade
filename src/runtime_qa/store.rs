@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod applicability;
 mod browser_binding;
 mod gate;
 mod proposal;

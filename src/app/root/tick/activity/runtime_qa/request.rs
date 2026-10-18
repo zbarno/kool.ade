@@ -243,6 +243,22 @@ fn workspace_target_path(target_root: &str, path: &str) -> Result<String, String
     }
 }
 
+pub(super) fn selected_headless_target(project: &Project, task: &TaskRecord) -> bool {
+    let Some(planning_uid) = task.planning_item_uid.as_deref() else {
+        return false;
+    };
+    let Ok(Some(manifest)) =
+        ProjectRuntimeStore::new(&project.state.planning_store).load_manifest()
+    else {
+        return false;
+    };
+    manifest.candidate_targets.iter().any(|target| {
+        target.app_surface == AppSurface::HeadlessService
+            && target.owning_task_id == planning_uid
+            && manifest.is_active_target(planning_uid, &target.target_id)
+    })
+}
+
 pub(super) fn latest_successful_build_receipt<'a>(
     receipts: &'a [RuntimeReceiptV1],
     target_id: &str,

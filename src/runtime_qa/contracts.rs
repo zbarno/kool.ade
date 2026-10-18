@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::Digest as _;
 
 mod browser;
 mod evidence;
@@ -61,6 +62,68 @@ pub struct QaApplicabilityAssessmentV1 {
     pub approved_by: String,
     pub manager_session_id: String,
     pub recorded_at_unix_ms: u64,
+}
+
+/// Independent review evidence awaiting an explicit Manager decision.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QaApplicabilityProposalV1 {
+    pub schema_version: u16,
+    pub task_revision: u64,
+    pub assessment: QaApplicabilityAssessmentV1,
+    pub reviewer_verdict: crate::harness::prompt_catalog::ReviewVerdictV1,
+    pub reviewer_receipt: crate::core::lifecycle::GateReceipt,
+}
+
+impl QaApplicabilityProposalV1 {
+    pub fn proposal_sha256(&self) -> Result<String, String> {
+        let bytes = serde_json::to_vec(self).map_err(|error| error.to_string())?;
+        Ok(format!("{:x}", sha2::Sha256::digest(bytes)))
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.assessment.validate()?;
+        let assessment_bytes =
+            serde_json::to_vec(&self.assessment).map_err(|error| error.to_string())?;
+        let assessment_hash = format!("{:x}", sha2::Sha256::digest(assessment_bytes));
+        let receipt = &self.reviewer_receipt;
+        receipt.validate()?;
+        let required = "VISUAL_QA_APPLICABILITY";
+        if self.schema_version != 1
+            || self.reviewer_verdict.subject_hash != assessment_hash
+            || !self.reviewer_verdict.pass
+            || !self.reviewer_verdict.findings.is_empty()
+            || !self.reviewer_verdict.untested.is_empty()
+            || !self.reviewer_verdict.coverage.iter().any(|coverage| {
+                coverage.requirement == required
+                    && coverage.status == crate::harness::prompt_catalog::CoverageStatus::Pass
+                    && !coverage.evidence.is_empty()
+            })
+            || receipt.actor != crate::core::lifecycle::GateActor::IndependentReviewer
+            || receipt.decision != crate::core::lifecycle::GateDecision::Approved
+            || receipt.subject_uid != self.assessment.task_uid
+            || receipt.subject_sha256 != assessment_hash
+            || receipt.reviewer_run_id.as_deref()
+                != Some(self.assessment.reviewer_execution_id.as_str())
+            || receipt.reviewer_session_id.as_deref()
+                != Some(self.assessment.reviewer_session_id.as_str())
+            || receipt.author_run_id.as_deref() != Some(self.assessment.approved_by.as_str())
+            || receipt.author_session_id.as_deref()
+                != Some(self.assessment.manager_session_id.as_str())
+            || !matches!(
+                receipt.prompt_role(),
+                Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2)
+            )
+            || !receipt.evidence_refs.iter().any(|reference| {
+                reference == &format!("runtime-qa-applicability-assessment:{assessment_hash}")
+            })
+        {
+            return Err(
+                "runtime QA applicability proposal lacks exact independent reviewer signoff".into(),
+            );
+        }
+        Ok(())
+    }
 }
 
 impl QaApplicabilityAssessmentV1 {

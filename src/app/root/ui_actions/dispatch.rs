@@ -32,6 +32,12 @@ impl KooladeApp {
             ApplicationCommand::ApproveRuntimeQaScenarios { ticket, expected_task_revision, proposal_sha256 } => {
                 self.approve_runtime_qa_scenarios(&ticket, expected_task_revision, &proposal_sha256)
             }
+            ApplicationCommand::ReviewRuntimeQaApplicability { ticket } => {
+                self.review_runtime_qa_applicability(&ticket)
+            }
+            ApplicationCommand::ApproveRuntimeQaApplicability { ticket, expected_task_revision, proposal_sha256 } => {
+                self.approve_runtime_qa_applicability(&ticket, expected_task_revision, &proposal_sha256)
+            }
             ApplicationCommand::DecideFeatureSpecDelta { feature_uid, requirement_id, expected_sequence, adopt } => {
                 match &mut self.screen {
                     Screen::Connected(project) => match crate::app::root::spec_reconciliation::decide_feature_delta(

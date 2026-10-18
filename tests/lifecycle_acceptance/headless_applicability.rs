@@ -51,30 +51,32 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         environment_policy_ref: "default".into(),
         capability_state: TargetCapabilityState::ReadyButUntested,
     };
-    ProjectRuntimeStore::new(&store)
-        .save_manifest(
-            &ProjectCapabilityManifestV1 {
-                schema_version: 1,
-                workspace_id: id(),
-                repository_id: "repo-main".into(),
-                source_sha: "a".repeat(40),
-                detected_languages: Vec::new(),
-                frameworks: Vec::new(),
-                candidate_targets: vec![target],
-                selected_target_id: Some("api-service".into()),
-                target_capabilities: vec![TargetCapabilityState::ReadyButUntested],
-                recipes: Vec::new(),
-                readiness_probes: Default::default(),
-                artifact_specs: Default::default(),
-                confidence: 50,
-                evidence_refs: Vec::new(),
-                user_overrides: Vec::new(),
-                revision: 0,
-            },
-            0,
-        )
-        .unwrap();
-    let assessment = QaApplicabilityAssessmentV1 {
+    let runtime_store = ProjectRuntimeStore::new(&store);
+    let manifest = ProjectCapabilityManifestV1 {
+        schema_version: 1,
+        workspace_id: id(),
+        repository_id: "repo-main".into(),
+        source_sha: task.reviewed_code_head_sha.clone().unwrap(),
+        detected_languages: Vec::new(),
+        frameworks: Vec::new(),
+        candidate_targets: vec![target],
+        selected_target_id: Some("api-service".into()),
+        target_capabilities: vec![TargetCapabilityState::ReadyButUntested],
+        recipes: Vec::new(),
+        readiness_probes: Default::default(),
+        artifact_specs: Default::default(),
+        confidence: 50,
+        evidence_refs: Vec::new(),
+        user_overrides: Vec::new(),
+        revision: 0,
+    };
+    runtime_store.save_manifest(&manifest, 0).unwrap();
+    let manifest = runtime_store.load_manifest().unwrap().unwrap();
+    let manifest_hash = format!(
+        "{:x}",
+        sha2::Sha256::digest(serde_json::to_vec(&manifest).unwrap())
+    );
+    let mut assessment = QaApplicabilityAssessmentV1 {
         schema_version: 1,
         task_uid: task_uid.clone(),
         target_id: "api-service".into(),
@@ -86,6 +88,7 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         evidence_refs: vec![
             "target:api-service".into(),
             "fixture:service-contract/v1".into(),
+            format!("runtime-manifest:{manifest_hash}"),
         ],
         reviewer_execution_id: id(),
         reviewer_session_id: id(),
@@ -93,7 +96,7 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         manager_session_id: id(),
         recorded_at_unix_ms: 1,
     };
-    let assessment_hash = format!(
+    let mut assessment_hash = format!(
         "{:x}",
         sha2::Sha256::digest(serde_json::to_vec(&assessment).unwrap())
     );
@@ -110,7 +113,7 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
     reviewer_receipt.evidence_refs = vec![format!(
         "runtime-qa-applicability-assessment:{assessment_hash}"
     )];
-    let receipt = GateReceipt {
+    let mut receipt = GateReceipt {
         receipt_uid: id(),
         subject_uid: task_uid.clone(),
         subject_sha256: task.implementation_sha256.clone().unwrap(),
@@ -146,6 +149,52 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         lifecycle.load_task(&task_uid).unwrap().revision,
         task.revision
     );
+
+    let mut stale_manifest = manifest.clone();
+    stale_manifest.source_sha = "f".repeat(40);
+    runtime_store
+        .save_manifest(&stale_manifest, manifest.revision)
+        .unwrap();
+    assert!(
+        lifecycle
+            .record_runtime_qa_applicability(
+                &task_uid,
+                task.revision,
+                &id(),
+                assessment.clone(),
+                reviewer_receipt.clone(),
+                receipt.clone(),
+            )
+            .is_err()
+    );
+    let manifest_revision = runtime_store.load_manifest().unwrap().unwrap().revision;
+    runtime_store
+        .save_manifest(&manifest, manifest_revision)
+        .unwrap();
+    let current_manifest = runtime_store.load_manifest().unwrap().unwrap();
+    let current_manifest_hash = format!(
+        "{:x}",
+        sha2::Sha256::digest(serde_json::to_vec(&current_manifest).unwrap())
+    );
+    assessment
+        .evidence_refs
+        .retain(|reference| !reference.starts_with("runtime-manifest:"));
+    assessment
+        .evidence_refs
+        .push(format!("runtime-manifest:{current_manifest_hash}"));
+    assessment_hash = format!(
+        "{:x}",
+        sha2::Sha256::digest(serde_json::to_vec(&assessment).unwrap())
+    );
+    reviewer_receipt.subject_sha256 = assessment_hash.clone();
+    reviewer_receipt.evidence_refs = vec![format!(
+        "runtime-qa-applicability-assessment:{assessment_hash}"
+    )];
+    for reference in &mut receipt.evidence_refs {
+        if reference.starts_with("runtime-qa-applicability:") {
+            *reference = format!("runtime-qa-applicability:{assessment_hash}");
+        }
+    }
 
     let updated = lifecycle
         .record_runtime_qa_applicability(

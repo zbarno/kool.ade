@@ -35,6 +35,16 @@ pub struct ViewModel {
     pub lifecycle: Option<LifecycleView>,
     pub lifecycle_error: Option<String>,
     pub runtime_qa_scenario_proposal: Option<RuntimeQaScenarioProposal>,
+    pub runtime_qa_applicability_proposal: Option<RuntimeQaApplicabilityProposal>,
+    pub runtime_qa_applicability_error: Option<String>,
+    pub runtime_qa_applicability_reviewing: bool,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaApplicabilityProposal {
+    pub proposal: crate::runtime_qa::QaApplicabilityProposalV1,
+    pub proposal_sha256: String,
+    pub stale: bool,
 }
 
 #[derive(Clone)]
