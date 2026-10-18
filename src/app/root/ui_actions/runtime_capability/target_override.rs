@@ -19,6 +19,7 @@ pub(super) fn add(
     app_surface: AppSurface,
     project_relative_root: &str,
     artifact_paths: &str,
+    required_dependency_ids: &str,
     build: &RuntimeRecipeInput,
     test: &RuntimeRecipeInput,
     start: &RuntimeRecipeInput,
@@ -43,6 +44,7 @@ pub(super) fn add(
             "Add 1 to 128 unique canonical repository-relative build artifact paths.".into(),
         );
     }
+    let required_dependencies = parse_dependency_ids(required_dependency_ids)?;
     let document = project
         .task_documents
         .iter()
@@ -137,7 +139,7 @@ pub(super) fn add(
         readiness_probe_ref: None,
         artifact_spec_ref: Some(artifact_spec_id),
         fixture_ref: None,
-        required_dependencies: Vec::new(),
+        required_dependencies,
         supported_driver_ids: Vec::new(),
         port_needs: Vec::new(),
         environment_policy_ref: "default-deny".into(),
@@ -181,6 +183,32 @@ pub(super) fn add(
                 .to_owned()
         })
         .map_err(|error| error.to_string())
+}
+
+fn parse_dependency_ids(input: &str) -> Result<Vec<String>, String> {
+    let ids = input
+        .lines()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if ids.len() > 128 {
+        return Err("A target can reference at most 128 dependency broker requests.".into());
+    }
+    let unique = ids.iter().collect::<std::collections::BTreeSet<_>>();
+    if unique.len() != ids.len() {
+        return Err("Dependency broker request IDs must be unique.".into());
+    }
+    if ids.iter().any(|id| {
+        id.is_empty()
+            || id.len() > 128
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    }) {
+        return Err("Dependency broker request IDs must use letters, numbers, dots, dashes, or underscores.".into());
+    }
+    Ok(ids)
 }
 
 fn now_unix_ms() -> u64 {

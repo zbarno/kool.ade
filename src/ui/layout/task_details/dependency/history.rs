@@ -31,6 +31,7 @@ pub(super) fn history_rows(request: &crate::harness::DependencyRequest) -> Vec<S
             request.need.source.as_deref().unwrap_or("not specified")
         ),
         format!("Request: {}", request_status_label(request.status)),
+        format!("Broker request ID: {}", request.id),
     ];
     if request.status == crate::harness::DependencyRequestStatus::Failed {
         rows.push(format!(
