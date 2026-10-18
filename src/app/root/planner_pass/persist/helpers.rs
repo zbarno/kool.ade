@@ -16,7 +16,8 @@ pub(super) fn required_requirement_ids_for_snapshot(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "the planned feature has no stable identity".to_owned())?;
     let contract = crate::core::workflow::feature_contract(&markdown);
-    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        store,
         &feature_id,
         &identity,
         &markdown,

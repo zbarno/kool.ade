@@ -76,9 +76,11 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
             .trim_start_matches('#')
             .trim();
         if let Some(card) = cards.iter_mut().find(|work| {
-            work.kind != WorkKind::TaskGeneration
-                && (work.feature_uid.as_deref() == Some(&metadata.uid)
-                    || (work.feature_uid.is_none() && work.feature_id.as_deref() == Some(id)))
+            !matches!(
+                work.kind,
+                WorkKind::TaskGeneration | WorkKind::PlanReviewDisposition
+            ) && (work.feature_uid.as_deref() == Some(&metadata.uid)
+                || (work.feature_uid.is_none() && work.feature_id.as_deref() == Some(id)))
         }) {
             if card.status != WorkStatus::NeedsAttention {
                 card.status = status;

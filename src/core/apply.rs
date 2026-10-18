@@ -54,12 +54,17 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             .workflow
             .clone()
             .unwrap_or_else(|| state.workflow.clone());
-        let (paths, revision) = crate::artifacts::task_docs::write_batch_expected_with_revision(
-            &state.planning_store,
-            batch,
-            &mut workflow,
-            &state.baseline_planning_revision,
-        )?;
+        let readiness_checks = lifecycle_bridge::readiness::readiness_record_check(state)?
+            .into_iter()
+            .collect::<Vec<_>>();
+        let (paths, revision) =
+            crate::artifacts::task_docs::write_batch_expected_with_revision_and_checks(
+                &state.planning_store,
+                batch,
+                &mut workflow,
+                &state.baseline_planning_revision,
+                &readiness_checks,
+            )?;
         state.workflow = workflow;
         state.baseline_planning_revision = revision;
         lifecycle_bridge::record_task_batch(state, batch)?;

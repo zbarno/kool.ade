@@ -91,8 +91,7 @@ pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &Kool
     .unwrap()
 }
 
-pub(in crate::app::root::feature_approval::tests) fn setup()
--> (KooladeApp, std::path::PathBuf, serde_json::Value) {
+pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
     let mut app = fixture();
     // Timestamp-only names can collide when nextest starts these fixtures in
     // parallel. Each approval flow owns a fully isolated project and record

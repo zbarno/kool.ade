@@ -2,6 +2,7 @@ use super::*;
 
 impl KooladeApp {
     pub(super) fn advance_activity(&mut self) {
+        let mut plan_repair = None;
         if let Screen::Connected(project) = &mut self.screen {
             reconcile_inactive_planning_work(project);
             advance_clarification_planner(project);
@@ -52,7 +53,24 @@ impl KooladeApp {
                 project.live_progress = Default::default();
                 match result {
                     Ok(output) => {
-                        let text = crate::app::manager::persist_output(project, &output);
+                        let dispositions = crate::app::manager::persist_plan_dispositions(
+                            project,
+                            &output.proposed_actions,
+                            &output.evidence_hashes,
+                            &output.planning_revision,
+                        );
+                        let mut text = crate::app::manager::persist_output(project, &output);
+                        match dispositions {
+                            Ok(messages) => {
+                                if !messages.is_empty() {
+                                    text.push_str("\n\n");
+                                    text.push_str(&messages.join("\n"));
+                                }
+                            }
+                            Err(error) => text.push_str(&format!(
+                                "\n\nManager decisions could not be saved to the Board: {error}"
+                            )),
+                        }
                         project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
                     },
                     Err(_) => project.remember_chat(vec![ChatMessage::new(ChatRole::System, "Project-manager update unavailable after retry; task work continues. You can still send a message.", None)]),
@@ -96,6 +114,53 @@ impl KooladeApp {
                     ..Default::default()
                 };
             }
+            plan_repair = crate::app::manager::next_plan_repair(project);
+        }
+        if let Some((key, request, feature_id)) = plan_repair {
+            self.start_turn_for_work(
+                &request,
+                crate::core::workflow::TurnPurpose::Interview,
+                Some(&feature_id),
+                Some(key),
+            );
+        }
+        if let Screen::Connected(project) = &mut self.screen
+            && let Some((feature_id, arbitration)) =
+                crate::app::manager::next_plan_arbitration(project)
+        {
+            let harness = configured_harness_for(
+                &mut self.task_harness,
+                Some(crate::persistence::harness_settings::PLAN_REVIEW),
+            );
+            match crate::app::root::plan_review::PlanReview::start_arbitration(
+                project,
+                feature_id.clone(),
+                arbitration,
+                harness,
+            ) {
+                Ok(worker) => {
+                    project.activity.plan_review = Some(worker);
+                    project.activity.plan_review_feature = Some(feature_id.clone());
+                    project.activity.plan_review_revision =
+                        Some(project.state.baseline_planning_revision.clone());
+                    project.live_progress = crate::harness::LiveProgress {
+                        activity: Some(format!(
+                            "Independently arbitrating a contested plan finding for {feature_id}"
+                        )),
+                        ..Default::default()
+                    };
+                }
+                Err(error) => {
+                    plan_review::lifecycle::mark_arbitration_failed(
+                        project,
+                        &feature_id,
+                        &error.to_string(),
+                    );
+                    project.activity.pending.push(format!(
+                        "Independent arbitration could not start: {error}. The plan remains blocked."
+                    ));
+                }
+            }
         }
     }
 }
@@ -103,7 +168,7 @@ impl KooladeApp {
 mod clarification;
 mod dependency_review;
 mod opportunities;
-mod plan_review;
+pub(crate) mod plan_review;
 mod reconcile;
 mod runtime_qa;
 mod self_improvement;

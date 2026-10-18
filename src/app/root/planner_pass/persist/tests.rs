@@ -92,8 +92,8 @@ fn install_feature(store: &crate::artifacts::planning_store::PlanningStore) -> (
         )
         .unwrap();
     let contract = crate::core::workflow::feature_contract(&feature);
-    let revision = crate::core::lifecycle::PlanSnapshotV1::from_feature(
-        "CHG-997", &identity, &feature, &contract,
+    let revision = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        store, "CHG-997", &identity, &feature, &contract,
     )
     .unwrap()
     .spec_revision;

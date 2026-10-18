@@ -214,6 +214,7 @@ fn approved_python_recipe_receipts_select_web_qa_and_persist_hash_bound_evidence
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
             pass: true,
+            outcome: None,
             coverage: vec![CoverageV1 {
                 requirement: request.requirement_ids[0].clone(),
                 status: CoverageStatus::Pass,

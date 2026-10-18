@@ -95,22 +95,24 @@ pub(crate) fn approve_and_review_feature(
         reviewer_session_id: Some(reviewer_session_id),
         author_session_id: Some(author_session_id),
     };
-    let revision = store.revision()?;
+    let coverage = snapshot
+        .requirements
+        .iter()
+        .map(|requirement| crate::harness::prompt_catalog::CoverageV1 {
+            requirement: requirement.stable_id.clone(),
+            status: crate::harness::prompt_catalog::CoverageStatus::Pass,
+            evidence: vec![format!("plan:{}", snapshot.uid)],
+        })
+        .collect();
     let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
         pass: true,
-        coverage: snapshot
-            .requirements
-            .iter()
-            .map(|requirement| crate::harness::prompt_catalog::CoverageV1 {
-                requirement: requirement.stable_id.clone(),
-                status: crate::harness::prompt_catalog::CoverageStatus::Pass,
-                evidence: vec![format!("requirement:{}", requirement.stable_id)],
-            })
-            .collect(),
+        outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
+        coverage,
         findings: Vec::new(),
         untested: Vec::new(),
     };
+    let revision = store.revision()?;
     workflow::record_plan_review_if_current(store, feature_id, &review, &verdict, &revision)?;
     *workflow_record = crate::artifacts::task_docs::load_workflow(store)?;
 

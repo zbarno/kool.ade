@@ -73,7 +73,7 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
     )
     .unwrap()
     .unwrap();
-    assert_eq!(persisted.findings[0].id, "F-TEST");
+    assert_eq!(persisted.findings[0].id, "TEST-FINDING");
     let receipt = crate::core::lifecycle::plan_snapshot::plan_review_receipt(
         &project.state.planning_store,
         &snapshot,
@@ -97,7 +97,7 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
         snapshot_hash: snapshot.content_hash.clone(),
         review_receipt_uid: receipt.receipt_uid,
         dispositions: vec![crate::core::lifecycle::PlanFindingDispositionV1 {
-            finding_id: "F-TEST".into(),
+            finding_id: "TEST-FINDING".into(),
             action: crate::core::lifecycle::PlanFindingActionV1::RepairPlan {
                 rationale: "Makes the success result observable.".into(),
             },
@@ -162,12 +162,12 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
     }
     let manager_prompt = calls.lock().unwrap()[0].clone();
     assert!(
-        manager_prompt.contains("F-TEST"),
+        manager_prompt.contains("TEST-FINDING"),
         "Manager prompt omitted persisted review findings"
     );
     assert!(manager_prompt.contains("coverage"));
     assert!(manager_prompt.contains("review_receipt_uid"));
-    assert!(manager_prompt.contains("requirement:"));
+    assert!(manager_prompt.contains(&persisted.findings[0].requirement));
 
     assert!(
         !finish(&mut app),
@@ -199,7 +199,7 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
         );
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(no_op_calls.lock().unwrap()[0].contains("F-TEST"));
+    assert!(no_op_calls.lock().unwrap()[0].contains("TEST-FINDING"));
     assert!(
         !finish(&mut app),
         "RepairPlan must make a real change to the feature candidate"
@@ -216,7 +216,7 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
         );
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert!(retry_calls.lock().unwrap()[0].contains("F-TEST"));
+    assert!(retry_calls.lock().unwrap()[0].contains("TEST-FINDING"));
     assert!(
         finish(&mut app),
         "the typed Request Changes turn should complete"
@@ -230,7 +230,7 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
     let persisted: crate::core::lifecycle::PlanRemediationV1 =
         serde_json::from_slice(&persisted).unwrap();
     assert_eq!(persisted.snapshot_hash, snapshot.content_hash);
-    assert_eq!(persisted.dispositions[0].finding_id, "F-TEST");
+    assert_eq!(persisted.dispositions[0].finding_id, "TEST-FINDING");
     assert!(!crate::core::workflow::feature_approved(
         &project.state.planning_store,
         &project.state.workflow,

@@ -56,6 +56,7 @@ pub(super) fn receipt() -> CodeReviewReceiptV1 {
         verdict: crate::harness::prompt_catalog::ReviewVerdictV1 {
             subject_hash,
             pass: true,
+            outcome: None,
             coverage: vec![crate::harness::prompt_catalog::CoverageV1 {
                 requirement: "AC-1".into(),
                 status: crate::harness::prompt_catalog::CoverageStatus::Pass,

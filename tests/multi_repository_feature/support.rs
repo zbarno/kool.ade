@@ -104,21 +104,7 @@ pub(super) fn approve_and_record_reviewer_receipt(
         actor: koolade::core::lifecycle::GateActor::IndependentReviewer,
         decision: koolade::core::lifecycle::GateDecision::Approved,
         recorded_at_unix_ms: 1,
-        evidence_refs: std::iter::once("test-only/explicit-plan-review".to_owned())
-            .chain(
-                snapshot["requirements"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|requirement| {
-                        format!("requirement:{}", requirement["stableId"].as_str().unwrap())
-                    }),
-            )
-            .chain(std::iter::once(format!(
-                "plan:{}",
-                snapshot["uid"].as_str().unwrap()
-            )))
-            .collect(),
+        evidence_refs: vec![format!("plan:{}", snapshot["uid"].as_str().unwrap())],
         prompt_sha256: Some(manifest.identity_sha256()),
         prompt_manifest: Some(manifest),
         reviewer_run_id: Some(reviewer_run_id.into()),
@@ -130,17 +116,15 @@ pub(super) fn approve_and_record_reviewer_receipt(
     let verdict = koolade::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot["contentHash"].as_str().unwrap().to_owned(),
         pass: true,
+        outcome: Some(koolade::harness::prompt_catalog::ReviewOutcomeV1::Pass),
         coverage: snapshot["requirements"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|requirement| {
-                let id = requirement["stableId"].as_str().unwrap().to_owned();
-                koolade::harness::prompt_catalog::CoverageV1 {
-                    requirement: id.clone(),
-                    status: koolade::harness::prompt_catalog::CoverageStatus::Pass,
-                    evidence: vec![format!("requirement:{id}")],
-                }
+            .map(|requirement| koolade::harness::prompt_catalog::CoverageV1 {
+                requirement: requirement["stableId"].as_str().unwrap().to_owned(),
+                status: koolade::harness::prompt_catalog::CoverageStatus::Pass,
+                evidence: vec![format!("plan:{}", snapshot["uid"].as_str().unwrap())],
             })
             .collect(),
         findings: Vec::new(),
