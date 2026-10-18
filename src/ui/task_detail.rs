@@ -25,6 +25,7 @@ pub struct ViewModel {
     pub target_preference: crate::execution::contract::TargetPreference,
     pub task_capabilities:
         crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    pub task_allowed_targets: Vec<crate::execution::contract::TargetPreference>,
     pub target_choices: Vec<TargetChoice>,
     pub remote_private_file_candidates: Vec<RemotePrivateFileGrantCandidate>,
     pub remote_private_file_candidates_error: Option<String>,
@@ -214,6 +215,10 @@ pub enum Command {
         ticket: String,
         requirements:
             crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    },
+    SetTaskAllowedTargets {
+        ticket: String,
+        targets: Vec<crate::execution::contract::TargetPreference>,
     },
     GrantRemotePrivateFiles {
         ticket: String,

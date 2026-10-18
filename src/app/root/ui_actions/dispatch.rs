@@ -242,6 +242,23 @@ impl KooladeApp {
                         )),
                     }
                 }
+                TaskDetailCommand::SetTaskAllowedTargets { ticket, targets } => {
+                    let task_key = match &self.screen {
+                        Screen::Connected(project) => {
+                            super::super::task_target::key(project, &ticket)
+                        }
+                        Screen::Welcome => ticket.clone(),
+                    };
+                    match crate::persistence::execution_environment_settings::save_task_allowed_targets(
+                        &task_key,
+                        targets,
+                    ) {
+                        Ok(()) => self.toasts.success("Saved task target constraints"),
+                        Err(error) => self
+                            .toasts
+                            .warning(format!("Could not save task target constraints: {error}")),
+                    }
+                }
                 TaskDetailCommand::GrantRemotePrivateFiles {
                     ticket,
                     worker_id,

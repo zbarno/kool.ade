@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use crate::ui::{Surface, task_detail};
 
+mod constraints;
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,
@@ -49,6 +51,7 @@ pub(super) fn paint(
         {
             ui.label(egui::RichText::new(&choice.reason).small().weak());
         }
+        constraints::paint(ui, surface, ticket, view);
         ui.collapsing("Required target capabilities", |ui| {
             let mut requirements = view.task_capabilities;
             let gpu_changed = ui.checkbox(&mut requirements.requires_gpu, "GPU access").changed();

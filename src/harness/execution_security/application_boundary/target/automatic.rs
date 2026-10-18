@@ -20,6 +20,10 @@ use crate::{
 
 use super::{ExecutionSession, can_fallback_for_preference, local_session};
 
+#[cfg(test)]
+#[path = "automatic/tests.rs"]
+mod tests;
+
 struct ObservedWorker {
     registration: RemoteWorkerRegistration,
     capabilities: BackendCapabilitiesV1,
@@ -31,8 +35,10 @@ pub(super) fn auto_session(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    allowed_targets: Vec<TargetPreference>,
 ) -> anyhow::Result<ExecutionSession> {
-    let local_eligible = DockerEnvironmentStatus::detect().ready();
+    let local_eligible =
+        local_target_eligible(DockerEnvironmentStatus::detect().ready(), &allowed_targets);
     if request.authorization_verifier.is_none() {
         return auto_local_fallback(
             request,
@@ -46,7 +52,9 @@ pub(super) fn auto_session(
     }
     let registrations = remote_workers::list().unwrap_or_default();
     let mut observed = Vec::new();
-    for registration in registrations.into_iter().filter(|worker| worker.enabled) {
+    for registration in registrations.into_iter().filter(|worker| {
+        worker.enabled && worker_target_allowed(&worker.worker_id, &allowed_targets)
+    }) {
         let Ok(config) = super::remote::worker_config(&registration) else {
             continue;
         };
@@ -217,4 +225,16 @@ fn auto_local_fallback(
         "{reason}; local Docker is unavailable"
     );
     local_session(request, workspace, profile, resources)
+}
+
+fn local_target_eligible(local_ready: bool, allowed_targets: &[TargetPreference]) -> bool {
+    local_ready && super::ensure_target_allowed(&TargetPreference::Local, allowed_targets).is_ok()
+}
+
+fn worker_target_allowed(worker_id: &str, allowed_targets: &[TargetPreference]) -> bool {
+    super::ensure_target_allowed(
+        &TargetPreference::Worker(worker_id.to_owned()),
+        allowed_targets,
+    )
+    .is_ok()
 }
