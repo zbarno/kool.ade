@@ -118,6 +118,7 @@ fn newer_blocking_clarification_stops_task_generation_before_model_or_artifacts(
         mode: crate::harness::ExecutionMode::TaskGeneration,
         task_id: None,
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         prompt_manifest: None,
         reasoning_level: "medium".into(),

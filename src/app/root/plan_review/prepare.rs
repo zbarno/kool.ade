@@ -201,6 +201,7 @@ pub(super) fn prepare(
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: None,
         execution_workspace: None,
+        destination_sha: None,
         prompt_manifest: Some(rendered.manifest.clone()),
         reasoning_level: "high".into(),
         telemetry_phase: Some("independent_plan_review".into()),
