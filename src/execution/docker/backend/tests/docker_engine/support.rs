@@ -80,6 +80,10 @@ impl Fixture {
         fs::create_dir_all(path.join("evidence")).unwrap();
         path
     }
+
+    pub(super) fn projects_root(&self) -> PathBuf {
+        self.home_root.join("projects")
+    }
 }
 
 impl Drop for Fixture {
@@ -201,7 +205,7 @@ pub(super) fn backend_with_owner(
     owner_id: String,
 ) -> (DockerExecutionBackend, PathBuf) {
     let clone = fixture.task_clone(&workspace);
-    let projects = fixture.home_root.join("projects");
+    let projects = fixture.projects_root();
     let resolver = Arc::new(
         OwnedTaskWorkspaceResolver::new(&projects, workspace, &clone)
             .expect("synthetic task clone must be accepted"),
