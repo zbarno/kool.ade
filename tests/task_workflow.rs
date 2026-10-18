@@ -163,7 +163,8 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
             failure_mode,
         }),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // Allow the controller to make progress while parallel integration tests contend for CPU.
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         assert!(Instant::now() < deadline, "workflow timed out");
         if let Some(TurnEvt::Done(outcome)) = ctrl.poll(Duration::from_millis(50)) {

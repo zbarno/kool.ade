@@ -143,6 +143,10 @@ pub enum ApplicationCommand {
     ApproveFeatureForBoard {
         id: String,
     },
+    RequestFeatureChanges {
+        id: String,
+        candidate_hash: String,
+    },
     GenerateTasksForFeature {
         work_key: String,
         feature_id: String,

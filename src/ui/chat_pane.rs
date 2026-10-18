@@ -21,6 +21,7 @@ pub struct Intent {
     pub generate_tasks: bool,
     pub implement_tasks: bool,
     pub approve_feature: Option<String>,
+    pub request_feature_changes: Option<(String, String)>,
 }
 
 pub struct Actions<'a> {

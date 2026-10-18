@@ -1,4 +1,4 @@
-use super::super::board_tests::{click_text, fixture, frame, text_position};
+use super::super::board_tests::{click_text, fixture, frame, text_contains, text_position};
 use super::*;
 use sha2::Digest;
 use std::sync::{Arc, Mutex};

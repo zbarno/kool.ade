@@ -150,6 +150,9 @@ pub fn workflow_context_for_turn(
         crate::core::workflow::TurnPurpose::Interview => {
             "INTERVIEW. Task generation is NOT authorized. Clarify intent and scope; offer the next phase only when ready."
         }
+        crate::core::workflow::TurnPurpose::PlanRemediation => {
+            "PLAN REMEDIATION. A persisted independent review requested changes to the exact current plan candidate. Return a complete typed plan_remediation disposition for every finding, bound to the supplied feature, snapshot hash, and reviewer receipt. Follow-up task offers are user-started; never mark this candidate approved."
+        }
         crate::core::workflow::TurnPurpose::Question => {
             "QUESTION TASK. Investigate the user's question and provide a direct, evidence-based answer. Do not create or update feature specifications, interview briefs, task stories, or implementation requests. You may create a related Human or Review board item only if a genuine unresolved decision or user action is discovered."
         }

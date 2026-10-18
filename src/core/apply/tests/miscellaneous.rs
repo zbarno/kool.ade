@@ -42,6 +42,7 @@ fn unowned_used_category_spawns_single_ownership_item() {
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     };
     let nt = validation::validate(&e, &st, &st.effective_user()).unwrap();
     let rc = apply(&mut st, &nt).unwrap();

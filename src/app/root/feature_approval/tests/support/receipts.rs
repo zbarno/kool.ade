@@ -73,7 +73,15 @@ pub(crate) fn record_test_plan_review(
         actor: crate::core::lifecycle::GateActor::IndependentReviewer,
         decision,
         recorded_at_unix_ms: 1,
-        evidence_refs: vec!["test-only/explicit-plan-review".into()],
+        evidence_refs: std::iter::once(format!("plan:{}", snapshot.uid))
+            .chain(
+                snapshot
+                    .requirements
+                    .iter()
+                    .map(|requirement| format!("requirement:{}", requirement.stable_id)),
+            )
+            .chain(std::iter::once("test-only/explicit-plan-review".into()))
+            .collect(),
         prompt_sha256: Some(manifest.identity_sha256()),
         prompt_manifest: Some(manifest),
         reviewer_run_id: Some(reviewer_run_id),
@@ -81,10 +89,52 @@ pub(crate) fn record_test_plan_review(
         reviewer_session_id: Some(reviewer_session_id),
         author_session_id: Some(author_session_id),
     };
+    let passed = decision == crate::core::lifecycle::GateDecision::Approved;
+    let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
+        subject_hash: snapshot.content_hash.clone(),
+        pass: passed,
+        coverage: snapshot
+            .requirements
+            .iter()
+            .enumerate()
+            .map(
+                |(index, requirement)| crate::harness::prompt_catalog::CoverageV1 {
+                    requirement: requirement.stable_id.clone(),
+                    status: if passed {
+                        crate::harness::prompt_catalog::CoverageStatus::Pass
+                    } else if index == 0 {
+                        crate::harness::prompt_catalog::CoverageStatus::Fail
+                    } else {
+                        crate::harness::prompt_catalog::CoverageStatus::Untested
+                    },
+                    evidence: vec![format!("requirement:{}", requirement.stable_id)],
+                },
+            )
+            .collect(),
+        findings: if passed {
+            Vec::new()
+        } else {
+            vec![crate::harness::prompt_catalog::ReviewFindingV1 {
+                id: "F-TEST".into(),
+                requirement: snapshot.requirements[0].stable_id.clone(),
+                severity: crate::harness::prompt_catalog::Severity::Medium,
+                kind: crate::harness::prompt_catalog::FindingKind::Requirements,
+                location: snapshot.requirements[0].stable_id.clone(),
+                evidence: vec![format!(
+                    "requirement:{}",
+                    snapshot.requirements[0].stable_id
+                )],
+                repro: Some("The fixture leaves this behavior ambiguous.".into()),
+                proposed_correction: "Clarify the requirement.".into(),
+            }]
+        },
+        untested: Vec::new(),
+    };
     crate::core::workflow::record_plan_review_if_current(
         &project.state.planning_store,
         id,
         &receipt,
+        &verdict,
         &project.state.baseline_planning_revision,
     )
     .unwrap();

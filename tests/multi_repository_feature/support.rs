@@ -104,7 +104,21 @@ pub(super) fn approve_and_record_reviewer_receipt(
         actor: koolade::core::lifecycle::GateActor::IndependentReviewer,
         decision: koolade::core::lifecycle::GateDecision::Approved,
         recorded_at_unix_ms: 1,
-        evidence_refs: vec!["test-only/explicit-plan-review".into()],
+        evidence_refs: std::iter::once("test-only/explicit-plan-review".to_owned())
+            .chain(
+                snapshot["requirements"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|requirement| {
+                        format!("requirement:{}", requirement["stableId"].as_str().unwrap())
+                    }),
+            )
+            .chain(std::iter::once(format!(
+                "plan:{}",
+                snapshot["uid"].as_str().unwrap()
+            )))
+            .collect(),
         prompt_sha256: Some(manifest.identity_sha256()),
         prompt_manifest: Some(manifest),
         reviewer_run_id: Some(reviewer_run_id.into()),
@@ -113,7 +127,28 @@ pub(super) fn approve_and_record_reviewer_receipt(
         author_session_id: Some(author_session_id.into()),
     };
     let revision = store.revision().unwrap();
-    koolade::core::workflow::record_plan_review_if_current(store, feature_id, &receipt, &revision)
-        .unwrap();
+    let verdict = koolade::harness::prompt_catalog::ReviewVerdictV1 {
+        subject_hash: snapshot["contentHash"].as_str().unwrap().to_owned(),
+        pass: true,
+        coverage: snapshot["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|requirement| {
+                let id = requirement["stableId"].as_str().unwrap().to_owned();
+                koolade::harness::prompt_catalog::CoverageV1 {
+                    requirement: id.clone(),
+                    status: koolade::harness::prompt_catalog::CoverageStatus::Pass,
+                    evidence: vec![format!("requirement:{id}")],
+                }
+            })
+            .collect(),
+        findings: Vec::new(),
+        untested: Vec::new(),
+    };
+    koolade::core::workflow::record_plan_review_if_current(
+        store, feature_id, &receipt, &verdict, &revision,
+    )
+    .unwrap();
     *workflow = koolade::artifacts::task_docs::load_workflow(store).unwrap();
 }

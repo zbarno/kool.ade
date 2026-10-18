@@ -332,6 +332,7 @@ fn misroute_envelope() -> TurnEnvelope {
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     }
 }
 
@@ -392,6 +393,7 @@ fn card_seed_envelope() -> TurnEnvelope {
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     }
 }
 
@@ -818,6 +820,7 @@ fn hostile_persona_decoy_fence_never_masks_the_real_envelope() {
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     };
     let canon = serde_json::to_string(&real).unwrap();
     let genuine = format!("The genuine upgraded declaration follows.\n\n```json\n{canon}\n```\n");
