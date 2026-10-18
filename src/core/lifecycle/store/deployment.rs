@@ -96,6 +96,7 @@ impl DeploymentEvidenceV1 {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DeploymentProjection {
     schema_version: u16,
+    uid: String,
     feature_uid: String,
     created_at_ms: u64,
     updated_at_ms: u64,
@@ -131,6 +132,7 @@ impl LifecycleStore<'_> {
         match self.store.read_record::<DeploymentProjection>(&path) {
             Ok((projection, actual))
                 if projection.schema_version == 1
+                    && projection.uid == feature_uid
                     && projection.feature_uid == feature_uid
                     && projection.created_at_ms > 0
                     && projection.updated_at_ms >= projection.created_at_ms
@@ -174,6 +176,7 @@ impl LifecycleStore<'_> {
         let existing = match self.store.read_record::<DeploymentProjection>(&path) {
             Ok((projection, actual))
                 if projection.schema_version == 1
+                    && projection.uid == current.feature_uid
                     && projection.feature_uid == current.feature_uid
                     && projection.created_at_ms > 0
                     && projection.updated_at_ms >= projection.created_at_ms
@@ -236,6 +239,7 @@ impl LifecycleStore<'_> {
         record.validate()?;
         let projection = DeploymentProjection {
             schema_version: 1,
+            uid: current.feature_uid.clone(),
             feature_uid: current.feature_uid.clone(),
             created_at_ms: created_at,
             updated_at_ms: record.observed_at_ms,

@@ -14,6 +14,7 @@ fn lifecycle_record_collections_are_separate_and_revision_fenced() {
         "lifecycle_feature_delta_authorizations",
         "current_implementations",
         "current_implementation_history",
+        "deployments",
         "opportunities",
         "opportunity_decisions",
         "self_improvements",
