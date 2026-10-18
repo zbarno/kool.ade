@@ -5,6 +5,7 @@ use crate::domain::ArtifactIdentity;
 mod author;
 mod confirmation;
 mod persistence;
+pub(crate) use persistence::plan_review_verdict;
 #[cfg(not(test))]
 pub(crate) use persistence::recorded_review_decision;
 pub(crate) use persistence::{
@@ -19,10 +20,14 @@ pub(crate) fn confirmed_product_spec_hash(
     confirmation::confirmed_product_spec_hash(receipt)
 }
 mod content;
+mod identity;
+mod readiness;
+mod requirements;
 mod store;
-use content::{
-    canonical_uuid, is_hash, list, section, sha256, snapshot_uid, stable_requirement_id,
-};
+use content::{canonical_uuid, is_hash, list, section, sha256, snapshot_uid};
+pub(crate) use readiness::current as current_readiness;
+pub use requirements::PlanRequirementV1;
+use requirements::{parse_acceptance_criterion, parse_requirement, valid_acceptance_id};
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -36,13 +41,6 @@ pub struct PlanAuthorProvenanceV1 {
 #[cfg(test)]
 #[path = "plan_snapshot/tests.rs"]
 mod tests;
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlanRequirementV1 {
-    pub stable_id: String,
-    pub text: String,
-}
 
 /// Immutable, application-parsed input to explicit plan confirmation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -126,14 +124,15 @@ impl PlanSnapshotV1 {
         {
             return Err("feature identity is invalid".into());
         }
+        let acceptance_criteria = list(&section(markdown, "Acceptance Criteria"))
+            .into_iter()
+            .enumerate()
+            .map(parse_acceptance_criterion)
+            .collect::<Result<Vec<_>, _>>()?;
         let requirements = list(&section(markdown, "Requirements"))
             .into_iter()
-            .map(|text| PlanRequirementV1 {
-                stable_id: stable_requirement_id(&text),
-                text,
-            })
+            .map(|line| parse_requirement(line, &acceptance_criteria))
             .collect::<Vec<_>>();
-        let acceptance_criteria = list(&section(markdown, "Acceptance Criteria"));
         let scope = list(&section(markdown, "Scope"));
         let non_goals = scope
             .iter()
@@ -146,7 +145,7 @@ impl PlanSnapshotV1 {
             .cloned()
             .collect();
         let mut snapshot = Self {
-            schema_version: 1,
+            schema_version: 2,
             uid: String::new(),
             feature_uid: identity.uid.clone(),
             feature_id: feature_id.to_owned(),
@@ -181,7 +180,7 @@ impl PlanSnapshotV1 {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1 | 2)
             || !canonical_uuid(&self.uid)
             || !canonical_uuid(&self.feature_uid)
             || self.feature_id.trim().is_empty()
@@ -201,17 +200,41 @@ impl PlanSnapshotV1 {
         {
             return Err("plan snapshot is invalid or its content hash does not match".into());
         }
-        if self
-            .requirements
-            .iter()
-            .any(|item| item.stable_id.trim().is_empty() || item.text.trim().is_empty())
-            || self.requirements.iter().enumerate().any(|(index, item)| {
-                self.requirements[..index]
-                    .iter()
-                    .any(|prior| prior.stable_id == item.stable_id)
-            })
-        {
+        if self.requirements.iter().any(|item| {
+            item.stable_id.trim().is_empty()
+                || item.text.trim().is_empty()
+                || item
+                    .rationale
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+                || item.ac_ids.iter().any(|id| {
+                    !self.acceptance_criteria.iter().any(|criterion| {
+                        criterion
+                            .split_once(':')
+                            .is_some_and(|(criterion_id, _)| criterion_id == id)
+                    })
+                })
+        }) || self.requirements.iter().enumerate().any(|(index, item)| {
+            self.requirements[..index]
+                .iter()
+                .any(|prior| prior.stable_id == item.stable_id)
+        }) {
             return Err("plan snapshot requirements need unique IDs and nonempty text".into());
+        }
+        let acceptance_ids = self
+            .acceptance_criteria
+            .iter()
+            .filter_map(|criterion| criterion.split_once(':').map(|(id, _)| id))
+            .collect::<std::collections::HashSet<_>>();
+        let identified_criteria = self.acceptance_criteria.iter().all(|criterion| {
+            criterion
+                .split_once(':')
+                .is_some_and(|(id, text)| valid_acceptance_id(id) && !text.trim().is_empty())
+        });
+        if self.schema_version == 2 && !identified_criteria
+            || identified_criteria && acceptance_ids.len() != self.acceptance_criteria.len()
+        {
+            return Err("plan acceptance criteria need unique IDs and nonempty text".into());
         }
         if self.author_run_id.is_some() != self.author_session_id.is_some()
             || self

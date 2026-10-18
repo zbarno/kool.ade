@@ -38,6 +38,7 @@ pub(super) fn paint_with_hint(
     let mut generate_tasks = false;
     let mut implement_tasks = false;
     let mut approve_feature = None;
+    let mut request_feature_changes = None;
     // Flipped once per frame by a claimed chip tap so the composer can pin
     // the caret and re-grab focus right behind the inserted text.
     let mut chip_fired = false;
@@ -76,7 +77,15 @@ pub(super) fn paint_with_hint(
                     );
                     ui.add_space(8.0);
                 }
-                approve_feature = super::feature_approval::paint(ui, actions, busy).map(|(id, _)| id);
+                match super::feature_approval::paint(ui, actions, busy) {
+                    Some(super::feature_approval::ApprovalIntent::Confirm(id, _)) => {
+                        approve_feature = Some(id)
+                    }
+                    Some(super::feature_approval::ApprovalIntent::RequestChanges(id, hash)) => {
+                        request_feature_changes = Some((id, hash))
+                    }
+                    None => {}
+                }
                 if actions.iter().any(|action| action.prepare_tasks) {
                     // Feature actions already provide the applicable next step.
                 } else if implementation_offer {
@@ -211,5 +220,6 @@ pub(super) fn paint_with_hint(
         generate_tasks,
         implement_tasks,
         approve_feature,
+        request_feature_changes,
     }
 }

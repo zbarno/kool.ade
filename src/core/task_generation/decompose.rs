@@ -27,6 +27,8 @@ pub(super) fn run(
     let goal = lifecycle
         .load_feature(&identity.uid)
         .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    crate::core::lifecycle::plan_snapshot::current_readiness(&state.planning_store, snapshot)
+        .map_err(|error| anyhow::anyhow!("Current plan readiness is stale: {error}"))?;
     let plan_hash = &snapshot.content_hash;
     if !(goal.phase == crate::core::lifecycle::FeaturePhase::ReadyToDecompose
         && goal.plan_snapshot_uid.as_deref() == Some(snapshot.uid.as_str())

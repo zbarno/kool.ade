@@ -11,6 +11,7 @@ use crate::domain::{Authority, CurrentUser, DecisionBrief, ItemKind, OpenItem, P
 use crate::harness::TurnEnvelope;
 
 mod dependency_graph;
+mod plan_remediation;
 
 /// Field-wise patch for an existing item: `Some` = set, `None` = untouched.
 /// Clearing an assignment is intentionally unsupported in the MVP.
@@ -131,6 +132,31 @@ pub fn validate_for_turn_with_user_message(
 ) -> Result<NormalizedTurn, Vec<String>> {
     let mut fatals: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    if purpose == crate::core::workflow::TurnPurpose::PlanRemediation
+        && envelope.plan_remediation.is_none()
+    {
+        fatals.push(
+            "Manager response must include typed plan_remediation for every persisted review finding".into(),
+        );
+    }
+    let remediation_artifact = match envelope.plan_remediation.as_ref() {
+        Some(remediation) => {
+            match plan_remediation::validate(remediation, envelope, state, purpose, user_message) {
+                Ok(artifact) => Some(artifact),
+                Err(error) => {
+                    fatals.push(error);
+                    None
+                }
+            }
+        }
+        None => match plan_remediation::require_for_request(state, user_message) {
+            Ok(()) => None,
+            Err(error) => {
+                fatals.push(error);
+                None
+            }
+        },
+    };
     let action_was_requested = envelope.requested_action.is_some();
     let explicitly_requested =
         crate::core::validation::requested_action_validation::user_authorized(
@@ -150,7 +176,20 @@ pub fn validate_for_turn_with_user_message(
         }
     };
     let follow_up_task = match &envelope.follow_up_task {
-        Some(offer) if purpose != crate::core::workflow::TurnPurpose::Question => {
+        Some(offer)
+            if purpose != crate::core::workflow::TurnPurpose::Question
+                && !envelope
+                    .plan_remediation
+                    .as_ref()
+                    .is_some_and(|remediation| {
+                        remediation.dispositions.iter().any(|disposition| {
+                            matches!(
+                                &disposition.action,
+                                crate::core::lifecycle::PlanFindingActionV1::PromoteFollowUp { .. }
+                            )
+                        })
+                    }) =>
+        {
             fatals.push("follow_up_task is only valid for a Question task".into());
             None
         }
@@ -712,7 +751,7 @@ pub fn validate_for_turn_with_user_message(
         document_updates,
         planning_tasks,
         change_status_updates,
-        additional_planning_artifacts: Vec::new(),
+        additional_planning_artifacts: remediation_artifact.into_iter().collect(),
         added,
         updates,
         resolved,
@@ -799,6 +838,7 @@ mod tests {
             task_outline: None,
             plans: None,
             recommendation: None,
+            plan_remediation: None,
         }
     }
 
