@@ -55,6 +55,8 @@ pub(super) fn refresh(
     let Some(pr_id) = work.provider_pr_id else {
         bail!("Persisted PR preparation has no provider PR ID");
     };
+    let mapped_repository_id = super::task_repository_id_with_store(store, ticket)?;
+    validate_repository_id_binding(&current.repository_id, &mapped_repository_id)?;
     let target_repo = super::target_repository_with_store(store, state_root, ticket)?;
     lifecycle
         .validate_deployment_repository(&current, &target_repo, pr_url, pr_id)
@@ -75,6 +77,17 @@ pub(super) fn refresh(
         runner,
     )?;
     lifecycle.record_deployment_evidence(&current, observation)?;
+    Ok(())
+}
+
+fn validate_repository_id_binding(
+    receipt_repository_id: &str,
+    mapped_repository_id: &str,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !receipt_repository_id.trim().is_empty() && receipt_repository_id == mapped_repository_id,
+        "current implementation repository does not match the task repository mapping"
+    );
     Ok(())
 }
 
@@ -189,7 +202,7 @@ fn github_repository_from_pr_url(url: &str) -> anyhow::Result<String> {
 mod tests {
     use super::{
         Deployment, Status, github_repository_from_pr_url, latest_matching_production_deployment,
-        latest_status,
+        latest_status, validate_repository_id_binding,
     };
 
     /// Synthetic GitHub API fixtures cover the provider-field boundary without network access.
@@ -243,5 +256,12 @@ mod tests {
         ] {
             assert!(github_repository_from_pr_url(invalid).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn deployment_refresh_requires_the_receipt_repository_to_match_task_mapping() {
+        assert!(validate_repository_id_binding("repo-1", "repo-1").is_ok());
+        assert!(validate_repository_id_binding("repo-1", "repo-2").is_err());
+        assert!(validate_repository_id_binding(" ", "repo-1").is_err());
     }
 }
