@@ -115,6 +115,12 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
                     )
                     .expect("explicitly approve stack recipe")
             };
+            recipe = manifest
+                .user_overrides
+                .iter()
+                .find(|approved| approved.recipe_id == recipe.recipe_id)
+                .cloned()
+                .expect("persisted approved recipe");
             recipe.validate().expect("approved recipe contract");
             let widened_root = session
                 .run_scoped_recipe(&runtime_store, &target_id, &recipe, ".")
