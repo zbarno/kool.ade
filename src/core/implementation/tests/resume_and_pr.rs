@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "resume_and_pr/branch_intent.rs"]
 mod branch_intent;
+#[path = "resume_and_pr/interrupted_retry.rs"]
+mod interrupted_retry;
 #[path = "resume_and_pr/pull_request_state.rs"]
 mod pull_request_state;
 #[path = "resume_and_pr/task_clone_resume.rs"]

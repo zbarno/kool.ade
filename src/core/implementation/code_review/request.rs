@@ -128,6 +128,7 @@ pub(super) fn build_request(
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: state.task_uid.clone(),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         prompt_manifest: Some(rendered.manifest.clone()),
         reasoning_level: "high".into(),

@@ -191,6 +191,17 @@ pub trait ExecutionBackend: Send + Sync {
         request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ExecutionHandleV1>;
 
+    /// Persist a controller-observed lifecycle transition for an active local
+    /// execution. Remote backends keep worker event ownership and use the
+    /// default no-op until their protocol supports this signal.
+    fn set_lifecycle_state(
+        &self,
+        _handle: &ExecutionHandleV1,
+        _state: crate::execution::contract::ExecutionLifecycleV1,
+    ) -> Result<(), ExecutionError> {
+        Ok(())
+    }
+
     fn release_workspace<'a>(&'a self, lease: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()>;
 
     fn exec<'a>(

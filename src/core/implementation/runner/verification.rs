@@ -1,4 +1,6 @@
 use super::{Runner, verification_command};
+use crate::core::implementation::repository_cache::RepositoryCache;
+use crate::core::implementation::{Implementation, TaskRepositoryKind};
 use std::{path::Path, time::Duration};
 
 impl Runner {
@@ -38,13 +40,14 @@ impl Runner {
         cwd: &Path,
         command: &str,
         workspace: &crate::execution::contract::WorkspaceRef,
+        destination_sha: Option<String>,
     ) -> anyhow::Result<String> {
         verification_command::validate(command)?;
         self.check_storage(cwd)?;
         workspace.validate().map_err(|_| {
             anyhow::anyhow!("Verification workspace identity is invalid; refusing host execution")
         })?;
-        match self.verify_once(cwd, command, workspace) {
+        match self.verify_once(cwd, command, workspace, destination_sha.clone()) {
             Ok(output) => Ok(output),
             Err(error) if is_nuget_audit_failure(&error) => {
                 self.update(
@@ -54,7 +57,7 @@ impl Runner {
                 crate::harness::refresh_nuget_audit_cache(timeout).map_err(|refresh_error| {
                     anyhow::anyhow!("{error}\nKool.ad/e could not refresh the public NuGet audit cache: {refresh_error:#}")
                 })?;
-                self.verify_once(cwd, command, workspace).map_err(|retry_error| {
+                self.verify_once(cwd, command, workspace, destination_sha).map_err(|retry_error| {
                     anyhow::anyhow!("{retry_error}\nKool.ad/e refreshed the public NuGet audit cache and retried verification, but the feed error remains.")
                 })
             }
@@ -67,6 +70,7 @@ impl Runner {
         cwd: &Path,
         command: &str,
         workspace: &crate::execution::contract::WorkspaceRef,
+        destination_sha: Option<String>,
     ) -> anyhow::Result<String> {
         let remaining = self.remaining()?;
         #[cfg(test)]
@@ -85,7 +89,7 @@ impl Runner {
             crate::execution::docker::images::RuntimeProfile::General
         };
         let session =
-            crate::execution::session::ExecutionSession::connect_local_with_authorization(
+            crate::execution::session::ExecutionSession::connect_local_with_destination_sha_and_authorization(
                 workspace.clone(),
                 cwd,
                 crate::execution::contract::ExecutionModeV1::Verification,
@@ -97,6 +101,7 @@ impl Runner {
                     temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
                     output_bytes: 8 * 1024 * 1024,
                 },
+                destination_sha,
                 self.authorization_verifier.clone(),
             )
             .map_err(|error| {
@@ -120,6 +125,57 @@ impl Runner {
             "Docker verification command failed: {command}\n{text}"
         );
         Ok(text)
+    }
+
+    /// Resolve the selected destination branch at the point immediately before
+    /// a verification execution is authorized. Never substitute the source SHA.
+    pub(in crate::core::implementation) fn destination_sha_for(
+        &self,
+        state: &Implementation,
+    ) -> anyhow::Result<Option<String>> {
+        if state.task_repository_kind != TaskRepositoryKind::Clone {
+            return Ok(None);
+        }
+        anyhow::ensure!(
+            !state.base.is_empty(),
+            "Selected destination branch is missing; execution provenance cannot be recorded"
+        );
+        let cache = RepositoryCache::from_saved_state(state, self)?;
+        let destination = match cache.refresh_branch_if_advertised(&state.base, self)? {
+            Some(destination) => destination,
+            None if state.source_ref.as_deref() == Some(state.base.as_str()) => {
+                let source_commit = state
+                    .source_commit
+                    .as_deref()
+                    .filter(|sha| crate::execution::contract::is_valid_sha(sha))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "The selected destination branch is unavailable and its pinned source commit is invalid"
+                        )
+                    })?;
+                let pinned = cache.pin_source(source_commit, self)?;
+                let pinned_commit = cache.resolve_branch(&pinned, self)?;
+                anyhow::ensure!(
+                    pinned_commit == source_commit,
+                    "Pinned same-branch destination provenance changed unexpectedly"
+                );
+                pinned_commit
+            }
+            None => {
+                let repository_id = state.repository_id.as_deref().unwrap_or("unknown");
+                return Err(super::super::initial_reconciliation::support::user_action(
+                    format!(
+                        "Selected destination branch '{}' in code repository '{}' is unavailable locally and on origin. Refresh the repository and select an existing destination branch.",
+                        state.base, repository_id
+                    ),
+                ));
+            }
+        };
+        anyhow::ensure!(
+            crate::execution::contract::is_valid_sha(&destination),
+            "Selected destination branch did not resolve to a valid commit"
+        );
+        Ok(Some(destination))
     }
 
     pub(in crate::core::implementation) fn workspace_ref_for(

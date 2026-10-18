@@ -38,6 +38,8 @@ fn record_with_manifest(
         ended_at_unix_ms: None,
         exit_code: None,
         artifacts: Vec::new(),
+        docker_usage: Default::default(),
+        phase_timings: Default::default(),
         cleanup: ExecutionCleanupStateV1::Pending,
     }
 }

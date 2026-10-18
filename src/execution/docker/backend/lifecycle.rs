@@ -16,7 +16,18 @@ mod execute;
 mod recovery;
 mod runtime;
 mod workspace;
+#[cfg(test)]
+pub(in crate::execution::docker::backend) use execute::{
+    inject_crash_after_stage_out, observe_cancel_race_archive, pause_after_stage_out,
+    pause_before_collecting,
+};
+#[cfg(test)]
+pub(in crate::execution::docker::backend::lifecycle) use recovery::reconcile_missing_container_404;
 pub(super) use runtime::RuntimeExecution;
+#[cfg(test)]
+pub(in crate::execution::docker::backend::lifecycle) use workspace::{
+    persist_runtime_wait_error, record_start_registration_failure,
+};
 
 impl ExecutionBackend for DockerExecutionBackend {
     #[allow(private_interfaces)]
@@ -195,6 +206,14 @@ impl ExecutionBackend for DockerExecutionBackend {
         request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ExecutionHandleV1> {
         Box::pin(async move { workspace::start(self, lease, request).await })
+    }
+
+    fn set_lifecycle_state(
+        &self,
+        handle: &ExecutionHandleV1,
+        state: crate::execution::contract::ExecutionLifecycleV1,
+    ) -> Result<(), ExecutionError> {
+        control::set_lifecycle_state(self, handle, state)
     }
 
     fn release_workspace<'a>(&'a self, lease: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()> {

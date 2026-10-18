@@ -21,6 +21,7 @@ fn dependency_activity_rows_keep_preparation_and_retry_details_visible() {
         status: crate::harness::DependencyRequestStatus::Prepared,
         preparation: Some(crate::harness::DependencyPreparationTelemetry {
             status: Some(crate::harness::DependencyPreparationStatus::Prepared),
+            broker_duration_millis: Some(1234),
             package_count: 2,
             cache_hits: 1,
             packages_downloaded: 1,
@@ -38,6 +39,7 @@ fn dependency_activity_rows_keep_preparation_and_retry_details_visible() {
         "Packages: zod@^4.0.0",
         "Source: https://registry.npmjs.org",
         "Preparation: Prepared",
+        "Dependency broker: 1.2 s",
         "2 total · 1 cache hits · 1 downloaded · 32 bytes",
         "Authorization: Man.ager",
         "Offline retry: Succeeded",

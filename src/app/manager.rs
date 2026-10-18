@@ -221,6 +221,7 @@ impl Manager {
             mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
             task_id: None,
             execution_workspace: None,
+            destination_sha: None,
             prompt_manifest: prompt_manifest.clone(),
             reasoning_level: "xhigh".into(),
             telemetry_phase: None,

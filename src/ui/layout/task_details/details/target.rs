@@ -75,10 +75,73 @@ pub(super) fn paint_execution_evidence(ui: &mut egui::Ui, view: &task_detail::Vi
         ui.label(format!("Worker: {worker}"));
         ui.add(egui::Label::new(format!("Image digest: {}", record.image_digest)).wrap());
         ui.label(format!("Execution state: {}", record_state(record.state)));
+        paint_execution_telemetry(ui, &record.phase_timings, &record.docker_usage);
         ui.label("Toolchain version is not stored in the execution record.");
-        ui.label("Workspace transfer progress is not stored in the execution record.");
+        ui.label("Workspace transfer byte counts and per-file progress are not stored; stage-in and stage-out durations are shown above.");
     });
 }
+
+fn paint_execution_telemetry(
+    ui: &mut egui::Ui,
+    phases: &crate::persistence::execution_records::ExecutionPhaseTimingsV1,
+    metrics: &crate::persistence::execution_records::DockerResourceUsageV1,
+) {
+    ui.label(format!(
+        "Image preparation: {}",
+        duration(phases.image_preparation_ms)
+    ));
+    ui.label(format!(
+        "Workspace stage in: {}",
+        duration(phases.workspace_stage_in_ms)
+    ));
+    ui.label(format!(
+        "Workspace stage out: {}",
+        duration(phases.workspace_stage_out_ms)
+    ));
+    ui.label(format!(
+        "Dependency cache staging: {}",
+        duration(phases.dependency_cache_stage_ms)
+    ));
+    ui.label("Dependency broker timing is recorded per request in task activity.");
+    ui.label(format!(
+        "Runtime QA container command: {}",
+        duration(phases.qa_ms)
+    ));
+    ui.label(format!(
+        "Container cleanup: {}",
+        duration(phases.cleanup_ms)
+    ));
+    if metrics.sample_count == 0 {
+        ui.label("Docker CPU, memory, and process measurements: Not recorded");
+    } else {
+        ui.label(format!(
+            "Container CPU since startup: {}",
+            metric(metrics.cpu_time_ms, "ms")
+        ));
+        ui.label(format!(
+            "Sampled peak container memory: {}",
+            metric(metrics.sampled_peak_memory_bytes, "bytes")
+        ));
+        ui.label(format!(
+            "Latest sampled process count: {}",
+            metric(metrics.latest_process_count, "")
+        ));
+        ui.label("Container disk usage: Not recorded");
+        ui.label(format!("Docker samples recorded: {}", metrics.sample_count));
+    }
+}
+
+fn duration(milliseconds: Option<u64>) -> String {
+    milliseconds.map_or_else(|| "Not recorded".into(), |value| format!("{value} ms"))
+}
+
+fn metric<T: std::fmt::Display>(value: Option<T>, unit: &str) -> String {
+    value.map_or_else(|| "Not recorded".into(), |value| format!("{value} {unit}"))
+}
+
+#[cfg(test)]
+#[path = "target_tests.rs"]
+mod tests;
 
 fn record_state(
     state: crate::persistence::execution_records::ExecutionRecordStateV1,

@@ -62,6 +62,7 @@ fn implementation_repairs_after_verification_failure_use_the_independent_qa_harn
         progress_tx,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

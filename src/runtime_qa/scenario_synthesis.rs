@@ -151,6 +151,7 @@ fn synthesize(
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(request.parent_task_uid.clone()),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         prompt_manifest: Some(rendered.manifest),
         reasoning_level: "high".into(),

@@ -33,6 +33,7 @@ fn request() -> ExecutionRequestV1 {
             task_id,
             source_sha: "a".repeat(40),
         },
+        destination_sha: None,
         mode: ExecutionModeV1::Implementation,
         image_digest: format!("sha256:{}", "b".repeat(64)),
         authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -62,6 +63,8 @@ mod events;
 #[path = "tests/readiness_results.rs"]
 mod readiness_results;
 
+#[path = "tests/policy.rs"]
+mod policy;
 #[path = "tests/wire_contract.rs"]
 mod wire_contract;
 
@@ -245,35 +248,8 @@ fn role_selection_maps_to_security_modes_without_provider_authority() {
         ExecutionModeV1::Implementation
     );
 }
+#[path = "tests/request_validation.rs"]
+mod request_validation;
 
 #[path = "tests/request_edges.rs"]
 mod request_edges;
-
-#[test]
-fn target_and_qa_ports_are_separate_from_workspace_paths() {
-    let worker_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let remote = ExecutionTarget::remote(worker_id.clone());
-    remote.validate().unwrap();
-    assert_eq!(remote.location, TargetLocation::Remote { worker_id });
-    let local = ExecutionTarget::local();
-    local.validate().unwrap();
-
-    let mut qa = request();
-    qa.mode = ExecutionModeV1::RuntimeQa;
-    qa.argv = vec!["browser".into(), "capture".into()];
-    qa.allowed_service_ports = BTreeSet::from([3000]);
-    qa.policy = ExecutionPolicyV1::for_mode(
-        ExecutionModeV1::RuntimeQa,
-        budget(1024 * 1024 * 1024, 1000),
-        BTreeSet::from([3000]),
-    )
-    .unwrap();
-    qa.resource_budget = budget(1024 * 1024 * 1024, 1000);
-    qa.validate_at(1).unwrap();
-    assert_eq!(
-        serde_json::to_value(&qa.policy).unwrap()["network_access"],
-        "runtime_qa_service_ports"
-    );
-    qa.allowed_service_ports.insert(3001);
-    assert!(qa.validate_at(1).is_err());
-}

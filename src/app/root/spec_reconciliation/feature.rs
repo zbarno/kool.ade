@@ -160,6 +160,7 @@ pub(super) fn prepare(
             mode: ExecutionMode::Reconciliation,
             task_id: None,
             execution_workspace: None,
+            destination_sha: None,
             authorization_verifier: None,
             prompt_manifest: Some(rendered.manifest),
             reasoning_level: "high".into(),

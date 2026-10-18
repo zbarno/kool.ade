@@ -126,6 +126,10 @@ pub enum DependencyRetryResult {
 #[serde(default, rename_all = "camelCase")]
 pub struct DependencyPreparationTelemetry {
     pub status: Option<DependencyPreparationStatus>,
+    /// Time spent in the app-owned dependency broker for this request. This
+    /// excludes waiting between a user approval and the subsequent retry.
+    #[serde(default)]
+    pub broker_duration_millis: Option<u64>,
     pub package_count: u64,
     pub cache_hits: u64,
     pub packages_downloaded: u64,

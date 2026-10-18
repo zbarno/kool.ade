@@ -119,6 +119,7 @@ fn run_review(
         progress_tx,
         cancel: cancel.clone(),
             execution_workspace: None,
+            destination_sha: None,
 
        authorization_verifier: None,
         review_identity: None,
