@@ -15,14 +15,18 @@ pub(super) fn start_from_button(app: &mut KooladeApp) {
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
             active.extend(project.cancelled_task_paths());
-            let ticket = crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
-                &project.task_documents,
-                &project.implementation_states,
-                &active,
-                &active,
-            )
-            .ok()
-            .flatten();
+            let completed_subtasks =
+                crate::app::root::implementation_controller::completed_subtask_uids(project);
+            let ticket =
+                crate::core::implementation_queue::next_ready_ticket_with_lifecycle_subtasks(
+                    &project.task_documents,
+                    &project.implementation_states,
+                    &active,
+                    &active,
+                    &completed_subtasks,
+                )
+                .ok()
+                .flatten();
             ticket
                 .and_then(|ticket| {
                     project
@@ -113,11 +117,12 @@ pub(super) fn start(app: &mut KooladeApp, target: Option<String>, resume: bool) 
             _ => Err("More than one task needs resuming. Open the task you want and use its Resume action.".into()),
         }
     } else {
-        crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
+        crate::core::implementation_queue::next_ready_ticket_with_lifecycle_subtasks(
             &project.task_documents,
             &project.implementation_states,
             &active,
             &active,
+            &crate::app::root::implementation_controller::completed_subtask_uids(project),
         )
         .map_err(|reason| format!("No task can start yet: {reason}"))
         .and_then(|ticket| {
@@ -206,11 +211,14 @@ pub(super) fn start(app: &mut KooladeApp, target: Option<String>, resume: bool) 
             );
             return;
         }
-        if let Err(reason) = crate::core::implementation_queue::ticket_readiness(
-            &project.task_documents,
-            &project.implementation_states,
-            &ticket,
-        ) {
+        if let Err(reason) =
+            crate::core::implementation_queue::ticket_readiness_with_lifecycle_subtasks(
+                &project.task_documents,
+                &project.implementation_states,
+                &ticket,
+                &crate::app::root::implementation_controller::completed_subtask_uids(project),
+            )
+        {
             action_feedback(
                 app,
                 &format!("{} cannot start yet: {reason}", document.title),

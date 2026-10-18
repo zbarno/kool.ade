@@ -117,6 +117,18 @@ pub fn save_progress_expected<R: PlanningRoot + ?Sized>(
             },
             dependency_uids,
         )?
+        .with_parent_task_uid(
+            story
+                .parent_task_index
+                .map(|parent| {
+                    parent
+                        .checked_sub(1)
+                        .and_then(|index| task_uids.get(index))
+                        .map(String::as_str)
+                        .ok_or_else(|| anyhow::anyhow!("Task parent index {parent} is invalid"))
+                })
+                .transpose()?,
+        )?
         .with_branch_targets(batch.branch_targets.as_ref())?
         .with_source_sha(story.source_sha.as_deref())?
         .with_parallelizable(story.parallelizable)?

@@ -40,6 +40,10 @@ pub struct ViewModel {
 pub struct LifecycleView {
     pub feature_phase: crate::core::lifecycle::FeaturePhase,
     pub task_phase: crate::core::lifecycle::TaskPhase,
+    pub parent_task_uid: Option<String>,
+    pub parent_task: Option<TaskRelationView>,
+    pub dependencies: Vec<TaskRelationView>,
+    pub subtasks: Vec<TaskRelationView>,
     pub task_revision: u64,
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
@@ -54,6 +58,13 @@ pub struct LifecycleView {
     pub specification_deltas: Vec<(u64, crate::core::lifecycle::SpecDeltaRecordV1)>,
     pub pull_request_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub merged_commit_sha: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct TaskRelationView {
+    pub title: String,
+    pub status: String,
+    pub acceptance_criteria: Vec<String>,
 }
 
 pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {
