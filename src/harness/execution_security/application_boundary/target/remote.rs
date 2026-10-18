@@ -24,6 +24,15 @@ pub(super) fn remote_session(
     verifier
         .verify(&verifier.generation())
         .map_err(|error| anyhow::anyhow!("Remote task claim is unavailable: {}", error.message))?;
+    let runtime_config_source = request.runtime_config_source.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Remote execution requires the source checkout to verify private project configuration"
+        )
+    })?;
+    crate::harness::runtime_config::ensure_remote_transfer_allowed(
+        &request.repo_root,
+        Some(runtime_config_source),
+    )?;
     let registration = remote_workers::get(worker_id)?
         .ok_or_else(|| anyhow::anyhow!("Selected remote worker is not enrolled"))?;
     anyhow::ensure!(registration.enabled, "Selected remote worker is disabled");
@@ -68,6 +77,7 @@ pub(super) fn remote_session(
             resources,
             authorization_verifier: Some(verifier),
             task_clone: Some(&request.repo_root),
+            runtime_config_source: request.runtime_config_source.as_deref(),
         },
     )
     .map_err(|error| {

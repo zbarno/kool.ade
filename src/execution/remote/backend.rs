@@ -57,7 +57,19 @@ impl RemoteExecutionBackend {
         config: &SshWorkerConfig,
         target: ExecutionTarget,
         source_root: impl AsRef<Path>,
+        runtime_config_source: impl AsRef<Path>,
     ) -> Result<Self, ExecutionError> {
+        crate::harness::runtime_config::ensure_remote_transfer_allowed(
+            source_root.as_ref(),
+            Some(runtime_config_source.as_ref()),
+        )
+        .map_err(|_| {
+            ExecutionError::new(
+                ExecutionErrorKind::PolicyDenied,
+                "Remote execution is blocked because local private project configuration has no remote worker approval",
+                false,
+            )
+        })?;
         Self::connect_inner(config, target, Some(source_root.as_ref().to_path_buf()))
     }
 

@@ -175,6 +175,7 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
                     generation.clone(),
                 ))),
                 task_clone: Some(&task_repository),
+                runtime_config_source: Some(&repository),
             },
         )
         .unwrap(),

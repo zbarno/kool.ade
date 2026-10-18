@@ -52,6 +52,7 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
         let (authorization_a, active_a) = authorization::RevocableAuthorization::new(generation_a);
         let session_a = Arc::new(connect_session(
             &clone_a,
+            &repository,
             &worker,
             Arc::new(authorization_a),
         ));
@@ -72,6 +73,7 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
         let generation_b = uuid::Uuid::new_v4().hyphenated().to_string();
         let session_b = connect_session(
             &clone_b,
+            &repository,
             &worker,
             Arc::new(authorization::TestAuthorization(generation_b)),
         );
@@ -170,11 +172,13 @@ fn sshd_log_tail(path: &Path) -> String {
 
 pub(super) fn connect_session(
     task_clone: &std::path::Path,
+    runtime_config_source: &std::path::Path,
     worker: &crate::execution::remote::ssh::SshWorkerConfig,
     authorization_verifier: Arc<dyn AuthorizationGenerationVerifier>,
 ) -> ExecutionSession {
     connect_session_with_ids(
         task_clone,
+        runtime_config_source,
         worker,
         authorization_verifier,
         &uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -184,6 +188,7 @@ pub(super) fn connect_session(
 
 pub(super) fn connect_session_with_ids(
     task_clone: &std::path::Path,
+    runtime_config_source: &std::path::Path,
     worker: &crate::execution::remote::ssh::SshWorkerConfig,
     authorization_verifier: Arc<dyn AuthorizationGenerationVerifier>,
     project_id: &str,
@@ -219,6 +224,7 @@ pub(super) fn connect_session_with_ids(
             },
             authorization_verifier: Some(authorization_verifier),
             task_clone: Some(task_clone),
+            runtime_config_source: Some(runtime_config_source),
         },
     )
     .expect("remote controller should establish an approved worker session")

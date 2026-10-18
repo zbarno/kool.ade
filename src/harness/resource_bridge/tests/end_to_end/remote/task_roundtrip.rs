@@ -74,6 +74,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             },
             authorization_verifier: Some(Arc::new(authorization::TestAuthorization(generation))),
             task_clone: Some(&task_clone),
+            runtime_config_source: Some(&repository),
         },
     )
     .expect("remote worker must accept the authorized task snapshot");
