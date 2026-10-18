@@ -163,12 +163,25 @@ fn container_spec_rejects_missing_artifacts() {
 }
 
 #[test]
-fn image_lock_keeps_unpromoted_browser_profile_unavailable() {
+fn rootless_qa_candidates_are_locked_but_runtime_stays_disabled_until_approved() {
     let lock = ImageLock::bundled().unwrap();
-    assert!(!lock.profiles.contains_key("browser_qa"));
-    assert!(lock.select(RuntimeProfile::BrowserQa, "amd64").is_err());
-    assert!(!lock.profiles.contains_key("desktop_qa"));
-    assert!(lock.select(RuntimeProfile::DesktopQa, "amd64").is_err());
+    for (name, profile) in [
+        ("browser_qa", RuntimeProfile::BrowserQa),
+        ("desktop_qa", RuntimeProfile::DesktopQa),
+    ] {
+        let variant = lock
+            .profiles
+            .get(name)
+            .and_then(|variants| variants.first())
+            .expect("rootless candidate is recorded in the image lock");
+        assert_eq!(variant.platform, "linux/amd64");
+        assert!(!variant.runtime_enabled);
+        assert!(variant.build_recipe_sha256.is_some());
+        assert_eq!(
+            lock.select(profile, "amd64").unwrap_err().code,
+            crate::execution::docker::discovery::PrerequisiteCode::ProfileUnsupported
+        );
+    }
 }
 
 #[test]
