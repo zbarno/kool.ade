@@ -168,36 +168,56 @@ pub(super) async fn run(
     };
     let command_started = Instant::now();
     let collected = tokio::time::timeout(stream_budget, collect).await;
-    let _ = metrics_stop.send(());
-    let _ = metrics_task.await;
     if request.mode == crate::execution::contract::ExecutionModeV1::RuntimeQa {
-        let mut state = execution
+        let persisted = execution
             .lock()
-            .map_err(|_| internal_error_with_context("recording runtime QA execution telemetry"))?;
-        state.phase_timings.qa_ms = Some(elapsed_millis(command_started));
-        state.persist()?;
+            .map_err(|_| internal_error_with_context("recording runtime QA execution telemetry"))
+            .and_then(|mut state| {
+                state.phase_timings.qa_ms = Some(elapsed_millis(command_started));
+                state.persist()
+            });
+        if let Err(error) = persisted {
+            stop_resource_metrics(metrics_stop, metrics_task).await;
+            return Err(error);
+        }
     }
     match collected {
-        Ok(Ok(())) => {}
+        Ok(Ok(())) => {
+            // Docker can close the attached output stream while the exec is
+            // still running. Keep sampling until inspect_exec observes its
+            // exit and the execution record is finalized.
+            let result = finish::finish_command(
+                backend,
+                &execution,
+                request,
+                &container_id,
+                &exec.id,
+                &workspace,
+                snapshot.as_ref(),
+            )
+            .await;
+            stop_resource_metrics(metrics_stop, metrics_task).await;
+            result
+        }
         Ok(Err(error)) => {
+            stop_resource_metrics(metrics_stop, metrics_task).await;
             failure::finalize_failure(backend, &execution, error, false).await?;
-            return Ok(());
+            Ok(())
         }
         Err(_) => {
+            stop_resource_metrics(metrics_stop, metrics_task).await;
             cleanup::deadline_failure(backend, &execution).await?;
-            return Ok(());
+            Ok(())
         }
     }
-    finish::finish_command(
-        backend,
-        &execution,
-        request,
-        &container_id,
-        &exec.id,
-        &workspace,
-        snapshot.as_ref(),
-    )
-    .await
+}
+
+async fn stop_resource_metrics(
+    stop: tokio::sync::oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<()>,
+) {
+    let _ = stop.send(());
+    let _ = task.await;
 }
 
 fn elapsed_millis(started: Instant) -> u64 {
