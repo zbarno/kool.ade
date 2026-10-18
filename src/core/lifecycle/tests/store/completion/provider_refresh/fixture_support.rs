@@ -128,7 +128,15 @@ pub(super) fn write_provider_response(gh: &Path, state: &str, base: &str, head: 
         "baseRefOid": base,
         "baseRefName": "main"
     });
-    fs::write(gh, format!("#!/bin/sh\nprintf '%s\\n' '{}'\n", payload)).unwrap();
+    let script = if merge.is_empty() {
+        format!("#!/bin/sh\nprintf '%s\\n' '{}'\n", payload)
+    } else {
+        format!(
+            "#!/bin/sh\ncase \"$*\" in\n  *\"deployments?sha={merge}&per_page=100\"*) printf '%s\\n' '[{{\"id\":55,\"sha\":\"{merge}\",\"environment\":\"production\",\"production_environment\":true,\"created_at\":\"2026-10-18T10:00:00Z\"}}]' ;;\n  *\"deployments/55/statuses?per_page=100\"*) printf '%s\\n' '[{{\"id\":11,\"state\":\"in_progress\",\"created_at\":\"2026-10-18T11:00:00Z\"}}]' ;;\n  *) printf '%s\\n' '{}' ;;\nesac\n",
+            serde_json::to_string(&payload).unwrap()
+        )
+    };
+    fs::write(gh, script).unwrap();
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(gh, fs::Permissions::from_mode(0o700)).unwrap();
 }
