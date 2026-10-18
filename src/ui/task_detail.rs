@@ -132,6 +132,7 @@ pub struct RuntimeCapabilityView {
 pub struct RuntimeTargetChoice {
     pub target_id: String,
     pub label: String,
+    pub app_surface: crate::project_runtime::AppSurface,
     pub selected: bool,
     pub state: String,
     pub recipes: String,

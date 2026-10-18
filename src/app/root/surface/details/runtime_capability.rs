@@ -56,6 +56,7 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         .filter(|target| target.owning_task_id == identity.uid)
         .map(|target| RuntimeTargetChoice {
             target_id: target.target_id.clone(),
+            app_surface: target.app_surface,
             label: format!(
                 "{:?} · {}",
                 target.app_surface, target.project_relative_root

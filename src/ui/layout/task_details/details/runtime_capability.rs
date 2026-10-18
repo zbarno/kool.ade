@@ -114,12 +114,16 @@ pub(super) fn paint(
                 target.recipes.clone()
             });
             if target.selected {
-                for operation in [
-                    task_detail::RuntimeRecipeOperation::Build,
-                    task_detail::RuntimeRecipeOperation::Test,
-                    task_detail::RuntimeRecipeOperation::Start,
-                ] {
-                    recipe_form(ui, surface, ticket, target, operation, revision);
+                if target.app_surface == crate::project_runtime::AppSurface::UnsupportedTarget {
+                    ui.label("Recipes cannot run for an unsupported target surface.");
+                } else {
+                    for operation in [
+                        task_detail::RuntimeRecipeOperation::Build,
+                        task_detail::RuntimeRecipeOperation::Test,
+                        task_detail::RuntimeRecipeOperation::Start,
+                    ] {
+                        recipe_form(ui, surface, ticket, target, operation, revision);
+                    }
                 }
             } else if runtime.targets.len() > 1 {
                 ui.label("Select this target explicitly before approving recipes.");
@@ -157,15 +161,22 @@ fn recipe_form(
         ui.label("Arguments, one per line (each line is a separate argv item)");
         ui.text_edit_multiline(&mut draft.argv_lines);
         if operation == task_detail::RuntimeRecipeOperation::Start {
-            ui.horizontal(|ui| {
-                ui.label("Web readiness port");
-                ui.text_edit_singleline(&mut draft.readiness_port);
-            });
-            ui.horizontal(|ui| {
-                ui.label("HTTP readiness path");
-                ui.text_edit_singleline(&mut draft.readiness_path);
-            });
-            ui.label("Web targets require an approved local port; Linux desktop targets use process readiness.");
+            match target.app_surface {
+                crate::project_runtime::AppSurface::Web => {
+                    readiness_fields(ui, &mut draft, "Approved preview port", "HTTP readiness path");
+                    ui.label("Web readiness is restricted to the approved preview port.");
+                }
+                crate::project_runtime::AppSurface::HeadlessService => {
+                    readiness_fields(ui, &mut draft, "Local service health port", "Health path");
+                    ui.label("Service readiness checks the approved local health endpoint; it does not count as visual QA.");
+                }
+                crate::project_runtime::AppSurface::LinuxDesktop => {
+                    ui.label("Desktop readiness is checked by the launched process.");
+                }
+                crate::project_runtime::AppSurface::UnsupportedTarget => {
+                    ui.label("Unsupported surfaces cannot start runtime recipes.");
+                }
+            }
         }
         if ui
             .add_enabled(
@@ -191,6 +202,22 @@ fn recipe_form(
             );
         }
         ui.ctx().data_mut(|data| data.insert_temp(id, draft));
+    });
+}
+
+fn readiness_fields(
+    ui: &mut egui::Ui,
+    draft: &mut RecipeDraft,
+    port_label: &str,
+    path_label: &str,
+) {
+    ui.horizontal(|ui| {
+        ui.label(port_label);
+        ui.text_edit_singleline(&mut draft.readiness_port);
+    });
+    ui.horizontal(|ui| {
+        ui.label(path_label);
+        ui.text_edit_singleline(&mut draft.readiness_path);
     });
 }
 
