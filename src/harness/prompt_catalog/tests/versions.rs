@@ -73,6 +73,59 @@ fn manager_v3_persisted_prompt_manifest_remains_readable() {
 }
 
 #[test]
+fn manager_v4_and_v5_prompt_manifests_remain_readable_after_the_v6_evidence_rules() {
+    let prompt = base(
+        PromptRole::ManagerV4,
+        RolePayloadV1::Manager {
+            board_event_cursor: "cursor-v4".into(),
+            work_graph: vec![],
+            unresolved_findings: vec![],
+            latest_review_receipts: vec![],
+        },
+    );
+    let manifest = render(&prompt).unwrap().manifest;
+    assert_eq!(manifest.role_version, "manager/v4");
+    assert_eq!(
+        validate_prompt_manifest(&manifest).unwrap(),
+        PromptRole::ManagerV4
+    );
+
+    let prior = render(&base(
+        PromptRole::ManagerV5,
+        RolePayloadV1::Manager {
+            board_event_cursor: "cursor-v5".into(),
+            work_graph: vec![],
+            unresolved_findings: vec![],
+            latest_review_receipts: vec![],
+        },
+    ))
+    .unwrap()
+    .manifest;
+    assert_eq!(prior.role_version, "manager/v5");
+    assert_eq!(
+        validate_prompt_manifest(&prior).unwrap(),
+        PromptRole::ManagerV5
+    );
+
+    let current = render(&base(
+        PromptRole::Manager,
+        RolePayloadV1::Manager {
+            board_event_cursor: "cursor-v6".into(),
+            work_graph: vec![],
+            unresolved_findings: vec![],
+            latest_review_receipts: vec![],
+        },
+    ))
+    .unwrap()
+    .manifest;
+    assert_eq!(current.role_version, "manager/v6");
+    assert_eq!(
+        validate_prompt_manifest(&current).unwrap(),
+        PromptRole::Manager
+    );
+}
+
+#[test]
 fn runtime_qa_v1_identity_remains_readable_beside_the_v2_evidence_role() {
     let input = |role| {
         base(
