@@ -1,8 +1,8 @@
 use super::{
     OpportunityScenario,
     support::{
-        apply, git, implement_in_isolated_local_clone, proposal, pursue_decision,
-        self_improvement_run, uid,
+        apply, assert_activation_requires_probe, git, implement_in_isolated_local_clone, proposal,
+        pursue_decision, restart_store, self_improvement_run, uid,
     },
 };
 use std::process::Command;
@@ -146,6 +146,19 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
         },
     );
     assert_eq!(run.phase, Phase::Ready);
+    // Production boundary: close and reopen the managed planning store after
+    // plan approval, then reload the run before clone allocation. This catches
+    // plan/ref/parent identity that exists only in the current process.
+    let approved_plan = run.clone();
+    let (planning, mut run) = restart_store(planning, &run.run_uid).unwrap();
+    let runs = SelfImprovementStore::new(&planning);
+    assert_eq!(run, approved_plan);
+    assert_eq!(run.phase, Phase::Ready);
+    assert!(
+        run.plan_approval_hash
+            .as_ref()
+            .is_some_and(|hash| hash == &"d".repeat(64))
+    );
     let clone_uid = uid();
     run = apply(&runs, run, Event::CloneAllocated { clone_uid });
     assert_eq!(run.phase, Phase::Implementing);
@@ -166,21 +179,13 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
             implementation_event.clone(),
         )
         .unwrap();
-    let durable_workspace_uid = planning.project_id;
-    let durable_planning_root = temp.path().join("planning");
-    drop(planning);
+    let (planning, resumed) = restart_store(planning, &run.run_uid).unwrap();
     // Production boundary: close and reopen the managed planning store after
     // implementation, then replay the same receipt. This verifies durable
     // self-improvement recovery across a store reopen, beyond an
     // in-memory state-machine test. It uses a local temp store and Git clone;
     // no Docker or network service is required.
-    let planning = PlanningStore::new(
-        durable_workspace_uid,
-        durable_planning_root,
-        StoreMode::ManagedLocal,
-    );
     let runs = SelfImprovementStore::new(&planning);
-    let resumed = runs.load(&run.run_uid).unwrap();
     assert_eq!(resumed, run);
     assert_eq!(
         runs.apply_event(
@@ -258,6 +263,16 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
             url: "https://github.com/zbarno/kool.ade/pull/999999".into(),
         },
     );
+    // A prepared PR can survive a planning-store reopen while the controller
+    // waits for an external merge. Reopen before applying merge evidence, and
+    // assert the PR state and URL come from durable records.
+    let (planning, mut run) = restart_store(planning, &run.run_uid).unwrap();
+    let runs = SelfImprovementStore::new(&planning);
+    assert_eq!(run.phase, Phase::PrOpened);
+    assert_eq!(
+        run.pr_url.as_deref(),
+        Some("https://github.com/zbarno/kool.ade/pull/999999")
+    );
     run = apply(
         &runs,
         run,
@@ -267,26 +282,7 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
     );
     assert_eq!(run.phase, Phase::MergedNotActivated);
     assert!(run.activated_version.is_none());
-    let merged_sha = run.merged_sha.clone().unwrap();
-    let forged_activation = serde_json::from_value(serde_json::json!({
-        "activated": {
-            "evidence": {
-                "version": "0.2.0",
-                "mergedSha": merged_sha,
-                "buildCommitSha": merged_sha,
-                "readinessProbeUid": uid()
-            }
-        }
-    }))
-    .unwrap();
-    assert!(
-        runs.apply_event(&run.run_uid, run.revision, &uid(), forged_activation)
-            .is_err(),
-        "serialized evidence cannot bypass the app-owned active-build probe"
-    );
-    let after_merge = runs.load(&run.run_uid).unwrap();
-    assert_eq!(after_merge.phase, Phase::MergedNotActivated);
-    assert!(after_merge.activated_version.is_none());
+    assert_activation_requires_probe(&runs, &run);
 
     assert_eq!(
         std::fs::read(source.join("product.txt")).unwrap(),

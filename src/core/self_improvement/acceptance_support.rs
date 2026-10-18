@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    artifacts::planning_store::{PlanningStore, StoreError},
     core::{
         opportunity::{
             EvidenceConfidentialityV1, OpportunityEvidenceRefV1, OpportunityKindV1,
@@ -18,6 +19,45 @@ use crate::{
     },
     harness::prompt_catalog::{OpportunityChoice, OpportunityDecisionV1 as UiDecision},
 };
+
+pub(super) fn restart_store(
+    store: PlanningStore,
+    run_uid: &str,
+) -> Result<(PlanningStore, SelfImprovementRunV1), StoreError> {
+    let project_id = store.project_id;
+    let root = store.root.clone();
+    let mode = store.mode;
+    drop(store);
+    let reopened = PlanningStore::new(project_id, root, mode);
+    let run = SelfImprovementStore::new(&reopened).load(run_uid)?;
+    Ok((reopened, run))
+}
+
+pub(super) fn assert_activation_requires_probe(
+    runs: &SelfImprovementStore<'_>,
+    run: &SelfImprovementRunV1,
+) {
+    let merged_sha = run.merged_sha.as_deref().unwrap();
+    let forged = serde_json::from_value(serde_json::json!({
+        "activated": {
+            "evidence": {
+                "version": "0.2.0",
+                "mergedSha": merged_sha,
+                "buildCommitSha": merged_sha,
+                "readinessProbeUid": uid()
+            }
+        }
+    }))
+    .unwrap();
+    assert!(
+        runs.apply_event(&run.run_uid, run.revision, &uid(), forged)
+            .is_err(),
+        "serialized evidence cannot bypass the app-owned active-build probe"
+    );
+    let persisted = runs.load(&run.run_uid).unwrap();
+    assert_eq!(persisted.phase, Phase::MergedNotActivated);
+    assert!(persisted.activated_version.is_none());
+}
 
 pub(super) fn uid() -> String {
     uuid::Uuid::new_v4().hyphenated().to_string()
