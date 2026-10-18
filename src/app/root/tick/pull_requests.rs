@@ -42,16 +42,19 @@ impl KooladeApp {
                         (state.status != ImplementationStatus::Completed
                             && state.pr_url.is_some()
                             && state.pr_state != Some(PullRequestState::Merged))
-                            || (state.status == ImplementationStatus::Completed
-                                && (state.cleanup.completed_at.is_none()
-                                    || should_refresh_deployment(
-                                        state.merged_commit.is_some(),
-                                        crate::core::implementation::deployment_needs_refresh(
-                                            &project.state.planning_store,
-                                            &state.ticket,
-                                        )
-                                        .unwrap_or(true),
-                                    )))
+                            || should_poll_completed_task(
+                                state.status == ImplementationStatus::Completed,
+                                state.cleanup.completed_at.is_some(),
+                                state.merged_commit.is_some(),
+                                state.status == ImplementationStatus::Completed
+                                    && state.cleanup.completed_at.is_some()
+                                    && state.merged_commit.is_some()
+                                    && crate::core::implementation::deployment_needs_refresh(
+                                        &project.state.planning_store,
+                                        &state.ticket,
+                                    )
+                                    .unwrap_or(true),
+                            )
                     })
                     .collect::<Vec<_>>();
                 states.sort_by_key(|(_, state)| {
@@ -79,18 +82,25 @@ impl KooladeApp {
     }
 }
 
-fn should_refresh_deployment(merged: bool, deployment_needs_refresh: bool) -> bool {
-    merged && deployment_needs_refresh
+fn should_poll_completed_task(
+    completed: bool,
+    cleanup_complete: bool,
+    merged: bool,
+    deployment_needs_refresh: bool,
+) -> bool {
+    completed && (!cleanup_complete || merged && deployment_needs_refresh)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::should_refresh_deployment;
+    use super::should_poll_completed_task;
 
     #[test]
-    fn merged_task_keeps_polling_after_cleanup_until_deployment_success() {
-        assert!(should_refresh_deployment(true, true));
-        assert!(!should_refresh_deployment(true, false));
-        assert!(!should_refresh_deployment(false, true));
+    fn completed_task_is_polled_for_cleanup_then_until_deployment_success() {
+        assert!(should_poll_completed_task(true, false, false, false));
+        assert!(should_poll_completed_task(true, true, true, true));
+        assert!(!should_poll_completed_task(true, true, true, false));
+        assert!(!should_poll_completed_task(true, true, false, true));
+        assert!(!should_poll_completed_task(false, false, true, true));
     }
 }
