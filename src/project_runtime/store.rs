@@ -6,6 +6,7 @@ use super::{DiscoveryContext, ProjectCapabilityManifestV1, discover_manifest};
 
 mod approval;
 mod custom_target;
+mod headless_evidence;
 mod receipts;
 mod recipe_approval;
 

@@ -7,12 +7,62 @@ use koolade::{
         QaExecutionStatusV1, TaskEvent, TaskPhase,
     },
     project_runtime::{
-        AppSurface, AppTargetV1, ProjectCapabilityManifestV1, ProjectRuntimeStore,
-        TargetCapabilityState,
+        AppSurface, AppTargetV1, ExecutionRecipeV1, NetworkRequirement,
+        ProjectCapabilityManifestV1, ProjectRuntimeStore, RecipeSource, RuntimeOperation,
+        RuntimeReceiptState, RuntimeReceiptV1, TargetCapabilityState,
     },
     runtime_qa::{QaApplicability, QaApplicabilityAssessmentV1},
 };
 use sha2::Digest as _;
+
+fn runtime_recipe(recipe_id: &str) -> ExecutionRecipeV1 {
+    ExecutionRecipeV1 {
+        schema_version: 1,
+        recipe_id: recipe_id.into(),
+        source: RecipeSource::UserApproved,
+        working_directory_relative: ".".into(),
+        executable_id: "python".into(),
+        argv: vec!["-m".into(), "compileall".into(), ".".into()],
+        allowed_env_keys: Vec::new(),
+        allowed_output_paths: vec!["__pycache__".into()],
+        timeout_seconds: 60,
+        expected_exit_codes: vec![0],
+        expected_artifacts: Vec::new(),
+        cache_scope: None,
+        prerequisite_tool_ids: vec!["python".into()],
+        network_requirement: NetworkRequirement::Denied,
+        evidence_refs: vec!["user-approval:synthetic-fixture".into()],
+    }
+}
+
+fn runtime_receipt(
+    task_id: &str,
+    target_id: &str,
+    source_sha: &str,
+    operation: RuntimeOperation,
+    recipe_id: &str,
+    state: RuntimeReceiptState,
+    observed_at_unix_ms: u64,
+) -> RuntimeReceiptV1 {
+    RuntimeReceiptV1 {
+        schema_version: 1,
+        receipt_id: id(),
+        operation,
+        task_id: task_id.into(),
+        target_id: target_id.into(),
+        source_sha: source_sha.into(),
+        recipe_id: Some(recipe_id.into()),
+        state,
+        exit_code: Some(if state == RuntimeReceiptState::Passed {
+            0
+        } else {
+            1
+        }),
+        artifact_hashes: Default::default(),
+        log_reference: None,
+        observed_at_unix_ms,
+    }
+}
 
 /// Production boundary: reviewed task → lifecycle applicability event → reopened task/event log.
 /// Unit tests cannot prove the Manager actor, immutable event, and task projection survive store
@@ -39,8 +89,8 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         repository_id: "repo-main".into(),
         app_surface: AppSurface::HeadlessService,
         project_relative_root: ".".into(),
-        build_recipe_ref: None,
-        test_recipe_refs: Vec::new(),
+        build_recipe_ref: Some("service-build".into()),
+        test_recipe_refs: vec!["service-test".into()],
         start_recipe_ref: None,
         readiness_probe_ref: None,
         artifact_spec_ref: None,
@@ -62,7 +112,10 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         candidate_targets: vec![target],
         selected_target_id: Some("api-service".into()),
         target_capabilities: vec![TargetCapabilityState::ReadyButUntested],
-        recipes: Vec::new(),
+        recipes: vec![
+            runtime_recipe("service-build"),
+            runtime_recipe("service-test"),
+        ],
         readiness_probes: Default::default(),
         artifact_specs: Default::default(),
         confidence: 50,
@@ -131,6 +184,77 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         reviewer_session_id: Some(assessment.manager_session_id.clone()),
         author_session_id: None,
     };
+    assert!(
+        lifecycle
+            .record_runtime_qa_applicability(
+                &task_uid,
+                task.revision,
+                &id(),
+                assessment.clone(),
+                reviewer_receipt.clone(),
+                receipt.clone(),
+            )
+            .is_err()
+    );
+    let build_receipt = runtime_receipt(
+        &task_uid,
+        "api-service",
+        &assessment.code_sha,
+        RuntimeOperation::Build,
+        "service-build",
+        RuntimeReceiptState::Passed,
+        10,
+    );
+    let failed_test = runtime_receipt(
+        &task_uid,
+        "api-service",
+        &assessment.code_sha,
+        RuntimeOperation::Test,
+        "service-test",
+        RuntimeReceiptState::Failed,
+        20,
+    );
+    runtime_store.append_receipt(&build_receipt).unwrap();
+    runtime_store.append_receipt(&failed_test).unwrap();
+    assert!(
+        lifecycle
+            .record_runtime_qa_applicability(
+                &task_uid,
+                task.revision,
+                &id(),
+                assessment.clone(),
+                reviewer_receipt.clone(),
+                receipt.clone(),
+            )
+            .is_err()
+    );
+    let passed_test = runtime_receipt(
+        &task_uid,
+        "api-service",
+        &assessment.code_sha,
+        RuntimeOperation::Test,
+        "service-test",
+        RuntimeReceiptState::Passed,
+        30,
+    );
+    runtime_store.append_receipt(&passed_test).unwrap();
+    assessment.evidence_refs.extend([
+        format!("runtime-receipt:{}", build_receipt.receipt_id),
+        format!("runtime-receipt:{}", passed_test.receipt_id),
+    ]);
+    assessment_hash = format!(
+        "{:x}",
+        sha2::Sha256::digest(serde_json::to_vec(&assessment).unwrap())
+    );
+    reviewer_receipt.subject_sha256 = assessment_hash.clone();
+    reviewer_receipt.evidence_refs = vec![format!(
+        "runtime-qa-applicability-assessment:{assessment_hash}"
+    )];
+    for reference in &mut receipt.evidence_refs {
+        if reference.starts_with("runtime-qa-applicability:") {
+            *reference = format!("runtime-qa-applicability:{assessment_hash}");
+        }
+    }
     let mut forged_target = assessment.clone();
     forged_target.target_id = "api-service-forged".into();
     assert!(

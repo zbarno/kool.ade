@@ -48,12 +48,13 @@ pub(super) fn for_ticket(
         .load_manifest()
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "project capability manifest is unavailable".to_owned())?;
-    let target_is_active = manifest.candidate_targets.iter().any(|target| {
+    let active_target = manifest.candidate_targets.iter().find(|target| {
         target.target_id == proposal.assessment.target_id
             && target.app_surface == crate::project_runtime::AppSurface::HeadlessService
             && target.repository_id == manifest.repository_id
             && manifest.is_active_target(item_uid, &target.target_id)
     });
+    let target_is_active = active_target.is_some();
     let manifest_hash = {
         use sha2::Digest as _;
         format!(
@@ -61,6 +62,26 @@ pub(super) fn for_ticket(
             sha2::Sha256::digest(serde_json::to_vec(&manifest).map_err(|error| error.to_string())?)
         )
     };
+    let receipt_refs_match = active_target.is_some_and(|target| {
+        let expected =
+            crate::project_runtime::ProjectRuntimeStore::new(&project.state.planning_store)
+                .headless_service_test_receipts(item_uid, target, &manifest.source_sha)
+                .ok()
+                .map(|receipts| {
+                    receipts
+                        .iter()
+                        .map(|receipt| format!("runtime-receipt:{}", receipt.receipt_id))
+                        .collect::<std::collections::BTreeSet<_>>()
+                });
+        let recorded = proposal
+            .assessment
+            .evidence_refs
+            .iter()
+            .filter(|reference| reference.starts_with("runtime-receipt:"))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        expected.is_some_and(|expected| expected == recorded)
+    });
     let manifest_matches = manifest.source_sha == proposal.assessment.code_sha
         && task.reviewed_code_head_sha.as_deref() == Some(&manifest.source_sha)
         && document
@@ -84,7 +105,8 @@ pub(super) fn for_ticket(
             proposal_sha256: proposal.proposal_sha256()?,
             stale: proposal.task_revision != task.revision
                 || !target_is_active
-                || !manifest_matches,
+                || !manifest_matches
+                || !receipt_refs_match,
             proposal,
         },
     ))

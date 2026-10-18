@@ -105,6 +105,11 @@ fn prepare(
         .ok_or_else(|| {
             "Select an active headless service target before reviewing applicability.".to_owned()
         })?;
+    let runtime_store =
+        crate::project_runtime::ProjectRuntimeStore::new(&project.state.planning_store);
+    let service_receipts = runtime_store
+        .headless_service_test_receipts(&metadata.uid, target, code_sha)
+        .map_err(|error| error.to_string())?;
     let approved_spec_hash = task.approved_plan_sha256.clone();
     let manifest_hash = sha256(&serde_json::to_vec(&manifest).map_err(|error| error.to_string())?);
     let mut evidence_refs = vec![
@@ -116,6 +121,16 @@ fn prepare(
     if let Some(receipt) = task.code_review.as_ref() {
         evidence_refs.push(format!("gate-receipt:{}", receipt.receipt_uid));
     }
+    evidence_refs.extend(
+        service_receipts
+            .iter()
+            .map(|receipt| format!("runtime-receipt:{}", receipt.receipt_id)),
+    );
+    let review_context = format!(
+        "{}\n\nExact persisted headless build and test receipts:\n{}",
+        document.text,
+        serde_json::to_string(&service_receipts).map_err(|error| error.to_string())?
+    );
     let assessment = crate::runtime_qa::QaApplicabilityAssessmentV1 {
         schema_version: 1,
         task_uid: task.task_uid.clone(),
@@ -138,7 +153,7 @@ fn prepare(
         task.revision,
         manifest.workspace_id,
         task.feature_uid,
-        document.text.clone(),
+        review_context,
         project.state.repo_root.clone(),
     ))
 }

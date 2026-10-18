@@ -63,6 +63,23 @@ impl LifecycleStore<'_> {
                     .into(),
             ));
         }
+        let target = target.ok_or_else(|| {
+            StoreError::MalformedState("headless target disappeared during validation".into())
+        })?;
+        let runtime_store = crate::project_runtime::ProjectRuntimeStore::new(self.store);
+        let service_receipts = runtime_store
+            .headless_service_test_receipts(owning_task_id, target, &assessment.code_sha)
+            .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        if service_receipts.iter().any(|receipt| {
+            !assessment
+                .evidence_refs
+                .iter()
+                .any(|reference| reference == &format!("runtime-receipt:{}", receipt.receipt_id))
+        }) {
+            return Err(StoreError::MalformedState(
+                "headless applicability review omitted declared build or test evidence".into(),
+            ));
+        }
         self.apply_task_event(
             task_uid,
             expected_revision,
