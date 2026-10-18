@@ -34,9 +34,11 @@ browser-driver image.
 ## Current availability
 
 The app-owned Runtime QA path is wired through the two-network Docker session,
-and CI builds and exercises this candidate image. The candidate image digest
-is not yet promoted into `containers/images.lock.json`; runtime selection
-therefore remains unavailable until that digest has been reviewed and pinned.
-The current CI fixture proves browser-driver interaction in isolation, not the
-full application implementation-to-QA-to-repair lifecycle. Neither the driver
-source nor fixture alone is a QA pass or release claim.
+and CI builds and exercises this candidate image. Its reviewed digest and build
+recipe hash are recorded in `containers/images.lock.json`, while
+`runtime_enabled` remains false. Runtime selection therefore stays unavailable
+until trusted publication and a later reviewed activation after the remaining
+release gates pass. The current CI fixture proves browser-driver interaction
+in isolation, not the full application implementation-to-QA-to-repair
+lifecycle. Neither the driver source nor fixture alone is a QA pass or release
+claim.
