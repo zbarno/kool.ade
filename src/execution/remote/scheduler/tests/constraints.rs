@@ -48,7 +48,7 @@ fn auto_never_sends_to_remote_without_task_approval_and_honors_user_constraint()
 }
 
 #[test]
-fn auto_falls_back_locally_when_remote_requirements_cannot_be_met() {
+fn auto_does_not_select_an_incompatible_local_target_for_gpu_requirements() {
     let now = 1_900_000_000_000;
     let worker = worker("worker-a", 0, now);
     let caps = capabilities(0);
@@ -66,10 +66,78 @@ fn auto_falls_back_locally_when_remote_requirements_cannot_be_met() {
             &candidates,
             &requirements,
             now
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+}
+
+#[test]
+fn local_target_rejects_unavailable_gpu_or_display_requirements() {
+    let now = 1_900_000_000_000;
+    let budget = budget();
+    let candidates = [];
+    let mut requirements = requirements(&budget, &[]);
+    requirements.requires_gpu = true;
+    assert_eq!(
+        select_target(
+            &TargetPreference::Local,
+            true,
+            &candidates,
+            &requirements,
+            now
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+    requirements.requires_gpu = false;
+    requirements.requires_display = true;
+    assert_eq!(
+        select_target(
+            &TargetPreference::Local,
+            true,
+            &candidates,
+            &requirements,
+            now
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+}
+
+#[test]
+fn auto_selects_remote_worker_when_required_gpu_is_reported() {
+    let now = 1_900_000_000_000;
+    let worker = worker("worker-a", 0, now);
+    let mut caps = capabilities(0);
+    caps.gpu_available = true;
+    let candidates = [WorkerCandidate {
+        registration: &worker,
+        capabilities: &caps,
+    }];
+    let budget = budget();
+    let mut requirements = requirements(&budget, &[]);
+    requirements.requires_gpu = true;
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            true,
+            &candidates,
+            &requirements,
+            now
         )
         .unwrap(),
-        ExecutionTarget::local()
+        ExecutionTarget::remote("worker-a")
     );
+}
+
+#[test]
+fn missing_worker_capability_fields_default_to_unsupported() {
+    let mut value = serde_json::to_value(capabilities(0)).unwrap();
+    let object = value.as_object_mut().unwrap();
+    object.remove("gpu_available");
+    object.remove("display_available");
+    let restored: crate::execution::backend::BackendCapabilitiesV1 =
+        serde_json::from_value(value).unwrap();
+    assert!(!restored.gpu_available);
+    assert!(!restored.display_available);
 }
 
 #[test]

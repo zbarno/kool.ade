@@ -72,6 +72,8 @@ impl ExecutionBackend for FakeBackend {
                 cpu_quota: Some(true),
                 pids_limit: Some(true),
                 disk_available_bytes: Some(10_000_000_000),
+                gpu_available: false,
+                display_available: false,
                 current_execution_count: 0,
                 maximum_execution_count: None,
                 resource_ceiling: crate::execution::contract::ResourceBudgetV1 {

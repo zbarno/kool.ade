@@ -40,7 +40,7 @@ pub fn select_target(
     now_unix_ms: u64,
 ) -> Result<ExecutionTarget, SelectionFailure> {
     match preference {
-        TargetPreference::Local => local_eligible
+        TargetPreference::Local => local_target_eligible(local_eligible, requirements)
             .then(ExecutionTarget::local)
             .ok_or(SelectionFailure::NoCompatibleTarget),
         TargetPreference::Worker(worker_id) => {
@@ -96,7 +96,7 @@ pub fn select_target(
             };
             if let Some(worker_id) = worker_id {
                 Ok(ExecutionTarget::remote(worker_id))
-            } else if local_eligible {
+            } else if local_target_eligible(local_eligible, requirements) {
                 Ok(ExecutionTarget::local())
             } else if !requirements.remote_approved {
                 Err(SelectionFailure::NoRemoteApproval)
@@ -105,6 +105,10 @@ pub fn select_target(
             }
         }
     }
+}
+
+fn local_target_eligible(local_eligible: bool, requirements: &SchedulingRequirements<'_>) -> bool {
+    local_eligible && !requirements.requires_gpu && !requirements.requires_display
 }
 
 fn candidate_eligible(
@@ -148,8 +152,8 @@ fn candidate_eligible(
             .disk_available_bytes
             .is_none_or(|available| available < requirements.resource_budget.temporary_disk_bytes)
         || unusable_health(&probe.health)
-        || requirements.requires_gpu
-        || requirements.requires_display
+        || (requirements.requires_gpu && !candidate.capabilities.gpu_available)
+        || (requirements.requires_display && !candidate.capabilities.display_available)
     {
         return false;
     }

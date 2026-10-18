@@ -283,6 +283,12 @@ pub struct BackendCapabilitiesV1 {
     pub cpu_quota: Option<bool>,
     pub pids_limit: Option<bool>,
     pub disk_available_bytes: Option<u64>,
+    /// Capability observations; false means this backend cannot provide the
+    /// requested host resource to an execution container.
+    #[serde(default)]
+    pub gpu_available: bool,
+    #[serde(default)]
+    pub display_available: bool,
     pub current_execution_count: u32,
     #[serde(default)]
     pub maximum_execution_count: Option<u32>,

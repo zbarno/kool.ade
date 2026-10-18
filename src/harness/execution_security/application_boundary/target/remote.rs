@@ -12,14 +12,27 @@ use crate::{
 };
 use std::path::PathBuf;
 
+#[cfg(test)]
+#[path = "remote/tests.rs"]
+mod tests;
+
 pub(super) fn remote_session(
     request: &PlanningRequest,
     workspace: crate::execution::contract::WorkspaceRef,
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     worker_id: &str,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
 ) -> anyhow::Result<ExecutionSession> {
-    remote_session_with_capacity(request, workspace, profile, resources, worker_id, None)
+    remote_session_with_capacity(
+        request,
+        workspace,
+        profile,
+        resources,
+        worker_id,
+        requirements,
+        None,
+    )
 }
 
 pub(super) fn remote_session_with_capacity(
@@ -28,6 +41,7 @@ pub(super) fn remote_session_with_capacity(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     worker_id: &str,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
     reserved_capacity: Option<RemoteWorkerCapacityLease>,
 ) -> anyhow::Result<ExecutionSession> {
     let verifier = request
@@ -59,7 +73,7 @@ pub(super) fn remote_session_with_capacity(
     let probe = observer.probe();
     let registration = remote_workers::get(worker_id)?
         .ok_or_else(|| anyhow::anyhow!("Selected remote worker registration disappeared"))?;
-    verify_registration_capabilities(&registration, probe, profile, &resources)?;
+    verify_registration_capabilities(&registration, probe, profile, &resources, requirements)?;
     let running_jobs = probe
         .capabilities
         .as_ref()
@@ -124,12 +138,14 @@ fn verify_registration_capabilities(
     probe: &crate::execution::backend::BackendProbeV1,
     profile: RuntimeProfile,
     resources: &ResourceBudgetV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
 ) -> anyhow::Result<()> {
     let capabilities = probe
         .capabilities
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Remote worker did not report capabilities"))?;
     require_rootless_docker(capabilities)?;
+    verify_task_capabilities(capabilities, requirements)?;
     let effective_max = capabilities
         .maximum_execution_count
         .map_or(registration.max_jobs, |maximum| {
@@ -215,6 +231,21 @@ fn verify_registration_capabilities(
     Ok(())
 }
 
+fn verify_task_capabilities(
+    capabilities: &crate::execution::backend::BackendCapabilitiesV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !requirements.requires_gpu || capabilities.gpu_available,
+        "Remote worker does not provide the GPU capability required by this task"
+    );
+    anyhow::ensure!(
+        !requirements.requires_display || capabilities.display_available,
+        "Remote worker does not provide the display capability required by this task"
+    );
+    Ok(())
+}
+
 fn require_rootless_docker(
     capabilities: &crate::execution::backend::BackendCapabilitiesV1,
 ) -> anyhow::Result<()> {
@@ -257,44 +288,4 @@ pub(super) fn worker_config(
 #[cfg(unix)]
 unsafe extern "C" {
     fn geteuid() -> u32;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::require_rootless_docker;
-    use crate::execution::backend::BackendCapabilitiesV1;
-
-    fn capabilities(rootless: Option<bool>) -> BackendCapabilitiesV1 {
-        BackendCapabilitiesV1 {
-            app_version: "test".into(),
-            docker_version: Some("test".into()),
-            docker_api_version: None,
-            docker_rootless: rootless,
-            docker_desktop: Some(false),
-            linux_containers: Some(true),
-            seccomp_enabled: Some(true),
-            memory_limit: Some(true),
-            cpu_quota: Some(true),
-            pids_limit: Some(true),
-            disk_available_bytes: Some(1024),
-            current_execution_count: 0,
-            maximum_execution_count: Some(1),
-            resource_ceiling: crate::execution::contract::ResourceBudgetV1 {
-                cpu_millis: 1,
-                memory_bytes: 1,
-                process_count: 1,
-                temporary_disk_bytes: 1,
-                output_bytes: 1,
-            },
-            trusted_image_digests: Vec::new(),
-            policy_hash: "sha256:test".into(),
-        }
-    }
-
-    #[test]
-    fn explicit_remote_target_requires_rootless_docker_evidence() {
-        assert!(require_rootless_docker(&capabilities(Some(true))).is_ok());
-        assert!(require_rootless_docker(&capabilities(Some(false))).is_err());
-        assert!(require_rootless_docker(&capabilities(None)).is_err());
-    }
 }

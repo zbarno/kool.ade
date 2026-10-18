@@ -54,6 +54,8 @@ fn capabilities(running_jobs: u32) -> BackendCapabilitiesV1 {
         cpu_quota: Some(true),
         pids_limit: Some(true),
         disk_available_bytes: Some(1024 * 1024 * 1024),
+        gpu_available: false,
+        display_available: false,
         current_execution_count: running_jobs,
         maximum_execution_count: None,
         resource_ceiling: ResourceBudgetV1 {

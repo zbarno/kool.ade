@@ -30,6 +30,7 @@ pub(super) fn auto_session(
     workspace: crate::execution::contract::WorkspaceRef,
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
 ) -> anyhow::Result<ExecutionSession> {
     let local_eligible = DockerEnvironmentStatus::detect().ready();
     if request.authorization_verifier.is_none() {
@@ -39,6 +40,7 @@ pub(super) fn auto_session(
             profile,
             resources,
             local_eligible,
+            requirements,
             "Automatic remote routing requires an active task claim",
         );
     }
@@ -118,8 +120,8 @@ pub(super) fn auto_session(
                 remote_approved: true,
                 dependencies_prepared: true,
                 eligible_worker_ids: &eligible_ids,
-                requires_gpu: false,
-                requires_display: false,
+                requires_gpu: requirements.requires_gpu,
+                requires_display: requirements.requires_display,
             };
             let Ok(target) = scheduler::select_target(
                 &TargetPreference::Auto,
@@ -182,6 +184,7 @@ pub(super) fn auto_session(
             profile,
             resources.clone(),
             &worker_id,
+            requirements,
             Some(capacity),
         ) {
             Ok(session) => return Ok(session),
@@ -194,6 +197,7 @@ pub(super) fn auto_session(
         profile,
         resources,
         local_eligible,
+        requirements,
         "No verified remote worker is eligible",
     )
 }
@@ -204,8 +208,10 @@ fn auto_local_fallback(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     local_eligible: bool,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
     reason: &str,
 ) -> anyhow::Result<ExecutionSession> {
+    super::ensure_local_capabilities(&requirements)?;
     anyhow::ensure!(
         can_fallback_for_preference(&TargetPreference::Auto, local_eligible),
         "{reason}; local Docker is unavailable"

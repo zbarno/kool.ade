@@ -52,6 +52,8 @@ pub(in crate::execution::docker::backend::lifecycle) async fn probe(
         cpu_quota: readiness.cpu_quota,
         pids_limit: readiness.pids_limit,
         disk_available_bytes: readiness.disk_available_bytes,
+        gpu_available: false,
+        display_available: false,
         current_execution_count,
         maximum_execution_count: None,
         resource_ceiling: crate::execution::contract::ResourceBudgetV1 {

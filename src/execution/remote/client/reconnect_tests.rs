@@ -68,6 +68,8 @@ fn healthy_probe() -> crate::execution::backend::BackendProbeV1 {
             cpu_quota: Some(true),
             pids_limit: Some(true),
             disk_available_bytes: Some(1_000_000),
+            gpu_available: false,
+            display_available: false,
             current_execution_count: 0,
             maximum_execution_count: Some(1),
             resource_ceiling: ResourceBudgetV1 {

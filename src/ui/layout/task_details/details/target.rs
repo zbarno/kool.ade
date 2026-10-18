@@ -49,6 +49,22 @@ pub(super) fn paint(
         {
             ui.label(egui::RichText::new(&choice.reason).small().weak());
         }
+        ui.collapsing("Required target capabilities", |ui| {
+            let mut requirements = view.task_capabilities;
+            let gpu_changed = ui.checkbox(&mut requirements.requires_gpu, "GPU access").changed();
+            let display_changed = ui
+                .checkbox(&mut requirements.requires_display, "Display access")
+                .changed();
+            if gpu_changed || display_changed {
+                surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
+                    task_detail::Command::SetTaskCapabilities {
+                        ticket: ticket.to_owned(),
+                        requirements,
+                    },
+                ));
+            }
+            ui.label(egui::RichText::new("Requirements are stored locally for this task. The current Docker targets do not expose GPU or display access, so a task requiring either is blocked instead of being routed to an incompatible target.").small().weak());
+        });
         ui.label(egui::RichText::new("A preference does not grant execution permission. Unavailable or unapproved targets block execution; Kool.ad/e will not silently select another target or run on the host.").small().weak());
         ui.add_space(6.0);
         ui.label(egui::RichText::new("Remote private-file grants").strong());

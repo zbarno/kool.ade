@@ -15,6 +15,19 @@ pub struct ExecutionEnvironmentSettings {
     /// Task-specific choices stay in operator-local state, never in the project plan.
     #[serde(default)]
     pub task_targets: BTreeMap<String, TargetPreference>,
+    /// Task capabilities are operator-local constraints and never enter the
+    /// planning repository. Unsupported capabilities fail closed at routing.
+    #[serde(default)]
+    pub task_capabilities: BTreeMap<String, TaskCapabilityRequirements>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct TaskCapabilityRequirements {
+    #[serde(default)]
+    pub requires_gpu: bool,
+    #[serde(default)]
+    pub requires_display: bool,
 }
 
 impl Default for ExecutionEnvironmentSettings {
@@ -23,6 +36,7 @@ impl Default for ExecutionEnvironmentSettings {
             schema_version: 1,
             default_target: TargetPreference::Auto,
             task_targets: BTreeMap::new(),
+            task_capabilities: BTreeMap::new(),
         }
     }
 }
@@ -80,6 +94,9 @@ fn save_to(path: &Path, settings: &ExecutionEnvironmentSettings) -> anyhow::Resu
             anyhow::ensure!(valid_worker_id(worker_id), "worker ID is invalid");
         }
     }
+    for task_key in settings.task_capabilities.keys() {
+        anyhow::ensure!(valid_task_key(task_key), "task key is invalid");
+    }
     let mut settings = settings.clone();
     settings.schema_version = 1;
     crate::artifacts::atomic_write(path, &serde_json::to_string_pretty(&settings)?)?;
@@ -118,6 +135,35 @@ pub fn save_task_target(task_key: &str, preference: TargetPreference) -> anyhow:
     settings
         .task_targets
         .insert(task_key.to_owned(), preference);
+    save(&settings)
+}
+
+pub fn task_capabilities(task_key: Option<&str>) -> TaskCapabilityRequirements {
+    let Some(task_key) = task_key else {
+        return TaskCapabilityRequirements::default();
+    };
+    load()
+        .0
+        .task_capabilities
+        .get(task_key)
+        .copied()
+        .unwrap_or_default()
+}
+
+pub fn save_task_capabilities(
+    task_key: &str,
+    requirements: TaskCapabilityRequirements,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(valid_task_key(task_key), "task key is invalid");
+    let (mut settings, error) = load();
+    anyhow::ensure!(error.is_none(), "cannot update invalid execution settings");
+    if requirements == TaskCapabilityRequirements::default() {
+        settings.task_capabilities.remove(task_key);
+    } else {
+        settings
+            .task_capabilities
+            .insert(task_key.to_owned(), requirements);
+    }
     save(&settings)
 }
 

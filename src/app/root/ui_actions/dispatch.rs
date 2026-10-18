@@ -225,6 +225,23 @@ impl KooladeApp {
                             .warning(format!("Could not save task execution target: {error}")),
                     }
                 }
+                TaskDetailCommand::SetTaskCapabilities { ticket, requirements } => {
+                    let task_key = match &self.screen {
+                        Screen::Connected(project) => {
+                            super::super::task_target::key(project, &ticket)
+                        }
+                        Screen::Welcome => ticket.clone(),
+                    };
+                    match crate::persistence::execution_environment_settings::save_task_capabilities(
+                        &task_key,
+                        requirements,
+                    ) {
+                        Ok(()) => self.toasts.success("Saved task target capability requirements"),
+                        Err(error) => self.toasts.warning(format!(
+                            "Could not save task target capability requirements: {error}"
+                        )),
+                    }
+                }
                 TaskDetailCommand::GrantRemotePrivateFiles {
                     ticket,
                     worker_id,

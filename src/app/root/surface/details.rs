@@ -146,6 +146,11 @@ impl KooladeApp {
             .get(&target_key)
             .cloned()
             .unwrap_or_else(|| environment.default_target.clone());
+        let task_capabilities = environment
+            .task_capabilities
+            .get(&target_key)
+            .copied()
+            .unwrap_or_default();
         let target_choices = target_choices::build(&target_preference, settings_error.as_deref());
         let remote_private_file_workers = target_choices
             .iter()
@@ -270,6 +275,7 @@ impl KooladeApp {
             implementation_metrics,
             feature_metrics,
             target_preference,
+            task_capabilities,
             target_choices,
             remote_private_file_candidates,
             remote_private_file_candidates_error,
