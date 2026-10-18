@@ -18,6 +18,11 @@ pub(super) fn paint(
         .into_iter()
         .filter(|action| !action.approved)
         .collect::<Vec<_>>();
+    let plan_reviews = board
+        .lifecycle_features
+        .iter()
+        .filter(|feature| feature.phase == crate::core::lifecycle::FeaturePhase::PlanReviewPending)
+        .collect::<Vec<_>>();
     let height = (ui.available_height() - 46.0).max(100.0);
     let gaps = 16.0 * 4.0;
     let column_width = ((ui.available_width() - 150.0 - gaps) / 5.0).max(180.0);
@@ -97,6 +102,7 @@ pub(super) fn paint(
                                                 attention::clarification_is_visible(question.status)
                                             })
                                             .count()
+                                        + usize::from(column == 2) * plan_reviews.len()
                                         + usize::from(column == 3) * feature_approvals.len()
                                         + usize::from(
                                             column == 3 && board.setup_attention.is_some(),
@@ -164,6 +170,7 @@ pub(super) fn paint(
                                             attention::clarification_is_visible(question.status)
                                         })
                                         .count()
+                                    + usize::from(column == 2) * plan_reviews.len()
                                     + usize::from(column == 3) * feature_approvals.len()
                                     + usize::from(column == 3 && board.setup_attention.is_some());
                                 if visible_count == 0 {
@@ -215,6 +222,15 @@ pub(super) fn paint(
                                                 cards::approval(ui, action, planning_selection);
                                             }
                                         } else {
+                                            if column == 2 {
+                                                for feature in &plan_reviews {
+                                                    cards::plan_review(
+                                                        ui,
+                                                        feature,
+                                                        planning_selection,
+                                                    );
+                                                }
+                                            }
                                             for item in &planning {
                                                 cards::work(ui, s, item, &planning, column, planning_selection);
                                             }
@@ -229,14 +245,7 @@ pub(super) fn paint(
                                                 );
                                             }
                                             for doc in &cards {
-                                                cards::task(
-                                                    ui,
-                                                    s,
-                                                    board,
-                                                    doc,
-                                                    column,
-                                                    selected_path,
-                                                );
+                                                cards::task(ui, s, board, doc, column, selected_path);
                                             }
                                         }
                                     });

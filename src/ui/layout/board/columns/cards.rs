@@ -10,6 +10,7 @@ mod work;
 
 pub(super) use clarification::clarification;
 pub(super) use feature::approval;
+pub(super) use feature::plan_review;
 pub(super) use item::item;
 pub(super) use setup::setup;
 pub(super) use task::task;

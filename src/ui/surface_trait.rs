@@ -87,6 +87,12 @@ pub trait Surface {
     ) -> Result<task_detail::RuntimeQaScreenshotGalleryView, String> {
         Err("Runtime QA screenshots are unavailable in this workspace.".into())
     }
+    fn lifecycle_plan_review(
+        &self,
+        _feature_uid: &str,
+    ) -> Result<task_detail::LifecyclePlanReviewView, String> {
+        Err("Lifecycle plan review evidence is unavailable in this workspace.".into())
+    }
     fn task_chat_context(&self, _key: &str) -> Option<String> {
         None
     }

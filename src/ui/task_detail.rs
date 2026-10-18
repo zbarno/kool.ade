@@ -77,6 +77,15 @@ pub struct RuntimeQaScreenshotGalleryView {
 }
 
 #[derive(Clone)]
+pub struct LifecyclePlanReviewView {
+    pub feature_uid: String,
+    pub snapshot: crate::core::lifecycle::PlanSnapshotV1,
+    pub confirmation: Option<crate::core::lifecycle::GateReceipt>,
+    pub review: Option<crate::core::lifecycle::GateReceipt>,
+    pub verdict: Option<crate::harness::prompt_catalog::ReviewVerdictV1>,
+}
+
+#[derive(Clone)]
 pub struct TaskRelationView {
     pub planning_item_uid: String,
     pub lifecycle_task_uid: Option<String>,
