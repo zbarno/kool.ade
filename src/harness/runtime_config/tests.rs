@@ -162,6 +162,7 @@ fn local_runtime_configuration_grant_does_not_authorize_remote_transfer() {
                 mode: crate::execution::contract::ExecutionModeV1::Implementation,
                 profile: crate::execution::docker::images::RuntimeProfile::General,
                 resources: crate::execution::contract::ResourceBudgetV1::default(),
+                destination_sha: None,
                 authorization_verifier: None,
                 task_clone: Some(&task),
                 runtime_config_source: Some(&source),
