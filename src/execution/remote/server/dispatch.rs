@@ -72,6 +72,9 @@ pub(super) fn dispatch(
         );
     }
     let result = match envelope.kind {
+        Kind::PrivateFileChunk => Err(super::incompatible(
+            "private file transfer is unavailable until worker grant storage is configured",
+        )),
         Kind::DependencyRequest => Err(super::incompatible(
             "worker dependency requests are emitted only as relay responses",
         )),

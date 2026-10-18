@@ -81,10 +81,7 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     let captured = base.join("child-cwd.txt");
     std::fs::write(
         &probe,
-        format!(
-            "#!/bin/sh\nprintf '%s' \"$PWD\" > '{}'\n",
-            captured.display()
-        ),
+        "#!/bin/sh\nprobe_dir=${0%/*}\npwd -P > \"$probe_dir/child-cwd.txt.tmp\" && mv \"$probe_dir/child-cwd.txt.tmp\" \"$probe_dir/child-cwd.txt\"\n",
     )
     .unwrap();
     #[cfg(unix)]
@@ -101,11 +98,11 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     };
     app.open_registered_repository("worker");
 
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while !captured.exists() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(20));
     }
-    let child_cwd = PathBuf::from(std::fs::read_to_string(&captured).unwrap());
+    let child_cwd = PathBuf::from(std::fs::read_to_string(&captured).unwrap().trim());
     assert_eq!(child_cwd, worker.canonicalize().unwrap());
     let shared = std::fs::read_to_string(manifest_path).unwrap();
     assert!(shared.contains("API"));

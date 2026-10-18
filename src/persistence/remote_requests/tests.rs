@@ -42,6 +42,31 @@ fn pending_request_survives_restart_and_completion_is_retrievable_once() {
 }
 
 #[test]
+fn private_file_chunks_cannot_be_saved_in_the_controller_retry_store() {
+    let root = tempfile::tempdir().unwrap();
+    let mut request = envelope();
+    request.kind = EnvelopeKindV1::PrivateFileChunk;
+    request.payload = serde_json::json!({"bytes": "synthetic-secret-fixture"});
+
+    assert!(save_pending_at(root.path(), "worker-east", &request).is_err());
+    assert!(!root.path().join("remote-requests").exists());
+}
+
+#[test]
+fn private_file_chunk_responses_cannot_be_saved_in_controller_completion_store() {
+    let root = tempfile::tempdir().unwrap();
+    let request = envelope();
+    let mut response = request.clone();
+    response.kind = EnvelopeKindV1::PrivateFileChunk;
+    response.payload = serde_json::json!({"bytes": "synthetic-secret-fixture"});
+
+    assert!(
+        record_completion_at(root.path(), "worker-east", &request.request_id, &response).is_err()
+    );
+    assert!(!root.path().join("remote-requests").exists());
+}
+
+#[test]
 fn pending_request_ids_cannot_be_rebound_and_symlink_roots_are_rejected() {
     let root = tempfile::tempdir().unwrap();
     let request = envelope();

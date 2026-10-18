@@ -30,6 +30,8 @@ pub enum EnvelopeKindV1 {
     RelayDependency,
     DependencyRequest,
     DependencyDecision,
+    /// Secret-bearing frame that must never enter a durable RPC journal.
+    PrivateFileChunk,
     PrepareWorkspaceResult,
     ReadWorkspaceResultChunk,
     Start,
