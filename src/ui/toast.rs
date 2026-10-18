@@ -79,6 +79,11 @@ impl ToastQueue {
         self.items.push(Toast::new(text.into(), Tone::Danger));
     }
 
+    #[cfg(test)]
+    pub(crate) fn last_message(&self) -> Option<&str> {
+        self.items.last().map(|toast| toast.text.as_str())
+    }
+
     /// Paint the stack (top-right) and expire/dismiss entries.
     pub fn show(&mut self, ctx: &egui::Context) {
         if self.items.is_empty() {
