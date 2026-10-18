@@ -1,10 +1,10 @@
 use super::*;
 
 /// Production boundary: recover a saved Pursue receipt after feature creation
-/// committed but before the run write. Unit tests cannot prove the app retry
-/// action reuses its persisted feature and completes status/run linkage. Uses
-/// headless app state, local Git, and temporary stores; no Docker/network; low
-/// setup cost.
+/// committed but before the run write, then restart the app from its workspace
+/// before retrying. Unit tests cannot prove the app reloads durable planning
+/// state and reuses its persisted feature after restart. Uses headless egui,
+/// local Git, and temporary stores; no Docker/network; low setup cost.
 #[test]
 fn retry_recovers_interrupted_pursue_after_feature_write_before_run_write() {
     let mut app = crate::app::root::board_tests::fixture();
@@ -53,6 +53,7 @@ fn retry_recovers_interrupted_pursue_after_feature_write_before_run_write() {
         (uid, record_revision)
     };
 
+    let mut app = crate::app::root::board_tests::restart_fixture(app);
     app.retry_opportunity_planning(&uid, decision_revision);
 
     let crate::app::root::Screen::Connected(project) = &app.screen else {

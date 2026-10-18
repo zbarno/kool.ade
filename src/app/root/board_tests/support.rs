@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "support/restart.rs"]
+mod restart;
+pub(crate) use restart::restart_fixture;
+
 pub(in crate::app::root) fn fixture() -> KooladeApp {
     static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let chat_root = std::env::temp_dir().join(format!(

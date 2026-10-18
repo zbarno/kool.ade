@@ -206,7 +206,10 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
         },
         Box::new(MultiHarness),
     );
-    let deadline = Instant::now() + Duration::from_secs(15);
+    // This acceptance test runs in the full parallel suite alongside Docker
+    // and multi-process tests; allow scheduler contention without removing
+    // the finite guard against a stalled turn.
+    let deadline = Instant::now() + Duration::from_secs(90);
     let result = loop {
         assert!(
             Instant::now() < deadline,
