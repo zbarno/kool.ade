@@ -21,6 +21,7 @@ fn planning_request(mode: ExecutionMode) -> PlanningRequest {
         progress_tx,
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

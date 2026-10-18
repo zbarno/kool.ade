@@ -89,6 +89,7 @@ fn lifecycle_updates_replace_the_durable_cursor_and_state() {
             task_id: task_id.clone(),
             source_sha: "a".repeat(40),
         },
+        destination_sha: Some("c".repeat(40)),
         mode: ExecutionModeV1::Implementation,
         image_digest: image.digest,
         authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -140,11 +141,17 @@ fn lifecycle_updates_replace_the_durable_cursor_and_state() {
         crate::persistence::execution_records::ExecutionRecordStateV1::Preparing
     );
     assert_eq!(queued.event_cursor, 1);
+    assert_eq!(queued.destination_sha, Some("c".repeat(40)));
     assert_eq!(
         queued.lease_expires_at_unix_ms,
         Some(lease_expires_at_unix_ms)
     );
 
+    execution
+        .push(ExecutionEventKindV1::Lifecycle {
+            state: ExecutionLifecycleV1::Preparing,
+        })
+        .unwrap();
     execution
         .push(ExecutionEventKindV1::Lifecycle {
             state: ExecutionLifecycleV1::Running,
@@ -157,12 +164,23 @@ fn lifecycle_updates_replace_the_durable_cursor_and_state() {
         running.state,
         crate::persistence::execution_records::ExecutionRecordStateV1::Running
     );
-    assert_eq!(running.event_cursor, 2);
+    assert_eq!(running.event_cursor, 3);
     assert_eq!(
         running.lease_expires_at_unix_ms,
         Some(lease_expires_at_unix_ms)
     );
 
+    execution.terminal = true;
+    assert!(execution.mark_collecting().is_err());
+    assert_eq!(
+        crate::persistence::execution_records::journal_cursor(&task_id, &execution_id).unwrap(),
+        3,
+        "a terminal execution must not append Collecting after its terminal event"
+    );
+
     drop(execution);
     let _ = fs::remove_dir_all(workspace_path);
 }
+
+#[path = "tests/waiting_lifecycle.rs"]
+mod waiting_lifecycle;

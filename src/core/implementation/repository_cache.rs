@@ -127,6 +127,23 @@ impl RepositoryCache {
         self.resolve_branch(branch, runner)
     }
 
+    pub(super) fn refresh_branch_if_advertised(
+        &self,
+        branch: &str,
+        runner: &Runner,
+    ) -> anyhow::Result<Option<String>> {
+        let Some(remote) = self.fetch_url.as_deref() else {
+            return Ok(None);
+        };
+        self.validate_branch(branch, runner)?;
+        let remote_ref = format!("refs/heads/{branch}");
+        let advertised = runner.git(&self.path, &["ls-remote", "--heads", remote, &remote_ref])?;
+        if advertised.is_empty() {
+            return Ok(None);
+        }
+        self.refresh_branch(branch, runner).map(Some)
+    }
+
     pub(super) fn validate_task_remote(
         &self,
         task_repository: &Path,

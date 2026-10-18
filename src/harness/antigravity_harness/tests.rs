@@ -107,6 +107,7 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
         progress_tx: tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,
@@ -218,6 +219,7 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
         progress_tx: mpsc::channel().0,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,
@@ -301,6 +303,7 @@ fn request(
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

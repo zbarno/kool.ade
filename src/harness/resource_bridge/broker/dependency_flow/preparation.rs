@@ -6,7 +6,7 @@ pub(super) fn authorized_dependency(
     context: &BrokerContext<'_>,
     request: &mut DependencyRequest,
     scope: Option<crate::harness::DependencyAuthorizationScope>,
-) -> ResourceResponse {
+) -> anyhow::Result<ResourceResponse> {
     if !crate::harness::dependency_decision_allowed(&request.need, request.decision) {
         request.category = crate::harness::DependencyFailureCategory::DependencyPolicyDenied;
         request.status = crate::harness::DependencyRequestStatus::Failed;
@@ -15,8 +15,11 @@ pub(super) fn authorized_dependency(
             request,
             crate::harness::DependencyPreparationStatus::SourceRejected,
         ));
-        set_dependency_request(context, request);
-        return ResourceResponse::dependency_outcome("rejected", request.clone());
+        set_dependency_request(context, request)?;
+        return Ok(ResourceResponse::dependency_outcome(
+            "rejected",
+            request.clone(),
+        ));
     }
     if request.need.ecosystem == crate::harness::PackageEcosystem::System {
         return system_image::prepare(context, request, scope);
@@ -35,11 +38,14 @@ pub(super) fn authorized_dependency(
             request,
             crate::harness::DependencyPreparationStatus::Error,
         ));
-        set_dependency_request(context, request);
-        return ResourceResponse::dependency_outcome("error", request.clone());
+        set_dependency_request(context, request)?;
+        return Ok(ResourceResponse::dependency_outcome(
+            "error",
+            request.clone(),
+        ));
     }
     request.status = crate::harness::DependencyRequestStatus::Authorized;
-    set_dependency_request(context, request);
+    set_dependency_request(context, request)?;
 
     let Some(package_adapter) = adapter::for_ecosystem(request.need.ecosystem) else {
         request.category = crate::harness::DependencyFailureCategory::DependencyManagerUnsupported;
@@ -49,8 +55,11 @@ pub(super) fn authorized_dependency(
             request,
             crate::harness::DependencyPreparationStatus::Unsupported,
         ));
-        set_dependency_request(context, request);
-        return ResourceResponse::dependency_outcome("unsupported", request.clone());
+        set_dependency_request(context, request)?;
+        return Ok(ResourceResponse::dependency_outcome(
+            "unsupported",
+            request.clone(),
+        ));
     };
     if package_adapter.ecosystem() != request.need.ecosystem {
         request.category = crate::harness::DependencyFailureCategory::DependencyPolicyDenied;
@@ -62,8 +71,11 @@ pub(super) fn authorized_dependency(
             request,
             crate::harness::DependencyPreparationStatus::SourceRejected,
         ));
-        set_dependency_request(context, request);
-        return ResourceResponse::dependency_outcome("rejected", request.clone());
+        set_dependency_request(context, request)?;
+        return Ok(ResourceResponse::dependency_outcome(
+            "rejected",
+            request.clone(),
+        ));
     }
     let preparation = adapter::PreparationContext {
         decision: request.decision,
@@ -91,8 +103,11 @@ pub(super) fn authorized_dependency(
                 package_adapter.ecosystem_label(),
                 prepared.summary
             );
-            set_dependency_request(context, request);
-            ResourceResponse::dependency_outcome("prepared", request.clone())
+            set_dependency_request(context, request)?;
+            Ok(ResourceResponse::dependency_outcome(
+                "prepared",
+                request.clone(),
+            ))
         }
         Ok(mut prepared) => {
             classify_preparation_failure(request, &prepared.summary);
@@ -100,8 +115,11 @@ pub(super) fn authorized_dependency(
             request.status = crate::harness::DependencyRequestStatus::Failed;
             request.rationale = prepared.summary;
             request.preparation = Some(telemetry);
-            set_dependency_request(context, request);
-            ResourceResponse::dependency_outcome("needs_attention", request.clone())
+            set_dependency_request(context, request)?;
+            Ok(ResourceResponse::dependency_outcome(
+                "needs_attention",
+                request.clone(),
+            ))
         }
         Err(error) => {
             classify_preparation_failure(request, &format!("{error:#}"));
@@ -116,8 +134,11 @@ pub(super) fn authorized_dependency(
                 .load(std::sync::atomic::Ordering::Relaxed)
                 .saturating_sub(bytes_before) as u64;
             request.preparation = Some(telemetry);
-            set_dependency_request(context, request);
-            ResourceResponse::dependency_outcome("needs_attention", request.clone())
+            set_dependency_request(context, request)?;
+            Ok(ResourceResponse::dependency_outcome(
+                "needs_attention",
+                request.clone(),
+            ))
         }
     }
 }

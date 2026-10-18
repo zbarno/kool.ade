@@ -61,6 +61,7 @@ fn request(mode: ExecutionModeV1) -> ExecutionRequestV1 {
             task_id,
             source_sha: "a".repeat(40),
         },
+        destination_sha: None,
         mode,
         image_digest: selected.digest,
         authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),

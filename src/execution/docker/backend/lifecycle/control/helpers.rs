@@ -75,17 +75,17 @@ pub(in crate::execution::docker::backend::lifecycle) fn terminal(
     if state.terminal {
         return Ok(());
     }
-    state.push(ExecutionEventKindV1::Lifecycle {
-        state: ExecutionLifecycleV1::Collecting,
-    })?;
+    state.mark_collecting()?;
     state.terminal = true;
-    state.result = Some(result(
+    let mut terminal_result = result(
         &state.request.execution_id,
         failure,
         code,
         timed_out,
         cancelled,
-    ));
+    );
+    terminal_result.artifacts = state.artifacts.clone();
+    state.result = Some(terminal_result);
     state.push(ExecutionEventKindV1::Lifecycle { state: state_kind })?;
     Ok(())
 }
