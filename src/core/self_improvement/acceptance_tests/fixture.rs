@@ -1,3 +1,10 @@
+use super::{
+    OpportunityScenario,
+    support::{
+        apply, git, implement_in_isolated_local_clone, proposal, pursue_decision,
+        self_improvement_run, uid,
+    },
+};
 use std::process::Command;
 
 use crate::{
@@ -11,12 +18,6 @@ use crate::{
             SelfImprovementEventV1 as Event, SelfImprovementPhaseV1 as Phase, SelfImprovementStore,
         },
     },
-};
-use sha2::{Digest, Sha256};
-
-use super::{
-    OpportunityScenario,
-    support::{apply, git, proposal, pursue_decision, self_improvement_run, uid},
 };
 
 pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
@@ -149,48 +150,50 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
     run = apply(&runs, run, Event::CloneAllocated { clone_uid });
     assert_eq!(run.phase, Phase::Implementing);
 
-    let clone = temp.path().join("self-improvement-clone");
-    let source_argument = source.display().to_string();
-    let clone_argument = clone.display().to_string();
-    let output = Command::new("git")
-        .args([
-            "clone",
-            "--quiet",
-            "--no-hardlinks",
-            "--",
-            &source_argument,
-            &clone_argument,
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "isolated task clone failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    std::fs::write(clone.join("product.txt"), changed).unwrap();
-    git(&clone, &["add", "product.txt"]);
-    git(
-        &clone,
-        &[
-            "commit",
-            "--quiet",
-            "-m",
-            "implement approved product change",
-        ],
-    );
-    let implementation_head = git(&clone, &["rev-parse", "HEAD"]);
+    let (clone, implementation_head, subject_sha256) =
+        implement_in_isolated_local_clone(temp.path(), &source, changed);
     assert_ne!(implementation_head, source_sha);
-    let changed_bytes = std::fs::read(clone.join("product.txt")).unwrap();
-    let subject_sha256 = format!("{:x}", Sha256::digest(&changed_bytes));
-    run = apply(
-        &runs,
-        run,
-        Event::ImplementationFinished {
-            head_sha: implementation_head.clone(),
-            subject_sha256: subject_sha256.clone(),
-        },
+    let implementation_event = Event::ImplementationFinished {
+        head_sha: implementation_head.clone(),
+        subject_sha256: subject_sha256.clone(),
+    };
+    let implementation_event_uid = uid();
+    run = runs
+        .apply_event(
+            &run.run_uid,
+            run.revision,
+            &implementation_event_uid,
+            implementation_event.clone(),
+        )
+        .unwrap();
+    let durable_workspace_uid = planning.project_id;
+    let durable_planning_root = temp.path().join("planning");
+    drop(planning);
+    // Production boundary: close and reopen the managed planning store after
+    // implementation, then replay the same receipt. This verifies durable
+    // self-improvement recovery across a store reopen, beyond an
+    // in-memory state-machine test. It uses a local temp store and Git clone;
+    // no Docker or network service is required.
+    let planning = PlanningStore::new(
+        durable_workspace_uid,
+        durable_planning_root,
+        StoreMode::ManagedLocal,
     );
+    let runs = SelfImprovementStore::new(&planning);
+    let resumed = runs.load(&run.run_uid).unwrap();
+    assert_eq!(resumed, run);
+    assert_eq!(
+        runs.apply_event(
+            &resumed.run_uid,
+            resumed.revision,
+            &implementation_event_uid,
+            implementation_event,
+        )
+        .unwrap(),
+        resumed,
+        "replaying a committed implementation receipt after restart is idempotent"
+    );
+    run = resumed;
     assert!(
         runs.apply_event(
             &run.run_uid,

@@ -1,4 +1,8 @@
-use std::{path::Path, process::Command};
+use sha2::{Digest, Sha256};
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use crate::{
     core::{
@@ -38,6 +42,47 @@ pub(super) fn git(repo: &Path, args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+pub(super) fn implement_in_isolated_local_clone(
+    temp_root: &Path,
+    source: &Path,
+    changed_product: &str,
+) -> (PathBuf, String, String) {
+    let clone = temp_root.join("self-improvement-clone");
+    let source_argument = source.display().to_string();
+    let clone_argument = clone.display().to_string();
+    let output = Command::new("git")
+        .args([
+            "clone",
+            "--quiet",
+            "--no-hardlinks",
+            "--",
+            &source_argument,
+            &clone_argument,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "isolated task clone failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(clone.join("product.txt"), changed_product).unwrap();
+    git(&clone, &["add", "product.txt"]);
+    git(
+        &clone,
+        &[
+            "commit",
+            "--quiet",
+            "-m",
+            "implement approved product change",
+        ],
+    );
+    let head = git(&clone, &["rev-parse", "HEAD"]);
+    let bytes = std::fs::read(clone.join("product.txt")).unwrap();
+    let subject_sha256 = format!("{:x}", Sha256::digest(&bytes));
+    (clone, head, subject_sha256)
 }
 
 pub(super) fn proposal(source_sha: &str) -> OpportunityV1 {
