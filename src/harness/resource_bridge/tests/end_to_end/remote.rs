@@ -171,6 +171,7 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
                     temporary_disk_bytes: 4 * 1024 * 1024 * 1024,
                     output_bytes: 8 * 1024 * 1024,
                 },
+                destination_sha: None,
                 authorization_verifier: Some(Arc::new(authorization::TestAuthorization(
                     generation.clone(),
                 ))),

@@ -10,6 +10,12 @@ const MAX_JOURNAL_EVENTS: usize = 65_536;
 const MAX_JOURNAL_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_EVENT_RECORD_BYTES: usize = 512 * 1024;
 
+fn within_journal_limits(event_count: usize, current_bytes: u64, added_bytes: usize) -> bool {
+    event_count <= MAX_JOURNAL_EVENTS
+        && added_bytes <= MAX_EVENT_RECORD_BYTES
+        && current_bytes.saturating_add(added_bytes as u64) <= MAX_JOURNAL_BYTES
+}
+
 fn journal_path(task_id: &str, execution_id: &str) -> Result<PathBuf, String> {
     if !super::record::is_canonical_uuid(task_id) || !super::record::is_canonical_uuid(execution_id)
     {
@@ -45,6 +51,10 @@ fn task_directory(task_id: &str, create: bool) -> Result<PathBuf, String> {
 /// Append one immutable event. Repeating the same sequence and content is
 /// idempotent; a conflicting sequence or gap is rejected.
 pub fn append_event(task_id: &str, event: &ExecutionEventV1) -> Result<(), String> {
+    super::retention::with_retention_lock(|| append_event_locked(task_id, event))
+}
+
+fn append_event_locked(task_id: &str, event: &ExecutionEventV1) -> Result<(), String> {
     event.validate().map_err(|_| "execution event is invalid")?;
     let path = journal_path(task_id, &event.execution_id)?;
     let task_id = path
@@ -106,9 +116,7 @@ pub fn append_event(task_id: &str, event: &ExecutionEventV1) -> Result<(), Strin
         return Err("execution journal sequence is not contiguous".into());
     }
     let bytes = serde_json::to_vec(event).map_err(|_| "execution event could not be encoded")?;
-    if bytes.len() > MAX_EVENT_RECORD_BYTES
-        || total_bytes.saturating_add(bytes.len() as u64) > MAX_JOURNAL_BYTES
-    {
+    if !within_journal_limits(entries.len().saturating_add(1), total_bytes, bytes.len()) {
         return Err("execution journal exceeds its retention limit".into());
     }
     crate::artifacts::atomic_create_bytes(&event_path, &bytes)

@@ -19,6 +19,8 @@ use crate::execution::{
 };
 use bollard::Docker;
 
+#[cfg(test)]
+mod diagnostics;
 mod lifecycle;
 mod prepared_image;
 mod qa;

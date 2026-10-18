@@ -4,7 +4,9 @@ use crate::core::implementation::status::FailureCause;
 mod resume_state;
 mod source;
 mod task_state;
-pub(crate) use resume_state::{mark_resume_started, record_failed_attempt};
+#[cfg(test)]
+pub(crate) use resume_state::mark_resume_started;
+pub(crate) use resume_state::{mark_resume_started_for_action, record_failed_attempt};
 
 pub fn run(
     repo: &Path,

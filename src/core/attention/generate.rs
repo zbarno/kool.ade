@@ -195,6 +195,7 @@ pub(super) fn run(
             progress_tx,
             cancel: cancel.clone(),
             execution_workspace: None,
+            destination_sha: None,
 
             authorization_verifier: None,
             review_identity: None,

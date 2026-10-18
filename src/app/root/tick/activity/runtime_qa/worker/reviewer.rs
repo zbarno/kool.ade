@@ -86,6 +86,7 @@ pub(super) fn execute(inputs: ReviewInputs<'_>) -> Result<ReviewVerdictV1, Strin
         // prompt and runs without repository tools. Do not attach the browser
         // QA Docker workspace to the provider invocation.
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         prompt_manifest: Some(rendered.manifest),
         reasoning_level: "high".into(),

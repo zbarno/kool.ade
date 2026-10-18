@@ -86,6 +86,42 @@ fn event_values_round_trip_with_a_versioned_lifecycle() {
 }
 
 #[test]
+fn event_stream_preserves_and_resumes_distinct_wait_lifecycle_states() {
+    let mut stream = EventStreamValidator::default();
+    for (sequence, state) in [
+        ExecutionLifecycleV1::Queued,
+        ExecutionLifecycleV1::Preparing,
+        ExecutionLifecycleV1::WaitingForDependencyApproval,
+        ExecutionLifecycleV1::WaitingForRuntime,
+        ExecutionLifecycleV1::Preparing,
+        ExecutionLifecycleV1::Running,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        stream
+            .accept(&event(
+                sequence as u64 + 1,
+                sequence as u64 + 1,
+                ExecutionEventKindV1::Lifecycle { state },
+            ))
+            .unwrap();
+    }
+    assert!(
+        stream
+            .accept(&event(
+                7,
+                7,
+                ExecutionEventKindV1::Lifecycle {
+                    state: ExecutionLifecycleV1::WaitingForRuntime,
+                },
+            ))
+            .is_err(),
+        "a running command cannot fall back into a pre-execution wait"
+    );
+}
+
+#[test]
 fn event_replay_memory_is_bounded_and_old_replays_are_rejected() {
     let mut stream = EventStreamValidator::default();
     for (sequence, lifecycle) in [
