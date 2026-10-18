@@ -96,7 +96,7 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
                 crate::persistence::harness_settings::DetectedHarness {
                     status: "pi fixture 1.0".into(),
                     version: Some("1.0".into()),
-                    executable: None,
+                    executable: Some(root.join("pi-fixture").to_string_lossy().into_owned()),
                     diagnostic: None,
                     ready: true,
                     models: Vec::new(),
