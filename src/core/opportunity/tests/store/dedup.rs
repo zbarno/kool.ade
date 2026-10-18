@@ -222,12 +222,9 @@ fn concurrent_new_snooze_invalidates_a_previously_eligible_reopen() {
                 .map(|_| ())
         })
         .unwrap();
-    assert!(
-        matches!(
-            &result,
-            OpportunitySaveResult::Duplicate { proposal, .. }
-                if proposal.opportunity_uid == deferred.opportunity_uid
-        ),
-        "reopen should observe the concurrent snooze; got {result:?}"
-    );
+    assert!(matches!(
+        &result,
+        OpportunitySaveResult::Duplicate { proposal, .. }
+            if proposal.opportunity_uid == deferred.opportunity_uid
+    ));
 }
