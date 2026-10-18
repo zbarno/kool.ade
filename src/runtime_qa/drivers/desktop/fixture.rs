@@ -1,6 +1,11 @@
 mod chromium;
+pub(super) mod egui;
 mod encoding;
 pub(super) mod window;
+
+pub(super) fn run_egui_window() -> Result<(), String> {
+    egui::run_window()
+}
 
 use std::{
     process::{Child, Command, Stdio},
@@ -20,6 +25,7 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
     let visible_control = visibility_case(false)?;
     let absent_control = visibility_case(true)?;
     let packaged_chromium = chromium::exercise()?;
+    let egui_application = egui::exercise()?;
     if interaction["click_assertion"] != "passed"
         || interaction["keyboard_assertion"] != "passed"
         || interaction["screenshot_changed"] != true
@@ -40,6 +46,7 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         "seeded_defect_case": seeded_defect,
         "native_control_visibility": {"visible": visible_control, "absent": absent_control},
         "packaged_non_rust_application": packaged_chromium,
+        "egui_application": egui_application,
     }))
 }
 
@@ -175,15 +182,27 @@ fn wait_for_title(
 ) -> Result<super::display::WindowInfo, String> {
     let deadline = Instant::now() + timeout;
     loop {
-        if let Some(window) = display
-            .windows(owner_pids)?
-            .into_iter()
+        let windows = display.windows(owner_pids)?;
+        if let Some(window) = windows
+            .iter()
             .find(|window| window.title.contains(expected))
+            .cloned()
         {
             return Ok(window);
         }
         if Instant::now() >= deadline {
-            return Err(format!("desktop fixture did not report state {expected}"));
+            let observed = windows
+                .iter()
+                .map(|window| {
+                    format!(
+                        "{:?} at {},{} size {}x{}",
+                        window.title, window.x, window.y, window.width, window.height
+                    )
+                })
+                .collect::<Vec<_>>();
+            return Err(format!(
+                "desktop fixture did not report state {expected}; observed windows: {observed:?}"
+            ));
         }
         thread::sleep(Duration::from_millis(20));
     }

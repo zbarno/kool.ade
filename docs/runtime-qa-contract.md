@@ -69,6 +69,12 @@ rootless Linux Docker daemon and Buildx, uses no external network at runtime,
 and has high setup cost because it builds the candidate image before the smoke.
 It does not exercise the full task approval, recipe execution, QA repair, and
 spec reconciliation lifecycle.
+The same candidate smoke also opens an actual eframe/egui window under private
+Xvfb, applies pointer and keyboard input through the desktop driver, checks the
+updated native window state, and retains the resulting screenshots. This
+crosses the egui window and input boundary that the direct X11 and Chromium
+fixtures do not cover. It uses the same rootless Docker setup and adds one
+bounded window launch to the image smoke.
 
 Task Details projects the persisted run outcome, requirement coverage, findings,
 action trace, and validated screenshots from the user's local Runtime QA store.

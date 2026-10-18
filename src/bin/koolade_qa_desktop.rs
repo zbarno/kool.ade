@@ -25,6 +25,9 @@ fn execute() -> Result<(), String> {
                 .map_err(|_| "desktop fixture smoke response could not write".to_owned())
         }
         (Some("--fixture-window"), None) => koolade::runtime_qa::run_linux_desktop_fixture_window(),
+        (Some("--fixture-egui-window"), None) => {
+            koolade::runtime_qa::run_linux_desktop_egui_fixture_window()
+        }
         (Some("--smoke"), None) => {
             let (width, height, screenshot_bytes) =
                 koolade::runtime_qa::smoke_linux_desktop_driver()?;

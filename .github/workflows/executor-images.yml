@@ -271,6 +271,8 @@ jobs:
           version: v29.9.0
           rootless: true
           set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
       - name: Select the architecture-specific pinned QA base
         id: image
         env:
@@ -467,6 +469,8 @@ jobs:
           version: v29.9.0
           rootless: true
           set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
       - name: Require rootless Docker for trusted QA publication
         run: |
           set -euo pipefail

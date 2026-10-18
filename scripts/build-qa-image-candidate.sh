@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'status=$?; printf "QA image candidate failed at line %s: %s (status %s)\\n" "$LINENO" "$BASH_COMMAND" "$status" >&2' ERR
 
 profile="${1:?profile required}"
 platform="${2:?platform required}"
@@ -159,16 +160,25 @@ PY
           .packaged_non_rust_application.chromium_version == "143.0.7499.4" and
           .packaged_non_rust_application.resize.width == 900 and
           .packaged_non_rust_application.resize.height == 600 and
-          .packaged_non_rust_application.screenshot_hashes_distinct == true'
+          .packaged_non_rust_application.screenshot_hashes_distinct == true and
+          .egui_application.status == "passed" and
+          .egui_application.click_assertion == "passed" and
+          .egui_application.keyboard_assertion == "passed" and
+          .egui_application.screenshot_hashes_distinct == true and
+          ([.egui_application.screenshots[].name] == ["before", "after_click", "after_keyboard"])'
     python3 - "$fixture_evidence" "$output_directory" <<'PY'
 import base64, hashlib, json, pathlib, sys
 evidence = json.loads(pathlib.Path(sys.argv[1]).read_text())
 directory = pathlib.Path(sys.argv[2])
-for case in ("interaction_case", "seeded_defect_case", "packaged_non_rust_application"):
+for case in ("interaction_case", "seeded_defect_case", "packaged_non_rust_application", "egui_application"):
+    if case == "egui_application" and len(evidence[case]["screenshots"]) != 3:
+        raise SystemExit("egui fixture must retain exactly three screenshots")
     for screenshot in evidence[case]["screenshots"]:
         payload = base64.b64decode(screenshot["bytes_base64"], validate=True)
         if hashlib.sha256(payload).hexdigest() != screenshot["sha256"] or not payload.startswith(b"\x89PNG\r\n\x1a\n"):
             raise SystemExit("desktop fixture screenshot evidence failed integrity validation")
+        if case == "egui_application" and (int.from_bytes(payload[16:20], "big"), int.from_bytes(payload[20:24], "big")) != (1440, 900):
+            raise SystemExit("egui fixture screenshot dimensions differ from the locked virtual display")
         (directory / f"desktop-{case}-{screenshot['name']}.png").write_bytes(payload)
 PY
     docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \

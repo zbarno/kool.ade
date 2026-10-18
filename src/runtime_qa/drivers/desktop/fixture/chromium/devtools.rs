@@ -12,7 +12,7 @@ pub(super) fn open_page(profile: &Path, url: &str) -> Result<(), String> {
         return Err("Chromium fixture navigation must target its local loopback page".into());
     }
     let port_file = profile.join("DevToolsActivePort");
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         if let Ok(contents) = fs::read_to_string(&port_file)
             && let Some(line) = contents.lines().next()

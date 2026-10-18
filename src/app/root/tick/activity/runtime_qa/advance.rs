@@ -28,17 +28,17 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
     let completed_worker = worker_completion::completed_worker_state(project);
     let completed_worker_identity = completed_worker.identity;
     let worker_result = completed_worker.result;
-    let lifecycle = LifecycleStore::new(&project.state.planning_store);
-    let candidates = match lifecycle.runtime_qa_candidates() {
-        Ok(candidates) => candidates,
-        Err(error) => {
-            project
-                .activity
-                .pending
-                .push(format!("Runtime QA queue could not be read: {error}"));
-            return;
-        }
-    };
+    let candidates =
+        match LifecycleStore::new(&project.state.planning_store).runtime_qa_candidates() {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                project
+                    .activity
+                    .pending
+                    .push(format!("Runtime QA queue could not be read: {error}"));
+                return;
+            }
+        };
     let mut notices = Vec::new();
     let mut launch = None;
     for task in candidates {
@@ -75,7 +75,8 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                         task.revision,
                         "runtime-recipe-attempt-blocked-v1",
                     );
-                    match lifecycle.block_runtime_qa_unavailable(
+                    match LifecycleStore::new(&project.state.planning_store)
+                        .block_runtime_qa_unavailable(
                         &task.task_uid, task.revision, &event_uid, reason.clone(),
                     ) {
                         Ok(_) => notices.push(format!(
@@ -93,7 +94,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 Ok(prepared) => {
                     let event_uid =
                         event_uid(&task.task_uid, task.revision, "runtime-qa-request-v1");
-                    match lifecycle.queue_runtime_qa(
+                    match LifecycleStore::new(&project.state.planning_store).queue_runtime_qa(
                         &task.task_uid,
                         task.revision,
                         &event_uid,
@@ -125,7 +126,8 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     }
                     let event_uid =
                         event_uid(&task.task_uid, task.revision, "runtime-qa-unavailable-v1");
-                    match lifecycle.block_runtime_qa_unavailable(
+                    match LifecycleStore::new(&project.state.planning_store)
+                        .block_runtime_qa_unavailable(
                         &task.task_uid,
                         task.revision,
                         &event_uid,
@@ -173,7 +175,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
             && project.activity.runtime_qa_worker.is_none()
         {
             let event_uid = event_uid(&task.task_uid, task.revision, "runtime-qa-worker-failed-v1");
-            match lifecycle.block_runtime_qa(
+            match LifecycleStore::new(&project.state.planning_store).block_runtime_qa(
                 &task.task_uid,
                 task.revision,
                 &event_uid,
@@ -192,7 +194,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
         }
         match reports::record_persisted_report(
             &project.state.planning_store,
-            &lifecycle,
+            &LifecycleStore::new(&project.state.planning_store),
             &qa_store,
             &task,
         ) {
@@ -210,7 +212,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     task.revision,
                     "runtime-qa-report-rejected-v1",
                 );
-                match lifecycle.block_runtime_qa(
+                match LifecycleStore::new(&project.state.planning_store).block_runtime_qa(
                     &task.task_uid,
                     task.revision,
                     &event_uid,
@@ -242,7 +244,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 let reason = "queued Runtime QA request no longer matches the exact reviewed task, target, recipe, or build receipt; issue a fresh reviewed request.";
                 let event_uid =
                     event_uid(&task.task_uid, task.revision, "runtime-qa-request-stale-v1");
-                match lifecycle.block_runtime_qa(&task.task_uid, task.revision, &event_uid, &request.qa_run_id, reason.into()) {
+                match LifecycleStore::new(&project.state.planning_store).block_runtime_qa(&task.task_uid, task.revision, &event_uid, &request.qa_run_id, reason.into()) {
                     Ok(_) => notices.push(format!("Runtime QA for task {} was blocked because its queued request is stale; issue a fresh reviewed request.", task.task_uid)),
                     Err(error) => project.activity.pending.push(format!("Stale Runtime QA request could not be blocked: {error}")),
                 }
@@ -257,7 +259,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     task.revision,
                     "runtime-qa-inputs-missing-v1",
                 );
-                match lifecycle.block_runtime_qa(
+                match LifecycleStore::new(&project.state.planning_store).block_runtime_qa(
                     &task.task_uid,
                     task.revision,
                     &event_uid,
@@ -281,7 +283,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 task.revision,
                 "runtime-qa-infrastructure-blocked-v1",
             );
-            match lifecycle.block_runtime_qa(
+            match LifecycleStore::new(&project.state.planning_store).block_runtime_qa(
                 &task.task_uid,
                 task.revision,
                 &event_uid,
@@ -295,6 +297,14 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 Err(error) => project.activity.pending.push(format!(
                     "Runtime QA blocker could not be persisted: {error}"
                 )),
+            }
+            let requested_toolchains =
+                prerequisites::queue_missing_toolchain_reviews(project, &task, request);
+            if !requested_toolchains.is_empty() {
+                notices.push(format!(
+                    "Man.ager review requests were queued for missing runtime toolchains: {}.",
+                    requested_toolchains.join(", ")
+                ));
             }
             continue;
         }

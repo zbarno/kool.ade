@@ -14,6 +14,8 @@ use super::request::verify_provenance_for_request;
 
 mod cache_refs;
 pub(super) use cache_refs::{available_broker_dependencies, selected_broker_cache_refs};
+mod manager_requests;
+pub(super) use manager_requests::queue_missing_toolchain_reviews;
 
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
@@ -183,7 +185,7 @@ pub(super) fn unavailable_reason(
     None
 }
 
-fn task_progress_for_target<'a>(
+pub(super) fn task_progress_for_target<'a>(
     documents: &'a [crate::artifacts::task_docs::TaskDocument],
     activities: &'a std::collections::BTreeMap<String, crate::harness::LiveProgress>,
     target: &crate::project_runtime::AppTargetV1,
@@ -197,7 +199,7 @@ fn task_progress_for_target<'a>(
     activities.get(&document.path)
 }
 
-fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
+pub(super) fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
     let profiles = [
         RuntimeProfile::General,
         RuntimeProfile::Rust,

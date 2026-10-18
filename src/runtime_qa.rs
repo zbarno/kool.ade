@@ -45,3 +45,9 @@ pub fn smoke_linux_desktop_fixture() -> Result<serde_json::Value, String> {
 pub fn run_linux_desktop_fixture_window() -> Result<(), String> {
     drivers::desktop::run_fixture_window()
 }
+
+/// Launch the synthetic egui window as a child of the isolated smoke driver.
+#[cfg(target_os = "linux")]
+pub fn run_linux_desktop_egui_fixture_window() -> Result<(), String> {
+    drivers::desktop::run_egui_fixture_window()
+}
