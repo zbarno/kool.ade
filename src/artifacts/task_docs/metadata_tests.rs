@@ -51,6 +51,7 @@ fn invalid_metadata_fails_closed_and_legacy_parser_is_bounded_to_dependency_sect
         batch_uid: uuid::Uuid::new_v4().to_string(),
         repository_id: "../api".into(),
         dependency_uids: vec![],
+        parent_task_uid: None,
         source_branch: None,
         destination_branch: None,
         source_sha: None,
@@ -82,6 +83,16 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
         Some("feature/platform-refactor")
     );
     assert_eq!(metadata.destination_branch.as_deref(), Some("integration"));
+
+    let parent_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let child = TaskMetadata::new(&identity, "root", vec![])
+        .unwrap()
+        .with_parent_task_uid(Some(&parent_uid))
+        .unwrap();
+    assert_eq!(child.parent_task_uid.as_deref(), Some(parent_uid.as_str()));
+    let encoded = serde_json::to_string(&child).unwrap();
+    let reopened: TaskMetadata = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(reopened, child);
 
     let legacy = serde_json::json!({
         "schemaVersion": 1,

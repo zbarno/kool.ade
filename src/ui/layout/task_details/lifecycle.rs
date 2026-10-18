@@ -225,6 +225,7 @@ mod tests {
         let lifecycle = crate::ui::task_detail::LifecycleView {
             feature_phase: FeaturePhase::Complete,
             task_phase: TaskPhase::PrMerged,
+            parent_task_uid: None,
             task_revision: 4,
             code_review: None,
             runtime_qa: None,

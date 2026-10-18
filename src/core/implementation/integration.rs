@@ -2,7 +2,19 @@ use super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
 mod change_set;
 mod prepare;
+mod subtasks;
 use prepare::prepare_integration;
+pub(super) use subtasks::integrate_subtasks;
+
+pub(super) fn validate_subtasks_for_pr(
+    dir: &Path,
+    parent: &crate::core::lifecycle::TaskRecord,
+    included: &[crate::core::lifecycle::TaskRecord],
+    state: &Implementation,
+    runner: &Runner,
+) -> anyhow::Result<()> {
+    subtasks::validate_for_pr(dir, parent, included, state, runner)
+}
 
 pub(super) fn auto_publish(
     repo: &Path,

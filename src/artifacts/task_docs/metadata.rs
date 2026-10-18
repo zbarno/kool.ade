@@ -2,9 +2,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+mod legacy;
 mod routing;
 
-const VERSION: u32 = 4;
+pub use legacy::legacy_dependencies;
+
+const VERSION: u32 = 5;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -16,6 +19,9 @@ pub struct TaskMetadata {
     pub batch_uid: String,
     pub repository_id: String,
     pub dependency_uids: Vec<String>,
+    /// Standalone task UID that owns this internal subtask, when applicable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_task_uid: Option<String>,
     #[serde(
         default,
         alias = "source_branch",
@@ -56,6 +62,7 @@ impl TaskMetadata {
                 .ok_or_else(|| anyhow::anyhow!("Generated task identity has no batch identity"))?,
             repository_id: repository_id.into(),
             dependency_uids,
+            parent_task_uid: None,
             source_branch: None,
             destination_branch: None,
             source_sha: None,
@@ -66,6 +73,12 @@ impl TaskMetadata {
         };
         metadata.validate(Some(identity))?;
         Ok(metadata)
+    }
+
+    pub fn with_parent_task_uid(mut self, parent_task_uid: Option<&str>) -> anyhow::Result<Self> {
+        self.parent_task_uid = parent_task_uid.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
     }
 
     pub fn with_branch_targets(
@@ -127,6 +140,12 @@ impl TaskMetadata {
             valid_repository_id(&self.repository_id),
             "Task metadata has an invalid repository ID"
         );
+        if let Some(parent_uid) = self.parent_task_uid.as_deref() {
+            anyhow::ensure!(
+                uuid::Uuid::parse_str(parent_uid).is_ok() && parent_uid != self.uid,
+                "Task metadata has an invalid parent task identity"
+            );
+        }
         anyhow::ensure!(
             self.dependency_uids.len() <= MAX_DEPENDENCIES,
             "Task metadata has too many dependencies"
@@ -234,41 +253,6 @@ pub fn visible_content(markdown: &str) -> String {
         .flatten()
         .map_or(markdown, |(_, body)| body);
     crate::domain::ArtifactIdentity::visible_markdown(body)
-}
-
-/// Read legacy relative dependency links only from their designated section.
-/// The caller additionally checks that each target is a same-batch story.
-pub fn legacy_dependencies(markdown: &str) -> anyhow::Result<Vec<String>> {
-    use pulldown_cmark::{Event, Parser, Tag};
-    let mut active = false;
-    let mut section = String::new();
-    for line in markdown.lines() {
-        if line.starts_with("## ") {
-            active = line.trim().eq_ignore_ascii_case("## Dependencies");
-            continue;
-        }
-        if active {
-            section.push_str(line);
-            section.push('\n');
-        }
-    }
-    let mut links = BTreeSet::new();
-    for event in Parser::new(&section) {
-        if let Event::Start(Tag::Link { dest_url, .. }) = event {
-            let target = dest_url.to_string();
-            let path = std::path::Path::new(&target);
-            anyhow::ensure!(
-                path.components().count() == 1 && target.ends_with(".md"),
-                "unsupported legacy dependency link {target}"
-            );
-            links.insert(target);
-        }
-    }
-    anyhow::ensure!(
-        links.len() <= MAX_DEPENDENCIES,
-        "Legacy task has too many dependency links"
-    );
-    Ok(links.into_iter().collect())
 }
 
 fn valid_repository_id(id: &str) -> bool {

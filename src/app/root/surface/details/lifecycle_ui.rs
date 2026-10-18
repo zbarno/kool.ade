@@ -59,6 +59,7 @@ pub(super) fn for_ticket(
         Some(crate::ui::task_detail::LifecycleView {
             feature_phase: feature.phase,
             task_phase: task.phase,
+            parent_task_uid: task.parent_task_uid.clone(),
             task_revision: task.revision,
             code_review: task.code_review,
             runtime_qa: task.runtime_qa,

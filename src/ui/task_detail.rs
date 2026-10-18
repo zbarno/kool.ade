@@ -40,6 +40,7 @@ pub struct ViewModel {
 pub struct LifecycleView {
     pub feature_phase: crate::core::lifecycle::FeaturePhase,
     pub task_phase: crate::core::lifecycle::TaskPhase,
+    pub parent_task_uid: Option<String>,
     pub task_revision: u64,
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
