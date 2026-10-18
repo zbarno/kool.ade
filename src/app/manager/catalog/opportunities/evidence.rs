@@ -5,6 +5,9 @@ use crate::{
     harness::prompt_catalog::{EvidenceConfidentiality, EvidenceItem, EvidenceOrigin},
 };
 
+mod broker;
+use broker::dependency_request_evidence;
+
 /// Application-generated, workspace-private evidence for the generic support
 /// check and recent typed lifecycle events. Model output can cite these IDs,
 /// but cannot create or alter their contents.
@@ -25,6 +28,7 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         source: "validated project capability inventory".into(),
         content: capability_inventory(project),
     }];
+    items.extend(dependency_request_evidence(project, &workspace_uid));
     let feature_uids = project
         .state
         .active_features
@@ -91,6 +95,24 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         });
     }
     items
+}
+
+/// Public, compiled product documentation can support a product proposal while
+/// the active workspace is a separate repository. It contains no workspace data.
+pub(in crate::app::manager::catalog) fn koolade_product_contract_evidence(
+    workspace_uid: &str,
+) -> EvidenceItem {
+    EvidenceItem {
+        id: "koolade-product-opportunity-contract".into(),
+        workspace_uid: workspace_uid.to_owned(),
+        origin: EvidenceOrigin::Application,
+        confidentiality: EvidenceConfidentiality::Public,
+        source: "compiled public Kool.ad/e opportunity-discovery contract".into(),
+        content: crate::core::context_build::clip(
+            include_str!("../../../../../docs/opportunity-discovery.md"),
+            12_000,
+        ),
+    }
 }
 
 fn capability_inventory(project: &Project) -> String {

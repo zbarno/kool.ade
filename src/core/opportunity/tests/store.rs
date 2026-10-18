@@ -9,6 +9,9 @@ use crate::{
     },
 };
 
+#[path = "store/dedup.rs"]
+mod dedup;
+
 struct TempDir(std::path::PathBuf);
 
 impl TempDir {

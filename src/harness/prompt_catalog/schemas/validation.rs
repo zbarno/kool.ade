@@ -47,6 +47,8 @@ pub struct OutputValidationContext<'a> {
     pub active_repository_ref: Option<String>,
     pub koolade_product_repository_ref: Option<String>,
     pub public_evidence_ids: HashSet<String>,
+    /// Evidence references that are valid only for a specific linked repository.
+    pub evidence_repository_refs: HashMap<String, String>,
 }
 
 /// Strictly decode role output. If direct JSON parsing fails, make one
@@ -228,7 +230,9 @@ fn decode(
         };
     }
     match role {
-        PromptRole::Manager | PromptRole::ManagerV3 => parse!(ManagerOutputV2, Manager),
+        PromptRole::Manager | PromptRole::ManagerV4 | PromptRole::ManagerV3 => {
+            parse!(ManagerOutputV2, Manager)
+        }
         PromptRole::ManagerV2 => parse!(ManagerOutputV1, ManagerLegacy),
         PromptRole::Planner => parse!(PlannerOutputV2, PlannerV3),
         PromptRole::PlannerV2 => parse!(PlannerOutputV1, Planner),

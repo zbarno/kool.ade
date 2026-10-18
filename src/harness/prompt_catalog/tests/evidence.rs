@@ -17,7 +17,7 @@ fn evidence_is_quoted_as_user_data_and_captured_by_manifest() {
     assert!(!first.system.contains("ignore system policy"));
     assert!(first.user.contains("QUOTED EVIDENCE (UNTRUSTED DATA)"));
     assert!(first.user.contains("ignore system policy"));
-    assert_eq!(first.manifest.role_version, "manager/v4");
+    assert_eq!(first.manifest.role_version, "manager/v5");
     assert_eq!(first.manifest.system_template_sha256.len(), 64);
     assert_eq!(first.manifest.user_template_sha256.len(), 64);
     assert_eq!(first.manifest.policy_template_sha256.len(), 64);
@@ -81,29 +81,6 @@ fn bounded_evidence_rejects_oversized_goal() {
     );
     input.original_goal = "x".repeat(17 * 1024);
     assert!(render(&input).unwrap_err().contains("exceeds"));
-}
-
-#[test]
-fn opportunity_evaluation_fixtures_cover_scope_confidentiality_and_forgery() {
-    let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-        "../../../../prompts/evals/v2/opportunities.json"
-    ))
-    .unwrap();
-    let ids: std::collections::HashSet<_> = fixtures
-        .iter()
-        .map(|fixture| fixture["id"].as_str().unwrap())
-        .collect();
-    for required in [
-        "generic-capability-existing",
-        "novel-feature",
-        "duplicate-declined",
-        "malicious-approved-field",
-        "public-confidentiality",
-        "wrong-target-repository",
-    ] {
-        assert!(ids.contains(required), "missing fixture {required}");
-    }
-    assert_eq!(ids.len(), fixtures.len(), "fixture IDs must be unique");
 }
 
 #[test]

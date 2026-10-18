@@ -11,6 +11,10 @@ pub(super) fn validate(
     let list_valid = |values: &[String], max_count: usize, max_value: usize| {
         values.len() <= max_count && values.iter().all(|value| nonempty(value, max_value))
     };
+    let required_capability_evidence = match &proposal.target {
+        OpportunityTarget::KooladeProduct => "koolade-product-opportunity-contract",
+        _ => "generic-capability-inventory",
+    };
     let expected_identity = context
         .allowed_repositories
         .get(&proposal.target_repository_ref)
@@ -58,10 +62,10 @@ pub(super) fn validate(
         || !proposal
             .evidence_refs
             .iter()
-            .any(|reference| reference == "generic-capability-inventory")
+            .any(|reference| reference == required_capability_evidence)
         || !proposal
             .generic_capability_check
-            .contains("generic-capability-inventory")
+            .contains(required_capability_evidence)
         || !nonempty(&proposal.deduplication_basis, 4096)
         || (proposal.speculative && matches!(proposal.confidence, OpportunityConfidence::High))
     {
@@ -90,6 +94,29 @@ pub(super) fn validate(
         return Err("opportunity target kind does not match the selected repository".into());
     }
     if proposal.evidence_refs.iter().any(|reference| {
+        context
+            .evidence_repository_refs
+            .get(reference)
+            .is_some_and(|repository| repository != &proposal.target_repository_ref)
+    }) {
+        return Err("opportunity evidence is scoped to a different repository".into());
+    }
+    let active_target = matches!(&proposal.target, OpportunityTarget::ActiveUserProject);
+    let user_context_required = matches!(
+        &proposal.origin,
+        super::super::OpportunityOrigin::UserGoal | super::super::OpportunityOrigin::UserFeedback
+    ) || (active_target
+        && matches!(&proposal.origin, super::super::OpportunityOrigin::Roadmap));
+    if user_context_required
+        && (!active_target
+            || !proposal
+                .evidence_refs
+                .iter()
+                .any(|id| id == "workspace-summary"))
+    {
+        return Err("user-goal, feedback, and active-project roadmap proposals need current workspace evidence".into());
+    }
+    if proposal.evidence_refs.iter().any(|reference| {
         !context.evidence_ids.contains(reference)
             || (!matches!(&proposal.target, &OpportunityTarget::ActiveUserProject)
                 && !context.public_evidence_ids.contains(reference))
@@ -100,17 +127,24 @@ pub(super) fn validate(
         );
     }
     let typed_event_required = match &proposal.origin {
-        super::super::OpportunityOrigin::RunFailure => Some("implementation-failure:"),
+        super::super::OpportunityOrigin::RunFailure => {
+            Some(&["implementation-failure:", "broker-prerequisite:"][..])
+        }
         super::super::OpportunityOrigin::QaFinding
         | super::super::OpportunityOrigin::ReviewFinding
-        | super::super::OpportunityOrigin::SpecDrift => Some("lifecycle-event:"),
+        | super::super::OpportunityOrigin::SpecDrift => Some(&["lifecycle-event:"][..]),
         _ => None,
     };
-    if typed_event_required.is_some_and(|prefix| {
+    if !matches!(&proposal.target, OpportunityTarget::ActiveUserProject)
+        && typed_event_required.is_some()
+    {
+        return Err("private event origins cannot be proposed against another repository".into());
+    }
+    if typed_event_required.is_some_and(|prefixes| {
         !proposal
             .evidence_refs
             .iter()
-            .any(|reference| reference.starts_with(prefix))
+            .any(|reference| prefixes.iter().any(|prefix| reference.starts_with(prefix)))
     }) {
         return Err("event-driven opportunity lacks its typed application evidence".into());
     }
