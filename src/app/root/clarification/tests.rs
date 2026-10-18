@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "tests/accepted.rs"]
 mod accepted;
+#[path = "tests/evidence_resolution.rs"]
+mod evidence_resolution;
 
 struct CaptureClarificationHarness(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
 

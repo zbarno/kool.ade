@@ -176,6 +176,7 @@ pub fn propose_questions(
                 depends_on_question_ids: p.depends_on_question_ids,
                 status: QuestionStatus::Open,
                 answer_text: None,
+                evidence_resolution: None,
                 selected_option: None,
                 answered_by: None,
                 answered_at_ms: None,
