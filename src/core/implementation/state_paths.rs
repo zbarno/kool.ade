@@ -41,7 +41,7 @@ pub(crate) fn state_dir(repo: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
     }
 }
 
-fn state_dir_by_task_uid(repo: &Path, uid: &str) -> anyhow::Result<Option<PathBuf>> {
+pub(crate) fn state_dir_by_task_uid(repo: &Path, uid: &str) -> anyhow::Result<Option<PathBuf>> {
     let mut matches = Vec::new();
     for root in implementation_roots(repo)? {
         let entries = match fs::read_dir(root) {

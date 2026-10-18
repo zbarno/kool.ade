@@ -23,6 +23,75 @@ fn done(ticket: &str) -> Implementation {
     serde_json::from_value(serde_json::json!({"ticket":ticket,"ticket_text":"","branch":"task","base":"main","base_commit":"base","worktree":"fixture","status":"completed","detail":"","pr_url":null,"verified_head":"head"})).unwrap()
 }
 
+fn task_doc(
+    path: &str,
+    uid: &str,
+    batch_uid: &str,
+    parent_task_uid: Option<&str>,
+    dependencies: Vec<String>,
+) -> TaskDocument {
+    let mut identity = crate::domain::ArtifactIdentity::new(uid, path);
+    identity.uid = uid.to_owned();
+    identity.parent_uid = Some(batch_uid.to_owned());
+    let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", dependencies)
+        .unwrap()
+        .with_parent_task_uid(parent_task_uid)
+        .unwrap();
+    TaskDocument {
+        path: path.into(),
+        title: path.into(),
+        text: format!("# {path}\n\n## Dependencies\nNone.\n"),
+        identity: Some(identity),
+        metadata: Some(metadata),
+        task_state: None,
+        metadata_error: None,
+    }
+}
+
+#[test]
+fn standalone_parent_waits_for_subtask_lifecycle_completion_and_siblings_follow_dag() {
+    let batch_uid = "00000000-0000-4000-8000-000000000010";
+    let parent_uid = "00000000-0000-4000-8000-000000000011";
+    let first_uid = "00000000-0000-4000-8000-000000000012";
+    let second_uid = "00000000-0000-4000-8000-000000000013";
+    let parent = task_doc("parent.md", parent_uid, batch_uid, None, vec![]);
+    let first = task_doc("first.md", first_uid, batch_uid, Some(parent_uid), vec![]);
+    let second = task_doc(
+        "second.md",
+        second_uid,
+        batch_uid,
+        Some(parent_uid),
+        vec![first_uid.into()],
+    );
+    let docs = vec![parent.clone(), first.clone(), second.clone()];
+    let mut first_state = done(&first.path);
+    first_state.status = crate::core::implementation::ImplementationStatus::AwaitingApproval;
+    first_state.merged_commit = None;
+    let mut states = BTreeMap::from([(first.path.clone(), first_state.clone())]);
+    assert!(
+        ticket_readiness(&docs, &states, &parent.path)
+            .unwrap_err()
+            .contains("subtask")
+    );
+
+    let completed_first = std::collections::BTreeSet::from([first_uid.to_owned()]);
+    assert!(
+        ticket_readiness_with_lifecycle_subtasks(&docs, &states, &second.path, &completed_first,)
+            .is_ok()
+    );
+    assert!(
+        ticket_readiness_with_lifecycle_subtasks(&docs, &states, &parent.path, &completed_first,)
+            .unwrap_err()
+            .contains("second.md")
+    );
+
+    states.insert(second.path.clone(), first_state);
+    let completed = std::collections::BTreeSet::from([first_uid.into(), second_uid.into()]);
+    assert!(
+        ticket_readiness_with_lifecycle_subtasks(&docs, &states, &parent.path, &completed).is_ok()
+    );
+}
+
 #[test]
 fn known_orchestration_failures_recover_once_but_external_blockers_do_not() {
     let docs = vec![doc(1, "None"), doc(2, "None")];

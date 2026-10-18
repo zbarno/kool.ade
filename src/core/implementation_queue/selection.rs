@@ -25,6 +25,16 @@ pub fn next_ready_ticket_with_running_scopes(
     excluded: &std::collections::BTreeSet<String>,
     running: &std::collections::BTreeSet<String>,
 ) -> Result<Option<String>, String> {
+    next_ready_ticket_with_lifecycle_subtasks(docs, states, excluded, running, &Default::default())
+}
+
+pub fn next_ready_ticket_with_lifecycle_subtasks(
+    docs: &[TaskDocument],
+    states: &BTreeMap<String, Implementation>,
+    excluded: &std::collections::BTreeSet<String>,
+    running: &std::collections::BTreeSet<String>,
+    completed_subtasks: &std::collections::BTreeSet<String>,
+) -> Result<Option<String>, String> {
     let mut docs = docs
         .iter()
         .filter(|doc| !doc.path.ends_with("/README.md"))
@@ -65,7 +75,7 @@ pub fn next_ready_ticket_with_running_scopes(
             ));
             continue;
         }
-        if let Err(reason) = dependency_waiting_reason(doc, &docs, states) {
+        if let Err(reason) = dependency_waiting_reason(doc, &docs, states, completed_subtasks) {
             waiting.push(reason);
             continue 'tasks;
         }
@@ -88,6 +98,15 @@ pub fn ticket_readiness(
     states: &BTreeMap<String, Implementation>,
     ticket: &str,
 ) -> Result<(), String> {
+    ticket_readiness_with_lifecycle_subtasks(docs, states, ticket, &Default::default())
+}
+
+pub fn ticket_readiness_with_lifecycle_subtasks(
+    docs: &[TaskDocument],
+    states: &BTreeMap<String, Implementation>,
+    ticket: &str,
+    completed_subtasks: &std::collections::BTreeSet<String>,
+) -> Result<(), String> {
     let docs = docs
         .iter()
         .filter(|doc| !doc.path.ends_with("/README.md"))
@@ -96,14 +115,39 @@ pub fn ticket_readiness(
         .iter()
         .find(|doc| doc.path == ticket)
         .ok_or_else(|| format!("Task {ticket} is no longer on the board"))?;
-    dependency_waiting_reason(doc, &docs, states)
+    dependency_waiting_reason(doc, &docs, states, completed_subtasks)
 }
 
 fn dependency_waiting_reason(
     doc: &TaskDocument,
     docs: &[&TaskDocument],
     states: &BTreeMap<String, Implementation>,
+    completed_subtasks: &std::collections::BTreeSet<String>,
 ) -> Result<(), String> {
+    if let Some(metadata) = &doc.metadata
+        && metadata.parent_task_uid.is_none()
+    {
+        for child in docs.iter().filter(|candidate| {
+            candidate
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.parent_task_uid.as_deref())
+                == Some(metadata.uid.as_str())
+        }) {
+            let child_uid = child
+                .metadata
+                .as_ref()
+                .expect("filtered metadata")
+                .uid
+                .as_str();
+            if !completed_subtasks.contains(child_uid) {
+                return Err(format!(
+                    "{} is waiting for subtask {} to finish review, QA, and specification reconciliation",
+                    doc.title, child.title
+                ));
+            }
+        }
+    }
     let dependencies = task_dependencies(doc, docs).map_err(|error| {
         format!(
             "{} is waiting because its task dependency metadata is invalid: {error}",
@@ -111,6 +155,26 @@ fn dependency_waiting_reason(
         )
     })?;
     for dependency in dependencies {
+        let sibling_subtask = doc
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.parent_task_uid.as_deref())
+            .zip(
+                docs.iter()
+                    .find(|candidate| candidate.path == dependency)
+                    .and_then(|candidate| candidate.metadata.as_ref())
+                    .and_then(|metadata| metadata.parent_task_uid.as_deref()),
+            )
+            .is_some_and(|(parent, dependency_parent)| parent == dependency_parent);
+        if sibling_subtask
+            && docs
+                .iter()
+                .find(|candidate| candidate.path == dependency)
+                .and_then(|candidate| candidate.metadata.as_ref())
+                .is_some_and(|metadata| completed_subtasks.contains(&metadata.uid))
+        {
+            continue;
+        }
         let done = states.get(&dependency).is_some_and(|state| {
             state.status == ImplementationStatus::Completed
                 || state.pr_state == Some(PullRequestState::Merged)

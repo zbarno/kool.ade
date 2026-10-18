@@ -1,8 +1,13 @@
 use super::*;
 use crate::artifacts::planning_store::PlanningStore;
 
+pub(super) struct LifecycleExecutionContext<'a> {
+    pub(super) planning_store: &'a PlanningStore,
+    pub(super) state_root: &'a Path,
+}
+
 pub(super) fn execute(
-    planning_store: &PlanningStore,
+    context: LifecycleExecutionContext<'_>,
     repo: &Path,
     dir: &Path,
     state: &mut Implementation,
@@ -10,6 +15,7 @@ pub(super) fn execute(
     runner: &Runner,
     policy: ExecutionPolicy<'_>,
 ) -> anyhow::Result<()> {
+    let planning_store = context.planning_store;
     let publication_mode = policy.publication_mode;
     let auto_publish_gate = policy.auto_publish_gate;
     if dir.join("base-reconciliation.json").exists() {
@@ -23,6 +29,7 @@ pub(super) fn execute(
             policy.accrual.as_ref(),
         )?;
     }
+    integration::integrate_subtasks(planning_store, context.state_root, dir, state, runner)?;
     verification::prepare_verified(
         repo,
         dir,
@@ -42,6 +49,26 @@ pub(super) fn execute(
         author_identity.as_ref(),
     )?;
     review_result?;
+    if let Some(task_uid) = state.task_uid.as_deref()
+        && let Some(task) = crate::core::lifecycle::LifecycleStore::new(planning_store)
+            .task_for_planning_item(task_uid)?
+        && task.parent_task_uid.is_some()
+    {
+        state.auto_merge = false;
+        state.merged_commit = None;
+        state.pr_url = None;
+        state.pr_state = None;
+        state.status = ImplementationStatus::AwaitingApproval;
+        if !state
+            .detail
+            .contains("Verified subtask retained for its standalone parent")
+        {
+            state.detail.push_str(
+                "\nVerified subtask retained for its standalone parent; its changes will be integrated and re-reviewed in the parent task. Subtasks do not create separate pull requests.",
+            );
+        }
+        return save(dir, state);
+    }
     if state.status == ImplementationStatus::Completed {
         return Ok(());
     }
