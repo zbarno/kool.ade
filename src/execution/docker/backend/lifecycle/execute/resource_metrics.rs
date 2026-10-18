@@ -8,7 +8,9 @@ use futures_util::StreamExt;
 use tokio::sync::oneshot;
 
 use super::super::runtime::RuntimeExecution;
-use crate::persistence::execution_records::DockerResourceUsageV1;
+
+mod sample;
+use sample::merge_sample;
 
 const MAX_RESOURCE_SAMPLES: u32 = 4096;
 const MAX_CONSECUTIVE_STREAM_FAILURES: u8 = 3;
@@ -47,6 +49,8 @@ pub(super) const DIAGNOSTIC_FINAL_PERSIST_ATTEMPTED: u16 = 1 << 12;
 pub(super) const DIAGNOSTIC_FINAL_PERSISTED: u16 = 1 << 13;
 #[cfg(test)]
 pub(super) const DIAGNOSTIC_FINAL_PERSIST_FAILED: u16 = 1 << 14;
+#[cfg(test)]
+pub(super) const DIAGNOSTIC_STOP_SIGNALLED: u16 = 1 << 15;
 
 pub(super) async fn collect(
     docker: bollard::Docker,
@@ -69,7 +73,11 @@ pub(super) async fn collect(
     let mut last_persisted_at = Instant::now();
     loop {
         let next = tokio::select! {
-            _ = &mut stop => break,
+            _ = &mut stop => {
+                #[cfg(test)]
+                mark_diagnostic(&execution, DIAGNOSTIC_STOP_SIGNALLED);
+                break;
+            }
             next = tokio::time::timeout(STATS_REQUEST_TIMEOUT, samples.next()) => next,
         };
         #[cfg(test)]
@@ -260,53 +268,6 @@ fn should_persist_sample(
 
 fn stream_retry_exhausted(consecutive_failures: u8) -> bool {
     consecutive_failures >= MAX_CONSECUTIVE_STREAM_FAILURES
-}
-
-fn merge_sample(
-    previous: &DockerResourceUsageV1,
-    sample: &bollard::models::ContainerStatsResponse,
-) -> Option<DockerResourceUsageV1> {
-    if sample.os_type.as_deref() != Some("linux") {
-        return None;
-    }
-    let mut current = previous.clone();
-    if let Some(cpu_time_ms) = sample
-        .cpu_stats
-        .as_ref()
-        .and_then(|stats| stats.cpu_usage.as_ref())
-        .and_then(|usage| usage.total_usage)
-        .map(|nanoseconds| nanoseconds / 1_000_000)
-    {
-        current.cpu_time_ms = Some(current.cpu_time_ms.unwrap_or_default().max(cpu_time_ms));
-    }
-    if let Some(memory_bytes) = sample
-        .memory_stats
-        .as_ref()
-        .and_then(|stats| stats.max_usage.or(stats.usage))
-    {
-        current.sampled_peak_memory_bytes = Some(
-            current
-                .sampled_peak_memory_bytes
-                .unwrap_or_default()
-                .max(memory_bytes),
-        );
-    }
-    if let Some(processes) = sample
-        .pids_stats
-        .as_ref()
-        .and_then(|stats| stats.current)
-        .and_then(|current| u32::try_from(current).ok())
-    {
-        current.latest_process_count = Some(processes);
-    }
-    if current.cpu_time_ms.is_none()
-        && current.sampled_peak_memory_bytes.is_none()
-        && current.latest_process_count.is_none()
-    {
-        return None;
-    }
-    current.sample_count = previous.sample_count.saturating_add(1);
-    current.validate().then_some(current)
 }
 
 #[cfg(test)]

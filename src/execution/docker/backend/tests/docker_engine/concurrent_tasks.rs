@@ -110,6 +110,7 @@ async fn cancelling_one_parallel_task_preserves_the_other_same_named_branch_clon
         &handle_a,
         &task_a.task_id,
         &request_a.execution_id,
+        &running_a,
     )
     .await;
 
@@ -200,6 +201,7 @@ async fn wait_for_sample(
     handle: &crate::execution::backend::ExecutionHandleV1,
     task_id: &str,
     execution_id: &str,
+    exec_task: &tokio::task::JoinHandle<Result<(), crate::execution::errors::ExecutionError>>,
 ) {
     let collected = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -216,11 +218,17 @@ async fn wait_for_sample(
         return;
     }
 
-    let durable_sample_count = crate::persistence::execution_records::load(task_id, execution_id)
+    let durable_record = crate::persistence::execution_records::load(task_id, execution_id)
         .expect("read durable Docker telemetry after timeout")
-        .map(|record| record.docker_usage.sample_count)
-        .unwrap_or_default();
+        .map(|record| {
+            (
+                record.docker_usage.sample_count,
+                record.state,
+                record.command_started,
+            )
+        });
     let metric_progress = backend.diagnostic_metrics(handle).unwrap_or_default();
+    let execution_progress = backend.diagnostic_progress(handle).unwrap_or_default();
 
     let mut stats = backend.docker.stats(
         &container_id(backend, handle),
@@ -258,7 +266,8 @@ async fn wait_for_sample(
         }
     };
     panic!(
-        "Docker did not emit a bounded resource metric sample; {probe}; durable_sample_count={durable_sample_count}; metrics_progress_mask={metric_progress:#06x}",
+        "Docker did not emit a bounded resource metric sample; {probe}; durable_record={durable_record:?}; metrics_progress_mask={metric_progress:#06x}; execution_progress_mask={execution_progress:#04x}; exec_task_finished={}",
+        exec_task.is_finished(),
     );
 }
 
