@@ -39,9 +39,11 @@ seeded functional/visual failures.
 
 The verified MCR base digests and offline derived-image recipes are in the
 rootless image workflow. CI builds and exercises candidate browser and desktop
-drivers, including real interactions against synthetic apps. Runtime selection
-still fails closed while reviewed derived-image digests are absent from
-`containers/images.lock.json`. This prevents a candidate image or synthetic
+drivers, including real interactions against synthetic apps. Their reviewed
+candidate digests are recorded in `containers/images.lock.json`, with both QA
+profiles still marked `runtime_enabled: false`. Runtime selection therefore
+continues to fail closed until trusted publication and the separate #171
+release gate are reviewed. This prevents a candidate image or synthetic
 fixture from being treated as a released QA capability. The source contains
 the isolated Docker session, target-recipe checks, lifecycle queue, Manager
 finding routing, and desktop/browser drivers; the complete application-level
