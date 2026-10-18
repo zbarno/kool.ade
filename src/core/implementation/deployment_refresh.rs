@@ -35,17 +35,13 @@ pub(super) fn refresh(
         return Ok(());
     };
     let lifecycle = LifecycleStore::new(store);
-    let Some(task) = lifecycle
-        .list_tasks()?
-        .into_iter()
-        .find(|task| task.task_uid == task_uid)
-    else {
+    let Some(task) = lifecycle.task_for_planning_item(&task_uid)? else {
         return Ok(());
     };
     let Some(current) = lifecycle.load_current_implementation(&task.feature_uid)? else {
         return Ok(());
     };
-    if current.task_uid != task_uid {
+    if current.task_uid != task.task_uid {
         return Ok(());
     }
     let work = lifecycle.load_pr_preparation(&current.work_item_uid)?;
@@ -96,11 +92,7 @@ pub(crate) fn needs_refresh(store: &PlanningStore, ticket: &str) -> anyhow::Resu
         return Ok(false);
     };
     let lifecycle = LifecycleStore::new(store);
-    let Some(task) = lifecycle
-        .list_tasks()?
-        .into_iter()
-        .find(|task| task.task_uid == task_uid)
-    else {
+    let Some(task) = lifecycle.task_for_planning_item(&task_uid)? else {
         return Ok(false);
     };
     let Some(current) = lifecycle.load_current_implementation(&task.feature_uid)? else {
