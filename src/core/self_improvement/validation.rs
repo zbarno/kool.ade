@@ -35,6 +35,16 @@ pub(super) fn valid_ref(value: &str) -> bool {
             && !part.bytes().any(|byte| byte.is_ascii_control())
     })
 }
+
+pub(crate) fn canonical_product_remote(value: &str) -> Option<&'static str> {
+    match value.trim_end_matches('/') {
+        "https://github.com/zbarno/kool.ade"
+        | "ssh://git@github.com/zbarno/kool.ade"
+        | "git@github.com:zbarno/kool.ade" => Some("https://github.com/zbarno/kool.ade"),
+        _ => None,
+    }
+}
+
 pub(super) fn valid_pr_url(value: &str) -> bool {
     let Ok(url) = url::Url::parse(value) else {
         return false;

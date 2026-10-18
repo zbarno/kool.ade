@@ -52,6 +52,18 @@ impl SelfImprovementRunV1 {
                         .pr_head_sha
                         .as_deref()
                         .is_some_and(|sha| !is_git_sha(sha))
+                    || progress
+                        .pr_base_branch
+                        .as_deref()
+                        .is_some_and(|branch| !valid_ref(&format!("refs/heads/{branch}")))
+                    || progress
+                        .pr_merged_commit_sha
+                        .as_deref()
+                        .is_some_and(|sha| !is_git_sha(sha))
+                    || progress
+                        .pr_merged_at
+                        .as_deref()
+                        .is_some_and(|value| chrono::DateTime::parse_from_rfc3339(value).is_err())
             })
             || self
                 .parent_task_progress
@@ -155,6 +167,9 @@ impl SelfImprovementRunV1 {
             SelfImprovementPhaseV1::PrOpened => {
                 self.pr_work_item_uid.is_some() && self.pr_url.is_some()
             }
+            SelfImprovementPhaseV1::PrClosedUnmerged => {
+                self.pr_work_item_uid.is_some() && self.pr_url.is_some()
+            }
             SelfImprovementPhaseV1::MergedNotActivated => {
                 self.pr_url.is_some()
                     && self.merged_sha.is_some()
@@ -167,7 +182,15 @@ impl SelfImprovementRunV1 {
                         .as_ref()
                         .is_some_and(|value| valid_text(value, 128))
             }
-            SelfImprovementPhaseV1::NeedsAttention | SelfImprovementPhaseV1::Cancelled => true,
+            SelfImprovementPhaseV1::NeedsAttention => {
+                self.plan_approval_hash.is_some()
+                    && self.independent_plan_review_uid.is_some()
+                    && self.source_ref.is_some()
+                    && self.destination_ref.is_some()
+                    && has_task_owner
+                    && !self.parent_task_progress.is_empty()
+            }
+            SelfImprovementPhaseV1::Cancelled => true,
         };
         if !requirements_met {
             return Err("self-improvement phase is missing its required lifecycle evidence".into());

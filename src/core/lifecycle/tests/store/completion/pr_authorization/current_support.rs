@@ -115,6 +115,8 @@ pub(super) fn pr_state(
         provider_pr_url: Some("https://github.com/example/project/pull/42".into()),
         head_sha: Some(head.into()),
         base_sha: Some(base.into()),
+        base_branch: Some("main".into()),
+        merged_at: merged.map(|_| "2026-10-18T00:00:00Z".into()),
         merged_commit_sha: merged.map(str::to_owned),
     }
 }

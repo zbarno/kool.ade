@@ -7,7 +7,8 @@ mod run_validation;
 mod store;
 mod transition;
 mod validation;
-pub use store::{SelfImprovementStore, SelfImprovementTransitionV1};
+pub use store::{SelfImprovementStore, SelfImprovementTransitionV1, TaskSourceAuthorization};
+pub(crate) use validation::canonical_product_remote;
 
 #[cfg(test)]
 #[path = "self_improvement/tests.rs"]
@@ -53,12 +54,15 @@ pub enum SelfImprovementEventV1 {
     PrOpened {
         url: String,
     },
+    PrClosedUnmerged {
+        url: String,
+    },
+    PrReopened,
     Merged {
         sha: String,
     },
     Activated {
-        version: String,
-        readiness_probe_passed: bool,
+        evidence: SelfImprovementActivationEvidenceV1,
     },
     NeedsAttention,
     Cancel,
@@ -77,6 +81,7 @@ pub enum SelfImprovementPhaseV1 {
     DoneAwaitingPr,
     PrPending,
     PrOpened,
+    PrClosedUnmerged,
     MergedNotActivated,
     Activated,
     NeedsAttention,
@@ -135,4 +140,67 @@ pub struct SelfImprovementParentTaskProgressV1 {
     pub pr_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub pr_url: Option<String>,
     pub pr_head_sha: Option<String>,
+    #[serde(default)]
+    pub pr_base_branch: Option<String>,
+    #[serde(default)]
+    pub pr_merged_commit_sha: Option<String>,
+    #[serde(default)]
+    pub pr_merged_at: Option<String>,
 }
+
+/// App-owned evidence produced only after probing the active installed build.
+/// The merge SHA binding prevents readiness for an unrelated build from
+/// activating this run.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SelfImprovementActivationEvidenceV1 {
+    version: String,
+    merged_sha: String,
+    build_commit_sha: String,
+    readiness_probe_uid: String,
+}
+
+impl SelfImprovementActivationEvidenceV1 {
+    pub(crate) fn probe_active_build(run_uid: &str, merged_sha: &str) -> Result<Self, String> {
+        let (version, build_commit_sha) = crate::build_identity::current()
+            .ok_or_else(|| "active application build identity is unavailable".to_owned())?;
+        activation_evidence(run_uid, merged_sha, version, build_commit_sha)
+    }
+}
+
+fn activation_evidence(
+    run_uid: &str,
+    merged_sha: &str,
+    version: &str,
+    build_commit_sha: &str,
+) -> Result<SelfImprovementActivationEvidenceV1, String> {
+    if !crate::core::self_improvement::validation::is_uuid(run_uid)
+        || !crate::core::self_improvement::validation::is_git_sha(merged_sha)
+        || merged_sha != build_commit_sha
+        || !crate::core::self_improvement::validation::is_git_sha(build_commit_sha)
+        || !crate::core::self_improvement::validation::valid_text(version, 128)
+    {
+        return Err("active-version readiness probe did not match the merged build".into());
+    }
+    let namespace = uuid::Uuid::parse_str(run_uid).map_err(|error| error.to_string())?;
+    let readiness_probe_uid = uuid::Uuid::new_v5(
+        &namespace,
+        format!("active-build:{version}:{build_commit_sha}").as_bytes(),
+    )
+    .hyphenated()
+    .to_string();
+    Ok(SelfImprovementActivationEvidenceV1 {
+        version: version.to_owned(),
+        merged_sha: merged_sha.to_owned(),
+        build_commit_sha: build_commit_sha.to_owned(),
+        readiness_probe_uid,
+    })
+}
+
+#[cfg(test)]
+#[path = "self_improvement/activation_tests.rs"]
+mod activation_tests;
+
+#[cfg(test)]
+#[path = "self_improvement/acceptance_tests.rs"]
+mod acceptance_tests;

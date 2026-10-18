@@ -48,6 +48,8 @@ pub(in crate::app::root::specification_trace_navigation::tests) fn save_pr_state
         provider_pr_url: Some("https://github.com/example/trace-fixture/pull/901".into()),
         head_sha: Some("4".repeat(40)),
         base_sha: None,
+        base_branch: Some("main".into()),
+        merged_at: None,
         merged_commit_sha: None,
     };
     let path = format!("state/lifecycle_pr_work_items/{work_uid}.json");

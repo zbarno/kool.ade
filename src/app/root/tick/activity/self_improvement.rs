@@ -11,6 +11,7 @@ use crate::{
         },
     },
 };
+mod pr_evidence;
 mod task_evidence;
 use task_evidence::implementation_for;
 #[cfg(test)]
@@ -85,7 +86,7 @@ pub(super) fn synchronize(project: &mut Project) {
 }
 
 fn synchronize_run(
-    project: &Project,
+    project: &mut Project,
     lifecycle: &LifecycleStore<'_>,
     runs: &SelfImprovementStore<'_>,
     run_uid: &str,
@@ -96,7 +97,7 @@ fn synchronize_run(
         let feature_exists = project
             .state
             .planning_store
-            .list_record_paths("state/lifecycle_features/")
+            .list_record_paths("state/lifecycle_features")
             .map_err(|error| error.to_string())?
             .iter()
             .any(|path| path == &feature_path);
@@ -215,6 +216,10 @@ fn synchronize_run(
     }
 
     task_evidence::synchronize(project, lifecycle, runs, &mut run)?;
+    if run.phase == Phase::MergedNotActivated {
+        runs.record_active_build_probe(&run.run_uid, run.revision)
+            .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 

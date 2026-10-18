@@ -33,7 +33,7 @@ fn pursuing_koolade_product_persists_a_planning_run_from_the_user_receipt() {
         target: OpportunityTargetV1 {
             kind: OpportunityTargetKindV1::KooladeProduct,
             repository_uid: uuid::Uuid::new_v4().to_string(),
-            canonical_remote: "https://github.com/zbarno/kool.ade".into(),
+            canonical_remote: "ssh://git@github.com/zbarno/kool.ade".into(),
             source_sha: "a".repeat(40),
         },
         related_feature_uids: Vec::new(),
@@ -100,6 +100,7 @@ fn pursuing_koolade_product_persists_a_planning_run_from_the_user_receipt() {
     assert_eq!(run.phase, SelfImprovementPhaseV1::Planning);
     assert_eq!(run.feature_uid, feature_uid);
     assert_eq!(run.approved_decision_uid, decision.uid);
+    assert_eq!(run.canonical_remote, "https://github.com/zbarno/kool.ade");
     let (linked, _) = opportunities.load(&proposal.opportunity_uid).unwrap();
     assert_eq!(linked.status, OpportunityStatusV1::Planning);
     assert!(linked.related_feature_uids.contains(&run.feature_uid));

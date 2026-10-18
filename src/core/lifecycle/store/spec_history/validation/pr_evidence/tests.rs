@@ -79,6 +79,8 @@ fn persisted_pr_reference_is_admitted_and_forged_linkage_is_rejected() {
         provider_pr_url: Some("https://github.com/example/project/pull/9".into()),
         head_sha: Some("a".repeat(40)),
         base_sha: Some("b".repeat(40)),
+        base_branch: Some("main".into()),
+        merged_at: Some("2026-10-18T00:00:00Z".into()),
         merged_commit_sha: Some("c".repeat(40)),
     };
     let persisted = Persisted {

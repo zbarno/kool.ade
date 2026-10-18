@@ -74,6 +74,9 @@ impl SelfImprovementRunV1 {
                         pr_status: None,
                         pr_url: None,
                         pr_head_sha: None,
+                        pr_base_branch: None,
+                        pr_merged_commit_sha: None,
+                        pr_merged_at: None,
                     })
                     .collect();
                 self.plan_approval_hash = Some(approval_sha256);
@@ -178,23 +181,44 @@ impl SelfImprovementRunV1 {
                 self.pr_url = Some(url);
                 self.phase = SelfImprovementPhaseV1::PrOpened;
             }
+            SelfImprovementEventV1::PrClosedUnmerged { url }
+                if self.phase == SelfImprovementPhaseV1::PrOpened && valid_pr_url(&url) =>
+            {
+                self.pr_url = Some(url);
+                self.phase = SelfImprovementPhaseV1::PrClosedUnmerged;
+            }
+            SelfImprovementEventV1::PrReopened
+                if self.phase == SelfImprovementPhaseV1::PrClosedUnmerged
+                    && self.pr_url.as_deref().is_some_and(valid_pr_url) =>
+            {
+                self.phase = SelfImprovementPhaseV1::PrOpened;
+            }
             SelfImprovementEventV1::Merged { sha }
                 if self.phase == SelfImprovementPhaseV1::PrOpened && is_git_sha(&sha) =>
             {
                 self.merged_sha = Some(sha);
                 self.phase = SelfImprovementPhaseV1::MergedNotActivated;
             }
-            SelfImprovementEventV1::Activated {
-                version,
-                readiness_probe_passed: true,
-            } if self.phase == SelfImprovementPhaseV1::MergedNotActivated
-                && valid_text(&version, 128) =>
+            SelfImprovementEventV1::Activated { evidence }
+                if self.phase == SelfImprovementPhaseV1::MergedNotActivated
+                    && Some(evidence.merged_sha.as_str()) == self.merged_sha.as_deref()
+                    && evidence.build_commit_sha == evidence.merged_sha
+                    && is_git_sha(&evidence.build_commit_sha)
+                    && is_uuid(&evidence.readiness_probe_uid)
+                    && valid_text(&evidence.version, 128) =>
             {
-                self.activated_version = Some(version);
+                self.activated_version = Some(evidence.version);
                 self.phase = SelfImprovementPhaseV1::Activated;
             }
             SelfImprovementEventV1::NeedsAttention
-                if self.phase != SelfImprovementPhaseV1::Activated =>
+                if matches!(
+                    self.phase,
+                    SelfImprovementPhaseV1::Ready
+                        | SelfImprovementPhaseV1::Implementing
+                        | SelfImprovementPhaseV1::Reviewing
+                        | SelfImprovementPhaseV1::Qa
+                        | SelfImprovementPhaseV1::SpecSync
+                ) =>
             {
                 self.phase = SelfImprovementPhaseV1::NeedsAttention;
             }
@@ -202,6 +226,7 @@ impl SelfImprovementRunV1 {
                 if !matches!(
                     self.phase,
                     SelfImprovementPhaseV1::PrOpened
+                        | SelfImprovementPhaseV1::PrClosedUnmerged
                         | SelfImprovementPhaseV1::MergedNotActivated
                         | SelfImprovementPhaseV1::Activated
                 ) =>

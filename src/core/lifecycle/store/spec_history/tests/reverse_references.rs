@@ -187,6 +187,8 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
         provider_pr_url: Some("https://github.com/example/trace-fixture/pull/11".into()),
         head_sha: Some("3".repeat(40)),
         base_sha: Some("4".repeat(40)),
+        base_branch: Some("main".into()),
+        merged_at: Some("2026-10-18T00:00:00Z".into()),
         merged_commit_sha: Some("5".repeat(40)),
     };
     let pr_path = format!("state/lifecycle_pr_work_items/{work_uid}.json");

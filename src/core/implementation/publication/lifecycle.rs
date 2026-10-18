@@ -156,6 +156,8 @@ pub(in crate::core::implementation) fn finish_lifecycle_publication(
                 .base_sha
                 .clone()
                 .or_else(|| Some(implementation.base_commit.clone())),
+            base_branch: Some(details.base_branch.clone()),
+            merged_at: None,
             merged_commit_sha: None,
         },
     )?;
@@ -198,11 +200,13 @@ pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
     let event_uid = event_uid(
         work_item_uid,
         &format!(
-            "{:?}:{}:{}:{}:{}",
+            "{:?}:{}:{}:{}:{}:{}:{}",
             status,
             details.number,
             details.head_sha,
             work.revision,
+            details.base_branch,
+            details.merged_at.as_deref().unwrap_or("unmerged"),
             implementation
                 .merged_commit
                 .as_deref()
@@ -224,6 +228,8 @@ pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
                     .clone()
                     .or_else(|| Some(implementation.base_commit.clone()))
             }),
+            base_branch: Some(details.base_branch.clone()),
+            merged_at: details.merged_at.clone(),
             merged_commit_sha: implementation.merged_commit.clone(),
         },
     )?;

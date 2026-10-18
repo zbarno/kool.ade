@@ -219,6 +219,7 @@ fn pull_request_details(
             head_sha: head_sha.to_owned(),
             base_sha,
             base_branch: base_branch.to_owned(),
+            merged_at: None,
         }
     })
 }

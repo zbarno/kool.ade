@@ -35,5 +35,6 @@ pub const PRODUCT_TAGLINE: &str = "Project planning, made clear";
 /// Prefix used for open-item identifiers (CLR-001, CLR-002, ...).
 pub const ITEM_ID_PREFIX: &str = "CLR";
 
+mod build_identity;
 /// Local panic and startup error reports.
 pub mod diagnostics;

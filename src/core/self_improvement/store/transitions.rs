@@ -36,13 +36,103 @@ impl SelfImprovementStore<'_> {
         Ok(events)
     }
 
-    pub fn apply_event(
+    pub(crate) fn apply_event(
         &self,
         run_uid: &str,
         expected_revision: u64,
         event_uid: &str,
         event: SelfImprovementEventV1,
     ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        self.apply_event_inner(run_uid, expected_revision, event_uid, event, false)
+    }
+
+    pub(crate) fn record_active_build_probe(
+        &self,
+        run_uid: &str,
+        expected_revision: u64,
+    ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        let run = self.load(run_uid)?;
+        let Some((_, active_commit)) = crate::build_identity::current() else {
+            return Ok(run);
+        };
+        let destination = run
+            .destination_ref
+            .as_deref()
+            .map(|value| value.strip_prefix("refs/heads/").unwrap_or(value));
+        let mut merge_records = Vec::with_capacity(run.parent_task_progress.len());
+        let parent_evidence_complete = !run.parent_task_progress.is_empty()
+            && run.parent_task_progress.iter().all(|parent| {
+                let merge_at = parent
+                    .pr_merged_at
+                    .as_deref()
+                    .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+                let merge_sha = parent.pr_merged_commit_sha.as_deref();
+                if let (Some(merge_at), Some(merge_sha)) = (merge_at, merge_sha) {
+                    merge_records.push((merge_at, merge_sha));
+                }
+                parent.code_review_uid.is_some()
+                    && parent.runtime_qa_uid.is_some()
+                    && parent.spec_receipt_uid.is_some()
+                    && parent.pr_head_sha.is_some()
+                    && parent.pr_status
+                        == Some(crate::core::lifecycle::PullRequestPreparationStatus::Merged)
+                    && destination.is_some()
+                    && parent.pr_base_branch.as_deref() == destination
+                    && merge_sha.is_some_and(crate::core::self_improvement::validation::is_git_sha)
+                    && merge_at.is_some()
+            });
+        if !parent_evidence_complete {
+            return Ok(run);
+        }
+        merge_records.sort_by_key(|(merged_at, _)| *merged_at);
+        let Some((latest_time, latest_sha)) = merge_records.last() else {
+            return Ok(run);
+        };
+        if merge_records.len() != run.parent_task_progress.len()
+            || merge_records
+                .iter()
+                .rev()
+                .skip(1)
+                .any(|(time, sha)| *time == *latest_time && *sha != *latest_sha)
+        {
+            return Ok(run);
+        }
+        let merged_sha = run.merged_sha.as_deref().ok_or_else(|| {
+            StoreError::MalformedState("self-improvement run has no merged commit".into())
+        })?;
+        if merged_sha != *latest_sha {
+            return Ok(run);
+        }
+        if merged_sha != active_commit {
+            return Ok(run);
+        }
+        let evidence = super::super::SelfImprovementActivationEvidenceV1::probe_active_build(
+            run_uid, merged_sha,
+        )
+        .map_err(StoreError::MalformedState)?;
+        let event_uid = evidence.readiness_probe_uid.clone();
+        self.apply_event_inner(
+            run_uid,
+            expected_revision,
+            &event_uid,
+            SelfImprovementEventV1::Activated { evidence },
+            true,
+        )
+    }
+
+    fn apply_event_inner(
+        &self,
+        run_uid: &str,
+        expected_revision: u64,
+        event_uid: &str,
+        event: SelfImprovementEventV1,
+        active_build_probe: bool,
+    ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        if matches!(event, SelfImprovementEventV1::Activated { .. }) && !active_build_probe {
+            return Err(StoreError::MalformedState(
+                "activation requires the app-owned active-build probe".into(),
+            ));
+        }
         let path = run_path(run_uid)?;
         let event_path = transition_path(run_uid, event_uid)?;
         if let Some(existing) = read_transition(self.store, &event_path)? {

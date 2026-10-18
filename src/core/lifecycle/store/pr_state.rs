@@ -96,6 +96,8 @@ pub(super) fn record_state(
         provider_pr_url,
         head_sha,
         base_sha,
+        base_branch,
+        merged_at,
         merged_commit_sha,
     } = update;
     let mut record = read(store, work_item_uid)?;
@@ -104,6 +106,8 @@ pub(super) fn record_state(
         && record.provider_pr_url == provider_pr_url
         && record.head_sha == head_sha
         && record.base_sha == base_sha
+        && record.base_branch == base_branch
+        && record.merged_at == merged_at
         && record.merged_commit_sha == merged_commit_sha
     {
         return Ok(record);
@@ -152,6 +156,8 @@ pub(super) fn record_state(
     record.provider_pr_url = provider_pr_url;
     record.head_sha = head_sha;
     record.base_sha = base_sha;
+    record.base_branch = base_branch;
+    record.merged_at = merged_at;
     record.merged_commit_sha = merged_commit_sha;
     let actor = LifecycleActor::ApplicationPolicy;
     persist(store, record, expected_revision, event_uid, actor, None)

@@ -53,6 +53,10 @@ pub struct PullRequestPreparation {
     pub head_sha: Option<String>,
     #[serde(default)]
     pub base_sha: Option<String>,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+    #[serde(default)]
+    pub merged_at: Option<String>,
     /// Merge commit SHA reported by the provider; it does not prove local checkout state.
     #[serde(default)]
     pub merged_commit_sha: Option<String>,
@@ -66,6 +70,8 @@ pub struct PullRequestPublicationState {
     pub provider_pr_url: Option<String>,
     pub head_sha: Option<String>,
     pub base_sha: Option<String>,
+    pub base_branch: Option<String>,
+    pub merged_at: Option<String>,
     pub merged_commit_sha: Option<String>,
 }
 
@@ -254,6 +260,8 @@ pub(super) fn apply_task_event(
             provider_pr_url: None,
             head_sha: None,
             base_sha: None,
+            base_branch: None,
+            merged_at: None,
             merged_commit_sha: None,
         };
         preparation.validate()?;

@@ -1,6 +1,6 @@
 use std::{path::Path, process::Command};
 
-use koolade::{
+use crate::{
     core::{
         opportunity::{
             EvidenceConfidentialityV1, OpportunityEvidenceRefV1, OpportunityKindV1,

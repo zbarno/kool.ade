@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 mod active_runs;
+mod authorization;
 mod records;
 #[cfg(test)]
 #[path = "store/tests.rs"]
 mod tests;
 mod transitions;
+pub use authorization::TaskSourceAuthorization;
 use records::{
     canonical_uuid, encode, now_unix_ms, run_path, transition_path, validate_run_record,
 };
@@ -87,7 +89,8 @@ impl<'a> SelfImprovementStore<'a> {
         if (proposal.status != OpportunityStatusV1::ApprovedToPlan && !already_linked)
             || proposal.target.kind != OpportunityTargetKindV1::KooladeProduct
             || proposal.target.repository_uid != run.target_repository_uid
-            || proposal.target.canonical_remote != run.canonical_remote
+            || super::canonical_product_remote(&proposal.target.canonical_remote)
+                != Some(run.canonical_remote.as_str())
             || proposal.target.source_sha != run.source_sha
             || run.phase != SelfImprovementPhaseV1::ApprovedToPlan
             || run.revision != 0

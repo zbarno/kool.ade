@@ -154,7 +154,7 @@ fn refresh_pr_with_store(
                 "view",
                 &url,
                 "--json",
-                "state,mergeCommit,number,headRefOid,baseRefOid,baseRefName",
+                "state,mergeCommit,mergedAt,number,headRefOid,baseRefOid,baseRefName",
             ],
         )?;
         let value: serde_json::Value = serde_json::from_str(&output)?;
@@ -180,6 +180,7 @@ fn refresh_pr_with_store(
                     head_sha: head_sha.to_owned(),
                     base_sha: base_sha.filter(|sha| valid_sha(sha)).map(str::to_owned),
                     base_branch: base_branch.to_owned(),
+                    merged_at: value["mergedAt"].as_str().map(str::to_owned),
                 })
             }
             _ => None,

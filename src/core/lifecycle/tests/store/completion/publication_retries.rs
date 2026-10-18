@@ -87,6 +87,8 @@ fn later_publishing_event_with_the_same_receipt_remains_pending() {
         provider_pr_url: None,
         head_sha: None,
         base_sha: None,
+        base_branch: None,
+        merged_at: None,
         merged_commit_sha: None,
     };
     let attention = lifecycle

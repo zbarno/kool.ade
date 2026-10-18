@@ -6,7 +6,7 @@ pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -52,6 +52,11 @@ pub struct WorkspaceActivity {
     pub last_save: Option<Instant>,
     /// Limits reconciliation of self-improvement projections to once per second.
     pub last_self_improvement_sync: Option<Instant>,
+    /// Provider ancestry validation runs off the UI tick and is keyed to the
+    /// exact merge set so stale results cannot authorize a different merge.
+    pub(crate) parent_merge_ancestry_check: Option<(String, mpsc::Receiver<Result<(), String>>)>,
+    pub(crate) verified_parent_merge_ancestry: HashSet<String>,
+    pub(crate) failed_parent_merge_ancestry: HashMap<String, (String, Instant)>,
     /// Tickets whose persisted activity may be stale (dirty-tracking gate
     /// for the periodic `activity.json` rewrite).
     pub dirty_tickets: HashSet<String>,

@@ -114,6 +114,9 @@ fn self_improvement_tracks_progress_for_every_independent_parent_task() {
         pr_status: Some(crate::core::lifecycle::PullRequestPreparationStatus::Opened),
         pr_url: Some("https://github.com/zbarno/kool.ade/pull/1".into()),
         pr_head_sha: Some(commit('d')),
+        pr_base_branch: Some("main".into()),
+        pr_merged_commit_sha: None,
+        pr_merged_at: None,
     };
     run.apply(3, Event::ParentTaskProgress(first.clone()))
         .unwrap();
@@ -128,6 +131,9 @@ fn self_improvement_tracks_progress_for_every_independent_parent_task() {
         pr_status: None,
         pr_url: None,
         pr_head_sha: None,
+        pr_base_branch: None,
+        pr_merged_commit_sha: None,
+        pr_merged_at: None,
     };
     run.apply(4, Event::ParentTaskProgress(second.clone()))
         .unwrap();
@@ -218,6 +224,34 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
         },
     )
     .unwrap();
+    assert!(run.clone().apply(10, Event::NeedsAttention).is_err());
+    let mut closed_unmerged = run.clone();
+    closed_unmerged
+        .apply(
+            10,
+            Event::PrClosedUnmerged {
+                url: "https://github.com/zbarno/kool.ade/pull/175".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(closed_unmerged.phase, Phase::PrClosedUnmerged);
+    assert!(
+        closed_unmerged
+            .apply(11, Event::Merged { sha: commit('d') })
+            .is_err()
+    );
+    let mut reopened = closed_unmerged.clone();
+    reopened.apply(11, Event::PrReopened).unwrap();
+    assert_eq!(reopened.phase, Phase::PrOpened);
+    reopened
+        .apply(
+            12,
+            Event::PrClosedUnmerged {
+                url: "https://github.com/zbarno/kool.ade/pull/175".into(),
+            },
+        )
+        .unwrap();
+    assert_eq!(reopened.phase, Phase::PrClosedUnmerged);
     assert!(run.apply(10, Event::Cancel).is_err());
     run.apply(10, Event::Merged { sha: commit('d') }).unwrap();
     assert_eq!(run.phase, Phase::MergedNotActivated);
@@ -232,25 +266,19 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
         )
         .is_err()
     );
-    assert!(
-        run.apply(
-            11,
-            Event::Activated {
-                version: "0.2.0".into(),
-                readiness_probe_passed: false
+    let forged_activation = serde_json::from_value(serde_json::json!({
+        "activated": {
+            "evidence": {
+                "version": "0.2.0",
+                "mergedSha": commit('e'),
+                "buildCommitSha": commit('e'),
+                "readinessProbeUid": uid(14)
             }
-        )
-        .is_err()
-    );
-    run.apply(
-        11,
-        Event::Activated {
-            version: "0.2.0".into(),
-            readiness_probe_passed: true,
-        },
-    )
+        }
+    }))
     .unwrap();
-    assert_eq!(run.phase, Phase::Activated);
+    assert!(run.apply(11, forged_activation).is_err());
+    assert_eq!(run.phase, Phase::MergedNotActivated);
     assert!(
         run.apply(
             12,

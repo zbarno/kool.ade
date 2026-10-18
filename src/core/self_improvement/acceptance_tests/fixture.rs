@@ -1,10 +1,6 @@
-//! User-facing opportunity and self-improvement path for #174/#175.
-//! The proposal is inert until a persisted Pursue decision; a published or
-//! merged PR remains distinct from activating a newly built application.
-
 use std::process::Command;
 
-use koolade::{
+use crate::{
     artifacts::planning_store::{PlanningStore, StoreMode},
     core::{
         opportunity::{
@@ -18,12 +14,12 @@ use koolade::{
 };
 use sha2::{Digest, Sha256};
 
-#[path = "opportunity_self_improvement_acceptance/support.rs"]
-mod support;
-use support::{apply, git, proposal, pursue_decision, self_improvement_run, uid};
+use super::{
+    OpportunityScenario,
+    support::{apply, git, proposal, pursue_decision, self_improvement_run, uid},
+};
 
-#[test]
-fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_activation_gates() {
+pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("source");
     std::fs::create_dir(&source).unwrap();
@@ -35,7 +31,23 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
             .unwrap()
             .success()
     );
-    std::fs::write(source.join("product.txt"), "approved source\n").unwrap();
+    let (initial, changed, problem, value, outcome) = match scenario {
+        OpportunityScenario::UnsupportedLanguage => (
+            "runtime_language=odin\n",
+            "runtime_language=odin\ncapability=odin_adapter\n",
+            "Kool.ad/e cannot inspect an Odin project",
+            "Plan and validate Odin projects through the ordinary workflow",
+            "A reviewed Odin adapter is available",
+        ),
+        OpportunityScenario::UnrelatedUx => (
+            "board_navigation=pointer_only\n",
+            "board_navigation=pointer_and_keyboard\n",
+            "Board navigation requires too many pointer actions",
+            "Move between board columns with keyboard shortcuts",
+            "A reviewed keyboard navigation improvement is available",
+        ),
+    };
+    std::fs::write(source.join("product.txt"), initial).unwrap();
     git(&source, &["add", "product.txt"]);
     git(
         &source,
@@ -55,7 +67,10 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
         opportunities.discovery_settings().unwrap().exploration,
         OpportunityExploreModeV1::Disabled
     );
-    let idea = proposal(&source_sha);
+    let mut idea = proposal(&source_sha);
+    idea.problem_or_opportunity = problem.into();
+    idea.user_value = value.into();
+    idea.expected_outcome = outcome.into();
     assert!(
         opportunities.save_advisory(idea.clone()).is_err(),
         "scheduled discovery is disabled by default"
@@ -63,7 +78,7 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
     let defaults = opportunities.discovery_settings().unwrap();
     opportunities
         .save_discovery_settings(
-            &koolade::core::opportunity::OpportunityDiscoverySettingsV1 {
+            &crate::core::opportunity::OpportunityDiscoverySettingsV1 {
                 exploration: OpportunityExploreModeV1::OptedIn,
                 ..defaults.clone()
             },
@@ -153,11 +168,7 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
         "isolated task clone failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    std::fs::write(
-        clone.join("product.txt"),
-        "approved source\nplanned product change\n",
-    )
-    .unwrap();
+    std::fs::write(clone.join("product.txt"), changed).unwrap();
     git(&clone, &["add", "product.txt"]);
     git(
         &clone,
@@ -253,17 +264,22 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
     );
     assert_eq!(run.phase, Phase::MergedNotActivated);
     assert!(run.activated_version.is_none());
-    assert!(
-        runs.apply_event(
-            &run.run_uid,
-            run.revision,
-            &uid(),
-            Event::Activated {
-                version: "unprobed build".into(),
-                readiness_probe_passed: false,
+    let merged_sha = run.merged_sha.clone().unwrap();
+    let forged_activation = serde_json::from_value(serde_json::json!({
+        "activated": {
+            "evidence": {
+                "version": "0.2.0",
+                "mergedSha": merged_sha,
+                "buildCommitSha": merged_sha,
+                "readinessProbeUid": uid()
             }
-        )
-        .is_err()
+        }
+    }))
+    .unwrap();
+    assert!(
+        runs.apply_event(&run.run_uid, run.revision, &uid(), forged_activation)
+            .is_err(),
+        "serialized evidence cannot bypass the app-owned active-build probe"
     );
     let after_merge = runs.load(&run.run_uid).unwrap();
     assert_eq!(after_merge.phase, Phase::MergedNotActivated);

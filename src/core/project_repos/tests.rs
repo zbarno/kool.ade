@@ -1,4 +1,16 @@
 use super::*;
+
+#[test]
+fn opportunity_repository_identity_is_stable_and_workspace_scoped() {
+    let workspace = uuid::Uuid::new_v4().hyphenated().to_string();
+    let repository = stable_uid(&workspace, "repository", "product");
+    assert_eq!(repository, stable_uid(&workspace, "repository", "product"));
+    assert_ne!(repository, stable_uid(&workspace, "repository", "root"));
+    assert_ne!(
+        repository,
+        stable_uid(&uuid::Uuid::new_v4().to_string(), "repository", "product")
+    );
+}
 #[test]
 fn manifest_rejects_ambiguous_or_machine_specific_entries() {
     let bad = ProjectManifest {

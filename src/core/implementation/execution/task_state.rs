@@ -204,6 +204,39 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         }
     };
 
+    if let Some(task) = crate::core::lifecycle::LifecycleStore::new(planning_store)
+        .task_for_planning_item(ticket)?
+    {
+        let repository_uid = state
+            .repository_id
+            .as_deref()
+            .map(|repository_id| {
+                crate::core::project_repos::stable_uid(
+                    &planning_store.project_id.hyphenated().to_string(),
+                    "repository",
+                    repository_id,
+                )
+            })
+            .unwrap_or_default();
+        let repository_remote = crate::core::project_repos::ProjectManifest::load(planning_store)?
+            .repositories
+            .into_iter()
+            .find(|repository| Some(repository.id.as_str()) == state.repository_id.as_deref())
+            .map(|repository| repository.remote)
+            .unwrap_or_default();
+        crate::core::self_improvement::SelfImprovementStore::new(planning_store)
+            .authorize_task_source(crate::core::self_improvement::TaskSourceAuthorization {
+                feature_uid: &task.feature_uid,
+                task_uid: &task.task_uid,
+                repository_uid: &repository_uid,
+                repository_remote: &repository_remote,
+                source_ref: state.source_ref.as_deref(),
+                source_sha: state.source_commit.as_deref(),
+                destination_ref: state.destination_branch.as_deref(),
+                isolated_clone: state.task_repository_kind == TaskRepositoryKind::Clone,
+            })?;
+    }
+
     if state.task_repository_kind == TaskRepositoryKind::Clone {
         crate::core::implementation::repository_cache::load_task_git_identity(dir, repo, runner)?;
     }

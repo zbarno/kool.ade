@@ -53,6 +53,8 @@ fn pr_state_evidence_reference_is_bound_to_exact_persisted_revision() {
         provider_pr_url: Some("https://github.com/example/repo/pull/1".into()),
         head_sha: Some("a".repeat(40)),
         base_sha: Some("b".repeat(40)),
+        base_branch: Some("main".into()),
+        merged_at: Some("2026-10-18T00:00:00Z".into()),
         merged_commit_sha: Some("c".repeat(40)),
     };
     let feature = pr.feature_uid.clone();

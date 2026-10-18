@@ -1,5 +1,3 @@
-use sha2::Digest;
-
 use super::super::ManagerOutput;
 mod evidence;
 pub(super) use evidence::{koolade_product_contract_evidence, trusted_opportunity_evidence};
@@ -82,7 +80,8 @@ fn persist_opportunity(
         .project_id
         .hyphenated()
         .to_string();
-    let repository_uid = stable_uid(&workspace_uid, "repository", &repository.id);
+    let repository_uid =
+        crate::core::project_repos::stable_uid(&workspace_uid, "repository", &repository.id);
     let evidence_refs = match prompt
         .evidence_refs
         .iter()
@@ -91,7 +90,11 @@ fn persist_opportunity(
                 .get(evidence_id)
                 .ok_or_else(|| format!("missing evidence hash for {evidence_id}"))?;
             Ok(OpportunityEvidenceRefV1 {
-                evidence_uid: stable_uid(&workspace_uid, "evidence", evidence_id),
+                evidence_uid: crate::core::project_repos::stable_uid(
+                    &workspace_uid,
+                    "evidence",
+                    evidence_id,
+                ),
                 sha256: digest.clone(),
                 confidentiality: EvidenceConfidentialityV1::UserLocal,
             })
@@ -194,13 +197,4 @@ fn persist_opportunity(
         ),
         Err(error) => format!("Improvement proposal could not be persisted: {error}"),
     }
-}
-
-fn stable_uid(workspace_uid: &str, kind: &str, value: &str) -> String {
-    let digest = sha2::Sha256::digest(format!("{workspace_uid}\0{kind}\0{value}").as_bytes());
-    let mut bytes = [0u8; 16];
-    bytes.copy_from_slice(&digest[..16]);
-    bytes[6] = (bytes[6] & 0x0f) | 0x50;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    uuid::Uuid::from_bytes(bytes).hyphenated().to_string()
 }

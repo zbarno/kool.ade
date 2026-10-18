@@ -115,6 +115,8 @@ impl Fixture {
             provider_pr_url: None,
             head_sha: None,
             base_sha: None,
+            base_branch: None,
+            merged_at: None,
             merged_commit_sha: None,
         };
         store
