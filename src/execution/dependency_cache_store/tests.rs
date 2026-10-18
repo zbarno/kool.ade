@@ -37,6 +37,19 @@ fn stored_cache_snapshot_round_trips_only_for_its_dependency_request_and_ref() {
     assert!(store.get(request_id, &changed_ref).is_err());
 }
 
+#[cfg(windows)]
+#[test]
+fn stored_cache_snapshot_refreshes_an_existing_access_marker_on_windows() {
+    let root = tempfile::tempdir().unwrap();
+    let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
+    let snapshot = snapshot();
+    let request_id = "33333333-3333-4333-8333-333333333333";
+
+    store.put(request_id, &snapshot).unwrap();
+    store.get(request_id, &snapshot.cache_ref).unwrap();
+    store.put(request_id, &snapshot).unwrap();
+}
+
 #[test]
 fn stored_cache_snapshot_rejects_archive_corruption() {
     let root = tempfile::tempdir().unwrap();
@@ -75,7 +88,7 @@ fn cache_snapshot_store_rejects_a_symlink_root() {
 }
 
 #[test]
-fn cache_snapshot_store_refuses_more_than_its_bounded_retention_capacity() {
+fn cache_snapshot_store_evicts_the_least_recently_used_snapshot_at_capacity() {
     let root = tempfile::tempdir().unwrap();
     let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
     store.ensure_private_root().unwrap();
@@ -84,6 +97,37 @@ fn cache_snapshot_store_refuses_more_than_its_bounded_retention_capacity() {
         fs::create_dir(&directory).unwrap();
         fs::write(directory.join("manifest.json"), b"{}").unwrap();
         fs::write(directory.join("snapshot.tar"), b"cache").unwrap();
+        fs::write(directory.join(".last-used"), (index as u64).to_be_bytes()).unwrap();
     }
-    assert!(store.ensure_capacity_for(12, 128).is_err());
+    touch_last_used(&store.root.join(format!("{:064x}", 0))).unwrap();
+    store.ensure_capacity_for(12, 128).unwrap();
+
+    assert!(store.root.join(format!("{:064x}", 0)).exists());
+    assert!(!store.root.join(format!("{:064x}", 1)).exists());
+    assert_eq!(
+        fs::read_dir(&store.root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().unwrap().is_dir())
+            .count(),
+        MAX_STORED_SNAPSHOTS - 1
+    );
+}
+
+#[test]
+fn oversized_cache_snapshot_does_not_evict_existing_snapshots() {
+    let root = tempfile::tempdir().unwrap();
+    let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
+    store.ensure_private_root().unwrap();
+    let existing = store.root.join(format!("{:064x}", 0));
+    fs::create_dir(&existing).unwrap();
+    fs::write(existing.join("manifest.json"), b"{}").unwrap();
+    fs::write(existing.join("snapshot.tar"), b"cache").unwrap();
+
+    assert!(
+        store
+            .ensure_capacity_for(MAX_STORED_BYTES as usize, 128)
+            .is_err()
+    );
+    assert!(existing.exists());
 }

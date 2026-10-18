@@ -161,8 +161,10 @@ hashes before uploading only the selected files to web preview or desktop sessio
 Task-scoped npm and Cargo cache snapshots from successful broker preparations
 are retained with private permissions, integrity-checked against the exact
 request, and bound into the immutable Runtime QA request identity. The retained
-store is capped at 512 snapshots and 1 GiB; it rejects new snapshots at capacity
-and removes abandoned staging directories during the next write. Web QA
+store is capped at 512 snapshots and 1 GiB; it evicts least-recently-used
+snapshots to admit new entries within those limits and removes abandoned staging
+directories before the next new snapshot is admitted. Access is refreshed when
+a snapshot is read or an identical immutable snapshot is written. Web QA
 transfers those archives into the isolated service container and configures the
 matching package manager for offline cache use. This makes prepared cache data
 available to an approved startup recipe; it does not install dependencies or

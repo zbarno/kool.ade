@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{fs, io::Write, path::PathBuf};
 
+mod retention;
+use retention::touch_last_used;
+
 const MAX_STORED_SNAPSHOTS: usize = 512;
 const MAX_STORED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_STORED_HEADER_BYTES: usize = 4 * 1024 * 1024;
@@ -38,16 +41,7 @@ impl DependencyCacheSnapshotStore {
         snapshot
             .manifest
             .validate_ref(&snapshot.cache_ref, &snapshot.archive)?;
-        self.ensure_private_root()?;
-        let lock_path = self.root.join(".lock");
-        let lock = fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)?;
-        set_private_permissions(&lock_path)?;
-        fs2::FileExt::lock_exclusive(&lock)?;
+        let lock = self.lock_store()?;
         let result = self.put_locked(dependency_request_id, snapshot);
         let unlock_result = fs2::FileExt::unlock(&lock);
         result?;
@@ -62,7 +56,7 @@ impl DependencyCacheSnapshotStore {
     ) -> anyhow::Result<()> {
         let destination = self.snapshot_dir(dependency_request_id, &snapshot.cache_ref)?;
         if destination.exists() {
-            let existing = self.get(dependency_request_id, &snapshot.cache_ref)?;
+            let existing = self.get_locked(dependency_request_id, &snapshot.cache_ref)?;
             anyhow::ensure!(
                 existing.archive == snapshot.archive,
                 "cache snapshot is immutable"
@@ -91,10 +85,11 @@ impl DependencyCacheSnapshotStore {
         let result = (|| {
             write_private_file(&temporary.join("manifest.json"), &header_bytes)?;
             write_private_file(&temporary.join("snapshot.tar"), &snapshot.archive)?;
+            touch_last_used(&temporary)?;
             match fs::rename(&temporary, &destination) {
                 Ok(()) => Ok(()),
                 Err(_) if destination.exists() => {
-                    let existing = self.get(dependency_request_id, &snapshot.cache_ref)?;
+                    let existing = self.get_locked(dependency_request_id, &snapshot.cache_ref)?;
                     anyhow::ensure!(
                         existing.archive == snapshot.archive,
                         "cache snapshot is immutable"
@@ -108,55 +103,26 @@ impl DependencyCacheSnapshotStore {
         result
     }
 
-    fn ensure_capacity_for(
+    pub(crate) fn get(
         &self,
-        incoming_archive_bytes: usize,
-        incoming_header_bytes: usize,
-    ) -> anyhow::Result<()> {
-        let mut count = 0usize;
-        let mut total_bytes = 0u64;
-        for entry in fs::read_dir(&self.root)? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if name == ".lock" {
-                continue;
-            }
-            if name.starts_with(".staging-") {
-                fs::remove_dir_all(entry.path())?;
-                continue;
-            }
-            ensure_real_directory(&entry.path())?;
-            count = count.saturating_add(1);
-            for filename in ["manifest.json", "snapshot.tar"] {
-                let path = entry.path().join(filename);
-                let metadata = fs::symlink_metadata(&path)?;
-                anyhow::ensure!(
-                    metadata.is_file() && !metadata.file_type().is_symlink(),
-                    "cache store contains a non-regular snapshot file"
-                );
-                total_bytes = total_bytes.saturating_add(metadata.len());
-            }
-        }
-        anyhow::ensure!(
-            count < MAX_STORED_SNAPSHOTS
-                && total_bytes
-                    .saturating_add(incoming_archive_bytes as u64)
-                    .saturating_add(incoming_header_bytes as u64)
-                    <= MAX_STORED_BYTES,
-            "dependency cache store capacity is reached; remove old task cache snapshots"
-        );
-        Ok(())
+        dependency_request_id: &str,
+        expected_ref: &crate::execution::contract::DependencyCacheRefV1,
+    ) -> anyhow::Result<CacheSnapshot> {
+        let lock = self.lock_store()?;
+        let result = self.get_locked(dependency_request_id, expected_ref);
+        let unlock_result = fs2::FileExt::unlock(&lock);
+        let snapshot = result?;
+        unlock_result?;
+        Ok(snapshot)
     }
 
-    pub(crate) fn get(
+    fn get_locked(
         &self,
         dependency_request_id: &str,
         expected_ref: &crate::execution::contract::DependencyCacheRefV1,
     ) -> anyhow::Result<CacheSnapshot> {
         crate::execution::contract::validate_identifier(dependency_request_id)?;
         expected_ref.validate()?;
-        self.ensure_private_root()?;
         let directory = self.snapshot_dir(dependency_request_id, expected_ref)?;
         ensure_real_directory(&directory)?;
         let header_bytes =
@@ -173,6 +139,7 @@ impl DependencyCacheSnapshotStore {
             crate::harness::resource_bridge::MAX_CACHE_SNAPSHOT_BYTES as usize,
         )?;
         header.manifest.validate_ref(expected_ref, &archive)?;
+        touch_last_used(&directory)?;
         Ok(CacheSnapshot {
             cache_ref: header.cache_ref,
             manifest: header.manifest,
@@ -199,6 +166,20 @@ impl DependencyCacheSnapshotStore {
             set_private_permissions(&self.root)?;
         }
         Ok(())
+    }
+
+    fn lock_store(&self) -> anyhow::Result<fs::File> {
+        self.ensure_private_root()?;
+        let lock_path = self.root.join(".lock");
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&lock_path)?;
+        set_private_permissions(&lock_path)?;
+        fs2::FileExt::lock_exclusive(&lock)?;
+        Ok(lock)
     }
 }
 
