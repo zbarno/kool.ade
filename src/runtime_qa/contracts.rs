@@ -47,12 +47,19 @@ pub enum QaApplicability {
 pub struct QaApplicabilityAssessmentV1 {
     pub schema_version: u16,
     pub task_uid: String,
+    pub target_id: String,
+    pub app_surface: crate::project_runtime::AppSurface,
     pub code_sha: String,
     pub approved_spec_hash: String,
     pub applicability: QaApplicability,
     pub reason: String,
     pub evidence_refs: Vec<String>,
+    /// Independent QA reviewer whose read-only assessment found the status.
+    pub reviewer_execution_id: String,
+    pub reviewer_session_id: String,
+    /// Manager run that explicitly approved the assessment.
     pub approved_by: String,
+    pub manager_session_id: String,
     pub recorded_at_unix_ms: u64,
 }
 
@@ -60,6 +67,7 @@ impl QaApplicabilityAssessmentV1 {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1
             || !is_uuid(&self.task_uid)
+            || !valid_text(&self.target_id, 128)
             || !is_git_oid(&self.code_sha)
             || !is_sha256(&self.approved_spec_hash)
             || self.reason.trim().is_empty()
@@ -70,8 +78,32 @@ impl QaApplicabilityAssessmentV1 {
                 .evidence_refs
                 .iter()
                 .any(|item| !valid_text(item, 2048))
+            || !is_uuid(&self.reviewer_execution_id)
+            || !is_uuid(&self.reviewer_session_id)
+            || self.reviewer_execution_id == self.reviewer_session_id
             || !is_uuid(&self.approved_by)
+            || !is_uuid(&self.manager_session_id)
+            || self.approved_by == self.manager_session_id
+            || self.reviewer_execution_id == self.approved_by
+            || self.reviewer_session_id == self.manager_session_id
             || self.recorded_at_unix_ms == 0
+            || matches!(
+                (self.applicability, self.app_surface),
+                (
+                    QaApplicability::NotApplicable,
+                    crate::project_runtime::AppSurface::UnsupportedTarget
+                ) | (
+                    QaApplicability::Unsupported,
+                    crate::project_runtime::AppSurface::HeadlessService
+                ) | (
+                    QaApplicability::Required,
+                    crate::project_runtime::AppSurface::UnsupportedTarget
+                )
+            )
+            || (self.applicability == QaApplicability::NotApplicable
+                && self.app_surface != crate::project_runtime::AppSurface::HeadlessService)
+            || (self.applicability == QaApplicability::Unsupported
+                && self.app_surface != crate::project_runtime::AppSurface::UnsupportedTarget)
         {
             return Err("runtime QA applicability assessment is invalid".into());
         }

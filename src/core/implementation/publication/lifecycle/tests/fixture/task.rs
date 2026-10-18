@@ -71,6 +71,7 @@ pub(super) fn completed(feature_uid: &str, work_uid: &str, head: &str) -> TaskRe
             evidence_manifest_sha256: Some("3".repeat(64)),
             reviewer_execution_id: Some(id()),
             reviewer_session_id: Some(id()),
+            applicability: None,
         }),
         spec_reconciliation: Some(policy_receipt(&task_uid)),
         spec_reconciliation_blocker: None,

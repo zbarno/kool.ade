@@ -7,7 +7,11 @@
 mod blocked_path;
 #[path = "lifecycle_acceptance/completed_path.rs"]
 mod completed_path;
+#[path = "lifecycle_acceptance/headless_applicability.rs"]
+mod headless_applicability;
 #[path = "lifecycle_acceptance/plan.rs"]
 mod plan;
 #[path = "lifecycle_acceptance/support.rs"]
 mod support;
+#[path = "lifecycle_acceptance/task_review.rs"]
+mod task_review;

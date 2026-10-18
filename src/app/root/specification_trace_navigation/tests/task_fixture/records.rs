@@ -174,6 +174,7 @@ pub(super) fn task_record(
             evidence_manifest_sha256: Some("2".repeat(64)),
             reviewer_execution_id: Some(uid()),
             reviewer_session_id: Some(uid()),
+            applicability: None,
         }),
         spec_reconciliation: None,
         spec_reconciliation_blocker: None,

@@ -71,7 +71,10 @@ fn trigger_for_event(event: &LifecycleEventRecord) -> (SpecSyncTriggerKindV1, Op
             TaskEvent::RuntimeQaRequested(_)
             | TaskEvent::RuntimeQaBlocked { .. }
             | TaskEvent::RuntimeQaUnavailable { .. }
-            | TaskEvent::RuntimeQaCompleted { .. } => (SpecSyncTriggerKindV1::RuntimeQa, None),
+            | TaskEvent::RuntimeQaCompleted { .. }
+            | TaskEvent::RuntimeQaNotApplicable { .. } => {
+                (SpecSyncTriggerKindV1::RuntimeQa, None)
+            }
             TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. } => (
                 SpecSyncTriggerKindV1::SpecificationReconciliation,
                 Some("validated reconciliation completion records the preceding specification review; it introduces no new implementation evidence or requirement change".into()),

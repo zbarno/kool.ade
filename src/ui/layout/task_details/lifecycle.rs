@@ -280,6 +280,7 @@ mod tests {
             merged_commit_sha: Some("provider-merge-sha".into()),
             runtime_qa_evidence: None,
             runtime_qa_evidence_error: None,
+            runtime_qa_applicability: None,
         };
         let context = egui::Context::default();
         let mut output = context.run_ui(

@@ -98,7 +98,7 @@ pub(super) fn paint(
                     "Visual QA surface; target readiness and driver availability are checked separately."
                 }
                 crate::project_runtime_capability::QaApplicability::ServiceEvidence => {
-                    "Headless service: visual QA does not apply. Service evidence and reviewer/Manager signoff are not yet integrated."
+                    "Headless service: visual QA does not apply. A target-bound applicability assessment and Manager signoff can be recorded; this does not certify API or service tests."
                 }
                 crate::project_runtime_capability::QaApplicability::StaticReviewOnly => {
                     "Static review only; runtime QA is not currently applicable."

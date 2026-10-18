@@ -123,6 +123,10 @@ pub(super) fn for_ticket(
             merged_commit_sha: pr_preparation.and_then(|pr| pr.merged_commit_sha),
             runtime_qa_evidence,
             runtime_qa_evidence_error,
+            runtime_qa_applicability: task
+                .qa_execution
+                .as_ref()
+                .and_then(|execution| execution.applicability.clone()),
         }),
         None,
     )

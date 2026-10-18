@@ -11,6 +11,59 @@ use crate::{
 use super::LifecycleStore;
 
 impl LifecycleStore<'_> {
+    /// Record a Manager-approved non-visual QA applicability assessment.
+    /// The typed assessment stays in the task ledger and is never a QA pass.
+    pub fn record_runtime_qa_applicability(
+        &self,
+        task_uid: &str,
+        expected_revision: u64,
+        event_uid: &str,
+        assessment: crate::runtime_qa::QaApplicabilityAssessmentV1,
+        reviewer_receipt: GateReceipt,
+        receipt: GateReceipt,
+    ) -> Result<TaskRecord, StoreError> {
+        let task = self.load_task(task_uid)?;
+        if task.revision != expected_revision {
+            return Err(StoreError::MalformedState(
+                "runtime QA applicability targets a stale task revision".into(),
+            ));
+        }
+        let manifest = crate::project_runtime::ProjectRuntimeStore::new(self.store)
+            .load_manifest()?
+            .ok_or_else(|| {
+                StoreError::MalformedState(
+                    "runtime QA applicability requires a persisted project target manifest".into(),
+                )
+            })?;
+        let owning_task_id = task.planning_item_uid.as_deref().unwrap_or(&task.task_uid);
+        let target = manifest
+            .candidate_targets
+            .iter()
+            .find(|target| target.target_id == assessment.target_id);
+        if !manifest.is_active_target(owning_task_id, &assessment.target_id)
+            || target.is_none_or(|target| {
+                target.app_surface != crate::project_runtime::AppSurface::HeadlessService
+                    || target.repository_id != manifest.repository_id
+            })
+            || assessment.app_surface != crate::project_runtime::AppSurface::HeadlessService
+        {
+            return Err(StoreError::MalformedState(
+                "runtime QA applicability target is not the active headless target for this task"
+                    .into(),
+            ));
+        }
+        self.apply_task_event(
+            task_uid,
+            expected_revision,
+            event_uid,
+            TaskEvent::RuntimeQaNotApplicable {
+                assessment: Box::new(assessment),
+                reviewer_receipt: Box::new(reviewer_receipt),
+                receipt: Box::new(receipt),
+            },
+        )
+    }
+
     /// Queue a request only after the exact code revision passed independent review.
     pub fn queue_runtime_qa(
         &self,

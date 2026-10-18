@@ -1,6 +1,9 @@
 use super::*;
 use sha2::Digest as _;
 
+#[path = "task/not_applicable.rs"]
+mod not_applicable;
+
 #[test]
 fn stale_or_same_context_review_cannot_advance_task_to_done() {
     let task_uid = id();

@@ -151,6 +151,7 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
             evidence_manifest_sha256: Some("2".repeat(64)),
             reviewer_execution_id: Some(uuid::Uuid::new_v4().hyphenated().to_string()),
             reviewer_session_id: Some(uuid::Uuid::new_v4().hyphenated().to_string()),
+            applicability: None,
         }),
         spec_reconciliation: None,
         spec_reconciliation_blocker: None,

@@ -90,12 +90,17 @@ fn invalid_assessment_cannot_claim_unsupported_without_evidence() {
     let assessment = QaApplicabilityAssessmentV1 {
         schema_version: 1,
         task_uid: request.parent_task_uid,
+        target_id: "service-api".into(),
+        app_surface: crate::project_runtime::AppSurface::UnsupportedTarget,
         code_sha: request.code_head_sha,
         approved_spec_hash: request.approved_spec_hash,
         applicability: QaApplicability::Unsupported,
         reason: "No supported driver is available".into(),
         evidence_refs: vec![],
+        reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         approved_by: uuid::Uuid::new_v4().hyphenated().to_string(),
+        manager_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         recorded_at_unix_ms: 1,
     };
     assert!(assessment.validate().is_err());
@@ -107,12 +112,20 @@ fn applicability_is_durable_exact_subject_bound_and_not_a_completed_run() {
     let assessment = QaApplicabilityAssessmentV1 {
         schema_version: 1,
         task_uid: request.parent_task_uid.clone(),
+        target_id: "service-api".into(),
+        app_surface: crate::project_runtime::AppSurface::UnsupportedTarget,
         code_sha: request.code_head_sha.clone(),
         approved_spec_hash: request.approved_spec_hash.clone(),
         applicability: QaApplicability::Unsupported,
         reason: "No approved target recipe supports this application surface".into(),
-        evidence_refs: vec!["capability-manifest:target-1".into()],
+        evidence_refs: vec![
+            "target:service-api".into(),
+            "capability-manifest:target-1".into(),
+        ],
+        reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         approved_by: uuid::Uuid::new_v4().hyphenated().to_string(),
+        manager_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         recorded_at_unix_ms: 1,
     };
     let directory = tempfile::tempdir().unwrap();

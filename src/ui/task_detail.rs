@@ -70,6 +70,7 @@ pub struct LifecycleView {
     pub merged_commit_sha: Option<String>,
     pub runtime_qa_evidence: Option<RuntimeQaEvidenceView>,
     pub runtime_qa_evidence_error: Option<String>,
+    pub runtime_qa_applicability: Option<crate::runtime_qa::QaApplicabilityAssessmentV1>,
 }
 
 #[derive(Clone)]
