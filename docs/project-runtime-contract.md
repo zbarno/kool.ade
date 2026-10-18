@@ -155,7 +155,12 @@ shared manifest plus an app-owned local approval record bound to the complete
 recipe and target identity; a shared marker by itself cannot authorize dispatch.
 Approval does not launch the recipe. Bounded Docker artifact collection feeds Build/Test and
 Start/readiness receipts. The existing QA artifact snapshot verifies those
-hashes before uploading only the selected files to web preview or desktop sessions. Broker-backed toolchain
-provisioning and inventory, and headless service evidence remain unintegrated.
+hashes before uploading only the selected files to web preview or desktop sessions.
+End-to-end broker-backed toolchain provisioning and transfer of prepared
+dependencies into QA sessions remain unintegrated. Capability assessment can
+count only explicitly target-bound broker request IDs with successful
+task-scoped preparation telemetry; this record does not install or transfer
+the dependency into a QA image. Headless service evidence also remains
+unintegrated.
 Until those paths land, the application must not present a detected candidate
 as a verified runnable target or claim runtime QA coverage.
