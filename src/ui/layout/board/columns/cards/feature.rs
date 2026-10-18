@@ -20,11 +20,11 @@ pub(in crate::ui::layout::board::columns) fn approval(
         false,
         |ui| {
             ui.horizontal(|ui| {
-                theme::badge(ui, "Specification", theme::PANEL, theme::TEXT_DIM);
+                theme::badge(ui, "Confirm Plan", theme::PANEL, theme::TEXT_DIM);
                 super::super::attention::badge(ui, super::super::attention::Kind::WaitingOnUser);
             });
             ui.label(RichText::new(title).strong().color(theme::TEXT));
-            if ui.button("Review specification").clicked() {
+            if ui.button("Review plan").clicked() {
                 *selected = Some(format!("feature-approval:{}", action.id));
             }
         },

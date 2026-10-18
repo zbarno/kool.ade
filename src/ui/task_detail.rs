@@ -38,6 +38,7 @@ pub struct ViewModel {
 
 #[derive(Clone)]
 pub struct LifecycleView {
+    pub feature_uid: String,
     pub feature_phase: crate::core::lifecycle::FeaturePhase,
     pub task_phase: crate::core::lifecycle::TaskPhase,
     pub parent_task_uid: Option<String>,
@@ -62,6 +63,8 @@ pub struct LifecycleView {
 
 #[derive(Clone)]
 pub struct TaskRelationView {
+    pub planning_item_uid: String,
+    pub lifecycle_task_uid: Option<String>,
     pub title: String,
     pub status: String,
     pub acceptance_criteria: Vec<String>,

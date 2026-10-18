@@ -48,7 +48,7 @@ pub(super) fn paint(
                             !doc.path.ends_with("/README.md")
                                 && !board.is_archived(&doc.path)
                                 && !board.cancelled.contains(&crate::persistence::cancelled_work::task_id(doc))
-                                && task_document_board_column(s, doc) == column
+                                && cards::task_card_column(s, board, doc) == column
                         })
                         .collect::<Vec<_>>();
                     let questions = items

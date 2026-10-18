@@ -27,7 +27,7 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "CHG-004: Saved searches").is_some());
-    let candidate = click_text(&mut app, &ctx, "Review specification");
+    let candidate = click_text(&mut app, &ctx, "Review plan");
     // Production boundary: verify Kanban navigation exposes the parsed plan
     // summary and both decision actions. A widget unit test cannot prove this
     // board-to-details path; this uses egui and a temporary local Git fixture,
@@ -98,7 +98,7 @@ fn resolved_conversation_has_action_and_failed_review_retains_approval_for_retry
     app.task_harness = Some(h);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Review specification");
+    click_text(&mut app, &ctx, "Review plan");
     click_text(&mut app, &ctx, "Confirm CHG-004 and prepare tasks");
     record_test_plan_review(
         &mut app,
