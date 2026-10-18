@@ -83,7 +83,10 @@ fn dispatch_is_fenced_to_approved_self_improvement_plan_and_target() {
         &mapped_repository_uid,
         "https://github.com/zbarno/kool.ade",
     );
-    assert!(allowed.is_ok(), "{allowed:?}");
+    assert!(
+        allowed.is_ok(),
+        "approved self-improvement task should pass dispatch authorization"
+    );
     assert!(
         runs.authorize_task_start(
             &ready.feature_uid,

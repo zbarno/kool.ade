@@ -1,6 +1,10 @@
 const BUILD_COMMIT: &str = env!("KOOLADE_BUILD_COMMIT");
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[cfg(test)]
+#[path = "build_identity/git.rs"]
+mod git;
+
 pub(crate) fn current() -> Option<(&'static str, &'static str)> {
     (valid_commit(BUILD_COMMIT)).then_some((APP_VERSION, BUILD_COMMIT))
 }
