@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewVerdictV1 {
     pub subject_hash: String,
@@ -9,21 +9,21 @@ pub struct ReviewVerdictV1 {
     pub findings: Vec<ReviewFindingV1>,
     pub untested: Vec<String>,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct CoverageV1 {
     pub requirement: String,
     pub status: CoverageStatus,
     pub evidence: Vec<String>,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoverageStatus {
     Pass,
     Fail,
     Untested,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewFindingV1 {
     pub id: String,
@@ -35,7 +35,7 @@ pub struct ReviewFindingV1 {
     pub repro: Option<String>,
     pub proposed_correction: String,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Blocker,
@@ -43,7 +43,7 @@ pub enum Severity {
     Medium,
     Low,
 }
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingKind {
     Correctness,

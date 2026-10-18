@@ -77,6 +77,7 @@ fn paint_approval(
         return;
     };
     ui.collapsing("Specification approval", |ui| {
+        crate::ui::feature_approval::paint_candidate(ui, &action);
         if action
             .plan_comparison
             .as_ref()
@@ -95,18 +96,36 @@ fn paint_approval(
                 }
                 None => {}
             }
-        } else if ui
-            .add_enabled(
-                !surface.conversation_busy(),
-                egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
-            )
-            .clicked()
-        {
-            surface.dispatch(crate::ui::ApplicationCommand::ApproveFeatureForBoard {
-                id: feature_id.to_owned(),
-            });
-            ui.ctx().data_mut(|data| {
-                data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(
+                        !surface.conversation_busy(),
+                        egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
+                    )
+                    .clicked()
+                {
+                    surface.dispatch(crate::ui::ApplicationCommand::ApproveFeatureForBoard {
+                        id: feature_id.to_owned(),
+                    });
+                    ui.ctx().data_mut(|data| {
+                        data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
+                    });
+                }
+                if !surface.conversation_busy()
+                    && let Some(crate::ui::feature_approval::ApprovalIntent::RequestChanges(
+                        id,
+                        candidate_hash,
+                    )) = crate::ui::feature_approval::paint_request_changes(ui, &action)
+                {
+                    surface.dispatch(crate::ui::ApplicationCommand::RequestFeatureChanges {
+                        id,
+                        candidate_hash,
+                    });
+                    ui.ctx().data_mut(|data| {
+                        data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
+                    });
+                }
             });
         }
     });

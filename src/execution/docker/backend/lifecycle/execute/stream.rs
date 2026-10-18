@@ -26,6 +26,11 @@ pub(super) async fn collect_output(
         let mut offset = 0;
         while offset < bytes.len() {
             let mut state = execution.lock().map_err(|_| super::state::disconnected())?;
+            #[cfg(test)]
+            state.diagnostic_progress.fetch_or(
+                super::state::OUTPUT_RECEIVED,
+                std::sync::atomic::Ordering::Relaxed,
+            );
             let remaining = budget.saturating_sub(state.output_bytes) as usize;
             if remaining == 0 {
                 return Err(output_limit_error());

@@ -46,6 +46,8 @@ pub(super) fn approved_snapshot(
         &contract,
     )
     .map_err(AppError::Other)?;
+    crate::core::lifecycle::plan_snapshot::current_readiness(&state.planning_store, &snapshot)
+        .map_err(|error| AppError::Other(format!("Current plan readiness is stale: {error}")))?;
     let goal_matches = goal.plan_snapshot_uid.as_deref() == Some(snapshot.uid.as_str())
         && goal.plan_snapshot_sha256.as_deref() == Some(snapshot.content_hash.as_str())
         && goal.approved_plan_sha256.as_deref() == Some(snapshot.content_hash.as_str());

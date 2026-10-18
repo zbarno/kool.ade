@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex, atomic::Ordering};
+use std::time::Instant;
 
 use super::super::runtime::RuntimeExecution;
 use crate::execution::{
@@ -32,6 +33,8 @@ pub(super) async fn finalize_failure(
             return Ok(());
         }
     }
+    let stage_out_expected = super::sync::workspace_stage_out_enabled(&request);
+    let stage_out_started = Instant::now();
     let cleanup = super::termination::terminate_and_sync(
         backend,
         &container_id,
@@ -40,6 +43,16 @@ pub(super) async fn finalize_failure(
         &request,
     )
     .await;
+    if stage_out_expected {
+        super::state::persist_stage_out(
+            execution,
+            stage_out_started
+                .elapsed()
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
+            cleanup.as_ref().ok().map(Vec::as_slice),
+        )?;
+    }
     let cancelled = execution
         .lock()
         .map_err(|_| super::state::disconnected())?
@@ -53,7 +66,7 @@ pub(super) async fn finalize_failure(
             false,
             false,
         ),
-        Ok(()) if cancelled => (
+        Ok(_) if cancelled => (
             ExecutionLifecycleV1::Cancelled,
             ExecutionError::new(
                 ExecutionErrorKind::Cancelled,
@@ -63,10 +76,10 @@ pub(super) async fn finalize_failure(
             false,
             true,
         ),
-        Ok(()) => (ExecutionLifecycleV1::Failed, failure, timed_out, false),
+        Ok(_) => (ExecutionLifecycleV1::Failed, failure, timed_out, false),
     };
     // This transaction owns workspace finalization. Publish even if another
     // cancellation is waiting; its lock recheck will see the terminal result.
     super::super::control::terminal(execution, state, Some(error), None, timed_out, cancelled)?;
-    cleanup
+    cleanup.map(|_| ())
 }

@@ -108,6 +108,8 @@ pub struct TurnEnvelope {
     pub plans: Option<Vec<crate::domain::PlanAlternative>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recommendation: Option<crate::domain::PlanRecommendation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_remediation: Option<crate::core::lifecycle::PlanRemediationV1>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

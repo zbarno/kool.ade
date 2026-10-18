@@ -125,6 +125,7 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         task_outline: None,
         plans: None,
         recommendation: None,
+        plan_remediation: None,
     };
     let mut normalized = validation::validate(&envelope, state, &state.effective_user())
         .map_err(|problems| anyhow::anyhow!(problems.join("; ")))?;

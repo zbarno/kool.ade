@@ -113,8 +113,18 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let script = dir.join("probe.sh");
         let output = dir.join("cwd.txt");
+        let temporary_output = dir.join("cwd.txt.tmp");
         use std::os::unix::fs::PermissionsExt;
-        std::fs::write(&script, format!("#!/bin/sh\npwd > {}\n", output.display())).unwrap();
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\npwd > {}\nmv {} {}\n",
+                temporary_output.display(),
+                temporary_output.display(),
+                output.display()
+            ),
+        )
+        .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         spawn_sibling_in(&script, &dir).unwrap();
         // The child is launched asynchronously, so allow for loaded parallel

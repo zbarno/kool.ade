@@ -64,7 +64,7 @@ fn planner_output(feature_uid: &str) -> crate::harness::prompt_catalog::PlannerO
 
 fn install_feature(store: &crate::artifacts::planning_store::PlanningStore) -> (String, String) {
     let draft = String::from(
-        "# CHG-997: Clarification readiness\n\n**Status:** Ready\n\n## Intent\n\nTest complete requirement traceability.\n\n## Current Behavior\n\nRetention behavior is unspecified.\n\n## Desired Behavior\n\nRetention is configurable and auditable.\n\n## Scope\n\n- Configure retention.\n\n## Requirements\n\n- REQ-1: Retention must be configurable.\n- REQ-2: Retention changes must be auditable.\n\n## Acceptance Criteria\n\n- AC-1: Retention has an audit trail.\n",
+        "# CHG-997: Clarification readiness\n\n**Status:** Ready\n\n## Intent\n\nTest complete requirement traceability.\n\n## Current Behavior\n\nRetention behavior is unspecified.\n\n## Desired Behavior\n\nRetention is configurable and auditable.\n\n## Scope\n\n- Configure retention.\n\n## Requirements\n\n- REQ-1: Retention must be configurable.\n- REQ-2: Retention changes must be auditable.\n\n## Acceptance Criteria\n\n- AC-001: Retention has an audit trail.\n",
     );
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         &draft,

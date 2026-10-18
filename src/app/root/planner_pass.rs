@@ -35,6 +35,7 @@ impl ClarificationPlanner {
                     mode: ExecutionMode::ReadOnlyAnalysis,
                     task_id: None,
                     execution_workspace: None,
+                    destination_sha: None,
                     prompt_manifest: Some(rendered.manifest.clone()),
                     reasoning_level: "high".into(),
                     telemetry_phase: None,
@@ -102,10 +103,11 @@ pub(crate) fn spec_revision(
                 .is_some_and(|identity| identity.uid == feature_uid)
         })
         .ok_or_else(|| "the clarified feature is no longer active".to_owned())?;
-    spec_revision_for_markdown(feature_uid, feature_id, markdown)
+    spec_revision_for_markdown(project, feature_uid, feature_id, markdown)
 }
 
 pub(crate) fn spec_revision_for_markdown(
+    project: &super::session::Project,
     feature_uid: &str,
     feature_id: &str,
     markdown: &str,
@@ -117,8 +119,14 @@ pub(crate) fn spec_revision_for_markdown(
         return Err("the clarified feature identity changed".into());
     }
     let contract = crate::core::workflow::feature_contract(markdown);
-    crate::core::lifecycle::PlanSnapshotV1::from_feature(feature_id, &identity, markdown, &contract)
-        .map(|snapshot| snapshot.spec_revision)
+    crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &project.state.planning_store,
+        feature_id,
+        &identity,
+        markdown,
+        &contract,
+    )
+    .map(|snapshot| snapshot.spec_revision)
 }
 
 mod persist;

@@ -38,7 +38,36 @@ impl ExecutionSession {
         resources: ResourceBudgetV1,
         authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     ) -> anyhow::Result<Self> {
+        Self::new_with_destination_authorization(
+            backend,
+            workspace,
+            target,
+            mode,
+            image_digest,
+            resources,
+            None,
+            authorization_verifier,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_destination_authorization(
+        backend: Arc<dyn ExecutionBackend>,
+        workspace: WorkspaceRef,
+        target: ExecutionTarget,
+        mode: ExecutionModeV1,
+        image_digest: String,
+        resources: ResourceBudgetV1,
+        destination_sha: Option<String>,
+        authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+    ) -> anyhow::Result<Self> {
         workspace.validate()?;
+        anyhow::ensure!(
+            destination_sha
+                .as_deref()
+                .is_none_or(crate::execution::contract::is_valid_sha),
+            "execution session destination SHA is invalid"
+        );
         target.validate()?;
         resources.validate()?;
         anyhow::ensure!(
@@ -56,6 +85,7 @@ impl ExecutionSession {
         Ok(Self {
             backend,
             workspace,
+            destination_sha,
             target,
             mode,
             image_digest: std::sync::RwLock::new(image_digest),

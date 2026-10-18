@@ -153,6 +153,7 @@ fn run_with_settle_window(
             progress_tx: progress.clone(),
             cancel: cancel.clone(),
             execution_workspace: None,
+            destination_sha: None,
 
             authorization_verifier: None,
             review_identity: None,

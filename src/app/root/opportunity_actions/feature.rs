@@ -11,7 +11,7 @@ pub(super) fn create_draft_feature(
     let feature_id = crate::artifacts::product_docs::next_feature_id(store);
     let title = feature_title(&proposal.problem_or_opportunity);
     let body = format!(
-        "# {feature_id}: {title}\n\n<!-- opportunity-uid: {} -->\n\n## Intent\n\n{}\n\n## Current Behavior\n\n{}\n\n## Desired Behavior\n\n{}\n\n## Scope\n\nProposed approach: {}\n\nAlternatives considered: {}\n\n## Affected Product Areas\n\n{}\n\n## Requirements\n\n- {}\n\n## Decisions and Assumptions\n\n- The local controller recorded an explicit Pursue choice for opportunity `{}`.\n- The proposal remains advisory; this draft must be reviewed and approved through the normal feature workflow.\n\n## Acceptance Criteria\n\n- {}\n",
+        "# {feature_id}: {title}\n\n<!-- opportunity-uid: {} -->\n\n## Intent\n\n{}\n\n## Current Behavior\n\n{}\n\n## Desired Behavior\n\n{}\n\n## Scope\n\nProposed approach: {}\n\nAlternatives considered: {}\n\n## Affected Product Areas\n\n{}\n\n## Requirements\n\n- {}\n\n## Decisions and Assumptions\n\n- Origin: {:?}.\n- Target repository kind: {:?}.\n- Target repository ID: `{}`.\n- Observed source revision: `{}`.\n- Evidence references: {}.\n- The local controller recorded an explicit Pursue choice for opportunity `{}`.\n- The proposal remains advisory; this draft must be reviewed and approved through the normal feature workflow.\n\n## Acceptance Criteria\n\n- {}\n",
         proposal.opportunity_uid,
         proposal.user_value,
         proposal.current_capability_state,
@@ -25,6 +25,19 @@ pub(super) fn create_draft_feature(
             .collect::<Vec<_>>()
             .join("\n"),
         proposal.expected_outcome,
+        proposal.origin,
+        proposal.target.kind,
+        proposal.target.repository_uid,
+        proposal.target.source_sha,
+        proposal
+            .evidence_refs
+            .iter()
+            .map(|evidence| format!(
+                "{}#{} ({:?})",
+                evidence.evidence_uid, evidence.sha256, evidence.confidentiality
+            ))
+            .collect::<Vec<_>>()
+            .join(", "),
         proposal.opportunity_uid,
         proposal.expected_outcome,
     );

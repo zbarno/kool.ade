@@ -71,7 +71,11 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
     let payload_matches = matches!(
         (input.role, &input.payload),
         (
-            PromptRole::Manager | PromptRole::ManagerV3 | PromptRole::ManagerV2,
+            PromptRole::Manager
+                | PromptRole::ManagerV5
+                | PromptRole::ManagerV4
+                | PromptRole::ManagerV3
+                | PromptRole::ManagerV2,
             RolePayloadV1::Manager { .. }
         ) | (
             PromptRole::Planner,

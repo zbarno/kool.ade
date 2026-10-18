@@ -25,6 +25,7 @@ fn request(mode: ExecutionMode) -> PlanningRequest {
         progress_tx: mpsc::channel().0,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

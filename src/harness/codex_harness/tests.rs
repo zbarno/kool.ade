@@ -69,6 +69,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
         progress_tx: tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,
@@ -328,6 +329,7 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

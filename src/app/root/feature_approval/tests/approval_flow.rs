@@ -10,6 +10,9 @@ mod compare;
 #[path = "approval_flow/plan_choice.rs"]
 mod plan_choice;
 
+#[path = "approval_flow/request_changes.rs"]
+mod request_changes;
+
 #[test]
 fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request() {
     let _shield = crate::core::gitops::test_support::shield("feature-approval");
@@ -24,8 +27,15 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "CHG-004: Saved searches").is_some());
-    click_text(&mut app, &ctx, "Review specification");
-    click_text(&mut app, &ctx, "Approve CHG-004 and prepare tasks");
+    let candidate = click_text(&mut app, &ctx, "Review specification");
+    // Production boundary: verify Kanban navigation exposes the parsed plan
+    // summary and both decision actions. A widget unit test cannot prove this
+    // board-to-details path; this uses egui and a temporary local Git fixture,
+    // with no external service and low setup cost.
+    assert!(text_contains(&candidate, "Confirm this plan"));
+    assert!(text_contains(&candidate, "Expected outcome"));
+    assert!(text_contains(&candidate, "Request changes"));
+    click_text(&mut app, &ctx, "Confirm CHG-004 and prepare tasks");
     record_test_plan_review(
         &mut app,
         "CHG-004",
@@ -89,7 +99,7 @@ fn resolved_conversation_has_action_and_failed_review_retains_approval_for_retry
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "Review specification");
-    click_text(&mut app, &ctx, "Approve CHG-004 and prepare tasks");
+    click_text(&mut app, &ctx, "Confirm CHG-004 and prepare tasks");
     record_test_plan_review(
         &mut app,
         "CHG-004",

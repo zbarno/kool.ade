@@ -2,7 +2,7 @@ use sha2::Digest;
 
 use super::super::ManagerOutput;
 mod evidence;
-pub(super) use evidence::trusted_opportunity_evidence;
+pub(super) use evidence::{koolade_product_contract_evidence, trusted_opportunity_evidence};
 
 pub(in crate::app::manager) fn persist_opportunities(
     project: &super::super::super::session::Project,

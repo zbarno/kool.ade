@@ -57,6 +57,7 @@ pub trait AuthorizationGenerationVerifier: Send + Sync + std::fmt::Debug {
 pub struct ExecutionSession {
     backend: Arc<dyn ExecutionBackend>,
     workspace: WorkspaceRef,
+    destination_sha: Option<String>,
     target: ExecutionTarget,
     mode: ExecutionModeV1,
     image_digest: RwLock<String>,
@@ -191,6 +192,7 @@ impl ExecutionSession {
             target: self.target.clone(),
             controller_target_id: None,
             workspace: self.workspace.clone(),
+            destination_sha: self.destination_sha.clone(),
             mode: self.mode,
             image_digest: self.selected_image_digest()?,
             argv,

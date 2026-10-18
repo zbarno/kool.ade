@@ -47,6 +47,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
         progress_tx,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,
@@ -77,6 +78,7 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
         progress_tx,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
 
         authorization_verifier: None,
         review_identity: None,

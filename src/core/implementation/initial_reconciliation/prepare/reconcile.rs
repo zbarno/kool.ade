@@ -53,6 +53,7 @@ pub(super) fn run(
                     task_id: task_id.clone(),
                     source_sha: state.base_commit.clone(),
                 }),
+            destination_sha: runner.destination_sha_for(state)?,
             reasoning_level: "medium".into(),
             telemetry_phase: Some("reconciliation".into()),
             repo_root: state.task_repository.clone(),

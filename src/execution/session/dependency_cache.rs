@@ -1,6 +1,36 @@
 use super::*;
 
 impl ExecutionSession {
+    pub(crate) fn set_dependency_approval_waiting(
+        &self,
+        waiting: bool,
+    ) -> Result<(), ExecutionError> {
+        if !matches!(
+            &self.target.location,
+            crate::execution::contract::TargetLocation::Local
+        ) {
+            return Ok(());
+        }
+        self.verify_authorization()?;
+        let handle = self
+            .active
+            .lock()
+            .map_err(|_| internal_error())?
+            .as_ref()
+            .map(|(handle, _)| handle.clone());
+        let Some(handle) = handle else {
+            return Ok(());
+        };
+        self.backend.set_lifecycle_state(
+            &handle,
+            if waiting {
+                crate::execution::contract::ExecutionLifecycleV1::WaitingForDependencyApproval
+            } else {
+                crate::execution::contract::ExecutionLifecycleV1::Running
+            },
+        )
+    }
+
     pub(crate) fn retain_remote_capacity_lease(
         &self,
         lease: crate::persistence::remote_workers::RemoteWorkerCapacityLease,

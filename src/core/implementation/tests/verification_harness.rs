@@ -1,5 +1,57 @@
 use super::*;
 
+/// Production boundary: the implementation's saved destination branch is
+/// resolved through its trusted repository cache immediately before Docker
+/// verification authorization. A pure unit test cannot prove that a distinct
+/// remote destination is selected instead of the task source branch. Uses a
+/// local bare Git remote and the sandbox harness seam; moderate setup cost, no
+/// Docker daemon, network access, or credentials.
+#[test]
+fn execution_provenance_uses_the_selected_destination_branch_head() {
+    let s = Sandbox::new();
+    let mut state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
+    let peer = s
+        .root
+        .join(format!("destination-peer-{}", uuid::Uuid::new_v4()));
+    s.git(
+        &s.root,
+        &[
+            "clone",
+            "-q",
+            "-b",
+            "main",
+            s.root.join("remote.git").to_str().unwrap(),
+            peer.to_str().unwrap(),
+        ],
+    );
+    s.git(&peer, &["switch", "-q", "-c", "selected-destination"]);
+    fs::write(peer.join("destination-only.txt"), "destination head\n").unwrap();
+    s.git(&peer, &["add", "destination-only.txt"]);
+    s.git(
+        &peer,
+        &["commit", "-q", "-m", "advance selected destination"],
+    );
+    s.git(&peer, &["push", "-q", "origin", "selected-destination"]);
+    let destination_head = s.git(&peer, &["rev-parse", "HEAD"]);
+    let source_head = state.source_commit.clone().unwrap();
+    assert_ne!(destination_head, source_head);
+    state.base = "selected-destination".into();
+
+    let (progress, _updates) = mpsc::channel();
+    let runner = Runner {
+        gh: "unused".into(),
+        runtime_config_source: None,
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancel: Arc::new(AtomicBool::new(false)),
+        progress,
+        authorization_verifier: None,
+    };
+    assert_eq!(
+        runner.destination_sha_for(&state).unwrap().as_deref(),
+        Some(destination_head.as_str())
+    );
+}
+
 #[test]
 fn publication_targets_the_origin_repository() {
     assert_eq!(

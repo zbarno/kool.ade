@@ -39,6 +39,9 @@ pub(super) fn history_rows(request: &crate::harness::DependencyRequest) -> Vec<S
         ));
     }
     if let Some(preparation) = &request.preparation {
+        if let Some(duration) = preparation.broker_duration_millis {
+            rows.push(format!("Dependency broker: {}", duration_label(duration)));
+        }
         if let Some(status) = preparation.status {
             rows.push(format!("Preparation: {}", preparation_status_label(status)));
         }
@@ -60,6 +63,14 @@ pub(super) fn history_rows(request: &crate::harness::DependencyRequest) -> Vec<S
         }
     }
     rows
+}
+
+fn duration_label(millis: u64) -> String {
+    if millis < 1000 {
+        format!("{millis} ms")
+    } else {
+        format!("{}.{:01} s", millis / 1000, millis % 1000 / 100)
+    }
 }
 
 fn package_label(request: &crate::harness::DependencyRequest) -> String {

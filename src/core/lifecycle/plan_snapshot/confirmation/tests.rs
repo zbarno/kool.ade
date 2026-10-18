@@ -143,3 +143,49 @@ fn product_change_creates_a_superseding_confirmation_without_changing_the_plan()
     assert!(is_current(&store, &snapshot).unwrap());
     assert_eq!(store.read(&path).unwrap(), before);
 }
+
+#[test]
+// Production boundary: two shared-store clients race to confirm the same
+// immutable candidate; a single record revision must select one durable winner.
+// Receipt-only unit checks cannot prove the cross-client transaction fence.
+// External services: none. Setup cost: local temporary shared store.
+fn competing_device_confirmations_have_one_durable_winner() {
+    let (_root, store, snapshot) = fixture();
+    let (snapshot_path, snapshot_bytes, snapshot_check) =
+        crate::core::lifecycle::plan_snapshot::record_change(&store, &snapshot)
+            .unwrap()
+            .unwrap();
+    store
+        .transaction_with_record_revisions(&[(snapshot_path, snapshot_bytes)], &[snapshot_check])
+        .unwrap();
+
+    let device_a = PlanningStore::new(
+        store.project_id,
+        store.root.clone(),
+        StoreMode::ManagedLocal,
+    );
+    let device_b = PlanningStore::new(
+        store.project_id,
+        store.root.clone(),
+        StoreMode::ManagedLocal,
+    );
+    let receipt_a = receipt(&device_a, &snapshot);
+    let receipt_b = receipt(&device_b, &snapshot);
+    let (path_a, bytes_a, check_a) = change(&device_a, &snapshot, &receipt_a).unwrap().unwrap();
+    let (path_b, bytes_b, check_b) = change(&device_b, &snapshot, &receipt_b).unwrap().unwrap();
+    assert_eq!(path_a, path_b);
+
+    let (result_a, result_b) = std::thread::scope(|scope| {
+        let a = scope
+            .spawn(|| device_a.transaction_with_record_revisions(&[(path_a, bytes_a)], &[check_a]));
+        let b = scope
+            .spawn(|| device_b.transaction_with_record_revisions(&[(path_b, bytes_b)], &[check_b]));
+        (a.join().unwrap(), b.join().unwrap())
+    });
+    assert_ne!(result_a.is_ok(), result_b.is_ok());
+
+    let winner = load_receipt(&store, &snapshot).unwrap().unwrap();
+    assert!(winner == receipt_a || winner == receipt_b);
+    assert!(is_current(&store, &snapshot).unwrap());
+    assert!(change(&store, &snapshot, &winner).unwrap().is_none());
+}
