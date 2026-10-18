@@ -1,5 +1,12 @@
 use std::path::{Path, PathBuf};
 
+#[path = "fake_pi/cleanup.rs"]
+pub(super) mod cleanup;
+
+pub(super) fn remove_test_root(root: &Path) {
+    cleanup::remove_test_root(root);
+}
+
 fn authenticated_capability_snapshot() -> crate::execution::contract::HarnessCapabilitySnapshotV1 {
     use crate::execution::contract::{
         HarnessCapabilitySnapshotV1, ModeReadinessV1, ReadinessState, RoleReadinessV1,
