@@ -163,7 +163,10 @@ fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
             failure_mode,
         }),
     );
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // The full nextest suite runs this integration test alongside filesystem,
+    // UI, and compiler work. Keep a bounded deadlock guard without assuming a
+    // lightly loaded machine can schedule each turn within ten seconds.
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         assert!(Instant::now() < deadline, "workflow timed out");
         if let Some(TurnEvt::Done(outcome)) = ctrl.poll(Duration::from_millis(50)) {

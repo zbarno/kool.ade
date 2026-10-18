@@ -1,3 +1,4 @@
+mod chromium;
 mod encoding;
 pub(super) mod window;
 
@@ -18,6 +19,7 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
     let seeded_defect = run_case(true)?;
     let visible_control = visibility_case(false)?;
     let absent_control = visibility_case(true)?;
+    let packaged_chromium = chromium::exercise()?;
     if interaction["click_assertion"] != "passed"
         || interaction["keyboard_assertion"] != "passed"
         || interaction["screenshot_changed"] != true
@@ -37,6 +39,7 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         "interaction_case": interaction,
         "seeded_defect_case": seeded_defect,
         "native_control_visibility": {"visible": visible_control, "absent": absent_control},
+        "packaged_non_rust_application": packaged_chromium,
     }))
 }
 

@@ -185,6 +185,7 @@ fn approved_python_recipe_receipts_select_web_qa_and_persist_hash_bound_evidence
         expected_results: vec!["fixture page visible".into()],
         negative_paths: vec![],
         visual_expectations: vec![],
+        redaction_regions: vec![],
         priority: 1,
     };
     let lease = QaTaskServiceLeaseV1 {

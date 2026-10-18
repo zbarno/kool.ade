@@ -144,6 +144,7 @@ fn response_for(request: &crate::runtime_qa::QaRunRequestV1) -> String {
         expected_results: vec!["Approved landing page is visible".into()],
         negative_paths: vec![],
         visual_expectations: vec![],
+        redaction_regions: vec![],
         priority: 1,
     };
     serde_json::json!({ "scenarios": [scenario] }).to_string()

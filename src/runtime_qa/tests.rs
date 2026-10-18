@@ -59,6 +59,7 @@ fn scenario(request: &QaRunRequestV1) -> QaScenarioV1 {
         expected_results: vec!["Main view is visible".into()],
         negative_paths: vec![],
         visual_expectations: vec![],
+        redaction_regions: vec![],
         priority: 1,
     }
 }

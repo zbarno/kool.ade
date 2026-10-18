@@ -29,6 +29,13 @@ pub(super) fn paint(
                 for (step_index, step) in scenario.steps.iter().enumerate() {
                     ui.label(format!("{}. {:?} → {}", step_index + 1, step.driver_action, step.expected_state.as_deref().unwrap_or("no state assertion")));
                 }
+                if scenario.redaction_regions.is_empty() {
+                    ui.colored_label(crate::ui::theme::WARNING, "Screenshots from this scenario are unredacted.");
+                } else {
+                    for (mask_index, region) in scenario.redaction_regions.iter().enumerate() {
+                        ui.label(format!("Screenshot redaction {}: x={}, y={}, width={}, height={}", mask_index + 1, region.x, region.y, region.width, region.height));
+                    }
+                }
                 for result in &scenario.expected_results { ui.label(format!("Expected: {result}")); }
             });
         }

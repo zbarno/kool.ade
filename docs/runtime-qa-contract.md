@@ -14,6 +14,14 @@ findings, missing screenshots, or failed/untested assertions. The result must
 also come from a reviewer run and session distinct from the implementation run
 and session.
 
+Approved screenshot redaction regions are part of the scenario and therefore
+part of its approval identity. The shared report assembler validates screenshot
+bytes and dimensions, applies opaque pixel masks before storage, and records the
+mask geometry and hash of the transformed PNG. This covers browser and desktop
+drivers because both reports pass through that boundary. A scenario without
+approved regions remains unredacted and the scenario editor warns about that;
+reviewers must not assume automatic detection of personal or secret data.
+
 `RuntimeQaStore` persists request, scenario, evidence, result, screenshots, and
 finding disposition records as collision-safe immutable files below the
 current user's application data directory, scoped by workspace ID. It does not
@@ -50,6 +58,18 @@ finding routing, and desktop/browser drivers; the complete application-level
 implementation-to-QA-to-repair-to-spec-sync path still needs an end-to-end CI
 run against the pinned images before Runtime QA can be called release-ready.
 
+The desktop image candidate smoke runs the packaged Chromium fixture inside the
+candidate image under private Xvfb, executes pointer and keyboard actions on a
+synthetic loopback page, resizes the window, and verifies distinct screenshot
+hashes plus the expected state changes. This crosses the image-to-driver,
+process-isolation, and screenshot-evidence boundary; a unit test cannot prove
+that the pinned browser launches with its packaged display dependencies or
+that real input changes rendered output inside the container. It requires a
+rootless Linux Docker daemon and Buildx, uses no external network at runtime,
+and has high setup cost because it builds the candidate image before the smoke.
+It does not exercise the full task approval, recipe execution, QA repair, and
+spec reconciliation lifecycle.
+
 Task Details projects the persisted run outcome, requirement coverage, findings,
 action trace, and validated screenshots from the user's local Runtime QA store.
 The projection checks the run request and result hash against the lifecycle
@@ -64,7 +84,13 @@ using deterministic in-process driver and reviewer adapters. It covers the
 orchestrator-to-lifecycle persistence boundary and stale-evidence invariant;
 a unit test cannot establish that the durable records compose through the full
 transition sequence. It has no Docker, browser, model, or network dependency
-and negligible setup cost. It does not satisfy the pinned-image application
+and negligible setup cost. The screenshot assertion in
+`immutable_approved_run_persists_report_and_returns_gate_receipt` also exercises
+the orchestrator-to-storage redaction boundary: it proves masked pixels are
+persisted and the stored hash is computed from those bytes. A helper unit test
+alone cannot prove that the real report assembly persists the transformed
+image. It has no external dependencies and negligible additional setup cost.
+The lifecycle acceptance test does not satisfy the pinned-image application
 E2E requirement: real desktop/browser interaction, private screenshot
 collection, release security negatives, and setup UX remain separately
 required.

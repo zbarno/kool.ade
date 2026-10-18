@@ -74,6 +74,7 @@ pub(super) fn execute_reviewed_run(
         expected_results: vec!["Keyboard dismissal works".into()],
         negative_paths: vec![],
         visual_expectations: vec!["Dialog content is visible".into()],
+        redaction_regions: vec![],
         priority: 1,
     };
     let lease = QaTaskServiceLeaseV1 {

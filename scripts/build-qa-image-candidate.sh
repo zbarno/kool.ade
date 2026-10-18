@@ -139,7 +139,7 @@ PY
       | jq -e '.schema_version == 1 and .status == "ready" and .display_width == 1440 and .display_height == 900 and .screenshot_bytes > 0'
     fixture_evidence="$output_directory/desktop-fixture.json"
     docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
-      --pids-limit 64 --memory 1g --cpus 2 --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
+      --pids-limit 128 --memory 1g --cpus 2 --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
       --tmpfs /run:rw,nosuid,nodev,noexec,size=16m "$tag" --fixture-smoke \
       | tee "$fixture_evidence" \
       | jq -e '.status == "passed" and
@@ -154,12 +154,17 @@ PY
           .interaction_case.foreign_window_excluded == true and
           .interaction_case.foreign_window_action_rejected == true and
           .native_control_visibility.visible == "region visible" and
-          .native_control_visibility.absent == "region not visible"'
+          .native_control_visibility.absent == "region not visible" and
+          .packaged_non_rust_application.status == "passed" and
+          .packaged_non_rust_application.chromium_version == "143.0.7499.4" and
+          .packaged_non_rust_application.resize.width == 900 and
+          .packaged_non_rust_application.resize.height == 600 and
+          .packaged_non_rust_application.screenshot_hashes_distinct == true'
     python3 - "$fixture_evidence" "$output_directory" <<'PY'
 import base64, hashlib, json, pathlib, sys
 evidence = json.loads(pathlib.Path(sys.argv[1]).read_text())
 directory = pathlib.Path(sys.argv[2])
-for case in ("interaction_case", "seeded_defect_case"):
+for case in ("interaction_case", "seeded_defect_case", "packaged_non_rust_application"):
     for screenshot in evidence[case]["screenshots"]:
         payload = base64.b64decode(screenshot["bytes_base64"], validate=True)
         if hashlib.sha256(payload).hexdigest() != screenshot["sha256"] or not payload.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -187,7 +192,13 @@ PY
         })().catch(error => { console.error(error); process.exit(1); });
       '
     xvfb_version="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint dpkg-query "$tag" -W -f='${Version}' xvfb)"
-    tool_versions="$(jq -cn --arg driver linux-x11-driver/v1 --arg xvfb "$xvfb_version" --arg base "$base_image" '{driver:$driver,xvfb:$xvfb,base:$base}')"
+    dbus_version="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint dpkg-query "$tag" -W -f='${Version}' dbus-daemon)"
+    dbus_run_session="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint /bin/sh "$tag" -c 'command -v dbus-run-session')"
+    [[ "$dbus_run_session" == "/usr/bin/dbus-run-session" ]]
+    chromium_version="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint /bin/sh "$tag" -c 'set -- /ms-playwright/chromium-*/chrome-linux64/chrome; [ "$#" -eq 1 ] && [ -x "$1" ] && "$1" --version')"
+    [[ "$chromium_version" == "Google Chrome for Testing 143.0.7499.4" ]]
+    chromium_version="${chromium_version##* }"
+    tool_versions="$(jq -cn --arg driver linux-x11-driver/v1 --arg xvfb "$xvfb_version" --arg chromium "$chromium_version" --arg dbus "$dbus_version" --arg base "$base_image" '{driver:$driver,xvfb:$xvfb,chromium:$chromium,dbus:$dbus,base:$base}')"
     ;;
   *)
     echo "unsupported QA image profile: $profile" >&2

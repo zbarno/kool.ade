@@ -155,6 +155,17 @@ pub struct QaScenarioStepV1 {
     pub screenshot_checkpoint: bool,
 }
 
+/// Operator-approved screenshot region that is blacked out before evidence is
+/// hashed or persisted. Coordinates are in screenshot pixels.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QaRedactionRegionV1 {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct QaScenarioV1 {
@@ -166,6 +177,8 @@ pub struct QaScenarioV1 {
     pub expected_results: Vec<String>,
     pub negative_paths: Vec<String>,
     pub visual_expectations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redaction_regions: Vec<QaRedactionRegionV1>,
     pub priority: u8,
 }
 
@@ -187,6 +200,13 @@ impl QaScenarioV1 {
             || self.expected_results.len() > 128
             || self.negative_paths.len() > 128
             || self.visual_expectations.len() > 128
+            || self.redaction_regions.len() > 64
+            || self.redaction_regions.iter().any(|region| {
+                region.width == 0
+                    || region.height == 0
+                    || u32::from(region.x) + u32::from(region.width) > 7680
+                    || u32::from(region.y) + u32::from(region.height) > 4320
+            })
             || self.priority > 5
             || self
                 .preconditions
