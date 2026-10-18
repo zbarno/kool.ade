@@ -205,7 +205,7 @@ PY
     dbus_version="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint dpkg-query "$tag" -W -f='${Version}' dbus-daemon)"
     dbus_run_session="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint /bin/sh "$tag" -c 'command -v dbus-run-session')"
     [[ "$dbus_run_session" == "/usr/bin/dbus-run-session" ]]
-    chromium_version="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint /bin/sh "$tag" -c 'set -- /ms-playwright/chromium-*/chrome-linux64/chrome; [ "$#" -eq 1 ] && [ -x "$1" ] && "$1" --version')"
+    chromium_version="$(docker run --rm --network none --read-only --cap-drop ALL --entrypoint /bin/sh "$tag" -c 'set -- /ms-playwright/chromium-*/chrome-linux64/chrome; [ "$#" -eq 1 ] && [ -x "$1" ] && "$1" --version' | sed 's/[[:space:]]*$//')"
     [[ "$chromium_version" == "Google Chrome for Testing 143.0.7499.4" ]]
     chromium_version="${chromium_version##* }"
     tool_versions="$(jq -cn --arg driver linux-x11-driver/v1 --arg xvfb "$xvfb_version" --arg chromium "$chromium_version" --arg dbus "$dbus_version" --arg base "$base_image" '{driver:$driver,xvfb:$xvfb,chromium:$chromium,dbus:$dbus,base:$base}')"

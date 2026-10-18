@@ -97,6 +97,10 @@ mod tests {
         let lifecycle = LifecycleView {
             feature_phase: FeaturePhase::Executing,
             task_phase: TaskPhase::AwaitingSpecReconciliation,
+            parent_task_uid: None,
+            parent_task: None,
+            dependencies: Vec::new(),
+            subtasks: Vec::new(),
             task_revision: 2,
             code_review: None,
             runtime_qa: None,
