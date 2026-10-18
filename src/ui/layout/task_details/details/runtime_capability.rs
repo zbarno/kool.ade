@@ -93,6 +93,21 @@ pub(super) fn paint(
             .and_then(|id| runtime.targets.iter().find(|target| target.target_id == id))
         {
             ui.label(format!("Capability: {}", target.state));
+            let applicability = match target.qa_applicability {
+                crate::project_runtime_capability::QaApplicability::Visual => {
+                    "Visual QA surface; target readiness and driver availability are checked separately."
+                }
+                crate::project_runtime_capability::QaApplicability::ServiceEvidence => {
+                    "Headless service: visual QA does not apply. Service evidence and reviewer/Manager signoff are not yet integrated."
+                }
+                crate::project_runtime_capability::QaApplicability::StaticReviewOnly => {
+                    "Static review only; runtime QA is not currently applicable."
+                }
+                crate::project_runtime_capability::QaApplicability::Unsupported => {
+                    "Unsupported surface: no runtime QA driver is available."
+                }
+            };
+            ui.label(egui::RichText::new(applicability).small());
             ui.label(if target.recipes.is_empty() {
                 "No approved build, test, or start recipes.".into()
             } else {

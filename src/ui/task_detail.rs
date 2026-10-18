@@ -135,6 +135,7 @@ pub struct RuntimeTargetChoice {
     pub selected: bool,
     pub state: String,
     pub recipes: String,
+    pub qa_applicability: crate::project_runtime_capability::QaApplicability,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,6 +1,6 @@
 use crate::{
     app::session::Project,
-    project_runtime::ProjectRuntimeStore,
+    project_runtime::{AppSurface, ProjectRuntimeStore},
     ui::task_detail::{RuntimeCapabilityView, RuntimeTargetChoice},
 };
 
@@ -95,7 +95,47 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
             .flatten()
             .collect::<Vec<_>>()
             .join(" · "),
+            qa_applicability: surface_applicability(target.app_surface),
         })
         .collect();
     Some(view)
+}
+
+fn surface_applicability(
+    surface: AppSurface,
+) -> crate::project_runtime_capability::QaApplicability {
+    use crate::project_runtime_capability::QaApplicability;
+
+    match surface {
+        AppSurface::Web | AppSurface::LinuxDesktop => QaApplicability::Visual,
+        AppSurface::HeadlessService => QaApplicability::ServiceEvidence,
+        AppSurface::UnsupportedTarget => QaApplicability::Unsupported,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_applicability_keeps_service_and_unsupported_targets_out_of_visual_qa() {
+        use crate::project_runtime_capability::QaApplicability;
+
+        assert_eq!(
+            surface_applicability(AppSurface::Web),
+            QaApplicability::Visual
+        );
+        assert_eq!(
+            surface_applicability(AppSurface::LinuxDesktop),
+            QaApplicability::Visual
+        );
+        assert_eq!(
+            surface_applicability(AppSurface::HeadlessService),
+            QaApplicability::ServiceEvidence
+        );
+        assert_eq!(
+            surface_applicability(AppSurface::UnsupportedTarget),
+            QaApplicability::Unsupported
+        );
+    }
 }
