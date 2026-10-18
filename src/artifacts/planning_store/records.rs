@@ -120,6 +120,7 @@ pub(crate) fn validate_record_collection(path: &str) -> Result<(), StoreError> {
                 | "state/spec_revision_history"
                 | "state/current_implementations"
                 | "state/current_implementation_history"
+                | "state/deployments"
                 | "state/spec_sync_queue"
                 | "state/opportunities"
                 | "state/opportunity_decisions"

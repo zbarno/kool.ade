@@ -25,7 +25,13 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, markdown: &str
                         "Approved target",
                         status.approved_target_hash.as_deref(),
                     );
-                    row(ui, "Deployed", None);
+                    row(ui, "Deployed specification hash", status.deployed_spec_hash.as_deref());
+                    row(ui, "Latest production deployment status", status.deployment_status.as_deref());
+                    if let Some(observed_at) = status.deployment_observed_at_ms {
+                        let observed = chrono::DateTime::from_timestamp_millis(observed_at as i64)
+                            .map_or_else(|| observed_at.to_string(), |time| time.to_rfc3339());
+                        ui.small(format!("Deployment status observed · {observed}"));
+                    }
                     ui.label(format!(
                         "Revision {} · {} · {} pending triggers",
                         status
@@ -91,7 +97,7 @@ pub(super) fn paint_product_summary(
         Ok(Some(aggregate)) => {
             ui.heading("Product specification reconciliation");
             ui.label(format!(
-                "{} · rendered product hash {} · {} lifecycle features · {} open findings · {} pending triggers · deployed state Not recorded",
+                "{} · rendered product hash {} · {} lifecycle features · {} open findings · {} pending triggers · deployment evidence shown per feature below",
                 aggregate_status(aggregate.status),
                 &aggregate.rendered_product_hash[..12],
                 aggregate.lifecycle_features.len(),
@@ -132,6 +138,7 @@ pub(super) fn paint_product_summary(
     }
     let mut recorded = 0;
     let mut pending = 0;
+    let mut deployed = 0;
     egui::CollapsingHeader::new("Product feature lifecycle summary")
         .default_open(false)
         .show(ui, |ui| {
@@ -140,11 +147,14 @@ pub(super) fn paint_product_summary(
                     Ok(Some(status)) => {
                         recorded += 1;
                         pending += status.pending_triggers;
+                        deployed += usize::from(status.deployed_spec_hash.is_some());
                         ui.label(format!(
-                            "{id} · rendered product-spec {} · drift {} · approved {} · revision {} · {} · {} pending · {} merged commits",
+                            "{id} · rendered product-spec {} · drift {} · approved {} · deployed {} · deployment {} · revision {} · {} · {} pending · {} merged commits",
                             short_hash(status.current_spec_hash.as_deref()),
                             status.drift_status,
                             short_hash(status.approved_target_hash.as_deref()),
+                            short_hash(status.deployed_spec_hash.as_deref()),
+                            status.deployment_status.as_deref().unwrap_or("not recorded"),
                             status.revision.map_or_else(|| "not recorded".into(), |revision| revision.to_string()),
                             status.reconciliation_status.map_or("not recorded", status_label),
                             status.pending_triggers,
@@ -156,7 +166,7 @@ pub(super) fn paint_product_summary(
                 };
             }
             ui.label(format!(
-                "{} lifecycle-backed features · {pending} pending triggers · deployed state not recorded",
+                "{} lifecycle-backed features · {pending} pending triggers · {deployed} with verified production deployment",
                 recorded
             ));
         });

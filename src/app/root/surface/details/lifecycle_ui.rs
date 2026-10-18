@@ -89,6 +89,32 @@ pub(super) fn for_ticket(
     let current_spec_hash =
         crate::core::lifecycle::product_spec::current_product_hash(&project.state.planning_store)
             .ok();
+    let current_implementation = match lifecycle.load_current_implementation(&task.feature_uid) {
+        Ok(current) => current,
+        Err(error) => return (None, Some(error.to_string())),
+    };
+    let deployment = match lifecycle.load_deployment_evidence(&task.feature_uid) {
+        Ok(deployment) => deployment,
+        Err(error) => return (None, Some(error.to_string())),
+    };
+    let deployed_spec_hash = deployment
+        .as_ref()
+        .zip(current_implementation.as_ref())
+        .and_then(|(deployment, current)| deployment.deployed_spec_hash(current))
+        .map(str::to_owned);
+    let deployment_status = deployment
+        .as_ref()
+        .zip(current_implementation.as_ref())
+        .filter(|(deployment, current)| deployment.matches_current(current))
+        .map(|(deployment, _)| {
+            deployment.state.clone().unwrap_or_else(|| {
+                if deployment.deployment_id.is_some() {
+                    "deployment found; status unavailable".into()
+                } else {
+                    "no matching production deployment".into()
+                }
+            })
+        });
     (
         Some(crate::ui::task_detail::LifecycleView {
             feature_phase: feature.phase,
@@ -110,7 +136,13 @@ pub(super) fn for_ticket(
                 .as_ref()
                 .and_then(|revision| revision.approved_target_hash.clone())
                 .or(feature.approved_plan_sha256),
-            deployed_spec_hash: None,
+            deployed_spec_hash,
+            deployment_status,
+            deployment_observed_at_ms: deployment
+                .as_ref()
+                .zip(current_implementation.as_ref())
+                .filter(|(deployment, current)| deployment.matches_current(current))
+                .map(|(deployment, _)| deployment.observed_at_ms),
             spec_revision: spec_revision.as_ref().map(|revision| revision.seq),
             spec_status: spec_revision.map(|revision| revision.reconciliation_status),
             pending_spec_triggers,
