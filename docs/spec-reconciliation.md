@@ -53,14 +53,17 @@ reader. Historical approvals and version 1 records are not rewritten.
 | User adopts or declines a feature-only proposal | The feature Specification view exposes persisted findings, evidence refs, and approval-required classification. The transaction stores an immutable user authorization bound to the source sequence, requirement/event, any present old and proposed text hashes, result product hash, and decision, alongside revised documents and decision history. | Only a matching persisted authorization advances the approved target hash. Mutable decision fields alone cannot authorize adoption. Decline records the decision without changing approved target or current implementation. |
 | PR authorization | Authorization is blocked while a pending feature-level trigger or included-task trigger remains unresolved. | It is a durable queue gate, not a merge reconciliation consumer. |
 | PR open/close/merge | Provider refresh updates the durable PR preparation record and creates a queue row. | A merged SHA is promoted to a separate current-implementation projection only after the exact base, PR-head, and merge objects resolve locally; the base is an ancestor of the head and merge; and the merge is in the mapped repository's checked-out history. Merge commits require PR-head ancestry; squash commits require identical whitespace-preserving patch IDs from base to PR head and base to merge. The immutable receipt binds task, feature, PR, repository identity, checkout head, and specification revision/hash. Provider metadata alone is not proof. |
-| Deployment | No authoritative deployment adapter/event exists in this repository. | Deployment hash remains “Not recorded”; do not infer it from merge or PR state. A deployment provider event adapter and signed/validated source identity are prerequisites. |
+| Deployment refresh | The asynchronous PR refresh worker queries the GitHub Deployments API for the verified current merge SHA and records the latest status for an explicitly production deployment. Each observation is revision-checked and bound to the current-implementation receipt, specification revision/hash, and merge SHA. | Only the latest `success` status for a deployment whose GitHub record has `production_environment: true` exposes a deployed specification hash. Missing, pending, failed, inactive, or non-production deployments never count as deployed; API errors retain the last observation. |
 
 Current implementation, approved target, and deployed state must not be inferred
 from one another. Task Details, the feature Specification view, and the product
 Specification view show the
 current rendered product-specification hash, reviewed implementation head, approved plan/target hash,
 latest feature revision/status, separately validated current implementation,
-and deployment as “Not recorded.” Product-level reconciliation computes a
+and the latest production deployment status and deployed specification hash
+when that status is successful. Deployment evidence is a separate projection
+under `state/deployments/{featureUid}.json`; it never changes the immutable
+approved target or current-implementation receipt. Product-level reconciliation computes a
 revision-checked aggregate from the rendered product hash, each lifecycle-backed
 feature's latest receipt, pending triggers, and unresolved requirement findings.
 It surfaces aggregate drift, missing baselines, pending triggers, and findings
@@ -76,9 +79,10 @@ plan snapshot. Older task records deserialize with an empty link set, so the
 UI does not infer requirement links for legacy tasks.
 The feature view also shows each task's reviewed
 head and provider-reported merge commit where available, separately from the
-verified current implementation receipt. No deployed-state projection exists
-yet. PR status and provider merge metadata alone are not current implementation
-conclusions. When a lifecycle feature already
+verified current implementation receipt. A deployment observation is usable
+only while its current-implementation revision, specification revision/hash,
+and merge SHA all match that receipt. PR status and provider merge metadata
+alone are not current implementation conclusions. When a lifecycle feature already
 exists, plan confirmation requires a synchronized baseline and rejects hash
 drift or pending triggers; first confirmation records the rendered hash in its
 durable receipt. Task generation requires a recorded synchronized baseline
@@ -93,10 +97,10 @@ at the initial Publishing commit and at each retry's locked revision check.
 Retries exempt only the unique original authorization event whose immutable
 projection binds the exact work item and receipt. Later events remain pending
 and block the next attempt, including another Publishing event with that receipt.
-The feature-only runner does not establish current implementation state. There
-is still no authoritative deployment event source; deployment remains “Not
-recorded” until a provider adapter supplies a validated event bound to the
-workspace and deployed artifact.
+The feature-only runner does not establish current implementation state. The
+GitHub Deployments API is the authoritative deployment source. The worker uses
+the already validated PR repository identity and exact merged commit SHA; it
+does not infer deployment from PR state or local merge evidence alone.
 
 Confirmation records preserve consent to the immutable plan. New confirmations
 are also keyed by the rendered product hash, so explicit reconfirmation after a

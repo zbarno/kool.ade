@@ -43,7 +43,15 @@ impl KooladeApp {
                             && state.pr_url.is_some()
                             && state.pr_state != Some(PullRequestState::Merged))
                             || (state.status == ImplementationStatus::Completed
-                                && state.cleanup.completed_at.is_none())
+                                && (state.cleanup.completed_at.is_none()
+                                    || should_refresh_deployment(
+                                        state.merged_commit.is_some(),
+                                        crate::core::implementation::deployment_needs_refresh(
+                                            &project.state.planning_store,
+                                            &state.ticket,
+                                        )
+                                        .unwrap_or(true),
+                                    )))
                     })
                     .collect::<Vec<_>>();
                 states.sort_by_key(|(_, state)| {
@@ -68,5 +76,21 @@ impl KooladeApp {
                 project.last_pr_refresh = Some(Instant::now());
             }
         }
+    }
+}
+
+fn should_refresh_deployment(merged: bool, deployment_needs_refresh: bool) -> bool {
+    merged && deployment_needs_refresh
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_refresh_deployment;
+
+    #[test]
+    fn merged_task_keeps_polling_after_cleanup_until_deployment_success() {
+        assert!(should_refresh_deployment(true, true));
+        assert!(!should_refresh_deployment(true, false));
+        assert!(!should_refresh_deployment(false, true));
     }
 }
