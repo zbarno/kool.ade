@@ -60,6 +60,16 @@ fn dispatch_is_fenced_to_approved_self_improvement_plan_and_target() {
     assert_eq!(mapped_repository_uid, planning.target_repository_uid);
     let task_uid = uuid::Uuid::new_v4().to_string();
     let child_task_uid = uuid::Uuid::new_v4().to_string();
+    assert!(
+        runs.authorize_task_start(
+            &planning.feature_uid,
+            Some(&task_uid),
+            &mapped_repository_uid,
+            "https://github.com/zbarno/kool.ade",
+        )
+        .is_err(),
+        "a persisted Pursue decision cannot dispatch code before reviewed-plan approval"
+    );
     let ready = runs
         .apply_event(
             &planning.run_uid,
