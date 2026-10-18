@@ -8,6 +8,7 @@ use super::super::{QaWebPreviewSpec, denied};
 use crate::execution::errors::ExecutionError;
 
 mod cleanup;
+mod dependency_cache;
 mod launch;
 #[cfg(test)]
 #[path = "web/tests.rs"]
@@ -62,6 +63,7 @@ pub(super) fn validate_spec(spec: &QaWebPreviewSpec<'_>) -> Result<(), Execution
         || spec.artifact_upload.target != "/workspace"
         || spec.artifact_upload.archive.is_empty()
         || spec.artifact_upload.archive.len() as u64 > spec.resources.temporary_disk_bytes
+        || !dependency_cache::matches_request(spec)
     {
         return Err(denied(
             "QA web preview inputs do not match an approved task runtime recipe and bounded internal target",
@@ -130,6 +132,7 @@ pub(super) fn service_body(
         format!("/workspace/{}", spec.recipe.working_directory_relative)
     };
     let mut env = vec!["HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into()];
+    let tmpfs = dependency_cache::service_tmpfs(spec, &mut env)?;
     env.push(format!("PORT={}", spec.preview_port));
     if spec.recipe.allowed_env_keys.iter().any(|key| key == "HOST") {
         env.push("HOST=0.0.0.0".into());
@@ -165,22 +168,7 @@ pub(super) fn service_body(
             pids_limit: Some(i64::from(spec.resources.process_count)),
             init: Some(true),
             auto_remove: Some(false),
-            tmpfs: Some(HashMap::from([
-                (
-                    "/tmp".into(),
-                    format!(
-                        "rw,nosuid,nodev,noexec,size={}",
-                        spec.resources.temporary_disk_bytes / 2
-                    ),
-                ),
-                (
-                    "/workspace".into(),
-                    format!(
-                        "rw,nosuid,nodev,size={}",
-                        spec.resources.temporary_disk_bytes / 2
-                    ),
-                ),
-            ])),
+            tmpfs: Some(tmpfs),
             ..Default::default()
         }),
         networking_config: Some(NetworkingConfig {

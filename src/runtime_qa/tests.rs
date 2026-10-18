@@ -14,6 +14,7 @@ fn request() -> QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: sha(),
         build_artifact_sha256: sha(),
@@ -28,6 +29,7 @@ fn request() -> QaRunRequestV1 {
         execution_session_id: uid(),
         driver_profile_version: "web-driver/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 8,
             max_actions_per_scenario: 16,

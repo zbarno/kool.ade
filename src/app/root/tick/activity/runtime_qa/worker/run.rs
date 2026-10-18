@@ -103,6 +103,27 @@ pub(super) fn run(
     let architecture = session.cache_target_arch().ok_or_else(|| {
         "selected QA image architecture is not in the reviewed image lock".to_owned()
     })?;
+    let dependency_cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let mut dependency_caches = Vec::new();
+    for dependency in &request.dependency_cache_refs {
+        if dependency.cache_ref.target_arch != architecture {
+            return Err(format!(
+                "prepared dependency cache for request `{}` targets a different architecture",
+                dependency.dependency_request_id
+            ));
+        }
+        let snapshot = dependency_cache_store
+            .get(&dependency.dependency_request_id, &dependency.cache_ref)
+            .map_err(|_| {
+                format!(
+                    "prepared dependency cache for request `{}` is unavailable or failed integrity validation",
+                    dependency.dependency_request_id
+                )
+            })?;
+        dependency_caches.push(snapshot);
+    }
     let lock = ImageLock::bundled().map_err(|error| error.message)?;
     let qa_image = lock
         .select(profile, &architecture)
@@ -120,6 +141,7 @@ pub(super) fn run(
             &resources,
             &qa_image,
             architecture,
+            &dependency_caches,
             &store,
             harness,
             &mut docker_cancel,

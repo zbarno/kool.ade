@@ -56,6 +56,7 @@ struct CacheStageRequest {
     access: String,
     target_id: String,
     target_arch: String,
+    dependency_request_id: String,
     cache_ref: crate::execution::contract::DependencyCacheRefV1,
     manifest: crate::harness::resource_bridge::CacheSnapshotManifest,
     archive_bytes: usize,

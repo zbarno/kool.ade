@@ -109,7 +109,7 @@ pub(super) fn dependency(
         .next()
         .ok_or_else(|| "MCP workspace project identity is missing".to_owned())?;
     let cache_snapshot = fetch_cache_snapshot(config, request_id, ecosystem, project_id)?;
-    super::super::session_bridge::stage_cache(config_path, &binding, cache_snapshot)
+    super::super::session_bridge::stage_cache(config_path, &binding, request_id, cache_snapshot)
         .map_err(|error| format!("Authorized package cache could not be staged: {error:#}"))?;
     let retry = super::super::session_bridge::call(config_path, &binding, command, 300)
         .map_err(|error| format!("Authorized offline Docker retry failed: {error:#}"))?;

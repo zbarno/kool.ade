@@ -27,6 +27,7 @@ pub(super) struct ReviewedTaskInputs<'a> {
     pub build: &'a RuntimeReceiptV1,
     pub artifact_paths: &'a [String],
     pub driver_profile_version: &'a str,
+    pub dependency_cache_refs: &'a [(String, crate::execution::contract::DependencyCacheRefV1)],
 }
 
 pub(super) struct PreparedRequest {
@@ -177,6 +178,16 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
                 "the approved {profile_key} image profile has no reviewed driver version; build and review the pinned QA image, then retry"
             )
         })?;
+    let workspace_project_id = implementation
+        .workspace_uid
+        .as_deref()
+        .ok_or_else(|| "runtime QA task clone has no workspace identity".to_owned())?;
+    let dependency_cache_refs = super::prerequisites::selected_broker_cache_refs(
+        target,
+        task,
+        workspace_project_id,
+        project.activity.tasks.get(&document.path),
+    );
     let request = from_reviewed_task(ReviewedTaskInputs {
         task,
         task_text: &document.text,
@@ -186,6 +197,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         build,
         artifact_paths: &artifact_paths,
         driver_profile_version: driver_version,
+        dependency_cache_refs: &dependency_cache_refs,
     })?;
     let readiness_probe = target
         .readiness_probe_ref

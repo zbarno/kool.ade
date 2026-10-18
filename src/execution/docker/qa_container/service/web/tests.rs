@@ -40,6 +40,7 @@ fn fixture() -> (
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: "a".repeat(40),
         build_artifact_sha256: "b".repeat(64),
@@ -54,6 +55,7 @@ fn fixture() -> (
         execution_session_id: uid(),
         driver_profile_version: "browser-profile-v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 4,
@@ -98,6 +100,21 @@ fn fixture() -> (
     (request, recipe, image, upload, resources)
 }
 
+fn npm_cache(request: &QaRunRequestV1) -> crate::harness::resource_bridge::CacheSnapshot {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.tgz"), b"synthetic cached package").unwrap();
+    crate::harness::resource_bridge::CacheSnapshot::capture(
+        root.path(),
+        request.planning_item_uid.as_deref().unwrap(),
+        crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+        "88888888-8888-4888-8888-888888888888",
+        "sha256:synthetic-lockfile",
+        "amd64",
+        "local",
+    )
+    .unwrap()
+}
+
 #[test]
 fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contract() {
     let (request, recipe, image, upload, resources) = fixture();
@@ -107,6 +124,7 @@ fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contr
         service_image: &image,
         recipe: &recipe,
         artifact_upload: &upload,
+        dependency_caches: &[],
         preview_port: 4173,
         health_path: "/",
         resources: &resources,
@@ -147,9 +165,85 @@ fn web_preview_rejects_a_recipe_tool_absent_from_its_pinned_runtime_profile() {
         service_image: &image,
         recipe: &recipe,
         artifact_upload: &upload,
+        dependency_caches: &[],
         preview_port: 4173,
         health_path: "/",
         resources: &resources,
     };
     assert!(validate_spec(&spec).is_err());
+}
+
+#[test]
+fn web_preview_transfers_only_request_bound_caches_into_offline_service_paths() {
+    let (mut request, recipe, image, upload, resources) = fixture();
+    request.planning_item_uid = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    let cache = npm_cache(&request);
+    request.dependency_cache_refs = vec![crate::runtime_qa::QaDependencyCacheRefV1 {
+        dependency_request_id: "77777777-7777-4777-8777-777777777777".into(),
+        cache_ref: cache.cache_ref.clone(),
+    }];
+    let spec = QaWebPreviewSpec {
+        request: &request,
+        browser_image: &image,
+        service_image: &image,
+        recipe: &recipe,
+        artifact_upload: &upload,
+        dependency_caches: std::slice::from_ref(&cache),
+        preview_port: 4173,
+        health_path: "/",
+        resources: &resources,
+    };
+
+    validate_spec(&spec).unwrap();
+    let body = service_body(&spec, &"f".repeat(64)).unwrap();
+    let environment = body.env.unwrap();
+    assert!(environment.contains(&"NPM_CONFIG_CACHE=/home/executor/.npm".into()));
+    assert!(environment.contains(&"NPM_CONFIG_OFFLINE=true".into()));
+    assert!(
+        body.host_config
+            .unwrap()
+            .tmpfs
+            .unwrap()
+            .contains_key("/home/executor/.npm")
+    );
+}
+
+#[test]
+fn web_preview_rejects_cache_archives_not_bound_to_its_immutable_request() {
+    let (mut request, recipe, image, upload, resources) = fixture();
+    request.planning_item_uid = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    let cache = npm_cache(&request);
+    request.dependency_cache_refs = vec![crate::runtime_qa::QaDependencyCacheRefV1 {
+        dependency_request_id: "77777777-7777-4777-8777-777777777777".into(),
+        cache_ref: cache.cache_ref.clone(),
+    }];
+    request.dependency_cache_refs[0].cache_ref.target_arch = "arm64".into();
+    let spec = QaWebPreviewSpec {
+        request: &request,
+        browser_image: &image,
+        service_image: &image,
+        recipe: &recipe,
+        artifact_upload: &upload,
+        dependency_caches: std::slice::from_ref(&cache),
+        preview_port: 4173,
+        health_path: "/",
+        resources: &resources,
+    };
+
+    assert!(validate_spec(&spec).is_err());
+}
+
+#[test]
+fn dependency_cache_upload_tar_is_readable_by_the_qa_service_user() {
+    let (mut request, _, image, _, _) = fixture();
+    request.planning_item_uid = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    let cache = npm_cache(&request);
+    let archive = dependency_cache::archive_for_runtime_user(&cache, &image.runtime_user).unwrap();
+    let mut tar = tar::Archive::new(archive.as_slice());
+    let mut entries = tar.entries().unwrap();
+    let entry = entries.next().unwrap().unwrap();
+    assert_eq!(entry.header().uid().unwrap(), 10001);
+    assert_eq!(entry.header().gid().unwrap(), 10001);
+    assert_eq!(entry.header().mode().unwrap() & 0o777, 0o600);
+    assert_eq!(entry.size(), b"synthetic cached package".len() as u64);
 }

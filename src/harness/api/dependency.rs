@@ -132,6 +132,9 @@ pub struct DependencyPreparationTelemetry {
     pub bytes_downloaded: u64,
     pub authorization_source: Option<DependencyAuthorizationSource>,
     pub retry_result: Option<DependencyRetryResult>,
+    /// Integrity-checked broker cache snapshots retained for later task-scoped reuse.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cache_refs: Vec<crate::execution::contract::DependencyCacheRefV1>,
 }
 
 impl DependencyRequestStatus {

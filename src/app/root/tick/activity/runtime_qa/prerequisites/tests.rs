@@ -17,7 +17,7 @@ fn dependency_request(
             command: "npm install example".into(),
             reason: "Needed by the approved application target".into(),
             kind: crate::harness::DependencyKind::NewProjectDependency,
-            lockfile_identity: None,
+            lockfile_identity: Some("sha256:lockfile".into()),
             introduced_packages: Vec::new(),
         },
         category: crate::harness::DependencyFailureCategory::Unknown,
@@ -75,11 +75,12 @@ fn dependency_inventory_uses_activity_keyed_by_the_task_document_path() {
 
 #[test]
 fn only_declared_successfully_prepared_task_dependencies_are_available() {
+    let prepared_id = "55555555-5555-4555-8555-555555555555";
     let task = TaskRecord {
         schema_version: 1,
-        task_uid: "task-uid".into(),
+        task_uid: "11111111-1111-4111-8111-111111111111".into(),
         feature_uid: "feature".into(),
-        planning_item_uid: Some("task-item".into()),
+        planning_item_uid: Some("22222222-2222-4222-8222-222222222222".into()),
         task_spec_sha256: None,
         parent_task_uid: None,
         subtask_uids: Vec::new(),
@@ -105,7 +106,7 @@ fn only_declared_successfully_prepared_task_dependencies_are_available() {
     };
     let target = crate::project_runtime::AppTargetV1 {
         target_id: "target".into(),
-        owning_task_id: "task-item".into(),
+        owning_task_id: "22222222-2222-4222-8222-222222222222".into(),
         repository_id: "repo".into(),
         app_surface: crate::project_runtime::AppSurface::Web,
         project_relative_root: ".".into(),
@@ -115,7 +116,7 @@ fn only_declared_successfully_prepared_task_dependencies_are_available() {
         readiness_probe_ref: Some("ready".into()),
         artifact_spec_ref: None,
         fixture_ref: None,
-        required_dependencies: vec!["prepared".into(), "authorized".into()],
+        required_dependencies: vec![prepared_id.into(), "authorized".into()],
         supported_driver_ids: vec![],
         port_needs: vec![],
         environment_policy_ref: "default-deny".into(),
@@ -124,38 +125,76 @@ fn only_declared_successfully_prepared_task_dependencies_are_available() {
     let progress = crate::harness::LiveProgress {
         dependency_requests: vec![
             dependency_request(
-                "prepared",
-                "task-item",
+                prepared_id,
+                "22222222-2222-4222-8222-222222222222",
                 crate::harness::DependencyRequestStatus::Prepared,
                 Some(crate::harness::DependencyPreparationStatus::Prepared),
             ),
             dependency_request(
                 "authorized",
-                "task-item",
+                "22222222-2222-4222-8222-222222222222",
                 crate::harness::DependencyRequestStatus::Authorized,
                 Some(crate::harness::DependencyPreparationStatus::AuthorizationRequired),
             ),
             dependency_request(
                 "foreign",
-                "another-task",
+                "33333333-3333-4333-8333-333333333333",
                 crate::harness::DependencyRequestStatus::Prepared,
                 Some(crate::harness::DependencyPreparationStatus::Prepared),
             ),
             dependency_request(
                 "missing-telemetry",
-                "task-item",
+                "22222222-2222-4222-8222-222222222222",
                 crate::harness::DependencyRequestStatus::Prepared,
                 None,
             ),
         ],
         ..Default::default()
     };
+    let cache_root = tempfile::tempdir().unwrap();
+    let cache_source = tempfile::tempdir().unwrap();
+    std::fs::write(cache_source.path().join("index.cache"), b"prepared cache").unwrap();
+    let snapshot = crate::harness::resource_bridge::CacheSnapshot::capture(
+        cache_source.path(),
+        "22222222-2222-4222-8222-222222222222",
+        crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+        "66666666-6666-4666-8666-666666666666",
+        "sha256:lockfile",
+        "amd64",
+        "local",
+    )
+    .unwrap();
+    let mut progress = progress;
+    progress.dependency_requests[0]
+        .preparation
+        .as_mut()
+        .unwrap()
+        .cache_refs
+        .push(snapshot.cache_ref.clone());
+    let cache_store =
+        crate::execution::DependencyCacheSnapshotStore::new(cache_root.path().join("snapshots"));
+    cache_store.put(prepared_id, &snapshot).unwrap();
 
     assert_eq!(
-        available_broker_dependencies(&target, &task, Some(&progress)),
-        BTreeSet::from(["prepared".into()])
+        available_broker_dependencies(
+            &target,
+            &task,
+            "66666666-6666-4666-8666-666666666666",
+            Some(&progress),
+            &cache_store
+        ),
+        BTreeSet::from([prepared_id.into()])
     );
-    assert!(available_broker_dependencies(&target, &task, None).is_empty());
+    assert!(
+        available_broker_dependencies(
+            &target,
+            &task,
+            "66666666-6666-4666-8666-666666666666",
+            None,
+            &cache_store
+        )
+        .is_empty()
+    );
 }
 
 #[test]

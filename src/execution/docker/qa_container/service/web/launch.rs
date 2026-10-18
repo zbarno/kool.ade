@@ -196,6 +196,34 @@ async fn launch_containers(
         )
         .await
         .map_err(|_| denied("Receipt-verified QA build snapshot could not be uploaded"))?;
+    for cache in spec.dependency_caches {
+        let path = match cache.cache_ref.ecosystem {
+            crate::execution::contract::DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
+            crate::execution::contract::DependencyCacheEcosystemV1::Cargo => {
+                "/home/executor/.cargo"
+            }
+        };
+        docker
+            .upload_to_container(
+                &task_id,
+                Some(
+                    bollard::query_parameters::UploadToContainerOptionsBuilder::default()
+                        .path(path)
+                        .build(),
+                ),
+                bollard::body_full(
+                    super::dependency_cache::archive_for_runtime_user(
+                        cache,
+                        &spec.service_image.runtime_user,
+                    )?
+                    .into(),
+                ),
+            )
+            .await
+            .map_err(|_| {
+                denied("Verified dependency cache could not be uploaded to the QA service")
+            })?;
+    }
     if *cancel.borrow() {
         return Err(denied("QA web preview was cancelled before service start"));
     }

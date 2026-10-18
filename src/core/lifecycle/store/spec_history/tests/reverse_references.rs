@@ -80,6 +80,7 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
         schema_version: 1,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task_uid.clone(),
+        planning_item_uid: None,
         feature_uid: feature_uid.clone(),
         code_head_sha: reviewed_head.clone(),
         build_artifact_sha256: "a".repeat(64),
@@ -94,6 +95,7 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
         execution_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         driver_profile_version: "fixture-driver/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: crate::runtime_qa::QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 1,

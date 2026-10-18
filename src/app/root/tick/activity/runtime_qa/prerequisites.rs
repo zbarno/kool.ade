@@ -12,6 +12,9 @@ use std::collections::BTreeSet;
 
 use super::request::verify_provenance_for_request;
 
+mod cache_refs;
+pub(super) use cache_refs::{available_broker_dependencies, selected_broker_cache_refs};
+
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
     uuid::Uuid::new_v5(&namespace, format!("{label}:{revision}").as_bytes())
@@ -90,7 +93,21 @@ pub(super) fn unavailable_reason(
     let (tools, drivers) = locked_capabilities(&lock);
     let task_progress =
         task_progress_for_target(&project.task_documents, &project.activity.tasks, target);
-    let available_dependencies = available_broker_dependencies(target, task, task_progress);
+    let dependency_cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let available_dependencies = available_broker_dependencies(
+        target,
+        task,
+        &project
+            .state
+            .planning_store
+            .project_id
+            .hyphenated()
+            .to_string(),
+        task_progress,
+        &dependency_cache_store,
+    );
     let inventory = ApprovedCapabilityInventory {
         manifest: &manifest,
         available_tool_ids: &tools,
@@ -178,39 +195,6 @@ fn task_progress_for_target<'a>(
             .is_some_and(|metadata| metadata.uid == target.owning_task_id)
     })?;
     activities.get(&document.path)
-}
-
-/// A manifest dependency reference is the ID of a broker request explicitly
-/// attached to this target. Authorization alone is insufficient: the broker
-/// must report successful preparation for this task before QA can use it.
-fn available_broker_dependencies(
-    target: &crate::project_runtime::AppTargetV1,
-    task: &TaskRecord,
-    progress: Option<&crate::harness::LiveProgress>,
-) -> BTreeSet<String> {
-    let Some(progress) = progress else {
-        return BTreeSet::new();
-    };
-    progress
-        .dependency_requests
-        .iter()
-        .filter(|request| {
-            target.required_dependencies.contains(&request.id)
-                && (request.task_id == task.task_uid
-                    || task.planning_item_uid.as_deref() == Some(request.task_id.as_str()))
-                && request.status == crate::harness::DependencyRequestStatus::Prepared
-                && request.preparation.as_ref().is_some_and(|preparation| {
-                    matches!(
-                        preparation.status,
-                        Some(
-                            crate::harness::DependencyPreparationStatus::Prepared
-                                | crate::harness::DependencyPreparationStatus::AlreadyAvailable
-                        )
-                    )
-                })
-        })
-        .map(|request| request.id.clone())
-        .collect()
 }
 
 fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {

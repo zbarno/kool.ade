@@ -27,6 +27,7 @@ fn dependency_activity_rows_keep_preparation_and_retry_details_visible() {
             bytes_downloaded: 32,
             authorization_source: Some(crate::harness::DependencyAuthorizationSource::Manager),
             retry_result: Some(crate::harness::DependencyRetryResult::Succeeded),
+            cache_refs: Vec::new(),
         }),
     };
 

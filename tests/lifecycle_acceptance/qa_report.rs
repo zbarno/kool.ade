@@ -25,6 +25,7 @@ pub(super) fn execute_reviewed_run(
         schema_version: 1,
         qa_run_id: id(),
         parent_task_uid: task.task_uid.clone(),
+        planning_item_uid: None,
         feature_uid: task.feature_uid.clone(),
         code_head_sha: task.reviewed_code_head_sha.clone().unwrap(),
         build_artifact_sha256: format!(
@@ -42,6 +43,7 @@ pub(super) fn execute_reviewed_run(
         execution_session_id: id(),
         driver_profile_version: "browser-driver/v1".into(),
         test_data_fixture_ref: Some("fixture:runtime-qa-lifecycle/v1".into()),
+        dependency_cache_refs: Vec::new(),
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 4,

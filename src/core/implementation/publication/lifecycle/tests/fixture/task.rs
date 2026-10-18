@@ -15,6 +15,7 @@ pub(super) fn completed(feature_uid: &str, work_uid: &str, head: &str) -> TaskRe
         schema_version: 1,
         qa_run_id: id(),
         parent_task_uid: task_uid.clone(),
+        planning_item_uid: None,
         feature_uid: feature_uid.into(),
         code_head_sha: head.into(),
         build_artifact_sha256: "e".repeat(64),
@@ -29,6 +30,7 @@ pub(super) fn completed(feature_uid: &str, work_uid: &str, head: &str) -> TaskRe
         execution_session_id: id(),
         driver_profile_version: "fixture-driver/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 1,

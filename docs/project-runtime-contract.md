@@ -120,11 +120,13 @@ approved execution environment and task activity; it never consults host
 task target and reviewed source SHA using toolchain and driver IDs from the
 pinned image lock. A target's `required_dependencies` entries identify
 dependency-broker request IDs. QA considers one available only when the same
-task's persisted activity records that exact request as `Prepared` and its
-preparation telemetry reports `Prepared` or `AlreadyAvailable`. Authorization,
-another task's request, missing telemetry, or a failed preparation never marks
-a dependency available. Toolchain gaps are still reported as unavailable-image
-results and are not yet converted into Man.ager broker requests.
+task's persisted activity records that exact request as `Prepared`, its
+preparation telemetry reports `Prepared`, and its retained cache snapshot is
+retrievable and passes manifest and archive integrity checks. Authorization,
+another task's request, missing telemetry, a
+missing or corrupt snapshot, or a failed preparation never marks a dependency
+available. Toolchain gaps are still reported as unavailable-image results and
+are not yet converted into Man.ager broker requests.
 Unsupported native mobile, Windows/macOS desktop, and hardware targets must be
 reported as unsupported until their execution and QA drivers exist.
 
@@ -156,11 +158,18 @@ recipe and target identity; a shared marker by itself cannot authorize dispatch.
 Approval does not launch the recipe. Bounded Docker artifact collection feeds Build/Test and
 Start/readiness receipts. The existing QA artifact snapshot verifies those
 hashes before uploading only the selected files to web preview or desktop sessions.
-End-to-end broker-backed toolchain provisioning and transfer of prepared
-dependencies into QA sessions remain unintegrated. Capability assessment can
-count only explicitly target-bound broker request IDs with successful
-task-scoped preparation telemetry; this record does not install or transfer
-the dependency into a QA image. Headless service evidence also remains
-unintegrated.
-Until those paths land, the application must not present a detected candidate
-as a verified runnable target or claim runtime QA coverage.
+Task-scoped npm and Cargo cache snapshots from successful broker preparations
+are retained with private permissions, integrity-checked against the exact
+request, and bound into the immutable Runtime QA request identity. The retained
+store is capped at 512 snapshots and 1 GiB; it rejects new snapshots at capacity
+and removes abandoned staging directories during the next write. Web QA
+transfers those archives into the isolated service container and configures the
+matching package manager for offline cache use. This makes prepared cache data
+available to an approved startup recipe; it does not install dependencies or
+prove the recipe consumed them. A recipe must explicitly perform any required
+offline install, and uncached dependencies fail in the no-egress QA network.
+Desktop QA does not receive package caches. Headless service evidence also
+remains unintegrated.
+Until released QA image digests and the remaining headless and application-level
+runtime evidence paths land, the application must not present a detected
+candidate as a verified runnable target or claim runtime QA coverage.
