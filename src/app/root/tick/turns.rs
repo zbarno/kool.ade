@@ -92,10 +92,32 @@ impl KooladeApp {
                     project.activity.pending_clarification_planner = None;
                     None
                 };
-                self.screen = Screen::Connected(project);
-                self.continue_feature_generation(applied);
                 if let Some((feature_uid, plan_revision)) = pending_planner {
+                    self.screen = Screen::Connected(project);
+                    self.continue_feature_generation(applied);
                     self.start_clarification_planner(&feature_uid, plan_revision);
+                } else {
+                    let automatic_planner = if applied {
+                        match super::super::clarification::planner_for_changed_active_feature(
+                            &project,
+                        ) {
+                            Ok(planner) => planner,
+                            Err(error) => {
+                                self.toasts.warning(format!(
+                                    "The changed feature could not be scheduled for clarification planning: {error}"
+                                ));
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    self.screen = Screen::Connected(project);
+                    if let Some((feature_uid, plan_revision)) = automatic_planner {
+                        self.start_clarification_planner(&feature_uid, plan_revision);
+                    } else {
+                        self.continue_feature_generation(applied);
+                    }
                 }
                 if let Some(action) = requested_action {
                     requested_action::dispatch(self, action);
