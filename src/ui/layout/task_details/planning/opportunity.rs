@@ -193,7 +193,20 @@ fn details(
             {
                 ui.colored_label(
                     egui::Color32::YELLOW,
-                    "Merged; awaiting authorized activation and readiness probe",
+                    "Merged; confirm after installing this build through the authorized update process",
+                );
+                if ui.button("Confirm installation").clicked() {
+                    surface.dispatch(ApplicationCommand::ConfirmSelfImprovementInstallation {
+                        run_uid: run.run_uid.clone(),
+                        expected_revision: run.revision,
+                    });
+                }
+            } else if run.phase
+                == crate::core::self_improvement::SelfImprovementPhaseV1::InstalledNotActivated
+            {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    "Installed; awaiting the app-owned capability readiness probe",
                 );
             } else if run.phase == crate::core::self_improvement::SelfImprovementPhaseV1::Activated
             {

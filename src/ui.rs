@@ -128,6 +128,10 @@ pub enum ApplicationCommand {
         uid: String,
         expected_revision: u64,
     },
+    ConfirmSelfImprovementInstallation {
+        run_uid: String,
+        expected_revision: u64,
+    },
     SetOpportunityDiscoverySettings {
         settings: crate::core::opportunity::OpportunityDiscoverySettingsV1,
         expected_revision: u64,

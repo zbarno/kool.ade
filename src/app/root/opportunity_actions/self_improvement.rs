@@ -30,7 +30,7 @@ pub(super) fn create_self_improvement_run(
                 )
             })?;
     let run = SelfImprovementRunV1 {
-        schema_version: 1,
+        schema_version: 2,
         run_uid: SelfImprovementStore::run_uid_for_decision(&decision.uid)?,
         opportunity_uid: proposal.opportunity_uid.clone(),
         approved_decision_uid: decision.uid.clone(),
@@ -40,6 +40,7 @@ pub(super) fn create_self_improvement_run(
         source_sha: proposal.target.source_sha.clone(),
         destination_ref: None,
         feature_uid: feature_uid.to_owned(),
+        capability_id: None,
         task_uids: Vec::new(),
         owner_task_uid: None,
         parent_task_progress: Vec::new(),
@@ -54,6 +55,8 @@ pub(super) fn create_self_improvement_run(
         pr_work_item_uid: None,
         pr_url: None,
         merged_sha: None,
+        installed_version: None,
+        installed_build_commit_sha: None,
         activated_version: None,
         phase: SelfImprovementPhaseV1::ApprovedToPlan,
         revision: 0,

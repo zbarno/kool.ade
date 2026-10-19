@@ -52,7 +52,7 @@ impl SelfImprovementStore<'_> {
         expected_revision: u64,
     ) -> Result<super::SelfImprovementRunV1, StoreError> {
         let run = self.load(run_uid)?;
-        let Some((_, active_commit)) = crate::build_identity::current() else {
+        let Some((active_version, active_commit)) = crate::build_identity::current() else {
             return Ok(run);
         };
         let destination = run
@@ -106,16 +106,69 @@ impl SelfImprovementStore<'_> {
         if merged_sha != active_commit {
             return Ok(run);
         }
-        let evidence = super::super::SelfImprovementActivationEvidenceV1::probe_active_build(
-            run_uid, merged_sha,
-        )
-        .map_err(StoreError::MalformedState)?;
+        if run.phase == SelfImprovementPhaseV1::MergedNotActivated {
+            return Ok(run);
+        }
+        if run.phase != SelfImprovementPhaseV1::InstalledNotActivated
+            || run.installed_version.as_deref() != Some(active_version)
+            || run.installed_build_commit_sha.as_deref() != Some(active_commit)
+        {
+            return Ok(run);
+        }
+        let evidence = super::super::SelfImprovementActivationEvidenceV1::probe_active_build(&run)
+            .map_err(StoreError::MalformedState)?;
         let event_uid = evidence.readiness_probe_uid.clone();
         self.apply_event_inner(
             run_uid,
             expected_revision,
             &event_uid,
             SelfImprovementEventV1::Activated { evidence },
+            true,
+        )
+    }
+
+    pub(crate) fn record_installation_confirmation(
+        &self,
+        run_uid: &str,
+        expected_revision: u64,
+        operator_id: &str,
+    ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        let run = self.load(run_uid)?;
+        if run.schema_version < 2
+            || run.phase != SelfImprovementPhaseV1::MergedNotActivated
+            || !crate::core::self_improvement::validation::valid_text(operator_id, 128)
+        {
+            return Err(StoreError::MalformedState(
+                "installation confirmation requires an identified operator and a merged run".into(),
+            ));
+        }
+        let Some((version, commit)) = crate::build_identity::current() else {
+            return Err(StoreError::MalformedState(
+                "active build identity is unavailable".into(),
+            ));
+        };
+        if run.merged_sha.as_deref() != Some(commit) {
+            return Err(StoreError::MalformedState(
+                "running build does not match the merged self-improvement commit".into(),
+            ));
+        }
+        let namespace = uuid::Uuid::parse_str(run_uid)
+            .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        let event_uid = uuid::Uuid::new_v5(
+            &namespace,
+            format!("installed:{operator_id}:{version}:{commit}").as_bytes(),
+        )
+        .hyphenated()
+        .to_string();
+        self.apply_event_inner(
+            run_uid,
+            expected_revision,
+            &event_uid,
+            SelfImprovementEventV1::Installed {
+                version: version.to_owned(),
+                build_commit_sha: commit.to_owned(),
+                operator_id: operator_id.to_owned(),
+            },
             true,
         )
     }
@@ -128,9 +181,13 @@ impl SelfImprovementStore<'_> {
         event: SelfImprovementEventV1,
         active_build_probe: bool,
     ) -> Result<super::SelfImprovementRunV1, StoreError> {
-        if matches!(event, SelfImprovementEventV1::Activated { .. }) && !active_build_probe {
+        if matches!(
+            event,
+            SelfImprovementEventV1::Installed { .. } | SelfImprovementEventV1::Activated { .. }
+        ) && !active_build_probe
+        {
             return Err(StoreError::MalformedState(
-                "activation requires the app-owned active-build probe".into(),
+                "installation evidence requires the app-owned active-build probe".into(),
             ));
         }
         let path = run_path(run_uid)?;

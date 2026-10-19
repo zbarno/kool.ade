@@ -58,8 +58,29 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         },
     );
 
-    let snapshot_uid = uuid::Uuid::new_v4().hyphenated().to_string();
-    let hash = "a".repeat(64);
+    let identity = crate::domain::ArtifactIdentity {
+        uid: feature_uid.clone(),
+        display_id: "CHG-175-FIXTURE".into(),
+        title: "Persisted approval fixture".into(),
+        parent_uid: None,
+    };
+    let markdown = "# Persisted approval fixture\n\n## Intent\n\nExercise persisted self-improvement approval.\n\n## Current Behavior\n\nThe fixture is not yet approved.\n\n## Desired Behavior\n\nThe approved capability remains bound to its stable ID.\n\n## Capability ID\n\nself-improvement-lifecycle\n\n## Scope\n\n- planning approval projection\n\n## Requirements\n\n- Bind the approved capability ID.\n\n## Acceptance Criteria\n\n- AC-001: The capability ID is persisted in the approved snapshot.\n";
+    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
+        "CHG-175-FIXTURE",
+        &identity,
+        markdown,
+        "self-improvement test approval contract",
+    )
+    .unwrap();
+    let (snapshot_path, snapshot_bytes, snapshot_check) =
+        crate::core::lifecycle::plan_snapshot::record_change(&planning, &snapshot)
+            .unwrap()
+            .unwrap();
+    planning
+        .transaction_with_record_revisions(&[(snapshot_path, snapshot_bytes)], &[snapshot_check])
+        .unwrap();
+    let snapshot_uid = snapshot.uid.clone();
+    let hash = snapshot.content_hash.clone();
     let lifecycle = LifecycleStore::new(&planning);
     lifecycle
         .create_feature(
@@ -219,6 +240,10 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     let projected = runs.load(&run.run_uid).unwrap();
     assert_eq!(projected.phase, Phase::Ready);
     assert_eq!(projected.plan_approval_hash.as_deref(), Some(hash.as_str()));
+    assert_eq!(
+        projected.capability_id.as_deref(),
+        Some("self-improvement-lifecycle")
+    );
     assert_eq!(
         projected.independent_plan_review_uid.as_deref(),
         Some(review_uid.as_str())

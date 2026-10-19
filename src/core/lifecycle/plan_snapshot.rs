@@ -50,6 +50,9 @@ pub struct PlanSnapshotV1 {
     pub uid: String,
     pub feature_uid: String,
     pub feature_id: String,
+    /// Stable product capability key, when this plan defines an installable capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_id: Option<String>,
     pub original_goal_ref: String,
     pub intent: String,
     pub outcome: String,
@@ -85,6 +88,8 @@ struct SnapshotContent<'a> {
     schema_version: u16,
     feature_uid: &'a str,
     feature_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    capability_id: Option<&'a str>,
     original_goal_ref: &'a str,
     intent: &'a str,
     outcome: &'a str,
@@ -134,6 +139,8 @@ impl PlanSnapshotV1 {
             .map(|line| parse_requirement(line, &acceptance_criteria))
             .collect::<Vec<_>>();
         let scope = list(&section(markdown, "Scope"));
+        let capability_id = section(markdown, "Capability ID");
+        let capability_id = (!capability_id.is_empty()).then_some(capability_id);
         let non_goals = scope
             .iter()
             .filter(|item| {
@@ -149,6 +156,7 @@ impl PlanSnapshotV1 {
             uid: String::new(),
             feature_uid: identity.uid.clone(),
             feature_id: feature_id.to_owned(),
+            capability_id,
             original_goal_ref: format!("feature:{feature_id}"),
             intent: section(markdown, "Intent"),
             outcome: section(markdown, "Desired Behavior"),
@@ -195,6 +203,10 @@ impl PlanSnapshotV1 {
             || !is_hash(&self.content_hash)
             || !is_hash(&self.spec_revision)
             || !is_hash(&self.approval_contract_sha256)
+            || self
+                .capability_id
+                .as_deref()
+                .is_some_and(|value| !valid_capability_id(value))
             || self.uid != snapshot_uid(&self.feature_uid, &self.content_hash)?
             || self.content_hash != self.compute_content_hash()?
         {
@@ -256,6 +268,7 @@ impl PlanSnapshotV1 {
             schema_version: self.schema_version,
             feature_uid: &self.feature_uid,
             feature_id: &self.feature_id,
+            capability_id: self.capability_id.as_deref(),
             original_goal_ref: &self.original_goal_ref,
             intent: &self.intent,
             outcome: &self.outcome,
@@ -281,4 +294,16 @@ impl PlanSnapshotV1 {
             .map(|bytes| sha256(&bytes))
             .map_err(|error| error.to_string())
     }
+}
+
+fn valid_capability_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 96
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'.'
+        })
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase())
 }

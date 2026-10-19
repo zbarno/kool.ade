@@ -28,6 +28,7 @@ Evidence base: `README.md`, `docs/`, the `src/` module map, and the acceptance a
 - Recovery ladder: three normal corrections, then two root-cause repair attempts; harness-loss recovery recovers final messages or per-attempt report files before committing; explicit cancellation semantics; a one-shot automatic resume budget for recognized parked failure classes (`README.md`, Implement a ticket; `src/core/implementation.rs`, `src/core/implementation_queue.rs`).
 - Publication serializes per repository: an integration worktree from the latest remote default branch, squash merge, re-ran checks, one atomic commit, fast-forward push; lost pushes recover by checking the saved commit against remote history; post-publication cleanup preserves changed, unverified, locked, or mismatched work (`README.md`).
 - Connected pull requests are checked every minute: merged becomes Done, closed raises attention, reopened returns to review (`README.md`).
+- Self-improvement activation requires the running build to match the merged commit and the compiled capability inventory to resolve the stable ID from the confirmed plan to a registered readiness probe (`src/core/self_improvement/`; `.koolade-packet/planning/product/active-capabilities.json`). The self-improvement lifecycle probe also verifies its code-review, runtime-QA, and spec-reconciliation receipts.
 
 **Durability, artifacts, migration**
 

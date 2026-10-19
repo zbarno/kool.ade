@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "capabilityId": "self-improvement-lifecycle",
+      "readinessProbeId": "self-improvement-lifecycle-v1"
+    }
+  ]
+}

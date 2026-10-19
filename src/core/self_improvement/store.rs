@@ -93,6 +93,7 @@ impl<'a> SelfImprovementStore<'a> {
                 != Some(run.canonical_remote.as_str())
             || proposal.target.source_sha != run.source_sha
             || run.phase != SelfImprovementPhaseV1::ApprovedToPlan
+            || run.schema_version != 2
             || run.revision != 0
         {
             return Err(StoreError::MalformedState(

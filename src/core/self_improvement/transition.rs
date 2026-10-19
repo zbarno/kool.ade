@@ -19,6 +19,7 @@ impl SelfImprovementRunV1 {
             }
             SelfImprovementEventV1::PlanApproved {
                 approval_sha256,
+                capability_id,
                 review_uid,
                 source_ref,
                 destination_ref,
@@ -27,6 +28,9 @@ impl SelfImprovementRunV1 {
                 parent_task_uids,
             } if self.phase == SelfImprovementPhaseV1::Planning
                 && is_digest(&approval_sha256)
+                && capability_id
+                    .as_deref()
+                    .is_some_and(super::capability_probe::valid_capability_id)
                 && is_uuid(&review_uid)
                 && super::validation::valid_ref(&source_ref)
                 && super::validation::valid_ref(&destination_ref)
@@ -80,6 +84,7 @@ impl SelfImprovementRunV1 {
                     })
                     .collect();
                 self.plan_approval_hash = Some(approval_sha256);
+                self.capability_id = capability_id;
                 self.independent_plan_review_uid = Some(review_uid);
                 self.source_ref = Some(source_ref);
                 self.destination_ref = Some(destination_ref);
@@ -199,11 +204,34 @@ impl SelfImprovementRunV1 {
                 self.merged_sha = Some(sha);
                 self.phase = SelfImprovementPhaseV1::MergedNotActivated;
             }
+            SelfImprovementEventV1::Installed {
+                version,
+                build_commit_sha,
+                operator_id,
+            } if self.schema_version >= 2
+                && self.phase == SelfImprovementPhaseV1::MergedNotActivated
+                && valid_text(&version, 128)
+                && valid_text(&operator_id, 128)
+                && Some(build_commit_sha.as_str()) == self.merged_sha.as_deref()
+                && is_git_sha(&build_commit_sha) =>
+            {
+                self.installed_version = Some(version);
+                self.installed_build_commit_sha = Some(build_commit_sha);
+                self.phase = SelfImprovementPhaseV1::InstalledNotActivated;
+            }
             SelfImprovementEventV1::Activated { evidence }
-                if self.phase == SelfImprovementPhaseV1::MergedNotActivated
+                if self.phase == SelfImprovementPhaseV1::InstalledNotActivated
+                    && evidence.feature_uid == self.feature_uid
                     && Some(evidence.merged_sha.as_str()) == self.merged_sha.as_deref()
+                    && Some(evidence.version.as_str()) == self.installed_version.as_deref()
+                    && Some(evidence.build_commit_sha.as_str())
+                        == self.installed_build_commit_sha.as_deref()
                     && evidence.build_commit_sha == evidence.merged_sha
                     && is_git_sha(&evidence.build_commit_sha)
+                    && is_digest(&evidence.capability_manifest_sha256)
+                    && evidence.capability_id == "self-improvement-lifecycle"
+                    && self.capability_id.as_deref() == Some(evidence.capability_id.as_str())
+                    && evidence.readiness_probe_id == "self-improvement-lifecycle-v1"
                     && is_uuid(&evidence.readiness_probe_uid)
                     && valid_text(&evidence.version, 128) =>
             {
@@ -228,6 +256,7 @@ impl SelfImprovementRunV1 {
                     SelfImprovementPhaseV1::PrOpened
                         | SelfImprovementPhaseV1::PrClosedUnmerged
                         | SelfImprovementPhaseV1::MergedNotActivated
+                        | SelfImprovementPhaseV1::InstalledNotActivated
                         | SelfImprovementPhaseV1::Activated
                 ) =>
             {

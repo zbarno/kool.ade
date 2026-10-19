@@ -77,6 +77,7 @@ fn dispatch_is_fenced_to_approved_self_improvement_plan_and_target() {
             &uuid::Uuid::new_v4().to_string(),
             SelfImprovementEventV1::PlanApproved {
                 approval_sha256: "d".repeat(64),
+                capability_id: Some("self-improvement-lifecycle".into()),
                 review_uid: uuid::Uuid::new_v4().to_string(),
                 source_ref: "feature/approved".into(),
                 destination_ref: "main".into(),

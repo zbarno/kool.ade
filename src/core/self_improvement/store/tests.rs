@@ -69,7 +69,7 @@ fn opportunity() -> OpportunityV1 {
 fn run(decision_uid: &str, proposal: &OpportunityV1) -> SelfImprovementRunV1 {
     let feature_uid = uuid::Uuid::new_v4().to_string();
     SelfImprovementRunV1 {
-        schema_version: 1,
+        schema_version: 2,
         run_uid: SelfImprovementStore::run_uid_for_decision(decision_uid).unwrap(),
         opportunity_uid: proposal.opportunity_uid.clone(),
         approved_decision_uid: decision_uid.into(),
@@ -79,6 +79,7 @@ fn run(decision_uid: &str, proposal: &OpportunityV1) -> SelfImprovementRunV1 {
         source_sha: proposal.target.source_sha.clone(),
         destination_ref: None,
         feature_uid,
+        capability_id: None,
         task_uids: vec![],
         owner_task_uid: None,
         parent_task_progress: vec![],
@@ -93,6 +94,8 @@ fn run(decision_uid: &str, proposal: &OpportunityV1) -> SelfImprovementRunV1 {
         pr_work_item_uid: None,
         pr_url: None,
         merged_sha: None,
+        installed_version: None,
+        installed_build_commit_sha: None,
         activated_version: None,
         phase: SelfImprovementPhaseV1::ApprovedToPlan,
         revision: 0,
@@ -175,6 +178,7 @@ fn durable_transitions_are_fenced_and_idempotent_after_replay() {
             &uuid::Uuid::new_v4().to_string(),
             SelfImprovementEventV1::PlanApproved {
                 approval_sha256: "d".repeat(64),
+                capability_id: Some("self-improvement-lifecycle".into()),
                 review_uid: uuid::Uuid::new_v4().to_string(),
                 source_ref: "feature/approved".into(),
                 destination_ref: "main".into(),

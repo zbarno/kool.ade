@@ -41,6 +41,10 @@ pub(super) fn assert_activation_requires_probe(
     let forged = serde_json::from_value(serde_json::json!({
         "activated": {
             "evidence": {
+                "featureUid": run.feature_uid,
+                "capabilityId": "self-improvement-lifecycle",
+                "readinessProbeId": "self-improvement-lifecycle-v1",
+                "capabilityManifestSha256": "c".repeat(64),
                 "version": "0.2.0",
                 "mergedSha": merged_sha,
                 "buildCommitSha": merged_sha,
@@ -57,6 +61,50 @@ pub(super) fn assert_activation_requires_probe(
     let persisted = runs.load(&run.run_uid).unwrap();
     assert_eq!(persisted.phase, Phase::MergedNotActivated);
     assert!(persisted.activated_version.is_none());
+    let forged_install = serde_json::from_value(serde_json::json!({
+        "installed": {
+            "version": "0.2.0",
+            "build_commit_sha": merged_sha,
+            "operator_id": "synthetic-operator"
+        }
+    }))
+    .unwrap();
+    assert!(
+        runs.apply_event(&run.run_uid, run.revision, &uid(), forged_install)
+            .is_err()
+    );
+
+    let missing = serde_json::json!({ "schemaVersion": 1, "capabilities": [] }).to_string();
+    assert!(
+        crate::core::self_improvement::capability_probe::probe_capability_manifest_for_run(
+            run, &missing
+        )
+        .is_err()
+    );
+    let registered = serde_json::json!({
+        "schemaVersion": 1,
+        "capabilities": [{
+            "capabilityId": "self-improvement-lifecycle",
+            "readinessProbeId": "self-improvement-lifecycle-v1"
+        }]
+    })
+    .to_string();
+    let mut installed = run.clone();
+    installed
+        .apply(
+            installed.revision,
+            Event::Installed {
+                version: "0.2.0".into(),
+                build_commit_sha: merged_sha.to_owned(),
+                operator_id: "synthetic-operator".into(),
+            },
+        )
+        .expect("the capability probe follows an installed build");
+    crate::core::self_improvement::capability_probe::probe_capability_manifest_for_run(
+        &installed,
+        &registered,
+    )
+    .expect("the plan capability ID selects an app-owned readiness probe");
 }
 
 pub(super) fn uid() -> String {
@@ -185,7 +233,7 @@ pub(super) fn self_improvement_run(
     source_sha: &str,
 ) -> SelfImprovementRunV1 {
     SelfImprovementRunV1 {
-        schema_version: 1,
+        schema_version: 2,
         run_uid: SelfImprovementStore::run_uid_for_decision(decision_uid).unwrap(),
         opportunity_uid: proposal.opportunity_uid.clone(),
         approved_decision_uid: decision_uid.into(),
@@ -195,6 +243,7 @@ pub(super) fn self_improvement_run(
         source_sha: source_sha.into(),
         destination_ref: None,
         feature_uid: uid(),
+        capability_id: None,
         task_uids: vec![],
         owner_task_uid: None,
         parent_task_progress: vec![],
@@ -209,6 +258,8 @@ pub(super) fn self_improvement_run(
         pr_work_item_uid: None,
         pr_url: None,
         merged_sha: None,
+        installed_version: None,
+        installed_build_commit_sha: None,
         activated_version: None,
         phase: Phase::ApprovedToPlan,
         revision: 0,

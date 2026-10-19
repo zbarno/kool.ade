@@ -14,6 +14,31 @@ fn identified(markdown: &str) -> (ArtifactIdentity, String) {
     (identity, identified)
 }
 
+#[test]
+fn capability_id_is_validated_and_bound_to_the_confirmed_snapshot_hash() {
+    let markdown = format!(
+        "{}\n## Capability ID\n\nself-improvement-lifecycle\n",
+        spec()
+    );
+    let (identity, markdown) = identified(&markdown);
+    let snapshot =
+        PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, "approval contract").unwrap();
+    assert_eq!(
+        snapshot.capability_id.as_deref(),
+        Some("self-improvement-lifecycle")
+    );
+
+    let mut tampered = snapshot.clone();
+    tampered.capability_id = Some("other-capability".into());
+    assert!(tampered.validate().is_err());
+
+    let invalid = format!("{}\n## Capability ID\n\nSelf-Improvement\n", spec());
+    let (identity, invalid) = identified(&invalid);
+    assert!(
+        PlanSnapshotV1::from_feature("CHG-021", &identity, &invalid, "approval contract").is_err()
+    );
+}
+
 fn plan_receipt(
     snapshot: &PlanSnapshotV1,
     decision: crate::core::lifecycle::GateDecision,

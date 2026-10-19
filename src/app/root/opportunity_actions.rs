@@ -12,6 +12,39 @@ use feature::create_draft_feature;
 use self_improvement::create_self_improvement_run;
 
 impl KooladeApp {
+    pub(super) fn confirm_self_improvement_installation(
+        &mut self,
+        run_uid: &str,
+        expected_revision: u64,
+    ) {
+        let Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if project.state.identity.source == crate::domain::IdentitySource::Guest {
+            self.toasts
+                .warning("Set a current user identity before confirming installation.");
+            return;
+        }
+        let operator_id = project.state.effective_user().name.trim().to_owned();
+        if operator_id.is_empty() {
+            self.toasts
+                .warning("Set a current user identity before confirming installation.");
+            return;
+        }
+        match crate::core::self_improvement::SelfImprovementStore::new(
+            &project.state.planning_store,
+        )
+        .record_installation_confirmation(run_uid, expected_revision, &operator_id)
+        {
+            Ok(_) => self
+                .toasts
+                .success("Installation confirmation recorded; capability readiness is pending."),
+            Err(error) => self
+                .toasts
+                .warning(format!("Could not confirm installation: {error}")),
+        }
+    }
+
     pub(super) fn retry_opportunity_planning(&mut self, uid: &str, expected_revision: u64) {
         let Screen::Connected(project) = &mut self.screen else {
             return;

@@ -17,7 +17,7 @@ fn commit(byte: char) -> String {
 
 fn run() -> SelfImprovementRunV1 {
     SelfImprovementRunV1 {
-        schema_version: 1,
+        schema_version: 2,
         run_uid: uid(1),
         opportunity_uid: uid(2),
         approved_decision_uid: uid(3),
@@ -27,6 +27,7 @@ fn run() -> SelfImprovementRunV1 {
         source_sha: commit('a'),
         destination_ref: None,
         feature_uid: uid(5),
+        capability_id: None,
         task_uids: vec![],
         owner_task_uid: None,
         parent_task_progress: vec![],
@@ -41,6 +42,8 @@ fn run() -> SelfImprovementRunV1 {
         pr_work_item_uid: None,
         pr_url: None,
         merged_sha: None,
+        installed_version: None,
+        installed_build_commit_sha: None,
         activated_version: None,
         phase: Phase::ApprovedToPlan,
         revision: 1,
@@ -64,6 +67,7 @@ fn self_improvement_requires_an_explicit_reviewed_plan_before_clone_allocation()
         2,
         Event::PlanApproved {
             approval_sha256: sha('b'),
+            capability_id: Some("self-improvement-lifecycle".into()),
             review_uid: uid(8),
             source_ref: "feature/approved-source".into(),
             destination_ref: "main".into(),
@@ -86,6 +90,7 @@ fn self_improvement_tracks_progress_for_every_independent_parent_task() {
         2,
         Event::PlanApproved {
             approval_sha256: sha('b'),
+            capability_id: Some("self-improvement-lifecycle".into()),
             review_uid: uid(8),
             source_ref: "feature/approved-source".into(),
             destination_ref: "main".into(),
@@ -157,6 +162,7 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
         2,
         Event::PlanApproved {
             approval_sha256: sha('b'),
+            capability_id: Some("self-improvement-lifecycle".into()),
             review_uid: uid(8),
             source_ref: "feature/approved-source".into(),
             destination_ref: "main".into(),
@@ -269,6 +275,10 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
     let forged_activation = serde_json::from_value(serde_json::json!({
         "activated": {
             "evidence": {
+                "featureUid": run.feature_uid,
+                "capabilityId": "self-improvement-lifecycle",
+                "readinessProbeId": "self-improvement-lifecycle-v1",
+                "capabilityManifestSha256": "c".repeat(64),
                 "version": "0.2.0",
                 "mergedSha": commit('e'),
                 "buildCommitSha": commit('e'),
@@ -278,6 +288,23 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
     }))
     .unwrap();
     assert!(run.apply(11, forged_activation).is_err());
+    assert_eq!(run.phase, Phase::MergedNotActivated);
+    let wrong_capability = serde_json::from_value(serde_json::json!({
+        "activated": {
+            "evidence": {
+                "featureUid": run.feature_uid,
+                "capabilityId": "unrelated-capability",
+                "readinessProbeId": "self-improvement-lifecycle-v1",
+                "capabilityManifestSha256": "c".repeat(64),
+                "version": "0.2.0",
+                "mergedSha": commit('d'),
+                "buildCommitSha": commit('d'),
+                "readinessProbeUid": uid(15)
+            }
+        }
+    }))
+    .unwrap();
+    assert!(run.clone().apply(11, wrong_capability).is_err());
     assert_eq!(run.phase, Phase::MergedNotActivated);
     assert!(
         run.apply(

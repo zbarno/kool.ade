@@ -114,7 +114,11 @@ fn synchronize_run(
     if feature.phase == FeaturePhase::Cancelled
         && !matches!(
             run.phase,
-            Phase::PrOpened | Phase::MergedNotActivated | Phase::Activated | Phase::Cancelled
+            Phase::PrOpened
+                | Phase::MergedNotActivated
+                | Phase::InstalledNotActivated
+                | Phase::Activated
+                | Phase::Cancelled
         )
     {
         apply(runs, &mut run, "cancel", Event::Cancel)?;
@@ -143,6 +147,29 @@ fn synchronize_run(
         {
             return Ok(());
         }
+        let snapshot_uid = feature
+            .plan_snapshot_uid
+            .as_deref()
+            .ok_or_else(|| "approved self-improvement plan has no persisted snapshot".to_owned())?;
+        let snapshot = crate::core::lifecycle::plan_snapshot::load_persisted(
+            &project.state.planning_store,
+            snapshot_uid,
+        )
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "approved self-improvement plan snapshot is missing".to_owned())?;
+        snapshot.validate()?;
+        if snapshot.uid != snapshot_uid
+            || snapshot.feature_uid != run.feature_uid
+            || snapshot.content_hash != *plan_hash
+            || feature.plan_snapshot_sha256.as_deref() != Some(snapshot.content_hash.as_str())
+        {
+            return Err(
+                "persisted plan snapshot does not match the approved self-improvement plan".into(),
+            );
+        }
+        let capability_id = snapshot.capability_id.clone().ok_or_else(|| {
+            "approved self-improvement plan must name its stable Capability ID".to_owned()
+        })?;
         let tasks = feature
             .task_uids
             .iter()
@@ -166,6 +193,7 @@ fn synchronize_run(
             &format!("approved:{plan_hash}"),
             Event::PlanApproved {
                 approval_sha256: plan_hash.to_owned(),
+                capability_id: Some(capability_id),
                 review_uid: review.receipt_uid.clone(),
                 source_ref: targets.source.to_owned(),
                 destination_ref: targets.destination.to_owned(),
@@ -216,7 +244,10 @@ fn synchronize_run(
     }
 
     task_evidence::synchronize(project, lifecycle, runs, &mut run)?;
-    if run.phase == Phase::MergedNotActivated {
+    if matches!(
+        run.phase,
+        Phase::MergedNotActivated | Phase::InstalledNotActivated
+    ) {
         runs.record_active_build_probe(&run.run_uid, run.revision)
             .map_err(|error| error.to_string())?;
     }

@@ -114,6 +114,10 @@ impl KooladeApp {
                 uid,
                 expected_revision,
             } => self.retry_opportunity_planning(&uid, expected_revision),
+            ApplicationCommand::ConfirmSelfImprovementInstallation {
+                run_uid,
+                expected_revision,
+            } => self.confirm_self_improvement_installation(&run_uid, expected_revision),
             ApplicationCommand::SetOpportunityDiscoverySettings {
                 settings,
                 expected_revision,

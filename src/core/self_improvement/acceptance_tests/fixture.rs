@@ -137,6 +137,7 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
         run,
         Event::PlanApproved {
             approval_sha256: "d".repeat(64),
+            capability_id: Some("self-improvement-lifecycle".into()),
             review_uid: uid(),
             source_ref: "koolade/self-improvement-test".into(),
             destination_ref: "main".into(),

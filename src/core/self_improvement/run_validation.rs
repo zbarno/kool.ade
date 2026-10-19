@@ -4,12 +4,16 @@ use super::{SelfImprovementPhaseV1, SelfImprovementRunV1};
 impl SelfImprovementRunV1 {
     pub fn validate(&self) -> Result<(), String> {
         let valid_optional_digest = |value: &Option<String>| value.as_deref().is_none_or(is_digest);
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1 | 2)
             || !is_uuid(&self.run_uid)
             || !is_uuid(&self.opportunity_uid)
             || !is_uuid(&self.approved_decision_uid)
             || !is_uuid(&self.target_repository_uid)
             || !is_uuid(&self.feature_uid)
+            || self
+                .capability_id
+                .as_deref()
+                .is_some_and(|value| !super::capability_probe::valid_capability_id(value))
             || self.task_uids.len() > 128
             || self.task_uids.iter().any(|uid| !is_uuid(uid))
             || self
@@ -117,6 +121,14 @@ impl SelfImprovementRunV1 {
                 .as_deref()
                 .is_some_and(|sha| !is_git_sha(sha))
             || self
+                .installed_version
+                .as_deref()
+                .is_some_and(|version| !valid_text(version, 128))
+            || self
+                .installed_build_commit_sha
+                .as_deref()
+                .is_some_and(|sha| !is_git_sha(sha))
+            || self
                 .activated_version
                 .as_deref()
                 .is_some_and(|version| !valid_text(version, 128))
@@ -126,6 +138,23 @@ impl SelfImprovementRunV1 {
         }
         if self.task_uids.is_empty() != self.owner_task_uid.is_none() {
             return Err("self-improvement task ownership is incomplete".into());
+        }
+        if self.schema_version >= 2
+            && self.plan_approval_hash.is_some() != self.capability_id.is_some()
+        {
+            return Err(
+                "approved self-improvement plan must bind one stable product capability".into(),
+            );
+        }
+        if self.installed_version.is_some() != self.installed_build_commit_sha.is_some()
+            || self
+                .installed_build_commit_sha
+                .as_ref()
+                .is_some_and(|sha| self.merged_sha.as_ref() != Some(sha))
+        {
+            return Err(
+                "installed build identity must match the merged self-improvement commit".into(),
+            );
         }
         let has_task_owner = !self.task_uids.is_empty() && self.owner_task_uid.is_some();
         let requirements_met = match self.phase {
@@ -174,6 +203,16 @@ impl SelfImprovementRunV1 {
                 self.pr_url.is_some()
                     && self.merged_sha.is_some()
                     && self.activated_version.is_none()
+                    && self.installed_version.is_none()
+                    && self.installed_build_commit_sha.is_none()
+            }
+            SelfImprovementPhaseV1::InstalledNotActivated => {
+                self.schema_version >= 2
+                    && self.pr_url.is_some()
+                    && self.merged_sha.is_some()
+                    && self.installed_version.is_some()
+                    && self.installed_build_commit_sha.is_some()
+                    && self.activated_version.is_none()
             }
             SelfImprovementPhaseV1::Activated => {
                 self.merged_sha.is_some()
@@ -181,6 +220,10 @@ impl SelfImprovementRunV1 {
                         .activated_version
                         .as_ref()
                         .is_some_and(|value| valid_text(value, 128))
+                    && (self.schema_version == 1
+                        || (self.installed_version.is_some()
+                            && self.installed_build_commit_sha.is_some()
+                            && self.activated_version == self.installed_version))
             }
             SelfImprovementPhaseV1::NeedsAttention => {
                 self.plan_approval_hash.is_some()

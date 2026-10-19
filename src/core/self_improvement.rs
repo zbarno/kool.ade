@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+mod capability_probe;
 mod run_validation;
 mod store;
 mod transition;
@@ -20,6 +21,8 @@ pub enum SelfImprovementEventV1 {
     BeginPlanning,
     PlanApproved {
         approval_sha256: String,
+        #[serde(default)]
+        capability_id: Option<String>,
         review_uid: String,
         source_ref: String,
         destination_ref: String,
@@ -61,6 +64,11 @@ pub enum SelfImprovementEventV1 {
     Merged {
         sha: String,
     },
+    Installed {
+        version: String,
+        build_commit_sha: String,
+        operator_id: String,
+    },
     Activated {
         evidence: SelfImprovementActivationEvidenceV1,
     },
@@ -83,6 +91,7 @@ pub enum SelfImprovementPhaseV1 {
     PrOpened,
     PrClosedUnmerged,
     MergedNotActivated,
+    InstalledNotActivated,
     Activated,
     NeedsAttention,
     Cancelled,
@@ -103,6 +112,9 @@ pub struct SelfImprovementRunV1 {
     pub source_sha: String,
     pub destination_ref: Option<String>,
     pub feature_uid: String,
+    /// Product capability declared in the approved plan snapshot.
+    #[serde(default)]
+    pub capability_id: Option<String>,
     pub task_uids: Vec<String>,
     pub owner_task_uid: Option<String>,
     /// Durable progress for every standalone parent task. Older run records
@@ -120,6 +132,10 @@ pub struct SelfImprovementRunV1 {
     pub pr_work_item_uid: Option<String>,
     pub pr_url: Option<String>,
     pub merged_sha: Option<String>,
+    #[serde(default)]
+    pub installed_version: Option<String>,
+    #[serde(default)]
+    pub installed_build_commit_sha: Option<String>,
     pub activated_version: Option<String>,
     pub phase: SelfImprovementPhaseV1,
     pub revision: u64,
@@ -154,6 +170,10 @@ pub struct SelfImprovementParentTaskProgressV1 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SelfImprovementActivationEvidenceV1 {
+    feature_uid: String,
+    capability_id: String,
+    readiness_probe_id: String,
+    capability_manifest_sha256: String,
     version: String,
     merged_sha: String,
     build_commit_sha: String,
@@ -161,35 +181,75 @@ pub struct SelfImprovementActivationEvidenceV1 {
 }
 
 impl SelfImprovementActivationEvidenceV1 {
-    pub(crate) fn probe_active_build(run_uid: &str, merged_sha: &str) -> Result<Self, String> {
+    pub(crate) fn probe_active_build(run: &SelfImprovementRunV1) -> Result<Self, String> {
+        run.validate()?;
+        if run.phase != SelfImprovementPhaseV1::InstalledNotActivated {
+            return Err("active capability probe requires an installed, inactive run".into());
+        }
         let (version, build_commit_sha) = crate::build_identity::current()
             .ok_or_else(|| "active application build identity is unavailable".to_owned())?;
-        activation_evidence(run_uid, merged_sha, version, build_commit_sha)
+        if run.installed_version.as_deref() != Some(version)
+            || run.installed_build_commit_sha.as_deref() != Some(build_commit_sha)
+        {
+            return Err("active application build differs from the recorded installation".into());
+        }
+        let merged_sha = run
+            .merged_sha
+            .as_deref()
+            .ok_or_else(|| "merged self-improvement commit is unavailable".to_owned())?;
+        let capability = capability_probe::probe_compiled_capability(run)?;
+        if capability.readiness_probe_id != "self-improvement-lifecycle-v1" {
+            return Err("active capability references an unregistered readiness probe".into());
+        }
+        activation_evidence(
+            &run.run_uid,
+            &run.feature_uid,
+            &capability,
+            merged_sha,
+            version,
+            build_commit_sha,
+        )
     }
 }
 
 fn activation_evidence(
     run_uid: &str,
+    feature_uid: &str,
+    capability: &capability_probe::ActiveCapabilityProbeEvidence,
     merged_sha: &str,
     version: &str,
     build_commit_sha: &str,
 ) -> Result<SelfImprovementActivationEvidenceV1, String> {
     if !crate::core::self_improvement::validation::is_uuid(run_uid)
+        || !crate::core::self_improvement::validation::is_uuid(feature_uid)
         || !crate::core::self_improvement::validation::is_git_sha(merged_sha)
         || merged_sha != build_commit_sha
         || !crate::core::self_improvement::validation::is_git_sha(build_commit_sha)
         || !crate::core::self_improvement::validation::valid_text(version, 128)
+        || !crate::core::self_improvement::validation::is_digest(&capability.manifest_sha256)
     {
-        return Err("active-version readiness probe did not match the merged build".into());
+        return Err("active capability probe did not match the merged build".into());
     }
     let namespace = uuid::Uuid::parse_str(run_uid).map_err(|error| error.to_string())?;
     let readiness_probe_uid = uuid::Uuid::new_v5(
         &namespace,
-        format!("active-build:{version}:{build_commit_sha}").as_bytes(),
+        format!(
+            "active-capability:{}:{}:{}:{}:{}",
+            feature_uid,
+            capability.capability_id,
+            capability.readiness_probe_id,
+            version,
+            capability.manifest_sha256
+        )
+        .as_bytes(),
     )
     .hyphenated()
     .to_string();
     Ok(SelfImprovementActivationEvidenceV1 {
+        feature_uid: feature_uid.to_owned(),
+        capability_id: capability.capability_id.clone(),
+        readiness_probe_id: capability.readiness_probe_id.clone(),
+        capability_manifest_sha256: capability.manifest_sha256.clone(),
         version: version.to_owned(),
         merged_sha: merged_sha.to_owned(),
         build_commit_sha: build_commit_sha.to_owned(),
