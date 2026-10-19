@@ -3,6 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::Instant,
 };
 
 use crate::execution::{
@@ -49,6 +50,7 @@ pub struct RemoteExecutionBackend {
     revoked_private_file_executions: Mutex<HashSet<String>>,
     baselines: Mutex<HashMap<WorkspaceRef, (ValidatedWorkspace, WorkspaceSnapshot)>>,
     verified_results: Mutex<HashMap<String, VerifiedWorkspaceResult>>,
+    pending_workspace_transfers: Mutex<HashMap<String, (u64, u64)>>,
 }
 
 impl RemoteExecutionBackend {
@@ -110,10 +112,11 @@ impl RemoteExecutionBackend {
             revoked_private_file_executions: Mutex::new(HashSet::new()),
             baselines: Mutex::new(HashMap::new()),
             verified_results: Mutex::new(HashMap::new()),
+            pending_workspace_transfers: Mutex::new(HashMap::new()),
         })
     }
 
-    fn stage_workspace(&self, workspace: &WorkspaceRef) -> Result<(), ExecutionError> {
+    fn stage_workspace(&self, workspace: &WorkspaceRef) -> Result<(u64, u64), ExecutionError> {
         let root = self.source_root.as_deref().ok_or_else(|| {
             ExecutionError::new(
                 ExecutionErrorKind::PolicyDenied,
@@ -126,7 +129,7 @@ impl RemoteExecutionBackend {
         let validated = ValidatedWorkspace::inspect(&clone_path)?;
         let baseline = staging::capture(&validated, 512 * 1024 * 1024, false)?;
         let manifest = WorkspaceManifestV1::capture(workspace.clone(), &clone_path)?;
-        self.transfer_workspace(&manifest, &clone_path)?;
+        let (bytes, transfer_ms) = self.transfer_workspace(&manifest, &clone_path)?;
         self.baselines
             .lock()
             .map_err(|_| disconnected())?
@@ -135,14 +138,15 @@ impl RemoteExecutionBackend {
             .lock()
             .map_err(|_| disconnected())?
             .insert(workspace.clone(), manifest);
-        Ok(())
+        Ok((bytes, transfer_ms))
     }
 
     fn transfer_workspace(
         &self,
         workspace: &WorkspaceManifestV1,
         root: &Path,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<(u64, u64), ExecutionError> {
+        let started = Instant::now();
         let worker_id = match &self.target.location {
             TargetLocation::Remote { worker_id } => worker_id,
             TargetLocation::Local => return Err(incompatible()),
@@ -159,8 +163,10 @@ impl RemoteExecutionBackend {
             CONTROL_EXECUTION_ID,
             serde_json::json!({"manifest": manifest}),
         )?;
+        let mut bytes = 0_u64;
         for (path, _) in manifest.file_specs() {
             stream_file_chunks(&manifest, root, path, |chunk| {
+                bytes = bytes.saturating_add(chunk.bytes.len() as u64);
                 client
                     .request(
                         EnvelopeKindV1::WorkspaceTransferChunk,
@@ -177,7 +183,10 @@ impl RemoteExecutionBackend {
             CONTROL_EXECUTION_ID,
             serde_json::json!({"transfer_id": manifest.transfer_id}),
         )?;
-        Ok(())
+        Ok((
+            bytes,
+            started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        ))
     }
 
     fn request<T: serde::de::DeserializeOwned>(
