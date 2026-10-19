@@ -7,10 +7,9 @@ use std::sync::{
     mpsc,
 };
 
-#[cfg(not(test))]
 mod prepare;
 #[cfg(not(test))]
-use prepare::{prepare, recover_persisted_review};
+use prepare::recover_persisted_review;
 
 pub(crate) struct PlanReview {
     result: mpsc::Receiver<Result<PlanReviewOutcome, String>>,
@@ -31,6 +30,14 @@ pub(crate) struct PlanReviewOutcome {
 }
 
 impl PlanReview {
+    #[cfg(test)]
+    pub(crate) fn prepare_for_test(
+        project: &super::session::Project,
+        feature_id: String,
+    ) -> Result<(), String> {
+        prepare::prepare(project, feature_id).map(|_| ())
+    }
+
     #[cfg(not(test))]
     pub(crate) fn start(
         project: &super::session::Project,
@@ -46,7 +53,7 @@ impl PlanReview {
                 cancel: Arc::new(AtomicBool::new(false)),
             });
         }
-        let (mut request, context, outcome) = prepare(project, feature_id)?;
+        let (mut request, context, outcome) = prepare::prepare(project, feature_id)?;
         let (done, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -89,6 +96,10 @@ impl PlanReview {
         self.result.try_recv().ok()
     }
 }
+
+#[cfg(test)]
+#[path = "plan_review_tests.rs"]
+mod tests;
 
 impl Drop for PlanReview {
     fn drop(&mut self) {

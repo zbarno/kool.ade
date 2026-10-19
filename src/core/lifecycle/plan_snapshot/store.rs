@@ -117,7 +117,6 @@ pub(super) fn has_approved_review(
         && record.verdict.as_ref().is_some_and(|verdict| verdict.pass))
 }
 
-#[cfg(not(test))]
 pub(super) fn recorded_review_decision(
     store: &PlanningStore,
     snapshot: &PlanSnapshotV1,

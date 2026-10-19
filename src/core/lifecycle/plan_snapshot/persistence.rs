@@ -124,7 +124,6 @@ pub(crate) fn has_approved_review(
     store::has_approved_review(planning_store, snapshot)
 }
 
-#[cfg(not(test))]
 pub(crate) fn recorded_review_decision(
     planning_store: &crate::artifacts::planning_store::PlanningStore,
     snapshot: &PlanSnapshotV1,
