@@ -226,6 +226,7 @@ pub(super) fn save_decision(
         depends_on_question_ids: Vec::new(),
         status: crate::core::planning::QuestionStatus::Answered,
         answer_text: Some("Open the persisted target.".into()),
+        evidence_resolution: None,
         selected_option: Some("record".into()),
         answered_by: Some("Fixture operator".into()),
         answered_at_ms: Some(1),
