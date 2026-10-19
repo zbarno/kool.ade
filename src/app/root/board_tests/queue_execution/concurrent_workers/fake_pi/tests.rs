@@ -100,3 +100,160 @@ fn planner_fixture_returns_the_expected_conversation_message() {
     );
     assert!(turn.document_updates.unwrap().is_empty());
 }
+
+#[test]
+fn manager_and_work_result_fixtures_match_their_declared_role_schemas() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    for (prompt, role) in [
+        (
+            "Return JSON matching ManagerOutputV2 with a concise summary.",
+            crate::harness::prompt_catalog::PromptRole::Manager,
+        ),
+        (
+            "Return WorkResultV1 JSON. Inputs: role, feature_uid, optional task_uid.",
+            crate::harness::prompt_catalog::PromptRole::Implementer,
+        ),
+    ] {
+        let mut child = Command::new(&pi)
+            .env_remove("KOOLADE_MCP_ARGS")
+            .env_remove("KOOLADE_MCP_COMMAND")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(prompt.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let reply = envelope["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap();
+        crate::harness::prompt_catalog::validate_output(role, reply, None).unwrap();
+    }
+}
+
+#[test]
+fn work_result_fixture_matches_task_identity_without_matching_dependency_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    let tasks = root
+        .path()
+        .join("repo/.koolade-packet/planning/tasks/fixture");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_uid = "00000000-0000-4000-8000-000000000001";
+    let dependent_uid = "00000000-0000-4000-8000-000000000003";
+    std::fs::write(
+        tasks.join("001-task.md"),
+        format!("# Task 1\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{task_uid}\"}} -->\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        tasks.join("003-task.md"),
+        format!(
+            "{{\"dependencies\":[\"{task_uid}\"]}}\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{dependent_uid}\"}} -->\n"
+        ),
+    )
+    .unwrap();
+    let prompt = format!(
+        "Return WorkResultV1 JSON. Inputs: role, feature_uid, optional task_uid.\nTYPED TASK REQUEST (JSON DATA)\n{{\"task_uid\":\"{task_uid}\"}}"
+    );
+    let output = Command::new(&pi)
+        .env_remove("KOOLADE_MCP_ARGS")
+        .env_remove("KOOLADE_MCP_COMMAND")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut child = output;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(prompt.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let result: serde_json::Value = serde_json::from_str(
+        envelope["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        result["verification"][0]
+            .as_str()
+            .unwrap()
+            .contains("test -f src/task-1.rs")
+    );
+}
+
+#[test]
+fn mcp_task_path_lookup_ignores_dependency_ids_in_other_task_metadata() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    let tasks = root
+        .path()
+        .join("repo/.koolade-packet/planning/tasks/fixture");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_uid = "00000000-0000-4000-8000-000000000001";
+    let dependent_uid = "00000000-0000-4000-8000-000000000003";
+    std::fs::write(
+        tasks.join("001-task.md"),
+        format!("- src/task-1.rs\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{task_uid}\"}} -->\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        tasks.join("003-task.md"),
+        format!(
+            "{{\"dependencies\":[\"{task_uid}\"]}}\n- src/task-3.rs\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{dependent_uid}\"}} -->\n"
+        ),
+    )
+    .unwrap();
+    let prompt = format!("FIXTURE TASK PATH LOOKUP\n{{\"task_uid\":\"{task_uid}\"}}");
+    let mut child = Command::new(&pi)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(prompt.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let command = String::from_utf8(output.stdout).unwrap();
+    let output = Command::new("sh")
+        .args(["-c", &command])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "src/task-1.rs"
+    );
+}

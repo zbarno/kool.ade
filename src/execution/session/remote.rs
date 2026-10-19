@@ -20,6 +20,7 @@ pub struct RemoteSessionOptions<'a> {
     pub destination_sha: Option<String>,
     pub authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     pub task_clone: Option<&'a Path>,
+    pub runtime_config_source: Option<&'a Path>,
 }
 
 impl ExecutionSession {
@@ -44,6 +45,7 @@ impl ExecutionSession {
                 destination_sha: None,
                 authorization_verifier: None,
                 task_clone: None,
+                runtime_config_source: None,
             },
         )
     }
@@ -71,6 +73,7 @@ impl ExecutionSession {
                 destination_sha: None,
                 authorization_verifier: Some(authorization_verifier),
                 task_clone: None,
+                runtime_config_source: None,
             },
         )
     }
@@ -98,13 +101,46 @@ impl ExecutionSession {
             destination_sha,
             authorization_verifier,
             task_clone,
+            runtime_config_source,
         } = options;
         if !matches!(&target.location, TargetLocation::Remote { .. }) {
             return Err(incompatible());
         }
+        if let Some(task_clone) = task_clone {
+            let runtime_config_source = runtime_config_source.ok_or_else(|| {
+                ExecutionError::new(
+                    ExecutionErrorKind::PolicyDenied,
+                    "Remote execution requires the source checkout to verify private project configuration",
+                    false,
+                )
+            })?;
+            crate::harness::runtime_config::ensure_remote_transfer_allowed(
+                task_clone,
+                Some(runtime_config_source),
+            )
+            .map_err(|_| {
+                ExecutionError::new(
+                    ExecutionErrorKind::PolicyDenied,
+                    "Remote execution is blocked because local private project configuration has no remote worker approval",
+                    false,
+                )
+            })?;
+        }
         let backend = Arc::new(match task_clone {
             Some(path) => {
-                RemoteExecutionBackend::connect_with_workspace(worker, target.clone(), path)?
+                let runtime_config_source = runtime_config_source.ok_or_else(|| {
+                    ExecutionError::new(
+                        ExecutionErrorKind::PolicyDenied,
+                        "Remote execution requires the source checkout to verify private project configuration",
+                        false,
+                    )
+                })?;
+                RemoteExecutionBackend::connect_with_workspace(
+                    worker,
+                    target.clone(),
+                    path,
+                    runtime_config_source,
+                )?
             }
             None => RemoteExecutionBackend::connect(worker, target.clone())?,
         });

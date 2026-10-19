@@ -116,6 +116,67 @@ fn explicit_runtime_configuration_grant_is_limited_to_ignored_untracked_env_file
 }
 
 #[test]
+fn local_runtime_configuration_grant_does_not_authorize_remote_transfer() {
+    let (_fixture, source, task) = Fixture::new();
+    super::ensure_remote_transfer_allowed(&task, Some(&source)).unwrap();
+
+    Fixture::grant(&source, vec!["App/.env".into()]);
+    assert!(
+        super::ensure_remote_transfer_allowed(&task, Some(&source)).is_err(),
+        "a local grant must not authorize a remote destination"
+    );
+
+    let worker = crate::execution::remote::ssh::SshWorkerConfig {
+        stable_id: "worker".into(),
+        host_alias: "worker".into(),
+        ssh_principal: "worker".into(),
+        verified_host_key_fingerprint: String::new(),
+        known_hosts_path: PathBuf::new(),
+        ssh_binary: PathBuf::new(),
+    };
+    let target = crate::execution::contract::ExecutionTarget::remote("worker");
+    let backend_error =
+        crate::execution::remote::backend::RemoteExecutionBackend::connect_with_workspace(
+            &worker,
+            target.clone(),
+            &task,
+            &source,
+        )
+        .err()
+        .expect("backend transfer boundary must deny before attempting SSH");
+    assert_eq!(
+        backend_error.kind,
+        crate::execution::errors::ExecutionErrorKind::PolicyDenied
+    );
+
+    let session_error =
+        crate::execution::session::ExecutionSession::connect_remote_with_task_clone(
+            crate::execution::contract::WorkspaceRef {
+                project_id: "00000000-0000-4000-8000-000000000001".into(),
+                task_id: "00000000-0000-4000-8000-000000000002".into(),
+                source_sha: "a".repeat(40),
+            },
+            crate::execution::session::RemoteSessionOptions {
+                target,
+                worker: &worker,
+                mode: crate::execution::contract::ExecutionModeV1::Implementation,
+                profile: crate::execution::docker::images::RuntimeProfile::General,
+                resources: crate::execution::contract::ResourceBudgetV1::default(),
+                destination_sha: None,
+                authorization_verifier: None,
+                task_clone: Some(&task),
+                runtime_config_source: Some(&source),
+            },
+        )
+        .err()
+        .expect("session entry point must deny before attempting SSH");
+    assert_eq!(
+        session_error.kind,
+        crate::execution::errors::ExecutionErrorKind::PolicyDenied
+    );
+}
+
+#[test]
 fn runtime_configuration_rejects_traversal_duplicate_and_non_env_paths() {
     let (_fixture, source, task) = Fixture::new();
     for relative in [

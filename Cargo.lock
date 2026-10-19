@@ -2737,6 +2737,7 @@ name = "koolade"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "bollard",
  "chrono",
  "eframe",
@@ -2761,6 +2762,7 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "x11rb",
+ "zeroize",
 ]
 
 [[package]]

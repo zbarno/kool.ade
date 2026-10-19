@@ -42,6 +42,7 @@ fn ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result() {
     let (authorization, active) = authorization::RevocableAuthorization::new(generation);
     let session_a = Arc::new(two_controllers::connect_session(
         &task_clone,
+        &repository,
         &worker,
         Arc::new(authorization),
     ));
@@ -79,6 +80,7 @@ fn ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result() {
     let generation_b = uuid::Uuid::new_v4().hyphenated().to_string();
     let session_b = two_controllers::connect_session(
         &task_clone,
+        &repository,
         &worker,
         Arc::new(authorization::TestAuthorization(generation_b)),
     );

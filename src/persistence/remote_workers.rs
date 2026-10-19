@@ -13,7 +13,10 @@ mod capacity;
 mod config;
 mod enrollment;
 mod probe;
-pub use capacity::{RemoteWorkerCapacityLease, reserve_capacity};
+pub use capacity::{
+    AutoWorkerCapacityCandidate, RemoteWorkerCapacityLease, order_auto_workers,
+    record_auto_worker_selection, reserve_auto_capacity, reserve_capacity,
+};
 pub(crate) use config::trust_reported_capabilities;
 pub use config::{configure, configure_resource_limit, list};
 pub use enrollment::{revoke, trust};
@@ -96,6 +99,16 @@ impl RemoteWorkerRegistration {
                 "worker probe time is invalid"
             );
             anyhow::ensure!(probe.running_jobs <= 1_000_000, "worker load is invalid");
+            anyhow::ensure!(
+                probe
+                    .available_cpu_millis
+                    .is_none_or(|value| value <= 1_000_000)
+                    && probe
+                        .cpu_pressure_some_avg10_basis_points
+                        .is_none_or(|value| value <= 10_000)
+                    && probe.load_millis.is_none_or(|value| value <= 1_000_000),
+                "worker resource observation is invalid"
+            );
             anyhow::ensure!(
                 probe
                     .trusted_image_digests

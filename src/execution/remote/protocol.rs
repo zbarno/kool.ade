@@ -3,6 +3,13 @@ use std::{
     collections::{HashMap, HashSet},
     io::{self, Read, Write},
 };
+use zeroize::Zeroizing;
+
+mod private_chunks;
+mod sensitive;
+pub(crate) use private_chunks::{
+    WorkerInboundFrameV1, read_worker_frame, write_private_file_chunk_frame,
+};
 
 pub const PROTOCOL_VERSION_V1: u16 = 1;
 /// Reserved execution identity for the key-bootstrap handshake on each SSH session.
@@ -30,6 +37,10 @@ pub enum EnvelopeKindV1 {
     RelayDependency,
     DependencyRequest,
     DependencyDecision,
+    AuthorizePrivateFileGrant,
+    AbortPrivateFileStage,
+    /// Secret-bearing frame that must never enter a durable RPC journal.
+    PrivateFileChunk,
     PrepareWorkspaceResult,
     ReadWorkspaceResultChunk,
     Start,
@@ -45,7 +56,7 @@ pub enum EnvelopeKindV1 {
     Error,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct EnvelopeV1 {
     pub version: u16,
@@ -54,6 +65,53 @@ pub struct EnvelopeV1 {
     pub sequence: u64,
     pub kind: EnvelopeKindV1,
     pub payload: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawEnvelopeV1<'a> {
+    version: u16,
+    request_id: String,
+    execution_id: String,
+    sequence: u64,
+    kind: EnvelopeKindV1,
+    #[serde(borrow)]
+    payload: &'a serde_json::value::RawValue,
+}
+
+impl std::fmt::Debug for EnvelopeV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("EnvelopeV1");
+        debug
+            .field("version", &self.version)
+            .field("request_id", &self.request_id)
+            .field("execution_id", &self.execution_id)
+            .field("sequence", &self.sequence)
+            .field("kind", &self.kind);
+        if self.kind == EnvelopeKindV1::PrivateFileChunk {
+            debug.field("payload", &"<redacted>");
+        } else {
+            debug.field("payload", &self.payload);
+        }
+        debug.finish()
+    }
+}
+
+impl EnvelopeV1 {
+    /// Clear decoded private bytes before the request leaves the transport
+    /// stack. Private chunks are encoded as Base64 strings.
+    pub(crate) fn clear_sensitive_payload(&mut self) {
+        if self.kind != EnvelopeKindV1::PrivateFileChunk {
+            return;
+        }
+        clear_sensitive_payload_value(&mut self.payload);
+    }
+}
+
+/// Erase secret-bearing JSON values when a private chunk is denied before it
+/// reaches the dedicated, grant-authorized transport path.
+pub(crate) fn clear_sensitive_payload_value(payload: &mut serde_json::Value) {
+    sensitive::clear_payload(payload);
 }
 
 /// Rejects replayed request IDs and sequence gaps within one transport session.
@@ -109,8 +167,16 @@ impl EnvelopeV1 {
 /// Writes one UTF-8 JSON envelope with a big-endian length prefix.
 pub fn write_frame(mut output: impl Write, envelope: &EnvelopeV1) -> io::Result<()> {
     envelope.validate()?;
-    let bytes = serde_json::to_vec(envelope)
-        .map_err(|_| invalid_data("remote worker envelope could not be encoded"))?;
+    if envelope.kind == EnvelopeKindV1::PrivateFileChunk {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "private file chunks require a dedicated authorized transport",
+        ));
+    }
+    let bytes = Zeroizing::new(
+        serde_json::to_vec(envelope)
+            .map_err(|_| invalid_data("remote worker envelope could not be encoded"))?,
+    );
     if bytes.is_empty() || bytes.len() > MAX_FRAME_BYTES {
         return Err(invalid_data("remote worker frame exceeds the size limit"));
     }
@@ -123,25 +189,17 @@ pub fn write_frame(mut output: impl Write, envelope: &EnvelopeV1) -> io::Result<
 
 /// Reads one bounded frame. EOF before the prefix is clean; partial frames fail.
 pub fn read_frame(input: &mut impl Read) -> io::Result<Option<EnvelopeV1>> {
-    let mut prefix = [0_u8; 4];
-    let mut read = 0;
-    while read < prefix.len() {
-        match input.read(&mut prefix[read..])? {
-            0 if read == 0 => return Ok(None),
-            0 => return Err(invalid_data("remote worker frame prefix is truncated")),
-            count => read += count,
+    match read_worker_frame(input)? {
+        None => Ok(None),
+        Some(WorkerInboundFrameV1::Envelope(envelope)) => Ok(Some(envelope)),
+        Some(WorkerInboundFrameV1::PrivateFileChunk { mut envelope, .. }) => {
+            envelope.clear_sensitive_payload();
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "private file chunks require the worker's typed chunk handler",
+            ))
         }
     }
-    let length = u32::from_be_bytes(prefix) as usize;
-    if length == 0 || length > MAX_FRAME_BYTES {
-        return Err(invalid_data("remote worker frame exceeds the size limit"));
-    }
-    let mut bytes = vec![0; length];
-    input.read_exact(&mut bytes)?;
-    let envelope: EnvelopeV1 = serde_json::from_slice(&bytes)
-        .map_err(|_| invalid_data("remote worker frame contains invalid JSON"))?;
-    envelope.validate()?;
-    Ok(Some(envelope))
 }
 
 fn invalid_data(message: &'static str) -> io::Error {
@@ -149,99 +207,4 @@ fn invalid_data(message: &'static str) -> io::Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    fn envelope() -> EnvelopeV1 {
-        EnvelopeV1 {
-            version: PROTOCOL_VERSION_V1,
-            request_id: "00000000-0000-4000-8000-000000000001".into(),
-            execution_id: "00000000-0000-4000-8000-000000000002".into(),
-            sequence: 1,
-            kind: EnvelopeKindV1::Probe,
-            payload: serde_json::json!({"target": "local"}),
-        }
-    }
-
-    #[test]
-    fn round_trip_uses_bounded_length_prefixed_json() {
-        let mut bytes = Vec::new();
-        write_frame(&mut bytes, &envelope()).unwrap();
-        let mut input = Cursor::new(bytes);
-        assert_eq!(read_frame(&mut input).unwrap(), Some(envelope()));
-        assert_eq!(read_frame(&mut input).unwrap(), None);
-    }
-
-    #[test]
-    fn oversized_and_truncated_frames_are_rejected_before_decode() {
-        let mut oversized = Cursor::new(((MAX_FRAME_BYTES as u32) + 1).to_be_bytes());
-        assert_eq!(
-            read_frame(&mut oversized).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-
-        let mut truncated = Cursor::new([0, 0, 0, 8, b'{', b'}']);
-        assert_eq!(
-            read_frame(&mut truncated).unwrap_err().kind(),
-            io::ErrorKind::UnexpectedEof
-        );
-    }
-
-    #[test]
-    fn rejects_unknown_fields_and_incompatible_versions() {
-        let mut bytes = Vec::new();
-        let mut bad = envelope();
-        bad.version = 2;
-        assert_eq!(
-            write_frame(&mut bytes, &bad).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-
-        let json = br#"{"version":1,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"probe","payload":{},"extra":true}"#;
-        let mut framed = (json.len() as u32).to_be_bytes().to_vec();
-        framed.extend_from_slice(json);
-        assert_eq!(
-            read_frame(&mut Cursor::new(framed)).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-    }
-
-    #[test]
-    fn session_rejects_duplicate_requests_and_sequence_gaps() {
-        let mut validator = SessionValidator::default();
-        let first = envelope();
-        validator.accept(&first).unwrap();
-        assert_eq!(
-            validator.accept(&first).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-
-        let mut next = envelope();
-        next.request_id = "00000000-0000-4000-8000-000000000003".into();
-        next.sequence = 3;
-        assert_eq!(
-            validator.accept(&next).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-        next.sequence = 2;
-        validator.accept(&next).unwrap();
-    }
-
-    #[test]
-    fn new_transport_session_can_resume_at_a_persisted_sequence() {
-        let mut validator = SessionValidator::default();
-        let mut resumed = envelope();
-        resumed.sequence = 17;
-        validator.accept(&resumed).unwrap();
-        resumed.request_id = "00000000-0000-4000-8000-000000000003".into();
-        resumed.sequence = 18;
-        validator.accept(&resumed).unwrap();
-        resumed.sequence = 20;
-        resumed.request_id = "00000000-0000-4000-8000-000000000004".into();
-        assert_eq!(
-            validator.accept(&resumed).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-    }
-}
+mod tests;
