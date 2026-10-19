@@ -45,23 +45,42 @@ pub(super) fn dispatch(
             ));
         }
     }
-    let reservation = match capacity.map(|pool| pool.acquire()) {
-        Some(Ok(reservation)) => Some(reservation),
-        Some(Err(_)) => {
-            // Capacity rejection happens before the backend can start a
-            // container, so the private stage is known to be unmounted.
-            if let Some(stager) = &stager {
-                stager
+    let reservation = match capacity {
+        Some(pool) => {
+            let capacity_cpu_millis = crate::execution::resources::effective_cpu_capacity_millis();
+            let capacity_memory_bytes =
+                crate::execution::resources::effective_memory_capacity_bytes();
+            let reservation = capacity_cpu_millis
+                .zip(capacity_memory_bytes)
+                .ok_or_else(|| anyhow::anyhow!("worker CPU or memory capacity is unavailable"))
+                .and_then(|(cpu, memory)| {
+                    pool.acquire_resources(
+                        &request.request.execution_id,
+                        request.request.resource_budget.cpu_millis,
+                        request.request.resource_budget.memory_bytes,
+                        cpu,
+                        memory,
+                    )
+                });
+            match reservation {
+                Ok(reservation) => Some(reservation),
+                Err(_) => {
+                    // Capacity rejection happens before the backend can start a
+                    // container, so the private stage is known to be unmounted.
+                    if let Some(stager) = &stager {
+                        stager
                     .cleanup_private_file_execution(&request.request.execution_id)
                     .map_err(|_| {
                         super::super::incompatible(
                             "private-file stage could not be cleaned after capacity rejection",
                         )
                     })?;
+                    }
+                    return Err(super::super::incompatible(
+                        crate::execution::errors::REMOTE_START_CAPACITY_REJECTION,
+                    ));
+                }
             }
-            return Err(super::super::incompatible(
-                crate::execution::errors::REMOTE_START_CAPACITY_REJECTION,
-            ));
         }
         None => None,
     };

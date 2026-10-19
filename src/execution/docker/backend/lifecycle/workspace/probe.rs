@@ -28,18 +28,55 @@ pub(in crate::execution::docker::backend::lifecycle) async fn probe(
         .probe(&backend.resolver.staging_root())
         .await
         .map_err(prerequisite_error)?;
-    let current_execution_count = u32::try_from(
-        backend
-            .executions
-            .lock()
-            .map_err(|_| {
-                crate::execution::docker::backend::internal_error_with_context(
-                    "counting active executions during a probe",
-                )
-            })?
-            .len(),
-    )
-    .unwrap_or(u32::MAX);
+    let (current_execution_count, active_cpu_millis, active_memory_bytes) = {
+        let executions = backend.executions.lock().map_err(|_| {
+            crate::execution::docker::backend::internal_error_with_context(
+                "counting active executions during a probe",
+            )
+        })?;
+        let mut reserved = Some(0_u32);
+        let mut reserved_memory = Some(0_u64);
+        for execution in executions.values() {
+            let execution = execution.lock().ok();
+            match execution {
+                Some(execution) if !execution.terminal => {
+                    reserved = reserved.and_then(|total| {
+                        total.checked_add(execution.request.resource_budget.cpu_millis)
+                    });
+                    reserved_memory = reserved_memory.and_then(|total| {
+                        total.checked_add(execution.request.resource_budget.memory_bytes)
+                    });
+                }
+                Some(_) => {}
+                None => reserved = None,
+            }
+        }
+        (
+            u32::try_from(executions.len()).unwrap_or(u32::MAX),
+            reserved,
+            reserved_memory,
+        )
+    };
+    let (pending_cpu_millis, pending_memory_bytes) = backend
+        .starting
+        .lock()
+        .ok()
+        .and_then(|starting| {
+            starting
+                .values()
+                .try_fold((0_u32, 0_u64), |(cpu, memory), item| {
+                    Some((cpu.checked_add(item.0)?, memory.checked_add(item.1)?))
+                })
+        })
+        .map_or((None, None), |(cpu, memory)| (Some(cpu), Some(memory)));
+    let reserved_cpu_millis = active_cpu_millis
+        .zip(pending_cpu_millis)
+        .and_then(|(active, pending)| active.checked_add(pending));
+    let reserved_memory_bytes = active_memory_bytes
+        .zip(pending_memory_bytes)
+        .and_then(|(active, pending)| active.checked_add(pending));
+    let host_resources =
+        crate::execution::resources::observe_host(reserved_cpu_millis, reserved_memory_bytes);
     let capabilities = BackendCapabilitiesV1 {
         app_version: env!("CARGO_PKG_VERSION").into(),
         docker_version: readiness.daemon_version.clone(),
@@ -52,6 +89,10 @@ pub(in crate::execution::docker::backend::lifecycle) async fn probe(
         cpu_quota: readiness.cpu_quota,
         pids_limit: readiness.pids_limit,
         disk_available_bytes: readiness.disk_available_bytes,
+        available_cpu_millis: host_resources.available_cpu_millis,
+        available_memory_bytes: host_resources.available_memory_bytes,
+        cpu_pressure_some_avg10_basis_points: host_resources.cpu_pressure_some_avg10_basis_points,
+        load_millis: None,
         gpu_available: false,
         display_available: false,
         current_execution_count,

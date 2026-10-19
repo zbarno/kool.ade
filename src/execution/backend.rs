@@ -283,6 +283,20 @@ pub struct BackendCapabilitiesV1 {
     pub cpu_quota: Option<bool>,
     pub pids_limit: Option<bool>,
     pub disk_available_bytes: Option<u64>,
+    /// CPU capacity remaining after active Kool.ad worker reservations.
+    /// This does not measure CPU used by unmanaged host processes.
+    #[serde(default)]
+    pub available_cpu_millis: Option<u32>,
+    /// Linux MemAvailable capped by the worker's cgroup memory limits.
+    #[serde(default)]
+    pub available_memory_bytes: Option<u64>,
+    /// Linux CPU pressure stall information `some avg10`, in basis points.
+    /// This is a load preference signal, not CPU capacity or authorization.
+    #[serde(default)]
+    pub cpu_pressure_some_avg10_basis_points: Option<u32>,
+    /// Legacy optional load observation; never treated as millicore capacity.
+    #[serde(default)]
+    pub load_millis: Option<u32>,
     /// Capability observations; false means this backend cannot provide the
     /// requested host resource to an execution container.
     #[serde(default)]

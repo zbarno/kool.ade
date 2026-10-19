@@ -84,7 +84,15 @@ pub(super) fn auto_session(
         ids.dedup();
         ids
     });
-    let mut remote_choices = Vec::<(u32, usize, String)>::new();
+    let mut remote_choices = Vec::<(
+        std::cmp::Reverse<u32>,
+        std::cmp::Reverse<u64>,
+        u32,
+        u32,
+        u32,
+        usize,
+        String,
+    )>::new();
     let architectures = observed
         .iter()
         .filter_map(|worker| {
@@ -153,15 +161,34 @@ pub(super) fn auto_session(
                 .iter()
                 .position(|id| id == &worker_id)
                 .unwrap_or(usize::MAX);
-            if !remote_choices.iter().any(|(_, _, id)| id == &worker_id) {
-                remote_choices.push((load, order, worker_id));
+            if !remote_choices
+                .iter()
+                .any(|(_, _, _, _, _, _, id)| id == &worker_id)
+            {
+                let worker = observed
+                    .iter()
+                    .find(|worker| worker.registration.worker_id == worker_id);
+                let Some(capabilities) = worker.map(|worker| &worker.capabilities) else {
+                    continue;
+                };
+                remote_choices.push((
+                    std::cmp::Reverse(capabilities.available_cpu_millis.unwrap_or_default()),
+                    std::cmp::Reverse(capabilities.available_memory_bytes.unwrap_or_default()),
+                    capabilities
+                        .cpu_pressure_some_avg10_basis_points
+                        .unwrap_or(u32::MAX),
+                    capabilities.load_millis.unwrap_or(u32::MAX),
+                    load,
+                    order,
+                    worker_id,
+                ));
             }
         }
     }
     remote_choices.sort();
     let mut remaining = remote_choices
         .iter()
-        .filter_map(|(load, _, worker_id)| {
+        .filter_map(|(_, _, _, _, load, _, worker_id)| {
             let worker = observed
                 .iter()
                 .find(|worker| worker.registration.worker_id == *worker_id)?;

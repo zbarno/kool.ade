@@ -102,6 +102,13 @@ pub(super) fn dispatch(
             }
             if let (Some(capabilities), Some(pool)) = (&mut probe.capabilities, capacity) {
                 capabilities.maximum_execution_count = Some(pool.max_jobs());
+                let reserved = pool.reserved_resources().ok();
+                capabilities.available_cpu_millis =
+                    crate::execution::resources::effective_cpu_capacity_millis()
+                        .and_then(|capacity| capacity.checked_sub(reserved?.cpu_millis));
+                capabilities.available_memory_bytes =
+                    crate::execution::resources::effective_memory_capacity_bytes()
+                        .and_then(|capacity| capacity.checked_sub(reserved?.memory_bytes));
             }
             json_value(probe).map(|value| (Kind::ProbeResult, value))
         }

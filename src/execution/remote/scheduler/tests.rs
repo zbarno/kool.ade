@@ -36,6 +36,10 @@ fn worker(id: &str, running_jobs: u32, observed_at_unix_ms: u64) -> RemoteWorker
             trusted_image_digests: vec![IMAGE_DIGEST.into()],
             resource_ceiling: Some(capabilities(running_jobs).resource_ceiling),
             disk_available_bytes: Some(1024 * 1024 * 1024),
+            available_cpu_millis: Some(4_000),
+            available_memory_bytes: Some(1024 * 1024 * 1024),
+            cpu_pressure_some_avg10_basis_points: Some(running_jobs * 100),
+            load_millis: Some(running_jobs * 500),
         }),
         policy_revision: "sha256:policy".into(),
     }
@@ -54,6 +58,10 @@ fn capabilities(running_jobs: u32) -> BackendCapabilitiesV1 {
         cpu_quota: Some(true),
         pids_limit: Some(true),
         disk_available_bytes: Some(1024 * 1024 * 1024),
+        available_cpu_millis: Some(4_000),
+        available_memory_bytes: Some(1024 * 1024 * 1024),
+        cpu_pressure_some_avg10_basis_points: Some(running_jobs * 100),
+        load_millis: Some(running_jobs * 500),
         gpu_available: false,
         display_available: false,
         current_execution_count: running_jobs,
@@ -147,6 +155,46 @@ fn auto_never_selects_a_worker_reported_busy_even_if_a_probe_snapshot_has_room()
         Err(SelectionFailure::NoCompatibleTarget)
     );
 }
+
+#[test]
+fn auto_uses_reserved_cpu_capacity_without_treating_load_average_as_millicores() {
+    let now = 1_900_000_000_000;
+    let registration = worker("worker-loaded", 0, now);
+    let mut loaded_capabilities = capabilities(0);
+    loaded_capabilities.load_millis = Some(2_001);
+    let candidates = [WorkerCandidate {
+        registration: &registration,
+        capabilities: &loaded_capabilities,
+    }];
+    let budget = budget();
+    let selected = select_target(
+        &TargetPreference::Auto,
+        false,
+        &candidates,
+        &requirements(&budget, &[]),
+        now,
+    );
+    assert_eq!(selected, Ok(ExecutionTarget::remote("worker-loaded")));
+    let mut eligible_capabilities = capabilities(0);
+    eligible_capabilities.load_millis = Some(1_999);
+    let eligible = [WorkerCandidate {
+        registration: &registration,
+        capabilities: &eligible_capabilities,
+    }];
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &eligible,
+            &requirements(&budget, &[]),
+            now,
+        ),
+        Ok(ExecutionTarget::remote("worker-loaded"))
+    );
+}
+
+#[path = "tests/capacity.rs"]
+mod capacity;
 
 #[test]
 fn auto_rejects_workers_without_verified_rootless_docker() {

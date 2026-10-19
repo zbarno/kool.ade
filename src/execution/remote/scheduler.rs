@@ -77,6 +77,23 @@ pub fn select_target(
                     })
                     .min_by_key(|candidate| {
                         (
+                            std::cmp::Reverse(
+                                candidate
+                                    .capabilities
+                                    .available_cpu_millis
+                                    .unwrap_or_default(),
+                            ),
+                            std::cmp::Reverse(
+                                candidate
+                                    .capabilities
+                                    .available_memory_bytes
+                                    .unwrap_or_default(),
+                            ),
+                            candidate
+                                .capabilities
+                                .cpu_pressure_some_avg10_basis_points
+                                .unwrap_or(u32::MAX),
+                            candidate.capabilities.load_millis.unwrap_or(u32::MAX),
                             candidate
                                 .registration
                                 .last_probe
@@ -147,6 +164,14 @@ fn candidate_eligible(
         || now_unix_ms.saturating_sub(probe.observed_at_unix_ms) > MAX_HEALTH_AGE_MS
         || probe.running_jobs >= maximum_execution_count
         || candidate.capabilities.current_execution_count >= maximum_execution_count
+        || candidate
+            .capabilities
+            .available_cpu_millis
+            .is_none_or(|available| available < requirements.resource_budget.cpu_millis)
+        || candidate
+            .capabilities
+            .available_memory_bytes
+            .is_none_or(|available| available < requirements.resource_budget.memory_bytes)
         || candidate
             .capabilities
             .disk_available_bytes

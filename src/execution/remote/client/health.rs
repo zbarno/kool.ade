@@ -55,6 +55,11 @@ impl RemoteWorkerClient {
                     .map_or_else(Vec::new, |value| value.trusted_image_digests.clone()),
                 resource_ceiling: capabilities.map(|value| value.resource_ceiling.clone()),
                 disk_available_bytes: capabilities.and_then(|value| value.disk_available_bytes),
+                available_cpu_millis: capabilities.and_then(|value| value.available_cpu_millis),
+                available_memory_bytes: capabilities.and_then(|value| value.available_memory_bytes),
+                cpu_pressure_some_avg10_basis_points: capabilities
+                    .and_then(|value| value.cpu_pressure_some_avg10_basis_points),
+                load_millis: capabilities.and_then(|value| value.load_millis),
             },
         );
     }

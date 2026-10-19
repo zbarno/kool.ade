@@ -50,12 +50,21 @@ fn choices(
         let probe = worker.last_probe.as_ref();
         let probe_health = probe.map(|probe| &probe.health);
         let stale_probe = probe.is_some_and(|probe| probe_is_stale(probe, now_unix_ms));
-        let available =
-            worker.enabled && !stale_probe && probe_health == Some(&RemoteWorkerHealth::Healthy);
+        let missing_resources = probe.is_some_and(|probe| {
+            probe.available_cpu_millis.is_none()
+                || probe.available_memory_bytes.is_none()
+                || probe.load_millis.is_none()
+        });
+        let available = worker.enabled
+            && !stale_probe
+            && !missing_resources
+            && probe_health == Some(&RemoteWorkerHealth::Healthy);
         let reason = if !worker.enabled {
             "Worker is disabled in Execution Environments.".into()
         } else if stale_probe {
             "Worker health probe is stale; reconnect before scheduling.".into()
+        } else if missing_resources {
+            "Worker does not report live CPU, memory, and load; update the worker before scheduling.".into()
         } else {
             match probe_health {
                 Some(RemoteWorkerHealth::Healthy) => {
@@ -162,6 +171,10 @@ mod tests {
                 trusted_image_digests: Vec::new(),
                 resource_ceiling: None,
                 disk_available_bytes: None,
+                available_cpu_millis: Some(1_000),
+                available_memory_bytes: Some(1024 * 1024 * 1024),
+                cpu_pressure_some_avg10_basis_points: Some(0),
+                load_millis: Some(0),
             }),
             policy_revision: "v1".into(),
         }
@@ -263,5 +276,26 @@ mod tests {
             .expect("enrolled worker is shown");
         assert!(!zero_choice.available);
         assert!(zero_choice.reason.contains("probe is stale"));
+    }
+
+    #[test]
+    fn healthy_worker_without_current_resource_measurements_is_unavailable() {
+        let mut worker = worker(true, RemoteWorkerHealth::Healthy);
+        let probe = worker.last_probe.as_mut().unwrap();
+        probe.available_memory_bytes = None;
+        let choices = choices(
+            &TargetPreference::Auto,
+            None,
+            &local_status(),
+            &[worker],
+            false,
+            2,
+        );
+        let choice = choices
+            .iter()
+            .find(|choice| choice.preference == TargetPreference::Worker("healthy-worker".into()))
+            .unwrap();
+        assert!(!choice.available);
+        assert!(choice.reason.contains("live CPU, memory, and load"));
     }
 }

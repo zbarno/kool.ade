@@ -134,10 +134,18 @@ fn missing_worker_capability_fields_default_to_unsupported() {
     let object = value.as_object_mut().unwrap();
     object.remove("gpu_available");
     object.remove("display_available");
+    object.remove("available_cpu_millis");
+    object.remove("available_memory_bytes");
+    object.remove("cpu_pressure_some_avg10_basis_points");
+    object.remove("load_millis");
     let restored: crate::execution::backend::BackendCapabilitiesV1 =
         serde_json::from_value(value).unwrap();
     assert!(!restored.gpu_available);
     assert!(!restored.display_available);
+    assert_eq!(restored.available_cpu_millis, None);
+    assert_eq!(restored.available_memory_bytes, None);
+    assert_eq!(restored.cpu_pressure_some_avg10_basis_points, None);
+    assert_eq!(restored.load_millis, None);
 }
 
 #[test]

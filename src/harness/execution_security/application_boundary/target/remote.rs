@@ -12,6 +12,9 @@ use crate::{
 };
 use std::path::PathBuf;
 
+mod resource_availability;
+use resource_availability::verify_resource_availability;
+
 #[cfg(test)]
 #[path = "remote/tests.rs"]
 mod tests;
@@ -146,6 +149,7 @@ fn verify_registration_capabilities(
         .ok_or_else(|| anyhow::anyhow!("Remote worker did not report capabilities"))?;
     require_rootless_docker(capabilities)?;
     verify_task_capabilities(capabilities, requirements)?;
+    verify_resource_availability(capabilities, resources)?;
     let effective_max = capabilities
         .maximum_execution_count
         .map_or(registration.max_jobs, |maximum| {

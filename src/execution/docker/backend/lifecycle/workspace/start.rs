@@ -39,7 +39,11 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     if request.target != ExecutionTarget::local() {
         return Err(invalid_request());
     }
-    let _reservation = backend.reserve_start(&request.execution_id)?;
+    let mut admission = backend.reserve_start(
+        &request.execution_id,
+        request.resource_budget.cpu_millis,
+        request.resource_budget.memory_bytes,
+    )?;
     let task_lock = crate::persistence::execution_records::try_task_lock(&request.task_id)
         .map_err(|_| internal_error_with_context("acquiring the task execution lock"))?
         .ok_or_else(|| {
@@ -147,6 +151,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         identity.lease_expires_unix_ms,
         task_lock,
     )?;
+    execution.host_capacity_lease = admission.take_host_capacity_lease();
     execution.phase_timings.image_preparation_ms = Some(image_preparation_ms);
     let options = CreateContainerOptionsBuilder::default().name(&name).build();
     let created = match tokio::time::timeout_at(

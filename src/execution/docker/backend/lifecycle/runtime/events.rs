@@ -17,6 +17,7 @@ impl RuntimeExecution {
             false,
         ));
         self.terminal = true;
+        self.host_capacity_lease.take();
         self.push(ExecutionEventKindV1::Lifecycle {
             state: crate::execution::contract::ExecutionLifecycleV1::Failed,
         })

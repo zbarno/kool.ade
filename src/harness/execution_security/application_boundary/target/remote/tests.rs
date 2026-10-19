@@ -1,4 +1,4 @@
-use super::{require_rootless_docker, verify_task_capabilities};
+use super::{require_rootless_docker, verify_resource_availability, verify_task_capabilities};
 use crate::execution::backend::BackendCapabilitiesV1;
 use crate::persistence::execution_environment_settings::TaskCapabilityRequirements;
 
@@ -15,6 +15,10 @@ fn capabilities(rootless: Option<bool>) -> BackendCapabilitiesV1 {
         cpu_quota: Some(true),
         pids_limit: Some(true),
         disk_available_bytes: Some(1024),
+        available_cpu_millis: Some(1_000),
+        available_memory_bytes: Some(1024 * 1024 * 1024),
+        cpu_pressure_some_avg10_basis_points: Some(0),
+        load_millis: Some(0),
         gpu_available: false,
         display_available: false,
         current_execution_count: 0,
@@ -48,4 +52,29 @@ fn explicit_remote_target_rejects_missing_required_capabilities() {
     let mut supported = capabilities(Some(true));
     supported.gpu_available = true;
     assert!(verify_task_capabilities(&supported, requirements).is_ok());
+}
+
+#[test]
+fn explicit_remote_target_requires_current_cpu_and_memory_capacity() {
+    let mut observed = capabilities(Some(true));
+    let request = crate::execution::contract::ResourceBudgetV1 {
+        cpu_millis: 900,
+        memory_bytes: 512 * 1024 * 1024,
+        process_count: 1,
+        temporary_disk_bytes: 1,
+        output_bytes: 1,
+    };
+    assert!(verify_resource_availability(&observed, &request).is_ok());
+
+    observed.available_cpu_millis = Some(899);
+    assert!(verify_resource_availability(&observed, &request).is_err());
+    observed.available_cpu_millis = Some(1_000);
+    observed.load_millis = Some(101);
+    assert!(verify_resource_availability(&observed, &request).is_ok());
+    observed.load_millis = Some(100);
+    assert!(verify_resource_availability(&observed, &request).is_ok());
+    observed.load_millis = None;
+    assert!(verify_resource_availability(&observed, &request).is_ok());
+    observed.available_memory_bytes = None;
+    assert!(verify_resource_availability(&observed, &request).is_err());
 }

@@ -2,7 +2,6 @@ use std::fs;
 
 use super::{
     ExecutionCleanupStateV1, ExecutionRecordStateV1, ExecutionRecordV1, record::is_canonical_uuid,
-    store::load,
 };
 
 const OWNER_FILE: &str = "owner-instance-id";
@@ -10,9 +9,13 @@ const MAX_RECORD_COUNT: usize = 10_000;
 
 /// Return the stable local owner identity used to reconcile this installation's containers.
 pub fn owner_instance_id() -> Result<String, String> {
+    owner_instance_id_at(&crate::persistence::state_root())
+}
+
+pub(crate) fn owner_instance_id_at(state_root: &std::path::Path) -> Result<String, String> {
     use std::io::Read;
 
-    let root = crate::persistence::state_root().join("executions");
+    let root = state_root.join("executions");
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     let metadata = fs::symlink_metadata(&root).map_err(|error| error.to_string())?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
@@ -91,10 +94,17 @@ pub fn try_task_lock(task_id: &str) -> Result<Option<fs::File>, String> {
 /// Enumerate records that may still own resources for one application instance.
 /// A malformed record fails the scan so recovery never silently skips unknown state.
 pub fn unfinished_for_owner(owner_instance_id: &str) -> Result<Vec<ExecutionRecordV1>, String> {
+    unfinished_for_owner_at(&crate::persistence::state_root(), owner_instance_id)
+}
+
+pub(crate) fn unfinished_for_owner_at(
+    state_root: &std::path::Path,
+    owner_instance_id: &str,
+) -> Result<Vec<ExecutionRecordV1>, String> {
     if !is_canonical_uuid(owner_instance_id) {
         return Err("execution owner identity is invalid".into());
     }
-    let root = crate::persistence::state_root().join("executions");
+    let root = state_root.join("executions");
     let metadata = match fs::symlink_metadata(&root) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -167,7 +177,7 @@ pub fn unfinished_for_owner(owner_instance_id: &str) -> Result<Vec<ExecutionReco
             {
                 return Err("execution record filename is invalid".into());
             }
-            let Some(record) = load(&task_id, execution_id)? else {
+            let Some(record) = super::store::load_at(state_root, &task_id, execution_id)? else {
                 return Err("execution record disappeared during recovery scan".into());
             };
             let terminal_and_clean = matches!(
