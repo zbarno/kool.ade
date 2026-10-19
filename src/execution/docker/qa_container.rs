@@ -83,8 +83,23 @@ impl QaDriverContainerSpec<'_> {
     /// Browser images remain unlaunchable until ImageLock enables their
     /// reviewed digest; this check deliberately occurs at launch time.
     pub fn create_body(&self) -> Result<ContainerCreateBody, ExecutionError> {
-        self.validate()?;
         let lock = ImageLock::bundled().map_err(|_| denied("QA image lock is invalid"))?;
+        self.create_body_for_lock(&lock)
+    }
+
+    #[cfg(test)]
+    fn create_body_with_lock(
+        &self,
+        lock: &ImageLock,
+    ) -> Result<ContainerCreateBody, ExecutionError> {
+        self.create_body_for_lock(lock)
+    }
+
+    fn create_body_for_lock(
+        &self,
+        lock: &ImageLock,
+    ) -> Result<ContainerCreateBody, ExecutionError> {
+        self.validate()?;
         let architecture = self
             .image
             .platform

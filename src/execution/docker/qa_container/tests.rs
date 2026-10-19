@@ -81,6 +81,96 @@ fn selected_qa_image(profile: RuntimeProfile) -> SelectedImage {
     }
 }
 
+// Boundary: the app-owned Docker lifecycle must upload a bounded artifact,
+// start the pinned QA driver's real smoke entrypoint, collect its output, and
+// remove only that owned container on a rootless daemon. A unit test cannot
+// prove Docker's upload/start/log/cleanup behavior. External dependency: a
+// rootless Docker daemon with the just-built desktop candidate loaded. Setup:
+// candidate image build plus one short Xvfb smoke run.
+#[tokio::test]
+#[ignore = "requires rootless Docker and a locally loaded desktop QA candidate"]
+async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() {
+    use std::time::Duration;
+
+    let image_reference = std::env::var("KOOLADE_QA_DESKTOP_IMAGE")
+        .expect("candidate image reference is provided by the rootless QA workflow");
+    let digest = std::env::var("KOOLADE_QA_DESKTOP_DIGEST")
+        .expect("candidate image digest is provided by the rootless QA workflow");
+    let docker = bollard::Docker::connect_with_local_defaults().unwrap();
+    let info = docker.info().await.unwrap();
+    assert!(
+        info.security_options
+            .unwrap_or_default()
+            .iter()
+            .any(|option| option.contains("name=rootless"))
+    );
+
+    let request = {
+        let mut request = request();
+        request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
+        request
+    };
+    let mut lock = ImageLock::bundled().unwrap();
+    let variant = lock
+        .profiles
+        .get_mut("desktop_qa")
+        .and_then(|variants| variants.iter_mut().find(|v| v.platform == "linux/amd64"))
+        .unwrap();
+    variant.reference = image_reference;
+    variant.digest = digest;
+    variant.runtime_enabled = true;
+    let selected = lock.select(RuntimeProfile::DesktopQa, "amd64").unwrap();
+
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("snapshot.txt"),
+        b"app-owned upload fixture",
+    )
+    .unwrap();
+    let mount = QaArtifactMount::inspect(root.path(), "/workspace").unwrap();
+    let (artifact_upload, _) = mount.snapshot_upload(1024, None).unwrap();
+    let artifacts = [mount];
+    let uploads = [artifact_upload];
+    let resource_budget = resources();
+    let spec = QaDriverContainerSpec {
+        owner_id: &request.execution_session_id,
+        request: &request,
+        task_uid: &request.parent_task_uid,
+        driver: "desktop",
+        image: &selected,
+        artifacts: &artifacts,
+        network: QaDriverNetwork::Disabled,
+        service_lease: None,
+        relay_binding: None,
+        resources: &resource_budget,
+    };
+    let mut body = spec.create_body_with_lock(&lock).unwrap();
+    body.cmd = Some(vec!["--smoke".into()]);
+    let name = format!("koolade-qa-{}", request.qa_run_id);
+    let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
+    let output = run_ephemeral_driver(
+        &docker,
+        &name,
+        body,
+        &uploads,
+        Duration::from_secs(90),
+        1024 * 1024,
+        &mut cancel,
+    )
+    .await
+    .unwrap();
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(response["status"], "ready");
+    assert_eq!(response["display_width"], 1440);
+    assert!(response["screenshot_bytes"].as_u64().unwrap() > 0);
+    match docker.inspect_container(&name, None).await {
+        Err(bollard::errors::Error::DockerResponseServerError {
+            status_code: 404, ..
+        }) => {}
+        other => panic!("owned QA container cleanup was not confirmed: {other:?}"),
+    }
+}
+
 #[test]
 fn selected_artifact_snapshot_contains_only_receipt_verified_files() {
     use sha2::{Digest, Sha256};

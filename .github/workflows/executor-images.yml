@@ -304,6 +304,17 @@ jobs:
           BASE_IMAGE: ${{ steps.image.outputs.base_image }}
           SYFT: ${{ steps.syft.outputs.cmd }}
         run: scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$BASE_IMAGE"
+      - name: Exercise app-owned upload, run, output, and cleanup against rootless candidate
+        if: matrix.profile == 'desktop_qa'
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-desktop_qa-amd64/executor-image.json
+        run: |
+          set -euo pipefail
+          export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate
+          export KOOLADE_QA_DESKTOP_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
+          cargo +1.98.1 test --locked --lib \
+            execution::docker::qa_container::tests::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate \
+            -- --ignored --exact
       - name: Verify candidate record and report its immutable digest
         env:
           PROFILE: ${{ matrix.profile }}
