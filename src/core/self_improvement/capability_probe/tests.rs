@@ -1,5 +1,8 @@
 use super::probe_capability_manifest;
 
+#[path = "registry.rs"]
+mod registry;
+
 const CAPABILITY: &str = "self-improvement-lifecycle";
 
 fn manifest(capability_id: &str) -> String {

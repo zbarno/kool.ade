@@ -229,9 +229,11 @@ impl SelfImprovementRunV1 {
                     && evidence.build_commit_sha == evidence.merged_sha
                     && is_git_sha(&evidence.build_commit_sha)
                     && is_digest(&evidence.capability_manifest_sha256)
-                    && evidence.capability_id == "self-improvement-lifecycle"
                     && self.capability_id.as_deref() == Some(evidence.capability_id.as_str())
-                    && evidence.readiness_probe_id == "self-improvement-lifecycle-v1"
+                    && super::capability_probe::valid_capability_id(&evidence.capability_id)
+                    && super::capability_probe::valid_capability_id(
+                        &evidence.readiness_probe_id,
+                    )
                     && is_uuid(&evidence.readiness_probe_uid)
                     && valid_text(&evidence.version, 128) =>
             {

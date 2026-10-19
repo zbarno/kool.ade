@@ -6,6 +6,23 @@ const MAX_CAPABILITIES: usize = 512;
 const MANIFEST: &str =
     include_str!("../../../.koolade-packet/planning/product/active-capabilities.json");
 
+type Probe = fn(&crate::core::self_improvement::SelfImprovementRunV1) -> Result<(), String>;
+
+struct CapabilityProbeRegistration {
+    capability_id: &'static str,
+    readiness_probe_id: &'static str,
+    probe: Probe,
+}
+
+// Product capabilities are deliberately registered in code. A feature PR adds
+// its stable capability ID and app-owned behavior probe here, then lists the
+// same pair in active-capabilities.json. Agent data cannot add executable probes.
+const REGISTERED_PROBES: &[CapabilityProbeRegistration] = &[CapabilityProbeRegistration {
+    capability_id: "self-improvement-lifecycle",
+    readiness_probe_id: "self-improvement-lifecycle-v1",
+    probe: probe_self_improvement_lifecycle,
+}];
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ActiveCapabilitiesV1 {
@@ -37,15 +54,25 @@ pub(super) fn probe_capability_manifest_for_run(
     run: &crate::core::self_improvement::SelfImprovementRunV1,
     manifest_json: &str,
 ) -> Result<ActiveCapabilityProbeEvidence, String> {
+    probe_capability_manifest_for_run_with_registry(run, manifest_json, REGISTERED_PROBES)
+}
+
+fn probe_capability_manifest_for_run_with_registry(
+    run: &crate::core::self_improvement::SelfImprovementRunV1,
+    manifest_json: &str,
+    registry: &[CapabilityProbeRegistration],
+) -> Result<ActiveCapabilityProbeEvidence, String> {
     let capability_id = run
         .capability_id
         .as_deref()
         .ok_or_else(|| "approved plan has no stable product capability ID".to_owned())?;
-    let capability = probe_capability_manifest(capability_id, manifest_json)?;
+    let capability =
+        probe_capability_manifest_with_registry(capability_id, manifest_json, registry)?;
     run_registered_probe(
         run,
         &capability.capability_id,
         &capability.readiness_probe_id,
+        registry,
     )?;
     Ok(capability)
 }
@@ -54,13 +81,15 @@ fn run_registered_probe(
     run: &crate::core::self_improvement::SelfImprovementRunV1,
     capability_id: &str,
     readiness_probe_id: &str,
+    registry: &[CapabilityProbeRegistration],
 ) -> Result<(), String> {
-    match (capability_id, readiness_probe_id) {
-        ("self-improvement-lifecycle", "self-improvement-lifecycle-v1") => {
-            probe_self_improvement_lifecycle(run)
-        }
-        _ => Err("active capability references an unregistered readiness probe".into()),
-    }
+    let registration = registry
+        .iter()
+        .find(|entry| {
+            entry.capability_id == capability_id && entry.readiness_probe_id == readiness_probe_id
+        })
+        .ok_or_else(|| "active capability references an unregistered readiness probe".to_owned())?;
+    (registration.probe)(run)
 }
 
 fn probe_self_improvement_lifecycle(
@@ -93,9 +122,18 @@ fn probe_self_improvement_lifecycle(
     Ok(())
 }
 
+#[cfg(test)]
 fn probe_capability_manifest(
     capability_id: &str,
     manifest_json: &str,
+) -> Result<ActiveCapabilityProbeEvidence, String> {
+    probe_capability_manifest_with_registry(capability_id, manifest_json, REGISTERED_PROBES)
+}
+
+fn probe_capability_manifest_with_registry(
+    capability_id: &str,
+    manifest_json: &str,
+    registry: &[CapabilityProbeRegistration],
 ) -> Result<ActiveCapabilityProbeEvidence, String> {
     if !valid_slug(capability_id) || manifest_json.len() > MAX_MANIFEST_BYTES {
         return Err("active capability probe input is invalid or exceeds its size limit".into());
@@ -110,7 +148,10 @@ fn probe_capability_manifest(
     for capability in manifest.capabilities {
         if !valid_slug(&capability.capability_id)
             || !valid_slug(&capability.readiness_probe_id)
-            || !registered_probe_pair(&capability.capability_id, &capability.readiness_probe_id)
+            || !registry.iter().any(|entry| {
+                entry.capability_id == capability.capability_id
+                    && entry.readiness_probe_id == capability.readiness_probe_id
+            })
             || !capability_ids.insert(capability.capability_id.clone())
         {
             return Err(
@@ -130,16 +171,6 @@ fn probe_capability_manifest(
         readiness_probe_id: selected.readiness_probe_id,
         manifest_sha256: format!("{:x}", Sha256::digest(manifest_json.as_bytes())),
     })
-}
-
-fn registered_probe_pair(capability_id: &str, readiness_probe_id: &str) -> bool {
-    matches!(
-        (capability_id, readiness_probe_id),
-        (
-            "self-improvement-lifecycle",
-            "self-improvement-lifecycle-v1"
-        )
-    )
 }
 
 pub(super) fn valid_capability_id(value: &str) -> bool {

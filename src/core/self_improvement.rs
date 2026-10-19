@@ -198,9 +198,6 @@ impl SelfImprovementActivationEvidenceV1 {
             .as_deref()
             .ok_or_else(|| "merged self-improvement commit is unavailable".to_owned())?;
         let capability = capability_probe::probe_compiled_capability(run)?;
-        if capability.readiness_probe_id != "self-improvement-lifecycle-v1" {
-            return Err("active capability references an unregistered readiness probe".into());
-        }
         activation_evidence(
             &run.run_uid,
             &run.feature_uid,
