@@ -272,7 +272,7 @@ fn parse_model_page(value: &Value) -> anyhow::Result<ModelPage> {
             continue;
         };
         anyhow::ensure!(
-            slug.len() <= 256 && !slug.chars().any(char::is_control),
+            crate::harness::discovery::is_valid_model_identifier(slug),
             "Codex model identifier is invalid"
         );
         page.models.push(slug.to_owned());

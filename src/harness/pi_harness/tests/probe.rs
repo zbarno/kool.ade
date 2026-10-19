@@ -4,7 +4,11 @@ use super::super::*;
 fn version_extraction_handles_shapes() {
     assert_eq!(extract_version("pi - v0.84.4"), "0.84.4");
     assert_eq!(extract_version("0.84.4"), "0.84.4");
-    assert_eq!(extract_version("weird output"), "weird");
+    assert_eq!(extract_version("weird output"), "");
+    assert_eq!(
+        extract_version("pi 0.84.4 token=synthetic-secret"),
+        "0.84.4"
+    );
 }
 
 #[test]

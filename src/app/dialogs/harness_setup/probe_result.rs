@@ -47,7 +47,7 @@ pub(super) fn from_harness_probe(
     } else {
         (None, None)
     };
-    let status = if report.ready {
+    let status = if report.ready && report.authentication == ReadinessState::Ready {
         ProbeStatus::Available
     } else if report.authentication == ReadinessState::Unavailable {
         ProbeStatus::NeedsAuthentication
@@ -56,14 +56,16 @@ pub(super) fn from_harness_probe(
     } else {
         ProbeStatus::Missing
     };
-    let ready = if report.ready {
+    let ready = if report.ready && report.authentication == ReadinessState::Ready {
         ReadinessState::Ready
-    } else {
+    } else if !report.ready || report.authentication == ReadinessState::Unavailable {
         ReadinessState::Unavailable
+    } else {
+        ReadinessState::Unknown
     };
-    let implementation = if report.implementation_available {
+    let implementation = if report.implementation_available && ready == ReadinessState::Ready {
         ReadinessState::Ready
-    } else if report.ready {
+    } else if ready != ReadinessState::Unavailable {
         ReadinessState::Unknown
     } else {
         ReadinessState::Unavailable
@@ -100,6 +102,34 @@ pub(super) fn from_harness_probe(
         failure_stage,
         diagnostic_code,
         diagnostic_message: message,
+    }
+    .bounded()
+}
+
+pub(super) fn internal_failure_result(
+    provider_id: &str,
+    generation: u64,
+    started_at_unix_ms: u64,
+    duration_ms: u64,
+) -> ProbeResult {
+    ProbeResult {
+        provider_id: provider_id.into(),
+        run_generation: generation,
+        started_at_unix_ms,
+        duration_ms,
+        execution_capability: crate::harness::discovery::ExecutionCapability {
+            safe_for_planning: ReadinessState::Unavailable,
+            safe_for_implementation: ReadinessState::Unavailable,
+            runtime_ready: ReadinessState::Unknown,
+        },
+        status: crate::harness::discovery::ProbeStatus::Failed,
+        display_status: format!("{provider_id} (probe failed)"),
+        failure_stage: Some(ProbeKind::Capability),
+        diagnostic_code: Some(ProbeDiagnosticCode::InternalProbeFailure),
+        diagnostic_message: Some(
+            "Provider discovery failed unexpectedly. Retry this provider.".into(),
+        ),
+        ..ProbeResult::default()
     }
     .bounded()
 }

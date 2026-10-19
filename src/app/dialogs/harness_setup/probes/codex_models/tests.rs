@@ -18,6 +18,16 @@ fn model_catalog_uses_only_visible_model_slugs_and_server_default() {
     assert_eq!(page.next_cursor.as_deref(), Some("next-page"));
 }
 
+#[test]
+fn model_catalog_rejects_non_identifier_slugs_without_retaining_secrets() {
+    let result = parse_model_page(&json!({
+        "data": [{"model":"gpt-5 token=synthetic-secret", "isDefault":true}]
+    }));
+    assert!(result.is_err());
+    let error = result.err().expect("invalid identifiers fail closed");
+    assert!(!error.to_string().contains("synthetic-secret"));
+}
+
 #[cfg(unix)]
 #[test]
 fn app_server_catalog_follows_cursors_and_deduplicates_model_slugs() {

@@ -312,6 +312,7 @@ fn snapshot_includes_explicitly_deferred_question_assumptions() {
         depends_on_question_ids: Vec::new(),
         status: QuestionStatus::Deferred,
         answer_text: None,
+        evidence_resolution: None,
         selected_option: None,
         answered_by: None,
         answered_at_ms: None,
