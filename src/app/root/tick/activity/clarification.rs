@@ -1,13 +1,15 @@
-pub(super) fn advance_clarification_planner(project: &mut crate::app::session::Project) {
+pub(super) fn advance_clarification_planner(
+    project: &mut crate::app::session::Project,
+) -> Option<bool> {
     let result = project
         .activity
         .clarification_planner
         .as_ref()
-        .and_then(crate::app::root::planner_pass::ClarificationPlanner::take_result);
-    let Some(result) = result else { return };
+        .and_then(crate::app::root::planner_pass::ClarificationPlanner::take_result)?;
     project.activity.clarification_planner = None;
     project.live_progress = Default::default();
     let planner_identity = project.activity.clarification_planner_identity.take();
+    let mut generation_ready = false;
     let message = match result {
         Ok(output) => {
             match planner_identity {
@@ -21,12 +23,17 @@ pub(super) fn advance_clarification_planner(project: &mut crate::app::session::P
                         output,
                     ) {
                         Ok(assessment) => {
+                            let readiness_allows_generation = matches!(
+                                &assessment,
+                                crate::core::planning::ReadinessResult::Ready
+                            );
                             match crate::core::state::PlannerState::load_with_store(
                                 &project.state.repo_root,
                                 &project.state.planning_store,
                             ) {
                                 Ok(state) => {
                                     project.state = state;
+                                    generation_ready = readiness_allows_generation;
                                     let resolution_note = if resolution_count == 0 {
                                         String::new()
                                     } else {
@@ -66,4 +73,5 @@ pub(super) fn advance_clarification_planner(project: &mut crate::app::session::P
         message,
         None,
     )]);
+    Some(generation_ready)
 }
