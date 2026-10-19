@@ -80,7 +80,10 @@ pub(super) fn build(
             id: goal_evidence_id.clone(),
             workspace_uid: workspace_uid.clone(),
             origin: EvidenceOrigin::User,
-            confidentiality: EvidenceConfidentiality::Restricted,
+            // This is the already-authorized planning request stored in the
+            // workspace. Restricted opportunity evidence is filtered before
+            // it can become a planning work request.
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
             source: format!("initiating user request for feature {feature_id}"),
             content: original_goal.to_owned(),
         },

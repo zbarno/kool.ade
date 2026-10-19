@@ -84,5 +84,7 @@ mod approval_flow;
 mod contract;
 #[path = "tests/live_generation.rs"]
 mod live_generation;
+#[path = "tests/plan_review.rs"]
+mod plan_review;
 #[path = "tests/readiness.rs"]
 mod readiness;

@@ -9,9 +9,9 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
         .and_then(crate::app::root::plan_review::PlanReview::take_result);
     let Some(result) = result else { return };
     let reviewed_feature = project.activity.plan_review_feature.clone();
+    let expected_revision = project.activity.plan_review_revision.take();
     project.activity.plan_review = None;
     project.activity.plan_review_feature = None;
-    project.activity.plan_review_revision = None;
     project.live_progress = Default::default();
     let task_gate;
     let message = match result {
@@ -52,7 +52,7 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                 reviewer_session_id: Some(outcome.reviewer_session_id),
                 author_session_id: Some(outcome.author_session_id),
             };
-            let Some(expected_revision) = project.activity.plan_review_revision.take() else {
+            let Some(expected_revision) = expected_revision else {
                 return;
             };
             match crate::core::workflow::record_plan_review_if_current(

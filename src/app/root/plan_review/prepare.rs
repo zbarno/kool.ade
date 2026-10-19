@@ -2,7 +2,6 @@ use super::PlanReviewOutcome;
 use crate::harness::{ExecutionMode, LiveProgress, PlanningRequest};
 use std::sync::{Arc, atomic::AtomicBool, mpsc};
 mod context;
-#[cfg(not(test))]
 pub(super) fn recover_persisted_review(
     project: &super::super::session::Project,
     feature_id: &str,

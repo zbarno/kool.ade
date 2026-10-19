@@ -1,5 +1,4 @@
 //! Bounded independent review of a persisted, user-confirmed plan snapshot.
-#[cfg(not(test))]
 use crate::harness::AiHarness;
 use std::sync::{
     Arc,
@@ -8,7 +7,6 @@ use std::sync::{
 };
 
 mod prepare;
-#[cfg(not(test))]
 use prepare::recover_persisted_review;
 
 pub(crate) struct PlanReview {
@@ -38,7 +36,6 @@ impl PlanReview {
         prepare::prepare(project, feature_id).map(|_| ())
     }
 
-    #[cfg(not(test))]
     pub(crate) fn start(
         project: &super::session::Project,
         feature_id: String,
