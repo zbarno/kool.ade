@@ -24,9 +24,11 @@ impl crate::harness::AiHarness for CaptureAnswer {
 }
 
 /// Production boundary: the real answer command must persist the user's
-/// response and hand it to the Manager before the lifecycle accepts AnswersResolved.
-/// A QuestionV1 unit test cannot prove the app checks the current feature snapshot,
-/// recomputes readiness, records the answer, and dispatches the interview turn.
+/// response and hand it to the Manager. A QuestionV1 unit test cannot prove the
+/// app checks the current feature snapshot, recomputes readiness, records the
+/// answer, and dispatches the interview turn. The caller applies a separate
+/// synthetic lifecycle AnswersResolved event afterward; this does not prove the
+/// lifecycle event is causally gated on the QuestionV1 answer.
 /// Dependencies: headless app fixture, temporary planning/chat stores, and a
 /// scripted in-process harness; no Docker or network. Setup cost is low.
 pub(super) fn answer_product_question(
