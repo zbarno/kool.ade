@@ -20,11 +20,30 @@ pub async fn start_web_preview(
     spec: QaWebPreviewSpec<'_>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<QaWebPreview, ExecutionError> {
+    let lock = ImageLock::bundled().map_err(|_| denied("QA image lock is invalid"))?;
+    start_web_preview_for_lock(docker, spec, cancel, &lock).await
+}
+
+#[cfg(test)]
+pub(crate) async fn start_web_preview_with_lock(
+    docker: &Docker,
+    spec: QaWebPreviewSpec<'_>,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    lock: &ImageLock,
+) -> Result<QaWebPreview, ExecutionError> {
+    start_web_preview_for_lock(docker, spec, cancel, lock).await
+}
+
+async fn start_web_preview_for_lock(
+    docker: &Docker,
+    spec: QaWebPreviewSpec<'_>,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    lock: &ImageLock,
+) -> Result<QaWebPreview, ExecutionError> {
     validate_spec(&spec)?;
     if *cancel.borrow() {
         return Err(denied("QA web preview was cancelled before launch"));
     }
-    let lock = ImageLock::bundled().map_err(|_| denied("QA image lock is invalid"))?;
     let architecture = spec
         .browser_image
         .platform

@@ -289,14 +289,14 @@ jobs:
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
         with:
           syft-version: v1.54.1
-      - name: Install the pinned Rust toolchain for the desktop driver
-        if: matrix.profile == 'desktop_qa'
+      - name: Install the pinned Rust toolchain for app-owned QA lifecycle checks
+        if: matrix.profile == 'desktop_qa' || matrix.profile == 'browser_qa'
         run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Cache Rust desktop-driver build artifacts
-        if: matrix.profile == 'desktop_qa'
+      - name: Cache Rust QA lifecycle test artifacts
+        if: matrix.profile == 'desktop_qa' || matrix.profile == 'browser_qa'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1-desktop-qa
+          shared-key: rust-1.98.1-qa-lifecycle
           cache-workspace-crates: true
       - name: Build rootless candidate and retain image evidence
         env:
@@ -316,6 +316,20 @@ jobs:
           export KOOLADE_QA_DESKTOP_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
           cargo +1.98.1 test --locked --lib \
             execution::docker::qa_container::tests::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate \
+            -- --ignored --exact
+      - name: Exercise app-owned Python preview, browser run, evidence, and cleanup
+        if: matrix.profile == 'browser_qa'
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-browser_qa-amd64/executor-image.json
+        run: |
+          set -euo pipefail
+          export KOOLADE_QA_BROWSER_IMAGE=koolade-runtime-qa:browser_qa-candidate
+          export KOOLADE_QA_BROWSER_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
+          python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$python_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$python_image"
+          cargo +1.98.1 test --locked --lib \
+            execution::docker::qa_container::tests::browser_rootless::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up \
             -- --ignored --exact
       - name: Verify candidate record and report its immutable digest
         env:

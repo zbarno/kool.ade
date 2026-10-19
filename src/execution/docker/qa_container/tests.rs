@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "tests/browser_rootless.rs"]
+mod browser_rootless;
+
 fn request() -> crate::runtime_qa::QaRunRequestV1 {
     let uid = || uuid::Uuid::new_v4().hyphenated().to_string();
     crate::runtime_qa::QaRunRequestV1 {

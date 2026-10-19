@@ -96,8 +96,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("QA_FIXTURE_PORT", "4173"))
-    host = os.environ.get("QA_FIXTURE_HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", os.environ.get("QA_FIXTURE_PORT", "4173")))
+    host = os.environ.get("HOST", os.environ.get("QA_FIXTURE_HOST", "127.0.0.1"))
     udp = UdpServer((host, int(os.environ.get("QA_FIXTURE_UDP_PORT", "4174"))), UdpHandler)
     threading.Thread(target=udp.serve_forever, daemon=True).start()
     ThreadingHTTPServer((host, port), Handler).serve_forever()

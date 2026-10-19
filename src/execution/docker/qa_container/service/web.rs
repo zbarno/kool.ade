@@ -15,6 +15,8 @@ mod launch;
 mod tests;
 pub use cleanup::{cleanup_web_preview, recover_owned_web_preview};
 pub use launch::start_web_preview;
+#[cfg(test)]
+pub(crate) use launch::start_web_preview_with_lock;
 
 const OWNER: &str = "com.koolade.qa.owner";
 const RUN: &str = "com.koolade.qa.run";

@@ -13,6 +13,8 @@ mod store;
 mod tests;
 mod worker_handle;
 
+#[cfg(test)]
+pub(crate) use browser_driver::{build_browser_request, parse_browser_output};
 pub use contracts::*;
 pub use gate::approved_gate_receipt;
 pub use orchestrator::{
