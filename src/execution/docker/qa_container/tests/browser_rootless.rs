@@ -74,7 +74,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         recipe_id: "python-preview".into(),
         source: RecipeSource::UserApproved,
         working_directory_relative: ".".into(),
-        executable_id: "python3".into(),
+        executable_id: "python".into(),
         argv: vec!["/workspace/server.py".into()],
         allowed_env_keys: vec!["HOST".into(), "PORT".into()],
         allowed_output_paths: vec!["dist".into()],
@@ -82,7 +82,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         expected_exit_codes: vec![0],
         expected_artifacts: vec![],
         cache_scope: None,
-        prerequisite_tool_ids: vec!["python3".into()],
+        prerequisite_tool_ids: vec!["python".into()],
         network_requirement: NetworkRequirement::ApprovedServicePorts,
         evidence_refs: vec!["user-approval:rootless-python-preview-fixture".into()],
     };
