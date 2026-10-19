@@ -124,15 +124,21 @@ impl QaDriverContainerSpec<'_> {
         let mut tmpfs = HashMap::from([
             (
                 "/tmp".into(),
-                format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+                format!(
+                    "rw,nosuid,nodev,noexec,size={temporary_bytes},uid=10001,gid=10001,mode=1777"
+                ),
             ),
             (
                 "/run".into(),
-                format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+                format!(
+                    "rw,nosuid,nodev,noexec,size={temporary_bytes},uid=10001,gid=10001,mode=0755"
+                ),
             ),
             (
                 "/home/executor".into(),
-                format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+                format!(
+                    "rw,nosuid,nodev,noexec,size={temporary_bytes},uid=10001,gid=10001,mode=0755"
+                ),
             ),
         ]);
         if self
@@ -142,7 +148,7 @@ impl QaDriverContainerSpec<'_> {
         {
             tmpfs.insert(
                 "/workspace".into(),
-                format!("rw,nosuid,nodev,size={temporary_bytes}"),
+                format!("rw,nosuid,nodev,size={temporary_bytes},uid=10001,gid=10001,mode=0755"),
             );
         }
         Ok(ContainerCreateBody {

@@ -1,18 +1,18 @@
 use std::time::Duration;
 
-use bollard::{
-    container::LogOutput,
-    models::ContainerCreateBody,
-    query_parameters::{
-        LogsOptionsBuilder, RemoveContainerOptionsBuilder, WaitContainerOptionsBuilder,
-    },
-};
-use futures_util::StreamExt;
+use bollard::{models::ContainerCreateBody, query_parameters::RemoveContainerOptionsBuilder};
 
 use super::super::{QaContainerUpload, denied};
 use crate::execution::errors::ExecutionError;
 
+mod exec;
+mod staging;
+use exec::run_driver_exec;
+use staging::upload_snapshots;
+
 const MAX_DRIVER_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+const DRIVER_LABEL: &str = "com.koolade.qa.driver";
+const DRIVER_MODE_LABEL: &str = "com.koolade.qa.mode";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverContainerOutput {
@@ -51,8 +51,8 @@ pub async fn run_ephemeral_driver(
     }
 }
 
-/// Create and upload an unstarted driver. The caller can bind the returned
-/// inspected container ID into the immutable run before allowing it to start.
+/// Start an idle driver, stage snapshots into its tmpfs mounts, and return its
+/// inspected identity for durable binding before executing the driver.
 pub async fn create_driver_container(
     docker: &bollard::Docker,
     container_name: &str,
@@ -76,6 +76,24 @@ pub async fn create_driver_container(
             "QA driver launch identity, bounds, or cancellation state is invalid",
         ));
     }
+    let mut body = body;
+    let driver = body
+        .labels
+        .as_ref()
+        .and_then(|labels| labels.get(DRIVER_LABEL))
+        .map(String::as_str)
+        .unwrap_or_default();
+    let requested_args = body.cmd.take().unwrap_or_default();
+    let mode = match (driver, requested_args.as_slice()) {
+        ("browser", []) | ("desktop", []) => "default",
+        ("desktop", [arg]) if arg == "--fixture-smoke" => "fixture-smoke",
+        _ => return Err(denied("QA driver command is not an approved fixed mode")),
+    };
+    let labels = body.labels.get_or_insert_with(Default::default);
+    labels.insert(DRIVER_MODE_LABEL.into(), mode.into());
+    body.entrypoint = Some(vec!["/usr/bin/sleep".into()]);
+    body.cmd = Some(vec!["infinity".into()]);
+
     let created = docker
         .create_container(
             Some(
@@ -91,7 +109,13 @@ pub async fn create_driver_container(
         return Err(denied("QA driver container could not be created"));
     }
     let container_id = created.id;
-    if let Err(error) = upload_snapshots(docker, &container_id, uploads).await {
+    if docker.start_container(&container_id, None).await.is_err() {
+        let _ = cleanup_driver_container(docker, &container_id).await;
+        return Err(denied(
+            "QA driver container could not be started for staging",
+        ));
+    }
+    if let Err(error) = upload_snapshots(docker, &container_id, uploads, timeout, cancel).await {
         let _ = cleanup_driver_container(docker, &container_id).await;
         return Err(error);
     }
@@ -115,8 +139,41 @@ pub async fn run_created_driver(
     {
         return Err(denied("QA driver run identity or bounds are invalid"));
     }
-    let exit_code = run_until_exit(docker, container_id, timeout, cancel).await?;
-    read_output(docker, container_id, exit_code, max_output_bytes).await
+    let inspect = docker
+        .inspect_container(container_id, None)
+        .await
+        .map_err(|_| denied("QA driver identity could not be inspected"))?;
+    let labels = inspect
+        .config
+        .and_then(|config| config.labels)
+        .unwrap_or_default();
+    let command = match (
+        labels.get(DRIVER_LABEL).map(String::as_str),
+        labels.get(DRIVER_MODE_LABEL).map(String::as_str),
+    ) {
+        (Some("browser"), Some("default")) => {
+            vec!["node".into(), "/opt/koolade-runtime-qa/driver.mjs".into()]
+        }
+        (Some("desktop"), Some("default")) => vec!["/usr/local/bin/koolade-qa-desktop".into()],
+        (Some("desktop"), Some("fixture-smoke")) => vec![
+            "/usr/local/bin/koolade-qa-desktop".into(),
+            "--fixture-smoke".into(),
+        ],
+        _ => return Err(denied("QA driver launch mode is not approved")),
+    };
+    let output = run_driver_exec(
+        docker,
+        container_id,
+        command,
+        timeout,
+        max_output_bytes,
+        cancel,
+    )
+    .await?;
+    if output.exit_code != 0 {
+        return Err(denied("QA driver command exited with a failure status"));
+    }
+    Ok(output)
 }
 
 pub async fn cleanup_driver_container(
@@ -179,109 +236,6 @@ pub async fn recover_driver_container(
         .as_deref()
         .ok_or_else(|| denied("owned orphan QA driver has no inspected container ID"))?;
     cleanup_driver_container(docker, id).await
-}
-
-async fn upload_snapshots(
-    docker: &bollard::Docker,
-    container_id: &str,
-    uploads: &[QaContainerUpload],
-) -> Result<(), ExecutionError> {
-    if uploads.is_empty() || uploads.len() > 4 {
-        return Err(denied("QA driver upload set is empty or exceeds its bound"));
-    }
-    for upload in uploads {
-        if !matches!(
-            upload.target.as_str(),
-            "/workspace" | "/run/koolade-runtime-qa"
-        ) || upload.archive.is_empty()
-        {
-            return Err(denied("QA driver upload target or archive is invalid"));
-        }
-        docker
-            .upload_to_container(
-                container_id,
-                Some(
-                    bollard::query_parameters::UploadToContainerOptionsBuilder::default()
-                        .path(&upload.target)
-                        .copy_uidgid("1")
-                        .build(),
-                ),
-                bollard::body_full(upload.archive.clone().into()),
-            )
-            .await
-            .map_err(|_| denied("QA driver artifact snapshot could not be uploaded"))?;
-    }
-    Ok(())
-}
-
-async fn run_until_exit(
-    docker: &bollard::Docker,
-    container_id: &str,
-    timeout: Duration,
-    cancel: &mut tokio::sync::watch::Receiver<bool>,
-) -> Result<i64, ExecutionError> {
-    docker
-        .start_container(container_id, None)
-        .await
-        .map_err(|_| denied("QA driver container could not be started"))?;
-    let mut wait = docker.wait_container(
-        container_id,
-        Some(
-            WaitContainerOptionsBuilder::default()
-                .condition("not-running")
-                .build(),
-        ),
-    );
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep_until(deadline) => return Err(denied("QA driver exceeded its approved timeout")),
-            changed = cancel.changed() => {
-                if changed.is_err() || *cancel.borrow() {
-                    return Err(denied("QA driver was cancelled"));
-                }
-            }
-            status = wait.next() => return match status {
-                Some(Ok(status)) if status.status_code == 0 => Ok(status.status_code),
-                Some(Ok(_)) => Err(denied("QA driver container exited with a failure status")),
-                _ => Err(denied("QA driver container ended without an exit status")),
-            }
-        }
-    }
-}
-
-async fn read_output(
-    docker: &bollard::Docker,
-    container_id: &str,
-    exit_code: i64,
-    max_output_bytes: usize,
-) -> Result<DriverContainerOutput, ExecutionError> {
-    let options = LogsOptionsBuilder::default()
-        .stdout(true)
-        .stderr(true)
-        .follow(false)
-        .timestamps(false)
-        .build();
-    let mut logs = docker.logs(container_id, Some(options));
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    while let Some(output) = logs.next().await {
-        let output = output.map_err(|_| denied("QA driver logs could not be read"))?;
-        match output {
-            LogOutput::StdOut { message } => stdout.extend_from_slice(&message),
-            LogOutput::StdErr { message } => stderr.extend_from_slice(&message),
-            LogOutput::Console { message } => stdout.extend_from_slice(&message),
-            LogOutput::StdIn { .. } => {}
-        }
-        if stdout.len().saturating_add(stderr.len()) > max_output_bytes {
-            return Err(denied("QA driver output exceeds its byte limit"));
-        }
-    }
-    Ok(DriverContainerOutput {
-        exit_code,
-        stdout,
-        stderr,
-    })
 }
 
 fn uuid_is_canonical(value: &str) -> bool {
