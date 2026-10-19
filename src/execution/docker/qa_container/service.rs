@@ -1,6 +1,7 @@
 mod network;
 mod runner;
 mod web;
+pub(crate) use runner::{stage_qa_uploads, start_detached_exec};
 
 pub use network::{
     validate_browser_driver_network, validate_preview_relay_network, validate_task_service_network,

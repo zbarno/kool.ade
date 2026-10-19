@@ -132,6 +132,10 @@ fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contr
     validate_spec(&spec).unwrap();
     let body = service_body(&spec, &"f".repeat(64)).unwrap();
     assert_eq!(body.image.as_deref(), Some(image.reference.as_str()));
+    assert!(
+        body.host_config.as_ref().unwrap().tmpfs.as_ref().unwrap()["/workspace"]
+            .contains("uid=10001,gid=10001")
+    );
     assert_eq!(
         body.entrypoint.as_deref(),
         Some(["python3".to_owned()].as_slice())
@@ -147,6 +151,29 @@ fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contr
         !environment
             .iter()
             .any(|value| value.contains("TOKEN") || value.contains("SECRET"))
+    );
+}
+
+#[test]
+fn preview_relay_health_checks_the_exact_task_service_path() {
+    let (request, recipe, image, upload, resources) = fixture();
+    let spec = QaWebPreviewSpec {
+        request: &request,
+        browser_image: &image,
+        service_image: &image,
+        recipe: &recipe,
+        artifact_upload: &upload,
+        dependency_caches: &[],
+        preview_port: 4173,
+        health_path: "/healthz?probe=ready",
+        resources: &resources,
+    };
+    let body = relay_body(&spec, "task-network");
+    let command = body.healthcheck.unwrap().test.unwrap();
+    assert!(command[3].contains("service.status<500"));
+    assert_eq!(
+        command.last().map(String::as_str),
+        Some("http://qa-task:4173/healthz?probe=ready")
     );
 }
 

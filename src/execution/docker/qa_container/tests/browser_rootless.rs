@@ -3,8 +3,9 @@ use crate::{
     execution::docker::{
         images::{ImageLock, RuntimeProfile},
         qa_container::{
-            QaDriverNetwork, QaWebPreviewSpec, cleanup_web_preview, run_ephemeral_driver,
-            snapshot_selected_files,
+            QaDriverNetwork, QaWebPreviewSpec, cleanup_driver_container, cleanup_web_preview,
+            create_driver_container, run_created_driver, snapshot_selected_files,
+            validate_browser_driver_network, validate_preview_relay_network,
         },
     },
     project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource},
@@ -187,7 +188,16 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     )
     .await
     .unwrap();
+    validate_preview_relay_network(
+        &docker,
+        &request,
+        &preview.service_lease,
+        &preview.relay_binding,
+    )
+    .await
+    .unwrap();
 
+    let mut driver_container_id = None;
     let driver_result: Result<_, String> = async {
         let artifacts = [QaArtifactMount::inspect(artifact_root.path(), "/workspace")
             .map_err(|error| error.message)?];
@@ -210,11 +220,27 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         let body = spec
             .create_body_with_lock(&lock)
             .map_err(|error| error.message)?;
-        let output = run_ephemeral_driver(
+        let name = format!("koolade-qa-{}", request.qa_run_id);
+        let driver_id = create_driver_container(
             &docker,
-            &format!("koolade-qa-{}", request.qa_run_id),
+            &name,
             body,
             &uploads,
+            Duration::from_secs(120),
+            16 * 1024 * 1024,
+            &mut cancel,
+        )
+        .await
+        .map_err(|error| error.message)?;
+        driver_container_id = Some(driver_id.clone());
+        let mut relay_binding = preview.relay_binding.clone();
+        relay_binding.browser_container_id = Some(driver_id.clone());
+        validate_browser_driver_network(&docker, &request, &relay_binding, &driver_id)
+            .await
+            .map_err(|error| error.message)?;
+        let output = run_created_driver(
+            &docker,
+            &driver_id,
             Duration::from_secs(120),
             16 * 1024 * 1024,
             &mut cancel,
@@ -224,8 +250,13 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         parse_browser_output(&output.stdout, &request, &scenario)
     }
     .await;
+    let driver_cleanup_result = match driver_container_id {
+        Some(driver_id) => cleanup_driver_container(&docker, &driver_id).await,
+        None => Ok(()),
+    };
     let cleanup_result =
         cleanup_web_preview(&docker, &preview.service_lease, &preview.relay_binding).await;
+    driver_cleanup_result.unwrap();
     cleanup_result.unwrap();
     let output = driver_result.unwrap();
     assert!(output.completed);

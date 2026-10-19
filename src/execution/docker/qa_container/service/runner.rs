@@ -10,9 +10,12 @@ mod staging;
 use exec::run_driver_exec;
 use staging::upload_snapshots;
 
+pub(crate) use exec::start_detached_exec;
+pub(crate) use staging::upload_snapshots as stage_qa_uploads;
+
 const MAX_DRIVER_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
 const DRIVER_LABEL: &str = "com.koolade.qa.driver";
-const DRIVER_MODE_LABEL: &str = "com.koolade.qa.mode";
+pub(super) const DRIVER_MODE_LABEL: &str = "com.koolade.qa.mode";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DriverContainerOutput {

@@ -1,11 +1,9 @@
-use bollard::{Docker, query_parameters::CreateContainerOptionsBuilder};
+use bollard::Docker;
 
 use super::super::super::{QaWebPreview, QaWebPreviewSpec, denied};
 mod helpers;
-use super::{
-    connect_request, network_request, now_ms, readiness_timeout, relay_body, remove_owned_network,
-    service_body, validate_spec,
-};
+mod task_service;
+use super::{network_request, now_ms, remove_owned_network, validate_spec};
 use crate::{
     execution::{
         docker::images::{ImageLock, RuntimeProfile},
@@ -13,7 +11,7 @@ use crate::{
     },
     runtime_qa::{QaPreviewRelayBindingV1, QaTaskServiceLeaseV1},
 };
-use helpers::{remove_named, wait_healthy};
+use helpers::remove_named;
 
 pub async fn start_web_preview(
     docker: &Docker,
@@ -102,7 +100,7 @@ async fn start_web_preview_for_lock(
     };
     let task_name = format!("koolade-qa-service-{run}");
     let relay_name = format!("koolade-qa-relay-{run}");
-    let result = launch_containers(
+    let result = task_service::launch_containers(
         docker,
         &spec,
         cancel,
@@ -178,102 +176,4 @@ async fn start_web_preview_for_lock(
             Err(error)
         }
     }
-}
-
-async fn launch_containers(
-    docker: &Docker,
-    spec: &QaWebPreviewSpec<'_>,
-    cancel: &mut tokio::sync::watch::Receiver<bool>,
-    task_network: &str,
-    browser_network: &str,
-    task_name: &str,
-    relay_name: &str,
-) -> Result<(String, String), ExecutionError> {
-    let body = service_body(spec, task_network)?;
-    let task_id = docker
-        .create_container(
-            Some(
-                CreateContainerOptionsBuilder::default()
-                    .name(task_name)
-                    .build(),
-            ),
-            body,
-        )
-        .await
-        .map_err(|_| denied("Approved QA task service container could not be created"))?
-        .id;
-    docker
-        .upload_to_container(
-            &task_id,
-            Some(
-                bollard::query_parameters::UploadToContainerOptionsBuilder::default()
-                    .path("/workspace")
-                    .copy_uidgid("1")
-                    .build(),
-            ),
-            bollard::body_full(spec.artifact_upload.archive.clone().into()),
-        )
-        .await
-        .map_err(|_| denied("Receipt-verified QA build snapshot could not be uploaded"))?;
-    for cache in spec.dependency_caches {
-        let path = match cache.cache_ref.ecosystem {
-            crate::execution::contract::DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
-            crate::execution::contract::DependencyCacheEcosystemV1::Cargo => {
-                "/home/executor/.cargo"
-            }
-        };
-        docker
-            .upload_to_container(
-                &task_id,
-                Some(
-                    bollard::query_parameters::UploadToContainerOptionsBuilder::default()
-                        .path(path)
-                        .build(),
-                ),
-                bollard::body_full(
-                    super::dependency_cache::archive_for_runtime_user(
-                        cache,
-                        &spec.service_image.runtime_user,
-                    )?
-                    .into(),
-                ),
-            )
-            .await
-            .map_err(|_| {
-                denied("Verified dependency cache could not be uploaded to the QA service")
-            })?;
-    }
-    if *cancel.borrow() {
-        return Err(denied("QA web preview was cancelled before service start"));
-    }
-    docker
-        .start_container(&task_id, None)
-        .await
-        .map_err(|_| denied("Approved QA task service could not start"))?;
-    let relay_body = relay_body(spec, task_network);
-    let relay_id = docker
-        .create_container(
-            Some(
-                CreateContainerOptionsBuilder::default()
-                    .name(relay_name)
-                    .build(),
-            ),
-            relay_body,
-        )
-        .await
-        .map_err(|_| denied("QA preview relay container could not be created"))?
-        .id;
-    docker
-        .connect_network(browser_network, connect_request(&relay_id, "qa-preview"))
-        .await
-        .map_err(|_| denied("QA preview relay could not join the private browser network"))?;
-    if *cancel.borrow() {
-        return Err(denied("QA web preview was cancelled before relay start"));
-    }
-    docker
-        .start_container(&relay_id, None)
-        .await
-        .map_err(|_| denied("QA preview relay could not start"))?;
-    wait_healthy(docker, &relay_id, readiness_timeout(spec.recipe), cancel).await?;
-    Ok((task_id, relay_id))
 }

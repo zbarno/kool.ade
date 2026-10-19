@@ -41,26 +41,26 @@ pub(super) fn service_tmpfs(
     spec: &QaWebPreviewSpec<'_>,
     env: &mut Vec<String>,
 ) -> Result<HashMap<String, String>, ExecutionError> {
+    let (uid, gid) = runtime_uid_gid(&spec.service_image.runtime_user)?;
     let mut tmpfs = HashMap::from([
         (
             "/tmp".into(),
             format!(
-                "rw,nosuid,nodev,noexec,size={}",
-                spec.resources.temporary_disk_bytes / 2
+                "rw,nosuid,nodev,noexec,size={},uid={uid},gid={gid}",
+                spec.resources.temporary_disk_bytes / 2,
             ),
         ),
         (
             "/workspace".into(),
             format!(
-                "rw,nosuid,nodev,size={}",
-                spec.resources.temporary_disk_bytes / 2
+                "rw,nosuid,nodev,size={},uid={uid},gid={gid}",
+                spec.resources.temporary_disk_bytes / 2,
             ),
         ),
     ]);
     if spec.dependency_caches.is_empty() {
         return Ok(tmpfs);
     }
-    let (uid, gid) = runtime_uid_gid(&spec.service_image.runtime_user)?;
     let cache_mount = format!(
         "rw,nosuid,nodev,noexec,size={},uid={uid},gid={gid}",
         spec.resources.temporary_disk_bytes / 4

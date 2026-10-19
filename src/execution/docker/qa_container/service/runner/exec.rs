@@ -6,6 +6,7 @@ use futures_util::TryStreamExt;
 use tokio::io::AsyncWriteExt;
 
 use super::DriverContainerOutput;
+use crate::execution::docker::images::{EXECUTOR_GID, EXECUTOR_UID};
 use crate::execution::docker::qa_container::denied;
 use crate::execution::errors::ExecutionError;
 
@@ -44,7 +45,7 @@ pub(super) async fn run_attached_exec(
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
                 cmd: Some(command),
-                user: Some("10001:10001".into()),
+                user: Some(executor_runtime_user()),
                 privileged: Some(false),
                 ..Default::default()
             },
@@ -108,4 +109,70 @@ pub(super) async fn run_attached_exec(
         stdout,
         stderr,
     })
+}
+
+pub(crate) async fn start_detached_exec(
+    docker: &bollard::Docker,
+    container_id: &str,
+    command: Vec<String>,
+    runtime_user: &str,
+    timeout: Duration,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<(), ExecutionError> {
+    if command.is_empty()
+        || runtime_user != executor_runtime_user()
+        || command.iter().any(|argument| argument.contains('\0'))
+        || timeout.is_zero()
+        || timeout > Duration::from_secs(7200)
+        || *cancel.borrow()
+    {
+        return Err(denied("Approved QA service command is invalid"));
+    }
+    let deadline = tokio::time::Instant::now() + timeout;
+    let start = async {
+        let exec = docker
+            .create_exec(
+                container_id,
+                CreateExecOptions::<String> {
+                    attach_stdin: Some(false),
+                    attach_stdout: Some(false),
+                    attach_stderr: Some(false),
+                    cmd: Some(command),
+                    user: Some(runtime_user.into()),
+                    privileged: Some(false),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|_| denied("Approved QA service command could not be created"))?;
+        match docker
+            .start_exec(
+                &exec.id,
+                Some(StartExecOptions {
+                    detach: true,
+                    tty: false,
+                    output_capacity: Some(64 * 1024),
+                }),
+            )
+            .await
+            .map_err(|_| denied("Approved QA service command could not start"))?
+        {
+            StartExecResults::Detached => Ok(()),
+            StartExecResults::Attached { .. } => {
+                Err(denied("Approved QA service command did not detach"))
+            }
+        }
+    };
+    tokio::select! {
+        _ = tokio::time::sleep_until(deadline) => Err(denied("Approved QA service command start exceeded its timeout")),
+        changed = cancel.changed() => {
+            let _ = changed;
+            Err(denied("Approved QA service command start was cancelled"))
+        }
+        result = start => result,
+    }
+}
+
+fn executor_runtime_user() -> String {
+    format!("{EXECUTOR_UID}:{EXECUTOR_GID}")
 }

@@ -204,8 +204,13 @@ pub(super) fn relay_body(spec: &QaWebPreviewSpec<'_>, network_id: &str) -> Conta
             ..Default::default()
         }),
         healthcheck: Some(HealthConfig {
-            test: Some(vec!["CMD".into(), "node".into(), "-e".into(),
-                "fetch('http://127.0.0.1:8080/__koolade_health').then(r=>process.exit(r.status===204?0:1)).catch(()=>process.exit(1))".into()]),
+            test: Some(vec![
+                "CMD".into(),
+                "node".into(),
+                "-e".into(),
+                "Promise.all([fetch('http://127.0.0.1:8080/__koolade_health'),fetch(process.argv.at(-1))]).then(([relay,service])=>process.exit(relay.status===204&&service.status<500?0:1)).catch(()=>process.exit(1))".into(),
+                format!("http://qa-task:{}{}", spec.preview_port, spec.health_path),
+            ]),
             interval: Some(1_000_000_000), timeout: Some(2_000_000_000), retries: Some(3),
             start_period: Some(65_000_000_000), ..Default::default()
         }),
