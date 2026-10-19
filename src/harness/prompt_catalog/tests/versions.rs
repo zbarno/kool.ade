@@ -107,8 +107,8 @@ fn manager_v4_and_v5_prompt_manifests_remain_readable_after_the_v6_evidence_rule
         PromptRole::ManagerV5
     );
 
-    let current = render(&base(
-        PromptRole::Manager,
+    let prior = render(&base(
+        PromptRole::ManagerV6,
         RolePayloadV1::Manager {
             board_event_cursor: "cursor-v6".into(),
             work_graph: vec![],
@@ -118,7 +118,24 @@ fn manager_v4_and_v5_prompt_manifests_remain_readable_after_the_v6_evidence_rule
     ))
     .unwrap()
     .manifest;
-    assert_eq!(current.role_version, "manager/v6");
+    assert_eq!(prior.role_version, "manager/v6");
+    assert_eq!(
+        validate_prompt_manifest(&prior).unwrap(),
+        PromptRole::ManagerV6
+    );
+
+    let current = render(&base(
+        PromptRole::Manager,
+        RolePayloadV1::Manager {
+            board_event_cursor: "cursor-v7".into(),
+            work_graph: vec![],
+            unresolved_findings: vec![],
+            latest_review_receipts: vec![],
+        },
+    ))
+    .unwrap()
+    .manifest;
+    assert_eq!(current.role_version, "manager/v7");
     assert_eq!(
         validate_prompt_manifest(&current).unwrap(),
         PromptRole::Manager

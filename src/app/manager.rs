@@ -1,6 +1,7 @@
 //! Independent project-manager updates; task workers never write into main chat.
 mod catalog;
 mod dependency;
+mod execute;
 mod prompt;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 
@@ -176,6 +177,8 @@ pub(super) struct ManagerOutput {
     pub summary: String,
     pub opportunities: Vec<crate::harness::prompt_catalog::OpportunityProposalV1>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
+    pub evidence_confidentialities:
+        std::collections::HashMap<String, crate::harness::prompt_catalog::EvidenceConfidentiality>,
 }
 
 pub(super) fn persist_output(project: &super::session::Project, output: &ManagerOutput) -> String {
@@ -199,10 +202,7 @@ impl Manager {
         let (done, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let prepared = catalog::render(project, events);
-        let evidence_hashes = prepared
-            .as_ref()
-            .map(|prompt| prompt.evidence_hashes.clone())
-            .unwrap_or_default();
+        let product_prepared = catalog::render_product(project);
         let prompt_body = prepared
             .as_ref()
             .map(|prompt| prompt.rendered.user.clone())
@@ -239,35 +239,7 @@ impl Manager {
             authorization_verifier: None,
             review_identity: None,
         };
-        std::thread::spawn(move || {
-            let prepared = match prepared {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    let _ = done.send(Err(error));
-                    return;
-                }
-            };
-            let mut outcome = Err("Project manager did not complete".into());
-            for _ in 0..2 {
-                if request.cancel.load(Ordering::Relaxed) {
-                    return;
-                }
-                outcome = harness
-                    .execute(&request)
-                    .map_err(|e| e.detail())
-                    .and_then(|r| {
-                        catalog::decode(
-                            &r.final_text,
-                            &prepared.validation,
-                            evidence_hashes.clone(),
-                        )
-                    });
-                if outcome.is_ok() {
-                    break;
-                }
-            }
-            let _ = done.send(outcome);
-        });
+        execute::launch(harness, request, prepared, product_prepared, done);
         Self {
             progress,
             result,

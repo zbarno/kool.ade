@@ -133,8 +133,9 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
     items
 }
 
-/// Public, compiled product documentation can support a product proposal while
-/// the active workspace is a separate repository. It contains no workspace data.
+/// Designated model-shareable product documentation, compiled into the app.
+/// These files must contain only public product information even when edited
+/// locally, because uncommitted build-tree contents are included here.
 pub(in crate::app::manager::catalog) fn koolade_product_contract_evidence(
     workspace_uid: &str,
 ) -> EvidenceItem {
@@ -148,6 +149,22 @@ pub(in crate::app::manager::catalog) fn koolade_product_contract_evidence(
             include_str!("../../../../../docs/opportunity-discovery.md"),
             12_000,
         ),
+    }
+}
+
+pub(in crate::app::manager::catalog) fn koolade_product_capability_evidence(
+    workspace_uid: &str,
+) -> EvidenceItem {
+    EvidenceItem {
+        id: "koolade-product-capability-inventory".into(),
+        workspace_uid: workspace_uid.to_owned(),
+        origin: EvidenceOrigin::Application,
+        confidentiality: EvidenceConfidentiality::Public,
+        source: "designated model-shareable Kool.ad/e capability inventory".into(),
+        content: include_str!(
+            "../../../../../.koolade-packet/planning/product/current-capabilities.md"
+        )
+        .into(),
     }
 }
 

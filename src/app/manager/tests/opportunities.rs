@@ -2,6 +2,9 @@ use super::*;
 use crate::harness::{AiHarness, HarnessOutcome};
 use std::{path::Path, process::Command, thread, time::Instant};
 
+#[path = "opportunities/product_isolation.rs"]
+mod product_isolation;
+
 struct OpportunityHarness(String);
 
 impl AiHarness for OpportunityHarness {
@@ -69,6 +72,20 @@ fn proposal_json(repository: &str) -> serde_json::Value {
         "generic_capability_check": "Checked generic-capability-inventory: the current generic path was inspected",
         "deduplication_basis": "No matching open proposal was supplied"
     })
+}
+
+fn product_proposal_json() -> serde_json::Value {
+    let mut proposal = proposal_json("https://github.com/zbarno/kool.ade");
+    proposal["target"] = serde_json::json!("koolade_product");
+    proposal["target_repository_ref"] = serde_json::json!("koolade-product");
+    proposal["evidence_refs"] = serde_json::json!([
+        "koolade-product-capability-inventory",
+        "koolade-product-opportunity-contract"
+    ]);
+    proposal["generic_capability_check"] = serde_json::json!(
+        "Checked koolade-product-capability-inventory and koolade-product-opportunity-contract"
+    );
+    proposal
 }
 
 fn initialized_repository() -> (tempfile::TempDir, crate::app::session::Project, String) {
@@ -145,26 +162,67 @@ fn manager_prompt_supplies_public_product_evidence_only_for_linked_product_repo(
     );
 
     project.state.repositories.repositories[0].remote = "https://github.com/zbarno/kool.ade".into();
+    git(
+        &project.state.repo_root,
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://github.com/zbarno/kool.ade",
+        ],
+    );
     let linked = super::super::catalog::render(&project, &events).unwrap();
     assert!(
-        linked
+        !linked
             .validation
-            .public_evidence_ids
-            .contains("koolade-product-opportunity-contract")
+            .evidence_ids
+            .contains("koolade-product-opportunity-contract"),
+        "workspace manager must not receive product-public evidence"
     );
+    let product = super::super::catalog::render_product(&project)
+        .unwrap()
+        .expect("linked product checkout should enable a separate public scan");
     assert_eq!(
-        linked
+        product
             .validation
             .evidence_repository_refs
             .get("koolade-product-opportunity-contract")
             .map(String::as_str),
-        Some("root")
+        Some("koolade-product")
     );
     assert!(
-        linked
+        product
             .rendered
             .user
             .contains("koolade-product-opportunity-contract")
+    );
+    assert!(
+        product
+            .rendered
+            .user
+            .contains("koolade-product-capability-inventory")
+    );
+    assert!(
+        product
+            .rendered
+            .user
+            .contains("target_repository_ref=koolade-product")
+    );
+    assert!(
+        product
+            .rendered
+            .user
+            .contains("target_repository=https://github.com/zbarno/kool.ade")
+    );
+    assert!(
+        !product.rendered.user.contains(
+            &project
+                .state
+                .planning_store
+                .project_id
+                .hyphenated()
+                .to_string()
+        )
     );
 }
 

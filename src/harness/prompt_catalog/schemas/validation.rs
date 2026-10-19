@@ -207,7 +207,7 @@ pub fn validate_output_with_context(
             }
         }
     }
-    refs::validate_output_refs(&decoded, context)?;
+    refs::validate_output_refs(role, &decoded, context)?;
     Ok(decoded)
 }
 
@@ -243,6 +243,7 @@ fn decode(
     }
     match role {
         PromptRole::Manager
+        | PromptRole::ManagerV6
         | PromptRole::ManagerV5
         | PromptRole::ManagerV4
         | PromptRole::ManagerV3 => {

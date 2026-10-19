@@ -1,6 +1,9 @@
 use super::super::ManagerOutput;
 mod evidence;
-pub(super) use evidence::{koolade_product_contract_evidence, trusted_opportunity_evidence};
+pub(super) use evidence::{
+    koolade_product_capability_evidence, koolade_product_contract_evidence,
+    trusted_opportunity_evidence,
+};
 
 pub(in crate::app::manager) fn persist_opportunities(
     project: &super::super::super::session::Project,
@@ -9,7 +12,14 @@ pub(in crate::app::manager) fn persist_opportunities(
     output
         .opportunities
         .iter()
-        .map(|prompt| persist_opportunity(project, prompt, &output.evidence_hashes))
+        .map(|prompt| {
+            persist_opportunity(
+                project,
+                prompt,
+                &output.evidence_hashes,
+                &output.evidence_confidentialities,
+            )
+        })
         .collect()
 }
 
@@ -17,6 +27,10 @@ fn persist_opportunity(
     project: &super::super::super::session::Project,
     prompt: &crate::harness::prompt_catalog::OpportunityProposalV1,
     evidence_hashes: &std::collections::HashMap<String, String>,
+    evidence_confidentialities: &std::collections::HashMap<
+        String,
+        crate::harness::prompt_catalog::EvidenceConfidentiality,
+    >,
 ) -> String {
     use crate::{
         core::opportunity::{
@@ -28,13 +42,25 @@ fn persist_opportunity(
             OpportunityKind, OpportunityOrigin, OpportunityScope, OpportunityTarget,
         },
     };
-    let Some(repository) = project
-        .state
-        .repositories
-        .repositories
-        .iter()
-        .find(|repository| repository.id == prompt.target_repository_ref)
-    else {
+    let repository = if matches!(
+        prompt.target,
+        crate::harness::prompt_catalog::OpportunityTarget::KooladeProduct
+    ) {
+        project
+            .state
+            .repositories
+            .repositories
+            .iter()
+            .find(|repository| super::product::is_koolade_product_remote(&repository.remote))
+    } else {
+        project
+            .state
+            .repositories
+            .repositories
+            .iter()
+            .find(|repository| repository.id == prompt.target_repository_ref)
+    };
+    let Some(repository) = repository else {
         return format!(
             "Skipped opportunity with unknown repository reference {}",
             prompt.target_repository_ref
@@ -89,6 +115,9 @@ fn persist_opportunity(
             let digest = evidence_hashes
                 .get(evidence_id)
                 .ok_or_else(|| format!("missing evidence hash for {evidence_id}"))?;
+            let confidentiality = evidence_confidentialities
+                .get(evidence_id)
+                .ok_or_else(|| format!("missing confidentiality for {evidence_id}"))?;
             Ok(OpportunityEvidenceRefV1 {
                 evidence_uid: crate::core::project_repos::stable_uid(
                     &workspace_uid,
@@ -96,7 +125,15 @@ fn persist_opportunity(
                     evidence_id,
                 ),
                 sha256: digest.clone(),
-                confidentiality: EvidenceConfidentialityV1::UserLocal,
+                confidentiality: match confidentiality {
+                    crate::harness::prompt_catalog::EvidenceConfidentiality::Public => {
+                        EvidenceConfidentialityV1::Public
+                    }
+                    crate::harness::prompt_catalog::EvidenceConfidentiality::WorkspacePrivate
+                    | crate::harness::prompt_catalog::EvidenceConfidentiality::Restricted => {
+                        EvidenceConfidentialityV1::UserLocal
+                    }
+                },
             })
         })
         .collect::<Result<Vec<_>, String>>()

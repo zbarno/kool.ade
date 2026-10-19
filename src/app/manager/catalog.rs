@@ -8,12 +8,18 @@ use crate::harness::prompt_catalog::{
 };
 
 mod opportunities;
+mod product;
 pub(super) use opportunities::persist_opportunities;
+pub(super) use product::render_product;
+pub(super) const KOOLADE_PRODUCT_TARGET_REF: &str = "koolade-product";
 
 pub(super) struct ManagerPrompt {
     pub rendered: RenderedPrompt,
     pub validation: OutputValidationContext<'static>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
+    pub evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
+    pub repo_root: Option<std::path::PathBuf>,
+    pub _workspace_guard: Option<tempfile::TempDir>,
 }
 
 pub(super) fn render(
@@ -53,23 +59,8 @@ pub(super) fn render(
             id,
         )
     });
-    let koolade_product_repository_ref = project
-        .state
-        .repositories
-        .repositories
-        .iter()
-        .find(|repository| is_koolade_product_remote(&repository.remote))
-        .map(|repository| repository.id.clone());
     let summary = super::Manager::prompt_body(project, events);
-    let mut trusted_evidence = opportunities::trusted_opportunity_evidence(project);
-    let mut public_evidence_ids = HashSet::new();
-    let mut evidence_repository_refs = std::collections::HashMap::new();
-    if let Some(repository_ref) = &koolade_product_repository_ref {
-        let product_evidence = opportunities::koolade_product_contract_evidence(&workspace_uid);
-        public_evidence_ids.insert(product_evidence.id.clone());
-        evidence_repository_refs.insert(product_evidence.id.clone(), repository_ref.clone());
-        trusted_evidence.push(product_evidence);
-    }
+    let trusted_evidence = opportunities::trusted_opportunity_evidence(project);
     let mut evidence_hashes = std::collections::HashMap::from([(
         "workspace-summary".into(),
         format!("{:x}", sha2::Sha256::digest(summary.as_bytes())),
@@ -81,6 +72,13 @@ pub(super) fn render(
             item.id.clone(),
             format!("{:x}", sha2::Sha256::digest(item.content.as_bytes())),
         );
+    }
+    let mut evidence_confidentialities = std::collections::HashMap::from([(
+        "workspace-summary".to_owned(),
+        EvidenceConfidentiality::WorkspacePrivate,
+    )]);
+    for item in &trusted_evidence {
+        evidence_confidentialities.insert(item.id.clone(), item.confidentiality);
     }
     let allowed_repositories = project
         .state
@@ -142,12 +140,12 @@ pub(super) fn render(
             evidence_ids,
             allowed_repositories,
             active_repository_ref,
-            koolade_product_repository_ref,
-            public_evidence_ids,
-            evidence_repository_refs,
             ..Default::default()
         },
         evidence_hashes,
+        evidence_confidentialities,
+        repo_root: None,
+        _workspace_guard: None,
     })
 }
 
@@ -171,21 +169,11 @@ fn active_repository_ref(project: &super::super::session::Project) -> Option<Str
         .map(|repository| repository.id.clone())
 }
 
-fn is_koolade_product_remote(remote: &str) -> bool {
-    let remote = remote.trim().trim_end_matches(".git").to_ascii_lowercase();
-    matches!(
-        remote.as_str(),
-        "https://github.com/zbarno/kool.ade"
-            | "http://github.com/zbarno/kool.ade"
-            | "git@github.com:zbarno/kool.ade"
-            | "ssh://git@github.com/zbarno/kool.ade"
-    )
-}
-
 pub(super) fn decode(
     text: &str,
     context: &OutputValidationContext<'_>,
     evidence_hashes: std::collections::HashMap<String, String>,
+    evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
 ) -> Result<ManagerOutput, String> {
     let RoleOutputV1::Manager(output) =
         crate::harness::prompt_catalog::validate_output_with_context(
@@ -216,5 +204,6 @@ pub(super) fn decode(
         summary: lines.join("\n"),
         opportunities: output.opportunities,
         evidence_hashes,
+        evidence_confidentialities,
     })
 }

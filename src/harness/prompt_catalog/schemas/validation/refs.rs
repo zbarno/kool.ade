@@ -1,6 +1,7 @@
 use super::{OutputValidationContext, RoleOutputV1, opportunity, spec_delta, task_graph};
 
 pub(super) fn validate_output_refs(
+    role: crate::harness::prompt_catalog::PromptRole,
     output: &RoleOutputV1,
     context: &OutputValidationContext<'_>,
 ) -> Result<(), String> {
@@ -11,7 +12,7 @@ pub(super) fn validate_output_refs(
             }
             for proposal in &value.opportunities {
                 super::validate_refs(&proposal.evidence_refs, &context.evidence_ids)?;
-                opportunity::validate(proposal, context)?;
+                opportunity::validate(proposal, context, role)?;
             }
         }
         RoleOutputV1::ManagerLegacy(value) => {
