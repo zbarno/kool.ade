@@ -147,21 +147,52 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
         },
     );
     assert_eq!(run.phase, Phase::Ready);
-    // Production boundary: close and reopen the managed planning store after
-    // plan approval, then reload the run before clone allocation. This catches
-    // plan/ref/parent identity that exists only in the current process.
-    let approved_plan = run.clone();
-    let (planning, mut run) = restart_store(planning, &run.run_uid).unwrap();
-    let runs = SelfImprovementStore::new(&planning);
-    assert_eq!(run, approved_plan);
-    assert_eq!(run.phase, Phase::Ready);
-    assert!(
-        run.plan_approval_hash
-            .as_ref()
-            .is_some_and(|hash| hash == &"d".repeat(64))
-    );
     let clone_uid = uid();
-    run = apply(&runs, run, Event::CloneAllocated { clone_uid });
+    let clone_event_uid = uid();
+    let project_id = planning.project_id;
+    let planning_root = planning.root.clone();
+    let run_uid = run.run_uid.clone();
+    let test_name = std::thread::current().name().unwrap().to_owned();
+    drop(planning);
+    // Production boundary: a fresh OS process reopens the managed planning
+    // store after plan approval, loads the run, and records clone allocation.
+    // The parent then reopens it and replays the same event to verify durable
+    // recovery and idempotency beyond a same-process store reopen.
+    let status = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &test_name, "--nocapture"])
+        .env(
+            "KOOLADE_SELF_IMPROVEMENT_PROJECT_ID",
+            project_id.to_string(),
+        )
+        .env("KOOLADE_SELF_IMPROVEMENT_RUN_UID", &run_uid)
+        .env("KOOLADE_SELF_IMPROVEMENT_EVENT_UID", &clone_event_uid)
+        .env("KOOLADE_SELF_IMPROVEMENT_CLONE_UID", &clone_uid)
+        .env(super::RESTART_CHILD, &planning_root)
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "fresh process could not resume the approved run"
+    );
+    let planning = PlanningStore::new(project_id, planning_root, StoreMode::ManagedLocal);
+    let runs = SelfImprovementStore::new(&planning);
+    let mut run = runs.load(&run_uid).unwrap();
+    assert_eq!(run.phase, Phase::Implementing);
+    let resumed = runs
+        .apply_event(
+            &run_uid,
+            run.revision,
+            &clone_event_uid,
+            Event::CloneAllocated {
+                clone_uid: clone_uid.clone(),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        resumed, run,
+        "replaying the child process event must be idempotent"
+    );
+    run = resumed;
     assert_eq!(run.phase, Phase::Implementing);
 
     let (clone, implementation_head, subject_sha256) =
