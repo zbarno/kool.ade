@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "tests/invalid_follow_up.rs"]
 mod invalid_follow_up;
+#[path = "tests/technical_decision_atomicity.rs"]
+mod technical_decision_atomicity;
 
 fn planner_output(feature_uid: &str) -> crate::harness::prompt_catalog::PlannerOutputV2 {
     use crate::harness::prompt_catalog::*;
@@ -64,7 +66,7 @@ fn planner_output(feature_uid: &str) -> crate::harness::prompt_catalog::PlannerO
 
 fn install_feature(store: &crate::artifacts::planning_store::PlanningStore) -> (String, String) {
     let draft = String::from(
-        "# CHG-997: Clarification readiness\n\n**Status:** Ready\n\n## Intent\n\nTest complete requirement traceability.\n\n## Current Behavior\n\nRetention behavior is unspecified.\n\n## Desired Behavior\n\nRetention is configurable and auditable.\n\n## Scope\n\n- Configure retention.\n\n## Requirements\n\n- REQ-1: Retention must be configurable.\n- REQ-2: Retention changes must be auditable.\n\n## Acceptance Criteria\n\n- AC-1: Retention has an audit trail.\n",
+        "# CHG-997: Clarification readiness\n\n**Status:** Ready\n\n## Intent\n\nTest complete requirement traceability.\n\n## Current Behavior\n\nRetention behavior is unspecified.\n\n## Desired Behavior\n\nRetention is configurable and auditable.\n\n## Scope\n\n- Configure retention.\n\n## Requirements\n\n- REQ-1: Retention must be configurable.\n- REQ-2: Retention changes must be auditable.\n\n## Acceptance Criteria\n\n- AC-001: Retention has an audit trail.\n",
     );
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         &draft,
@@ -247,7 +249,7 @@ fn planner_records_evidence_resolution_without_claiming_a_user_answer() {
     output.proposed_questions.clear();
     output.resolved_questions = vec![TechnicalResolutionV1 {
         question_uid: question.uid.clone(),
-        decision: "Keep the existing JSON response envelope".into(),
+        decision: "Keep the existing JSON response envelope\nRationale: delimiter remains decision text".into(),
         rationale: "The repository README and shallow manifest evidence show this as the established API boundary.".into(),
         selected_option_id: None,
         evidence_refs: vec![format!("repository-overview:{feature_uid}")],
@@ -255,6 +257,10 @@ fn planner_records_evidence_resolution_without_claiming_a_user_answer() {
     persist(&store, &feature_uid, 1, &spec_revision, output).unwrap();
     let (resolved, _) = questions.load(&question.uid).unwrap();
     assert_eq!(resolved.status, QuestionStatus::EvidenceResolved);
+    assert_eq!(
+        resolved.evidence_resolution.as_ref().unwrap().decision,
+        "Keep the existing JSON response envelope\nRationale: delimiter remains decision text"
+    );
     assert_eq!(
         resolved.answered_by.as_deref(),
         Some("Man.ager (repository evidence)")
@@ -271,6 +277,18 @@ fn planner_records_evidence_resolution_without_claiming_a_user_answer() {
             .evidence_refs
             .iter()
             .any(|item| item == &format!("repository-overview:{feature_uid}"))
+    );
+    let (_, updated_feature) = crate::artifacts::product_docs::active_features(&store)
+        .into_iter()
+        .find(|(_, markdown)| markdown.contains(&feature_uid))
+        .expect("feature remains active after technical resolution");
+    assert!(updated_feature.contains("Keep the existing JSON response envelope"));
+    assert!(updated_feature.contains("delimiter remains decision text"));
+    assert!(updated_feature.contains("repository-overview:"));
+    let (readiness, _) = questions.load_readiness(&feature_uid).unwrap().unwrap();
+    assert_ne!(
+        readiness.spec_revision.as_deref(),
+        Some(spec_revision.as_str())
     );
     let _ = std::fs::remove_dir_all(root);
 }

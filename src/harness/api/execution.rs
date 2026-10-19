@@ -59,6 +59,9 @@ pub struct PlanningRequest {
     /// Stable planning workspace and immutable source identity selected by the
     /// application for Docker-backed repository tools.
     pub execution_workspace: Option<crate::execution::contract::WorkspaceRef>,
+    /// Selected destination branch head pinned by the application before an
+    /// implementation tool session is authorized.
+    pub destination_sha: Option<String>,
     /// Optional app-owned claim fence for implementation tool sessions.
     pub authorization_verifier:
         Option<std::sync::Arc<dyn crate::execution::session::AuthorizationGenerationVerifier>>,

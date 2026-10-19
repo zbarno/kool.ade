@@ -29,6 +29,7 @@ fn rendered_role_messages_survive_all_six_provider_adapters() {
         progress_tx: mpsc::channel().0,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
     };

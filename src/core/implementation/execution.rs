@@ -4,7 +4,9 @@ use crate::core::implementation::status::FailureCause;
 mod resume_state;
 mod source;
 mod task_state;
-pub(crate) use resume_state::{mark_resume_started, record_failed_attempt};
+#[cfg(test)]
+pub(crate) use resume_state::mark_resume_started;
+pub(crate) use resume_state::{mark_resume_started_for_action, record_failed_attempt};
 
 pub fn run(
     repo: &Path,
@@ -144,7 +146,10 @@ pub(super) fn run_with_planning_store_options(
         .and_then(|_| runner.check_storage(&state.task_repository))
         .and_then(|_| {
             lifecycle::execute(
-                planning_store,
+                lifecycle::LifecycleExecutionContext {
+                    planning_store,
+                    state_root,
+                },
                 &lifecycle_repository,
                 &dir,
                 &mut state,

@@ -12,6 +12,7 @@ pub(super) fn for_changed_active_feature(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "updated feature has no stable identity".to_owned())?;
     let current_spec_revision = super::super::planner_pass::spec_revision_for_markdown(
+        project,
         &identity.uid,
         feature_id,
         markdown,

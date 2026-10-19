@@ -138,6 +138,7 @@ pub(in crate::core::implementation::publication::pr_preparer) fn build_request(
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(task.task_uid.clone()),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         prompt_manifest: Some(rendered.manifest.clone()),
         reasoning_level: "high".into(),

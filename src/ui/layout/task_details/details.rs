@@ -101,6 +101,13 @@ pub(super) fn paint(
                         },
                     );
                 }
+            } else if view
+                .lifecycle
+                .as_ref()
+                .is_some_and(|lifecycle| lifecycle.parent_task_uid.is_some())
+                && review::approval_required(record)
+            {
+                ui.label("Subtask implementation is verified. Its changes will be integrated and independently re-reviewed in the parent task; subtasks do not create separate pull requests.");
             } else if column == 4 {
                 ui.label("No action needed.");
             } else if review::changes_requested(record) {

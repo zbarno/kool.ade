@@ -33,7 +33,10 @@ pub(crate) fn record_revision(store: &PlanningStore, path: &str) -> Result<u64, 
     let object = value.as_object().ok_or_else(|| {
         StoreError::MalformedState(format!("record {path} must contain a JSON object"))
     })?;
-    if path == "state/opportunity_discovery_settings.json" || is_opportunity_quota_record(path) {
+    if path == "state/opportunity_discovery_settings.json"
+        || path == "state/self_improvement_active_runs.json"
+        || is_opportunity_quota_record(path)
+    {
         if object
             .get("schemaVersion")
             .and_then(serde_json::Value::as_u64)
@@ -117,6 +120,7 @@ pub(crate) fn validate_record_collection(path: &str) -> Result<(), StoreError> {
                 | "state/spec_revision_history"
                 | "state/current_implementations"
                 | "state/current_implementation_history"
+                | "state/deployments"
                 | "state/spec_sync_queue"
                 | "state/opportunities"
                 | "state/opportunity_decisions"
@@ -181,6 +185,7 @@ pub(crate) fn validate_record_revisions(
             StoreError::MalformedState(format!("new record {} must be a JSON object", check.path))
         })?;
         if check.path == "state/opportunity_discovery_settings.json"
+            || check.path == "state/self_improvement_active_runs.json"
             || is_opportunity_quota_record(&check.path)
         {
             if object

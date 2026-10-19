@@ -24,7 +24,10 @@ pub(crate) fn is_opportunity_quota_record(path: &str) -> bool {
 }
 
 pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
-    if path == "state/opportunity_discovery_settings.json" {
+    if matches!(
+        path,
+        "state/opportunity_discovery_settings.json" | "state/self_improvement_active_runs.json"
+    ) {
         return Ok(());
     }
     let components = Path::new(path).components().collect::<Vec<_>>();
@@ -54,6 +57,7 @@ pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
                             | "spec_revision_history"
                             | "current_implementations"
                             | "current_implementation_history"
+                            | "deployments"
                             | "spec_sync_queue"
                             | "opportunities"
                             | "opportunity_decisions"

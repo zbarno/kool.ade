@@ -1,6 +1,7 @@
 //! Typed lifecycle records and transition guards for the Man.ager workflow.
 
 mod feature;
+mod plan_remediation;
 pub(crate) mod plan_snapshot;
 pub(crate) mod product_spec;
 mod spec_history;
@@ -10,6 +11,7 @@ mod task;
 mod types;
 
 pub use feature::{FeatureEvent, FeatureGoal};
+pub use plan_remediation::{PlanFindingActionV1, PlanFindingDispositionV1, PlanRemediationV1};
 pub use plan_snapshot::{PlanRequirementV1, PlanSnapshotV1};
 pub use spec_history::{
     ProductSpecAggregateStatusV1, ProductSpecAggregateV1, ProductSpecFeatureSummaryV1,
@@ -23,11 +25,12 @@ pub use spec_history::{
 pub use spec_reconciliation::{
     FeatureDeltaAuthorizationV1, SpecDeltaApprovalV1, SpecReconciliationBlockV1,
 };
+pub(crate) use store::DeploymentObservation;
 pub(crate) use store::Snapshot;
 pub use store::task_transition::PullRequestPreparationStatus;
 pub use store::{
-    CurrentImplementationEvidenceV1, LifecycleActor, LifecycleEventKind, LifecycleEventRecord,
-    LifecycleStore, PullRequestPreparation, PullRequestPublicationState,
+    CurrentImplementationEvidenceV1, DeploymentEvidenceV1, LifecycleActor, LifecycleEventKind,
+    LifecycleEventRecord, LifecycleStore, PullRequestPreparation, PullRequestPublicationState,
 };
 pub use task::{QaExecutionStateV1, QaExecutionStatusV1, TaskEvent, TaskRecord};
 pub use types::{FeaturePhase, GateActor, GateDecision, GateReceipt, TaskPhase};

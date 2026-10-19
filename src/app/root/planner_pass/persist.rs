@@ -23,6 +23,8 @@ pub(crate) fn persist(
         plan_revision,
         output.resolved_questions,
     )?;
+    let (document_updates, readiness_spec_revision) =
+        technical_decisions::prepare(store, feature_uid, spec_revision, &resolved)?;
     let superseded = supersede_older_questions(&questions, &current, feature_uid, plan_revision)?;
     let proposals = output
         .proposed_questions
@@ -126,7 +128,7 @@ pub(crate) fn persist(
     let mut checklist = ReadinessChecklistV1 {
         feature_uid: feature_uid.to_owned(),
         plan_revision,
-        spec_revision: Some(spec_revision.to_owned()),
+        spec_revision: Some(readiness_spec_revision),
         required_requirement_ids: Some(required_requirement_ids.clone()),
         assessed_axes: output
             .readiness
@@ -196,11 +198,12 @@ pub(crate) fn persist(
     changed_questions.extend(resolved);
     changed_questions.extend(created.into_iter().map(|question| (question, 0)));
     questions
-        .save_batch_with_readiness(
+        .save_batch_with_readiness_and_documents(
             &changed_questions,
             &checklist,
             record_revision,
             &planning_revision,
+            &document_updates,
         )
         .map_err(|error| error.to_string())?;
     Ok(assessment)
@@ -208,6 +211,7 @@ pub(crate) fn persist(
 
 mod helpers;
 mod resolutions;
+mod technical_decisions;
 use helpers::{parse_axis, required_requirement_ids_for_snapshot, supersede_older_questions};
 
 #[cfg(test)]

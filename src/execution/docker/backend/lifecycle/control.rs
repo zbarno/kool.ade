@@ -15,6 +15,32 @@ use crate::execution::{
 
 use super::runtime::RuntimeExecution;
 
+pub(super) fn set_lifecycle_state(
+    backend: &DockerExecutionBackend,
+    handle: &ExecutionHandleV1,
+    state: ExecutionLifecycleV1,
+) -> Result<(), ExecutionError> {
+    let execution = backend
+        .executions
+        .lock()
+        .map_err(|_| internal_error_with_context("updating the execution lifecycle"))?
+        .get(&handle.execution_id)
+        .cloned()
+        .ok_or_else(|| internal_error_with_context("finding the active execution lifecycle"))?;
+    let mut execution = execution
+        .lock()
+        .map_err(|_| internal_error_with_context("locking the active execution lifecycle"))?;
+    if execution.request.task_id != handle.task_id
+        || execution.request.target != handle.target
+        || execution.request.request_sequence != handle.request_sequence
+    {
+        return Err(internal_error_with_context(
+            "validating the active execution lifecycle handle",
+        ));
+    }
+    execution.set_lifecycle_if_changed(state)
+}
+
 mod cancel;
 mod cancel_active;
 pub(super) use cancel_active::cancel_active as cancel;
@@ -61,6 +87,10 @@ fn load_record(
         ));
     }
     Ok(record)
+}
+
+fn elapsed_millis(started: std::time::Instant) -> u64 {
+    started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 pub(super) async fn collect(
@@ -119,6 +149,7 @@ pub(super) async fn release(
         }
         (state.container_id.clone(), state.lease_id.clone())
     };
+    let cleanup_started = std::time::Instant::now();
     verify_owned(backend, &container_id, &handle.execution_id).await?;
     tokio::time::timeout(
         Duration::from_secs(5),
@@ -142,6 +173,7 @@ pub(super) async fn release(
             .lock()
             .map_err(|_| internal_error_with_context("recording execution cleanup completion"))?;
         state.cleanup_complete = true;
+        state.phase_timings.cleanup_ms = Some(elapsed_millis(cleanup_started));
         state.persist()?;
     }
     let prepared = backend

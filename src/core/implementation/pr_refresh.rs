@@ -131,7 +131,9 @@ fn refresh_pr_with_store(
         }
         cleanup::run(&target_repo, &dir, &mut state, runner);
         save(&dir, &state)?;
-        return publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo);
+        publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo)?;
+        deployment_refresh::refresh(planning_store, state_root, ticket, runner)?;
+        return Ok(());
     }
     let Some(url) = state.pr_url.clone() else {
         return Ok(());
@@ -208,7 +210,8 @@ fn refresh_pr_with_store(
     }
     cleanup::run(&target_repo, &dir, &mut state, runner);
     save(&dir, &state)?;
-    publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo)
+    publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo)?;
+    deployment_refresh::refresh(planning_store, state_root, ticket, runner)
 }
 
 fn valid_sha(sha: &str) -> bool {

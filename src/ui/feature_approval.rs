@@ -4,15 +4,70 @@
 pub struct Action {
     pub id: String,
     pub specification: String,
+    pub candidate: Option<crate::core::lifecycle::PlanSnapshotV1>,
     pub approved: bool,
     pub prepare_tasks: bool,
     pub compare_plans: bool,
     pub plan_comparison: Option<crate::domain::PlanComparison>,
 }
 
+pub fn paint_candidate(ui: &mut egui::Ui, action: &Action) {
+    if let Some(candidate) = &action.candidate {
+        ui.heading("Confirm this plan");
+        ui.label(&candidate.intent);
+        ui.label(egui::RichText::new("Expected outcome").strong());
+        ui.label(&candidate.outcome);
+        ui.columns(2, |columns| {
+            columns[0].label(egui::RichText::new("Current behavior").strong());
+            columns[0].label(&candidate.current_state);
+            columns[1].label(egui::RichText::new("Proposed behavior").strong());
+            columns[1].label(&candidate.target_behavior);
+        });
+        detail_list(ui, "Included scope", &candidate.scope);
+        detail_list(ui, "Explicit exclusions", &candidate.non_goals);
+        ui.collapsing("Requirements and success criteria", |ui| {
+            for requirement in &candidate.requirements {
+                ui.label(egui::RichText::new(&requirement.stable_id).strong());
+                ui.label(&requirement.text);
+                if let Some(rationale) = &requirement.rationale {
+                    ui.label(format!("Why: {rationale}"));
+                }
+                ui.label(format!("Criteria: {}", requirement.ac_ids.join(", ")));
+            }
+            detail_list(ui, "Acceptance criteria", &candidate.acceptance_criteria);
+        });
+        detail_list(ui, "Risks", &candidate.risks);
+        detail_list(ui, "Open choices", &candidate.open_questions);
+        detail_list(ui, "Deferred assumptions", &candidate.deferred_assumptions);
+        ui.collapsing("Technical constraints and delivery", |ui| {
+            ui.label(format!("Affected areas: {}", candidate.architecture));
+            detail_list(ui, "Dependencies", &candidate.dependencies);
+            detail_list(ui, "Security constraints", &candidate.security_constraints);
+            ui.label(format!("Test strategy: {}", candidate.test_strategy));
+            ui.label(format!("Deployment: {}", candidate.deployment_notes));
+        });
+        ui.collapsing("Full specification", |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    super::markdown::paint(ui, &action.specification, super::markdown::CHAT);
+                });
+        });
+    } else {
+        ui.collapsing("Review specification", |ui| {
+            super::markdown::paint(ui, &action.specification, super::markdown::CHAT);
+        });
+    }
+}
+
 pub enum ComparisonIntent {
     Adopt(String),
     Discard,
+}
+
+pub enum ApprovalIntent {
+    Confirm(String, bool),
+    RequestChanges(String, String),
 }
 
 pub fn paint_comparison(ui: &mut egui::Ui, action: &Action) -> Option<ComparisonIntent> {
@@ -108,38 +163,58 @@ impl Action {
         }
         match (self.approved, self.prepare_tasks) {
             (true, _) => format!("Prepare tasks for {}", self.id),
-            (false, true) => format!("Approve {} and prepare tasks", self.id),
-            (false, false) => format!("Approve {} for implementation", self.id),
+            (false, true) => format!("Confirm {} and prepare tasks", self.id),
+            (false, false) => format!("Confirm plan for {}", self.id),
         }
     }
 }
 
-pub fn paint(ui: &mut egui::Ui, actions: &[Action], busy: bool) -> Option<(String, bool)> {
+pub fn paint_request_changes(ui: &mut egui::Ui, action: &Action) -> Option<ApprovalIntent> {
+    let candidate = action.candidate.as_ref()?;
+    ui.button("Request changes")
+        .clicked()
+        .then(|| ApprovalIntent::RequestChanges(action.id.clone(), candidate.content_hash.clone()))
+}
+
+pub fn paint(ui: &mut egui::Ui, actions: &[Action], busy: bool) -> Option<ApprovalIntent> {
     let mut selected = None;
     for action in actions {
         ui.push_id((&action.id, "feature_approval"), |ui| {
             super::theme::card_frame().show(ui, |ui| {
-                ui.collapsing(format!("Review {} specification", action.id), |ui| {
-                    egui::ScrollArea::vertical()
-                        .max_height(180.0)
-                        .show(ui, |ui| {
-                            super::markdown::paint(
-                                ui,
-                                &action.specification,
-                                super::markdown::CHAT,
-                            );
-                        });
-                });
+                ui.push_id(
+                    action
+                        .candidate
+                        .as_ref()
+                        .map(|candidate| {
+                            (
+                                candidate.feature_uid.as_str(),
+                                candidate.content_hash.as_str(),
+                            )
+                        })
+                        .unwrap_or(("unparsed-feature", "unparsed-candidate")),
+                    |ui| paint_candidate(ui, action),
+                );
                 let needs_choice = action
                     .plan_comparison
                     .as_ref()
                     .is_some_and(|comparison| comparison.selected_plan.is_none());
-                if ui
-                    .add_enabled(!busy && !needs_choice, egui::Button::new(action.label()))
-                    .clicked()
-                {
-                    selected = Some((action.id.clone(), action.compare_plans));
-                }
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .add_enabled(!busy && !needs_choice, egui::Button::new(action.label()))
+                        .clicked()
+                    {
+                        selected = Some(ApprovalIntent::Confirm(
+                            action.id.clone(),
+                            action.compare_plans,
+                        ));
+                    }
+                    if !busy
+                        && !needs_choice
+                        && let Some(intent) = paint_request_changes(ui, action)
+                    {
+                        selected = Some(intent);
+                    }
+                });
                 if action.prepare_tasks {
                     ui.label("Refreshes the task plan if needed, then generates task stories.");
                 }

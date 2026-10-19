@@ -18,6 +18,28 @@ fn script_session_uses_stdin_collects_validated_streams_and_releases() {
 }
 
 #[test]
+fn execution_request_carries_the_authorized_destination_sha() {
+    let backend = backend();
+    let mut session = session(backend.clone());
+    let destination_sha = "c".repeat(40);
+    session.destination_sha = Some(destination_sha.clone());
+    session
+        .run_bounded_script("printf destination-bound", Duration::from_secs(10))
+        .unwrap();
+    assert_eq!(
+        backend
+            .request
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .destination_sha
+            .as_deref(),
+        Some(destination_sha.as_str())
+    );
+}
+
+#[test]
 fn script_session_rejects_oversized_or_unbounded_requests() {
     let backend = backend();
     let session = session(backend.clone());

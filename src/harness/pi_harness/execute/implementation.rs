@@ -102,7 +102,7 @@ impl AiHarness for PiHarness {
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             provider, &exe, version,
         )
-        .map_err(|error| AppError::Other(format!("Pi profile probe failed: {error}")))?;
+        .map_err(AppError::from_provider_profile_error)?;
         let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
             evidence,
             argv,

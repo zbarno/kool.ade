@@ -39,6 +39,22 @@ pub(super) fn publish(app: &mut KooladeApp, target: Option<String>) {
         );
         return;
     };
+    if project
+        .task_documents
+        .iter()
+        .find(|document| document.path == ticket)
+        .and_then(|document| document.metadata.as_ref())
+        .is_some_and(|metadata| metadata.parent_task_uid.is_some())
+    {
+        let title = super::super::target::task_title(&project.task_documents, &ticket);
+        action_feedback(
+            app,
+            &format!(
+                "{title} is a subtask and cannot create a separate pull request. Its verified changes will be integrated and re-reviewed in the parent task."
+            ),
+        );
+        return;
+    }
     let title = super::super::target::task_title(&project.task_documents, &ticket);
     let status = project.implementation_states.get(&ticket).map(|state| {
         (

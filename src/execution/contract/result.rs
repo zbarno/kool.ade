@@ -2,6 +2,10 @@ use super::events::{ArtifactManifestEntryV1, ResourceMetricsV1};
 use crate::execution::errors::{ExecutionError, ExecutionErrorKind};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "result/tests.rs"]
+mod tests;
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutionResultV1 {

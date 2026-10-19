@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "tests/accepted.rs"]
 mod accepted;
+#[path = "tests/evidence_resolution.rs"]
+mod evidence_resolution;
 
 struct CaptureClarificationHarness(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
 
@@ -33,7 +35,7 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
 
     let mut app = crate::app::root::board_tests::fixture();
     let feature_id = "CHG-997";
-    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification replies can outlive the feature revision they reference.\n\n## Desired Behavior\n\nAnswers apply only to the specification they were written for.\n\n## Scope\n\n- Preserve each clarification against the active specification.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Decisions and Assumptions\n\n- No retention choice recorded yet.\n\n## Acceptance Criteria\n\n- AC-1: Stale answers are rejected.\n";
+    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification replies can outlive the feature revision they reference.\n\n## Desired Behavior\n\nAnswers apply only to the specification they were written for.\n\n## Scope\n\n- Preserve each clarification against the active specification.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Decisions and Assumptions\n\n- No retention choice recorded yet.\n\n## Acceptance Criteria\n\n- AC-001: Stale answers are rejected.\n";
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         draft,
         None,
@@ -156,6 +158,7 @@ fn changed_snapshot_replaces_a_stale_running_planner_without_restarting_the_same
     project.state.active_features = vec![("CHG-997".into(), changed.clone())];
     project.state.active_feature = Some(("CHG-997".into(), changed.clone()));
     let revision = crate::app::root::planner_pass::spec_revision_for_markdown(
+        project,
         &question.feature_uid,
         "CHG-997",
         &changed,

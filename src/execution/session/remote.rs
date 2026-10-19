@@ -17,6 +17,7 @@ pub struct RemoteSessionOptions<'a> {
     pub mode: ExecutionModeV1,
     pub profile: RuntimeProfile,
     pub resources: ResourceBudgetV1,
+    pub destination_sha: Option<String>,
     pub authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     pub task_clone: Option<&'a Path>,
 }
@@ -40,6 +41,7 @@ impl ExecutionSession {
                 mode,
                 profile,
                 resources,
+                destination_sha: None,
                 authorization_verifier: None,
                 task_clone: None,
             },
@@ -66,6 +68,7 @@ impl ExecutionSession {
                 mode,
                 profile,
                 resources,
+                destination_sha: None,
                 authorization_verifier: Some(authorization_verifier),
                 task_clone: None,
             },
@@ -92,6 +95,7 @@ impl ExecutionSession {
             mode,
             profile,
             resources,
+            destination_sha,
             authorization_verifier,
             task_clone,
         } = options;
@@ -136,13 +140,14 @@ impl ExecutionSession {
             ));
         }
         let resources = resources.restricted_by(&capabilities.resource_ceiling);
-        Self::new_with_authorization(
+        Self::new_with_destination_authorization(
             backend,
             workspace,
             target,
             mode,
             image.digest,
             resources,
+            destination_sha,
             authorization_verifier,
         )
         .map_err(|_| incompatible())

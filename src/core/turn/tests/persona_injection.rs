@@ -119,7 +119,7 @@ impl Drop for LockedPersonaHome {
 /// run of consecutive idle probes distinguishes ordinary silence
 /// from a truly vanished turn (closed channel idles forever).
 fn drain_collecting(controller: &TurnController) -> (TurnOutcome, Vec<String>) {
-    const IDLE_BUDGET: usize = 8;
+    const IDLE_BUDGET: usize = 120;
     let mut activities = Vec::new();
     let mut idle = 0usize;
     loop {

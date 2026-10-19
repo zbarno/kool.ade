@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+mod active_runs;
 mod records;
 #[cfg(test)]
 #[path = "store/tests.rs"]
@@ -117,20 +118,50 @@ impl<'a> SelfImprovementStore<'a> {
             event: None,
             opportunity_decision_uid: Some(decision_uid.to_owned()),
         };
-        match self.create_record(&run, &transition) {
-            Ok(()) => {}
-            Err(StoreError::StaleRecordRevision { .. }) => {
-                let existing = self.load(&run.run_uid)?;
-                if existing.opportunity_uid != run.opportunity_uid
-                    || existing.approved_decision_uid != run.approved_decision_uid
-                {
-                    return Err(StoreError::MalformedState(
-                        "self-improvement run identity is already bound to another decision".into(),
-                    ));
+        let active_limit = opportunities
+            .discovery_settings()?
+            .active_self_improvement_limit;
+        let mut created = false;
+        for attempt in 0..8 {
+            let slot = active_runs::reserve(self.store, &run.run_uid, active_limit)?;
+            match self.create_record(&run, &transition, slot.as_ref()) {
+                Ok(()) => {
+                    created = true;
+                    break;
                 }
-                run = existing;
+                Err(error @ StoreError::StaleRecordRevision { .. }) => {
+                    match self.load(&run.run_uid) {
+                        Ok(existing) => {
+                            if existing.opportunity_uid != run.opportunity_uid
+                                || existing.approved_decision_uid != run.approved_decision_uid
+                            {
+                                return Err(StoreError::MalformedState(
+                                    "self-improvement run identity is already bound to another decision".into(),
+                                ));
+                            }
+                            run = existing;
+                            break;
+                        }
+                        Err(StoreError::Io { source, .. })
+                            if source.kind() == std::io::ErrorKind::NotFound && attempt < 7 =>
+                        {
+                            continue;
+                        }
+                        Err(StoreError::Io { source, .. })
+                            if source.kind() == std::io::ErrorKind::NotFound =>
+                        {
+                            return Err(error);
+                        }
+                        Err(load_error) => return Err(load_error),
+                    }
+                }
+                Err(error) => return Err(error),
             }
-            Err(error) => return Err(error),
+        }
+        if !created && run.revision == 1 {
+            // An existing durable record was loaded after an idempotent replay.
+            let persisted = self.load(&run.run_uid)?;
+            run = persisted;
         }
         if !already_linked {
             match opportunities.mark_planning(
@@ -205,6 +236,7 @@ impl<'a> SelfImprovementStore<'a> {
         &self,
         run: &SelfImprovementRunV1,
         transition: &SelfImprovementTransitionV1,
+        active_slot: Option<&active_runs::Change>,
     ) -> Result<(), StoreError> {
         let path = run_path(&run.run_uid)?;
         let event_path = transition_path(&run.run_uid, &transition.uid)?;
@@ -217,24 +249,26 @@ impl<'a> SelfImprovementStore<'a> {
             revision: run.revision,
             data: run.clone(),
         };
-        let changes = vec![
+        let mut changes = vec![
             (path.clone(), encode(&record)?),
             (event_path.clone(), encode(transition)?),
         ];
+        let mut checks = vec![
+            RecordRevisionCheck {
+                path,
+                expected_revision: 0,
+            },
+            RecordRevisionCheck {
+                path: event_path,
+                expected_revision: 0,
+            },
+        ];
+        if let Some(active_slot) = active_slot {
+            changes.push((active_slot.path.clone(), active_slot.bytes.clone()));
+            checks.push(active_slot.check.clone());
+        }
         self.store
-            .transaction_with_record_revisions(
-                &changes,
-                &[
-                    RecordRevisionCheck {
-                        path,
-                        expected_revision: 0,
-                    },
-                    RecordRevisionCheck {
-                        path: event_path,
-                        expected_revision: 0,
-                    },
-                ],
-            )
+            .transaction_with_record_revisions(&changes, &checks)
             .map(|_| ())
     }
 }

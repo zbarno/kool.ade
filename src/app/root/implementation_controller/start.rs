@@ -72,11 +72,15 @@ impl KooladeApp {
                     return;
                 }
             };
-            if let Err(error) = crate::core::implementation_queue::ticket_readiness(
-                &p.task_documents,
-                &p.implementation_states,
-                &ticket,
-            ) {
+            let completed_subtasks = super::completed_subtask_uids(p);
+            if let Err(error) =
+                crate::core::implementation_queue::ticket_readiness_with_lifecycle_subtasks(
+                    &p.task_documents,
+                    &p.implementation_states,
+                    &ticket,
+                    &completed_subtasks,
+                )
+            {
                 p.queue.last_error = error;
                 return;
             }
@@ -137,7 +141,13 @@ impl KooladeApp {
                 .is_some_and(|state| state.status == ImplementationStatus::ChangesRequested);
             // Explicit offline execution must never publish remotely. A fresh
             // coordinated run is required before creating a PR or pushing.
-            let publication_mode = if allow_offline {
+            let is_subtask = p
+                .task_documents
+                .iter()
+                .find(|doc| doc.path == ticket)
+                .and_then(|doc| doc.metadata.as_ref())
+                .is_some_and(|metadata| metadata.parent_task_uid.is_some());
+            let publication_mode = if is_subtask || allow_offline {
                 crate::core::implementation::PublicationMode::HoldForReview
             } else if explicit_publish {
                 crate::core::implementation::PublicationMode::CreatePullRequest
@@ -188,8 +198,11 @@ impl KooladeApp {
                 return;
             }
             if resuming {
-                match crate::core::implementation::mark_resume_started(&p.state.repo_root, &ticket)
-                {
+                match crate::core::implementation::mark_resume_started_for_action(
+                    &p.state.repo_root,
+                    &ticket,
+                    manual,
+                ) {
                     Ok(Some(state)) => {
                         p.implementation_states.insert(ticket.clone(), state);
                     }

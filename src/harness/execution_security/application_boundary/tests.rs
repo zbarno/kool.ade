@@ -19,6 +19,7 @@ fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
     };
@@ -47,6 +48,7 @@ fn implementation_without_an_application_selected_task_workspace_fails_closed() 
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
     };
@@ -88,6 +90,7 @@ fn requested_read_only_workspace_connection_failure_is_reported() {
             task_id: "00000000-0000-4000-8000-000000000002".into(),
             source_sha: "0123456789012345678901234567890123456789".into(),
         }),
+        destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
     };
@@ -125,6 +128,7 @@ fn reviewer_request_without_bound_prompt_and_session_fails_before_boundary_creat
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         execution_workspace: None,
+        destination_sha: None,
         authorization_verifier: None,
         review_identity: Some(crate::harness::ReviewExecutionIdentity {
             execution_id: "00000000-0000-4000-8000-000000000001".into(),

@@ -5,7 +5,7 @@ pub(super) fn prepare(
     context: &BrokerContext<'_>,
     request: &mut DependencyRequest,
     scope: Option<crate::harness::DependencyAuthorizationScope>,
-) -> ResourceResponse {
+) -> anyhow::Result<ResourceResponse> {
     if request.decision != crate::harness::DependencyDecision::UserAuthorizeForTask
         || scope != Some(crate::harness::DependencyAuthorizationScope::Once)
     {
@@ -38,8 +38,11 @@ pub(super) fn prepare(
                 authorization_source: Some(crate::harness::DependencyAuthorizationSource::User),
                 ..Default::default()
             });
-            set_dependency_request(context, request);
-            ResourceResponse::dependency_outcome("prepared", request.clone())
+            set_dependency_request(context, request)?;
+            Ok(ResourceResponse::dependency_outcome(
+                "prepared",
+                request.clone(),
+            ))
         }
         Err(error) => failed(
             context,
@@ -53,7 +56,7 @@ fn failed(
     context: &BrokerContext<'_>,
     request: &mut DependencyRequest,
     reason: &str,
-) -> ResourceResponse {
+) -> anyhow::Result<ResourceResponse> {
     request.status = crate::harness::DependencyRequestStatus::Failed;
     request.category = crate::harness::DependencyFailureCategory::DependencySystemPackageRequired;
     request.rationale = reason.to_owned();
@@ -62,6 +65,9 @@ fn failed(
         authorization_source: super::super::activity::authorization_source(request.decision),
         ..Default::default()
     });
-    set_dependency_request(context, request);
-    ResourceResponse::dependency_outcome("needs_attention", request.clone())
+    set_dependency_request(context, request)?;
+    Ok(ResourceResponse::dependency_outcome(
+        "needs_attention",
+        request.clone(),
+    ))
 }

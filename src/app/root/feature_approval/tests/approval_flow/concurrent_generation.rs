@@ -15,7 +15,7 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     let context = egui::Context::default();
     frame(&mut app, &context, vec![]);
     click_text(&mut app, &context, "Review specification");
-    click_text(&mut app, &context, "Approve CHG-004 and prepare tasks");
+    click_text(&mut app, &context, "Confirm CHG-004 and prepare tasks");
     record_test_plan_review(
         &mut app,
         "CHG-004",

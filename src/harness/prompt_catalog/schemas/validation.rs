@@ -47,6 +47,8 @@ pub struct OutputValidationContext<'a> {
     pub active_repository_ref: Option<String>,
     pub koolade_product_repository_ref: Option<String>,
     pub public_evidence_ids: HashSet<String>,
+    /// Evidence references that are valid only for a specific linked repository.
+    pub evidence_repository_refs: HashMap<String, String>,
 }
 
 /// Strictly decode role output. If direct JSON parsing fails, make one
@@ -83,6 +85,12 @@ pub fn validate_output_with_context(
         )
     })?;
     if let RoleOutputV1::Review(review) = &decoded {
+        if role == PromptRole::PlanReviewer && !review.pass && review.findings.is_empty() {
+            return Err(
+                "non-passing plan review requires an actionable finding for Manager disposition"
+                    .into(),
+            );
+        }
         if let Some(expected) = context.expected_subject_hash
             && review.subject_hash != expected
         {
@@ -130,6 +138,9 @@ pub fn validate_output_with_context(
             );
         }
         for coverage in &review.coverage {
+            if matches!(coverage.status, CoverageStatus::Pass) && coverage.evidence.is_empty() {
+                return Err("passed review coverage requires cited evidence".into());
+            }
             if matches!(coverage.status, CoverageStatus::Fail)
                 && !review
                     .findings
@@ -144,6 +155,9 @@ pub fn validate_output_with_context(
             validate_refs(&coverage.evidence, &context.evidence_ids)?;
         }
         for finding in &review.findings {
+            if finding.evidence.is_empty() {
+                return Err("review findings require cited evidence".into());
+            }
             validate_refs(&finding.evidence, &context.evidence_ids)?;
         }
     }
@@ -228,7 +242,12 @@ fn decode(
         };
     }
     match role {
-        PromptRole::Manager | PromptRole::ManagerV3 => parse!(ManagerOutputV2, Manager),
+        PromptRole::Manager
+        | PromptRole::ManagerV5
+        | PromptRole::ManagerV4
+        | PromptRole::ManagerV3 => {
+            parse!(ManagerOutputV2, Manager)
+        }
         PromptRole::ManagerV2 => parse!(ManagerOutputV1, ManagerLegacy),
         PromptRole::Planner => parse!(PlannerOutputV2, PlannerV3),
         PromptRole::PlannerV2 => parse!(PlannerOutputV1, Planner),
