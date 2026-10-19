@@ -14,6 +14,7 @@ mod launch;
 #[path = "web/tests.rs"]
 mod tests;
 pub use cleanup::{cleanup_web_preview, recover_owned_web_preview};
+pub(crate) use dependency_cache::archive_for_runtime_user;
 pub use launch::start_web_preview;
 #[cfg(test)]
 pub(crate) use launch::start_web_preview_with_lock;

@@ -158,6 +158,7 @@ fn container_spec_rejects_missing_artifacts() {
         request: &request,
         image: &selected,
         artifacts: &[],
+        dependency_caches: &[],
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,
@@ -165,6 +166,90 @@ fn container_spec_rejects_missing_artifacts() {
     };
     let error = spec.create_body().unwrap_err();
     assert!(error.message.contains("artifacts"));
+}
+
+#[test]
+fn desktop_driver_requires_the_exact_integrity_checked_dependency_cache_set() {
+    use crate::execution::contract::DependencyCacheEcosystemV1;
+
+    let mut request = request();
+    request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
+    let planning_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    request.planning_item_uid = Some(planning_uid.clone());
+    let project_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.tgz"), b"approved offline package").unwrap();
+    let cache = crate::harness::resource_bridge::CacheSnapshot::capture(
+        root.path(),
+        &planning_uid,
+        DependencyCacheEcosystemV1::Npm,
+        &project_uid,
+        "sha256:synthetic-lockfile",
+        "amd64",
+        "local",
+    )
+    .unwrap();
+    request.dependency_cache_refs = vec![crate::runtime_qa::QaDependencyCacheRefV1 {
+        dependency_request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        cache_ref: cache.cache_ref.clone(),
+    }];
+    let image = selected_qa_image(RuntimeProfile::DesktopQa);
+    let resources = resources();
+
+    assert!(
+        super::driver_cache::validate_for_driver(
+            "desktop",
+            &request,
+            std::slice::from_ref(&cache),
+            &image,
+            &resources,
+        )
+        .is_ok()
+    );
+    assert!(
+        super::driver_cache::validate_for_driver("desktop", &request, &[], &image, &resources,)
+            .is_err()
+    );
+
+    let mut tampered_cache = cache.clone();
+    tampered_cache.archive.push(0);
+    assert!(
+        super::driver_cache::validate_for_driver(
+            "desktop",
+            &request,
+            &[tampered_cache],
+            &image,
+            &resources,
+        )
+        .is_err()
+    );
+
+    let mut wrong_arch = cache.clone();
+    wrong_arch.cache_ref.target_arch = "arm64".into();
+    assert!(
+        super::driver_cache::validate_for_driver(
+            "desktop",
+            &request,
+            &[wrong_arch],
+            &image,
+            &resources,
+        )
+        .is_err()
+    );
+
+    let mut tmpfs = HashMap::new();
+    let mut env = Vec::new();
+    super::driver_cache::configure_desktop_cache_mounts(
+        "desktop",
+        std::slice::from_ref(&cache),
+        &image,
+        &resources,
+        &mut tmpfs,
+        &mut env,
+    )
+    .unwrap();
+    assert!(tmpfs.contains_key("/home/executor/.npm"));
+    assert!(env.contains(&"NPM_CONFIG_OFFLINE=true".into()));
 }
 
 #[test]
@@ -206,6 +291,7 @@ fn desktop_driver_accepts_only_desktop_image_and_exact_platform() {
         driver: "desktop",
         image: &image,
         artifacts: &[mount],
+        dependency_caches: &[],
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,
@@ -237,6 +323,7 @@ fn desktop_driver_accepts_only_desktop_image_and_exact_platform() {
         request: &desktop_request,
         image: &browser_image,
         artifacts: &[mount],
+        dependency_caches: &[],
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,

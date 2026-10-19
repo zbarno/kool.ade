@@ -219,6 +219,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
             driver: "browser",
             image: &browser_image,
             artifacts: &artifacts,
+            dependency_caches: &[],
             network: QaDriverNetwork::InternalPreviewRelay {
                 network_id: preview.relay_binding.relay_browser_network_id.clone(),
                 relay_container_id: preview.relay_binding.relay_container_id.clone(),

@@ -174,7 +174,11 @@ matching package manager for offline cache use. This makes prepared cache data
 available to an approved startup recipe; it does not install dependencies or
 prove the recipe consumed them. A recipe must explicitly perform any required
 offline install, and uncached dependencies fail in the no-egress QA network.
-Desktop QA does not receive package caches. For a headless service target, the
+Desktop QA receives only the exact request-bound snapshots selected for the
+same task, with integrity and architecture rechecked before staging into
+read-only-rootfs container tmpfs. The desktop process receives ecosystem cache
+paths with offline-only settings; uncached dependencies still fail in the
+network-disabled container. For a headless service target, the
 app can now create an explicit visual-QA-not-applicable decision after an
 independent read-only reviewer checks the exact active manifest target and its
 latest source-bound passing Build and Test receipts. A Manager records the
@@ -193,6 +197,6 @@ whose request-bound cache snapshot still passes integrity checks for the task,
 project, package ecosystem, and lockfile identity. The selected request IDs are
 included in the user-approved target proposal; the controller revalidates them
 against the current inventory before saving. Free-form IDs, duplicate IDs,
-stale preparations, and missing or corrupt snapshots are rejected. This picker
-does not transfer package caches to desktop QA; desktop cache transfer remains
-an open acceptance item.
+stale preparations, and missing or corrupt snapshots are rejected. The app
+revalidates these request-bound snapshots again before transferring them to
+desktop QA.

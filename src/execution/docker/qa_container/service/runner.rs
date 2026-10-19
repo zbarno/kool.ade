@@ -90,6 +90,7 @@ pub async fn create_driver_container(
     let mode = match (driver, requested_args.as_slice()) {
         ("browser", []) | ("desktop", []) => "default",
         ("desktop", [arg]) if arg == "--fixture-smoke" => "fixture-smoke",
+        ("desktop", [arg]) if arg == "--fixture-cache-smoke" => "fixture-cache-smoke",
         _ => return Err(denied("QA driver command is not an approved fixed mode")),
     };
     let labels = body.labels.get_or_insert_with(Default::default);
@@ -187,6 +188,10 @@ async fn execute_created_driver(
         (Some("desktop"), Some("fixture-smoke")) => vec![
             "/usr/local/bin/koolade-qa-desktop".into(),
             "--fixture-smoke".into(),
+        ],
+        (Some("desktop"), Some("fixture-cache-smoke")) => vec![
+            "/usr/local/bin/koolade-qa-desktop".into(),
+            "--fixture-cache-smoke".into(),
         ],
         _ => return Err(denied("QA driver launch mode is not approved")),
     };

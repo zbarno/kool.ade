@@ -156,6 +156,7 @@ pub(super) fn run(
             artifact_mount,
             &resources,
             &qa_image,
+            &dependency_caches,
             &store,
             harness,
             &mut docker_cancel,

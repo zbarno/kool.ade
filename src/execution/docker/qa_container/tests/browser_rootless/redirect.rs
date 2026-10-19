@@ -82,6 +82,7 @@ pub(super) async fn assert_origin_escape_blocked(
         driver: "browser",
         image: browser_image,
         artifacts: &artifacts,
+        dependency_caches: &[],
         network: QaDriverNetwork::InternalPreviewRelay {
             network_id: relay_binding.relay_browser_network_id.clone(),
             relay_container_id: relay_binding.relay_container_id.clone(),

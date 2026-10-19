@@ -1,13 +1,14 @@
 use super::*;
 
-// Boundary: the app-owned Docker lifecycle must stage a bounded artifact into
-// tmpfs, start the pinned QA driver's real desktop fixture, collect its
-// interaction and screenshot report, and remove only that owned container.
+// Boundary: the app-owned Docker lifecycle must stage a bounded artifact and
+// request-bound package cache into rootless tmpfs, verify the cache is readable
+// with offline-only settings, run the pinned desktop interaction fixture, and
+// remove only that owned container.
 // A unit test cannot
 // prove Docker's upload/start/log/cleanup behavior. External dependency: a
 // Docker daemon with the just-built desktop candidate loaded (rootless in CI).
-// Setup:
-// candidate image build plus one short Xvfb smoke run.
+// Setup: candidate image build, one small synthetic cache snapshot, and one
+// short Xvfb smoke run.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded desktop QA candidate"]
 async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() {
@@ -28,11 +29,31 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         );
     }
 
-    let request = {
-        let mut request = request();
-        request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
-        request
-    };
+    let cache_root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        cache_root.path().join("package.tgz"),
+        b"approved desktop cache fixture",
+    )
+    .unwrap();
+    let planning_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let project_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let cache = crate::harness::resource_bridge::CacheSnapshot::capture(
+        cache_root.path(),
+        &planning_uid,
+        crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+        &project_uid,
+        "sha256:synthetic-lockfile",
+        "amd64",
+        "local",
+    )
+    .unwrap();
+    let mut request = request();
+    request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
+    request.planning_item_uid = Some(planning_uid);
+    request.dependency_cache_refs = vec![crate::runtime_qa::QaDependencyCacheRefV1 {
+        dependency_request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        cache_ref: cache.cache_ref.clone(),
+    }];
     let mut lock = ImageLock::bundled().unwrap();
     let variant = lock
         .profiles
@@ -54,7 +75,15 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     let mount = QaArtifactMount::inspect(root.path(), "/workspace").unwrap();
     let (artifact_upload, _) = mount.snapshot_upload(1024, None).unwrap();
     let artifacts = [mount];
-    let uploads = [artifact_upload];
+    let cache_upload = QaContainerUpload {
+        target: "/home/executor/.npm".into(),
+        archive: crate::execution::docker::qa_container::archive_for_runtime_user(
+            &cache,
+            &selected.runtime_user,
+        )
+        .unwrap(),
+    };
+    let uploads = [artifact_upload, cache_upload];
     let mut resource_budget = resources();
     resource_budget.process_count = 128;
     let spec = QaDriverContainerSpec {
@@ -64,6 +93,7 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         driver: "desktop",
         image: &selected,
         artifacts: &artifacts,
+        dependency_caches: std::slice::from_ref(&cache),
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,
@@ -80,7 +110,26 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         assert!(options.starts_with("rw,"), "{path} must be writable tmpfs");
         assert!(options.contains("uid=10001,gid=10001"));
     }
-    body.cmd = Some(vec!["--fixture-smoke".into()]);
+    assert!(tmpfs.contains_key("/home/executor/.npm"));
+    let tmpfs_budget = tmpfs
+        .values()
+        .map(|options| {
+            options
+                .split("size=")
+                .nth(1)
+                .and_then(|size| size.split(',').next())
+                .and_then(|size| size.parse::<u64>().ok())
+                .expect("tmpfs mount has a byte limit")
+        })
+        .sum::<u64>();
+    assert!(tmpfs_budget <= resource_budget.temporary_disk_bytes);
+    assert!(
+        body.env
+            .as_ref()
+            .unwrap()
+            .contains(&"NPM_CONFIG_OFFLINE=true".into())
+    );
+    body.cmd = Some(vec!["--fixture-cache-smoke".into()]);
     let name = format!("koolade-qa-{}", request.qa_run_id);
     let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
     let output = run_ephemeral_driver(
@@ -102,6 +151,8 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(response["cache_readable"], true);
+    assert_eq!(response["offline"], true);
     assert_eq!(response["interaction_case"]["click_assertion"], "passed");
     assert_eq!(response["interaction_case"]["keyboard_assertion"], "passed");
     if std::env::var_os("KOOLADE_QA_REQUIRE_EGUI").is_some() {

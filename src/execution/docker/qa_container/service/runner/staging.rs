@@ -12,7 +12,7 @@ pub(crate) async fn upload_snapshots(
     timeout: Duration,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), ExecutionError> {
-    if uploads.is_empty() || uploads.len() > 4 {
+    if uploads.is_empty() || uploads.len() > 10 {
         return Err(denied("QA upload set is empty or exceeds its bound"));
     }
     let deadline = tokio::time::Instant::now() + timeout;

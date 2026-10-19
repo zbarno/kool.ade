@@ -106,7 +106,7 @@ fn runtime_uid_gid(runtime_user: &str) -> Result<(&str, &str), ExecutionError> {
     Ok((uid, gid))
 }
 
-pub(super) fn archive_for_runtime_user(
+pub(crate) fn archive_for_runtime_user(
     snapshot: &crate::harness::resource_bridge::CacheSnapshot,
     runtime_user: &str,
 ) -> Result<Vec<u8>, ExecutionError> {

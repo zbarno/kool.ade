@@ -24,6 +24,32 @@ fn execute() -> Result<(), String> {
                 .write_all(b"\n")
                 .map_err(|_| "desktop fixture smoke response could not write".to_owned())
         }
+        (Some("--fixture-cache-smoke"), None) => {
+            let cache = std::env::var("NPM_CONFIG_CACHE")
+                .map_err(|_| "desktop QA npm cache was not configured".to_owned())?;
+            if cache != "/home/executor/.npm"
+                || std::env::var("NPM_CONFIG_OFFLINE").as_deref() != Ok("true")
+            {
+                return Err("desktop QA npm cache is not configured offline".into());
+            }
+            let package = fs::read(cache + "/package.tgz")
+                .map_err(|_| "staged desktop QA package cache is unavailable".to_owned())?;
+            if package != b"approved desktop cache fixture" {
+                return Err("staged desktop QA package cache content changed".into());
+            }
+            let mut response = koolade::runtime_qa::smoke_linux_desktop_fixture()?
+                .as_object()
+                .cloned()
+                .ok_or_else(|| "desktop fixture smoke response was malformed".to_owned())?;
+            response.insert("cache_readable".into(), serde_json::Value::Bool(true));
+            response.insert("offline".into(), serde_json::Value::Bool(true));
+            serde_json::to_writer(std::io::stdout().lock(), &response)
+                .map_err(|_| "desktop cache fixture response could not encode".to_owned())?;
+            std::io::stdout()
+                .lock()
+                .write_all(b"\n")
+                .map_err(|_| "desktop cache fixture response could not write".to_owned())
+        }
         (Some("--fixture-window"), None) => koolade::runtime_qa::run_linux_desktop_fixture_window(),
         (Some("--fixture-egui-window"), None) => {
             koolade::runtime_qa::run_linux_desktop_egui_fixture_window()

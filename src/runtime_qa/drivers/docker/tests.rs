@@ -230,6 +230,7 @@ fn docker_driver_uploads_request_reads_structured_output_and_cleans_owned_contai
         image: &image,
         artifact_mount,
         artifact_upload: &artifact_upload,
+        dependency_caches: &[],
         resources: &ResourceBudgetV1::default(),
         desktop_target: Some(&target),
         service_lease: None,
