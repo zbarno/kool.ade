@@ -148,7 +148,8 @@ impl LinuxDesktopProbeV1 {
 }
 
 /// Current-run window inventory is the authority for desktop window IDs.
-/// Model-provided IDs, browser navigation, and off-screen geometry are denied.
+/// `active` resolves only when exactly one owned window is visible. Other
+/// model-provided IDs, browser navigation, and off-screen geometry are denied.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LinuxDesktopSessionV1 {
@@ -189,7 +190,16 @@ impl LinuxDesktopSessionV1 {
         {
             return Err("Linux desktop session is invalid".into());
         }
-        let window = |id: &str| self.windows.iter().find(|window| window.window_id == id);
+        let window = |id: &str| {
+            if id == "active" {
+                match self.windows.as_slice() {
+                    [window] => Some(window),
+                    _ => None,
+                }
+            } else {
+                self.windows.iter().find(|window| window.window_id == id)
+            }
+        };
         let inside_window = |id: &str, x: u16, y: u16| {
             window(id).is_some_and(|target| {
                 x >= target.x

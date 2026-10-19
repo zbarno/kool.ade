@@ -1,5 +1,40 @@
-use super::{LinuxDesktopCapabilityV1, LinuxDesktopProbeV1};
+use super::{
+    LinuxDesktopCapabilityV1, LinuxDesktopProbeV1, LinuxDesktopSessionV1, LinuxDesktopWindowV1,
+};
 use crate::execution::docker::images::ImageLock;
+use crate::runtime_qa::QaDriverActionV1;
+
+#[test]
+fn active_window_actions_require_one_current_owned_window() {
+    let session = LinuxDesktopSessionV1 {
+        qa_run_id: "11111111-1111-4111-8111-111111111111".into(),
+        display_width: 1440,
+        display_height: 900,
+        windows: vec![LinuxDesktopWindowV1 {
+            window_id: "2097153".into(),
+            x: 0,
+            y: 0,
+            width: 640,
+            height: 480,
+        }],
+    };
+    let click = QaDriverActionV1::Click {
+        window_id: "active".into(),
+        x: 20,
+        y: 30,
+    };
+    assert!(session.validate_action(&click).is_ok());
+
+    let mut ambiguous = session.clone();
+    ambiguous.windows.push(LinuxDesktopWindowV1 {
+        window_id: "2097154".into(),
+        x: 650,
+        y: 0,
+        width: 640,
+        height: 480,
+    });
+    assert!(ambiguous.validate_action(&click).is_err());
+}
 
 #[test]
 fn desktop_capability_uses_the_locked_desktop_image_profile() {

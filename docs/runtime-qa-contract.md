@@ -76,6 +76,13 @@ crosses the egui window and input boundary that the direct X11 and Chromium
 fixtures do not cover. It uses the same rootless Docker setup and adds one
 bounded window launch to the image smoke.
 
+Approved desktop scenarios may address `active` when an action needs a window
+ID. The driver resolves it only when exactly one visible window belongs to the
+launched target process; zero or multiple owned windows fail closed. This lets
+scenarios synthesized before launch perform real pointer interaction without
+guessing a transient X11 ID. Window-action post-state records the resolved
+numeric ID; the redacted arguments retain the submitted `active` selector.
+
 Task Details projects the persisted run outcome, requirement coverage, findings,
 action trace, and validated screenshots from the user's local Runtime QA store.
 The projection checks the run request and result hash against the lifecycle
