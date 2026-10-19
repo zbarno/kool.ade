@@ -29,6 +29,7 @@ pub enum WorkKind {
     DocumentationRefresh,
     Question,
     TaskGeneration,
+    PlanReviewDisposition,
 }
 
 impl WorkKind {
@@ -40,6 +41,7 @@ impl WorkKind {
             Self::DocumentationRefresh => "Refresh Documentation",
             Self::Question => "Question",
             Self::TaskGeneration => "Task generation",
+            Self::PlanReviewDisposition => "Plan review",
         }
     }
 
@@ -62,6 +64,9 @@ impl WorkKind {
             }
             Self::TaskGeneration => {
                 "Generate implementation task stories from the current explicitly approved feature specification."
+            }
+            Self::PlanReviewDisposition => {
+                "Resolve one Manager disposition for a persisted independent plan-review finding. Preserve the user's goal, cite the reviewed evidence, and require fresh user confirmation after any plan change."
             }
         }
     }

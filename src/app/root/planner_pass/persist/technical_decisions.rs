@@ -24,7 +24,7 @@ pub(super) fn prepare(
     let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "resolved clarification feature has no stable identity".to_owned())?;
-    let original = snapshot(&feature_id, &identity, &markdown)?;
+    let original = snapshot(store, &feature_id, &identity, &markdown)?;
     if original.spec_revision != expected_spec_revision {
         return Err("technical resolution belongs to a stale feature snapshot".into());
     }
@@ -51,7 +51,7 @@ pub(super) fn prepare(
         append_or_verify(&mut markdown, &record)?;
     }
 
-    let updated = snapshot(&feature_id, &identity, &markdown)?;
+    let updated = snapshot(store, &feature_id, &identity, &markdown)?;
     let path =
         crate::artifacts::product_docs::document_path(store, &format!("feature:{feature_id}"))
             .map_err(|error| error.to_string())?;
@@ -67,12 +67,15 @@ pub(super) fn prepare(
 }
 
 fn snapshot(
+    store: &crate::artifacts::planning_store::PlanningStore,
     feature_id: &str,
     identity: &crate::domain::ArtifactIdentity,
     markdown: &str,
 ) -> Result<crate::core::lifecycle::PlanSnapshotV1, String> {
     let contract = crate::core::workflow::feature_contract(markdown);
-    crate::core::lifecycle::PlanSnapshotV1::from_feature(feature_id, identity, markdown, &contract)
+    crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        store, feature_id, identity, markdown, &contract,
+    )
 }
 
 fn parse_resolution(question: &QuestionV1) -> Result<(&str, &str), String> {

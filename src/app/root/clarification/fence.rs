@@ -25,7 +25,7 @@ pub(super) fn current_question_planning_revision(
             .ok_or_else(|| "persisted feature is no longer active".to_owned())?;
     let (feature_id, markdown) = persisted_feature;
     let persisted_spec_revision = crate::app::root::planner_pass::spec_revision_for_markdown(
-        project,
+        &project.state.planning_store,
         &question.feature_uid,
         &feature_id,
         &markdown,

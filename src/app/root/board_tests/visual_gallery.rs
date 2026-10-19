@@ -87,11 +87,9 @@ fn render_workspace_review_gallery() {
             gallery.escape();
         }
         fixtures::feature(&mut gallery.app);
+        let confirmation_key = gallery.app.feature_actions(None)[0].board_key();
         gallery.ctx.data_mut(|data| {
-            data.insert_temp(
-                egui::Id::new("koolade_selected_planning"),
-                "feature-approval:CHG-001".to_owned(),
-            )
+            data.insert_temp(egui::Id::new("koolade_selected_planning"), confirmation_key)
         });
         gallery.save("feature-comparison");
         gallery.scroll_to_bottom();

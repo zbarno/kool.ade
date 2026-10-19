@@ -13,6 +13,7 @@ mod workflow;
 #[cfg(test)]
 mod naming_tests;
 
+pub(crate) use batch_write::write_batch_expected_with_revision_and_checks;
 pub use batch_write::{write_batch, write_batch_expected, write_batch_expected_with_revision};
 pub use board::{load_board, load_latest};
 pub use generation::{save_progress, save_progress_expected};

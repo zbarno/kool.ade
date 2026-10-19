@@ -158,7 +158,7 @@ fn changed_snapshot_replaces_a_stale_running_planner_without_restarting_the_same
     project.state.active_features = vec![("CHG-997".into(), changed.clone())];
     project.state.active_feature = Some(("CHG-997".into(), changed.clone()));
     let revision = crate::app::root::planner_pass::spec_revision_for_markdown(
-        project,
+        &project.state.planning_store,
         &question.feature_uid,
         "CHG-997",
         &changed,
