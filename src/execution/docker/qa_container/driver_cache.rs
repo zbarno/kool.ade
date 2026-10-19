@@ -10,6 +10,9 @@ use crate::{
     runtime_qa::QaRunRequestV1,
 };
 
+const CACHE_TMPFS_PAGE_BYTES: u64 = 64 * 1024;
+const CACHE_TMPFS_METADATA_SLACK_BYTES: u64 = 1024 * 1024;
+
 pub(super) fn validate_for_driver(
     driver: &str,
     request: &QaRunRequestV1,
@@ -82,17 +85,28 @@ pub(super) fn configure_desktop_cache_mounts(
     }
     let mut cache_sizes = BTreeMap::new();
     for snapshot in snapshots {
+        let allocated_bytes = snapshot
+            .manifest
+            .entries
+            .iter()
+            .try_fold(0_u64, |total, entry| {
+                let rounded = entry.size_bytes.checked_add(CACHE_TMPFS_PAGE_BYTES - 1)?
+                    / CACHE_TMPFS_PAGE_BYTES
+                    * CACHE_TMPFS_PAGE_BYTES;
+                total.checked_add(rounded)
+            })
+            .ok_or_else(|| denied("Desktop QA dependency cache size is outside its limit"))?;
         let size = cache_sizes
             .entry(snapshot.cache_ref.ecosystem)
             .or_insert(0_u64);
         *size = size
-            .checked_add(snapshot.manifest.total_bytes)
+            .checked_add(allocated_bytes)
             .ok_or_else(|| denied("Desktop QA dependency cache size is outside its limit"))?;
     }
     let cache_sizes = cache_sizes
         .into_iter()
         .map(|(ecosystem, size)| {
-            size.checked_add(1024 * 1024)
+            size.checked_add(CACHE_TMPFS_METADATA_SLACK_BYTES)
                 .map(|size| (ecosystem, size))
                 .ok_or_else(|| denied("Desktop QA dependency cache size is outside its limit"))
         })
@@ -142,4 +156,23 @@ pub(super) fn configure_desktop_cache_mounts(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_tmpfs_allowance_rounds_each_file_to_a_conservative_page_size() {
+        let sizes = [0_u64, 1, 65_536, 65_537];
+        let allocated = sizes
+            .iter()
+            .map(|size| {
+                size.checked_add(CACHE_TMPFS_PAGE_BYTES - 1).unwrap() / CACHE_TMPFS_PAGE_BYTES
+                    * CACHE_TMPFS_PAGE_BYTES
+            })
+            .sum::<u64>();
+
+        assert_eq!(allocated, 4 * CACHE_TMPFS_PAGE_BYTES);
+    }
 }
