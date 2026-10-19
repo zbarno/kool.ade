@@ -198,3 +198,55 @@ fn work_result_fixture_matches_task_identity_without_matching_dependency_ids() {
     .unwrap();
     assert_eq!(result["verification"][0], "test -f src/task-1.rs");
 }
+
+#[test]
+fn mcp_task_path_lookup_ignores_dependency_ids_in_other_task_metadata() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    let tasks = root.path().join(".koolade-packet/planning/tasks/fixture");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_uid = "00000000-0000-4000-8000-000000000001";
+    let dependent_uid = "00000000-0000-4000-8000-000000000003";
+    std::fs::write(
+        tasks.join("001-task.md"),
+        format!("- src/task-1.rs\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{task_uid}\"}} -->\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        tasks.join("003-task.md"),
+        format!(
+            "{{\"dependencies\":[\"{task_uid}\"]}}\n- src/task-3.rs\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{dependent_uid}\"}} -->\n"
+        ),
+    )
+    .unwrap();
+    let prompt = format!("FIXTURE TASK PATH LOOKUP\n{{\"task_uid\":\"{task_uid}\"}}");
+    let mut child = Command::new(&pi)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(prompt.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let command = String::from_utf8(output.stdout).unwrap();
+    let output = Command::new("sh")
+        .args(["-c", &command])
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "src/task-1.rs"
+    );
+}

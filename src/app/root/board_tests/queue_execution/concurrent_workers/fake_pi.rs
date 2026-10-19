@@ -163,6 +163,12 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
 typed_marker = 'TYPED TASK REQUEST (JSON DATA)\n'
+def task_path_lookup(task_uid):
+    return "for ticket in .koolade-packet/planning/tasks/fixture/*.md; do if sed -n 's/.*<!-- koolade-artifact-id:v1 //p' \"$ticket\" | grep -Fq '\"uid\":\"" + task_uid + "\"'; then sed -n 's/^- //p' \"$ticket\" | grep '^src/'; break; fi; done"
+if prompt.startswith('FIXTURE TASK PATH LOOKUP\n'):
+    request = json.loads(prompt.split('\n', 1)[1])
+    print(task_path_lookup(request['task_uid']))
+    sys.exit(0)
 if prompt.startswith('Return JSON matching ManagerOutputV2'):
     output = {'summary':'Fixture manager has no additional actions.', 'proposed_actions':[], 'opportunities':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(output)}]}]}))
@@ -263,7 +269,7 @@ server.stdin.flush()
 if output_path is None:
     # The reviewed general image contains grep/sed, and no ripgrep. Return
     # the affected filename itself, so recovery prompts need no ticket prose.
-    lookup = "for ticket in .koolade-packet/planning/tasks/fixture/*.md; do if grep -q -F '" + task_uid + "' \"$ticket\"; then sed -n 's/^- //p' \"$ticket\" | grep '^src/'; break; fi; done"
+    lookup = task_path_lookup(task_uid)
     response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':lookup,'timeout_seconds':60}})
     if 'error' in response or response.get('result', {}).get('isError'):
         print(json.dumps(response), file=sys.stderr)
