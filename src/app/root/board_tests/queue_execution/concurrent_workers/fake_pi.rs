@@ -230,7 +230,7 @@ if server_args:
 implementation_call = 'koolade_dependency' in tool_names or mcp_access == 'implementation'
 if ticket_line is None and not implementation_call:
     with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
-        trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'mcp_access':mcp_access,'argv':sys.argv,'prompt_prefix':prompt[:160]}) + '\n')
+        trace_file.write(json.dumps({'role':'planning','tool_names':sorted(tool_names),'mcp_access':mcp_access,'provider':os.environ.get('PI_PROVIDER'),'model':os.environ.get('PI_MODEL'),'no_tools':'--no-tools' in sys.argv}) + '\n')
     if 'Can we discuss planning while the task runs?' in prompt and (root / '004-task.started').exists():
         # Signal from inside the fake provider process before waiting for release.
         (root / 'planning.started').touch()
