@@ -36,6 +36,10 @@ fn worker(id: &str, running_jobs: u32, observed_at_unix_ms: u64) -> RemoteWorker
             trusted_image_digests: vec![IMAGE_DIGEST.into()],
             resource_ceiling: Some(capabilities(running_jobs).resource_ceiling),
             disk_available_bytes: Some(1024 * 1024 * 1024),
+            available_cpu_millis: Some(4_000),
+            available_memory_bytes: Some(1024 * 1024 * 1024),
+            cpu_pressure_some_avg10_basis_points: Some(running_jobs * 100),
+            load_millis: Some(running_jobs * 500),
         }),
         policy_revision: "sha256:policy".into(),
     }
@@ -54,6 +58,12 @@ fn capabilities(running_jobs: u32) -> BackendCapabilitiesV1 {
         cpu_quota: Some(true),
         pids_limit: Some(true),
         disk_available_bytes: Some(1024 * 1024 * 1024),
+        available_cpu_millis: Some(4_000),
+        available_memory_bytes: Some(1024 * 1024 * 1024),
+        cpu_pressure_some_avg10_basis_points: Some(running_jobs * 100),
+        load_millis: Some(running_jobs * 500),
+        gpu_available: false,
+        display_available: false,
         current_execution_count: running_jobs,
         maximum_execution_count: None,
         resource_ceiling: ResourceBudgetV1 {
@@ -122,138 +132,150 @@ fn auto_selects_deterministically_by_load_and_excludes_stale_probes() {
 }
 
 #[test]
-fn auto_never_sends_to_remote_without_task_approval_and_honors_user_constraint() {
+fn auto_never_selects_a_worker_reported_busy_even_if_a_probe_snapshot_has_room() {
     let now = 1_900_000_000_000;
-    let worker = worker("worker-a", 0, now);
+    let mut busy = worker("worker-busy", 0, now);
+    busy.last_probe.as_mut().unwrap().health = RemoteWorkerHealth::Busy;
     let caps = capabilities(0);
     let candidates = [WorkerCandidate {
-        registration: &worker,
+        registration: &busy,
         capabilities: &caps,
     }];
     let budget = budget();
-    let eligible = vec!["different-worker".into()];
-    let mut requirements = requirements(&budget, &[]);
-    requirements.remote_approved = false;
+    let requirements = requirements(&budget, &[]);
+
     assert_eq!(
         select_target(
             &TargetPreference::Auto,
             false,
             &candidates,
             &requirements,
-            now
-        ),
-        Err(SelectionFailure::NoRemoteApproval)
-    );
-    requirements.remote_approved = true;
-    requirements.eligible_worker_ids = &eligible;
-    assert_eq!(
-        select_target(
-            &TargetPreference::Auto,
-            false,
-            &candidates,
-            &requirements,
-            now
+            now,
         ),
         Err(SelectionFailure::NoCompatibleTarget)
     );
-    assert_eq!(
-        select_target(
-            &TargetPreference::Worker("worker-a".into()),
-            false,
-            &candidates,
-            &requirements,
-            now
-        ),
-        Err(SelectionFailure::WorkerUnavailable)
-    );
 }
 
 #[test]
-fn auto_falls_back_locally_when_remote_requirements_cannot_be_met() {
+fn auto_uses_reserved_cpu_capacity_without_treating_load_average_as_millicores() {
     let now = 1_900_000_000_000;
-    let worker = worker("worker-a", 0, now);
-    let caps = capabilities(0);
+    let registration = worker("worker-loaded", 0, now);
+    let mut loaded_capabilities = capabilities(0);
+    loaded_capabilities.load_millis = Some(2_001);
+    let candidates = [WorkerCandidate {
+        registration: &registration,
+        capabilities: &loaded_capabilities,
+    }];
+    let budget = budget();
+    let selected = select_target(
+        &TargetPreference::Auto,
+        false,
+        &candidates,
+        &requirements(&budget, &[]),
+        now,
+    );
+    assert_eq!(selected, Ok(ExecutionTarget::remote("worker-loaded")));
+    let mut eligible_capabilities = capabilities(0);
+    eligible_capabilities.load_millis = Some(1_999);
+    let eligible = [WorkerCandidate {
+        registration: &registration,
+        capabilities: &eligible_capabilities,
+    }];
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &eligible,
+            &requirements(&budget, &[]),
+            now,
+        ),
+        Ok(ExecutionTarget::remote("worker-loaded"))
+    );
+}
+
+#[path = "tests/capacity.rs"]
+mod capacity;
+
+#[test]
+fn auto_rejects_workers_without_verified_rootless_docker() {
+    let now = 1_900_000_000_000;
+    let worker = worker("worker-rootful", 0, now);
+    let mut caps = capabilities(0);
+    caps.docker_rootless = Some(false);
     let candidates = [WorkerCandidate {
         registration: &worker,
         capabilities: &caps,
     }];
     let budget = budget();
-    let mut requirements = requirements(&budget, &[]);
-    requirements.requires_gpu = true;
+    let requirements = requirements(&budget, &[]);
+
     assert_eq!(
         select_target(
             &TargetPreference::Auto,
-            true,
+            false,
             &candidates,
             &requirements,
-            now
-        )
-        .unwrap(),
-        ExecutionTarget::local()
+            now,
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
+    );
+
+    caps.docker_rootless = None;
+    let candidates = [WorkerCandidate {
+        registration: &worker,
+        capabilities: &caps,
+    }];
+    assert_eq!(
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &candidates,
+            &requirements,
+            now,
+        ),
+        Err(SelectionFailure::NoCompatibleTarget)
     );
 }
 
 #[test]
-fn concurrent_two_worker_selection_respects_determinism_and_worker_capacity_claims() {
-    use std::{
-        sync::{Arc, Barrier},
-        thread,
-    };
-
-    const CONTENDERS: usize = 9;
+fn auto_rotates_equal_load_workers_in_the_durable_cursor_order() {
     let now = 1_900_000_000_000;
-    let gate = Arc::new(Barrier::new(CONTENDERS + 1));
-    let root = tempfile::tempdir().unwrap();
-    let handles = (0..CONTENDERS)
-        .map(|_| {
-            let gate = gate.clone();
-            let root = root.path().to_path_buf();
-            thread::spawn(move || {
-                let busy = worker("worker-a", 2, now);
-                let idle = worker("worker-b", 0, now);
-                let busy_caps = capabilities(2);
-                let idle_caps = capabilities(0);
-                let candidates = [
-                    WorkerCandidate {
-                        registration: &busy,
-                        capabilities: &busy_caps,
-                    },
-                    WorkerCandidate {
-                        registration: &idle,
-                        capabilities: &idle_caps,
-                    },
-                ];
-                let budget = budget();
-                let requirements = requirements(&budget, &[]);
-                let selected = select_target(
-                    &TargetPreference::Auto,
-                    false,
-                    &candidates,
-                    &requirements,
-                    now,
-                )
-                .unwrap();
-                assert_eq!(selected, ExecutionTarget::remote("worker-b"));
+    let worker_a = worker("worker-a", 0, now);
+    let worker_b = worker("worker-b", 0, now);
+    let worker_c = worker("worker-c", 0, now);
+    let caps_a = capabilities(0);
+    let caps_b = capabilities(0);
+    let caps_c = capabilities(0);
+    let candidates = [
+        WorkerCandidate {
+            registration: &worker_a,
+            capabilities: &caps_a,
+        },
+        WorkerCandidate {
+            registration: &worker_b,
+            capabilities: &caps_b,
+        },
+        WorkerCandidate {
+            registration: &worker_c,
+            capabilities: &caps_c,
+        },
+    ];
+    let budget = budget();
+    let cursor_order = vec!["worker-c".into(), "worker-a".into(), "worker-b".into()];
+    let requirements = requirements(&budget, &cursor_order);
 
-                let claim = super::super::worker_capacity::WorkerCapacityPool::new(
-                    &root,
-                    "00000000-0000-4000-8000-000000000001".into(),
-                )
-                .unwrap()
-                .acquire();
-                gate.wait();
-                claim.is_ok()
-            })
-        })
-        .collect::<Vec<_>>();
-    gate.wait();
-    let admitted = handles
-        .into_iter()
-        .map(|handle| handle.join().unwrap())
-        .filter(|was_admitted| *was_admitted)
-        .count();
     assert_eq!(
-        admitted,
-        super::super::worker_capacity::MAX_REMOTE_EXECUTIONS as usize
+        select_target(
+            &TargetPreference::Auto,
+            false,
+            &candidates,
+            &requirements,
+            now,
+        )
+        .unwrap(),
+        ExecutionTarget::remote("worker-c")
     );
 }
+
+#[path = "tests/constraints.rs"]
+mod constraints;

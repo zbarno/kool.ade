@@ -6,9 +6,18 @@ use crate::{
         session::ExecutionSession,
     },
     harness::PlanningRequest,
-    persistence::remote_workers::{self, RemoteWorkerRegistration, reserve_capacity},
+    persistence::remote_workers::{
+        self, RemoteWorkerCapacityLease, RemoteWorkerRegistration, reserve_capacity,
+    },
 };
 use std::path::PathBuf;
+
+mod resource_availability;
+use resource_availability::verify_resource_availability;
+
+#[cfg(test)]
+#[path = "remote/tests.rs"]
+mod tests;
 
 pub(super) fn remote_session(
     request: &PlanningRequest,
@@ -16,6 +25,27 @@ pub(super) fn remote_session(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     worker_id: &str,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+) -> anyhow::Result<ExecutionSession> {
+    remote_session_with_capacity(
+        request,
+        workspace,
+        profile,
+        resources,
+        worker_id,
+        requirements,
+        None,
+    )
+}
+
+pub(super) fn remote_session_with_capacity(
+    request: &PlanningRequest,
+    workspace: crate::execution::contract::WorkspaceRef,
+    profile: RuntimeProfile,
+    resources: ResourceBudgetV1,
+    worker_id: &str,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    reserved_capacity: Option<RemoteWorkerCapacityLease>,
 ) -> anyhow::Result<ExecutionSession> {
     let verifier = request
         .authorization_verifier
@@ -24,6 +54,15 @@ pub(super) fn remote_session(
     verifier
         .verify(&verifier.generation())
         .map_err(|error| anyhow::anyhow!("Remote task claim is unavailable: {}", error.message))?;
+    let runtime_config_source = request.runtime_config_source.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Remote execution requires the source checkout to verify private project configuration"
+        )
+    })?;
+    crate::harness::runtime_config::ensure_remote_transfer_allowed(
+        &request.repo_root,
+        Some(runtime_config_source),
+    )?;
     let registration = remote_workers::get(worker_id)?
         .ok_or_else(|| anyhow::anyhow!("Selected remote worker is not enrolled"))?;
     anyhow::ensure!(registration.enabled, "Selected remote worker is disabled");
@@ -37,7 +76,7 @@ pub(super) fn remote_session(
     let probe = observer.probe();
     let registration = remote_workers::get(worker_id)?
         .ok_or_else(|| anyhow::anyhow!("Selected remote worker registration disappeared"))?;
-    verify_registration_capabilities(&registration, probe, profile, &resources)?;
+    verify_registration_capabilities(&registration, probe, profile, &resources, requirements)?;
     let running_jobs = probe
         .capabilities
         .as_ref()
@@ -50,12 +89,23 @@ pub(super) fn remote_session(
         .map_or(registration.max_jobs, |maximum| {
             maximum.min(registration.max_jobs)
         });
-    let capacity = reserve_capacity(
-        &registration.worker_id,
-        &registration.host_key_fingerprint,
-        worker_capacity,
-        running_jobs,
-    )?;
+    let capacity = match reserved_capacity {
+        Some(capacity) => {
+            anyhow::ensure!(
+                capacity
+                    .matches_worker(&registration.worker_id, &registration.host_key_fingerprint),
+                "Auto worker capacity reservation no longer matches the enrolled identity"
+            );
+            capacity.revalidate(worker_capacity, running_jobs)?;
+            capacity
+        }
+        None => reserve_capacity(
+            &registration.worker_id,
+            &registration.host_key_fingerprint,
+            worker_capacity,
+            running_jobs,
+        )?,
+    };
     drop(observer);
     let target = ExecutionTarget::remote(worker_id.to_owned());
     let session = ExecutionSession::connect_remote_with_task_clone(
@@ -69,6 +119,7 @@ pub(super) fn remote_session(
             destination_sha: request.destination_sha.clone(),
             authorization_verifier: Some(verifier),
             task_clone: Some(&request.repo_root),
+            runtime_config_source: request.runtime_config_source.as_deref(),
         },
     )
     .map_err(|error| {
@@ -90,11 +141,15 @@ fn verify_registration_capabilities(
     probe: &crate::execution::backend::BackendProbeV1,
     profile: RuntimeProfile,
     resources: &ResourceBudgetV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
 ) -> anyhow::Result<()> {
     let capabilities = probe
         .capabilities
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Remote worker did not report capabilities"))?;
+    require_rootless_docker(capabilities)?;
+    verify_task_capabilities(capabilities, requirements)?;
+    verify_resource_availability(capabilities, resources)?;
     let effective_max = capabilities
         .maximum_execution_count
         .map_or(registration.max_jobs, |maximum| {
@@ -176,6 +231,31 @@ fn verify_registration_capabilities(
     anyhow::ensure!(
         matches!(latest.health, remote_workers::RemoteWorkerHealth::Healthy),
         "Remote worker is not healthy"
+    );
+    Ok(())
+}
+
+fn verify_task_capabilities(
+    capabilities: &crate::execution::backend::BackendCapabilitiesV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !requirements.requires_gpu || capabilities.gpu_available,
+        "Remote worker does not provide the GPU capability required by this task"
+    );
+    anyhow::ensure!(
+        !requirements.requires_display || capabilities.display_available,
+        "Remote worker does not provide the display capability required by this task"
+    );
+    Ok(())
+}
+
+fn require_rootless_docker(
+    capabilities: &crate::execution::backend::BackendCapabilitiesV1,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        capabilities.docker_rootless == Some(true),
+        "Remote worker must report rootless Docker"
     );
     Ok(())
 }

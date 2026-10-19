@@ -44,12 +44,13 @@ impl RemoteWorkerClient {
                     // instead of replaying an old bootstrap sequence/key.
                     return Ok(EnvelopeV1 {
                         version: PROTOCOL_VERSION_V1,
-                        request_id: envelope.request_id,
-                        execution_id: envelope.execution_id,
+                        request_id: envelope.request_id.clone(),
+                        execution_id: envelope.execution_id.clone(),
                         sequence: envelope.sequence,
                         kind: Kind::Acknowledge,
                         payload: serde_json::json!({
                             "wire_version": PROTOCOL_VERSION_V1,
+                            "authenticated_principal": self.config.ssh_principal,
                             "probe": self.probe,
                         }),
                     });
@@ -72,6 +73,12 @@ impl RemoteWorkerClient {
         &mut self,
         envelope: &EnvelopeV1,
     ) -> Result<EnvelopeV1, std::io::Error> {
+        if envelope.kind == Kind::PrivateFileChunk {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "private file chunks require an authorized ephemeral transfer path",
+            ));
+        }
         self.transport.send(envelope)?;
         let response = self.transport.receive()?.ok_or_else(|| {
             std::io::Error::new(

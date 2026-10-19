@@ -75,6 +75,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             destination_sha: None,
             authorization_verifier: Some(Arc::new(authorization::TestAuthorization(generation))),
             task_clone: Some(&task_clone),
+            runtime_config_source: Some(&repository),
         },
     )
     .expect("remote worker must accept the authorized task snapshot");
@@ -86,6 +87,13 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         )
         .expect("remote task command and verified result synchronization must succeed");
     assert_eq!(output.result.exit_code, Some(0));
+    // Production-boundary proof: this crosses authenticated SSH, worker Docker, staging, and verified result application. Unit tests cannot prove those components produce linked transfer metrics. It requires Linux, sshd, the worker binary, and rootless Docker, with high setup cost.
+    let telemetry =
+        crate::persistence::remote_execution_telemetry::load(&output.result.execution_id)
+            .unwrap()
+            .expect("remote execution should persist transfer metrics");
+    assert!(telemetry.workspace_upload_bytes > 0);
+    assert!(telemetry.result_download_bytes > 0);
     let changed_file = task_clone.join("remote-result.txt");
     assert_eq!(
         fs::read(&changed_file).unwrap(),

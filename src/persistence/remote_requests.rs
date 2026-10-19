@@ -6,6 +6,7 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
+use zeroize::Zeroizing;
 
 mod api;
 pub use api::{pending, record_completion, save_pending, take_completion};
@@ -63,7 +64,7 @@ fn load_pending_dir(
 
 fn read_pending(path: &Path) -> anyhow::Result<PendingRemoteRequestV1> {
     let bytes = read_private(path)?;
-    let record: PendingRemoteRequestV1 = serde_json::from_slice(&bytes)?;
+    let mut record: PendingRemoteRequestV1 = serde_json::from_slice(&bytes)?;
     anyhow::ensure!(
         record.schema_version == 1
             && record.created_at_unix_ms > 0
@@ -71,12 +72,17 @@ fn read_pending(path: &Path) -> anyhow::Result<PendingRemoteRequestV1> {
         "pending remote request is invalid"
     );
     record.envelope.validate()?;
+    if record.envelope.kind == crate::execution::remote::protocol::EnvelopeKindV1::PrivateFileChunk
+    {
+        record.envelope.clear_sensitive_payload();
+        anyhow::bail!("secret-bearing private file chunks cannot be loaded for retry");
+    }
     Ok(record)
 }
 
 fn read_completed(path: &Path) -> anyhow::Result<CompletedRemoteRequestV1> {
     let bytes = read_private(path)?;
-    let record: CompletedRemoteRequestV1 = serde_json::from_slice(&bytes)?;
+    let mut record: CompletedRemoteRequestV1 = serde_json::from_slice(&bytes)?;
     anyhow::ensure!(
         record.schema_version == 1
             && record.completed_at_unix_ms > 0
@@ -85,10 +91,15 @@ fn read_completed(path: &Path) -> anyhow::Result<CompletedRemoteRequestV1> {
         "completed remote request is invalid"
     );
     record.response.validate()?;
+    if record.response.kind == crate::execution::remote::protocol::EnvelopeKindV1::PrivateFileChunk
+    {
+        record.response.clear_sensitive_payload();
+        anyhow::bail!("secret-bearing private file chunks cannot be loaded as completions");
+    }
     Ok(record)
 }
 
-fn read_private(path: &Path) -> anyhow::Result<Vec<u8>> {
+fn read_private(path: &Path) -> anyhow::Result<Zeroizing<Vec<u8>>> {
     use std::io;
     let metadata = fs::symlink_metadata(path)?;
     anyhow::ensure!(
@@ -107,7 +118,7 @@ fn read_private(path: &Path) -> anyhow::Result<Vec<u8>> {
         options.custom_flags(libc::O_NOFOLLOW);
     }
     let file = options.open(path)?;
-    let mut bytes = Vec::new();
+    let mut bytes = Zeroizing::new(Vec::new());
     file.take(MAX_RECORD_BYTES + 1).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > MAX_RECORD_BYTES {
         return Err(io::Error::new(

@@ -59,6 +59,37 @@ fn conflicting_request_id_and_corrupt_journal_fail_closed() {
 }
 
 #[test]
+fn private_file_chunk_is_rejected_before_any_worker_journal_is_created() {
+    let root = tempfile::tempdir().unwrap();
+    let journal = RequestJournal::new(root.path().to_owned());
+    let mut request = request("00000000-0000-4000-8000-000000000004");
+    request.kind = EnvelopeKindV1::PrivateFileChunk;
+    request.payload = serde_json::json!({"bytes": "synthetic-secret-fixture"});
+
+    assert_eq!(
+        journal.reserve(&request).unwrap_err().kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert!(!root.path().join(&request.execution_id).exists());
+}
+
+#[test]
+fn private_file_chunk_response_is_rejected_before_worker_journal_write() {
+    let root = tempfile::tempdir().unwrap();
+    let journal = RequestJournal::new(root.path().to_owned());
+    let request = request("00000000-0000-4000-8000-000000000005");
+    let mut response = response(&request);
+    response.kind = EnvelopeKindV1::PrivateFileChunk;
+    response.payload = serde_json::json!({"bytes": "synthetic-secret-fixture"});
+
+    assert_eq!(
+        journal.complete(&request, &response).unwrap_err().kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert!(!root.path().join(&request.execution_id).exists());
+}
+
+#[test]
 fn expired_requests_are_rejected_without_becoming_new_work() {
     let root = tempfile::tempdir().unwrap();
     let journal = RequestJournal::new(root.path().to_owned());

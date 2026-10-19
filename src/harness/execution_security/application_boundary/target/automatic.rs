@@ -20,6 +20,10 @@ use crate::{
 
 use super::{ExecutionSession, can_fallback_for_preference, local_session};
 
+#[cfg(test)]
+#[path = "automatic/tests.rs"]
+mod tests;
+
 struct ObservedWorker {
     registration: RemoteWorkerRegistration,
     capabilities: BackendCapabilitiesV1,
@@ -30,8 +34,11 @@ pub(super) fn auto_session(
     workspace: crate::execution::contract::WorkspaceRef,
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    allowed_targets: Vec<TargetPreference>,
 ) -> anyhow::Result<ExecutionSession> {
-    let local_eligible = DockerEnvironmentStatus::detect().ready();
+    let local_eligible =
+        local_target_eligible(DockerEnvironmentStatus::detect().ready(), &allowed_targets);
     if request.authorization_verifier.is_none() {
         return auto_local_fallback(
             request,
@@ -39,12 +46,15 @@ pub(super) fn auto_session(
             profile,
             resources,
             local_eligible,
+            requirements,
             "Automatic remote routing requires an active task claim",
         );
     }
     let registrations = remote_workers::list().unwrap_or_default();
     let mut observed = Vec::new();
-    for registration in registrations.into_iter().filter(|worker| worker.enabled) {
+    for registration in registrations.into_iter().filter(|worker| {
+        worker.enabled && worker_target_allowed(&worker.worker_id, &allowed_targets)
+    }) {
         let Ok(config) = super::remote::worker_config(&registration) else {
             continue;
         };
@@ -64,7 +74,25 @@ pub(super) fn auto_session(
         });
     }
     let lock = ImageLock::bundled().map_err(|failure| anyhow::anyhow!(failure.message))?;
-    let mut remote_choices = Vec::<(u32, String)>::new();
+    let worker_ids = observed
+        .iter()
+        .map(|worker| worker.registration.worker_id.clone())
+        .collect::<Vec<_>>();
+    let worker_order = remote_workers::order_auto_workers(&worker_ids).unwrap_or_else(|_| {
+        let mut ids = worker_ids;
+        ids.sort();
+        ids.dedup();
+        ids
+    });
+    let mut remote_choices = Vec::<(
+        std::cmp::Reverse<u32>,
+        std::cmp::Reverse<u64>,
+        u32,
+        u32,
+        u32,
+        usize,
+        String,
+    )>::new();
     let architectures = observed
         .iter()
         .filter_map(|worker| {
@@ -90,10 +118,15 @@ pub(super) fn auto_session(
             .collect::<Vec<_>>();
         let mut excluded = Vec::<String>::new();
         loop {
-            let eligible_ids = candidates
+            let eligible_ids = worker_order
                 .iter()
-                .map(|candidate| candidate.registration.worker_id.clone())
-                .filter(|worker_id| !excluded.contains(worker_id))
+                .filter(|worker_id| {
+                    !excluded.contains(worker_id)
+                        && candidates.iter().any(|candidate| {
+                            candidate.registration.worker_id.as_str() == worker_id.as_str()
+                        })
+                })
+                .cloned()
                 .collect::<Vec<_>>();
             let requirements = SchedulingRequirements {
                 architecture: &architecture,
@@ -103,8 +136,8 @@ pub(super) fn auto_session(
                 remote_approved: true,
                 dependencies_prepared: true,
                 eligible_worker_ids: &eligible_ids,
-                requires_gpu: false,
-                requires_display: false,
+                requires_gpu: requirements.requires_gpu,
+                requires_display: requirements.requires_display,
             };
             let Ok(target) = scheduler::select_target(
                 &TargetPreference::Auto,
@@ -124,19 +157,70 @@ pub(super) fn auto_session(
                 .find(|worker| worker.registration.worker_id == worker_id)
                 .and_then(|worker| worker.registration.last_probe.as_ref())
                 .map_or(u32::MAX, |probe| probe.running_jobs);
-            if !remote_choices.iter().any(|(_, id)| id == &worker_id) {
-                remote_choices.push((load, worker_id));
+            let order = worker_order
+                .iter()
+                .position(|id| id == &worker_id)
+                .unwrap_or(usize::MAX);
+            if !remote_choices
+                .iter()
+                .any(|(_, _, _, _, _, _, id)| id == &worker_id)
+            {
+                let worker = observed
+                    .iter()
+                    .find(|worker| worker.registration.worker_id == worker_id);
+                let Some(capabilities) = worker.map(|worker| &worker.capabilities) else {
+                    continue;
+                };
+                remote_choices.push((
+                    std::cmp::Reverse(capabilities.available_cpu_millis.unwrap_or_default()),
+                    std::cmp::Reverse(capabilities.available_memory_bytes.unwrap_or_default()),
+                    capabilities
+                        .cpu_pressure_some_avg10_basis_points
+                        .unwrap_or(u32::MAX),
+                    capabilities.load_millis.unwrap_or(u32::MAX),
+                    load,
+                    order,
+                    worker_id,
+                ));
             }
         }
     }
     remote_choices.sort();
-    for (_, worker_id) in remote_choices {
-        match super::remote::remote_session(
+    let mut remaining = remote_choices
+        .iter()
+        .filter_map(|(_, _, _, _, load, _, worker_id)| {
+            let worker = observed
+                .iter()
+                .find(|worker| worker.registration.worker_id == *worker_id)?;
+            worker.registration.last_probe.as_ref()?;
+            let max_jobs = worker
+                .capabilities
+                .maximum_execution_count
+                .map_or(worker.registration.max_jobs, |maximum| {
+                    maximum.min(worker.registration.max_jobs)
+                });
+            Some(remote_workers::AutoWorkerCapacityCandidate {
+                worker_id: worker_id.clone(),
+                host_key_fingerprint: worker.registration.host_key_fingerprint.clone(),
+                max_jobs,
+                observed_running_jobs: *load,
+            })
+        })
+        .collect::<Vec<_>>();
+    while !remaining.is_empty() {
+        let Ok(Some(capacity)) = remote_workers::reserve_auto_capacity(&remaining) else {
+            break;
+        };
+        let worker_id = capacity.worker_id().to_owned();
+        remaining.retain(|candidate| candidate.worker_id != worker_id);
+        match super::remote::remote_session_with_capacity(
             request,
             workspace.clone(),
             profile,
             resources.clone(),
             &worker_id,
+            requirements,
+            Some(capacity),
         ) {
             Ok(session) => return Ok(session),
             Err(_) => continue,
@@ -148,6 +232,7 @@ pub(super) fn auto_session(
         profile,
         resources,
         local_eligible,
+        requirements,
         "No verified remote worker is eligible",
     )
 }
@@ -158,11 +243,25 @@ fn auto_local_fallback(
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     local_eligible: bool,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
     reason: &str,
 ) -> anyhow::Result<ExecutionSession> {
+    super::ensure_local_capabilities(&requirements)?;
     anyhow::ensure!(
         can_fallback_for_preference(&TargetPreference::Auto, local_eligible),
         "{reason}; local Docker is unavailable"
     );
     local_session(request, workspace, profile, resources)
+}
+
+fn local_target_eligible(local_ready: bool, allowed_targets: &[TargetPreference]) -> bool {
+    local_ready && super::ensure_target_allowed(&TargetPreference::Local, allowed_targets).is_ok()
+}
+
+fn worker_target_allowed(worker_id: &str, allowed_targets: &[TargetPreference]) -> bool {
+    super::ensure_target_allowed(
+        &TargetPreference::Worker(worker_id.to_owned()),
+        allowed_targets,
+    )
+    .is_ok()
 }

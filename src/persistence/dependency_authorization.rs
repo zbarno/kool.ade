@@ -114,7 +114,10 @@ fn acquire_store_lock(store: &Path) -> anyhow::Result<File> {
         "Dependency authorization lock must not be a symlink"
     );
     set_private_file(&path)?;
-    let deadline = Instant::now() + Duration::from_secs(2);
+    // A competing process may itself be descheduled while holding this short
+    // transaction lock. Allow normal system contention to clear before asking
+    // the caller to retry, while still bounding a genuinely stuck writer.
+    let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         match lock.try_lock() {
             Ok(()) => return Ok(lock),

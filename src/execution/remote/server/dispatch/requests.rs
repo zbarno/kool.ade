@@ -56,6 +56,20 @@ pub(super) struct ReadWorkspaceResultChunkRequest {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(super) struct AuthorizePrivateFileGrantRequest {
+    pub(super) execution_id: String,
+    pub(super) workspace: crate::execution::contract::WorkspaceRef,
+    pub(super) grant: crate::execution::remote::private_files::RemotePrivateFileGrantV1,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct AbortPrivateFileStageRequest {
+    pub(super) execution_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct StartRequest {
     pub(super) lease: WorkspaceLeaseV1,
     pub(super) request: ExecutionRequestV1,

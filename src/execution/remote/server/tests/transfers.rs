@@ -1,6 +1,149 @@
 use super::*;
 
 #[test]
+fn worker_capacity_rejection_is_explicitly_pre_start_over_its_rpc_boundary() {
+    // Production boundary: drives a framed Start through the real worker
+    // dispatcher with every host slot held. A capacity-pool unit test cannot
+    // prove the response kind/message used by controller rollback or that the
+    // backend was not called. Setup is eight local lock files and temp dirs;
+    // no Docker daemon or SSH worker is needed.
+    let root = tempfile::tempdir().unwrap();
+    let worker_id = "00000000-0000-4000-8000-000000000141";
+    let execution_id = "00000000-0000-4000-8000-000000000142";
+    let pool =
+        crate::execution::remote::WorkerCapacityPool::new(root.path(), worker_id.into()).unwrap();
+    let occupied = (0..pool.max_jobs())
+        .map(|_| pool.acquire().unwrap())
+        .collect::<Vec<_>>();
+    let (lease, request) = start_request(execution_id);
+    let mut envelope = envelope(execution_id);
+    envelope.kind = EnvelopeKindV1::Start;
+    envelope.payload = serde_json::json!({"lease": lease, "request": request});
+    let mut input = Vec::new();
+    protocol::write_frame(&mut input, &envelope).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut output = Vec::new();
+    super::super::serve_stdio_with_journal(
+        Arc::new(FakeBackend(calls.clone())),
+        None,
+        Some(Arc::new(pool)),
+        Cursor::new(input),
+        &mut output,
+        super::super::journal::RequestJournal::new(root.path().join("journal")),
+    )
+    .unwrap();
+    drop(occupied);
+
+    let response = protocol::read_frame(&mut Cursor::new(output))
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.kind, EnvelopeKindV1::Error);
+    assert_eq!(response.payload["kind"], "worker_incompatible");
+    assert_eq!(
+        response.payload["message"],
+        crate::execution::errors::REMOTE_START_CAPACITY_REJECTION_MESSAGE
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+}
+
+fn start_request(execution_id: &str) -> (WorkspaceLeaseV1, ExecutionRequestV1) {
+    let project_id = "00000000-0000-4000-8000-000000000143".to_owned();
+    let task_id = "00000000-0000-4000-8000-000000000144".to_owned();
+    let workspace = WorkspaceRef {
+        project_id: project_id.clone(),
+        task_id: task_id.clone(),
+        source_sha: "a".repeat(40),
+    };
+    let resources = ResourceBudgetV1 {
+        cpu_millis: 1000,
+        memory_bytes: 1024 * 1024 * 1024,
+        process_count: 32,
+        temporary_disk_bytes: 1024 * 1024 * 1024,
+        output_bytes: 1024 * 1024,
+    };
+    let mode = ExecutionModeV1::Implementation;
+    let lease = WorkspaceLeaseV1 {
+        lease_id: "00000000-0000-4000-8000-000000000145".into(),
+        workspace: workspace.clone(),
+        expires_unix_ms: u64::MAX,
+    };
+    let request = ExecutionRequestV1 {
+        schema_version: 1,
+        execution_id: execution_id.into(),
+        authorization_generation: "00000000-0000-4000-8000-000000000146".into(),
+        project_id,
+        task_id,
+        target: ExecutionTarget::local(),
+        controller_target_id: None,
+        workspace,
+        destination_sha: None,
+        mode,
+        image_digest: format!("sha256:{}", "b".repeat(64)),
+        argv: vec!["true".into()],
+        working_directory_relative: ".".into(),
+        stdin: None,
+        environment_allowlist: BTreeSet::new(),
+        resource_budget: resources.clone(),
+        deadline_unix_ms: u64::MAX,
+        allowed_service_ports: BTreeSet::new(),
+        broker_capability_ids: BTreeSet::new(),
+        dependency_cache_refs: Vec::new(),
+        cancellation_generation: 0,
+        request_sequence: 1,
+        policy: ExecutionPolicyV1::for_mode(mode, resources, BTreeSet::new()).unwrap(),
+    };
+    (lease, request)
+}
+
+#[test]
+fn private_chunk_frame_is_rejected_before_durable_rpc_journaling() {
+    // Production boundary: drives the real framed server loop, proving typed
+    // secret bytes stay outside RPC journaling and fail closed before worker
+    // grant storage is available. A protocol unit test cannot prove the server
+    // composes that boundary with journal persistence. Uses a fake backend and
+    // temporary directory; no SSH or Docker.
+    let root = tempfile::tempdir().unwrap();
+    let execution_id = "00000000-0000-4000-8000-000000000141";
+    let mut request = envelope(execution_id);
+    request.kind = EnvelopeKindV1::PrivateFileChunk;
+    let chunk = crate::execution::remote::private_files::PrivateFileChunkV1::new(
+        "00000000-0000-4000-8000-000000000142".into(),
+        ".env.production".into(),
+        0,
+        b"secret".to_vec(),
+    )
+    .unwrap();
+    request.payload = serde_json::to_value(chunk.header().unwrap()).unwrap();
+    let mut input = Vec::new();
+    crate::execution::remote::protocol::write_private_file_chunk_frame(
+        &mut input, &request, &chunk,
+    )
+    .unwrap();
+
+    let mut output = Vec::new();
+    serve_stdio_with_journal(
+        Arc::new(FakeBackend(Arc::new(AtomicUsize::new(0)))),
+        None,
+        None,
+        Cursor::new(input),
+        &mut output,
+        RequestJournal::new(root.path().to_owned()),
+    )
+    .unwrap();
+    let response = crate::execution::remote::protocol::read_frame(&mut Cursor::new(output))
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.kind, EnvelopeKindV1::Error);
+    assert!(
+        serde_json::from_value::<crate::execution::errors::ExecutionError>(response.payload)
+            .unwrap()
+            .message
+            .contains("grant storage is unavailable")
+    );
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn remote_cache_transfer_validates_chunks_before_staging_snapshot() {
     use crate::execution::contract::DependencyCacheEcosystemV1;
     use crate::execution::remote::staging::{MAX_TRANSFER_CHUNK_BYTES, TransferChunkV1};

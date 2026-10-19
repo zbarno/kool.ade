@@ -3,9 +3,10 @@ use super::*;
 impl KooladeApp {
     pub(super) fn advance_activity(&mut self) {
         let mut plan_repair = None;
+        let mut planner_generation_readiness = None;
         if let Screen::Connected(project) = &mut self.screen {
             reconcile_inactive_planning_work(project);
-            advance_clarification_planner(project);
+            planner_generation_readiness = advance_clarification_planner(project);
             advance_plan_review(project);
             advance_dependency_review(project, &mut self.task_harness);
             runtime_qa::advance_runtime_qa(project, &mut self.task_harness);
@@ -161,6 +162,9 @@ impl KooladeApp {
                     ));
                 }
             }
+        }
+        if let Some(ready) = planner_generation_readiness {
+            self.continue_feature_generation(ready);
         }
     }
 }

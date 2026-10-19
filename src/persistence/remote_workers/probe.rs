@@ -29,6 +29,14 @@ pub struct RemoteWorkerProbe {
     pub resource_ceiling: Option<crate::execution::contract::ResourceBudgetV1>,
     #[serde(default)]
     pub disk_available_bytes: Option<u64>,
+    #[serde(default)]
+    pub available_cpu_millis: Option<u32>,
+    #[serde(default)]
+    pub available_memory_bytes: Option<u64>,
+    #[serde(default)]
+    pub cpu_pressure_some_avg10_basis_points: Option<u32>,
+    #[serde(default)]
+    pub load_millis: Option<u32>,
 }
 
 /// Record only public health/capability facts; never persist host names, SSH

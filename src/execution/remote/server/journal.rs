@@ -43,6 +43,11 @@ impl RequestJournal {
     /// Reserve the globally unique request ID and its per-execution record
     /// before dispatch. Exact completed retries replay the saved response.
     pub fn reserve(&self, request: &EnvelopeV1) -> io::Result<Lookup> {
+        if request.kind == super::super::protocol::EnvelopeKindV1::PrivateFileChunk {
+            return Err(invalid_data(
+                "secret-bearing private file chunks cannot enter the worker journal",
+            ));
+        }
         let request_hash = fingerprint(request)?;
         let (index_lock, index, index_path) = self.open_index_locked()?;
         let mut index = index;
@@ -191,6 +196,13 @@ impl RequestJournal {
     /// Append the response only after dispatch has produced it. A crash while
     /// pending is deliberately not retried because execution may have begun.
     pub fn complete(&self, request: &EnvelopeV1, response: &EnvelopeV1) -> io::Result<()> {
+        if request.kind == super::super::protocol::EnvelopeKindV1::PrivateFileChunk
+            || response.kind == super::super::protocol::EnvelopeKindV1::PrivateFileChunk
+        {
+            return Err(invalid_data(
+                "secret-bearing private file chunks cannot enter the worker journal",
+            ));
+        }
         completion::complete(self, request, response)
     }
 

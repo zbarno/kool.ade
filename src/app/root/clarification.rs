@@ -1,6 +1,14 @@
 use super::{KooladeApp, Screen};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 
+mod scheduling;
+
+pub(super) fn planner_for_changed_active_feature(
+    project: &super::session::Project,
+) -> Result<Option<(String, u64)>, String> {
+    scheduling::for_changed_active_feature(project)
+}
+
 mod defer;
 mod fence;
 #[cfg(test)]

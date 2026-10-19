@@ -5,6 +5,8 @@ mod concurrent_generation;
 #[path = "approval_flow/stale_approval.rs"]
 mod stale_approval;
 
+#[path = "approval_flow/clarification_continuation.rs"]
+mod clarification_continuation;
 #[path = "approval_flow/compare.rs"]
 mod compare;
 #[path = "approval_flow/plan_choice.rs"]

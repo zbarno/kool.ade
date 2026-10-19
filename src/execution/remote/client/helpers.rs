@@ -14,11 +14,13 @@ pub(super) fn verified(config: &SshWorkerConfig) -> Result<VerifiedSshWorker, Ex
 
 pub(super) fn negotiated_probe(
     payload: serde_json::Value,
+    expected_principal: &str,
 ) -> Result<BackendProbeV1, ExecutionError> {
     #[derive(serde::Deserialize)]
     #[serde(deny_unknown_fields)]
     struct HealthAck {
         wire_version: u16,
+        authenticated_principal: String,
         probe: BackendProbeV1,
     }
     let ack: HealthAck = serde_json::from_value(payload)
@@ -27,6 +29,12 @@ pub(super) fn negotiated_probe(
         return Err(incompatible_with(format!(
             "worker wire version mismatch: response={}, probe={}, expected={PROTOCOL_VERSION_V1}",
             ack.wire_version, ack.probe.wire_version
+        )));
+    }
+    if ack.authenticated_principal != expected_principal {
+        return Err(incompatible_with(format!(
+            "worker SSH account mismatch: worker={}, expected={expected_principal}",
+            ack.authenticated_principal
         )));
     }
     if !ack.probe.available || !ack.probe.compatible {
@@ -77,6 +85,8 @@ pub(in crate::execution::remote) fn matches_response(request: &Kind, response: &
                     | Kind::SystemImageTransferChunk
                     | Kind::FinalizeSystemImageTransfer
                     | Kind::DependencyDecision
+                    | Kind::AuthorizePrivateFileGrant
+                    | Kind::PrivateFileChunk
                     | Kind::PrepareWorkspaceResult
                     | Kind::ReadWorkspaceResultChunk
                     | Kind::Start
@@ -139,15 +149,19 @@ mod tests {
             (PROTOCOL_VERSION_V1 + 1, PROTOCOL_VERSION_V1),
             (PROTOCOL_VERSION_V1, PROTOCOL_VERSION_V1 + 1),
         ] {
-            let error = negotiated_probe(serde_json::json!({
-                "wire_version": response_version,
-                "probe": {
-                    "wire_version": probe_version,
-                    "available": false,
-                    "compatible": false,
-                    "failure": null
-                }
-            }))
+            let error = negotiated_probe(
+                serde_json::json!({
+                    "wire_version": response_version,
+                    "authenticated_principal": "builder",
+                    "probe": {
+                        "wire_version": probe_version,
+                        "available": false,
+                        "compatible": false,
+                        "failure": null
+                    }
+                }),
+                "builder",
+            )
             .unwrap_err();
 
             assert_eq!(error.kind, ExecutionErrorKind::WorkerIncompatible);
@@ -155,6 +169,27 @@ mod tests {
                 "worker wire version mismatch: response={response_version}, probe={probe_version}"
             )));
         }
+    }
+
+    #[test]
+    fn negotiated_health_rejects_a_different_authenticated_ssh_account() {
+        let error = negotiated_probe(
+            serde_json::json!({
+                "wire_version": PROTOCOL_VERSION_V1,
+                "authenticated_principal": "unexpected-account",
+                "probe": {
+                    "wire_version": PROTOCOL_VERSION_V1,
+                    "available": false,
+                    "compatible": false,
+                    "failure": null
+                }
+            }),
+            "builder",
+        )
+        .unwrap_err();
+
+        assert_eq!(error.kind, ExecutionErrorKind::WorkerIncompatible);
+        assert!(error.message.contains("worker SSH account mismatch"));
     }
 
     #[test]
