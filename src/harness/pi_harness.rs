@@ -263,20 +263,7 @@ fn tail(lines: &[String]) -> String {
 
 /// Pull a version string out of `pi --version` output ("pi - v0.84.4").
 fn extract_version(out: &str) -> String {
-    let token = out
-        .split_whitespace()
-        .find(|t| {
-            t.trim_start_matches(['v', '-'])
-                .starts_with(|c: char| c.is_ascii_digit())
-        })
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            out.split_whitespace()
-                .next()
-                .unwrap_or_default()
-                .to_string()
-        });
-    token.trim_start_matches('v').to_string()
+    crate::harness::discovery::normalize_cli_version(out, &["pi"], true).unwrap_or_default()
 }
 
 mod capabilities;

@@ -2,7 +2,9 @@ use crate::harness::{
     AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, CopilotHarness, OpenCodeHarness,
     PiHarness,
 };
+mod route_readiness;
 mod wrappers;
+use route_readiness::has_current_authenticated_snapshot;
 use wrappers::{ImplementationQaHarness, RoutedHarness, UnavailableHarness};
 
 pub(crate) fn validate_task_routes(
@@ -43,12 +45,13 @@ pub(crate) fn validate_task_routes(
                 route.harness
             ));
         }
-        if !detected.has_current_authenticated_capability(
+        if !has_current_authenticated_snapshot(
             &route.harness,
+            detected,
             crate::persistence::harness_settings::current_unix_ms(),
         ) {
             return Err(format!(
-                "Authentication for harness '{}' is unconfirmed or unavailable; refresh Coding tools and verify provider login before task routing",
+                "Authentication for harness '{}' is unconfirmed or unavailable; no current authenticated capability snapshot exists. Refresh Coding tools and verify provider login before task routing",
                 route.harness
             ));
         }
@@ -107,7 +110,17 @@ pub(crate) fn configured_harness_for_task(
     }
     let legacy = (std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() == Ok("codex"))
         .then_some("codex");
-    let task_route = work_type.and_then(|category| task_routes.get(category));
+    // An uncategorized task turn is context-only. If an implementation route
+    // was explicitly configured, still use and validate it instead of silently
+    // falling back to the global default.
+    let task_route = work_type
+        .and_then(|category| task_routes.get(category))
+        .or_else(|| {
+            work_type
+                .is_none()
+                .then(|| task_routes.get(crate::persistence::harness_settings::IMPLEMENTATION))
+                .flatten()
+        });
     let harness = routed_harness(&settings, work_type, legacy, task_route);
     if work_type == Some(crate::persistence::harness_settings::IMPLEMENTATION) {
         let qa = routed_harness(
@@ -141,27 +154,43 @@ fn routed_harness(
     let discovery_fresh = detected.is_some_and(|entry| {
         entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
     });
-    if work_type.is_some() && !discovery_fresh {
+    let authenticated = detected.is_some_and(|entry| {
+        has_current_authenticated_snapshot(
+            harness_id,
+            entry,
+            crate::persistence::harness_settings::current_unix_ms(),
+        )
+    });
+    let route_requires_discovery = work_type.is_some() || route.is_some();
+    if route_requires_discovery && !discovery_fresh {
         return Box::new(UnavailableHarness(format!(
             "Discovery for {harness_id} is stale. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
-    if work_type.is_some() && !detected.is_some_and(|entry| entry.ready) {
+    if route_requires_discovery && !detected.is_some_and(|entry| entry.ready) {
         return Box::new(UnavailableHarness(format!(
             "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."
         )));
     }
-    if work_type.is_some()
-        && !detected.is_some_and(|entry| {
-            entry.has_current_authenticated_capability(
-                harness_id,
-                crate::persistence::harness_settings::current_unix_ms(),
-            )
-        })
-    {
+    if route_requires_discovery && !authenticated {
         return Box::new(UnavailableHarness(format!(
-            "Authentication for harness {harness_id} is unconfirmed or unavailable. Refresh Coding tools and verify provider login before starting this task; no fallback will run it."
+            "Authentication for harness {harness_id} is unconfirmed or unavailable; no current authenticated capability snapshot exists. Refresh Coding tools before starting this task; no fallback will run it."
         )));
+    }
+    let implementation_route = work_type
+        == Some(crate::persistence::harness_settings::IMPLEMENTATION)
+        || (work_type.is_none() && route.is_some());
+    if implementation_route {
+        if !detected.is_some_and(|entry| entry.implementation_available) {
+            return Box::new(UnavailableHarness(format!(
+                "Harness {harness_id} is not currently available for implementation inside Kool.ad/e's application-owned Docker execution session. Refresh Coding tools or select a supported tool."
+            )));
+        }
+        if !crate::harness::implementation_route_available(harness_id) {
+            return Box::new(UnavailableHarness(format!(
+                "Harness {harness_id} has no supported application-owned implementation route. Select a supported tool before starting the task."
+            )));
+        }
     }
     // Route selection establishes provider and model identity. Whether this
     // operation needs repository tools is determined by PlanningRequest.mode
@@ -206,8 +235,18 @@ fn route_selection<'a>(
     Option<&'a str>,
     Option<&'a crate::persistence::harness_settings::WorkRoute>,
 ) {
-    let route =
-        task_route.or_else(|| work_type.and_then(|category| settings.work_routes.get(category)));
+    let route = task_route
+        .or_else(|| work_type.and_then(|category| settings.work_routes.get(category)))
+        .or_else(|| {
+            work_type
+                .is_none()
+                .then(|| {
+                    settings
+                        .work_routes
+                        .get(crate::persistence::harness_settings::IMPLEMENTATION)
+                })
+                .flatten()
+        });
     let selected = route
         .map(|route| route.harness.as_str())
         .or(settings.default_harness.as_deref())

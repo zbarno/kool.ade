@@ -115,33 +115,11 @@ impl CopilotHarness {
 }
 
 fn copilot_version(output: &str) -> Option<String> {
-    output.lines().map(str::trim).find_map(|line| {
-        let lower = line.to_ascii_lowercase();
-        let identity_tokens = lower
-            .split(|character: char| !character.is_ascii_alphanumeric())
-            .filter(|token| !token.is_empty())
-            .collect::<Vec<_>>();
-        let recognized_identity = identity_tokens
-            .windows(2)
-            .any(|pair| pair == ["github", "copilot"] || pair == ["copilot", "cli"]);
-        let has_version = line.split_whitespace().any(|word| {
-            let token = word
-                .trim_matches(|character: char| {
-                    !character.is_ascii_alphanumeric() && character != '.'
-                })
-                .trim_matches('.');
-            let token = token
-                .strip_prefix('v')
-                .or_else(|| token.strip_prefix('V'))
-                .unwrap_or(token);
-            let pieces = token.split('.').collect::<Vec<_>>();
-            pieces.len() >= 2
-                && pieces
-                    .iter()
-                    .all(|piece| !piece.is_empty() && piece.chars().all(|c| c.is_ascii_digit()))
-        });
-        (recognized_identity && has_version).then(|| line.to_owned())
-    })
+    crate::harness::discovery::normalize_cli_version(
+        output,
+        &["GitHub Copilot CLI", "Copilot CLI"],
+        false,
+    )
 }
 
 fn executable(path: &Path) -> bool {

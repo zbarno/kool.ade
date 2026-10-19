@@ -7,6 +7,28 @@ const FILE: &str = "harness-settings.json";
 pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
 const CURRENT_SCHEMA_VERSION: u8 = 4;
 
+#[cfg(test)]
+thread_local! {
+    static SETTINGS_PATH_OVERRIDE: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct RestoreSettingsPath(Option<std::path::PathBuf>);
+
+#[cfg(test)]
+impl Drop for RestoreSettingsPath {
+    fn drop(&mut self) {
+        SETTINGS_PATH_OVERRIDE.with(|path| *path.borrow_mut() = self.0.take());
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn with_settings_path<R>(path: std::path::PathBuf, run: impl FnOnce() -> R) -> R {
+    let previous = SETTINGS_PATH_OVERRIDE.with(|slot| slot.replace(Some(path)));
+    let _restore = RestoreSettingsPath(previous);
+    run()
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct HarnessSettings {
@@ -124,6 +146,10 @@ pub fn current_unix_ms() -> u64 {
 }
 
 pub fn settings_path() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Some(path) = SETTINGS_PATH_OVERRIDE.with(|path| path.borrow().clone()) {
+        return path;
+    }
     crate::persistence::state_root().join(FILE)
 }
 
