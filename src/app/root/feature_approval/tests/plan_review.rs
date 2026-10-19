@@ -5,6 +5,9 @@ use crate::{
 };
 use std::sync::{Arc, Mutex};
 
+#[path = "plan_review/lifecycle.rs"]
+mod lifecycle;
+
 #[derive(Default)]
 struct ReviewObservation {
     mode: Option<ExecutionMode>,
@@ -205,19 +208,10 @@ fn user_confirmation_runs_independent_plan_reviewer_and_persists_its_exact_verdi
         observation.subject_hash.as_deref(),
         Some(snapshot.content_hash.as_str())
     );
-    assert!(crate::core::workflow::feature_approved(
-        &project.state.planning_store,
-        &project.state.workflow,
-        "CHG-004"
-    ));
-    assert!(
-        crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store)
-            .list_tasks()
-            .unwrap()
-            .is_empty()
-    );
     drop(observation);
     drop(app);
+    let reloaded = crate::core::state::PlannerState::load(&root).unwrap();
+    lifecycle::assert_review_reconciled(&reloaded.planning_store, &reloaded.workflow, &snapshot);
     std::fs::remove_dir_all(root).unwrap();
 }
 
