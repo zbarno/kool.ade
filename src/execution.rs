@@ -8,6 +8,7 @@ pub mod docker;
 pub mod errors;
 pub mod policy;
 pub mod remote;
+pub(crate) mod resources;
 pub mod session;
 
 pub(crate) use dependency_cache_store::DependencyCacheSnapshotStore;

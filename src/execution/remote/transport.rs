@@ -11,6 +11,16 @@ const STDERR_LIMIT: usize = 64 * 1024;
 
 pub(super) trait RemoteRpcTransport: Send {
     fn send(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()>;
+    fn send_private_file_chunk(
+        &mut self,
+        _envelope: &protocol::EnvelopeV1,
+        _chunk: &crate::execution::remote::private_files::PrivateFileChunkV1,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "private-file chunk transport is unavailable",
+        ))
+    }
     fn receive(&mut self) -> io::Result<Option<protocol::EnvelopeV1>>;
     #[allow(dead_code)] // The test-only client hook terminates a fakeable transport.
     fn terminate(&mut self) -> io::Result<()>;
@@ -69,8 +79,23 @@ impl SshTransport {
     }
 
     pub fn send(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()> {
+        if envelope.kind == protocol::EnvelopeKindV1::PrivateFileChunk {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "private file chunks require a dedicated authorized transport",
+            ));
+        }
         self.outbound.accept(envelope)?;
         protocol::write_frame(&mut self.input, envelope)
+    }
+
+    pub(crate) fn send_private_file_chunk(
+        &mut self,
+        envelope: &protocol::EnvelopeV1,
+        chunk: &crate::execution::remote::private_files::PrivateFileChunkV1,
+    ) -> io::Result<()> {
+        self.outbound.accept(envelope)?;
+        protocol::write_private_file_chunk_frame(&mut self.input, envelope, chunk)
     }
 
     pub fn receive(&mut self) -> io::Result<Option<protocol::EnvelopeV1>> {
@@ -120,6 +145,14 @@ impl RemoteRpcTransport for SshTransport {
         SshTransport::send(self, envelope)
     }
 
+    fn send_private_file_chunk(
+        &mut self,
+        envelope: &protocol::EnvelopeV1,
+        chunk: &crate::execution::remote::private_files::PrivateFileChunkV1,
+    ) -> io::Result<()> {
+        SshTransport::send_private_file_chunk(self, envelope, chunk)
+    }
+
     fn receive(&mut self) -> io::Result<Option<protocol::EnvelopeV1>> {
         SshTransport::receive(self)
     }
@@ -159,10 +192,45 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
+    fn private_chunk() -> protocol::EnvelopeV1 {
+        protocol::EnvelopeV1 {
+            version: protocol::PROTOCOL_VERSION_V1,
+            request_id: "00000000-0000-4000-8000-000000000151".into(),
+            execution_id: "00000000-0000-4000-8000-000000000152".into(),
+            sequence: 1,
+            kind: protocol::EnvelopeKindV1::PrivateFileChunk,
+            payload: serde_json::json!({"bytes":[115,121,110,116,104,101,116,105,99]}),
+        }
+    }
+
     #[test]
     fn stderr_capture_is_bounded_and_output_reader_does_not_consume_it() {
         let capture = Arc::new(Mutex::new(Vec::new()));
         drain_stderr(Cursor::new(vec![b'x'; STDERR_LIMIT + 8]), capture.clone());
         assert_eq!(capture.lock().unwrap().len(), STDERR_LIMIT);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn public_ssh_transport_rejects_private_chunks_before_writing_a_frame() {
+        let mut child = std::process::Command::new("cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let transport = SshTransport {
+            input: child.stdin.take().unwrap(),
+            child,
+            output: mpsc::channel().1,
+            stderr: Arc::new(Mutex::new(Vec::new())),
+            outbound: protocol::SessionValidator::default(),
+            inbound: protocol::SessionValidator::default(),
+        };
+        let mut transport = transport;
+
+        let error = transport.send(&private_chunk()).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     }
 }

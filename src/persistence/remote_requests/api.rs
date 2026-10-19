@@ -12,6 +12,10 @@ pub(super) fn save_pending_at(
     worker_id: &str,
     envelope: &crate::execution::remote::protocol::EnvelopeV1,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        envelope.kind != crate::execution::remote::protocol::EnvelopeKindV1::PrivateFileChunk,
+        "secret-bearing private file chunks cannot be persisted for retry"
+    );
     envelope.validate()?;
     let directory = worker_directory(root, worker_id, true)?;
     let existing = pending_path(&directory, &envelope.request_id);
@@ -94,6 +98,10 @@ pub(super) fn record_completion_at(
     request_id: &str,
     response: &crate::execution::remote::protocol::EnvelopeV1,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        response.kind != crate::execution::remote::protocol::EnvelopeKindV1::PrivateFileChunk,
+        "secret-bearing private file chunks cannot be persisted as completions"
+    );
     response.validate()?;
     anyhow::ensure!(
         response.request_id == request_id,

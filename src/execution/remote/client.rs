@@ -23,7 +23,9 @@ use super::{
 mod exchange;
 mod health;
 mod helpers;
+mod private_files;
 mod reconnect;
+mod system_image;
 pub(super) use helpers::matches_response;
 use helpers::{
     disconnected, incompatible, negotiated_probe, unavailable, unavailable_probe, verified,
@@ -43,6 +45,15 @@ fn encode_capability_key(key: &[u8; 32]) -> String {
     key.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+fn deny_private_chunk_payload(payload: &mut serde_json::Value) -> ExecutionError {
+    super::protocol::clear_sensitive_payload_value(payload);
+    ExecutionError::new(
+        ExecutionErrorKind::PolicyDenied,
+        "Private-file transfer is unavailable until scoped worker grants are enforced",
+        false,
+    )
+}
+
 pub struct RemoteWorkerClient {
     config: SshWorkerConfig,
     transport: Box<dyn RemoteRpcTransport>,
@@ -54,6 +65,10 @@ pub struct RemoteWorkerClient {
 }
 
 impl RemoteWorkerClient {
+    pub(super) fn verified_host_key_fingerprint(&self) -> &str {
+        &self.config.verified_host_key_fingerprint
+    }
+
     #[cfg(test)]
     pub fn terminate_transport_for_test(&mut self) {
         let _ = self.transport.terminate();
@@ -97,7 +112,7 @@ impl RemoteWorkerClient {
                 }),
             )
             .map_err(|error| client.health_error_with_diagnostics(error))?;
-        client.probe = match negotiated_probe(ack.payload) {
+        client.probe = match negotiated_probe(ack.payload, &client.config.ssh_principal) {
             Ok(probe) => probe,
             Err(error) => {
                 client.persist_health(
@@ -118,35 +133,15 @@ impl RemoteWorkerClient {
         &self.probe
     }
 
-    pub(super) fn system_image_capability(
-        &self,
-        transfer_id: &str,
-        proposal: &crate::execution::docker::image_extension::SystemImageExtensionRequest,
-        decision: crate::harness::DependencyDecision,
-        workspace: &crate::execution::contract::WorkspaceRef,
-        manifest: &[crate::execution::docker::image_extension::builder::PackageArtifactIdentity],
-    ) -> Result<String, ExecutionError> {
-        crate::execution::docker::image_extension::sign_system_image_capability(
-            &self.system_image_capability_key,
-            transfer_id,
-            proposal,
-            decision,
-            workspace,
-            manifest,
-        )
-        .map_err(|_| incompatible())
-    }
-
-    pub(super) fn system_image_key_hex(&self) -> String {
-        encode_capability_key(&self.system_image_capability_key)
-    }
-
     pub fn request(
         &mut self,
         kind: Kind,
         execution_id: &str,
-        payload: serde_json::Value,
+        mut payload: serde_json::Value,
     ) -> Result<EnvelopeV1, ExecutionError> {
+        if kind == Kind::PrivateFileChunk {
+            return Err(deny_private_chunk_payload(&mut payload));
+        }
         self.refresh_health_if_due()?;
         self.exchange(kind, execution_id, payload)
     }

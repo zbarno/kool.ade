@@ -6,6 +6,7 @@
 pub mod backend;
 pub mod client;
 pub mod dependency;
+pub(crate) mod private_files;
 pub mod protocol;
 pub mod scheduler;
 pub mod server;

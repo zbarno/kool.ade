@@ -10,6 +10,10 @@ impl RemoteWorkerClient {
         if self.last_health_check.elapsed() < HEALTH_REFRESH_INTERVAL {
             return Ok(());
         }
+        self.refresh_probe_now()
+    }
+
+    pub fn refresh_probe_now(&mut self) -> Result<(), crate::execution::errors::ExecutionError> {
         let response = self.exchange(
             Kind::Health,
             CONTROL_ID,
@@ -18,7 +22,7 @@ impl RemoteWorkerClient {
                 "system_image_key": self.system_image_key_hex(),
             }),
         )?;
-        self.probe = match negotiated_probe(response.payload) {
+        self.probe = match negotiated_probe(response.payload, &self.config.ssh_principal) {
             Ok(probe) => probe,
             Err(error) => {
                 self.persist_health(
@@ -51,29 +55,75 @@ impl RemoteWorkerClient {
                     .map_or_else(Vec::new, |value| value.trusted_image_digests.clone()),
                 resource_ceiling: capabilities.map(|value| value.resource_ceiling.clone()),
                 disk_available_bytes: capabilities.and_then(|value| value.disk_available_bytes),
+                available_cpu_millis: capabilities.and_then(|value| value.available_cpu_millis),
+                available_memory_bytes: capabilities.and_then(|value| value.available_memory_bytes),
+                cpu_pressure_some_avg10_basis_points: capabilities
+                    .and_then(|value| value.cpu_pressure_some_avg10_basis_points),
+                load_millis: capabilities.and_then(|value| value.load_millis),
             },
         );
     }
 
     pub(super) fn record_current_health(&self) {
         let health = match crate::persistence::remote_workers::get(&self.worker_id) {
-            Ok(Some(registration)) if !registration.enabled => {
-                crate::persistence::remote_workers::RemoteWorkerHealth::PolicyBlocked
-            }
-            Ok(Some(registration))
-                if self
-                    .probe
-                    .capabilities
-                    .as_ref()
-                    .is_some_and(|capabilities| {
-                        capabilities.current_execution_count >= registration.max_jobs
-                    }) =>
-            {
-                crate::persistence::remote_workers::RemoteWorkerHealth::Busy
-            }
-            Ok(Some(_)) => crate::persistence::remote_workers::RemoteWorkerHealth::Healthy,
+            Ok(Some(registration)) => classify_health(
+                registration.enabled,
+                self.probe.capabilities.as_ref().map(|capabilities| {
+                    (
+                        capabilities.current_execution_count,
+                        capabilities.docker_rootless,
+                    )
+                }),
+                registration.max_jobs,
+            ),
             _ => crate::persistence::remote_workers::RemoteWorkerHealth::Untrusted,
         };
         self.persist_health(health);
+    }
+}
+
+fn classify_health(
+    enabled: bool,
+    observation: Option<(u32, Option<bool>)>,
+    max_jobs: u32,
+) -> crate::persistence::remote_workers::RemoteWorkerHealth {
+    use crate::persistence::remote_workers::RemoteWorkerHealth as Health;
+    if !enabled {
+        return Health::PolicyBlocked;
+    }
+    let Some((running_jobs, rootless)) = observation else {
+        return Health::Incompatible;
+    };
+    match rootless {
+        Some(false) => Health::PolicyBlocked,
+        None => Health::Incompatible,
+        Some(true) if running_jobs >= max_jobs => Health::Busy,
+        Some(true) => Health::Healthy,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_health;
+    use crate::persistence::remote_workers::RemoteWorkerHealth as Health;
+
+    #[test]
+    fn rootful_or_unreported_worker_is_not_reported_healthy() {
+        assert_eq!(
+            classify_health(true, Some((0, Some(false))), 2),
+            Health::PolicyBlocked
+        );
+        assert_eq!(
+            classify_health(true, Some((0, None)), 2),
+            Health::Incompatible
+        );
+        assert_eq!(
+            classify_health(false, Some((0, Some(true))), 2),
+            Health::PolicyBlocked
+        );
+        assert_eq!(
+            classify_health(true, Some((0, Some(true))), 2),
+            Health::Healthy
+        );
     }
 }

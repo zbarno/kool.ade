@@ -9,10 +9,12 @@ use crate::execution::{
         WorkspaceLeaseV1,
     },
     contract::{
-        EventPageRequestV1, ExecutionEventV1, ExecutionRequestV1, ExecutionResultV1,
-        ExecutionTarget, WorkspaceRef,
+        EventPageRequestV1, ExecutionEventV1, ExecutionModeV1, ExecutionRequestV1,
+        ExecutionResultV1, ExecutionTarget, ResourceBudgetV1, WorkspaceRef,
     },
+    policy::ExecutionPolicyV1,
 };
+use std::collections::BTreeSet;
 
 #[path = "system_image_rpc_tests.rs"]
 mod system_image_rpc_tests;
@@ -70,6 +72,12 @@ impl ExecutionBackend for FakeBackend {
                 cpu_quota: Some(true),
                 pids_limit: Some(true),
                 disk_available_bytes: Some(10_000_000_000),
+                available_cpu_millis: Some(8_000),
+                available_memory_bytes: Some(32 * 1024 * 1024 * 1024),
+                cpu_pressure_some_avg10_basis_points: Some(500),
+                load_millis: Some(500),
+                gpu_available: false,
+                display_available: false,
                 current_execution_count: 0,
                 maximum_execution_count: None,
                 resource_ceiling: crate::execution::contract::ResourceBudgetV1 {
@@ -118,6 +126,7 @@ impl ExecutionBackend for FakeBackend {
         _: &'a WorkspaceLeaseV1,
         _: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ExecutionHandleV1> {
+        self.0.fetch_add(1, Ordering::Relaxed);
         unavailable()
     }
 
@@ -237,6 +246,10 @@ fn stdio_worker_answers_health_using_the_backend_probe() {
     assert_eq!(response.kind, EnvelopeKindV1::Acknowledge);
     assert_eq!(response.request_id, request.request_id);
     assert_eq!(response.payload["wire_version"], 1);
+    assert_eq!(
+        response.payload["authenticated_principal"],
+        crate::execution::remote::worker::authenticated_ssh_principal().unwrap()
+    );
     assert_eq!(response.payload["probe"]["available"], true);
     assert_eq!(response.payload["probe"]["architecture"], "amd64");
     assert_eq!(

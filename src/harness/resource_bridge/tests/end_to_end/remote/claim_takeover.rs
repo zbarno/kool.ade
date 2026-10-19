@@ -53,6 +53,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
 
     let session_a = Arc::new(super::two_controllers::connect_session_with_ids(
         &clone_a,
+        &repository,
         &worker,
         verifier_a,
         &project_id,
@@ -117,6 +118,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
     let verifier_b = Arc::new(ClaimLeaseHandle::new(lease_b));
     let session_b = super::two_controllers::connect_session_with_ids(
         &clone_b,
+        &repository,
         &worker,
         verifier_b,
         &project_id,

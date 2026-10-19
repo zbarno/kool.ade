@@ -35,6 +35,20 @@ pub(crate) fn paths_with_source(
         .collect())
 }
 
+/// A local project-config grant never authorizes sending those files to a
+/// remote worker. Keep remote execution closed until a worker-bound grant is
+/// confirmed and wired through the private-file transfer lifecycle.
+pub(crate) fn ensure_remote_transfer_allowed(
+    root: &Path,
+    runtime_source: Option<&Path>,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        paths_with_source(root, runtime_source)?.is_empty(),
+        "Remote execution is blocked because local private project configuration has no remote worker approval"
+    );
+    Ok(())
+}
+
 fn bindings(root: &Path, runtime_source: Option<&Path>) -> anyhow::Result<Vec<(String, PathBuf)>> {
     let root = root.canonicalize()?;
     let common = git_path(&root, "--git-common-dir")?.canonicalize()?;

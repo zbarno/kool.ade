@@ -63,6 +63,80 @@ impl ExecutionSession {
         Ok(())
     }
 
+    pub(crate) fn mark_remote_capacity_running(&self) -> Result<(), ExecutionError> {
+        let mut held = self
+            .remote_capacity_lease
+            .lock()
+            .map_err(|_| internal_error())?;
+        if let Some(lease) = held.as_mut() {
+            lease.mark_running().map_err(|_| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerDisconnected,
+                    "Remote worker capacity reservation could not be committed",
+                    true,
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn rollback_rejected_remote_capacity_start(&self) -> Result<(), ExecutionError> {
+        let mut held = self
+            .remote_capacity_lease
+            .lock()
+            .map_err(|_| internal_error())?;
+        if let Some(lease) = held.as_mut() {
+            lease.rollback_rejected_start().map_err(|_| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerDisconnected,
+                    "Remote worker capacity rejection could not be recorded",
+                    true,
+                )
+            })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn has_remote_capacity_lease(&self) -> Result<bool, ExecutionError> {
+        Ok(self
+            .remote_capacity_lease
+            .lock()
+            .map_err(|_| internal_error())?
+            .is_some())
+    }
+
+    pub(crate) fn prepare_remote_capacity_start(
+        &self,
+        max_jobs: u32,
+        observed_running_jobs: u32,
+        worker_id: &str,
+        host_key_fingerprint: &str,
+    ) -> Result<(), ExecutionError> {
+        let mut held = self
+            .remote_capacity_lease
+            .lock()
+            .map_err(|_| internal_error())?;
+        let Some(lease) = held.as_mut() else {
+            return Ok(());
+        };
+        if !lease.matches_worker(worker_id, host_key_fingerprint) {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::WorkerIncompatible,
+                "Remote worker capacity reservation no longer matches enrollment",
+                false,
+            ));
+        }
+        lease
+            .prepare_start(max_jobs, observed_running_jobs)
+            .map_err(|_| {
+                ExecutionError::new(
+                    ExecutionErrorKind::WorkerDisconnected,
+                    "Remote worker has no available execution slot",
+                    true,
+                )
+            })
+    }
+
     pub fn verify_authorization(&self) -> Result<(), ExecutionError> {
         if let Some(verifier) = &self.authorization_verifier {
             verifier.verify(&self.authorization_generation)?;

@@ -77,6 +77,7 @@ pub(in crate::execution::docker::backend::lifecycle) fn terminal(
     }
     state.mark_collecting()?;
     state.terminal = true;
+    state.host_capacity_lease.take();
     let mut terminal_result = result(
         &state.request.execution_id,
         failure,

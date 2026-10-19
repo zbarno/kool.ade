@@ -18,6 +18,8 @@ use crate::execution::{
 
 #[path = "tests/derived_image.rs"]
 mod derived_image;
+#[path = "tests/private_files.rs"]
+mod private_files_tests;
 
 struct Fixture(PathBuf);
 

@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bollard::models::{ContainerCreateBody, HostConfig, Mount, MountBindOptions, MountType};
+use bollard::models::{ContainerCreateBody, HostConfig};
 
 use super::images::{ImageLock, RuntimeProfile, SelectedImage};
 use crate::execution::{
@@ -15,6 +15,7 @@ use crate::execution::{
 
 pub(crate) mod staging;
 pub(crate) use staging::WorkspaceSnapshot;
+mod private_files;
 mod workspace_identity;
 
 pub const WORKSPACE_TARGET: &str = "/workspace";
@@ -24,6 +25,7 @@ pub const TASK_LABEL: &str = "com.koolade.task";
 pub const WORKSPACE_LABEL: &str = "com.koolade.workspace";
 pub const POLICY_LABEL: &str = "com.koolade.policy";
 pub const LEASE_LABEL: &str = "com.koolade.lease-unix-ms";
+pub(crate) const PRIVATE_FILES_TARGET: &str = "/koolade-private-files";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidatedWorkspace {
@@ -120,6 +122,17 @@ pub(super) fn create_body_with_derived_approval(
     image: &SelectedImage,
     derived_approval: Option<&super::backend::PreparedDerivedImage>,
 ) -> Result<ContainerCreateBody, ExecutionError> {
+    create_body_with_private_files(request, workspace, identity, image, derived_approval, None)
+}
+
+pub(super) fn create_body_with_private_files(
+    request: &ExecutionRequestV1,
+    workspace: &ValidatedWorkspace,
+    identity: &SandboxIdentity,
+    image: &SelectedImage,
+    derived_approval: Option<&super::backend::PreparedDerivedImage>,
+    private_files_root: Option<&Path>,
+) -> Result<ContainerCreateBody, ExecutionError> {
     request
         .validate_at(now_unix_ms())
         .map_err(|_| denied("Execution request or policy is invalid"))?;
@@ -158,15 +171,25 @@ pub(super) fn create_body_with_derived_approval(
             identity.lease_expires_unix_ms.to_string(),
         ),
     ]);
-    let mounts = if request.policy.workspace_write_scope().is_none() {
-        vec![bind_mount(
+    let mut mounts = if request.policy.workspace_write_scope().is_none() {
+        vec![private_files::bind_mount(
             &workspace.git_metadata,
             "/workspace/.git",
             true,
+            false,
         )?]
     } else {
         Vec::new()
     };
+    if let Some(root) = private_files_root {
+        private_files::validate_root(root)?;
+        mounts.push(private_files::bind_mount(
+            root,
+            PRIVATE_FILES_TARGET,
+            true,
+            true,
+        )?);
+    }
     let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
     let mut tmpfs = HashMap::new();
     // The staged snapshot is materialized after container start. Planning mode
@@ -256,25 +279,6 @@ pub(super) fn create_body_with_derived_approval(
                 "size".into(),
                 format!("{}", request.resource_budget.temporary_disk_bytes),
             )])),
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
-}
-
-fn bind_mount(source: &Path, target: &str, read_only: bool) -> Result<Mount, ExecutionError> {
-    let source = source
-        .to_str()
-        .ok_or_else(|| denied("Task clone path is not valid UTF-8"))?;
-    Ok(Mount {
-        target: Some(target.into()),
-        source: Some(source.into()),
-        typ: Some(MountType::BIND),
-        read_only: Some(read_only),
-        bind_options: Some(MountBindOptions {
-            propagation: Some(bollard::models::MountBindOptionsPropagationEnum::RPRIVATE),
-            non_recursive: Some(true),
-            create_mountpoint: Some(false),
             ..Default::default()
         }),
         ..Default::default()

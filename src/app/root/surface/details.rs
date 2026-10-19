@@ -3,6 +3,7 @@ mod lifecycle_pr;
 mod lifecycle_spec;
 mod lifecycle_ui;
 mod planning_board;
+mod private_file_grants;
 mod runtime_capability;
 mod runtime_qa_applicability_proposal;
 mod runtime_qa_scenario_proposal;
@@ -167,7 +168,88 @@ impl KooladeApp {
             .get(&target_key)
             .cloned()
             .unwrap_or_else(|| environment.default_target.clone());
+        let task_capabilities = environment
+            .task_capabilities
+            .get(&target_key)
+            .copied()
+            .unwrap_or_default();
+        let task_allowed_targets = environment
+            .task_allowed_targets
+            .get(&target_key)
+            .cloned()
+            .unwrap_or_default();
         let target_choices = target_choices::build(&target_preference, settings_error.as_deref());
+        let remote_private_file_workers = target_choices
+            .iter()
+            .filter(|choice| choice.available)
+            .filter_map(|choice| match &choice.preference {
+                crate::execution::contract::TargetPreference::Worker(worker_id) => {
+                    Some(crate::ui::task_detail::RemotePrivateFileGrantWorker {
+                        worker_id: worker_id.clone(),
+                        destination: choice.label.clone(),
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        let (
+            remote_private_file_candidates,
+            remote_private_file_candidates_error,
+            remote_private_file_candidates_loading,
+        ) = match &self.screen {
+            Screen::Connected(project) => {
+                private_file_grants::for_task(project, ticket, implementation.as_ref())
+            }
+            Screen::Welcome => (Vec::new(), None, false),
+        };
+        let grant_identity = implementation.as_ref().and_then(|implementation| {
+            implementation.workspace_uid.as_ref().map(|project_id| {
+                (
+                    project_id.clone(),
+                    implementation
+                        .task_uid
+                        .clone()
+                        .unwrap_or_else(|| match &self.screen {
+                            Screen::Connected(project) => {
+                                super::super::task_target::key(project, ticket)
+                            }
+                            Screen::Welcome => ticket.to_owned(),
+                        }),
+                )
+            })
+        });
+        let (remote_private_file_grants, remote_private_file_grants_error) = match grant_identity {
+            Some((project_id, task_id)) => {
+                match crate::persistence::remote_private_file_grants::active_for_task(
+                    &crate::persistence::state_root(),
+                    &project_id,
+                    &task_id,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                ) {
+                    Ok(grants) => (
+                        grants
+                            .into_iter()
+                            .map(|grant| crate::ui::task_detail::RemotePrivateFileGrantView {
+                                grant_id: grant.grant_id,
+                                worker_id: grant.worker_id,
+                                files: grant
+                                    .files
+                                    .into_iter()
+                                    .map(|file| (file.path, file.data_class))
+                                    .collect(),
+                                expires_at_unix_ms: grant.expires_at_unix_ms,
+                            })
+                            .collect(),
+                        None,
+                    ),
+                    Err(error) => (Vec::new(), Some(error.to_string())),
+                }
+            }
+            None => (
+                Vec::new(),
+                Some("Task workspace identity is unavailable".into()),
+            ),
+        };
         let execution_task_id = match &self.screen {
             Screen::Connected(project) => super::super::task_target::key(project, ticket),
             Screen::Welcome => ticket.to_owned(),
@@ -220,7 +302,15 @@ impl KooladeApp {
             implementation_metrics,
             feature_metrics,
             target_preference,
+            task_capabilities,
+            task_allowed_targets,
             target_choices,
+            remote_private_file_candidates,
+            remote_private_file_candidates_error,
+            remote_private_file_candidates_loading,
+            remote_private_file_workers,
+            remote_private_file_grants,
+            remote_private_file_grants_error,
             execution_evidence,
             execution_evidence_error,
             lifecycle_pr_work_uid,
