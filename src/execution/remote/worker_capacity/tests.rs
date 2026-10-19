@@ -275,10 +275,10 @@ fn durable_execution_records_keep_resources_reserved_after_worker_process_exit()
 
     let mut local_request = record.request.clone().unwrap();
     local_request.target = ExecutionTarget::local();
-    local_request.controller_target_id = None;
+    local_request.controller_target_id = Some(worker_id.into());
     record.request = Some(local_request);
     record.target_id = "local".into();
-    record.controller_target_id = None;
+    record.controller_target_id = Some(worker_id.into());
     crate::persistence::execution_records::save_at(root.path(), &record).unwrap();
     let local_pool = WorkerCapacityPool::new_local_unknown(root.path()).unwrap();
     assert!(local_pool.acquire_unknown_local().is_err());

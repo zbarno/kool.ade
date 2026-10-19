@@ -17,9 +17,7 @@ impl WorkerCapacityPool {
         let mut durable_ids = HashSet::new();
         for record in records.into_iter().filter(|record| {
             (record.controller_target_id.as_deref() == Some(self.worker_id.as_str())
-                || (self.worker_id == "local"
-                    && record.target_id == "local"
-                    && record.controller_target_id.is_none()))
+                || (self.worker_id == "local" && record.target_id == "local"))
                 && !active_ids.contains(&record.execution_id)
         }) {
             durable_ids.insert(record.execution_id.clone());
