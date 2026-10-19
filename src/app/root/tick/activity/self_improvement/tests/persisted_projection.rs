@@ -126,6 +126,26 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     assert!(projected.clone_uid.is_none());
     assert!(project.active_implementations.is_empty());
 
+    let mut forged_review = independent_plan_review(&feature_uid, &snapshot_uid, &hash);
+    forged_review.reviewer_run_id = forged_review.author_run_id.clone();
+    forged_review.reviewer_session_id = forged_review.author_session_id.clone();
+    assert!(
+        lifecycle
+            .apply_feature_event(
+                &feature_uid,
+                feature.revision,
+                &uuid::Uuid::new_v4().to_string(),
+                FeatureEvent::PlanReview(forged_review),
+            )
+            .is_err(),
+        "a reviewer receipt reusing the plan author's run and session is not independent"
+    );
+    synchronize_run(project, &lifecycle, &runs, &run.run_uid).unwrap();
+    let projected = runs.load(&run.run_uid).unwrap();
+    assert_eq!(projected.phase, Phase::Planning);
+    assert!(projected.clone_uid.is_none());
+    assert!(project.active_implementations.is_empty());
+
     let review = independent_plan_review(&feature_uid, &snapshot_uid, &hash);
     let review_uid = review.receipt_uid.clone();
     let feature = lifecycle
