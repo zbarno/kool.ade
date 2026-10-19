@@ -318,7 +318,6 @@ fn snapshot_includes_explicitly_deferred_question_assumptions() {
         answered_at_ms: None,
         deferred_by: Some("operator".into()),
         deferred_at_ms: Some(1),
-        evidence_resolution: None,
         revision: 0,
     };
     QuestionStore::new(&store).save(&question, 0).unwrap();

@@ -88,7 +88,6 @@ fn newer_blocking_question(app: &KooladeApp) -> crate::core::planning::QuestionV
         answered_at_ms: None,
         deferred_by: None,
         deferred_at_ms: None,
-        evidence_resolution: None,
         revision: 0,
     }
 }
