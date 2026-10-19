@@ -93,11 +93,11 @@ function waitForTaskService(deadline) {
         else retry();
       });
       probe.on('error', retry);
-      probe.on('timeout', () => probe.destroy());
+      probe.on('timeout', () => probe.destroy(new Error('task preview health probe timed out')));
     };
     const retry = () => {
       if (Date.now() >= deadline) reject(new Error('task preview did not become ready'));
-      else setTimeout(check, 250).unref();
+      else setTimeout(check, 250);
     };
     check();
   });
