@@ -9,6 +9,9 @@ pub(super) use results::apply_probe_results;
 use results::update_settings_from_probe;
 mod workers;
 
+#[cfg(test)]
+pub(crate) mod test_hooks;
+
 #[derive(Debug)]
 pub(super) enum ProbeMessage {
     Provider {
@@ -71,6 +74,8 @@ impl DlgHarnessSetup {
                 generation,
                 mut result,
             } if generation == self.scan_generation => {
+                let preserve_last_known = result.diagnostic_code
+                    == Some(crate::harness::discovery::ProbeDiagnosticCode::InternalProbeFailure);
                 if result.model_catalog_status
                     != crate::harness::discovery::ModelCatalogStatus::Fresh
                     && result.models.is_empty()
@@ -87,8 +92,11 @@ impl DlgHarnessSetup {
                     result.set_runtime_readiness(runtime_available);
                 }
                 let report = into_harness_probe(&result);
-                update_settings_from_probe(&mut self.settings, &report, generation);
-                if let Some(runtime_available) = self.runtime_available
+                if !preserve_last_known {
+                    update_settings_from_probe(&mut self.settings, &report, generation);
+                }
+                if !preserve_last_known
+                    && let Some(runtime_available) = self.runtime_available
                     && let Some(entry) = self.settings.discovered.get_mut(&report.id)
                     && let Some(snapshot) = entry.capability_snapshot.as_mut()
                 {
@@ -102,7 +110,9 @@ impl DlgHarnessSetup {
                 self.running_providers.remove(&result.provider_id);
                 self.probe_results
                     .insert(result.provider_id.clone(), result);
-                self.scan_results.push(report);
+                if !preserve_last_known {
+                    self.scan_results.push(report);
+                }
                 self.persist();
             }
             ProbeMessage::Runtime {
