@@ -174,12 +174,14 @@ matching package manager for offline cache use. This makes prepared cache data
 available to an approved startup recipe; it does not install dependencies or
 prove the recipe consumed them. A recipe must explicitly perform any required
 offline install, and uncached dependencies fail in the no-egress QA network.
-Desktop QA does not receive package caches. Headless service targets can run
-their approved Build/Test/Start recipes and retain source-bound receipts, but
-the service-specific QA applicability assessment and reviewer/manager signoff
-are not yet integrated. Task Details reports that service targets are outside
-visual QA and that service evidence/signoff remains unavailable. Those
-receipts do not count as a visual QA pass.
+Desktop QA does not receive package caches. For a headless service target, the
+app can now create an explicit visual-QA-not-applicable decision after an
+independent read-only reviewer checks the exact active manifest target and its
+latest source-bound passing Build and Test receipts. A Manager records the
+decision as a durable `NotApplicable` QA status and advances the task to spec
+reconciliation. This is an applicability decision, not a service QA pass: the
+Build/Test/Start receipts remain distinct, and this flow does not yet provide
+service-specific API or integration QA evidence.
 Until released QA image digests and the remaining headless and application-level
 runtime evidence paths land, the application must not present a detected
 candidate as a verified runnable target or claim runtime QA coverage.
