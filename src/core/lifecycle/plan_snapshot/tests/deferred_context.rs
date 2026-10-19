@@ -37,6 +37,7 @@ fn persisted_deferred_questions_are_bound_into_the_confirmed_snapshot() {
         depends_on_question_ids: Vec::new(),
         status: crate::core::planning::QuestionStatus::Open,
         answer_text: None,
+        evidence_resolution: None,
         selected_option: None,
         answered_by: None,
         answered_at_ms: None,

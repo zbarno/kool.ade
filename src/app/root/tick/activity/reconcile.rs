@@ -1,4 +1,4 @@
-pub(super) fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) {
+pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) {
     let active_key = project
         .active_turn
         .as_ref()
@@ -12,8 +12,12 @@ pub(super) fn reconcile_inactive_planning_work(project: &mut crate::app::session
             && work.status == crate::core::planning_work::WorkStatus::InProgress
             && active_arbitration_feature != work.feature_id.as_deref()
         {
-            super::plan_review::lifecycle::recover_interrupted_arbitration(work);
-            recovered.push(format!("Recovered interrupted arbitration: {}", work.title));
+            if super::plan_review::lifecycle::recover_persisted_arbitration(project, work) {
+                recovered.push(format!("Recovered persisted arbitration: {}", work.title));
+            } else {
+                super::plan_review::lifecycle::recover_interrupted_arbitration(work);
+                recovered.push(format!("Recovered interrupted arbitration: {}", work.title));
+            }
         }
     }
     if retry

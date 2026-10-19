@@ -10,6 +10,20 @@ const MAX_DIAGNOSTIC_BYTES: usize = 2048;
 const MAX_MODELS: usize = 500;
 const MAX_MODEL_BYTES: usize = 256;
 
+/// Keep model metadata to identifier characters only; provider output and local config are
+/// untrusted and must not carry arbitrary text into settings or UI status.
+pub(crate) fn is_valid_model_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_MODEL_BYTES
+        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:/@+-".contains(&byte))
+        && value
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -56,6 +70,7 @@ pub enum ProbeDiagnosticCode {
     ModelCatalogUnavailable,
     RuntimeUnavailable,
     ProviderProbeFailed,
+    InternalProbeFailure,
     InvalidProviderResult,
 }
 
@@ -70,6 +85,7 @@ impl ProbeDiagnosticCode {
             Self::ModelCatalogUnavailable => "model_catalog_unavailable",
             Self::RuntimeUnavailable => "runtime_unavailable",
             Self::ProviderProbeFailed => "provider_probe_failed",
+            Self::InternalProbeFailure => "internal_probe_failure",
             Self::InvalidProviderResult => "invalid_provider_result",
         }
     }
@@ -188,12 +204,14 @@ impl ProbeResult {
         }
         bound_string(&mut self.display_status, MAX_STATUS_BYTES);
         if self.models.len() > MAX_MODELS
-            || self.models.iter().any(|model| {
-                model.trim().is_empty() || model.len() > MAX_MODEL_BYTES || has_control(model)
-            })
-            || self.default_model.as_ref().is_some_and(|model| {
-                model.trim().is_empty() || model.len() > MAX_MODEL_BYTES || has_control(model)
-            })
+            || self
+                .models
+                .iter()
+                .any(|model| !is_valid_model_identifier(model))
+            || self
+                .default_model
+                .as_ref()
+                .is_some_and(|model| !is_valid_model_identifier(model))
         {
             self.models.clear();
             self.default_model = None;

@@ -48,6 +48,10 @@ pub(crate) fn recover_interrupted_arbitration(work: &mut crate::core::planning_w
     }
 }
 
+#[path = "lifecycle/recovery.rs"]
+mod recovery;
+pub(crate) use recovery::recover_persisted_arbitration;
+
 pub(super) fn record_plan_arbitration_work(
     project: &mut Project,
     feature_id: &str,
@@ -73,27 +77,34 @@ pub(super) fn record_plan_arbitration_work(
                 .detail
                 .lines()
                 .any(|line| line == format!("Snapshot hash: {snapshot_hash}"))
-            && work.key.rsplit(':').next() == Some(arbitration.finding_id.as_str())
-            && work.status != crate::core::planning_work::WorkStatus::Done
     }) {
         let finding_id = work.key.rsplit(':').next().unwrap_or_default();
+        let selected = finding_id == arbitration.finding_id;
         let finding_remains = active_findings.contains(finding_id);
         work.status = if finding_remains {
             crate::core::planning_work::WorkStatus::NeedsAttention
         } else {
             crate::core::planning_work::WorkStatus::Done
         };
-        work.detail.push_str(&format!(
-            "\n\nIndependent arbitration receipt: {}\nArbitration snapshot hash: {}\nCited evidence: {} ({})\nSource quote: {}\nArbitrator outcome: {}\nContested finding remains: {}",
-            receipt.receipt_uid,
-            snapshot_hash,
-            arbitration.evidence_id,
-            arbitration.evidence_sha256,
-            arbitration.source_quote,
-            if verdict.pass { "approved" } else { "changes requested" },
-            finding_remains,
-        ));
-        if finding_remains
+        if selected {
+            work.detail.push_str(&format!(
+                "\n\nIndependent arbitration receipt: {}\nArbitration snapshot hash: {}\nCited evidence: {} ({})\nSource quote: {}\nArbitrator outcome: {}\nContested finding remains: {}",
+                receipt.receipt_uid,
+                snapshot_hash,
+                arbitration.evidence_id,
+                arbitration.evidence_sha256,
+                arbitration.source_quote,
+                if verdict.pass { "approved" } else { "changes requested" },
+                finding_remains,
+            ));
+        } else {
+            work.detail.push_str(&format!(
+                "\n\nEffective arbitration receipt: {}\nArbitration snapshot hash: {}\nContested finding remains: {}",
+                receipt.receipt_uid, snapshot_hash, finding_remains,
+            ));
+        }
+        if selected
+            && finding_remains
             && arbitration_attempt_count(&work.detail)
                 >= crate::app::manager::MAX_PLAN_ARBITRATION_ATTEMPTS
         {

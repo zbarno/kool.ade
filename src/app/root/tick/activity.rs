@@ -177,4 +177,4 @@ pub(crate) mod spec_reconciliation;
 use clarification::advance_clarification_planner;
 use dependency_review::advance_dependency_review;
 use plan_review::advance_plan_review;
-use reconcile::reconcile_inactive_planning_work;
+pub(crate) use reconcile::reconcile_inactive_planning_work;

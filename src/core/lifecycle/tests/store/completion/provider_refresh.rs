@@ -12,9 +12,9 @@ use std::fs;
 #[path = "provider_refresh/fixture_support.rs"]
 mod fixture_support;
 
-/// Production boundary: the synchronous provider refresh adapter writes the
-/// shared PlanningStore PR record and queue. Calling the store transition alone
-/// cannot prove provider state parsing and lifecycle wiring. Uses local Git,
+/// Production boundary: the provider refresh adapter writes shared PlanningStore
+/// PR/deployment records and queue entries. Store tests cannot prove API parsing,
+/// polling eligibility, and lifecycle wiring together. Uses local Git,
 /// a temporary fake `gh` executable, no network/Docker, and moderate setup.
 #[cfg(unix)]
 #[test]
@@ -188,4 +188,61 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
             .merge_commit_sha,
         merge_sha
     );
+
+    let deployment_success = fixture.0.join("deployment-success");
+    let fake_gh = format!(
+        "#!/bin/sh\ncase \"$*\" in\n  *\"repos/fixture/repo/deployments?sha={merge_sha}&per_page=100\"*) printf '%s\\n' '[{{\"id\":55,\"sha\":\"{merge_sha}\",\"environment\":\"production\",\"production_environment\":true,\"created_at\":\"2026-10-18T10:00:00Z\"}}]' ;;\n  *\"repos/fixture/repo/deployments/55/statuses?per_page=100\"*) if [ -f '{marker}' ]; then printf '%s\\n' '[{{\"id\":12,\"state\":\"success\",\"created_at\":\"2026-10-18T12:00:00Z\"}}]'; else printf '%s\\n' '[{{\"id\":11,\"state\":\"in_progress\",\"created_at\":\"2026-10-18T11:00:00Z\"}}]'; fi ;;\n  *) printf '%s\\n' '{{\"state\":\"MERGED\",\"mergeCommit\":{{\"oid\":\"{merge_sha}\"}},\"number\":42,\"headRefOid\":\"{head_sha}\",\"baseRefOid\":\"{base_sha}\",\"baseRefName\":\"main\"}}' ;;\nesac\n",
+        marker = deployment_success.display(),
+    );
+    fs::write(&gh, fake_gh).unwrap();
+    crate::core::implementation::refresh_pr_with_store_for_test(
+        &store,
+        &fixture.0,
+        ticket,
+        gh.to_str().unwrap(),
+    )
+    .unwrap();
+    let first_pending = lifecycle
+        .load_deployment_evidence(&feature_uid)
+        .unwrap()
+        .unwrap();
+    assert_eq!(first_pending.state.as_deref(), Some("in_progress"));
+    assert!(crate::core::implementation::deployment_needs_refresh(&store, ticket).unwrap());
+
+    crate::core::implementation::refresh_pr_with_store_for_test(
+        &store,
+        &fixture.0,
+        ticket,
+        gh.to_str().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        lifecycle.load_deployment_evidence(&feature_uid).unwrap(),
+        Some(first_pending.clone()),
+        "an identical provider retry must not advance the durable record"
+    );
+
+    fs::write(&deployment_success, "ready").unwrap();
+    crate::core::implementation::refresh_pr_with_store_for_test(
+        &store,
+        &fixture.0,
+        ticket,
+        gh.to_str().unwrap(),
+    )
+    .unwrap();
+    let deployed = lifecycle
+        .load_deployment_evidence(&feature_uid)
+        .unwrap()
+        .unwrap();
+    let current = lifecycle
+        .load_current_implementation(&feature_uid)
+        .unwrap()
+        .unwrap();
+    assert_eq!(deployed.revision, first_pending.revision + 1);
+    assert_eq!(deployed.state.as_deref(), Some("success"));
+    assert_eq!(
+        deployed.deployed_spec_hash(&current),
+        Some(current.specification_hash.as_str())
+    );
+    assert!(!crate::core::implementation::deployment_needs_refresh(&store, ticket).unwrap());
 }

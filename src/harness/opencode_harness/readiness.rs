@@ -40,16 +40,6 @@ pub(super) fn probe_with_timeouts(
 
     let model_output = match run(path, &["--pure", "models"], catalog_timeout) {
         Ok(output) => output,
-        Err(detail) if authentication_required(&detail) => {
-            return Ok(OpenCodeProbeOutcome {
-                version,
-                models: Vec::new(),
-                readiness: OpenCodeReadiness::AuthenticationRequired,
-                diagnostic:
-                    "OpenCode authentication is required. Run `opencode auth login` and retry."
-                        .into(),
-            });
-        }
         Err(detail) => {
             return Ok(OpenCodeProbeOutcome {
                 version,
@@ -59,14 +49,7 @@ pub(super) fn probe_with_timeouts(
             });
         }
     };
-    let mut models = model_output
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.contains('/') && !line.starts_with('/') && !line.ends_with('/'))
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    models.sort();
-    models.dedup();
+    let models = parse_models(&model_output);
     if models.is_empty() {
         return Ok(OpenCodeProbeOutcome {
             version,
@@ -81,6 +64,20 @@ pub(super) fn probe_with_timeouts(
         readiness: OpenCodeReadiness::Ready,
         diagnostic: String::new(),
     })
+}
+
+pub(super) fn parse_models(output: &str) -> Vec<String> {
+    let mut models = output
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.contains('/') && crate::harness::discovery::is_valid_model_identifier(line)
+        })
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    models.sort();
+    models.dedup();
+    models
 }
 
 pub(super) fn probe_version(path: &Path, timeout: Duration) -> Result<String, String> {
@@ -107,11 +104,7 @@ fn run(binary: &Path, args: &[&str], timeout: Duration) -> Result<String, String
     if output.success {
         Ok(stdout)
     } else {
-        let diagnostic = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
-        let auth_required = authentication_required(&diagnostic);
-        Err(if auth_required {
-            "OpenCode authentication is required. Run `opencode auth login` and retry.".into()
-        } else if args.contains(&"models") {
+        Err(if args.contains(&"models") {
             "OpenCode model discovery failed. Check provider configuration and retry.".into()
         } else {
             "OpenCode version check failed. Verify the installation and retry.".into()
@@ -119,27 +112,6 @@ fn run(binary: &Path, args: &[&str], timeout: Duration) -> Result<String, String
     }
 }
 
-fn authentication_required(diagnostic: &str) -> bool {
-    let lowered = diagnostic.to_ascii_lowercase();
-    [
-        "authentication",
-        "not authenticated",
-        "api key",
-        "unauthorized",
-    ]
-    .iter()
-    .any(|marker| lowered.contains(marker))
-}
-
 pub(super) fn parse_version(text: &str) -> Option<String> {
-    let start = text.find(|ch: char| ch.is_ascii_digit())?;
-    let version = text[start..]
-        .split_whitespace()
-        .next()?
-        .trim_start_matches('v');
-    let mut parts = version.split('.');
-    for _ in 0..3 {
-        parts.next()?.parse::<u64>().ok()?;
-    }
-    Some(version.to_owned())
+    crate::harness::discovery::normalize_cli_version(text, &["opencode"], true)
 }

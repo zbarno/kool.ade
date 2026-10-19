@@ -11,7 +11,8 @@ pub(super) use review::recorded_review_decision;
 pub(super) use review::review_change;
 pub(super) use review::review_retry_available;
 pub(super) use review::{
-    arbitration_change, has_approved_review, load_review_receipt, review_change_with_verdict,
+    arbitration_change, has_approved_review, load_latest_arbitration, load_review_receipt,
+    review_change_with_verdict,
 };
 
 #[derive(Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
-pub(super) fn validate(
+pub(in crate::core::lifecycle::store) fn validate(
     store: &PlanningStore,
     repository: &std::path::Path,
     repository_id: &str,

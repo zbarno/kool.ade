@@ -204,6 +204,21 @@ pub(crate) fn load_review_receipt(
     )
 }
 
+pub(crate) fn load_latest_arbitration(
+    store: &PlanningStore,
+    snapshot: &PlanSnapshotV1,
+) -> Result<Option<(String, GateReceipt)>, StoreError> {
+    snapshot.validate().map_err(StoreError::MalformedState)?;
+    Ok(
+        read_review(store, &review_path(snapshot), snapshot)?.and_then(|record| {
+            record
+                .arbitrations
+                .last()
+                .map(|arbitration| (arbitration.finding_id.clone(), arbitration.receipt.clone()))
+        }),
+    )
+}
+
 pub(crate) fn review_retry_available(
     store: &PlanningStore,
     snapshot: &PlanSnapshotV1,

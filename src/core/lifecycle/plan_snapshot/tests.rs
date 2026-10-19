@@ -27,6 +27,48 @@ fn identified(markdown: &str) -> (ArtifactIdentity, String) {
     (identity, identified)
 }
 
+fn legacy_snapshot() -> PlanSnapshotV1 {
+    let (identity, markdown) = identified(&spec());
+    let contract = crate::core::workflow::feature_contract(&markdown);
+    let mut snapshot =
+        PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, &contract).unwrap();
+    snapshot.schema_version = 1;
+    snapshot.original_goal.clear();
+    snapshot.content_hash = hash::content_hash(&snapshot).unwrap();
+    snapshot.uid = snapshot_uid(&snapshot.feature_uid, &snapshot.content_hash).unwrap();
+    snapshot
+}
+
+#[test]
+fn legacy_snapshot_without_original_goal_remains_valid() {
+    legacy_snapshot().validate().unwrap();
+}
+
+#[test]
+fn persisted_legacy_snapshot_loads_with_original_hash_and_uid() {
+    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
+    let root = std::env::temp_dir().join(format!("legacy-plan-snapshot-{}", uuid::Uuid::new_v4()));
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
+    let snapshot = legacy_snapshot();
+    let path = format!("state/lifecycle_plans/{}.json", snapshot.uid);
+    let record = serde_json::json!({
+        "schemaVersion": 1,
+        "uid": snapshot.uid,
+        "createdAtMs": 1,
+        "updatedAtMs": 1,
+        "revision": 1,
+        "data": snapshot.clone(),
+    });
+    store
+        .transaction(&[(path, serde_json::to_vec(&record).unwrap())], None)
+        .unwrap();
+    let loaded = crate::core::lifecycle::plan_snapshot::load_persisted(&store, &snapshot.uid)
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded, snapshot);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn plan_receipt(
     snapshot: &PlanSnapshotV1,
     decision: crate::core::lifecycle::GateDecision,

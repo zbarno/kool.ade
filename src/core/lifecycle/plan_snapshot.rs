@@ -7,7 +7,6 @@ mod confirmation;
 mod hash;
 mod persistence;
 mod readiness;
-pub(crate) use persistence::plan_review_verdict;
 pub(crate) use persistence::recorded_review_decision;
 #[cfg(test)]
 pub(crate) use persistence::review_change;
@@ -18,6 +17,7 @@ pub(crate) use persistence::{
     plan_review_receipt, record_author, record_change, review_change_with_verdict,
     user_confirmation_change, user_confirmation_receipt,
 };
+pub(crate) use persistence::{latest_plan_arbitration, plan_review_verdict};
 pub(crate) use readiness::require_current_readiness;
 
 pub(crate) fn current_readiness(

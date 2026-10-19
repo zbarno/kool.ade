@@ -2,10 +2,16 @@
 use std::{io::Read, path::PathBuf};
 
 pub(crate) fn configured_model_catalog() -> anyhow::Result<(Vec<String>, Option<String>)> {
-    let home = std::env::var_os("HOME")
+    let (_, models, default_model) = configured_provider_catalog()?;
+    Ok((models, default_model))
+}
+
+pub(crate) fn configured_provider_catalog() -> anyhow::Result<(String, Vec<String>, Option<String>)>
+{
+    let agent = std::env::var_os("PI_CODING_AGENT_DIR")
         .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pi/agent")))
         .ok_or_else(|| anyhow::anyhow!("Cannot find Pi home for model discovery"))?;
-    let agent = home.join(".pi/agent");
     let settings: serde_json::Value = read_json(&agent.join("settings.json"))?;
     let models: serde_json::Value = read_json(&agent.join("models.json"))?;
     let provider = settings["defaultProvider"]
@@ -20,7 +26,11 @@ pub(crate) fn configured_model_catalog() -> anyhow::Result<(Vec<String>, Option<
         .collect::<Vec<_>>();
     ids.sort();
     ids.dedup();
-    Ok((ids, settings["defaultModel"].as_str().map(str::to_owned)))
+    Ok((
+        provider.to_owned(),
+        ids,
+        settings["defaultModel"].as_str().map(str::to_owned),
+    ))
 }
 
 fn read_json(path: &std::path::Path) -> anyhow::Result<serde_json::Value> {

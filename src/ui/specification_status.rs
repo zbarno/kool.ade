@@ -12,5 +12,8 @@ pub struct FeatureSpecificationStatus {
     pub merged_commits: Vec<(String, String)>,
     pub current_implementation: Option<crate::core::lifecycle::CurrentImplementationEvidenceV1>,
     pub current_implementation_stale: bool,
+    pub deployment_status: Option<String>,
+    pub deployment_observed_at_ms: Option<u64>,
+    pub deployed_spec_hash: Option<String>,
     pub feature_deltas: Vec<crate::core::lifecycle::SpecDeltaRecordV1>,
 }

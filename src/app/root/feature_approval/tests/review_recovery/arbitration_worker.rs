@@ -227,6 +227,17 @@ fn manager_contest_runs_independent_arbitration_and_persists_effective_receipt()
             &project.state.baseline_planning_revision,
         )
         .unwrap();
+        // Simulate a crash after the durable receipt commit and before the Board projection
+        // is synchronized. Tick reconciliation must recover from the persisted evidence.
+        project.activity.plan_review_feature = None;
+        crate::app::root::tick::activity::reconcile_inactive_planning_work(project);
+        let contest = project
+            .planning_work
+            .iter()
+            .find(|work| work.key.starts_with("task:manager-plan-contest:"))
+            .expect("the Manager contest card remains on the Board");
+        assert_eq!(contest.status, crate::core::planning_work::WorkStatus::Done);
+        assert!(contest.detail.contains("Independent arbitration receipt:"));
         let effective = crate::core::lifecycle::plan_snapshot::plan_review_verdict(
             &project.state.planning_store,
             &snapshot,

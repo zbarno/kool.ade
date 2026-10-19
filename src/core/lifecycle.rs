@@ -25,11 +25,12 @@ pub use spec_history::{
 pub use spec_reconciliation::{
     FeatureDeltaAuthorizationV1, SpecDeltaApprovalV1, SpecReconciliationBlockV1,
 };
+pub(crate) use store::DeploymentObservation;
 pub(crate) use store::Snapshot;
 pub use store::task_transition::PullRequestPreparationStatus;
 pub use store::{
-    CurrentImplementationEvidenceV1, LifecycleActor, LifecycleEventKind, LifecycleEventRecord,
-    LifecycleStore, PullRequestPreparation, PullRequestPublicationState,
+    CurrentImplementationEvidenceV1, DeploymentEvidenceV1, LifecycleActor, LifecycleEventKind,
+    LifecycleEventRecord, LifecycleStore, PullRequestPreparation, PullRequestPublicationState,
 };
 pub use task::{QaExecutionStateV1, QaExecutionStatusV1, TaskEvent, TaskRecord};
 pub use types::{FeaturePhase, GateActor, GateDecision, GateReceipt, TaskPhase};

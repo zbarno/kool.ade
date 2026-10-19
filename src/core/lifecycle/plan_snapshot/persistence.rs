@@ -253,6 +253,16 @@ pub(crate) fn plan_review_receipt(
     store::load_review_receipt(planning_store, snapshot)
 }
 
+pub(crate) fn latest_plan_arbitration(
+    planning_store: &crate::artifacts::planning_store::PlanningStore,
+    snapshot: &PlanSnapshotV1,
+) -> Result<
+    Option<(String, crate::core::lifecycle::GateReceipt)>,
+    crate::artifacts::planning_store::StoreError,
+> {
+    store::load_latest_arbitration(planning_store, snapshot)
+}
+
 pub(crate) fn review_retry_available(
     planning_store: &crate::artifacts::planning_store::PlanningStore,
     snapshot: &PlanSnapshotV1,
