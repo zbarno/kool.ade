@@ -1,5 +1,27 @@
 use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
 
+use super::*;
+
+pub(super) fn synchronize_app_run(
+    app: &mut crate::app::root::KooladeApp,
+    lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
+    runs: &crate::core::self_improvement::SelfImprovementStore<'_>,
+    run_uid: &str,
+) -> Result<(), String> {
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        return Err("fixture disconnected during self-improvement sync".into());
+    };
+    synchronize_run(project, lifecycle, runs, run_uid)
+}
+
+pub(super) fn assert_app_idle(app: &mut crate::app::root::KooladeApp) {
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture should remain connected")
+    };
+    assert!(project.active_implementations.is_empty());
+    assert!(project.active_turn.is_none());
+}
+
 pub(super) fn test_product_proposal(project: &mut crate::app::session::Project) -> String {
     use crate::core::opportunity::{
         EvidenceConfidentialityV1, OpportunityEvidenceRefV1, OpportunityKindV1,

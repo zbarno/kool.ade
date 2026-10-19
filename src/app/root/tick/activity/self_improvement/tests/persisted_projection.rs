@@ -25,38 +25,41 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     crate::app::root::board_tests::click_text(&mut app, &context, "Improvement proposals (1)");
     crate::app::root::board_tests::click_text(&mut app, &context, "Improve planning reliability");
     crate::app::root::board_tests::click_text(&mut app, &context, "Pursue");
-    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
-        panic!("fixture should remain connected")
+    let (planning, run_uid, feature_uid) = {
+        let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+            panic!("fixture should remain connected")
+        };
+        let planning = project.state.planning_store.clone();
+        let opportunities = OpportunityStore::new(&planning);
+        assert_eq!(
+            opportunities
+                .decision_for_opportunity(&uid)
+                .unwrap()
+                .unwrap()
+                .decision,
+            OpportunityDecisionKindV1::Pursue
+        );
+        let run_uid = SelfImprovementStore::run_uid_for_decision(
+            &opportunities
+                .decision_for_opportunity(&uid)
+                .unwrap()
+                .unwrap()
+                .uid,
+        )
+        .unwrap();
+        let runs = SelfImprovementStore::new(&planning);
+        let run = runs.load(&run_uid).unwrap();
+        assert_eq!(run.phase, Phase::Planning);
+        project.state.workflow.feature_branch_targets.insert(
+            run.feature_uid.clone(),
+            BranchTargets {
+                source: "feat/fixture".into(),
+                destination: "main".into(),
+            },
+        );
+        (planning, run_uid, run.feature_uid)
     };
-    let planning = project.state.planning_store.clone();
-    let opportunities = OpportunityStore::new(&planning);
-    assert_eq!(
-        opportunities
-            .decision_for_opportunity(&uid)
-            .unwrap()
-            .unwrap()
-            .decision,
-        OpportunityDecisionKindV1::Pursue
-    );
-    let run_uid = SelfImprovementStore::run_uid_for_decision(
-        &opportunities
-            .decision_for_opportunity(&uid)
-            .unwrap()
-            .unwrap()
-            .uid,
-    )
-    .unwrap();
     let runs = SelfImprovementStore::new(&planning);
-    let run = runs.load(&run_uid).unwrap();
-    assert_eq!(run.phase, Phase::Planning);
-    let feature_uid = run.feature_uid.clone();
-    project.state.workflow.feature_branch_targets.insert(
-        feature_uid.clone(),
-        BranchTargets {
-            source: "feat/fixture".into(),
-            destination: "main".into(),
-        },
-    );
 
     let identity = crate::domain::ArtifactIdentity {
         uid: feature_uid.clone(),
@@ -111,6 +114,35 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             &feature_uid,
             feature.revision,
             &uuid::Uuid::new_v4().to_string(),
+            FeatureEvent::QuestionsRaised {
+                questions: vec!["Who owns the approval boundary?".into()],
+            },
+        )
+        .unwrap();
+    let question_uid = question_flow::answer_product_question(&mut app, &feature_uid);
+    let feature = lifecycle
+        .apply_feature_event(
+            &feature_uid,
+            feature.revision,
+            &uuid::Uuid::new_v4().to_string(),
+            FeatureEvent::AnswersResolved,
+        )
+        .unwrap();
+    let question_store = crate::core::planning::QuestionStore::new(&planning);
+    let (question, _) = question_store.load(&question_uid).unwrap();
+    assert_eq!(
+        question.status,
+        crate::core::planning::QuestionStatus::Answered
+    );
+    assert_eq!(
+        question.answer_text.as_deref(),
+        Some("The workspace operator owns approval.")
+    );
+    let feature = lifecycle
+        .apply_feature_event(
+            &feature_uid,
+            feature.revision,
+            &uuid::Uuid::new_v4().to_string(),
             FeatureEvent::ReadinessRecorded {
                 evidence_refs: vec!["fixture/readiness".into()],
             },
@@ -139,11 +171,11 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             .is_err(),
         "agent-attributed data cannot be persisted as a user plan approval"
     );
-    synchronize_run(project, &lifecycle, &runs, &run.run_uid).unwrap();
-    let projected = runs.load(&run.run_uid).unwrap();
+    synchronize_app_run(&mut app, &lifecycle, &runs, &run_uid).unwrap();
+    let projected = runs.load(&run_uid).unwrap();
     assert_eq!(projected.phase, Phase::Planning);
     assert!(projected.clone_uid.is_none());
-    assert!(project.active_implementations.is_empty());
+    assert_app_idle(&mut app);
 
     let user = user_approval(&snapshot_uid, &hash);
     let feature = lifecycle
@@ -154,11 +186,11 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             FeatureEvent::UserPlanDecision(user),
         )
         .unwrap();
-    synchronize_run(project, &lifecycle, &runs, &run.run_uid).unwrap();
-    let projected = runs.load(&run.run_uid).unwrap();
+    synchronize_app_run(&mut app, &lifecycle, &runs, &run_uid).unwrap();
+    let projected = runs.load(&run_uid).unwrap();
     assert_eq!(projected.phase, Phase::Planning);
     assert!(projected.clone_uid.is_none());
-    assert!(project.active_implementations.is_empty());
+    assert_app_idle(&mut app);
 
     let mut forged_review = independent_plan_review(&feature_uid, &snapshot_uid, &hash);
     forged_review.reviewer_run_id = forged_review.author_run_id.clone();
@@ -174,11 +206,11 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             .is_err(),
         "a reviewer receipt reusing the plan author's run and session is not independent"
     );
-    synchronize_run(project, &lifecycle, &runs, &run.run_uid).unwrap();
-    let projected = runs.load(&run.run_uid).unwrap();
+    synchronize_app_run(&mut app, &lifecycle, &runs, &run_uid).unwrap();
+    let projected = runs.load(&run_uid).unwrap();
     assert_eq!(projected.phase, Phase::Planning);
     assert!(projected.clone_uid.is_none());
-    assert!(project.active_implementations.is_empty());
+    assert_app_idle(&mut app);
 
     let review = independent_plan_review(&feature_uid, &snapshot_uid, &hash);
     let review_uid = review.receipt_uid.clone();
@@ -235,9 +267,9 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         )
         .unwrap();
     let _ = feature;
-    synchronize_run(project, &lifecycle, &runs, &run.run_uid).unwrap();
+    synchronize_app_run(&mut app, &lifecycle, &runs, &run_uid).unwrap();
 
-    let projected = runs.load(&run.run_uid).unwrap();
+    let projected = runs.load(&run_uid).unwrap();
     assert_eq!(projected.phase, Phase::Ready);
     assert_eq!(projected.plan_approval_hash.as_deref(), Some(hash.as_str()));
     assert_eq!(
@@ -250,10 +282,11 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     );
     assert_eq!(projected.task_uids, vec![task_uid]);
     assert!(projected.clone_uid.is_none());
-    assert!(project.active_implementations.is_empty());
-    assert!(project.active_turn.is_none());
+    assert_app_idle(&mut app);
 }
 
 #[path = "persisted_projection/fixtures.rs"]
 mod fixtures;
+#[path = "persisted_projection/question_flow.rs"]
+mod question_flow;
 use fixtures::*;
