@@ -2,10 +2,11 @@ use super::*;
 
 /// Production boundary: the app synchronizer may enter Implementing only after
 /// the normal task implementation reports a ready isolated clone matching the
-/// approved task, repository, source SHA, and branch pair. A core state-machine
-/// test cannot prove the app projection checks that evidence. Uses the headless
-/// app fixture and synthetic implementation records; no Docker or network.
-/// Setup cost is low: one persisted feature task and repeated sync projections.
+/// approved task, repository, source SHA, branch pair, and current canonical
+/// product remote. A core state-machine test cannot prove the app projection
+/// checks the persisted manifest and implementation record together. Uses the
+/// headless app fixture and synthetic implementation records; no Docker or
+/// network. Setup cost is low: one persisted feature task and repeated syncs.
 pub(super) fn verify_clone_dispatch(
     app: &mut crate::app::root::KooladeApp,
     lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
@@ -46,11 +47,48 @@ pub(super) fn verify_clone_dispatch(
     let valid_target =
         implementation_record(&run, task_uid, &clone_path, &run.target_repository_uid);
     insert_implementation(app, valid_target);
+
+    let planning = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project.state.planning_store.clone(),
+        crate::app::root::Screen::Welcome => panic!("fixture should remain connected"),
+    };
+    let original_manifest = crate::core::project_repos::ProjectManifest::load(&planning).unwrap();
+    let mut changed_manifest = original_manifest.clone();
+    changed_manifest
+        .repositories
+        .iter_mut()
+        .find(|repository| repository.id == "root")
+        .unwrap()
+        .remote = "https://github.com/attacker/kool.ade".into();
+    save_manifest(&planning, &changed_manifest);
+    let error = synchronize_app_run(app, lifecycle, runs, run_uid).unwrap_err();
+    assert!(error.contains("canonical product remote"), "{error}");
+    let still_ready = runs.load(run_uid).unwrap();
+    assert_eq!(still_ready.phase, Phase::Ready);
+    assert!(still_ready.clone_uid.is_none());
+    assert_app_idle(app);
+
+    save_manifest(&planning, &original_manifest);
     synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     let implementing = runs.load(run_uid).unwrap();
     assert_eq!(implementing.phase, Phase::Implementing);
     assert!(implementing.clone_uid.is_some());
     assert_app_idle(app);
+}
+
+fn save_manifest(
+    planning: &crate::artifacts::planning_store::PlanningStore,
+    manifest: &crate::core::project_repos::ProjectManifest,
+) {
+    planning
+        .transaction(
+            &[(
+                crate::artifacts::planning_store::paths::PROJECT_MANIFEST.to_owned(),
+                serde_json::to_vec(manifest).unwrap(),
+            )],
+            None,
+        )
+        .unwrap();
 }
 
 #[derive(Debug, Clone, Copy)]

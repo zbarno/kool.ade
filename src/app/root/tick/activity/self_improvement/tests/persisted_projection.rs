@@ -275,6 +275,24 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         )
         .unwrap();
     let _ = feature;
+    let manifest = crate::core::project_repos::ProjectManifest::load(&planning).unwrap();
+    assert_eq!(
+        manifest
+            .repositories
+            .iter()
+            .find(|repository| repository.id == "root")
+            .unwrap()
+            .remote,
+        "https://github.com/zbarno/kool.ade"
+    );
+    assert_eq!(
+        crate::core::project_repos::stable_uid(
+            &planning.project_id.hyphenated().to_string(),
+            "repository",
+            "root",
+        ),
+        runs.load(&run_uid).unwrap().target_repository_uid
+    );
     synchronize_app_run(&mut app, &lifecycle, &runs, &run_uid).unwrap();
 
     let projected = runs.load(&run_uid).unwrap();

@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::lifecycle::{GateActor, GateDecision};
 use crate::core::self_improvement::SelfImprovementParentTaskProgressV1;
 
 pub(super) fn synchronize(

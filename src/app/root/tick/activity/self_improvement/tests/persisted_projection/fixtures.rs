@@ -35,6 +35,23 @@ pub(super) fn test_product_proposal(project: &mut crate::app::session::Project) 
         "Synthetic self-improvement sync fixture",
     )
     .unwrap();
+    let mut manifest = crate::core::project_repos::ProjectManifest::load(planning).unwrap();
+    manifest
+        .repositories
+        .iter_mut()
+        .find(|repository| repository.id == "root")
+        .unwrap()
+        .remote = "https://github.com/zbarno/kool.ade".into();
+    planning
+        .transaction(
+            &[(
+                crate::artifacts::planning_store::paths::PROJECT_MANIFEST.to_owned(),
+                serde_json::to_vec(&manifest).unwrap(),
+            )],
+            None,
+        )
+        .unwrap();
+    project.state.repositories = manifest;
     let workspace_uid = planning.project_id.hyphenated().to_string();
     let output = std::process::Command::new("git")
         .args([

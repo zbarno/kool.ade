@@ -2,9 +2,7 @@ use crate::{
     app::session::Project,
     core::{
         implementation::TaskRepositoryKind,
-        lifecycle::{
-            FeatureEvent, FeaturePhase, GateActor, GateDecision, LifecycleEventKind, LifecycleStore,
-        },
+        lifecycle::{FeaturePhase, LifecycleStore},
         opportunity::{OpportunityDecisionKindV1, OpportunityStore, OpportunityTargetKindV1},
         self_improvement::{
             SelfImprovementEventV1 as Event, SelfImprovementPhaseV1 as Phase, SelfImprovementStore,
@@ -12,7 +10,10 @@ use crate::{
     },
 };
 mod pr_evidence;
+mod review;
+mod target;
 mod task_evidence;
+use review::reviewed_plan_receipts;
 use task_evidence::implementation_for;
 #[cfg(test)]
 #[path = "self_improvement/tests.rs"]
@@ -208,6 +209,7 @@ fn synchronize_run(
         let Some(owner) = run.owner_task_uid.as_deref() else {
             return Ok(());
         };
+        target::verify_canonical_target(project, &run)?;
         let task = lifecycle
             .load_task(owner)
             .map_err(|error| error.to_string())?;
@@ -272,49 +274,6 @@ fn transition_uid(run_uid: &str, evidence_key: &str) -> Result<String, String> {
     Ok(uuid::Uuid::new_v5(&namespace, evidence_key.as_bytes())
         .hyphenated()
         .to_string())
-}
-
-fn reviewed_plan_receipts<'a>(
-    feature: &crate::core::lifecycle::FeatureGoal,
-    records: &'a [crate::core::lifecycle::LifecycleEventRecord],
-    plan_hash: &str,
-) -> Option<(
-    &'a crate::core::lifecycle::GateReceipt,
-    &'a crate::core::lifecycle::GateReceipt,
-)> {
-    let user = records.iter().find_map(|record| match &record.event {
-        LifecycleEventKind::Feature(FeatureEvent::UserPlanDecision(receipt))
-            if record.actor == crate::core::lifecycle::LifecycleActor::User
-                && receipt.actor == GateActor::User
-                && receipt.decision == GateDecision::Approved
-                && receipt.subject_uid
-                    == feature.plan_snapshot_uid.as_deref().unwrap_or_default()
-                && receipt.subject_sha256 == plan_hash
-                && feature.decision_refs.len() == 1
-                && feature.decision_refs.first() == Some(&receipt.receipt_uid) =>
-        {
-            Some(receipt)
-        }
-        _ => None,
-    })?;
-    let review = records.iter().find_map(|record| match &record.event {
-        LifecycleEventKind::Feature(FeatureEvent::PlanReview(receipt))
-            if record.actor == crate::core::lifecycle::LifecycleActor::IndependentReviewer
-                && receipt.actor == GateActor::IndependentReviewer
-                && receipt.decision == GateDecision::Approved
-                && receipt.subject_uid
-                    == feature.plan_snapshot_uid.as_deref().unwrap_or_default()
-                && receipt.subject_sha256 == plan_hash
-                && receipt.prompt_role()
-                    == Some(crate::harness::prompt_catalog::PromptRole::PlanReviewer)
-                && feature.review_refs.len() == 1
-                && feature.review_refs.first() == Some(&receipt.receipt_uid) =>
-        {
-            Some(receipt)
-        }
-        _ => None,
-    })?;
-    Some((user, review))
 }
 
 fn warn_once(project: &mut Project, message: String) {
