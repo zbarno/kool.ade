@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+#[cfg(unix)]
+fn unbound_private_stage_is_never_exposed_to_docker() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let stager = WorkerStager::new(root.path(), "fixture".into()).unwrap();
+    let execution_id = "00000000-0000-4000-8000-000000000155";
+    let private_root = stager.staging_root.join("private-files");
+    create_private_dir(&private_root).unwrap();
+    let execution_root = private_root.join(execution_id);
+    fs::create_dir(&execution_root).unwrap();
+    fs::write(execution_root.join("credentials"), b"synthetic-secret").unwrap();
+    fs::set_permissions(&execution_root, fs::Permissions::from_mode(0o555)).unwrap();
+    fs::set_permissions(
+        execution_root.join("credentials"),
+        fs::Permissions::from_mode(0o444),
+    )
+    .unwrap();
+
+    assert!(
+        stager
+            .private_files_mount_root(execution_id)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
 fn materialized_workspace_uses_fresh_git_metadata_not_controller_configuration() {
     let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source");
@@ -152,14 +180,15 @@ fn materialized_workspace_uses_fresh_git_metadata_not_controller_configuration()
     reservation.bind_lease("fixture-lease").unwrap();
     assert!(peer.finalize(&next.transfer_id).is_err());
     assert!(stager.finalize(&next.transfer_id).is_err());
+    let execution_id = "00000000-0000-4000-8000-000000000191";
     stager
-        .bind_execution("fixture-lease", "fixture-execution")
+        .bind_execution("fixture-lease", execution_id)
         .unwrap();
     stager.release_workspace("fixture-lease").unwrap();
     assert!(peer.finalize(&next.transfer_id).is_err());
     assert!(stager.finalize(&next.transfer_id).is_err());
     assert_eq!(stager.resolve_owned_clone(&workspace).unwrap(), staged);
-    stager.release_execution("fixture-execution").unwrap();
+    stager.release_execution(execution_id).unwrap();
     stager.finalize(&next.transfer_id).unwrap();
     stager.finalize(&next.transfer_id).unwrap();
     let updated = stager.resolve_owned_clone(&workspace).unwrap();

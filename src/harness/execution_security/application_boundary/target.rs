@@ -19,24 +19,70 @@ pub(super) fn connect(
     resources: ResourceBudgetV1,
 ) -> anyhow::Result<ExecutionSession> {
     let (settings, diagnostic) = crate::persistence::execution_environment_settings::load();
+    ensure_settings_available(diagnostic.as_deref())?;
     let preference = selected_preference(&settings, request.task_id.as_deref());
-    if let Some(diagnostic) = diagnostic {
-        if matches!(preference, TargetPreference::Worker(_)) {
-            anyhow::bail!("Remote target settings are invalid: {diagnostic}");
-        }
-        if matches!(preference, TargetPreference::Auto) {
-            return local_session(request, workspace, profile, resources).map_err(|_| {
-                anyhow::anyhow!("Execution target settings are invalid: {diagnostic}")
-            });
-        }
+    let requirements = task_capability_requirements(&settings, request.task_id.as_deref());
+    let allowed_targets = task_allowed_targets(&settings, request.task_id.as_deref());
+    if matches!(preference, TargetPreference::Local) {
+        ensure_target_allowed(&preference, &allowed_targets)?;
+        ensure_local_capabilities(&requirements)?;
     }
     match preference {
-        TargetPreference::Local => local_session(request, workspace, profile, resources),
-        TargetPreference::Worker(worker_id) => {
-            remote::remote_session(request, workspace, profile, resources, &worker_id)
+        TargetPreference::Local => {
+            ensure_local_capabilities(&requirements)?;
+            local_session(request, workspace, profile, resources)
         }
-        TargetPreference::Auto => automatic::auto_session(request, workspace, profile, resources),
+        TargetPreference::Worker(worker_id) => {
+            ensure_target_allowed(
+                &TargetPreference::Worker(worker_id.clone()),
+                &allowed_targets,
+            )?;
+            remote::remote_session(
+                request,
+                workspace,
+                profile,
+                resources,
+                &worker_id,
+                requirements,
+            )
+        }
+        TargetPreference::Auto => automatic::auto_session(
+            request,
+            workspace,
+            profile,
+            resources,
+            requirements,
+            allowed_targets,
+        ),
     }
+}
+
+fn ensure_settings_available(diagnostic: Option<&str>) -> anyhow::Result<()> {
+    if let Some(diagnostic) = diagnostic {
+        anyhow::bail!("Execution target settings are invalid: {diagnostic}");
+    }
+    Ok(())
+}
+
+fn ensure_target_allowed(
+    target: &TargetPreference,
+    allowed_targets: &[TargetPreference],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        allowed_targets.is_empty() || allowed_targets.contains(target),
+        "Selected execution target is outside this task's allowed target scope"
+    );
+    Ok(())
+}
+
+fn ensure_local_capabilities(
+    requirements: &crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !requirements.requires_gpu && !requirements.requires_display,
+        "Local Docker does not provide the GPU or display capability required by this task"
+    );
+    Ok(())
 }
 
 fn selected_preference(
@@ -47,6 +93,26 @@ fn selected_preference(
         .and_then(|task_id| settings.task_targets.get(task_id))
         .cloned()
         .unwrap_or_else(|| settings.default_target.clone())
+}
+
+fn task_capability_requirements(
+    settings: &ExecutionEnvironmentSettings,
+    task_id: Option<&str>,
+) -> crate::persistence::execution_environment_settings::TaskCapabilityRequirements {
+    task_id
+        .and_then(|task_id| settings.task_capabilities.get(task_id))
+        .copied()
+        .unwrap_or_default()
+}
+
+fn task_allowed_targets(
+    settings: &ExecutionEnvironmentSettings,
+    task_id: Option<&str>,
+) -> Vec<TargetPreference> {
+    task_id
+        .and_then(|task_id| settings.task_allowed_targets.get(task_id))
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn can_fallback_for_preference(preference: &TargetPreference, local_eligible: bool) -> bool {
@@ -95,6 +161,48 @@ mod tests {
     }
 
     #[test]
+    fn local_target_rejects_unavailable_task_capabilities() {
+        let requirements =
+            crate::persistence::execution_environment_settings::TaskCapabilityRequirements {
+                requires_gpu: false,
+                requires_display: true,
+            };
+        assert!(ensure_local_capabilities(&requirements).is_err());
+    }
+
+    #[test]
+    fn task_capability_requirements_are_selected_by_stable_task_id() {
+        let requirements =
+            crate::persistence::execution_environment_settings::TaskCapabilityRequirements {
+                requires_gpu: true,
+                requires_display: false,
+            };
+        let settings = ExecutionEnvironmentSettings {
+            task_capabilities: [("task-123".into(), requirements)].into(),
+            ..ExecutionEnvironmentSettings::default()
+        };
+        assert_eq!(
+            task_capability_requirements(&settings, Some("task-123")),
+            requirements
+        );
+        assert_eq!(
+            task_capability_requirements(&settings, Some("another-task")),
+            Default::default()
+        );
+    }
+
+    #[test]
+    fn task_target_constraints_are_selected_by_stable_task_id() {
+        let allowed = vec![TargetPreference::Worker("worker-east".into())];
+        let settings = ExecutionEnvironmentSettings {
+            task_allowed_targets: [("task-123".into(), allowed.clone())].into(),
+            ..ExecutionEnvironmentSettings::default()
+        };
+        assert_eq!(task_allowed_targets(&settings, Some("task-123")), allowed);
+        assert!(task_allowed_targets(&settings, Some("another-task")).is_empty());
+    }
+
+    #[test]
     fn task_target_overrides_default_only_for_that_task() {
         let settings = ExecutionEnvironmentSettings {
             schema_version: 1,
@@ -104,6 +212,8 @@ mod tests {
                 TargetPreference::Worker("worker-healthy".into()),
             )]
             .into(),
+            task_capabilities: Default::default(),
+            task_allowed_targets: Default::default(),
         };
 
         assert_eq!(
@@ -118,5 +228,29 @@ mod tests {
             selected_preference(&settings, None),
             TargetPreference::Local
         );
+    }
+
+    #[test]
+    fn invalid_target_settings_block_execution_instead_of_falling_back() {
+        let error = ensure_settings_available(Some("invalid settings"))
+            .expect_err("unknown task capability requirements must block execution");
+        assert!(
+            error
+                .to_string()
+                .contains("Execution target settings are invalid")
+        );
+        assert!(ensure_settings_available(None).is_ok());
+    }
+
+    #[test]
+    fn task_target_allowlist_restricts_local_and_worker_routes() {
+        let allowed = vec![TargetPreference::Worker("worker-east".into())];
+        assert!(ensure_target_allowed(&TargetPreference::Local, &allowed).is_err());
+        assert!(
+            ensure_target_allowed(&TargetPreference::Worker("worker-west".into()), &allowed)
+                .is_err()
+        );
+        assert!(ensure_target_allowed(&allowed[0], &allowed).is_ok());
+        assert!(ensure_target_allowed(&TargetPreference::Local, &[]).is_ok());
     }
 }

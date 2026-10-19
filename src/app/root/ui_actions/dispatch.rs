@@ -229,6 +229,48 @@ impl KooladeApp {
                             .warning(format!("Could not save task execution target: {error}")),
                     }
                 }
+                TaskDetailCommand::SetTaskCapabilities { ticket, requirements } => {
+                    let task_key = match &self.screen {
+                        Screen::Connected(project) => {
+                            super::super::task_target::key(project, &ticket)
+                        }
+                        Screen::Welcome => ticket.clone(),
+                    };
+                    match crate::persistence::execution_environment_settings::save_task_capabilities(
+                        &task_key,
+                        requirements,
+                    ) {
+                        Ok(()) => self.toasts.success("Saved task target capability requirements"),
+                        Err(error) => self.toasts.warning(format!(
+                            "Could not save task target capability requirements: {error}"
+                        )),
+                    }
+                }
+                TaskDetailCommand::SetTaskAllowedTargets { ticket, targets } => {
+                    let task_key = match &self.screen {
+                        Screen::Connected(project) => {
+                            super::super::task_target::key(project, &ticket)
+                        }
+                        Screen::Welcome => ticket.clone(),
+                    };
+                    match crate::persistence::execution_environment_settings::save_task_allowed_targets(
+                        &task_key,
+                        targets,
+                    ) {
+                        Ok(()) => self.toasts.success("Saved task target constraints"),
+                        Err(error) => self
+                            .toasts
+                            .warning(format!("Could not save task target constraints: {error}")),
+                    }
+                }
+                TaskDetailCommand::GrantRemotePrivateFiles {
+                    ticket,
+                    worker_id,
+                    paths,
+                } => self.record_remote_private_file_grant(&ticket, &worker_id, &paths),
+                TaskDetailCommand::RevokeRemotePrivateFileGrant { ticket, grant_id } => {
+                    self.revoke_remote_private_file_grant(&ticket, &grant_id)
+                }
                 TaskDetailCommand::DiscoverRuntimeTargets { ticket } => {
                     self.discover_runtime_targets(&ticket)
                 }

@@ -42,6 +42,74 @@ fn pending_request_survives_restart_and_completion_is_retrievable_once() {
 }
 
 #[test]
+fn private_file_chunks_cannot_be_saved_in_the_controller_retry_store() {
+    let root = tempfile::tempdir().unwrap();
+    let mut request = envelope();
+    request.kind = EnvelopeKindV1::PrivateFileChunk;
+    request.payload = serde_json::json!({"bytes": "synthetic-secret-fixture"});
+
+    assert!(save_pending_at(root.path(), "worker-east", &request).is_err());
+    assert!(!root.path().join("remote-requests").exists());
+}
+
+#[test]
+fn private_file_chunks_already_in_retry_storage_cannot_be_loaded_for_replay() {
+    let root = tempfile::tempdir().unwrap();
+    let mut request = envelope();
+    request.kind = EnvelopeKindV1::PrivateFileChunk;
+    request.payload = serde_json::json!({"bytes": [115, 121, 110, 116, 104, 101, 116, 105, 99]});
+    let directory = worker_directory(root.path(), "worker-east", true).unwrap();
+    let record = PendingRemoteRequestV1 {
+        schema_version: 1,
+        worker_id: "worker-east".into(),
+        created_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        envelope: request.clone(),
+    };
+    std::fs::write(
+        pending_path(&directory, &request.request_id),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+
+    assert!(pending_at(root.path(), "worker-east").is_err());
+}
+
+#[test]
+fn private_file_chunk_responses_cannot_be_saved_in_controller_completion_store() {
+    let root = tempfile::tempdir().unwrap();
+    let request = envelope();
+    let mut response = request.clone();
+    response.kind = EnvelopeKindV1::PrivateFileChunk;
+    response.payload = serde_json::json!({"bytes": "synthetic-secret-fixture"});
+
+    assert!(
+        record_completion_at(root.path(), "worker-east", &request.request_id, &response).is_err()
+    );
+    assert!(!root.path().join("remote-requests").exists());
+}
+
+#[test]
+fn private_file_chunk_completions_already_on_disk_cannot_be_returned() {
+    let root = tempfile::tempdir().unwrap();
+    let request = envelope();
+    let mut response = request.clone();
+    response.kind = EnvelopeKindV1::PrivateFileChunk;
+    response.payload = serde_json::json!({"token":"synthetic-secret"});
+    let directory = worker_directory(root.path(), "worker-east", true).unwrap();
+    let record = CompletedRemoteRequestV1 {
+        schema_version: 1,
+        worker_id: "worker-east".into(),
+        request_id: request.request_id.clone(),
+        completed_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        response,
+    };
+    let path = completed_path(&directory, &request.request_id);
+    std::fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+    assert!(take_completion_at(root.path(), "worker-east", &request.request_id).is_err());
+}
+
+#[test]
 fn pending_request_ids_cannot_be_rebound_and_symlink_roots_are_rejected() {
     let root = tempfile::tempdir().unwrap();
     let request = envelope();

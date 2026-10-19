@@ -19,6 +19,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0.104"
+base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 egui = "0.36.1"
 eframe = "0.36.1"
@@ -27,7 +28,7 @@ libc = "0.2.189"
 pulldown-cmark = "0.13.4"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
+serde_json = { version = "1.0.151", features = ["raw_value"] }
 sha2 = "0.10.9"
 pgp = { version = "0.21.0", default-features = false }
 toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
@@ -41,6 +42,7 @@ futures-util = { version = "0.3.34", default-features = false, features = ["io",
 tokio = { version = "1.53.2", default-features = false, features = ["fs", "io-util", "rt-multi-thread", "time", "sync", "macros"] }
 tar = "0.4.46"
 flate2 = "1.1.10"
+zeroize = "1.8.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }

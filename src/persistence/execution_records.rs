@@ -15,9 +15,12 @@ mod tests;
 
 pub use journal::{append_event, journal_cursor, load_events};
 pub use owner::{owner_instance_id, try_task_lock, unfinished_for_owner};
+pub(crate) use owner::{owner_instance_id_at, unfinished_for_owner_at};
 pub use record::{
     DockerResourceUsageV1, ExecutionArtifactV1, ExecutionCleanupStateV1, ExecutionPhaseTimingsV1,
     ExecutionRecordStateV1, ExecutionRecordV1, ExecutionWorkspaceEntryKindV1,
     ExecutionWorkspaceEntryV1,
 };
+#[cfg(test)]
+pub(crate) use store::save_at;
 pub use store::{latest_for_task, load, save};

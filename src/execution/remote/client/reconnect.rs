@@ -78,7 +78,7 @@ impl RemoteWorkerClient {
         if response.kind != Kind::Acknowledge {
             return Err(incompatible());
         }
-        self.probe = match negotiated_probe(response.payload) {
+        self.probe = match negotiated_probe(response.payload, &self.config.ssh_principal) {
             Ok(probe) => probe,
             Err(error) => {
                 self.persist_health(

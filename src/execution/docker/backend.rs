@@ -1,7 +1,7 @@
 //! Local execution backend. Repository paths enter only through trusted resolvers.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -19,11 +19,13 @@ use crate::execution::{
 };
 use bollard::Docker;
 
+mod admission;
 #[cfg(test)]
 mod diagnostics;
 mod lifecycle;
 mod prepared_image;
 mod qa;
+mod starting_guard;
 mod system_image;
 #[cfg(test)]
 #[path = "backend/tests.rs"]
@@ -37,6 +39,17 @@ pub use workspace_resolver::{OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspac
 pub trait TaskWorkspaceResolver: Send + Sync {
     fn resolve_owned_clone(&self, workspace: &WorkspaceRef) -> Result<PathBuf, ExecutionError>;
     fn staging_root(&self) -> PathBuf;
+
+    /// Return a separately staged private-file directory for this exact run.
+    /// Implementations must bind it to an active, unrevoked receipt matching
+    /// the execution, workspace, enrolled worker identity, and expiry. A
+    /// structurally sealed directory or execution ID alone grants no access.
+    fn private_files_mount_root(
+        &self,
+        _execution_id: &str,
+    ) -> Result<Option<PathBuf>, ExecutionError> {
+        Ok(None)
+    }
 }
 
 pub struct DockerExecutionBackend {
@@ -47,7 +60,7 @@ pub struct DockerExecutionBackend {
     authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     workspaces: Mutex<HashMap<String, Arc<Mutex<PreparedWorkspace>>>>,
     executions: Mutex<HashMap<String, Arc<Mutex<RuntimeExecution>>>>,
-    starting: Mutex<HashSet<String>>,
+    starting: Mutex<HashMap<String, (u32, u64)>>,
     dependency_caches: Mutex<
         HashMap<
             crate::execution::contract::DependencyCacheRefV1,
@@ -86,7 +99,7 @@ impl DockerExecutionBackend {
             authorization_verifier,
             workspaces: Mutex::new(HashMap::new()),
             executions: Mutex::new(HashMap::new()),
-            starting: Mutex::new(HashSet::new()),
+            starting: Mutex::new(HashMap::new()),
             dependency_caches: Mutex::new(HashMap::new()),
             derived_images: Mutex::new(HashMap::new()),
         })
@@ -142,33 +155,6 @@ impl DockerExecutionBackend {
         drop(state);
         Ok(execution)
     }
-
-    pub(super) fn reserve_start(
-        &self,
-        execution_id: &str,
-    ) -> Result<StartingGuard<'_>, ExecutionError> {
-        let mut starting = self
-            .starting
-            .lock()
-            .map_err(|_| internal_error_with_context("reserving an execution start"))?;
-        if self
-            .executions
-            .lock()
-            .map_err(|_| internal_error_with_context("checking the execution registry"))?
-            .contains_key(execution_id)
-            || !starting.insert(execution_id.to_owned())
-        {
-            return Err(ExecutionError::new(
-                ExecutionErrorKind::PolicyDenied,
-                "Execution ID is already active",
-                false,
-            ));
-        }
-        Ok(StartingGuard {
-            starting: &self.starting,
-            execution_id: execution_id.to_owned(),
-        })
-    }
 }
 
 fn handle_matches(
@@ -190,19 +176,6 @@ pub(super) struct PreparedWorkspace {
     pub verified: ValidatedWorkspace,
     pub starting: bool,
     pub active_execution_id: Option<String>,
-}
-
-pub(super) struct StartingGuard<'a> {
-    starting: &'a Mutex<HashSet<String>>,
-    execution_id: String,
-}
-
-impl Drop for StartingGuard<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut starting) = self.starting.lock() {
-            starting.remove(&self.execution_id);
-        }
-    }
 }
 
 fn prerequisite_error(

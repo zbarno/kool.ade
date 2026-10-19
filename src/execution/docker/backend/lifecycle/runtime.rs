@@ -39,6 +39,7 @@ pub(in crate::execution::docker::backend) struct RuntimeExecution {
     started_at_unix_ms: u64,
     pub(super) cleanup_complete: bool,
     _task_lock: std::fs::File,
+    pub(super) host_capacity_lease: Option<crate::execution::remote::WorkerCapacityLease>,
 }
 
 pub(super) struct RuntimeExecutionContext {
@@ -90,6 +91,7 @@ impl RuntimeExecution {
             started_at_unix_ms: crate::execution::docker::backend::now_unix_ms().max(1),
             cleanup_complete: false,
             _task_lock: context.task_lock,
+            host_capacity_lease: None,
         }
     }
 
@@ -242,6 +244,7 @@ impl RuntimeExecution {
             cleanup_complete: record.cleanup
                 == crate::persistence::execution_records::ExecutionCleanupStateV1::Complete,
             _task_lock: task_lock,
+            host_capacity_lease: None,
         })
     }
 }

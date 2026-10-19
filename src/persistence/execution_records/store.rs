@@ -35,6 +35,20 @@ pub fn save(record: &ExecutionRecordV1) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) fn save_at(
+    state_root: &std::path::Path,
+    record: &ExecutionRecordV1,
+) -> Result<(), String> {
+    record.validate()?;
+    let path = state_root
+        .join("executions")
+        .join(&record.task_id)
+        .join(format!("{}.json", record.execution_id));
+    let bytes = serde_json::to_vec(record).map_err(|error| error.to_string())?;
+    crate::artifacts::atomic_write_bytes(&path, &bytes).map_err(|error| error.to_string())
+}
+
 fn persist_record(record: &ExecutionRecordV1, bytes: &[u8]) -> Result<(), String> {
     crate::artifacts::atomic_write_bytes(&record_path(record), bytes)
         .map_err(|error| error.to_string())
@@ -52,10 +66,18 @@ fn is_terminal_and_clean(record: &ExecutionRecordV1) -> bool {
 
 /// Load a task's execution record. Malformed or unsupported records fail closed.
 pub fn load(task_id: &str, execution_id: &str) -> Result<Option<ExecutionRecordV1>, String> {
+    load_at(&crate::persistence::state_root(), task_id, execution_id)
+}
+
+pub(crate) fn load_at(
+    state_root: &std::path::Path,
+    task_id: &str,
+    execution_id: &str,
+) -> Result<Option<ExecutionRecordV1>, String> {
     if !is_canonical_uuid(task_id) || !is_canonical_uuid(execution_id) {
         return Err("execution record lookup identity is invalid".into());
     }
-    let path = crate::persistence::state_root()
+    let path = state_root
         .join("executions")
         .join(task_id)
         .join(format!("{execution_id}.json"));
