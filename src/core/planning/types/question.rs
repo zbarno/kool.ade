@@ -80,6 +80,13 @@ pub struct DeferredAssumption {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvidenceResolutionV1 {
+    pub decision: String,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(deny_unknown_fields)]
 pub struct QuestionV1 {
@@ -102,6 +109,8 @@ pub struct QuestionV1 {
     pub depends_on_question_ids: Vec<String>,
     pub status: QuestionStatus,
     pub answer_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_resolution: Option<EvidenceResolutionV1>,
     pub selected_option: Option<String>,
     pub answered_by: Option<String>,
     pub answered_at_ms: Option<u64>,
@@ -205,6 +214,16 @@ impl QuestionV1 {
             self.answered_by.is_some() != self.answered_at_ms.is_some();
         let declined = self.status == QuestionStatus::Declined;
         if answer_attribution_partial
+            || (!matches!(
+                self.status,
+                QuestionStatus::EvidenceResolved | QuestionStatus::Superseded
+            ) && self.evidence_resolution.is_some())
+            || self.evidence_resolution.as_ref().is_some_and(|resolution| {
+                resolution.decision.trim().is_empty()
+                    || resolution.decision.len() > 4096
+                    || resolution.rationale.trim().is_empty()
+                    || resolution.rationale.len() > 8192
+            })
             || (resolved && !answer_attribution_complete)
             || (!resolved && !superseded && answer_attribution_complete)
             || (!resolved

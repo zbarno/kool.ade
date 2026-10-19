@@ -290,8 +290,13 @@ impl Surface for KooladeApp {
             if p.active_turn.is_none()
                 && p.active_implementations.is_empty()
                 && has_current_task_batch(p)
-                && matches!(crate::core::implementation_queue::next_ticket(
-                    &p.task_documents, &p.implementation_states), Ok(Some(_))))
+                && matches!(crate::core::implementation_queue::next_ready_ticket_with_lifecycle_subtasks(
+                    &p.task_documents,
+                    &p.implementation_states,
+                    &Default::default(),
+                    &Default::default(),
+                    &crate::app::root::implementation_controller::completed_subtask_uids(p),
+                ), Ok(Some(_))))
     }
 
     fn implementation_state(

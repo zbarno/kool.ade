@@ -135,6 +135,25 @@ impl<'a> QuestionStore<'a> {
         expected_readiness_revision: u64,
         expected_planning_revision: &str,
     ) -> Result<String, StoreError> {
+        self.save_batch_with_readiness_and_documents(
+            questions,
+            checklist,
+            expected_readiness_revision,
+            expected_planning_revision,
+            &[],
+        )
+    }
+
+    /// Commit questions, readiness, and app-owned document projections under
+    /// the same planning revision fence.
+    pub(crate) fn save_batch_with_readiness_and_documents(
+        &self,
+        questions: &[(QuestionV1, u64)],
+        checklist: &super::ReadinessChecklistV1,
+        expected_readiness_revision: u64,
+        expected_planning_revision: &str,
+        documents: &[(String, Vec<u8>)],
+    ) -> Result<String, StoreError> {
         let mut changes = Vec::new();
         let mut checks = Vec::new();
         for (question, expected_revision) in questions {
@@ -145,6 +164,7 @@ impl<'a> QuestionStore<'a> {
         }
         let (readiness_changes, readiness_checks) =
             readiness::readiness_record_changes(self, checklist, expected_readiness_revision)?;
+        changes.extend(documents.iter().cloned());
         changes.extend(readiness_changes);
         checks.extend(readiness_checks);
         let (_, revision) = self.store.transaction_with_revision_and_record_revisions(

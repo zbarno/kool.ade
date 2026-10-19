@@ -1,5 +1,65 @@
 //! Task queue scheduling and implementation lifecycle orchestration.
 use super::*;
+#[cfg(test)]
+mod tests;
+
+fn lifecycle_parent_contains_planning_child(
+    child_planning_uid: &str,
+    parent_planning_uid: &str,
+    child: &crate::core::lifecycle::TaskRecord,
+    parent: &crate::core::lifecycle::TaskRecord,
+) -> bool {
+    child.planning_item_uid.as_deref() == Some(child_planning_uid)
+        && child.parent_task_uid.as_deref() == Some(parent.task_uid.as_str())
+        && parent.planning_item_uid.as_deref() == Some(parent_planning_uid)
+        && parent.subtask_uids.contains(&child.task_uid)
+}
+
+pub(super) fn completed_subtask_uids(
+    project: &crate::app::session::Project,
+) -> std::collections::BTreeSet<String> {
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store);
+    project
+        .task_documents
+        .iter()
+        .filter_map(|document| document.metadata.as_ref())
+        .filter(|metadata| metadata.parent_task_uid.is_some())
+        .filter_map(|metadata| {
+            let implementation = project
+                .task_documents
+                .iter()
+                .find(|document| {
+                    document
+                        .metadata
+                        .as_ref()
+                        .is_some_and(|candidate| candidate.uid == metadata.uid)
+                })
+                .and_then(|document| project.implementation_states.get(&document.path))?;
+            let task = lifecycle
+                .task_for_planning_item(&metadata.uid)
+                .ok()
+                .flatten()?;
+            let parent_planning_uid = metadata.parent_task_uid.as_deref()?;
+            let parent = lifecycle
+                .task_for_planning_item(parent_planning_uid)
+                .ok()
+                .flatten()?;
+            (task.phase == crate::core::lifecycle::TaskPhase::Done
+                && lifecycle_parent_contains_planning_child(
+                    &metadata.uid,
+                    parent_planning_uid,
+                    &task,
+                    &parent,
+                )
+                && implementation.status
+                    == crate::core::implementation::ImplementationStatus::AwaitingApproval
+                && implementation.pr_url.is_none()
+                && implementation.verified_head.as_deref()
+                    == task.reviewed_code_head_sha.as_deref())
+            .then_some(metadata.uid.clone())
+        })
+        .collect()
+}
 
 impl KooladeApp {
     pub(super) fn advance_auto_queue(&mut self) {
@@ -62,11 +122,12 @@ impl KooladeApp {
                     .cloned()
                     .collect::<std::collections::BTreeSet<_>>();
                 if !matches!(
-                    crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
+                    crate::core::implementation_queue::next_ready_ticket_with_lifecycle_subtasks(
                         &project.task_documents,
                         &project.implementation_states,
                         &excluded,
                         &running,
+                        &completed_subtask_uids(project),
                     ),
                     Ok(Some(_))
                 ) {
@@ -173,12 +234,14 @@ impl KooladeApp {
                 .keys()
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>();
-            let choice = crate::core::implementation_queue::next_ready_ticket_with_running_scopes(
-                &project.task_documents,
-                &project.implementation_states,
-                &excluded,
-                &running,
-            );
+            let choice =
+                crate::core::implementation_queue::next_ready_ticket_with_lifecycle_subtasks(
+                    &project.task_documents,
+                    &project.implementation_states,
+                    &excluded,
+                    &running,
+                    &completed_subtask_uids(project),
+                );
             if project.active_implementations.len() >= project.queue.max_parallel.clamp(1, 8) {
                 project.queue.waiting_for_capacity = choice
                     .as_ref()

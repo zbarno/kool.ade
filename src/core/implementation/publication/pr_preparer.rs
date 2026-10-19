@@ -68,6 +68,13 @@ pub(in crate::core::implementation) fn prepare_lifecycle_pr_proposal(
         .map(|uid| lifecycle.load_task(uid))
         .collect::<Result<Vec<_>, _>>()?;
     request::validate_included_tasks(&task, &included_tasks)?;
+    super::super::integration::validate_subtasks_for_pr(
+        dir,
+        &task,
+        &included_tasks,
+        state,
+        runner,
+    )?;
     let scope = request::collect_scope(state, dir, runner, &task, &included_tasks, &feature)?;
     let request = request::build_request(state, &task, &included_tasks, &feature, &scope, runner)?;
     let receipt_path = dir.join(RECEIPT_FILE);

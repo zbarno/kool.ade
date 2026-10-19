@@ -66,3 +66,29 @@ fn evidence_resolution_cannot_answer_user_intent_or_policy_questions() {
         assert_eq!(question.status, QuestionStatus::Open);
     }
 }
+
+#[test]
+fn evidence_decision_and_rationale_remain_structured_when_text_contains_delimiters() {
+    let mut question = open_question(QuestionCategory::Api);
+    let decision = "Keep JSON\nRationale: this belongs to the decision text";
+    let rationale = "README precedent\nAdditional evidence context";
+    resolve_question_with_evidence(
+        &mut question,
+        super::super::EvidenceResolution {
+            expected_revision: 0,
+            current_plan_revision: 3,
+            decision,
+            rationale,
+            selected_option: Some("existing"),
+            evidence_refs: &["repository-overview:1".into()],
+            now_ms: 1,
+        },
+    )
+    .unwrap();
+
+    let persisted = serde_json::to_vec(&question).unwrap();
+    let reopened: QuestionV1 = serde_json::from_slice(&persisted).unwrap();
+    let resolution = reopened.evidence_resolution.unwrap();
+    assert_eq!(resolution.decision, decision);
+    assert_eq!(resolution.rationale, rationale);
+}

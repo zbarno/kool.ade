@@ -57,6 +57,7 @@ pub(super) fn reviewed_feature_plan(
         depends_on_question_ids: Vec::new(),
         status: QuestionStatus::Open,
         answer_text: None,
+        evidence_resolution: None,
         selected_option: None,
         answered_by: None,
         answered_at_ms: None,

@@ -1,4 +1,4 @@
-use super::{QuestionCategory, QuestionStatus, QuestionV1};
+use super::{EvidenceResolutionV1, QuestionCategory, QuestionStatus, QuestionV1};
 
 /// Record a repository-evidence decision for an implementation question. This
 /// status is distinct from a user answer so technical precedent cannot be
@@ -58,6 +58,10 @@ pub fn resolve_question_with_evidence(
         decision.trim(),
         rationale.trim()
     ));
+    question.evidence_resolution = Some(EvidenceResolutionV1 {
+        decision: decision.trim().to_owned(),
+        rationale: rationale.trim().to_owned(),
+    });
     question.selected_option = selected_option.map(str::to_owned);
     question.answered_by = Some("Man.ager (repository evidence)".into());
     question.answered_at_ms = Some(now_ms);

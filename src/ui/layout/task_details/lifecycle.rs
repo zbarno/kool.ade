@@ -28,6 +28,33 @@ pub(super) fn paint(
                 lifecycle.task_revision
             ));
         });
+        if lifecycle.parent_task.is_some()
+            || !lifecycle.dependencies.is_empty()
+            || !lifecycle.subtasks.is_empty()
+        {
+            ui.label(theme::section_heading("Task relationships"));
+            if let Some(parent) = &lifecycle.parent_task {
+                ui.label(format!(
+                    "Subtask of {} · {} · changes are included in the parent's single pull request.",
+                    parent.title, parent.status
+                ));
+            }
+            if !lifecycle.dependencies.is_empty() {
+                ui.label("Dependencies");
+                for dependency in &lifecycle.dependencies {
+                    ui.label(format!("{} · {}", dependency.title, dependency.status));
+                }
+            }
+            if !lifecycle.subtasks.is_empty() {
+                ui.label("Owned subtasks · all changes are included in this parent's single pull request");
+                for subtask in &lifecycle.subtasks {
+                    ui.label(format!("{} · {}", subtask.title, subtask.status));
+                    for criterion in &subtask.acceptance_criteria {
+                        ui.label(format!("  • {criterion}"));
+                    }
+                }
+            }
+        }
         ui.label("Specification state");
         state_row(
             ui,
@@ -46,6 +73,12 @@ pub(super) fn paint(
             lifecycle.merged_commit_sha.as_deref(),
         );
         state_row(ui, "Deployed", lifecycle.deployed_spec_hash.as_deref());
+        state_row(ui, "Latest production deployment status", lifecycle.deployment_status.as_deref());
+        if let Some(observed_at) = lifecycle.deployment_observed_at_ms {
+            let observed = chrono::DateTime::from_timestamp_millis(observed_at as i64)
+                .map_or_else(|| observed_at.to_string(), |time| time.to_rfc3339());
+            ui.small(format!("Deployment status observed · {observed}"));
+        }
         ui.label(format!(
             "Pull request status · {}",
             lifecycle.pull_request_status.map_or("not recorded", |status| match status {
@@ -214,8 +247,8 @@ mod tests {
         );
     }
 
-    /// Production UI boundary: renders the lifecycle view consumed by task details.
-    /// A model-only assertion cannot prove the merged state is labeled honestly.
+    /// Production UI boundary: renders lifecycle relationships and release status.
+    /// A model-only assertion cannot prove task links and merged state are visible.
     /// Uses synthetic in-memory data only, no external services, negligible setup.
     #[test]
     fn merged_pr_displays_deployed_status_as_not_recorded() {
@@ -225,6 +258,18 @@ mod tests {
         let lifecycle = crate::ui::task_detail::LifecycleView {
             feature_phase: FeaturePhase::Complete,
             task_phase: TaskPhase::PrMerged,
+            parent_task_uid: None,
+            parent_task: None,
+            dependencies: vec![crate::ui::task_detail::TaskRelationView {
+                title: "Foundation task".into(),
+                status: "Done".into(),
+                acceptance_criteria: Vec::new(),
+            }],
+            subtasks: vec![crate::ui::task_detail::TaskRelationView {
+                title: "Reviewed child task".into(),
+                status: "Awaiting approval".into(),
+                acceptance_criteria: vec!["The child behavior is observable.".into()],
+            }],
             task_revision: 4,
             code_review: None,
             runtime_qa: None,
@@ -233,6 +278,8 @@ mod tests {
             implementation_head_sha: Some("reviewed-head".into()),
             approved_target_hash: Some("approved-hash".into()),
             deployed_spec_hash: None,
+            deployment_status: None,
+            deployment_observed_at_ms: None,
             spec_revision: Some(5),
             spec_status: Some(SpecReconciliationStatusV1::Synchronized),
             pending_spec_triggers: 0,
@@ -279,6 +326,27 @@ mod tests {
             rendered
                 .iter()
                 .any(|(text, _)| text.contains("Provider-reported merge commit"))
+        );
+        assert!(rendered.iter().any(|(text, _)| text == "Dependencies"));
+        assert!(
+            rendered
+                .iter()
+                .any(|(text, _)| text.contains("Foundation task · Done"))
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|(text, _)| text.contains("Reviewed child task · Awaiting approval"))
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|(text, _)| { text.contains("The child behavior is observable.") })
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|(text, _)| text.contains("this parent's single pull request"))
         );
     }
 
