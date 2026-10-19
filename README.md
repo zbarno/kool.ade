@@ -403,7 +403,7 @@ Current capabilities include:
 | Consistent CLI role support + resilient discovery | 🛠️ In progress |
 | Docker-only local execution | 🛠️ In progress |
 | Remote Docker workers | 🛠️ In progress |
-| Interactive UI / runtime QA | 🥤 Proposed direction |
+| Interactive UI / runtime QA | 🛠️ In progress; experimental and not shipped |
 | macOS | 🥤 Planned through Docker Desktop |
 | Windows | 🥤 Planned through Docker Desktop |
 | Additional agent CLIs | 🥤 Very much planned |

@@ -39,6 +39,18 @@ pub(super) fn paint(
     revision: u64,
     prepared_dependencies: &[task_detail::PreparedDependencyChoice],
 ) {
+    paint_with_dispatch(ui, ticket, revision, prepared_dependencies, |command| {
+        surface.dispatch(command);
+    });
+}
+
+fn paint_with_dispatch(
+    ui: &mut egui::Ui,
+    ticket: &str,
+    revision: u64,
+    prepared_dependencies: &[task_detail::PreparedDependencyChoice],
+    mut dispatch: impl FnMut(crate::ui::ApplicationCommand),
+) {
     egui::CollapsingHeader::new("Add a custom application target")
         .id_salt(("runtime_target_override", ticket))
         .show(ui, |ui| {
@@ -134,7 +146,7 @@ pub(super) fn paint(
                 )
                 .clicked()
             {
-                surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
+                dispatch(crate::ui::ApplicationCommand::TaskDetail(
                     task_detail::Command::AddRuntimeTarget {
                         ticket: ticket.to_owned(),
                         app_surface: draft.surface,
@@ -203,3 +215,7 @@ fn surface_label(surface: AppSurface) -> &'static str {
         AppSurface::UnsupportedTarget => "Unsupported",
     }
 }
+
+#[cfg(test)]
+#[path = "target_override_tests.rs"]
+mod tests;
