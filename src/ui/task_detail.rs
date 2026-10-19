@@ -2,6 +2,9 @@
 
 use crate::domain::ChatMessage;
 
+mod runtime_capability;
+pub use runtime_capability::*;
+
 #[derive(Clone)]
 pub struct ViewModel {
     pub implementation: Option<crate::core::implementation::Implementation>,
@@ -165,41 +168,6 @@ pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static st
 }
 
 #[derive(Clone)]
-pub struct RuntimeCapabilityView {
-    pub source_sha: Option<String>,
-    pub languages: Vec<String>,
-    pub frameworks: Vec<String>,
-    pub manifest_revision: Option<u64>,
-    pub selected_target_id: Option<String>,
-    pub targets: Vec<RuntimeTargetChoice>,
-    pub message: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct RuntimeTargetChoice {
-    pub target_id: String,
-    pub label: String,
-    pub app_surface: crate::project_runtime::AppSurface,
-    pub selected: bool,
-    pub state: String,
-    pub recipes: String,
-    pub qa_applicability: crate::project_runtime_capability::QaApplicability,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuntimeRecipeOperation {
-    Build,
-    Test,
-    Start,
-}
-
-#[derive(Clone, Default)]
-pub struct RuntimeRecipeInput {
-    pub executable_id: String,
-    pub argv_lines: String,
-}
-
-#[derive(Clone)]
 pub struct LifecycleSpecProposal {
     pub expected_revision: u64,
     pub proposal_sha256: String,
@@ -307,6 +275,7 @@ pub enum Command {
         build: RuntimeRecipeInput,
         test: RuntimeRecipeInput,
         start: RuntimeRecipeInput,
+        required_dependencies: Vec<String>,
         approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         readiness_port: String,
         readiness_path: String,

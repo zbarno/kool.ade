@@ -11,6 +11,7 @@ struct Draft {
     build: task_detail::RuntimeRecipeInput,
     test: task_detail::RuntimeRecipeInput,
     start: task_detail::RuntimeRecipeInput,
+    required_dependencies: Vec<String>,
     readiness_port: String,
     readiness_path: String,
 }
@@ -24,13 +25,20 @@ impl Default for Draft {
             build: Default::default(),
             test: Default::default(),
             start: Default::default(),
+            required_dependencies: Vec::new(),
             readiness_port: String::new(),
             readiness_path: "/".into(),
         }
     }
 }
 
-pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, ticket: &str, revision: u64) {
+pub(super) fn paint(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    ticket: &str,
+    revision: u64,
+    prepared_dependencies: &[task_detail::PreparedDependencyChoice],
+) {
     egui::CollapsingHeader::new("Add a custom application target")
         .id_salt(("runtime_target_override", ticket))
         .show(ui, |ui| {
@@ -65,6 +73,27 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, ticket: &str, 
             ui.text_edit_multiline(&mut draft.artifact_paths);
             recipe_fields(ui, "Test recipe", &mut draft.test);
             recipe_fields(ui, "Start recipe", &mut draft.start);
+            if prepared_dependencies.is_empty() {
+                ui.label("No integrity-checked package cache preparations are available for this task.");
+            } else {
+                ui.collapsing("Prepared dependencies for this target", |ui| {
+                    for dependency in prepared_dependencies {
+                        let mut selected = draft
+                            .required_dependencies
+                            .contains(&dependency.request_id);
+                        if ui.checkbox(&mut selected, &dependency.label).changed() {
+                            if selected {
+                                draft.required_dependencies
+                                    .push(dependency.request_id.clone());
+                            } else {
+                                draft.required_dependencies
+                                    .retain(|id| id != &dependency.request_id);
+                            }
+                        }
+                    }
+                    ui.label("Only successful same-task broker preparations with intact cache snapshots can be selected.");
+                });
+            }
             if draft.surface == AppSurface::Web || draft.surface == AppSurface::HeadlessService {
                 ui.horizontal(|ui| {
                     ui.label("Approved readiness port");
@@ -114,6 +143,7 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, ticket: &str, 
                         build: draft.build.clone(),
                         test: draft.test.clone(),
                         start: draft.start.clone(),
+                        required_dependencies: draft.required_dependencies.clone(),
                         approval_proof:
                             crate::ui::layout::RuntimeTargetApprovalProof::from_user_approval_click(
                             ),

@@ -50,7 +50,7 @@ pub(super) fn paint(
         let Some(revision) = runtime.manifest_revision else {
             return;
         };
-        target_override::paint(ui, surface, ticket, revision);
+        target_override::paint(ui, surface, ticket, revision, &runtime.prepared_dependencies);
         if runtime.targets.is_empty() {
             ui.label("No targets are recorded for this task.");
             return;

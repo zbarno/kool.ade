@@ -186,4 +186,13 @@ Until released QA image digests and the remaining headless and application-level
 runtime evidence paths land, the application must not present a detected
 candidate as a verified runnable target or claim runtime QA coverage.
 
-Custom targets currently start with an empty broker dependency list. The UI does not accept free-form dependency request IDs because a string alone is not bound to a prepared request for the selected task. Dependency selection will use the validated prepared-request inventory before custom targets can declare brokered dependencies.
+When adding a custom target in Task Details, the operator can select dependencies
+from that task's successfully prepared broker inventory. The picker exposes only
+requests whose task activity and preparation telemetry both report success and
+whose request-bound cache snapshot still passes integrity checks for the task,
+project, package ecosystem, and lockfile identity. The selected request IDs are
+included in the user-approved target proposal; the controller revalidates them
+against the current inventory before saving. Free-form IDs, duplicate IDs,
+stale preparations, and missing or corrupt snapshots are rejected. This picker
+does not transfer package caches to desktop QA; desktop cache transfer remains
+an open acceptance item.

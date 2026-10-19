@@ -3,6 +3,8 @@ use crate::project_runtime::{
     AppSurface, ProjectCapabilityManifestV1, ProjectRuntimeStore, TargetCapabilityState,
 };
 
+#[path = "tests/dependencies.rs"]
+mod dependencies;
 #[path = "tests/helpers.rs"]
 mod helpers;
 #[path = "tests/root_guard.rs"]

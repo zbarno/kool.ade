@@ -19,6 +19,7 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         manifest_revision: None,
         selected_target_id: None,
         targets: Vec::new(),
+        prepared_dependencies: Vec::new(),
         message: None,
     };
     let store = ProjectRuntimeStore::new(&project.state.planning_store);
@@ -50,6 +51,16 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
     view.frameworks = manifest.frameworks.clone();
     view.manifest_revision = Some(manifest.revision);
     view.selected_target_id = manifest.selected_target_id.clone();
+    view.prepared_dependencies =
+        crate::app::root::runtime_dependencies::prepared_dependencies_for_ticket(project, ticket)
+            .into_iter()
+            .map(
+                |dependency| crate::ui::task_detail::PreparedDependencyChoice {
+                    request_id: dependency.request_id,
+                    label: dependency.label,
+                },
+            )
+            .collect();
     view.targets = manifest
         .candidate_targets
         .iter()
@@ -96,6 +107,7 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
             .flatten()
             .collect::<Vec<_>>()
             .join(" · "),
+            required_dependencies: target.required_dependencies.clone(),
             qa_applicability: surface_applicability(target.app_surface),
         })
         .collect();

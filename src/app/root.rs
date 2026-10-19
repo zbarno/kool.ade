@@ -47,6 +47,7 @@ mod planning_repository_surface;
 mod planning_work;
 mod repository_switcher;
 mod requested_action;
+pub(in crate::app::root) mod runtime_dependencies;
 pub(crate) mod runtime_qa_applicability;
 mod runtime_qa_scenarios;
 mod setup_attention;
