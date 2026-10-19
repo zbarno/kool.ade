@@ -97,6 +97,10 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
             print(json.dumps(early_response), file=sys.stderr)
             sys.exit(1)
         write_output = early_response.get('result', {}).get('content', [{}])[0].get('text', '')
+        if output_path == 'src/task-4.rs':
+            # Keep Task 4 active until the UI observes it alongside planning.
+            (root / '004-task.started').touch()
+            wait_for_marker('planning-overlap-observed')
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',
               'acceptance_criteria':[{'criterion':'File exists.','evidence':output_path+' exists in the isolated fixture workspace.'}],
