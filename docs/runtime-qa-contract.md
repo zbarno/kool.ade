@@ -58,6 +58,11 @@ finding routing, and desktop/browser drivers; the complete application-level
 implementation-to-QA-to-repair-to-spec-sync path still needs an end-to-end CI
 run against the pinned images before Runtime QA can be called release-ready.
 
+The versioned [Runtime QA release evidence table](runtime-qa-release-evidence.md)
+tracks each #171 release criterion against exact CI runs and states the
+remaining acceptance work. Candidate image and source-test evidence is marked
+partial until it proves the corresponding production boundary.
+
 The desktop image candidate smoke runs the packaged Chromium fixture inside the
 candidate image under private Xvfb, executes pointer and keyboard actions on a
 synthetic loopback page, resizes the window, and verifies distinct screenshot
