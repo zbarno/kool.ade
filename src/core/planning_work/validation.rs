@@ -98,9 +98,11 @@ pub fn routing_for_feature<R: PlanningRoot + ?Sized>(
     feature_uid: Option<&str>,
 ) -> anyhow::Result<crate::core::workflow::TaskRoutingSnapshot> {
     let work = load(repo)?.into_iter().rev().find(|work| {
-        work.kind != WorkKind::TaskGeneration
-            && (feature_uid.is_some() && work.feature_uid.as_deref() == feature_uid
-                || work.feature_id.as_deref() == Some(feature_id))
+        !matches!(
+            work.kind,
+            WorkKind::TaskGeneration | WorkKind::PlanReviewDisposition
+        ) && (feature_uid.is_some() && work.feature_uid.as_deref() == feature_uid
+            || work.feature_id.as_deref() == Some(feature_id))
     });
     Ok(work.map_or_else(
         crate::core::workflow::TaskRoutingSnapshot::default,

@@ -31,6 +31,16 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     .unwrap();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
     let option = |id: &str, path: &str, phase: &str| {
         serde_json::json!({
@@ -102,6 +112,18 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     let metadata = crate::domain::ChangeMetadata::require_markdown(feature).unwrap();
     assert!(metadata.selected_alt.is_none());
     assert!(metadata.plan_comparison.is_none());
+    if let Screen::Connected(project) = &mut app.screen {
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+    }
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");
     record_test_plan_review(
@@ -177,6 +199,16 @@ fn discard_recompare_action_keeps_the_previous_plan_transcript() {
         id: "CHG-004".into(),
     });
     if let Screen::Connected(project) = &mut app.screen {
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
     let saved = std::fs::read_to_string(path).unwrap();

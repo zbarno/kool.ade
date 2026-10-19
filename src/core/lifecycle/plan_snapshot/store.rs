@@ -3,92 +3,47 @@ use serde::{Deserialize, Serialize};
 use crate::artifacts::planning_store::{PlanningStore, RecordRevisionCheck, StoreError};
 
 use super::PlanSnapshotV1;
-use crate::core::lifecycle::{GateDecision, GateReceipt};
-
-mod review_validation;
-mod snapshot;
-pub(super) use snapshot::{is_persisted, load_persisted, record_change};
+#[path = "store/review.rs"]
+mod review;
+pub(super) use review::load_review_verdict;
+pub(super) use review::recorded_review_decision;
+#[cfg(test)]
+pub(super) use review::review_change;
+pub(super) use review::review_retry_available;
+pub(super) use review::{
+    arbitration_change, has_approved_review, load_latest_arbitration, load_review_receipt,
+    review_change_with_verdict,
+};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PlanReviewRecord {
+struct PlanSnapshotRecord {
     schema_version: u64,
     uid: String,
     created_at_ms: u64,
     updated_at_ms: u64,
     revision: u64,
-    receipt: GateReceipt,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    prior_receipts: Vec<GateReceipt>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    verdict: Option<crate::harness::prompt_catalog::ReviewVerdictV1>,
+    data: PlanSnapshotV1,
 }
 
-pub(super) fn review_change(
+/// Returns an immutable create-only record change; identical snapshots are idempotent.
+pub(super) fn record_change(
     store: &PlanningStore,
     snapshot: &PlanSnapshotV1,
-    receipt: &GateReceipt,
-    verdict: &crate::harness::prompt_catalog::ReviewVerdictV1,
 ) -> Result<Option<(String, Vec<u8>, RecordRevisionCheck)>, StoreError> {
     snapshot.validate().map_err(StoreError::MalformedState)?;
-    if !is_persisted(store, snapshot)? {
-        return Err(StoreError::MalformedState(
-            "plan review cannot be recorded before its immutable snapshot is persisted".into(),
-        ));
-    }
-    if !super::has_current_user_confirmation(store, snapshot)? {
-        return Err(StoreError::MalformedState(
-            "plan review cannot be recorded before current user confirmation".into(),
-        ));
-    }
-    review_validation::validate_plan_review(snapshot, receipt)
-        .map_err(StoreError::MalformedState)?;
-    review_validation::validate_verdict(snapshot, receipt, verdict)
-        .map_err(StoreError::MalformedState)?;
-    if verdict.pass != (receipt.decision == GateDecision::Approved) {
-        return Err(StoreError::MalformedState(
-            "plan review decision does not match its structured verdict".into(),
-        ));
-    }
-    let path = review_path(snapshot);
-    match read_review(store, &path, snapshot)? {
-        Some(existing)
-            if existing.receipt == *receipt && existing.verdict.as_ref() == Some(verdict) =>
-        {
-            Ok(None)
-        }
-        Some(mut existing) if existing.verdict.is_none() => {
-            let now = now_ms();
-            existing.prior_receipts.push(existing.receipt);
-            existing.receipt = receipt.clone();
-            existing.verdict = Some(verdict.clone());
-            existing.revision += 1;
-            existing.updated_at_ms = now;
-            let bytes = serde_json::to_vec_pretty(&existing)
-                .map_err(|error| StoreError::MalformedState(error.to_string()))?;
-            Ok(Some((
-                path.clone(),
-                bytes,
-                RecordRevisionCheck {
-                    path,
-                    expected_revision: existing.revision - 1,
-                },
-            )))
-        }
-        Some(_) => Err(StoreError::MalformedState(
-            "a different plan review receipt is already recorded".into(),
-        )),
+    let path = snapshot_path(snapshot);
+    match read_record(store, &path, snapshot)? {
+        Some(_) => Ok(None),
         None => {
             let now = now_ms();
-            let record = PlanReviewRecord {
+            let record = PlanSnapshotRecord {
                 schema_version: 1,
                 uid: snapshot.uid.clone(),
                 created_at_ms: now,
                 updated_at_ms: now,
                 revision: 1,
-                receipt: receipt.clone(),
-                prior_receipts: Vec::new(),
-                verdict: Some(verdict.clone()),
+                data: snapshot.clone(),
             };
             let bytes = serde_json::to_vec_pretty(&record)
                 .map_err(|error| StoreError::MalformedState(error.to_string()))?;
@@ -104,85 +59,64 @@ pub(super) fn review_change(
     }
 }
 
-pub(super) fn has_approved_review(
+pub(super) fn is_persisted(
     store: &PlanningStore,
     snapshot: &PlanSnapshotV1,
 ) -> Result<bool, StoreError> {
     snapshot.validate().map_err(StoreError::MalformedState)?;
-    let path = review_path(snapshot);
-    let Some(record) = read_review(store, &path, snapshot)? else {
-        return Ok(false);
-    };
-    Ok(record.receipt.decision == GateDecision::Approved
-        && record.verdict.as_ref().is_some_and(|verdict| verdict.pass))
+    Ok(read_record(store, &snapshot_path(snapshot), snapshot)?.is_some())
 }
 
-#[cfg(not(test))]
-pub(super) fn recorded_review_decision(
+pub(super) fn load_persisted(
     store: &PlanningStore,
-    snapshot: &PlanSnapshotV1,
-) -> Result<Option<GateDecision>, StoreError> {
-    snapshot.validate().map_err(StoreError::MalformedState)?;
-    let path = review_path(snapshot);
-    Ok(read_review(store, &path, snapshot)?
-        .filter(|record| record.verdict.is_some())
-        .map(|record| record.receipt.decision))
+    uid: &str,
+) -> Result<Option<PlanSnapshotV1>, StoreError> {
+    if !crate::core::lifecycle::types::is_uuid(uid) {
+        return Err(StoreError::MalformedState(
+            "plan snapshot identity is invalid".into(),
+        ));
+    }
+    let path = format!("state/lifecycle_plans/{uid}.json");
+    match store.read_record::<PlanSnapshotRecord>(&path) {
+        Ok((record, revision)) => {
+            if record.schema_version != 1
+                || record.uid != uid
+                || record.revision != revision
+                || record.data.uid != uid
+                || record.created_at_ms == 0
+                || record.updated_at_ms < record.created_at_ms
+            {
+                return Err(StoreError::MalformedState(
+                    "persisted plan snapshot identity is inconsistent".into(),
+                ));
+            }
+            record.data.validate().map_err(StoreError::MalformedState)?;
+            Ok(Some(record.data))
+        }
+        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
 }
 
-pub(super) fn load_review_receipt(
-    store: &PlanningStore,
-    snapshot: &PlanSnapshotV1,
-) -> Result<Option<GateReceipt>, StoreError> {
-    snapshot.validate().map_err(StoreError::MalformedState)?;
-    let path = review_path(snapshot);
-    let Some(record) = read_review(store, &path, snapshot)? else {
-        return Ok(None);
-    };
-    Ok(Some(record.receipt))
-}
-
-pub(super) fn load_review_verdict(
-    store: &PlanningStore,
-    snapshot: &PlanSnapshotV1,
-) -> Result<Option<crate::harness::prompt_catalog::ReviewVerdictV1>, StoreError> {
-    snapshot.validate().map_err(StoreError::MalformedState)?;
-    let Some(record) = read_review(store, &review_path(snapshot), snapshot)? else {
-        return Ok(None);
-    };
-    Ok(record.verdict)
-}
-
-fn read_review(
+fn read_record(
     store: &PlanningStore,
     path: &str,
     snapshot: &PlanSnapshotV1,
-) -> Result<Option<PlanReviewRecord>, StoreError> {
-    match store.read_record::<PlanReviewRecord>(path) {
+) -> Result<Option<PlanSnapshotRecord>, StoreError> {
+    match store.read_record::<PlanSnapshotRecord>(path) {
         Ok((record, revision)) => {
             if record.schema_version != 1
                 || record.uid != snapshot.uid
                 || record.revision != revision
+                || record.data != *snapshot
                 || record.created_at_ms == 0
                 || record.updated_at_ms < record.created_at_ms
             {
                 return Err(StoreError::MalformedState(format!(
-                    "invalid plan review record: {path}"
+                    "immutable plan snapshot identity or contents differ: {path}"
                 )));
-            }
-            review_validation::validate_plan_review(snapshot, &record.receipt)
-                .map_err(StoreError::MalformedState)?;
-            for prior_receipt in &record.prior_receipts {
-                review_validation::validate_plan_review(snapshot, prior_receipt)
-                    .map_err(StoreError::MalformedState)?;
-            }
-            if let Some(verdict) = &record.verdict {
-                review_validation::validate_verdict(snapshot, &record.receipt, verdict)
-                    .map_err(StoreError::MalformedState)?;
-                if verdict.pass != (record.receipt.decision == GateDecision::Approved) {
-                    return Err(StoreError::MalformedState(
-                        "plan review decision does not match its structured verdict".into(),
-                    ));
-                }
             }
             Ok(Some(record))
         }
@@ -193,8 +127,8 @@ fn read_review(
     }
 }
 
-fn review_path(snapshot: &PlanSnapshotV1) -> String {
-    format!("state/lifecycle_plan_reviews/{}.json", snapshot.uid)
+fn snapshot_path(snapshot: &PlanSnapshotV1) -> String {
+    format!("state/lifecycle_plans/{}.json", snapshot.uid)
 }
 
 fn now_ms() -> u64 {

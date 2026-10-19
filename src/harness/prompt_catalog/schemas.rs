@@ -7,10 +7,10 @@ mod validation;
 mod work;
 
 pub use opportunity::{
-    ManagerActionKind, ManagerActionV1, ManagerOutputV1, ManagerOutputV2, OpportunityChoice,
-    OpportunityConfidence, OpportunityDecisionV1, OpportunityKind, OpportunityOrigin,
-    OpportunityProposalV1, OpportunityProposalV1Legacy, OpportunityScope, OpportunityTarget,
-    validate_user_opportunity_decision,
+    ManagerActionKind, ManagerActionV1, ManagerContradictionV1, ManagerOutputV1, ManagerOutputV2,
+    OpportunityChoice, OpportunityConfidence, OpportunityDecisionV1, OpportunityKind,
+    OpportunityOrigin, OpportunityProposalV1, OpportunityProposalV1Legacy, OpportunityScope,
+    OpportunityTarget, validate_user_opportunity_decision,
 };
 pub use planner::{
     AcceptanceTestRefV1, ClarificationCategory, ClarificationOptionV1, ClarificationPriority,
@@ -18,7 +18,8 @@ pub use planner::{
     ReadinessV2, TechnicalResolutionV1,
 };
 pub use review::{
-    CoverageStatus, CoverageV1, FindingKind, ReviewFindingV1, ReviewVerdictV1, Severity,
+    CoverageStatus, CoverageV1, FindingKind, ReviewFindingV1, ReviewOutcomeV1, ReviewVerdictV1,
+    Severity,
 };
 pub use runtime_qa::QaScenarioDraftV1;
 pub use task_graph::{SubtaskDraftV1, TaskDraftV1, TaskGraphV1};

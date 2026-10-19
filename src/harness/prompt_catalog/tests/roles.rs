@@ -8,6 +8,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::ManagerV4,
         PromptRole::Planner,
         PromptRole::PlanReviewer,
+        PromptRole::PlanReviewerV1,
         PromptRole::Decomposer,
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
@@ -42,8 +43,8 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
     let pinned = [
         (
             PromptRole::Manager,
-            "ba8e445a35e08076b26eca7264943425e78949e647306d4fd78b549adf441ee2",
-            "bbab84d3fca1f21c26f2cd2c908c4d8c4b54cfd4e245775a446c7b4587a0d0aa",
+            "468e2674dd902540b54fe27ef2b9a59355d1f1d70d4427d7431c26de24d22193",
+            "8663ac074e52dd8160ca00b9cb9c195c494e17f237cc34a8e7dae1ed847ee3c5",
         ),
         (
             PromptRole::ManagerV5,
@@ -67,6 +68,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         ),
         (
             PromptRole::PlanReviewer,
+            "d72dfc0ee5938bb7725b8aa0e0ac56bcd9eee2533563f022f6a0023290a222c4",
+            "528596028f461c30c4f0d8f985f03e03ae62944a55669824bb6b02c36da2b40b",
+        ),
+        (
+            PromptRole::PlanReviewerV1,
             "1de0494c97dcbf37243b9f1a8022663a95dfb6fa4bae91f0a1bb1e89bff90608",
             "4baa18c2f176d80778e044f26a71099597aa9832044b3ec865bdbb0e76a6b195",
         ),

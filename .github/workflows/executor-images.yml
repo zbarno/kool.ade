@@ -315,7 +315,7 @@ jobs:
           export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate
           export KOOLADE_QA_DESKTOP_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
           cargo +1.98.1 test --locked --lib \
-            execution::docker::qa_container::tests::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate \
+            execution::docker::qa_container::tests::desktop_rootless::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate \
             -- --ignored --exact
       - name: Exercise app-owned Python preview, browser run, evidence, and cleanup
         if: matrix.profile == 'browser_qa'

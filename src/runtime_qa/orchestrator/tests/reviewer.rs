@@ -23,6 +23,7 @@ fn run_passing_reviewer(
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
             pass: true,
+            outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
             coverage: vec![CoverageV1 {
                 requirement: request.requirement_ids[0].clone(),
                 status: CoverageStatus::Pass,
@@ -65,6 +66,7 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
             pass: false,
+            outcome: None,
             coverage: vec![CoverageV1 {
                 requirement: request.requirement_ids[0].clone(),
                 status: CoverageStatus::Fail,

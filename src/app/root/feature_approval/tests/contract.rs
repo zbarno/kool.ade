@@ -59,9 +59,21 @@ fn changed_contract_stops_authorized_continuation_and_manager_uses_current_state
             .text
             .contains("contract or planning focus changed")
     );
+    if let Screen::Connected(project) = &mut app.screen {
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+    }
     assert_eq!(
         app.feature_actions(None)[0].label(),
-        "Confirm CHG-004 and prepare tasks"
+        "Confirm plan for CHG-004"
     );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
@@ -172,8 +184,12 @@ fn explicit_plan_confirmation_persists_snapshot_and_blocks_without_independent_r
         .unwrap()
         .unwrap();
     let contract = workflow::feature_contract(markdown);
-    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
-        "CHG-004", &identity, markdown, &contract,
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &project.state.planning_store,
+        "CHG-004",
+        &identity,
+        markdown,
+        &contract,
     )
     .unwrap();
     let path = root.join(format!(

@@ -1,16 +1,18 @@
 //! Bounded independent review of a persisted, user-confirmed plan snapshot.
-#[cfg(not(test))]
-use crate::harness::AiHarness;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
     mpsc,
 };
-
+#[path = "plan_review/evidence.rs"]
+pub(crate) mod evidence;
 #[cfg(not(test))]
 mod prepare;
-#[cfg(not(test))]
-use prepare::{prepare, recover_persisted_review};
+#[path = "plan_review/verdict.rs"]
+pub(crate) mod verdict;
+#[path = "plan_review/worker.rs"]
+mod worker;
+use verdict::{sanitize_verdict, unable_verdict};
 
 pub(crate) struct PlanReview {
     result: mpsc::Receiver<Result<PlanReviewOutcome, String>>,
@@ -28,65 +30,35 @@ pub(crate) struct PlanReviewOutcome {
     pub evidence_refs: Vec<String>,
     pub prompt: crate::harness::prompt_catalog::PromptManifest,
     pub verdict: crate::harness::prompt_catalog::ReviewVerdictV1,
+    /// Kept in the local activity message; persisted verdict text stays sanitized.
+    pub review_error: Option<String>,
+    pub arbitration: Option<ArbitrationContext>,
+    requirements: Vec<String>,
 }
 
-impl PlanReview {
-    #[cfg(not(test))]
-    pub(crate) fn start(
-        project: &super::session::Project,
-        feature_id: String,
-        harness: Box<dyn AiHarness>,
-    ) -> Result<Self, String> {
-        if let Some(outcome) = recover_persisted_review(project, &feature_id)? {
-            let (done, result) = mpsc::channel();
-            done.send(Ok(outcome))
-                .map_err(|_| "could not queue the persisted plan review result".to_owned())?;
-            return Ok(Self {
-                result,
-                cancel: Arc::new(AtomicBool::new(false)),
-            });
-        }
-        let (mut request, context, outcome) = prepare(project, feature_id)?;
-        let (done, result) = mpsc::channel();
-        let cancel = Arc::new(AtomicBool::new(false));
-        let worker_cancel = cancel.clone();
-        request.cancel = worker_cancel.clone();
-        std::thread::spawn(move || {
-            let result = if worker_cancel.load(Ordering::Relaxed) {
-                Err("plan review was cancelled".into())
-            } else {
-                harness
-                    .execute_review(
-                        &request,
-                        request
-                            .review_identity
-                            .as_ref()
-                            .expect("review identity set"),
-                    )
-                    .map_err(|error| error.detail())
-                    .and_then(|response| {
-                        let expected_hash = outcome.snapshot_hash.clone();
-                        let mut context = context;
-                        context.expected_subject_hash = Some(&expected_hash);
-                        match crate::harness::prompt_catalog::validate_output_with_context(
-                            crate::harness::prompt_catalog::PromptRole::PlanReviewer,
-                            &response.final_text,
-                            &context,
-                        )? {
-                            crate::harness::prompt_catalog::RoleOutputV1::Review(verdict) => {
-                                Ok(PlanReviewOutcome { verdict, ..outcome })
-                            }
-                            _ => Err("plan reviewer returned an unexpected schema".into()),
-                        }
-                    })
-            };
-            let _ = done.send(result);
-        });
-        Ok(Self { result, cancel })
-    }
+#[derive(Clone)]
+pub(crate) struct ArbitrationContext {
+    pub finding_id: String,
+    pub evidence_id: String,
+    pub evidence_sha256: String,
+    pub source_quote: String,
+    pub source_content: String,
+    pub rationale: String,
+}
 
+#[cfg(test)]
+#[path = "plan_review/tests.rs"]
+mod tests;
+
+impl PlanReview {
     pub(crate) fn take_result(&self) -> Option<Result<PlanReviewOutcome, String>> {
-        self.result.try_recv().ok()
+        match self.result.try_recv() {
+            Ok(result) => Some(result),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(mpsc::TryRecvError::Disconnected) => Some(Err(
+                "independent plan review worker ended unexpectedly".into(),
+            )),
+        }
     }
 }
 

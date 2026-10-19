@@ -133,6 +133,7 @@ pub(super) fn execute_reviewed_run(
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
             pass: true,
+            outcome: Some(koolade::harness::prompt_catalog::ReviewOutcomeV1::Pass),
             coverage: vec![CoverageV1 {
                 requirement: request.requirement_ids[0].clone(),
                 status: CoverageStatus::Pass,

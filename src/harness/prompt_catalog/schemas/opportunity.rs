@@ -24,12 +24,28 @@ pub struct ManagerActionV1 {
     pub reason: String,
     pub evidence: Vec<String>,
     pub expected_revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contradiction: Option<ManagerContradictionV1>,
+}
+
+/// Explicit claim-to-source mapping required when a Manager contests a review
+/// finding. The source quote is checked against the cited evidence verbatim.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManagerContradictionV1 {
+    pub finding_claim: String,
+    pub source_evidence_id: String,
+    pub source_quote: String,
+    pub explanation: String,
 }
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManagerActionKind {
+    RepairPlan,
     Investigate,
     AskUser,
+    PromoteFollowUp,
+    ContestFinding,
     MaintainSpecification,
     CoordinateReview,
     RepairFinding,

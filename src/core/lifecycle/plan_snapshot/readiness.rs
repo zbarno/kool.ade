@@ -1,11 +1,15 @@
-pub(crate) fn current(
+use super::PlanSnapshotV1;
+
+/// Validate persisted readiness against its snapshot and return a record fence
+/// to include in task-batch persistence.
+pub(crate) fn require_current_readiness(
     store: &crate::artifacts::planning_store::PlanningStore,
-    snapshot: &crate::core::lifecycle::PlanSnapshotV1,
-) -> Result<(), String> {
+    snapshot: &PlanSnapshotV1,
+) -> Result<crate::artifacts::planning_store::RecordRevisionCheck, String> {
     use crate::core::planning::{QuestionStore, ReadinessResult, assess_readiness};
 
     let questions = QuestionStore::new(store);
-    let Some((checklist, _)) = questions
+    let Some((checklist, revision)) = questions
         .load_readiness(&snapshot.feature_uid)
         .map_err(|error| format!("persisted readiness could not be loaded: {error}"))?
     else {
@@ -51,5 +55,9 @@ pub(crate) fn current(
             "persisted readiness evidence no longer passes the current specification".into(),
         );
     }
-    Ok(())
+    let path = format!("state/readiness/{}.json", snapshot.feature_uid);
+    Ok(crate::artifacts::planning_store::RecordRevisionCheck {
+        path,
+        expected_revision: revision,
+    })
 }
