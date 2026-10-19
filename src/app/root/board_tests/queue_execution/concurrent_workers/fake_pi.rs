@@ -115,6 +115,7 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
                     capability_snapshot: Some(authenticated_capability_snapshot()),
                 },
             )]),
+            default_harness: Some("pi".into()),
             ..Default::default()
         },
     )
