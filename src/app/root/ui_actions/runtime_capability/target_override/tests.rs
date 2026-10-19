@@ -5,8 +5,6 @@ use crate::project_runtime::{
 
 #[path = "tests/helpers.rs"]
 mod helpers;
-#[path = "tests/required_dependencies.rs"]
-mod required_dependencies;
 #[path = "tests/root_guard.rs"]
 mod root_guard;
 use helpers::{frame, pointer_button, text_position};
@@ -158,10 +156,7 @@ fn assert_custom_target_persists(app_surface: AppSurface) {
         .get(target.artifact_spec_ref.as_ref().unwrap())
         .expect("the user approved artifact list is persisted");
     assert_eq!(artifact_spec, &["dist/index.html"]);
-    assert_eq!(
-        target.required_dependencies,
-        ["dependency-prepared-fixture"]
-    );
+    assert!(target.required_dependencies.is_empty());
     assert_eq!(target.app_surface, app_surface);
     assert_eq!(
         target.capability_state,

@@ -252,7 +252,6 @@ pub enum Command {
         app_surface: crate::project_runtime::AppSurface,
         project_relative_root: String,
         artifact_paths: String,
-        required_dependency_ids: String,
         build: RuntimeRecipeInput,
         test: RuntimeRecipeInput,
         start: RuntimeRecipeInput,

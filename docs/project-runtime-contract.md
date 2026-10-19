@@ -183,3 +183,5 @@ receipts do not count as a visual QA pass.
 Until released QA image digests and the remaining headless and application-level
 runtime evidence paths land, the application must not present a detected
 candidate as a verified runnable target or claim runtime QA coverage.
+
+Custom targets currently start with an empty broker dependency list. The UI does not accept free-form dependency request IDs because a string alone is not bound to a prepared request for the selected task. Dependency selection will use the validated prepared-request inventory before custom targets can declare brokered dependencies.

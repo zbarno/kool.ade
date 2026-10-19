@@ -8,7 +8,6 @@ struct Draft {
     surface: AppSurface,
     root: String,
     artifact_paths: String,
-    required_dependency_ids: String,
     build: task_detail::RuntimeRecipeInput,
     test: task_detail::RuntimeRecipeInput,
     start: task_detail::RuntimeRecipeInput,
@@ -22,7 +21,6 @@ impl Default for Draft {
             surface: AppSurface::Web,
             root: ".".into(),
             artifact_paths: String::new(),
-            required_dependency_ids: String::new(),
             build: Default::default(),
             test: Default::default(),
             start: Default::default(),
@@ -65,9 +63,6 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, ticket: &str, 
             recipe_fields(ui, "Build recipe", &mut draft.build);
             ui.label("Build artifact paths relative to the app root, one per line");
             ui.text_edit_multiline(&mut draft.artifact_paths);
-            ui.label("Prepared dependency broker request IDs required by this target, one per line");
-            ui.text_edit_multiline(&mut draft.required_dependency_ids);
-            ui.label("Copy request IDs from Dependency activity. QA requires successful preparation for this task.");
             recipe_fields(ui, "Test recipe", &mut draft.test);
             recipe_fields(ui, "Start recipe", &mut draft.start);
             if draft.surface == AppSurface::Web || draft.surface == AppSurface::HeadlessService {
@@ -116,7 +111,6 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, ticket: &str, 
                         app_surface: draft.surface,
                         project_relative_root: draft.root.trim().to_owned(),
                         artifact_paths: draft.artifact_paths.clone(),
-                        required_dependency_ids: draft.required_dependency_ids.clone(),
                         build: draft.build.clone(),
                         test: draft.test.clone(),
                         start: draft.start.clone(),
@@ -143,7 +137,6 @@ pub(super) fn seed_test_repository_root_draft(
         surface,
         root: "./".into(),
         artifact_paths: "dist/index.html".into(),
-        required_dependency_ids: "dependency-prepared-fixture".into(),
         build: task_detail::RuntimeRecipeInput {
             executable_id: "node".into(),
             argv_lines: "build.js\n--release".into(),
