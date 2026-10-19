@@ -166,7 +166,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     scenario.validate(&request).unwrap();
     let browser_request = build_browser_request(&request, &scenario).unwrap();
     let request_upload = QaContainerUpload::request_file(&browser_request, 256 * 1024).unwrap();
-    let mut cancel = tokio::sync::watch::channel(false).1;
+    let (_cancel_sender, mut cancel) = tokio::sync::watch::channel(false);
     let mut resources = resources();
     resources.process_count = 128;
     let preview_spec = QaWebPreviewSpec {
