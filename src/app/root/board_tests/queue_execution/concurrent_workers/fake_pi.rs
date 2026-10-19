@@ -163,6 +163,28 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
 typed_marker = 'TYPED TASK REQUEST (JSON DATA)\n'
+if prompt.startswith('Return JSON matching ManagerOutputV2'):
+    output = {'summary':'Fixture manager has no additional actions.', 'proposed_actions':[], 'opportunities':[]}
+    print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(output)}]}]}))
+    sys.exit(0)
+if prompt.startswith('Return WorkResultV1 JSON.'):
+    task_number = 1
+    if typed_marker in prompt:
+        typed = json.JSONDecoder().raw_decode(prompt.split(typed_marker, 1)[1].lstrip())[0]
+        task_uid = typed.get('task_uid')
+        if task_uid:
+            tasks = root / 'repo' / '.koolade-packet' / 'planning' / 'tasks' / 'fixture'
+            for task in tasks.glob('*-task.md'):
+                if task_uid in task.read_text():
+                    task_number = int(task.name.split('-', 1)[0])
+                    break
+    output_path = 'src/task-%d.rs' % task_number
+    output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
+              'summary':'Implemented fixture task',
+              'acceptance_criteria':[{'criterion':'File exists.','evidence':output_path+' exists in the isolated fixture workspace.'}],
+              'verification':['test -f '+output_path], 'remaining':[], 'human_choices':[]}
+    print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(output)}]}]}))
+    sys.exit(0)
 if typed_marker in prompt:
     typed = json.JSONDecoder().raw_decode(prompt.split(typed_marker, 1)[1].lstrip())[0]
     if typed['role'] == 'code_reviewer':

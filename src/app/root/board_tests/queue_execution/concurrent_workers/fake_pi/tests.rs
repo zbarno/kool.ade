@@ -100,3 +100,45 @@ fn planner_fixture_returns_the_expected_conversation_message() {
     );
     assert!(turn.document_updates.unwrap().is_empty());
 }
+
+#[test]
+fn manager_and_work_result_fixtures_match_their_declared_role_schemas() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    for (prompt, role) in [
+        (
+            "Return JSON matching ManagerOutputV2 with a concise summary.",
+            crate::harness::prompt_catalog::PromptRole::Manager,
+        ),
+        (
+            "Return WorkResultV1 JSON. Inputs: role, feature_uid, optional task_uid.",
+            crate::harness::prompt_catalog::PromptRole::Implementer,
+        ),
+    ] {
+        let mut child = Command::new(&pi)
+            .env_remove("KOOLADE_MCP_ARGS")
+            .env_remove("KOOLADE_MCP_COMMAND")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(prompt.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let reply = envelope["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap();
+        crate::harness::prompt_catalog::validate_output(role, reply, None).unwrap();
+    }
+}
