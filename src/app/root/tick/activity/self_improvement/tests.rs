@@ -106,6 +106,8 @@ fn plan_projection_requires_the_exact_user_and_independent_review_receipts() {
     let (user, review) = reviewed_plan_receipts(&feature, &records, &hash).unwrap();
     assert_eq!(user.receipt_uid, feature.decision_refs[0]);
     assert_eq!(review.receipt_uid, feature.review_refs[0]);
+    assert!(reviewed_plan_receipts(&feature, &records[..1], &hash).is_none());
+    assert!(reviewed_plan_receipts(&feature, &records[1..], &hash).is_none());
 
     let mut stale_feature = feature.clone();
     stale_feature.review_refs[0] = "00000000-0000-4000-8000-000000000010".into();

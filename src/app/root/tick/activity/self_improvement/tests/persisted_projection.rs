@@ -2,8 +2,8 @@ use super::*;
 
 /// Production boundary: persisted opportunity decisions and lifecycle receipts flow through
 /// the app synchronizer into the durable self-improvement run projection. A unit test of receipt
-/// matching cannot prove the synchronizer reads persisted records in order or refuses dispatch
-/// while approval is incomplete. Uses temporary local stores and Git only; no Docker/network.
+/// matching cannot prove the synchronizer reads persisted records in order or keeps the run from
+/// Ready while approval is incomplete. Uses temporary local stores and Git only; no Docker/network.
 /// Setup cost is one headless project fixture and a handful of local record writes.
 #[test]
 fn synchronize_requires_persisted_user_and_independent_plan_approval_before_ready() {
@@ -50,6 +50,13 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     let run = runs.load(&run_uid).unwrap();
     assert_eq!(run.phase, Phase::Planning);
     let feature_uid = run.feature_uid.clone();
+    project.state.workflow.feature_branch_targets.insert(
+        feature_uid.clone(),
+        BranchTargets {
+            source: "feat/fixture".into(),
+            destination: "main".into(),
+        },
+    );
 
     let snapshot_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let hash = "a".repeat(64);
@@ -139,13 +146,6 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             },
         )
         .unwrap();
-    project.state.workflow.feature_branch_targets.insert(
-        feature_uid.clone(),
-        BranchTargets {
-            source: "feat/fixture".into(),
-            destination: "main".into(),
-        },
-    );
     let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     lifecycle
         .create_task(
