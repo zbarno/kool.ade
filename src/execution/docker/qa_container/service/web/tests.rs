@@ -170,10 +170,13 @@ fn preview_relay_health_checks_the_exact_task_service_path() {
     };
     let body = relay_body(&spec, "task-network");
     let command = body.healthcheck.unwrap().test.unwrap();
-    assert!(command[3].contains("service.status<500"));
+    assert!(command[3].contains("status=>status<500"));
+    assert!(command[3].contains("headers:{host:'qa-preview:8080'}"));
+    assert!(command[3].contains("path:\"/healthz?probe=ready\""));
     assert_eq!(
-        command.last().map(String::as_str),
-        Some("http://qa-task:4173/healthz?probe=ready")
+        command.len(),
+        4,
+        "healthcheck target and path must be embedded in the fixed command"
     );
 }
 
