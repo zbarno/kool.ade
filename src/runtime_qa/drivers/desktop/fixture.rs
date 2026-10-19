@@ -32,8 +32,8 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         || interaction["screenshot_hashes_distinct"] != true
         || seeded_defect["click_assertion"] != "failed"
         || seeded_defect["defect_detected"] != true
-        || visible_control != "region visible"
-        || absent_control != "region not visible"
+        || !visible_region_state(&visible_control, true)
+        || !visible_region_state(&absent_control, false)
     {
         return Err("desktop fixture did not prove interactions and defect detection".into());
     }
@@ -172,6 +172,16 @@ fn step(driver_action: QaDriverActionV1) -> QaScenarioStepV1 {
         expected_state: None,
         screenshot_checkpoint: false,
     }
+}
+
+fn visible_region_state(state: &str, visible: bool) -> bool {
+    let Some((window, observation)) = state.split_once(": region ") else {
+        return false;
+    };
+    window
+        .strip_prefix("window ")
+        .is_some_and(|id| id.parse::<u32>().is_ok())
+        && observation == if visible { "visible" } else { "not visible" }
 }
 
 fn wait_for_title(

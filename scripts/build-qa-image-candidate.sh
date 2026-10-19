@@ -154,8 +154,8 @@ PY
           .seeded_defect_case.actions[0].status == "failed" and
           .interaction_case.foreign_window_excluded == true and
           .interaction_case.foreign_window_action_rejected == true and
-          .native_control_visibility.visible == "region visible" and
-          .native_control_visibility.absent == "region not visible" and
+          (.native_control_visibility.visible | test("^window [0-9]+: region visible$")) and
+          (.native_control_visibility.absent | test("^window [0-9]+: region not visible$")) and
           .packaged_non_rust_application.status == "passed" and
           .packaged_non_rust_application.chromium_version == "143.0.7499.4" and
           .packaged_non_rust_application.resize.width == 900 and
@@ -164,6 +164,8 @@ PY
           .egui_application.status == "passed" and
           .egui_application.click_assertion == "passed" and
           .egui_application.keyboard_assertion == "passed" and
+          (.egui_application.active_window_post_states | length == 2) and
+          (all(.egui_application.active_window_post_states[]; test("^(clicked|focused) window [0-9]+"))) and
           .egui_application.screenshot_hashes_distinct == true and
           ([.egui_application.screenshots[].name] == ["before", "after_click", "after_keyboard"])'
     python3 - "$fixture_evidence" "$output_directory" <<'PY'

@@ -51,13 +51,11 @@ pub(super) fn execute(
         } => {
             let id = window::require(display, window_id, owner_pids)?;
             let visible = display.region_has_visible_content(id, *x, *y, *width, *height)?;
-            Ok(ActionResult::State(
-                if visible {
-                    format!("window {id}: region visible")
-                } else {
-                    format!("window {id}: region not visible")
-                },
-            ))
+            Ok(ActionResult::State(if visible {
+                format!("window {id}: region visible")
+            } else {
+                format!("window {id}: region not visible")
+            }))
         }
         QaDriverActionV1::FocusWindow { window_id } => {
             let window = window::require(display, window_id, owner_pids)?;

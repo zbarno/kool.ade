@@ -22,26 +22,32 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
     let window = super::wait_for_title(&display, "Egui:Ready", Duration::from_secs(10), &owners)?;
     let before = display.screenshot_png()?;
     let window_id = window.id.to_string();
-    actions::execute(
+    let click_state = state(actions::execute(
         &display,
         &super::step(QaDriverActionV1::Click {
-            window_id: window_id.clone(),
+            window_id: "active".into(),
             x: 100,
             y: 36,
         }),
         Duration::from_secs(2),
         &owners,
-    )?;
+    )?)?;
+    if !click_state.contains(&format!("window {window_id}")) {
+        return Err("active click trace did not record its resolved window ID".into());
+    }
     super::wait_for_title(&display, "Egui:Clicked", Duration::from_secs(5), &owners)?;
     let after_click = display.screenshot_png()?;
-    actions::execute(
+    let focus_state = state(actions::execute(
         &display,
         &super::step(QaDriverActionV1::FocusWindow {
-            window_id: window_id.clone(),
+            window_id: "active".into(),
         }),
         Duration::from_secs(2),
         &owners,
-    )?;
+    )?)?;
+    if !focus_state.contains(&format!("window {window_id}")) {
+        return Err("active focus trace did not record its resolved window ID".into());
+    }
     actions::execute(
         &display,
         &super::step(QaDriverActionV1::Click {
@@ -73,6 +79,7 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         "application": "egui",
         "click_assertion": "passed",
         "keyboard_assertion": "passed",
+        "active_window_post_states": [click_state, focus_state],
         "screenshot_hashes_distinct": true,
         "screenshots": [
             super::screenshot("before", &before),
@@ -80,6 +87,15 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
             super::screenshot("after_keyboard", &after_keyboard),
         ],
     }))
+}
+
+fn state(result: actions::ActionResult) -> Result<String, String> {
+    match result {
+        actions::ActionResult::State(value) => Ok(value),
+        actions::ActionResult::Screenshot | actions::ActionResult::Neutral => {
+            Err("desktop window action did not produce a post-state".into())
+        }
+    }
 }
 
 pub(super) fn run_window() -> Result<(), String> {
