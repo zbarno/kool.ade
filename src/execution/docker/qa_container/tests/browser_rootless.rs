@@ -17,13 +17,22 @@ use crate::{
 use sha2::Digest as _;
 use std::{collections::BTreeMap, time::Duration};
 
+#[path = "browser_rootless/cleanup.rs"]
+mod cleanup;
+#[path = "browser_rootless/redirect.rs"]
+mod redirect;
+#[path = "browser_rootless/support.rs"]
+mod support;
+use support::step;
+
 /// Boundary: app-owned startup uploads a bounded Python web artifact,
 /// provisions its internal preview relay, runs the pinned browser driver,
-/// parses screenshot and interaction evidence, and cleans only owned resources.
-/// Unit tests cannot prove rootless Docker networking, preview reachability,
-/// browser execution, or container cleanup. External dependency: rootless
-/// Docker plus the just-built browser candidate image. Setup cost: one image
-/// build and a short browser scenario.
+/// parses screenshot and interaction evidence, rejects a real metadata-service
+/// redirect, and cleans only owned resources. Unit tests cannot prove rootless
+/// Docker networking, preview reachability, browser execution, redirect
+/// containment, or container cleanup. External dependency: rootless Docker
+/// plus the just-built browser candidate image. Setup cost: one image build and
+/// two short browser scenarios.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded browser QA candidate"]
 async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up() {
@@ -201,7 +210,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     let driver_result: Result<_, String> = async {
         let artifacts = [QaArtifactMount::inspect(artifact_root.path(), "/workspace")
             .map_err(|error| error.message)?];
-        let uploads = [artifact_upload, request_upload];
+        let uploads = [artifact_upload.clone(), request_upload];
         let spec = QaDriverContainerSpec {
             owner_id: &request.execution_session_id,
             request: &request,
@@ -250,14 +259,31 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         parse_browser_output(&output.stdout, &request, &scenario)
     }
     .await;
-    let driver_cleanup_result = match driver_container_id {
-        Some(driver_id) => cleanup_driver_container(&docker, &driver_id).await,
-        None => Ok(()),
-    };
-    let cleanup_result =
-        cleanup_web_preview(&docker, &preview.service_lease, &preview.relay_binding).await;
-    driver_cleanup_result.unwrap();
-    cleanup_result.unwrap();
+    if let Some(driver_id) = driver_container_id.take() {
+        cleanup_driver_container(&docker, &driver_id).await.unwrap();
+    }
+    let redirect_result = redirect::assert_metadata_redirect_blocked(
+        &docker,
+        &request,
+        &browser_image,
+        &lock,
+        &artifact_root,
+        &artifact_upload,
+        &preview,
+        &resources,
+        &mut cancel,
+    )
+    .await;
+    cleanup::cleanup_and_assert(&docker, &request, driver_container_id, &preview).await;
+    assert!(
+        redirect_result.is_err(),
+        "metadata redirect was not blocked"
+    );
+    assert!(
+        redirect_result
+            .unwrap_err()
+            .contains("QA driver command exited with a failure status")
+    );
     let output = driver_result.unwrap();
     assert!(output.completed);
     assert_eq!(output.assertions.len(), 1);
@@ -266,49 +292,4 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         crate::runtime_qa::QaAssertionStatus::Passed
     );
     assert!(output.screenshots.iter().any(|screen| screen.width >= 320));
-    assert!(matches!(
-        docker
-            .inspect_container(&format!("koolade-qa-{}", request.qa_run_id), None)
-            .await,
-        Err(bollard::errors::Error::DockerResponseServerError {
-            status_code: 404,
-            ..
-        })
-    ));
-    for id in [
-        preview.service_lease.task_container_id.as_str(),
-        preview.relay_binding.relay_container_id.as_str(),
-    ] {
-        assert!(matches!(
-            docker.inspect_container(id, None).await,
-            Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404,
-                ..
-            })
-        ));
-    }
-    for id in [
-        preview.service_lease.task_network_id.as_str(),
-        preview.relay_binding.relay_browser_network_id.as_str(),
-    ] {
-        assert!(matches!(
-            docker.inspect_network(id, None).await,
-            Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404,
-                ..
-            })
-        ));
-    }
-}
-
-fn step(
-    driver_action: QaDriverActionV1,
-    expected_state: &str,
-    screenshot_checkpoint: bool,
-) -> QaScenarioStepV1 {
-    QaScenarioStepV1 {
-        driver_action,
-        expected_state: Some(expected_state.into()),
-        screenshot_checkpoint,
-    }
 }
