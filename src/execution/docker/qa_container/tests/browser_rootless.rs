@@ -4,8 +4,9 @@ use crate::{
         images::{ImageLock, RuntimeProfile},
         qa_container::{
             QaDriverNetwork, QaWebPreviewSpec, cleanup_driver_container, cleanup_web_preview,
-            create_driver_container, run_created_driver, snapshot_selected_files,
-            validate_browser_driver_network, validate_preview_relay_network,
+            create_driver_container, run_created_driver, run_created_driver_with_status,
+            snapshot_selected_files, validate_browser_driver_network,
+            validate_preview_relay_network,
         },
     },
     project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource},
@@ -27,12 +28,12 @@ use support::step;
 
 /// Boundary: app-owned startup uploads a bounded Python web artifact,
 /// provisions its internal preview relay, runs the pinned browser driver,
-/// parses screenshot and interaction evidence, rejects a real metadata-service
-/// redirect, and cleans only owned resources. Unit tests cannot prove rootless
-/// Docker networking, preview reachability, browser execution, redirect
-/// containment, or container cleanup. External dependency: rootless Docker
-/// plus the just-built browser candidate image. Setup cost: one image build and
-/// two short browser scenarios.
+/// parses screenshot and interaction evidence, rejects browser requests to
+/// metadata, host-local and off-origin destinations, and cleans only owned
+/// resources. Unit tests cannot prove rootless Docker networking, preview
+/// reachability, browser execution, request containment, or container cleanup.
+/// External dependency: rootless Docker plus the just-built browser candidate
+/// image. Setup cost: one image build and several short browser scenarios.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded browser QA candidate"]
 async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up() {
@@ -262,7 +263,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     if let Some(driver_id) = driver_container_id.take() {
         cleanup_driver_container(&docker, &driver_id).await.unwrap();
     }
-    let redirect_result = redirect::assert_metadata_redirect_blocked(
+    let origin_escape_result = redirect::assert_origin_escape_cases(
         &docker,
         &request,
         &browser_image,
@@ -275,15 +276,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     )
     .await;
     cleanup::cleanup_and_assert(&docker, &request, driver_container_id, &preview).await;
-    assert!(
-        redirect_result.is_err(),
-        "metadata redirect was not blocked"
-    );
-    assert!(
-        redirect_result
-            .unwrap_err()
-            .contains("QA driver command exited with a failure status")
-    );
+    origin_escape_result.unwrap_or_else(|error| panic!("origin escape was not blocked: {error}"));
     let output = driver_result.unwrap();
     assert!(output.completed);
     assert_eq!(output.assertions.len(), 1);

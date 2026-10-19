@@ -23,6 +23,8 @@ const TASK_CONTAINER_LABEL: &str = "com.koolade.qa.task-container";
 mod artifact;
 mod service;
 #[cfg(test)]
+pub(crate) use service::run_created_driver_with_status;
+#[cfg(test)]
 #[path = "qa_container/tests.rs"]
 mod tests;
 pub use artifact::{QaArtifactMount, QaContainerUpload, snapshot_selected_files};

@@ -1,7 +1,7 @@
 use super::*;
 
 /// Confirm the app removes only the driver, preview, relay, and networks it
-/// owns after both a passing run and a blocked redirect attempt.
+/// owns after a passing run and the blocked origin-escape scenarios.
 pub(super) async fn cleanup_and_assert(
     docker: &bollard::Docker,
     request: &crate::runtime_qa::QaRunRequestV1,

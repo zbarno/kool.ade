@@ -134,6 +134,32 @@ pub async fn run_created_driver(
     max_output_bytes: usize,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<DriverContainerOutput, ExecutionError> {
+    let output =
+        execute_created_driver(docker, container_id, timeout, max_output_bytes, cancel).await?;
+    if output.exit_code != 0 {
+        return Err(denied("QA driver command exited with a failure status"));
+    }
+    Ok(output)
+}
+
+#[cfg(test)]
+pub(crate) async fn run_created_driver_with_status(
+    docker: &bollard::Docker,
+    container_id: &str,
+    timeout: Duration,
+    max_output_bytes: usize,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<DriverContainerOutput, ExecutionError> {
+    execute_created_driver(docker, container_id, timeout, max_output_bytes, cancel).await
+}
+
+async fn execute_created_driver(
+    docker: &bollard::Docker,
+    container_id: &str,
+    timeout: Duration,
+    max_output_bytes: usize,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<DriverContainerOutput, ExecutionError> {
     if !is_container_id(container_id)
         || timeout.is_zero()
         || timeout > Duration::from_secs(7200)
@@ -173,9 +199,6 @@ pub async fn run_created_driver(
         cancel,
     )
     .await?;
-    if output.exit_code != 0 {
-        return Err(denied("QA driver command exited with a failure status"));
-    }
     Ok(output)
 }
 
