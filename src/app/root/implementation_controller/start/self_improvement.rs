@@ -9,18 +9,22 @@ pub(super) fn authorize_task_start(
     ticket: &str,
     code_repository_id: &str,
 ) -> Result<bool, String> {
-    let has_feature_marker = documents
-        .iter()
-        .find(|document| document.path == ticket)
-        .and_then(|document| {
-            document
-                .text
-                .lines()
-                .find_map(|line| line.strip_prefix("Feature ID: "))
-        })
-        .is_some();
+    let document = documents.iter().find(|document| document.path == ticket);
+    let has_feature_marker = document.is_some_and(|document| {
+        document
+            .text
+            .lines()
+            .any(|line| line.starts_with("Feature ID: "))
+    });
+    let Some(planning_item_uid) = document.and_then(planning_item_uid) else {
+        return if has_feature_marker {
+            Err("Cannot verify lifecycle task mapping before implementation".into())
+        } else {
+            Ok(false)
+        };
+    };
     let lifecycle = LifecycleStore::new(planning);
-    match lifecycle.task_for_planning_item(ticket) {
+    match lifecycle.task_for_planning_item(planning_item_uid) {
         Ok(Some(task)) => {
             let workspace_uid = planning.project_id.hyphenated().to_string();
             let target_repository_uid =
@@ -59,6 +63,19 @@ pub(super) fn authorize_task_start(
             "Cannot verify lifecycle identity before implementation: {error}"
         )),
     }
+}
+
+fn planning_item_uid(document: &TaskDocument) -> Option<&str> {
+    document
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.uid.as_str())
+        .or_else(|| {
+            document
+                .identity
+                .as_ref()
+                .map(|identity| identity.uid.as_str())
+        })
 }
 
 pub(super) fn publication_policy(
@@ -127,8 +144,67 @@ pub(super) fn record_start_notice(
 
 #[cfg(test)]
 mod tests {
-    use super::publication_policy;
+    use super::{authorize_task_start, planning_item_uid, publication_policy};
     use crate::core::implementation::PublicationMode;
+    use crate::{
+        app::root::{Screen, board_tests},
+        artifacts::task_docs::TaskMetadata,
+        core::lifecycle::LifecycleStore,
+        domain::ArtifactIdentity,
+    };
+
+    #[test]
+    fn lifecycle_lookup_uses_task_metadata_uid_instead_of_markdown_path() {
+        let mut app = board_tests::fixture();
+        let (_, _, task_uid, _, _, _, _, _, _, _, _, _) = app.seed_trace_navigation_fixture();
+        let Screen::Connected(project) = &mut app.screen else {
+            panic!("fixture is connected")
+        };
+        let planning = &project.state.planning_store;
+        let lifecycle = LifecycleStore::new(planning);
+        let task = lifecycle.load_task(&task_uid).unwrap();
+        let task_planning_uid = task
+            .planning_item_uid
+            .clone()
+            .expect("fixture task is mapped to a planning item");
+        let identity = ArtifactIdentity {
+            uid: task_planning_uid.clone(),
+            display_id: "CHG-901-TASK".into(),
+            title: "Implement reviewed work".into(),
+            parent_uid: Some(task.feature_uid.clone()),
+        };
+        let metadata = TaskMetadata::new(&identity, "root", vec![]).unwrap();
+        let document = crate::artifacts::task_docs::TaskDocument {
+            path: ".koolade-packet/planning/tasks/CHG-175-TASK.md".into(),
+            title: identity.title.clone(),
+            text: format!("# {}\n\nFeature ID: CHG-901\n", identity.title),
+            identity: Some(identity.clone()),
+            metadata: Some(metadata),
+            task_state: None,
+            metadata_error: None,
+        };
+
+        assert_eq!(
+            planning_item_uid(&document),
+            Some(task_planning_uid.as_str())
+        );
+        assert_ne!(planning_item_uid(&document), Some(document.path.as_str()));
+        assert!(
+            lifecycle
+                .task_for_planning_item(&document.path)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !authorize_task_start(
+                planning,
+                std::slice::from_ref(&document),
+                &document.path,
+                "root",
+            )
+            .expect("the mapped ordinary feature task is authorized")
+        );
+    }
 
     #[test]
     fn self_improvement_never_inherits_auto_publish_without_explicit_pr_action() {
