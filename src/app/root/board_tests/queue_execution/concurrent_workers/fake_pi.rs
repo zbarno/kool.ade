@@ -195,7 +195,7 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',
               'acceptance_criteria':[{'criterion':'File exists.','evidence':output_path+' exists in the isolated fixture workspace.'}],
-              'verification':['test -f '+output_path], 'remaining':[], 'human_choices':[]}
+              'verification':["printf 'verification cwd=%s\\nsrc entries=' \"$PWD\"; printf '%s ' src/*; printf '\\n'; test -f "+output_path], 'remaining':[], 'human_choices':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(output)}]}]}))
     sys.exit(0)
 if typed_marker in prompt:
@@ -290,7 +290,7 @@ if output.name == 'task-3.rs':
     if 'error' in response or response.get('result', {}).get('isError'):
         print(json.dumps(response), file=sys.stderr)
         sys.exit(1)
-write_command = "mkdir -p '" + str(output.parent) + "' && printf implemented > '" + output_path + "' && printf '%s\\n' '" + output_path + "'"
+write_command = "printf 'write cwd=%s\\n' \"$PWD\"; mkdir -p '" + str(output.parent) + "' && printf implemented > '" + output_path + "' && printf 'wrote=%s\\n' \"$PWD/" + output_path + "\" && test -f '" + output_path + "'"
 response = request(4 if task_uid is not None else 2, 'tools/call', {'name':'koolade_bash','arguments':{'command':write_command,'timeout_seconds':60}})
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
 server.stdin.flush()
@@ -298,11 +298,12 @@ server.wait(timeout=3)
 if 'error' in response or response.get('result', {}).get('isError'):
     print(json.dumps(response), file=sys.stderr)
     sys.exit(1)
+write_output = response.get('result', {}).get('content', [{}])[0].get('text', '')
 if output_path is None:
     output_path = response['result']['content'][0]['text'].splitlines()[0]
 report = {'schemaVersion':2,'status':'complete','blocker_disposition':'none','summary':'Implemented fixture task','acceptance_criteria':[{'criterion':criterion,'evidence':output_path+' exists and contains implemented; verified criterion: '+criterion} for criterion in criteria],'verification':['test -f '+output_path+' && grep -q implemented '+output_path],'remaining':[],'human_choices':[]}
 with open(root / 'fake-pi-trace.jsonl', 'a') as trace_file:
-    trace_file.write(json.dumps({'role':'implementation','task_uid':task_uid,'ticket':ticket_line,'tool_names':sorted(tool_names),'criteria':criteria,'report':report}) + '\n')
+    trace_file.write(json.dumps({'role':'implementation','task_uid':task_uid,'ticket':ticket_line,'tool_names':sorted(tool_names),'criteria':criteria,'write_output':write_output,'report':report}) + '\n')
 print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(report)}]}]}))
 "#,
     )
