@@ -1,6 +1,8 @@
 use bollard::{
     Docker, models::ContainerCreateBody, query_parameters::CreateContainerOptionsBuilder,
 };
+#[cfg(test)]
+use futures_util::TryStreamExt;
 
 use super::super::super::{stage_qa_uploads, start_detached_exec};
 use super::super::{connect_request, readiness_timeout, relay_body, service_body};
@@ -129,6 +131,45 @@ async fn start_preview_relay(
         .start_container(&relay_id, None)
         .await
         .map_err(|_| denied("QA preview relay could not start"))?;
-    wait_healthy(docker, &relay_id, readiness_timeout(spec.recipe), cancel).await?;
+    let readiness = wait_healthy(docker, &relay_id, readiness_timeout(spec.recipe), cancel).await;
+    #[cfg(test)]
+    if readiness.is_err() {
+        report_relay_exit(docker, &relay_id).await;
+    }
+    readiness?;
     Ok(relay_id)
+}
+
+#[cfg(test)]
+async fn report_relay_exit(docker: &Docker, relay_id: &str) {
+    let read_logs = async {
+        let mut logs = docker.logs(
+            relay_id,
+            Some(
+                bollard::query_parameters::LogsOptionsBuilder::default()
+                    .stdout(true)
+                    .stderr(true)
+                    .tail("24")
+                    .build(),
+            ),
+        );
+        let mut output = Vec::new();
+        while let Ok(Some(log)) = logs.try_next().await {
+            let bytes = log.into_bytes();
+            let remaining = (8 * 1024usize).saturating_sub(output.len());
+            output.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+            if output.len() >= 8 * 1024 {
+                break;
+            }
+        }
+        output
+    };
+    if let Ok(output) = tokio::time::timeout(std::time::Duration::from_secs(2), read_logs).await
+        && !output.is_empty()
+    {
+        eprintln!(
+            "test-only QA preview relay output: {}",
+            String::from_utf8_lossy(&output)
+        );
+    }
 }
