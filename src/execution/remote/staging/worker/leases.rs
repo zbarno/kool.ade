@@ -74,14 +74,16 @@ impl WorkerStager {
     }
 
     pub fn release_execution(&self, execution_id: &str) -> anyhow::Result<()> {
-        let mut workspaces = self
-            .workspaces
-            .lock()
-            .map_err(|_| anyhow::anyhow!("worker workspace registry is unavailable"))?;
-        for staged in workspaces.values_mut() {
-            staged.executions.remove(execution_id);
+        {
+            let mut workspaces = self
+                .workspaces
+                .lock()
+                .map_err(|_| anyhow::anyhow!("worker workspace registry is unavailable"))?;
+            for staged in workspaces.values_mut() {
+                staged.executions.remove(execution_id);
+            }
         }
-        Ok(())
+        self.private_files.cleanup(execution_id, true)
     }
 
     pub fn release_workspace(&self, lease_id: &str) -> anyhow::Result<()> {

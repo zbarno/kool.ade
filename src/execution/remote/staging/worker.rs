@@ -18,6 +18,7 @@ use super::{StagingReceiver, TransferChunkV1, TransferManifestV1, TransferPayloa
 mod input;
 mod leases;
 mod materialize;
+mod private_files;
 mod registry;
 mod restore;
 mod results;
@@ -28,6 +29,7 @@ pub struct WorkerStager {
     projects_root: PathBuf,
     receivers: Mutex<HashMap<String, StagingReceiver>>,
     workspaces: Mutex<HashMap<WorkspaceRef, StagedWorkspace>>,
+    private_files: private_files::PrivateFiles,
 }
 
 struct StagedWorkspace {
@@ -55,12 +57,14 @@ impl WorkerStager {
         create_private_dir(&staging_root)?;
         let projects_root = state_root.join("projects");
         create_private_dir(&projects_root)?;
+        let private_files = private_files::PrivateFiles::new(&staging_root)?;
         let stager = Self {
             worker_id,
             staging_root,
             projects_root,
             receivers: Mutex::new(HashMap::new()),
             workspaces: Mutex::new(HashMap::new()),
+            private_files,
         };
         stager.restore_workspaces()?;
         Ok(stager)
@@ -75,6 +79,66 @@ impl WorkerStager {
             .get(transfer_id)
             .map(|receiver| receiver.manifest().clone())
             .ok_or_else(|| anyhow::anyhow!("workspace transfer is unavailable"))
+    }
+
+    pub fn authorize_private_file_grant(
+        &self,
+        execution_id: &str,
+        workspace: &WorkspaceRef,
+        grant: crate::execution::remote::private_files::RemotePrivateFileGrantV1,
+        now_unix_ms: u64,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(workspace == &grant.workspace);
+        let workspace_is_staged = self.has_workspace(workspace);
+        self.private_files.authorize(
+            execution_id,
+            &self.worker_id,
+            grant,
+            workspace_is_staged,
+            now_unix_ms,
+        )
+    }
+
+    pub(crate) fn receive_private_file_chunk(
+        &self,
+        execution_id: &str,
+        chunk: &crate::execution::remote::private_files::PrivateFileChunkV1,
+        now_unix_ms: u64,
+    ) -> anyhow::Result<()> {
+        self.private_files.receive(execution_id, chunk, now_unix_ms)
+    }
+
+    pub fn private_file_expiry(&self, execution_id: &str) -> anyhow::Result<Option<u64>> {
+        self.private_files.expiry(execution_id)
+    }
+
+    pub fn cleanup_private_file_execution(&self, execution_id: &str) -> anyhow::Result<()> {
+        self.private_files.cleanup(execution_id, false)
+    }
+
+    pub fn cleanup_stopped_private_file_execution(&self, execution_id: &str) -> anyhow::Result<()> {
+        self.private_files.cleanup(execution_id, true)
+    }
+
+    pub(crate) fn cleanup_recovered_private_file_executions(&self) -> anyhow::Result<()> {
+        self.private_files.cleanup_recovered()
+    }
+
+    pub(crate) fn has_private_file_stages(&self) -> bool {
+        self.private_files.has_stages()
+    }
+
+    pub fn mark_private_file_execution_started(&self, execution_id: &str) -> anyhow::Result<()> {
+        self.private_files.mark_started(execution_id)
+    }
+
+    pub fn validate_private_file_workspace(
+        &self,
+        execution_id: &str,
+        workspace: &WorkspaceRef,
+    ) -> anyhow::Result<()> {
+        self.private_files
+            .validate_workspace(execution_id, workspace)
     }
 
     fn workspace_path(
@@ -119,6 +183,18 @@ impl TaskWorkspaceResolver for WorkerStager {
 
     fn staging_root(&self) -> PathBuf {
         self.staging_root.clone()
+    }
+
+    fn private_files_mount_root(
+        &self,
+        execution_id: &str,
+    ) -> Result<Option<PathBuf>, ExecutionError> {
+        self.private_files
+            .mount_root(
+                execution_id,
+                crate::persistence::harness_settings::current_unix_ms(),
+            )
+            .map_err(|_| denied())
     }
 }
 

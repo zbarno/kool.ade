@@ -20,6 +20,69 @@ use super::{WorkerCapacityPool, server::serve_stdio_with_capacity};
 
 const MAX_WORKER_SESSIONS: usize = super::worker_capacity::MAX_REMOTE_EXECUTIONS as usize;
 
+/// OpenSSH starts the fixed worker command with the authenticated account's
+/// effective UID. Resolve that UID through the system account database instead
+/// of trusting client-supplied or inherited identity environment variables.
+pub(crate) fn authenticated_ssh_principal() -> anyhow::Result<String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::{ffi::CStr, mem::MaybeUninit};
+
+        let suggested = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+        let buffer_size = if suggested > 0 {
+            usize::try_from(suggested).unwrap_or(1024 * 1024)
+        } else {
+            16 * 1024
+        };
+        anyhow::ensure!(
+            buffer_size <= 1024 * 1024,
+            "worker account lookup is unavailable"
+        );
+        let mut buffer = vec![0_u8; buffer_size.max(1024)];
+        let mut entry = MaybeUninit::<libc::passwd>::zeroed();
+        let mut result = std::ptr::null_mut();
+        let status = unsafe {
+            libc::getpwuid_r(
+                libc::geteuid(),
+                entry.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        anyhow::ensure!(
+            status == 0 && !result.is_null(),
+            "worker account identity is unavailable"
+        );
+        let entry = unsafe { entry.assume_init() };
+        anyhow::ensure!(
+            !entry.pw_name.is_null(),
+            "worker account identity is unavailable"
+        );
+        let principal = unsafe { CStr::from_ptr(entry.pw_name) }
+            .to_str()?
+            .to_owned();
+        anyhow::ensure!(
+            valid_worker_principal(&principal),
+            "worker account identity is invalid"
+        );
+        Ok(principal)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        anyhow::bail!("remote worker account identity is unavailable on this platform")
+    }
+}
+
+fn valid_worker_principal(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !value.starts_with('-')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
 struct WorkerSessionLease(File);
 
 impl WorkerSessionLease {

@@ -63,6 +63,7 @@ pub(super) fn finish_with_artifacts(
     }
     state.mark_collecting()?;
     state.terminal = true;
+    state.host_capacity_lease.take();
     let mut result = super::super::control::result(
         &state.request.execution_id,
         failure,

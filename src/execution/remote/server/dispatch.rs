@@ -1,11 +1,15 @@
 use serde_json::{Value, json};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use crate::execution::{backend::ExecutionBackend, errors::ExecutionError};
 
 use super::super::protocol::{EnvelopeKindV1 as Kind, EnvelopeV1};
 mod cache_transfer;
 mod health;
+mod private_files;
 mod support;
 mod system_image;
 mod workspace;
@@ -16,6 +20,7 @@ use support::{
 pub(super) use system_image::SystemImageTransfers;
 
 mod requests;
+mod start;
 use requests::*;
 
 pub(super) struct DispatchContext<'a> {
@@ -25,7 +30,7 @@ pub(super) struct DispatchContext<'a> {
     pub system_image_transfers: &'a mut SystemImageTransfers,
     pub pending_dependency_relays: &'a mut PendingDependencyRelays,
     pub capacity: Option<&'a super::super::WorkerCapacityPool>,
-    pub capacity_leases: &'a mut HashMap<String, super::super::WorkerCapacityLease>,
+    pub capacity_leases: Arc<Mutex<HashMap<String, super::super::WorkerCapacityLease>>>,
     pub runtime: &'a tokio::runtime::Runtime,
     pub system_image_capability_key: &'a mut Option<[u8; 32]>,
 }
@@ -71,7 +76,16 @@ pub(super) fn dispatch(
             envelope,
         );
     }
-    let result = match envelope.kind {
+    if matches!(
+        envelope.kind,
+        Kind::AuthorizePrivateFileGrant | Kind::AbortPrivateFileStage
+    ) {
+        return private_files::dispatch(stager.as_ref(), runtime, envelope);
+    }
+    match envelope.kind {
+        Kind::PrivateFileChunk => Err(super::incompatible(
+            "private-file chunks require the dedicated binary transport",
+        )),
         Kind::DependencyRequest => Err(super::incompatible(
             "worker dependency requests are emitted only as relay responses",
         )),
@@ -79,8 +93,22 @@ pub(super) fn dispatch(
             require_control_id(envelope)?;
             let request: ProbeRequest = decode(&envelope.payload)?;
             let mut probe = runtime.block_on(backend.probe(&request.target))?;
+            if let Some(stager) = &stager {
+                stager
+                    .cleanup_recovered_private_file_executions()
+                    .map_err(|_| {
+                        super::incompatible("recovered private files could not be cleaned")
+                    })?;
+            }
             if let (Some(capabilities), Some(pool)) = (&mut probe.capabilities, capacity) {
                 capabilities.maximum_execution_count = Some(pool.max_jobs());
+                let reserved = pool.reserved_resources().ok();
+                capabilities.available_cpu_millis =
+                    crate::execution::resources::effective_cpu_capacity_millis()
+                        .and_then(|capacity| capacity.checked_sub(reserved?.cpu_millis));
+                capabilities.available_memory_bytes =
+                    crate::execution::resources::effective_memory_capacity_bytes()
+                        .and_then(|capacity| capacity.checked_sub(reserved?.memory_bytes));
             }
             json_value(probe).map(|value| (Kind::ProbeResult, value))
         }
@@ -187,34 +215,14 @@ pub(super) fn dispatch(
                 .map_err(|_| super::incompatible("workspace result chunk is unavailable"))?;
             json_value(chunk).map(|value| (Kind::Acknowledge, value))
         }
-        Kind::Start => {
-            let request: StartRequest = decode(&envelope.payload)?;
-            require_execution_id(envelope, &request.request.execution_id)?;
-            if capacity_leases.contains_key(&request.request.execution_id) {
-                return Err(super::incompatible(
-                    "worker execution capacity is already reserved",
-                ));
-            }
-            let reservation = capacity
-                .map(|pool| {
-                    pool.acquire().map_err(|_| {
-                        super::incompatible("remote worker execution capacity is full")
-                    })
-                })
-                .transpose()?;
-            let handle = runtime.block_on(backend.start(&request.lease, &request.request))?;
-            if let Some(stager) = &stager {
-                stager
-                    .bind_execution(&request.lease.lease_id, &handle.execution_id)
-                    .map_err(|_| {
-                        super::incompatible("execution workspace generation could not be reserved")
-                    })?;
-            }
-            if let Some(reservation) = reservation {
-                capacity_leases.insert(request.request.execution_id.clone(), reservation);
-            }
-            json_value(handle).map(|value| (Kind::Acknowledge, value))
-        }
+        Kind::Start => start::dispatch(
+            backend,
+            stager,
+            capacity,
+            capacity_leases,
+            runtime,
+            envelope,
+        ),
         Kind::Exec => {
             let request: ExecRequest = decode(&envelope.payload)?;
             require_execution_id(envelope, &request.handle.execution_id)?;
@@ -234,7 +242,15 @@ pub(super) fn dispatch(
             let request: CancelRequest = decode(&envelope.payload)?;
             require_execution_id(envelope, &request.handle.execution_id)?;
             runtime.block_on(backend.cancel(&request.handle, request.cancellation_generation))?;
-            capacity_leases.remove(&request.handle.execution_id);
+            capacity_leases
+                .lock()
+                .map_err(|_| super::incompatible("worker capacity registry is unavailable"))?
+                .remove(&request.handle.execution_id);
+            if let Some(stager) = &stager {
+                stager
+                    .cleanup_stopped_private_file_execution(&request.handle.execution_id)
+                    .map_err(|_| super::incompatible("private-file stage could not be stopped"))?;
+            }
             Ok((Kind::Acknowledge, json!({"accepted": true})))
         }
         Kind::CollectArtifacts => {
@@ -247,7 +263,10 @@ pub(super) fn dispatch(
             let request: HandleRequest = decode(&envelope.payload)?;
             require_execution_id(envelope, &request.handle.execution_id)?;
             runtime.block_on(backend.release(&request.handle))?;
-            capacity_leases.remove(&request.handle.execution_id);
+            capacity_leases
+                .lock()
+                .map_err(|_| super::incompatible("worker capacity registry is unavailable"))?
+                .remove(&request.handle.execution_id);
             if let Some(stager) = &stager {
                 stager
                     .release_execution(&request.handle.execution_id)
@@ -260,6 +279,7 @@ pub(super) fn dispatch(
 
         Kind::Health => health::dispatch(
             backend,
+            stager.as_deref(),
             runtime,
             capacity,
             system_image_capability_key,
@@ -278,12 +298,9 @@ pub(super) fn dispatch(
         | Kind::WorkspaceTransferChunk
         | Kind::FinalizeWorkspaceTransfer
         | Kind::ReleaseWorkspace => unreachable!(),
-        Kind::ProbeResult | Kind::Event | Kind::Acknowledge | Kind::Error => {
-            return Err(super::incompatible(
-                "remote worker received a response as a request",
-            ));
-        }
+        Kind::ProbeResult | Kind::Event | Kind::Acknowledge | Kind::Error => Err(
+            super::incompatible("remote worker received a response as a request"),
+        ),
         _ => unreachable!("routed message kinds are handled before general dispatch"),
-    };
-    result.map_err(|_| super::incompatible("remote worker response could not be encoded"))
+    }
 }

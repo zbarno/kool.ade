@@ -72,7 +72,6 @@ impl Runner {
         workspace: &crate::execution::contract::WorkspaceRef,
         destination_sha: Option<String>,
     ) -> anyhow::Result<String> {
-        let remaining = self.remaining()?;
         #[cfg(test)]
         if let Some(executor) = super::test_verification_executor() {
             return executor(cwd, command, workspace);
@@ -107,9 +106,29 @@ impl Runner {
             .map_err(|error| {
                 anyhow::anyhow!("Docker verification is unavailable: {}", error.message)
             })?;
-        let output = session
-            .run_tool_command(command, remaining.min(Duration::from_secs(1200)))
-            .map_err(|error| anyhow::anyhow!("Docker verification failed: {}", error.message))?;
+        let mut announced_capacity_wait = false;
+        let output = loop {
+            match session
+                .run_tool_command(command, self.remaining()?.min(Duration::from_secs(1200)))
+            {
+                Ok(output) => break output,
+                Err(error) if error.is_retryable_local_capacity_rejection() => {
+                    if !announced_capacity_wait {
+                        self.update(
+                            "Waiting for local Docker CPU and memory capacity before verification…",
+                        );
+                        announced_capacity_wait = true;
+                    }
+                    std::thread::sleep(self.remaining()?.min(Duration::from_millis(250)));
+                }
+                Err(error) => {
+                    return Err(anyhow::anyhow!(
+                        "Docker verification failed: {}",
+                        error.message
+                    ));
+                }
+            }
+        };
         let mut text = output.stdout;
         if !output.stderr.is_empty() {
             if !text.is_empty() {

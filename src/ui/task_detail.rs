@@ -23,7 +23,16 @@ pub struct ViewModel {
     pub implementation_metrics: Option<crate::persistence::telemetry::ImplementationMetrics>,
     pub feature_metrics: Option<crate::persistence::telemetry::ImplementationMetrics>,
     pub target_preference: crate::execution::contract::TargetPreference,
+    pub task_capabilities:
+        crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    pub task_allowed_targets: Vec<crate::execution::contract::TargetPreference>,
     pub target_choices: Vec<TargetChoice>,
+    pub remote_private_file_candidates: Vec<RemotePrivateFileGrantCandidate>,
+    pub remote_private_file_candidates_error: Option<String>,
+    pub remote_private_file_candidates_loading: bool,
+    pub remote_private_file_workers: Vec<RemotePrivateFileGrantWorker>,
+    pub remote_private_file_grants: Vec<RemotePrivateFileGrantView>,
+    pub remote_private_file_grants_error: Option<String>,
     pub execution_evidence: Option<crate::persistence::execution_records::ExecutionRecordV1>,
     pub execution_evidence_error: Option<String>,
     pub lifecycle_pr_work_uid: Option<String>,
@@ -34,6 +43,31 @@ pub struct ViewModel {
     /// Read-only lifecycle state projected from the persisted #157 records.
     pub lifecycle: Option<LifecycleView>,
     pub lifecycle_error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct RemotePrivateFileGrantView {
+    pub grant_id: String,
+    pub worker_id: String,
+    pub files: Vec<(
+        String,
+        crate::execution::remote::private_files::PrivateDataClassV1,
+    )>,
+    pub expires_at_unix_ms: u64,
+}
+
+#[derive(Clone)]
+pub struct RemotePrivateFileGrantCandidate {
+    pub path: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub data_class: crate::execution::remote::private_files::PrivateDataClassV1,
+}
+
+#[derive(Clone)]
+pub struct RemotePrivateFileGrantWorker {
+    pub worker_id: String,
+    pub destination: String,
 }
 
 #[derive(Clone)]
@@ -205,6 +239,24 @@ pub enum Command {
     SetExecutionTarget {
         ticket: String,
         preference: crate::execution::contract::TargetPreference,
+    },
+    SetTaskCapabilities {
+        ticket: String,
+        requirements:
+            crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    },
+    SetTaskAllowedTargets {
+        ticket: String,
+        targets: Vec<crate::execution::contract::TargetPreference>,
+    },
+    GrantRemotePrivateFiles {
+        ticket: String,
+        worker_id: String,
+        paths: Vec<String>,
+    },
+    RevokeRemotePrivateFileGrant {
+        ticket: String,
+        grant_id: String,
     },
     DiscoverRuntimeTargets {
         ticket: String,

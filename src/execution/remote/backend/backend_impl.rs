@@ -3,10 +3,11 @@ use super::*;
 mod cache;
 mod dependency;
 mod release;
+mod results;
 mod system_image;
 use crate::execution::{
     backend::{BackendFuture, BackendProbeV1, ExecutionBackend, WorkspaceLeaseV1},
-    contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1},
+    contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1, TargetLocation},
 };
 
 impl ExecutionBackend for RemoteExecutionBackend {
@@ -62,12 +63,9 @@ impl ExecutionBackend for RemoteExecutionBackend {
         let target_check = self.require_target(target);
         Box::pin(async move {
             target_check?;
-            Ok(self
-                .client
-                .lock()
-                .map_err(|_| disconnected())?
-                .probe()
-                .clone())
+            let mut client = self.client.lock().map_err(|_| disconnected())?;
+            client.refresh_probe_now()?;
+            Ok(client.probe().clone())
         })
     }
 
@@ -78,12 +76,17 @@ impl ExecutionBackend for RemoteExecutionBackend {
     ) -> BackendFuture<'a, WorkspaceLeaseV1> {
         Box::pin(async move {
             self.require_target(target)?;
-            self.stage_workspace(workspace)?;
-            self.request(
+            let (bytes, ms) = self.stage_workspace(workspace)?;
+            let lease: WorkspaceLeaseV1 = self.request(
                 EnvelopeKindV1::PrepareWorkspace,
                 CONTROL_EXECUTION_ID,
                 serde_json::json!({"workspace": workspace, "target": ExecutionTarget::local()}),
-            )
+            )?;
+            self.pending_workspace_transfers
+                .lock()
+                .map_err(|_| disconnected())?
+                .insert(lease.lease_id.clone(), (bytes, ms));
+            Ok(lease)
         })
     }
 
@@ -100,12 +103,6 @@ impl ExecutionBackend for RemoteExecutionBackend {
             let mut worker_request = request.clone();
             worker_request.controller_target_id = Some(self.target.target_id.clone());
             worker_request.target = ExecutionTarget::local();
-            let mut handle: ExecutionHandleV1 = self.request(
-                EnvelopeKindV1::Start,
-                &request.execution_id,
-                serde_json::json!({"lease": lease, "request": worker_request}),
-            )?;
-            handle.target = self.target.clone();
             let snapshot = self
                 .snapshots
                 .lock()
@@ -113,10 +110,60 @@ impl ExecutionBackend for RemoteExecutionBackend {
                 .get(&request.workspace)
                 .cloned()
                 .ok_or_else(incompatible)?;
+            let mut client = self.client.lock().map_err(|_| disconnected())?;
+            let private_grants =
+                private_files::stage_for_execution(self, &mut client, request, &snapshot)?;
+            let grant_use = crate::persistence::remote_private_file_grants::lock_authorized_grants(
+                &crate::persistence::state_root(),
+                &private_grants,
+                crate::persistence::harness_settings::current_unix_ms(),
+            );
+            let Ok(grant_use) = grant_use else {
+                let _ = client.request(
+                    EnvelopeKindV1::AbortPrivateFileStage,
+                    &request.execution_id,
+                    serde_json::json!({"execution_id": request.execution_id}),
+                );
+                return Err(private_files::revoked_error());
+            };
+            let response = client.request(
+                EnvelopeKindV1::Start,
+                &request.execution_id,
+                serde_json::json!({"lease": lease, "request": worker_request}),
+            )?;
+            drop(grant_use);
+            let upload = self
+                .pending_workspace_transfers
+                .lock()
+                .ok()
+                .and_then(|mut pending| pending.remove(&lease.lease_id));
+            if let (Some((bytes, ms)), TargetLocation::Remote { worker_id }) =
+                (upload, &self.target.location)
+            {
+                let _ = crate::persistence::remote_execution_telemetry::record_workspace_upload(
+                    &request.execution_id,
+                    worker_id,
+                    bytes,
+                    ms,
+                );
+            }
+            let mut handle: ExecutionHandleV1 =
+                serde_json::from_value(response.payload).map_err(|_| incompatible())?;
+            handle.target = self.target.clone();
+            drop(client);
             self.execution_snapshots
                 .lock()
                 .map_err(|_| disconnected())?
                 .insert(handle.execution_id.clone(), snapshot);
+            if !private_grants.is_empty() {
+                self.execution_private_file_grants
+                    .lock()
+                    .map_err(|_| disconnected())?
+                    .insert(
+                        handle.execution_id.clone(),
+                        (private_grants, request.cancellation_generation),
+                    );
+            }
             Ok(handle)
         })
     }
@@ -131,6 +178,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
         request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ()> {
         Box::pin(async move {
+            self.stop_if_private_grant_revoked(handle).await?;
             let local_handle = self.local_handle(handle)?;
             self.require_target(&request.target)?;
             if handle.execution_id != request.execution_id {
@@ -154,12 +202,15 @@ impl ExecutionBackend for RemoteExecutionBackend {
         page: EventPageRequestV1,
     ) -> BackendFuture<'a, Vec<ExecutionEventV1>> {
         Box::pin(async move {
+            self.stop_if_private_grant_revoked(handle).await?;
             let local_handle = self.local_handle(handle)?;
-            self.request(
+            let events = self.request(
                 EnvelopeKindV1::Subscribe,
                 &handle.execution_id,
                 serde_json::json!({"handle": local_handle, "page": page}),
-            )
+            )?;
+            self.stop_if_private_grant_revoked(handle).await?;
+            Ok(events)
         })
     }
 
@@ -186,64 +237,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
         &'a self,
         handle: &'a ExecutionHandleV1,
     ) -> BackendFuture<'a, ExecutionResultV1> {
-        Box::pin(async move {
-            let local_handle = self.local_handle(handle)?;
-            let result: ExecutionResultV1 = self.request(
-                EnvelopeKindV1::CollectArtifacts,
-                &handle.execution_id,
-                serde_json::json!({"handle": local_handle}),
-            )?;
-            let workspace = self
-                .execution_snapshots
-                .lock()
-                .map_err(|_| disconnected())?
-                .get(&handle.execution_id)
-                .cloned()
-                .ok_or_else(incompatible)?;
-            let (worker_id, _) = match &self.target.location {
-                TargetLocation::Remote { worker_id } => (worker_id.clone(), ()),
-                TargetLocation::Local => return Err(incompatible()),
-            };
-            let transfer: TransferManifestV1 = self.request(
-                EnvelopeKindV1::PrepareWorkspaceResult,
-                &handle.execution_id,
-                serde_json::json!({"handle": local_handle, "workspace": workspace.workspace,
-                    "snapshot_generation": workspace.snapshot_generation,
-                    "destination_identity": format!("controller:{}", self.controller_id)}),
-            )?;
-            let mut receiver = StagingReceiver::begin(
-                &self.result_root,
-                transfer.clone(),
-                &format!("worker:{worker_id}"),
-                &format!("controller:{}", self.controller_id),
-            )
-            .map_err(|_| incompatible())?;
-            for (path, size_bytes) in transfer.file_specs() {
-                let mut offset = 0_u64;
-                while offset < size_bytes {
-                    let chunk: crate::execution::remote::staging::TransferChunkV1 = self.request(
-                        EnvelopeKindV1::ReadWorkspaceResultChunk,
-                        &handle.execution_id,
-                        serde_json::json!({"handle": local_handle, "workspace": workspace.workspace,
-                            "transfer_id": transfer.transfer_id, "path": path, "offset": offset}),
-                    )?;
-                    let advanced = chunk.bytes.len() as u64;
-                    receiver.accept_chunk(&chunk).map_err(|_| incompatible())?;
-                    offset = offset.checked_add(advanced).ok_or_else(incompatible)?;
-                    if advanced == 0 {
-                        return Err(incompatible());
-                    }
-                }
-            }
-            let verified = receiver
-                .finalize_workspace_result(&workspace.workspace)
-                .map_err(|_| incompatible())?;
-            self.verified_results
-                .lock()
-                .map_err(|_| disconnected())?
-                .insert(handle.execution_id.clone(), verified);
-            Ok(result)
-        })
+        results::collect_artifacts(self, handle)
     }
 
     fn apply_workspace_result<'a>(
@@ -251,31 +245,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
         handle: &'a ExecutionHandleV1,
         request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ()> {
-        Box::pin(async move {
-            let result = self
-                .verified_results
-                .lock()
-                .map_err(|_| disconnected())?
-                .remove(&handle.execution_id)
-                .ok_or_else(incompatible)?;
-            if result.workspace() != &request.workspace {
-                return Err(incompatible());
-            }
-            let baseline = self
-                .baselines
-                .lock()
-                .map_err(|_| disconnected())?
-                .get(&request.workspace)
-                .cloned()
-                .ok_or_else(incompatible)?;
-            let archive = apply::result_to_archive(&result)?;
-            staging::synchronize(
-                &baseline.0,
-                &baseline.1,
-                &archive,
-                request.resource_budget.temporary_disk_bytes,
-            )
-        })
+        results::apply_workspace_result(self, handle, request)
     }
 
     fn release<'a>(&'a self, handle: &'a ExecutionHandleV1) -> BackendFuture<'a, ()> {
@@ -286,6 +256,10 @@ impl ExecutionBackend for RemoteExecutionBackend {
                 &handle.execution_id,
                 serde_json::json!({"handle": local_handle}),
             )?;
+            self.execution_private_file_grants
+                .lock()
+                .map_err(|_| disconnected())?
+                .remove(&handle.execution_id);
             Ok(())
         })
     }

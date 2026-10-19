@@ -72,3 +72,67 @@ fn legacy_status_label(status: Option<&str>) -> &'static str {
 fn short_sha(sha: &str) -> &str {
     sha.get(..12).unwrap_or(sha)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_execution_status_is_labeled_as_historical_publication_state() {
+        let mut identity = crate::domain::ArtifactIdentity::new("TASK-1", "Legacy task");
+        identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
+        let metadata =
+            crate::artifacts::task_docs::TaskMetadata::new(&identity, "repo", vec![]).unwrap();
+        let document = TaskDocument {
+            path: ".koolade-packet/planning/tasks/legacy/001-task.md".into(),
+            title: "Legacy task".into(),
+            text: "# Legacy task".into(),
+            identity: Some(identity),
+            metadata: Some(metadata.clone()),
+            task_state: Some(crate::artifacts::task_docs::TaskState {
+                batch_uid: metadata.batch_uid,
+                repository_id: "repo".into(),
+                dependency_uids: Vec::new(),
+                status: crate::core::planning_work::WorkStatus::InReview,
+                execution_status: Some("awaiting_review".into()),
+                source_branch: None,
+                source_sha: None,
+                destination_branch: None,
+                implementation_branch: None,
+                publication_status:
+                    crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
+                pull_requests: Vec::new(),
+                legacy_linkage: true,
+                revision: 4,
+            }),
+            metadata_error: None,
+        };
+        let context = egui::Context::default();
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(800.0, 600.0),
+                )),
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| paint(ui, &document));
+            },
+        );
+        output.textures_delta.clear();
+        let rendered = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            rendered
+                .iter()
+                .any(|text| text == "Publication: Previously tracked as awaiting review")
+        );
+    }
+}

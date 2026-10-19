@@ -81,10 +81,7 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
     let captured = base.join("child-cwd.txt");
     std::fs::write(
         &probe,
-        format!(
-            "#!/bin/sh\nprintf '%s' \"$PWD\" > '{}'\n",
-            captured.display()
-        ),
+        "#!/bin/sh\nprobe_dir=${0%/*}\nprintf '%s' \"$(pwd -P)\" > \"$probe_dir/child-cwd.txt.tmp\" && mv \"$probe_dir/child-cwd.txt.tmp\" \"$probe_dir/child-cwd.txt\"\n",
     )
     .unwrap();
     #[cfg(unix)]

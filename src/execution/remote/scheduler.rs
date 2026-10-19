@@ -40,7 +40,7 @@ pub fn select_target(
     now_unix_ms: u64,
 ) -> Result<ExecutionTarget, SelectionFailure> {
     match preference {
-        TargetPreference::Local => local_eligible
+        TargetPreference::Local => local_target_eligible(local_eligible, requirements)
             .then(ExecutionTarget::local)
             .ok_or(SelectionFailure::NoCompatibleTarget),
         TargetPreference::Worker(worker_id) => {
@@ -77,11 +77,33 @@ pub fn select_target(
                     })
                     .min_by_key(|candidate| {
                         (
+                            std::cmp::Reverse(
+                                candidate
+                                    .capabilities
+                                    .available_cpu_millis
+                                    .unwrap_or_default(),
+                            ),
+                            std::cmp::Reverse(
+                                candidate
+                                    .capabilities
+                                    .available_memory_bytes
+                                    .unwrap_or_default(),
+                            ),
+                            candidate
+                                .capabilities
+                                .cpu_pressure_some_avg10_basis_points
+                                .unwrap_or(u32::MAX),
+                            candidate.capabilities.load_millis.unwrap_or(u32::MAX),
                             candidate
                                 .registration
                                 .last_probe
                                 .as_ref()
                                 .map_or(u32::MAX, |p| p.running_jobs),
+                            requirements
+                                .eligible_worker_ids
+                                .iter()
+                                .position(|id| id == &candidate.registration.worker_id)
+                                .unwrap_or(usize::MAX),
                             candidate.registration.worker_id.as_str(),
                         )
                     })
@@ -91,7 +113,7 @@ pub fn select_target(
             };
             if let Some(worker_id) = worker_id {
                 Ok(ExecutionTarget::remote(worker_id))
-            } else if local_eligible {
+            } else if local_target_eligible(local_eligible, requirements) {
                 Ok(ExecutionTarget::local())
             } else if !requirements.remote_approved {
                 Err(SelectionFailure::NoRemoteApproval)
@@ -100,6 +122,10 @@ pub fn select_target(
             }
         }
     }
+}
+
+fn local_target_eligible(local_eligible: bool, requirements: &SchedulingRequirements<'_>) -> bool {
+    local_eligible && !requirements.requires_gpu && !requirements.requires_display
 }
 
 fn candidate_eligible(
@@ -117,6 +143,7 @@ fn candidate_eligible(
         .map_or(worker.max_jobs, |maximum| maximum.min(worker.max_jobs));
     if !worker.enabled
         || !requirements.dependencies_prepared
+        || candidate.capabilities.docker_rootless != Some(true)
         || !worker
             .supported_architectures
             .iter()
@@ -139,11 +166,19 @@ fn candidate_eligible(
         || candidate.capabilities.current_execution_count >= maximum_execution_count
         || candidate
             .capabilities
+            .available_cpu_millis
+            .is_none_or(|available| available < requirements.resource_budget.cpu_millis)
+        || candidate
+            .capabilities
+            .available_memory_bytes
+            .is_none_or(|available| available < requirements.resource_budget.memory_bytes)
+        || candidate
+            .capabilities
             .disk_available_bytes
             .is_none_or(|available| available < requirements.resource_budget.temporary_disk_bytes)
         || unusable_health(&probe.health)
-        || requirements.requires_gpu
-        || requirements.requires_display
+        || (requirements.requires_gpu && !candidate.capabilities.gpu_available)
+        || (requirements.requires_display && !candidate.capabilities.display_available)
     {
         return false;
     }
@@ -167,7 +202,8 @@ fn request_fits(request: &ResourceBudgetV1, ceiling: &ResourceBudgetV1) -> bool 
 fn unusable_health(health: &RemoteWorkerHealth) -> bool {
     matches!(
         health,
-        RemoteWorkerHealth::Disconnected
+        RemoteWorkerHealth::Busy
+            | RemoteWorkerHealth::Disconnected
             | RemoteWorkerHealth::Untrusted
             | RemoteWorkerHealth::Incompatible
             | RemoteWorkerHealth::PolicyBlocked

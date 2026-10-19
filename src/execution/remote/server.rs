@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::execution::{backend::ExecutionBackend, errors::ExecutionError};
 
@@ -13,7 +13,10 @@ mod journal;
 #[path = "server/tests.rs"]
 mod tests;
 
-use super::protocol::{EnvelopeKindV1, EnvelopeV1, SessionValidator, read_frame, write_frame};
+use super::protocol::{
+    EnvelopeKindV1, EnvelopeV1, SessionValidator, WorkerInboundFrameV1, read_worker_frame,
+    write_frame,
+};
 use super::staging::WorkerStager;
 use dispatch::{CacheTransfers, DispatchContext, SystemImageTransfers, dispatch};
 use journal::{Lookup, RequestJournal};
@@ -71,11 +74,23 @@ fn serve_stdio_with_journal(
     let mut cache_transfers = CacheTransfers::default();
     let mut system_image_transfers = SystemImageTransfers::default();
     let mut pending_dependency_relays = HashMap::new();
-    let mut capacity_leases = HashMap::<String, super::WorkerCapacityLease>::new();
+    let capacity_leases = Arc::new(Mutex::new(
+        HashMap::<String, super::WorkerCapacityLease>::new(),
+    ));
     let mut system_image_capability_key = None;
-    while let Some(request) = read_frame(&mut input)? {
+    while let Some(frame) = read_worker_frame(&mut input)? {
+        let (mut request, private_chunk) = match frame {
+            WorkerInboundFrameV1::Envelope(request) => (request, None),
+            WorkerInboundFrameV1::PrivateFileChunk { envelope, chunk } => (envelope, Some(chunk)),
+        };
         inbound.accept(&request)?;
-        match journal.reserve(&request)? {
+        let secret_chunk = private_chunk.is_some();
+        let lookup = if secret_chunk {
+            Lookup::New
+        } else {
+            journal.reserve(&request)?
+        };
+        match lookup {
             Lookup::Replay(response) => {
                 if request.kind == EnvelopeKindV1::RelayDependency {
                     let relay: crate::execution::remote::dependency::DependencyRelayRequestV1 =
@@ -138,26 +153,59 @@ fn serve_stdio_with_journal(
             }
             Lookup::New => {}
         }
-        let (kind, payload) = match dispatch(
-            DispatchContext {
-                backend: backend.clone(),
-                stager: stager.clone(),
-                cache_transfers: &mut cache_transfers,
-                system_image_transfers: &mut system_image_transfers,
-                pending_dependency_relays: &mut pending_dependency_relays,
-                capacity: capacity.as_deref(),
-                capacity_leases: &mut capacity_leases,
-                runtime: &runtime,
-                system_image_capability_key: &mut system_image_capability_key,
-            },
-            &request,
-        ) {
-            Ok(response) => response,
-            Err(error) => (
-                EnvelopeKindV1::Error,
-                serde_json::to_value(request_error(&request.kind, error)).unwrap_or_default(),
-            ),
+        let (kind, payload) = if let Some(chunk) = private_chunk.as_ref() {
+            match stager.as_ref().ok_or_else(|| {
+                incompatible("Remote private-file grant storage is unavailable")
+            }) {
+                Ok(stager) => match stager.receive_private_file_chunk(
+                    &request.execution_id,
+                    chunk,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                ) {
+                    Ok(()) => (EnvelopeKindV1::Acknowledge, serde_json::json!({"accepted": true})),
+                    Err(_) => (
+                        EnvelopeKindV1::Error,
+                        serde_json::to_value(request_error(
+                            &request.kind,
+                            ExecutionError::new(
+                                crate::execution::errors::ExecutionErrorKind::WorkerIncompatible,
+                                "Remote private-file chunk was not authorized or did not match its grant",
+                                false,
+                            ),
+                        ))
+                        .unwrap_or_default(),
+                    ),
+                },
+                Err(error) => (
+                    EnvelopeKindV1::Error,
+                    serde_json::to_value(request_error(&request.kind, error)).unwrap_or_default(),
+                ),
+            }
+        } else {
+            match dispatch(
+                DispatchContext {
+                    backend: backend.clone(),
+                    stager: stager.clone(),
+                    cache_transfers: &mut cache_transfers,
+                    system_image_transfers: &mut system_image_transfers,
+                    pending_dependency_relays: &mut pending_dependency_relays,
+                    capacity: capacity.as_deref(),
+                    capacity_leases: capacity_leases.clone(),
+                    runtime: &runtime,
+                    system_image_capability_key: &mut system_image_capability_key,
+                },
+                &request,
+            ) {
+                Ok(response) => response,
+                Err(error) => (
+                    EnvelopeKindV1::Error,
+                    serde_json::to_value(request_error(&request.kind, error)).unwrap_or_default(),
+                ),
+            }
         };
+        if secret_chunk {
+            request.clear_sensitive_payload();
+        }
         let response = EnvelopeV1 {
             version: super::protocol::PROTOCOL_VERSION_V1,
             request_id: request.request_id.clone(),
@@ -166,9 +214,18 @@ fn serve_stdio_with_journal(
             kind,
             payload,
         };
-        journal.complete(&request, &response)?;
+        if !secret_chunk {
+            journal.complete(&request, &response)?;
+        }
         outbound.accept(&response)?;
         write_frame(&mut output, &response)?;
+    }
+    if let Some(stager) = &stager {
+        // Expiry cancellation is owned by this runtime. Keep it alive after
+        // SSH EOF until every secret-bearing stage has been stopped and removed.
+        while stager.has_private_file_stages() {
+            runtime.block_on(tokio::time::sleep(std::time::Duration::from_secs(1)));
+        }
     }
     Ok(())
 }

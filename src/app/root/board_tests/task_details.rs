@@ -161,14 +161,12 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
         "GitHub Actions · Passed",
         "commit 0123456789ab",
         "All project workflows passed for this exact commit.",
-        "Publication: Previously tracked as awaiting review",
     ] {
         assert!(
             text_position(&output, expected).is_some(),
             "missing {expected}"
         );
     }
-    assert!(text_position(&output, "Publication: Planned").is_none());
     let current_state = text_position(&output, "CURRENT STATE").unwrap();
     assert!(
         output.shapes.iter().any(|shape| match &shape.shape {
