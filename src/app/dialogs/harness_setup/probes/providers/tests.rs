@@ -1,13 +1,25 @@
-//! Probe provider discovery boundaries with synthetic CLI processes. These tests cover
-//! adapter-to-settings mapping and provider-local failures that parser unit tests cannot
-//! prove. They require Unix `/bin/sh` and temporary files only; no Docker or SSH setup is
-//! needed. Each probe has a short bounded setup cost.
+//! Probe the adapter-to-settings boundary with a synthetic OpenCode process. The invariant
+//! is that catalog-only failure remains installed while unverified authentication blocks selection; a
+//! unit test of the provider parser cannot prove the application mapping. Unix shell and
+//! temporary files are the only external requirements; setup cost is a single short process.
 
 use super::*;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+#[cfg(unix)]
+mod antigravity_adapter;
+#[cfg(unix)]
+mod claude_adapter;
+#[cfg(unix)]
+mod codex_adapter;
+#[cfg(unix)]
+mod copilot_adapter;
+#[cfg(unix)]
+mod opencode_adapter;
+
 #[test]
-fn opencode_catalog_failure_keeps_provider_ready_without_fresh_models() {
+fn opencode_catalog_failure_keeps_provider_installed_but_not_selectable() {
     let root =
         std::env::temp_dir().join(format!("koolade-provider-catalog-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
@@ -28,6 +40,10 @@ fn opencode_catalog_failure_keeps_provider_ready_without_fresh_models() {
 
     assert!(report.ready);
     assert!(report.implementation_available);
+    assert_eq!(
+        report.authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
     assert!(!report.configuration_required);
     assert!(!report.model_catalog_fresh);
     assert_eq!(report.version.as_deref(), Some("1.2.3"));
@@ -44,67 +60,37 @@ fn opencode_catalog_failure_keeps_provider_ready_without_fresh_models() {
             .contains("model catalog unavailable")
     );
 
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn nonzero_version_probe_is_provider_local_for_all_six_supported_adapters() {
-    let root = std::env::temp_dir().join(format!(
-        "koolade-provider-version-failure-{}",
-        uuid::Uuid::new_v4()
+    let result = super::super::super::probe_result::from_harness_probe(&report, 1, 10, 1);
+    assert_eq!(
+        result.status,
+        crate::harness::discovery::ProbeStatus::Installed
+    );
+    assert_eq!(
+        result.authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_implementation,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
+    super::super::super::discovery::apply_probe_results(
+        &mut settings,
+        &[report],
+        Some("opencode"),
+        1,
+    );
+    assert!(!settings.discovered["opencode"].ready);
+    assert!(settings.default_harness.is_none());
+    assert!(!super::super::super::has_current_provider_capabilities(
+        "opencode",
+        &settings.discovered["opencode"],
+        crate::persistence::harness_settings::current_unix_ms()
     ));
-    std::fs::create_dir_all(&root).unwrap();
-    let binary = root.join("fake-cli");
-    std::fs::write(
-        &binary,
-        "#!/bin/sh\necho synthetic-version-failure >&2\nexit 9\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
-    for variable in [
-        crate::harness::pi_harness::PI_BINARY_ENV,
-        crate::harness::codex_harness::CODEX_BINARY_ENV,
-        crate::harness::claude_harness::CLAUDE_BINARY_ENV,
-        crate::harness::opencode_harness::OPENCODE_BINARY_ENV,
-        crate::harness::copilot_harness::COPILOT_BINARY_ENV,
-        crate::harness::antigravity_harness::ANTIGRAVITY_BINARY_ENV,
-    ] {
-        environment.set(variable, binary.as_os_str());
-    }
-
-    for provider in PROVIDERS {
-        let report = discover_provider(provider, true);
-        assert_eq!(report.id, provider);
-        assert!(
-            !report.ready,
-            "{provider} must reject a failed version probe"
-        );
-        assert!(
-            report.executable.is_some(),
-            "{provider} should retain the located executable identity"
-        );
-        assert!(
-            report.version.is_none(),
-            "{provider} must not invent a version"
-        );
-        let result = super::super::super::probe_result::from_harness_probe(&report, 7, 10, 1);
-        assert_eq!(
-            result.status,
-            crate::harness::discovery::ProbeStatus::Installed,
-            "{provider} failure must remain provider-local, not appear missing"
-        );
-        assert_eq!(
-            result.failure_stage,
-            Some(crate::harness::discovery::ProbeKind::Version),
-            "{provider} should report the failed stage"
-        );
-        assert!(
-            result.diagnostic_message.is_some(),
-            "{provider} needs a diagnostic"
-        );
-    }
 
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -262,12 +248,14 @@ fn opencode_empty_success_requires_configuration_without_claiming_auth_failure()
         auth_binary.as_os_str(),
     );
     let auth_report = discover_provider("opencode", true);
-    assert!(!auth_report.ready);
+    // The executable and catalog command are present, but a failed auth-list command cannot
+    // prove whether credentials exist. Preserve installed status while keeping routing denied.
+    assert!(auth_report.ready);
     assert_eq!(
         auth_report.authentication,
-        crate::execution::contract::ReadinessState::Unavailable
+        crate::execution::contract::ReadinessState::Unknown
     );
-    assert!(auth_report.configuration_required);
+    assert!(!auth_report.configuration_required);
     super::super::super::discovery::apply_probe_results(&mut settings, &[auth_report], None, 2);
     assert_eq!(
         settings.discovered["opencode"]
@@ -275,9 +263,89 @@ fn opencode_empty_success_requires_configuration_without_claiming_auth_failure()
             .as_ref()
             .unwrap()
             .authentication,
-        crate::execution::contract::ReadinessState::Unavailable
+        crate::execution::contract::ReadinessState::Unknown
     );
+    assert!(settings.default_harness.is_none());
+    assert!(!super::super::super::has_current_provider_capabilities(
+        "opencode",
+        &settings.discovered["opencode"],
+        crate::persistence::harness_settings::current_unix_ms()
+    ));
 
     std::fs::remove_dir_all(root).unwrap();
     std::fs::remove_dir_all(auth_root).unwrap();
+}
+
+/// Production boundary: the Antigravity adapter feeds typed readiness and saved selection state.
+/// A parser test cannot prove unknown auth stays unselectable; uses one fake Unix CLI and temp
+/// files, with low setup cost.
+#[test]
+fn antigravity_catalog_success_does_not_claim_authentication_or_allow_selection() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-antigravity-auth-unknown-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let binary = root.join("agy");
+    std::fs::write(
+        &binary,
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'agy 1.2.3'; exit 0; fi\nif [ \"$1\" = \"models\" ]; then echo 'model-a'; exit 0; fi\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set(
+        crate::harness::antigravity_harness::ANTIGRAVITY_BINARY_ENV,
+        binary.as_os_str(),
+    );
+    let report = discover_provider("antigravity", true);
+
+    assert!(report.ready);
+    assert!(report.implementation_available);
+    assert_eq!(
+        report.authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    let result = super::super::super::probe_result::from_harness_probe(&report, 1, 10, 1);
+    assert_eq!(
+        result.authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_implementation,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+
+    let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
+    super::super::super::discovery::apply_probe_results(
+        &mut settings,
+        &[report],
+        Some("antigravity"),
+        1,
+    );
+    let detected = &settings.discovered["antigravity"];
+    assert!(!detected.ready);
+    assert!(!detected.implementation_available);
+    assert!(detected.model_catalog_fresh);
+    assert_eq!(
+        detected
+            .capability_snapshot
+            .as_ref()
+            .unwrap()
+            .authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    assert!(settings.default_harness.is_none());
+    assert!(!super::super::super::has_current_provider_capabilities(
+        "antigravity",
+        detected,
+        crate::persistence::harness_settings::current_unix_ms()
+    ));
+
+    std::fs::remove_dir_all(root).unwrap();
 }

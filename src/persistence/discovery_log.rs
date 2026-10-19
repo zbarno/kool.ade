@@ -175,9 +175,11 @@ fn supported_failure_code(code: &str) -> Option<&'static str> {
         "executable_invalid" => Some("executable_invalid"),
         "version_unavailable" => Some("version_unavailable"),
         "authentication_required" => Some("authentication_required"),
+        "configuration_required" => Some("configuration_required"),
         "model_catalog_unavailable" => Some("model_catalog_unavailable"),
         "runtime_unavailable" => Some("runtime_unavailable"),
         "provider_probe_failed" => Some("provider_probe_failed"),
+        "internal_probe_failure" => Some("internal_probe_failure"),
         "invalid_provider_result" => Some("invalid_provider_result"),
         _ => None,
     }
@@ -190,62 +192,4 @@ fn logged_failure_code(ready: bool, failure_code: Option<&str>) -> Option<&'stat
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn discovery_records_are_provider_allowlisted_and_do_not_include_probe_data() {
-        let encoded = serde_json::to_string(&ProbeRecord {
-            schema_version: 1,
-            scan_id: 7,
-            provider: "codex",
-            stage: "provider_probe",
-            duration_ms: 10,
-            outcome: "failed",
-            failure_code: Some("provider_unavailable"),
-        })
-        .unwrap();
-        assert!(!encoded.contains("token"));
-        assert!(!encoded.contains("/home/"));
-        assert!(supported_provider("codex"));
-        assert!(!supported_provider("unknown"));
-        assert_eq!(supported_stage(Some("models")), Some("models"));
-        assert_eq!(supported_stage(Some("private path")), None);
-        assert_eq!(
-            supported_failure_code("authentication_required"),
-            Some("authentication_required")
-        );
-        assert_eq!(supported_failure_code("token=secret"), None);
-        assert_eq!(
-            logged_failure_code(true, Some("model_catalog_unavailable")),
-            Some("model_catalog_unavailable")
-        );
-        assert_eq!(logged_failure_code(true, None), None);
-        assert_eq!(
-            logged_failure_code(false, None),
-            Some("provider_unavailable")
-        );
-        let typed = ProbeRecord {
-            schema_version: 1,
-            scan_id: 8,
-            provider: "codex",
-            stage: supported_stage(Some("models")).unwrap(),
-            duration_ms: 18,
-            outcome: "failed",
-            failure_code: supported_failure_code("model_catalog_unavailable"),
-        };
-        let encoded = serde_json::to_string(&typed).unwrap();
-        assert!(encoded.contains("\"stage\":\"models\""));
-        assert!(encoded.contains("\"failure_code\":\"model_catalog_unavailable\""));
-    }
-
-    #[test]
-    fn retention_keeps_complete_recent_lines_within_the_size_limit() {
-        let mut previous = vec![b'x'; MAX_LOG_BYTES];
-        previous.extend_from_slice(b"\nold\n");
-        let retained = retain_bounded(&previous, b"new\n");
-        assert!(retained.len() <= MAX_LOG_BYTES);
-        assert!(retained.ends_with(b"new\n"));
-        assert_eq!(retained, b"old\nnew\n");
-    }
-}
+mod tests;

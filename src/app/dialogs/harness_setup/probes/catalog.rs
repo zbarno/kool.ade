@@ -1,5 +1,25 @@
 use std::io::Read;
 
+pub(super) fn pi_model_catalog() -> (Option<String>, Vec<String>, Option<String>, Option<String>) {
+    match crate::harness::pi_provider_settings::configured_provider_catalog() {
+        Ok((provider, models, default_model)) => {
+            let diagnostic = models
+                .is_empty()
+                .then(|| "Model catalog unavailable: Pi returned no configured models.".into());
+            (Some(provider), models, default_model, diagnostic)
+        }
+        Err(_) => (
+            None,
+            Vec::new(),
+            None,
+            Some(
+                "Model catalog unavailable: Pi provider settings could not be read or parsed."
+                    .into(),
+            ),
+        ),
+    }
+}
+
 pub(super) fn configured_model_catalog(harness: &str) -> (Vec<String>, Option<String>) {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     match (harness, home) {
@@ -131,7 +151,7 @@ pub(super) fn read_small_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{configured_model_catalog, read_small_bytes};
+    use super::{configured_model_catalog, pi_model_catalog, read_small_bytes};
     use std::{ffi::CString, os::unix::ffi::OsStrExt, path::PathBuf};
 
     #[test]
@@ -172,6 +192,8 @@ mod tests {
         std::fs::create_dir_all(root.join(".codex")).unwrap();
         std::fs::create_dir_all(root.join(".claude")).unwrap();
         std::fs::create_dir_all(root.join(".copilot")).unwrap();
+        let pi_agent = root.join("pi-agent");
+        std::fs::create_dir_all(&pi_agent).unwrap();
         let cleanup = Cleanup(root.clone());
         std::fs::write(root.join(".codex/config.toml"), vec![b'x'; 1024 * 1024 + 1]).unwrap();
         std::fs::write(root.join(".claude/settings.json"), b"{\"model\":").unwrap();
@@ -180,7 +202,14 @@ mod tests {
             vec![b'x'; 1024 * 1024 + 1],
         )
         .unwrap();
+        std::fs::write(
+            pi_agent.join("settings.json"),
+            br#"{"defaultProvider":"fixture","defaultModel":"fixture-model"}"#,
+        )
+        .unwrap();
+        std::fs::write(pi_agent.join("models.json"), vec![b'x'; 1024 * 1024 + 1]).unwrap();
         environment.set("HOME", &root);
+        environment.set("PI_CODING_AGENT_DIR", &pi_agent);
         for name in [
             crate::harness::codex_harness::CODEX_MODEL_ENV,
             crate::harness::claude_harness::CLAUDE_MODEL_ENV,
@@ -195,6 +224,38 @@ mod tests {
             configured_model_catalog("copilot"),
             (vec!["auto".into()], None)
         );
+        let (_, models, default, diagnostic) = pi_model_catalog();
+        assert!(models.is_empty());
+        assert_eq!(default, None);
+        assert!(diagnostic.is_some());
+
+        std::fs::write(pi_agent.join("models.json"), r#"{"providers":{}}"#).unwrap();
+        std::fs::write(pi_agent.join("settings.json"), b"{\"defaultProvider\":").unwrap();
+        let (_, models, default, diagnostic) = pi_model_catalog();
+        assert!(models.is_empty());
+        assert_eq!(default, None);
+        assert!(diagnostic.is_some());
+        drop(cleanup);
+    }
+
+    #[test]
+    fn pi_catalog_failure_has_a_sanitized_provider_local_diagnostic() {
+        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+        let root = std::env::temp_dir().join(format!(
+            "koolade-missing-pi-catalog-{}",
+            uuid::Uuid::new_v4().hyphenated()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let cleanup = Cleanup(root.clone());
+        environment.set("HOME", &root);
+
+        let (_, models, default, diagnostic) = pi_model_catalog();
+
+        assert!(models.is_empty());
+        assert_eq!(default, None);
+        let diagnostic = diagnostic.expect("catalog failure is visible");
+        assert!(diagnostic.starts_with("Model catalog unavailable:"));
+        assert!(!diagnostic.contains(root.to_string_lossy().as_ref()));
         drop(cleanup);
     }
 

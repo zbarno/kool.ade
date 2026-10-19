@@ -43,7 +43,7 @@ fn nonzero_and_empty_catalogs_preserve_installed_readiness() {
 }
 
 #[test]
-fn authentication_failure_is_distinct_and_keeps_installation_identity() {
+fn authentication_keyword_from_model_probe_does_not_classify_auth_state() {
     let root = super::temp_dir("authentication");
     let cli = fake_cli(
         &root,
@@ -51,9 +51,9 @@ fn authentication_failure_is_distinct_and_keeps_installation_identity() {
     );
     let report = probe_report_for(&cli);
     assert_eq!(report.version.as_deref(), Some("2.3.4"));
-    assert_eq!(report.readiness, OpenCodeReadiness::AuthenticationRequired);
-    assert_eq!(report.status, "opencode (authentication required)");
-    assert!(report.diagnostic.contains("auth login"));
+    assert_eq!(report.readiness, OpenCodeReadiness::CatalogUnavailable);
+    assert_eq!(report.status, "opencode 2.3.4 (model catalog unavailable)");
+    assert!(report.diagnostic.contains("model discovery failed"));
     assert!(!report.diagnostic.contains("Authentication required"));
     std::fs::remove_dir_all(root).unwrap();
 }

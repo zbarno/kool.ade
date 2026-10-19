@@ -60,6 +60,7 @@ pub(super) fn invalidate_discovery(
         if provider == id {
             entry.checked_at_unix_ms = 0;
             entry.implementation_available = false;
+            entry.model_catalog_fresh = false;
             entry.capability_snapshot = None;
         }
     }

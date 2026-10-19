@@ -161,6 +161,11 @@ pub(crate) fn manual_executable_path_from(
         return Ok(None);
     };
     let configured = std::path::PathBuf::from(value);
+    if !configured.is_absolute() {
+        return Err(crate::error::AppError::HarnessNotFound {
+            detail: format!("Configured {id} executable path must be absolute"),
+        });
+    }
     let path = configured
         .canonicalize()
         .map_err(|_| crate::error::AppError::HarnessNotFound {
