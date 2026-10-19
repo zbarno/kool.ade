@@ -172,12 +172,15 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
     if typed_marker in prompt:
         typed = json.JSONDecoder().raw_decode(prompt.split(typed_marker, 1)[1].lstrip())[0]
         task_uid = typed.get('task_uid')
-        if task_uid:
-            tasks = root / 'repo' / '.koolade-packet' / 'planning' / 'tasks' / 'fixture'
-            for task in tasks.glob('*-task.md'):
-                if task_uid in task.read_text():
-                    task_number = int(task.name.split('-', 1)[0])
-                    break
+        tasks = root / 'repo' / '.koolade-packet' / 'planning' / 'tasks' / 'fixture'
+        identity_marker = '<!-- koolade-artifact-id:v1 '
+        task_number = next((
+            int(task.name.split('-', 1)[0])
+            for task in tasks.glob('*-task.md')
+            if json.loads(task.read_text().split(identity_marker, 1)[1].split('-->', 1)[0])['uid'] == task_uid
+        ), None)
+        if task_number is None:
+            raise ValueError('typed task UID does not match a task artifact identity')
     output_path = 'src/task-%d.rs' % task_number
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',

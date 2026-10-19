@@ -142,3 +142,59 @@ fn manager_and_work_result_fixtures_match_their_declared_role_schemas() {
         crate::harness::prompt_catalog::validate_output(role, reply, None).unwrap();
     }
 }
+
+#[test]
+fn work_result_fixture_matches_task_identity_without_matching_dependency_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let pi = super::create(root.path());
+    let tasks = root
+        .path()
+        .join("repo/.koolade-packet/planning/tasks/fixture");
+    std::fs::create_dir_all(&tasks).unwrap();
+    let task_uid = "00000000-0000-4000-8000-000000000001";
+    let dependent_uid = "00000000-0000-4000-8000-000000000003";
+    std::fs::write(
+        tasks.join("001-task.md"),
+        format!("# Task 1\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{task_uid}\"}} -->\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        tasks.join("003-task.md"),
+        format!(
+            "{{\"dependencies\":[\"{task_uid}\"]}}\n<!-- koolade-artifact-id:v1 {{\"uid\":\"{dependent_uid}\"}} -->\n"
+        ),
+    )
+    .unwrap();
+    let prompt = format!(
+        "Return WorkResultV1 JSON. Inputs: role, feature_uid, optional task_uid.\nTYPED TASK REQUEST (JSON DATA)\n{{\"task_uid\":\"{task_uid}\"}}"
+    );
+    let output = Command::new(&pi)
+        .env_remove("KOOLADE_MCP_ARGS")
+        .env_remove("KOOLADE_MCP_COMMAND")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut child = output;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(prompt.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let result: serde_json::Value = serde_json::from_str(
+        envelope["messages"][0]["content"][0]["text"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["verification"][0], "test -f src/task-1.rs");
+}

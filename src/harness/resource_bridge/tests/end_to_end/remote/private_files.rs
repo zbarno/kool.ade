@@ -14,6 +14,26 @@ use sha2::Digest;
 /// moderate (one worker and one task clone).
 #[test]
 fn ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid() {
+    run_private_file_grant_e2e(GrantTermination::Revoked);
+}
+
+/// Production boundary: exercises expiry enforcement across the authenticated
+/// SSH controller, worker staging, and rootless Docker while a command is
+/// active. Unit tests cannot prove the worker is cancelled or that its result
+/// is withheld after an in-flight grant expires. Requires rootless Docker,
+/// loopback sshd, and the remote worker binary; setup is moderate.
+#[test]
+fn ssh_worker_stops_active_execution_when_private_file_grant_expires() {
+    run_private_file_grant_e2e(GrantTermination::Expires);
+}
+
+#[derive(Clone, Copy)]
+enum GrantTermination {
+    Revoked,
+    Expires,
+}
+
+fn run_private_file_grant_e2e(termination: GrantTermination) {
     if !cfg!(target_os = "linux")
         || std::env::var("KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1")
     {
@@ -98,7 +118,14 @@ fn ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid() {
         workspace: workspace.clone(),
         confirmed_at_unix_ms: 0,
         expires_at_unix_ms: now
-            + crate::execution::remote::private_files::MAX_PRIVATE_FILE_GRANT_TTL_MS,
+            + match termination {
+                GrantTermination::Revoked => {
+                    crate::execution::remote::private_files::MAX_PRIVATE_FILE_GRANT_TTL_MS
+                }
+                // Leave enough time for SSH and worker startup, then let the
+                // controller observe expiry while the remote command sleeps.
+                GrantTermination::Expires => 20_000,
+            },
         files: vec![PrivateFileSpecV1 {
             path: ".env.production".into(),
             size_bytes: private_bytes.len() as u64,
@@ -131,7 +158,7 @@ fn ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid() {
     ));
     let expected_digest = format!("{:x}", sha2::Sha256::digest(private_bytes));
     let command = format!(
-        "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && printf 'private-file-read-only-ok\\n' && sleep 30 && printf 'stale-private-result\\n' > remote-private-result.txt"
+        "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && printf 'private-file-read-only-ok\\n' && sleep 45 && printf 'stale-private-result\\n' > remote-private-result.txt"
     );
     let run_session = session.clone();
     let mut controller = Some(std::thread::spawn(move || {
@@ -143,14 +170,16 @@ fn ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid() {
         &mut controller,
         &root_path.join("sshd.log"),
     );
-    crate::persistence::remote_private_file_grants::revoke(
-        &crate::persistence::state_root(),
-        &project_id,
-        &grant_id,
-        now + 1,
-        crate::persistence::remote_private_file_grants::PrivateFileGrantRevocationReasonV1::OperatorRevoked,
-    )
-    .unwrap();
+    if matches!(termination, GrantTermination::Revoked) {
+        crate::persistence::remote_private_file_grants::revoke(
+            &crate::persistence::state_root(),
+            &project_id,
+            &grant_id,
+            now + 1,
+            crate::persistence::remote_private_file_grants::PrivateFileGrantRevocationReasonV1::OperatorRevoked,
+        )
+        .unwrap();
+    }
     let outcome = controller
         .take()
         .unwrap()
