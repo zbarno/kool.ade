@@ -1,5 +1,6 @@
 use super::*;
 
+mod denial;
 mod setup;
 
 #[test]

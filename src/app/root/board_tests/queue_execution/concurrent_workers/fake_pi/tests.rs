@@ -203,7 +203,9 @@ fn work_result_fixture_matches_task_identity_without_matching_dependency_ids() {
 fn mcp_task_path_lookup_ignores_dependency_ids_in_other_task_metadata() {
     let root = tempfile::tempdir().unwrap();
     let pi = super::create(root.path());
-    let tasks = root.path().join(".koolade-packet/planning/tasks/fixture");
+    let tasks = root
+        .path()
+        .join("repo/.koolade-packet/planning/tasks/fixture");
     std::fs::create_dir_all(&tasks).unwrap();
     let task_uid = "00000000-0000-4000-8000-000000000001";
     let dependent_uid = "00000000-0000-4000-8000-000000000003";

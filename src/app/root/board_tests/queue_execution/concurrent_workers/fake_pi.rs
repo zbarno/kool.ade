@@ -163,8 +163,20 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
     sys.exit(0)
 typed_marker = 'TYPED TASK REQUEST (JSON DATA)\n'
+def task_number_for_uid(task_uid):
+    tasks = root / 'repo' / '.koolade-packet' / 'planning' / 'tasks' / 'fixture'
+    identity_marker = '<!-- koolade-artifact-id:v1 '
+    task_number = next((
+        int(task.name.split('-', 1)[0])
+        for task in tasks.glob('*-task.md')
+        if json.loads(task.read_text().split(identity_marker, 1)[1].split('-->', 1)[0])['uid'] == task_uid
+    ), None)
+    if task_number is None:
+        raise ValueError('typed task UID does not match a task artifact identity')
+    return task_number
 def task_path_lookup(task_uid):
-    return "for ticket in .koolade-packet/planning/tasks/fixture/*.md; do if sed -n 's/.*<!-- koolade-artifact-id:v1 //p' \"$ticket\" | grep -Fq '\"uid\":\"" + task_uid + "\"'; then sed -n 's/^- //p' \"$ticket\" | grep '^src/'; break; fi; done"
+    task_number = task_number_for_uid(task_uid)
+    return "printf 'src/task-%d.rs\\n'" % task_number
 if prompt.startswith('FIXTURE TASK PATH LOOKUP\n'):
     request = json.loads(prompt.split('\n', 1)[1])
     print(task_path_lookup(request['task_uid']))
@@ -178,15 +190,7 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
     if typed_marker in prompt:
         typed = json.JSONDecoder().raw_decode(prompt.split(typed_marker, 1)[1].lstrip())[0]
         task_uid = typed.get('task_uid')
-        tasks = root / 'repo' / '.koolade-packet' / 'planning' / 'tasks' / 'fixture'
-        identity_marker = '<!-- koolade-artifact-id:v1 '
-        task_number = next((
-            int(task.name.split('-', 1)[0])
-            for task in tasks.glob('*-task.md')
-            if json.loads(task.read_text().split(identity_marker, 1)[1].split('-->', 1)[0])['uid'] == task_uid
-        ), None)
-        if task_number is None:
-            raise ValueError('typed task UID does not match a task artifact identity')
+        task_number = task_number_for_uid(task_uid)
     output_path = 'src/task-%d.rs' % task_number
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',
@@ -267,8 +271,8 @@ request(1, 'initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clie
 server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
 server.stdin.flush()
 if output_path is None:
-    # The reviewed general image contains grep/sed, and no ripgrep. Return
-    # the affected filename itself, so recovery prompts need no ticket prose.
+    # Planning files are outside the isolated worker workspace. Resolve the
+    # synthetic task UID here, then return only its safe fixture source path.
     lookup = task_path_lookup(task_uid)
     response = request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':lookup,'timeout_seconds':60}})
     if 'error' in response or response.get('result', {}).get('isError'):
