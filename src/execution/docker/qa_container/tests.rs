@@ -82,7 +82,8 @@ fn selected_qa_image(profile: RuntimeProfile) -> SelectedImage {
 }
 
 // Boundary: the app-owned Docker lifecycle must upload a bounded artifact,
-// start the pinned QA driver's real smoke entrypoint, collect its output, and
+// start the pinned QA driver's real desktop fixture, collect its interaction
+// and screenshot report, and
 // remove only that owned container on a rootless daemon. A unit test cannot
 // prove Docker's upload/start/log/cleanup behavior. External dependency: a
 // rootless Docker daemon with the just-built desktop candidate loaded. Setup:
@@ -131,7 +132,8 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     let (artifact_upload, _) = mount.snapshot_upload(1024, None).unwrap();
     let artifacts = [mount];
     let uploads = [artifact_upload];
-    let resource_budget = resources();
+    let mut resource_budget = resources();
+    resource_budget.process_count = 128;
     let spec = QaDriverContainerSpec {
         owner_id: &request.execution_session_id,
         request: &request,
@@ -145,7 +147,7 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         resources: &resource_budget,
     };
     let mut body = spec.create_body_with_lock(&lock).unwrap();
-    body.cmd = Some(vec!["--smoke".into()]);
+    body.cmd = Some(vec!["--fixture-smoke".into()]);
     let name = format!("koolade-qa-{}", request.qa_run_id);
     let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
     let output = run_ephemeral_driver(
@@ -160,9 +162,17 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     .await
     .unwrap();
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(response["status"], "ready");
-    assert_eq!(response["display_width"], 1440);
-    assert!(response["screenshot_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(response["status"], "passed");
+    assert_eq!(response["interaction_case"]["click_assertion"], "passed");
+    assert_eq!(response["interaction_case"]["keyboard_assertion"], "passed");
+    assert_eq!(response["egui_application"]["status"], "passed");
+    assert_eq!(
+        response["egui_application"]["screenshots"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
     match docker.inspect_container(&name, None).await {
         Err(bollard::errors::Error::DockerResponseServerError {
             status_code: 404, ..
