@@ -73,6 +73,12 @@ pub(super) fn paint(
             lifecycle.merged_commit_sha.as_deref(),
         );
         state_row(ui, "Deployed", lifecycle.deployed_spec_hash.as_deref());
+        state_row(ui, "Latest production deployment status", lifecycle.deployment_status.as_deref());
+        if let Some(observed_at) = lifecycle.deployment_observed_at_ms {
+            let observed = chrono::DateTime::from_timestamp_millis(observed_at as i64)
+                .map_or_else(|| observed_at.to_string(), |time| time.to_rfc3339());
+            ui.small(format!("Deployment status observed · {observed}"));
+        }
         ui.label(format!(
             "Pull request status · {}",
             lifecycle.pull_request_status.map_or("not recorded", |status| match status {
@@ -272,6 +278,8 @@ mod tests {
             implementation_head_sha: Some("reviewed-head".into()),
             approved_target_hash: Some("approved-hash".into()),
             deployed_spec_hash: None,
+            deployment_status: None,
+            deployment_observed_at_ms: None,
             spec_revision: Some(5),
             spec_status: Some(SpecReconciliationStatusV1::Synchronized),
             pending_spec_triggers: 0,

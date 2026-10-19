@@ -57,6 +57,7 @@ pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
                             | "spec_revision_history"
                             | "current_implementations"
                             | "current_implementation_history"
+                            | "deployments"
                             | "spec_sync_queue"
                             | "opportunities"
                             | "opportunity_decisions"
