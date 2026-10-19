@@ -195,7 +195,7 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',
               'acceptance_criteria':[{'criterion':'File exists.','evidence':output_path+' exists in the isolated fixture workspace.'}],
-              'verification':['test -f '+output_path], 'remaining':[], 'human_choices':[]}
+              'verification':["printf 'verification cwd=%s\\nsrc entries=' \"$PWD\"; printf '%s ' src/*; printf '\\n'; test -f "+output_path], 'remaining':[], 'human_choices':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(output)}]}]}))
     sys.exit(0)
 if typed_marker in prompt:
