@@ -4,15 +4,15 @@ use std::path::{Path, PathBuf};
 mod tests;
 
 pub(super) fn local_root_for_workspace(workspace_id: uuid::Uuid) -> Result<PathBuf, String> {
-    let data_root = user_data_root()?;
-    Ok(workspace_root(&data_root, workspace_id))
+    Ok(workspace_root(&local_root()?, workspace_id))
+}
+
+pub(super) fn local_root() -> Result<PathBuf, String> {
+    Ok(user_data_root()?.join("koolade").join("runtime-qa"))
 }
 
 fn workspace_root(data_root: &Path, workspace_id: uuid::Uuid) -> PathBuf {
-    data_root
-        .join("koolade")
-        .join("runtime-qa")
-        .join(workspace_id.hyphenated().to_string())
+    data_root.join(workspace_id.hyphenated().to_string())
 }
 
 #[cfg(target_os = "windows")]

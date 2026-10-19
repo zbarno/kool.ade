@@ -43,6 +43,11 @@ impl RuntimeQaStore {
         storage_root::local_root_for_workspace(workspace_id)
     }
 
+    /// Return the user-local root containing all workspace-scoped QA records.
+    pub fn local_storage_root() -> Result<PathBuf, String> {
+        storage_root::local_root()
+    }
+
     pub fn save_run(
         &self,
         request: &QaRunRequestV1,

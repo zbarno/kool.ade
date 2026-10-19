@@ -15,8 +15,7 @@ fn local_evidence_storage_is_persistent_and_workspace_scoped() {
     let base = std::path::Path::new("/user-data");
     assert_eq!(
         workspace_root(base, workspace_id),
-        base.join("koolade/runtime-qa")
-            .join(workspace_id.hyphenated().to_string())
+        base.join(workspace_id.hyphenated().to_string())
     );
     assert_ne!(
         workspace_root(base, workspace_id),

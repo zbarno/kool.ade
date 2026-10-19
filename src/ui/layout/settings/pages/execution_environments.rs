@@ -136,7 +136,7 @@ pub(super) fn paint_view(
     ui.label(theme::helper_text(platform_guidance()));
 
     ui.add_space(theme::spacing::L);
-    runtime_qa::paint(ui);
+    runtime_qa::paint(ui, status);
 
     ui.add_space(theme::spacing::L);
     ui.label(theme::section_heading("Remote Workers"));
