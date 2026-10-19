@@ -32,6 +32,14 @@ pub(super) fn probe_with_timeouts(
     .map_err(|error| (error.to_string(), Some(version.clone())))?;
     let (models, catalog_diagnostic, configuration_required) =
         match run(binary, &["models"], catalog_timeout) {
+            Ok((_, stderr, true)) if authentication_required(&stderr) => (
+                Vec::new(),
+                Some(
+                    "Model catalog unavailable because Antigravity authentication is required."
+                        .into(),
+                ),
+                true,
+            ),
             Ok((output, _, true)) => {
                 let models = parse_models(&output);
                 if models.is_empty() {
@@ -79,11 +87,8 @@ pub(super) fn probe_version(
     if !success {
         return Err(("Antigravity version command failed".into(), None));
     }
-    let version = output.lines().next().unwrap_or_default().trim().to_owned();
-    if version.is_empty() {
-        return Err(("Antigravity did not report a version".into(), None));
-    }
-    Ok(version)
+    crate::harness::discovery::normalize_cli_version(&output, &["agy"], false)
+        .ok_or_else(|| ("Antigravity did not report a safe version".into(), None))
 }
 
 fn run(

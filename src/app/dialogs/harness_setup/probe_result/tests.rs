@@ -12,7 +12,7 @@ fn probe() -> HarnessProbe {
         default_model: Some("model-a".into()),
         model_catalog_fresh: true,
         configuration_required: false,
-        authentication: ReadinessState::Unknown,
+        authentication: ReadinessState::Ready,
         implementation_available: false,
     }
 }
@@ -35,7 +35,6 @@ fn conversion_keeps_provider_failure_and_runtime_capability_separate() {
         ReadinessState::Unknown
     );
     assert_eq!(result.model_catalog_status, ModelCatalogStatus::Fresh);
-    assert_eq!(result.authentication, ReadinessState::Unknown);
 }
 
 #[test]
@@ -44,12 +43,20 @@ fn authentication_and_optional_catalog_failures_have_stable_codes() {
     auth.ready = false;
     auth.configuration_required = true;
     auth.authentication = ReadinessState::Unavailable;
+    auth.models.clear();
+    auth.default_model = None;
+    auth.model_catalog_fresh = false;
     auth.diagnostic = Some("Sign in at https://user:secret@example.test/login".into());
     let auth_result = from_harness_probe(&auth, 1, 10, 20);
     assert_eq!(auth_result.status, ProbeStatus::NeedsAuthentication);
     assert_eq!(
         auth_result.diagnostic_code,
         Some(ProbeDiagnosticCode::AuthenticationRequired)
+    );
+    assert!(auth_result.models.is_empty());
+    assert_eq!(
+        auth_result.model_catalog_status,
+        ModelCatalogStatus::NotChecked
     );
     assert!(
         auth_result
@@ -109,16 +116,91 @@ fn typed_result_converts_back_to_legacy_saved_settings() {
 }
 
 #[test]
-fn provider_readiness_does_not_infer_authentication() {
-    let mut successful_version_probe = probe();
-    successful_version_probe.ready = true;
-    successful_version_probe.authentication = ReadinessState::Unknown;
+fn unknown_authentication_never_becomes_ready_implementation_capability() {
+    let mut source = probe();
+    source.authentication = ReadinessState::Unknown;
+    source.implementation_available = true;
 
-    let result = from_harness_probe(&successful_version_probe, 9, 100, 5);
-    assert_eq!(result.status, ProbeStatus::Available);
-    assert_eq!(result.authentication, ReadinessState::Unknown);
-
+    let result = from_harness_probe(&source, 9, 100, 50);
     let legacy = into_harness_probe(&result);
-    assert!(legacy.ready);
+
+    assert_eq!(result.status, ProbeStatus::Installed);
+    assert_eq!(result.authentication, ReadinessState::Unknown);
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unknown
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_implementation,
+        ReadinessState::Unknown
+    );
     assert_eq!(legacy.authentication, ReadinessState::Unknown);
+    assert!(!legacy.ready);
+    assert!(!legacy.implementation_available);
+
+    let mut settings = crate::persistence::harness_settings::HarnessSettings {
+        schema_version: 3,
+        ..Default::default()
+    };
+    super::super::discovery::apply_probe_results(&mut settings, &[source], None, 9);
+    let path = std::env::temp_dir().join(format!("harness-auth-{}.json", uuid::Uuid::new_v4()));
+    crate::persistence::harness_settings::with_settings_path(path.clone(), || {
+        crate::persistence::harness_settings::save(&settings).unwrap();
+        let (loaded, diagnostic) = crate::persistence::harness_settings::load();
+        assert!(diagnostic.is_none());
+        let detected = &loaded.discovered["pi"];
+        assert!(!detected.ready);
+        assert_eq!(
+            detected
+                .capability_snapshot
+                .as_ref()
+                .unwrap()
+                .authentication,
+            ReadinessState::Unknown
+        );
+        assert!(!super::super::has_current_provider_capabilities(
+            "pi",
+            detected,
+            crate::persistence::harness_settings::current_unix_ms()
+        ));
+    });
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn configuration_requirement_roundtrip_preserves_unknown_authentication() {
+    let mut source = probe();
+    source.authentication = ReadinessState::Unknown;
+    source.configuration_required = true;
+    source.ready = false;
+
+    let result = from_harness_probe(&source, 10, 100, 50);
+    let legacy = into_harness_probe(&result);
+
+    assert_eq!(result.authentication, ReadinessState::Unknown);
+    assert_eq!(
+        result.diagnostic_code,
+        Some(ProbeDiagnosticCode::ConfigurationRequired)
+    );
+    assert_eq!(legacy.authentication, ReadinessState::Unknown);
+    assert!(legacy.configuration_required);
+}
+
+#[test]
+fn internal_probe_failure_is_typed_without_claiming_the_provider_is_missing() {
+    let result = internal_failure_result("pi", 12, 100, 8);
+
+    assert_eq!(result.provider_id, "pi");
+    assert_eq!(result.run_generation, 12);
+    assert_eq!(result.status, ProbeStatus::Failed);
+    assert_eq!(result.failure_stage, Some(ProbeKind::Capability));
+    assert_eq!(
+        result.diagnostic_code,
+        Some(ProbeDiagnosticCode::InternalProbeFailure)
+    );
+    assert_eq!(result.binary_path, None);
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unavailable
+    );
 }

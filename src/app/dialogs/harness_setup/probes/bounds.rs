@@ -42,10 +42,12 @@ pub(super) fn bound_report(mut report: HarnessProbe) -> HarnessProbe {
 
     let invalid_catalog = report.models.len() > MAX_MODELS
         || report.models.iter().any(|model| {
-            model.len() > MAX_MODEL_ID_BYTES || model.trim().is_empty() || has_control(model)
+            model.len() > MAX_MODEL_ID_BYTES
+                || !crate::harness::discovery::is_valid_model_identifier(model)
         })
         || report.default_model.as_ref().is_some_and(|model| {
-            model.len() > MAX_MODEL_ID_BYTES || model.trim().is_empty() || has_control(model)
+            model.len() > MAX_MODEL_ID_BYTES
+                || !crate::harness::discovery::is_valid_model_identifier(model)
         });
     if invalid_catalog {
         report.models.clear();
@@ -128,13 +130,34 @@ mod tests {
 
     #[test]
     fn oversized_or_controlled_model_identifiers_are_rejected() {
-        for model in ["m".repeat(257), "model\n-injection".into()] {
+        for model in [
+            "m".repeat(257),
+            "model\n-injection".into(),
+            "openai/gpt token=synthetic-secret".into(),
+        ] {
             let mut report = report();
             report.models = vec![model];
             let bounded = bound_report(report);
             assert!(bounded.models.is_empty());
             assert!(!bounded.model_catalog_fresh);
         }
+    }
+
+    #[test]
+    fn secret_like_default_model_is_removed_before_settings_persistence() {
+        let mut report = report();
+        report.default_model = Some("gpt-5?token=synthetic-secret".into());
+        let bounded = bound_report(report);
+        assert!(bounded.models.is_empty());
+        assert!(bounded.default_model.is_none());
+        assert!(!bounded.model_catalog_fresh);
+        assert!(!bounded.status.contains("synthetic-secret"));
+        assert!(
+            !bounded
+                .diagnostic
+                .unwrap_or_default()
+                .contains("synthetic-secret")
+        );
     }
 
     #[test]
