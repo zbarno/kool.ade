@@ -16,6 +16,10 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+#[path = "docker/tests.rs"]
+mod tests;
+
 /// Executes one scenario in a disposable, image-lock selected Docker driver.
 /// Artifact bytes and any browser service/relay binding must be resolved and
 /// validated by the app before constructing this adapter.
