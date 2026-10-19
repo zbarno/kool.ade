@@ -120,6 +120,24 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         )
         .unwrap();
     let question_uid = question_flow::answer_product_question(&mut app, &feature_uid);
+    let question_store = crate::core::planning::QuestionStore::new(&planning);
+    let (answered_question, _) = question_store.load(&question_uid).unwrap();
+    assert_eq!(
+        answered_question.status,
+        crate::core::planning::QuestionStatus::Answered
+    );
+    assert_eq!(
+        answered_question.answer_text.as_deref(),
+        Some("The workspace operator owns approval.")
+    );
+
+    question_flow::verify_answer_resolution_gate(
+        &lifecycle,
+        &planning,
+        &feature_uid,
+        feature.revision,
+        &answered_question,
+    );
     let feature = lifecycle
         .apply_feature_event(
             &feature_uid,
@@ -128,16 +146,6 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             FeatureEvent::AnswersResolved,
         )
         .unwrap();
-    let question_store = crate::core::planning::QuestionStore::new(&planning);
-    let (question, _) = question_store.load(&question_uid).unwrap();
-    assert_eq!(
-        question.status,
-        crate::core::planning::QuestionStatus::Answered
-    );
-    assert_eq!(
-        question.answer_text.as_deref(),
-        Some("The workspace operator owns approval.")
-    );
     let feature = lifecycle
         .apply_feature_event(
             &feature_uid,

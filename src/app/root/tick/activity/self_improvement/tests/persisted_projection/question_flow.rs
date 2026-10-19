@@ -149,3 +149,56 @@ pub(super) fn answer_product_question(
     let _ = std::fs::remove_dir_all(chat_root);
     question.uid
 }
+
+/// Production boundary: the shared lifecycle store must reject `AnswersResolved`
+/// while a blocking QuestionV1 for the same feature is still open. The prior
+/// app command proves a user's answer is persisted; this check proves lifecycle
+/// readiness reads that durable state rather than trusting an event alone.
+/// Uses the same temporary planning store and no external dependencies.
+pub(super) fn verify_answer_resolution_gate(
+    lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
+    planning: &crate::artifacts::planning_store::PlanningStore,
+    feature_uid: &str,
+    expected_revision: u64,
+    answered_question: &crate::core::planning::QuestionV1,
+) {
+    use crate::core::lifecycle::FeatureEvent;
+    use crate::core::planning::{QuestionStatus, QuestionStore, reconcile_answer};
+
+    let questions = QuestionStore::new(planning);
+    let mut pending = answered_question.clone();
+    pending.uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    pending.question = "Which release boundary applies?".into();
+    pending.status = QuestionStatus::Open;
+    pending.answer_text = None;
+    pending.selected_option = None;
+    pending.answered_by = None;
+    pending.answered_at_ms = None;
+    pending.revision = 0;
+    questions.save(&pending, 0).unwrap();
+
+    assert!(
+        lifecycle
+            .apply_feature_event(
+                feature_uid,
+                expected_revision,
+                &uuid::Uuid::new_v4().hyphenated().to_string(),
+                FeatureEvent::AnswersResolved,
+            )
+            .is_err(),
+        "an unanswered blocking planning question prevents resolving lifecycle questions"
+    );
+
+    let plan_revision = pending.plan_revision;
+    reconcile_answer(
+        &mut pending,
+        0,
+        plan_revision,
+        Some("Only the reviewed PR boundary is in scope."),
+        None,
+        "workspace operator",
+        2,
+    )
+    .unwrap();
+    questions.save(&pending, 1).unwrap();
+}

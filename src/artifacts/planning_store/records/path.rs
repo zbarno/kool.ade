@@ -42,6 +42,7 @@ pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
                             | "workflow"
                             | "items"
                             | "questions"
+                            | "question_catalog"
                             | "readiness"
                             | "tasks"
                             | "lifecycle_features"

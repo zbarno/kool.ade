@@ -105,6 +105,7 @@ pub(crate) fn validate_record_collection(path: &str) -> Result<(), StoreError> {
                 | "state/workflow"
                 | "state/items"
                 | "state/questions"
+                | "state/question_catalog"
                 | "state/readiness"
                 | "state/tasks"
                 | "state/lifecycle_features"
