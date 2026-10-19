@@ -288,11 +288,15 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         projected.independent_plan_review_uid.as_deref(),
         Some(review_uid.as_str())
     );
-    assert_eq!(projected.task_uids, vec![task_uid]);
+    assert_eq!(projected.task_uids, vec![task_uid.clone()]);
     assert!(projected.clone_uid.is_none());
     assert_app_idle(&mut app);
+
+    clone_dispatch::verify_clone_dispatch(&mut app, &lifecycle, &runs, &run_uid, &task_uid);
 }
 
+#[path = "persisted_projection/clone_dispatch.rs"]
+mod clone_dispatch;
 #[path = "persisted_projection/fixtures.rs"]
 mod fixtures;
 #[path = "persisted_projection/question_flow.rs"]
