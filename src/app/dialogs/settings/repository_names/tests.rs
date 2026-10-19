@@ -174,6 +174,40 @@ fn settings_save_commits_trimmed_repository_name_and_reload_restores_it() {
 }
 
 #[test]
+fn project_harness_route_is_committed_and_restored_with_project_state() {
+    let _shield = crate::core::gitops::test_support::shield("project-harness-route-save");
+    let root = fixture();
+    let mut project = test_support::project_from(&root);
+    let mut dialog = DlgProjectSettings::from_project(&project);
+    dialog.harness_routes.insert(
+        crate::persistence::harness_settings::MANAGER.into(),
+        crate::persistence::harness_settings::WorkRoute {
+            harness: "claude".into(),
+            model: Some("synthetic-model".into()),
+        },
+    );
+
+    assert!(dialog.apply(&mut project).unwrap().is_some());
+    assert_eq!(
+        project.state.harness_routes.routes[crate::persistence::harness_settings::MANAGER].harness,
+        "claude"
+    );
+    let reloaded = test_support::project_from(&root);
+    assert_eq!(reloaded.state.harness_routes, project.state.harness_routes);
+    let paths = std::process::Command::new("git")
+        .args(["show", "--format=", "--name-only", "HEAD"])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8(paths.stdout)
+            .unwrap()
+            .contains(".koolade-packet/config/harness-routes.json")
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn clearing_a_saved_repository_name_persists_none_and_preserves_identity() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-clear");
     let root = fixture();

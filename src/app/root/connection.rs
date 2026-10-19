@@ -76,15 +76,17 @@ impl KooladeApp {
             comparison_feature: None,
         };
         project.task_chats.drafts.remove(key);
-        let work_type = work
-            .as_ref()
-            .filter(|work| work.kind == crate::core::planning_work::WorkKind::DocumentationRefresh)
-            .map(|_| crate::persistence::harness_settings::DOCUMENTATION);
+        let work_type = work.as_ref().map(|work| work.kind.harness_route_category());
         let task_routes = work
             .as_ref()
             .map(|work| work.routing_overrides.clone())
             .unwrap_or_default();
-        let harness = configured_harness_for_task(&mut self.task_harness, work_type, &task_routes);
+        let harness = crate::app::root::configured_harness_for_project_task(
+            &mut self.task_harness,
+            work_type,
+            &project.state.harness_routes.routes,
+            &task_routes,
+        );
         let route_label = harness.label();
         project.task_turns.insert(
             key.into(),

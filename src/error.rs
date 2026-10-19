@@ -16,6 +16,10 @@ pub enum AppError {
     HarnessNotFound { detail: String },
     /// The external harness ran but did not produce a usable result.
     HarnessFailed { reason: String, stderr_tail: String },
+    /// Provider failures normalized with the selected role and authority.
+    HarnessExecutionFailed {
+        failure: Box<crate::harness::HarnessExecutionFailure>,
+    },
     /// The harness exceeded its wall-clock budget.
     HarnessTimedOut { secs: u64 },
     /// An installed provider failed its application-defined capability profile.
@@ -58,6 +62,10 @@ impl AppError {
                     )
                 }
             }
+            Self::HarnessExecutionFailed { failure } => format!(
+                "{} {:?} failed during {:?}",
+                failure.provider_id, failure.category, failure.role
+            ),
             Self::HarnessTimedOut { secs } => format!("Pi took longer than {secs}s"),
             Self::ProviderCapabilityMismatch { provider, .. } => {
                 format!("{provider} does not satisfy its required capability profile")
@@ -87,6 +95,23 @@ impl AppError {
                 reason,
                 stderr_tail,
             } => redact_secrets(&format!("{reason}\nstderr:\n{}", stderr_tail.trim())),
+            Self::HarnessExecutionFailed { failure } => {
+                let mut detail = format!(
+                    "Provider: {}\nRole: {:?}\nMode: {:?}\nCategory: {:?}\n{}",
+                    failure.provider_id,
+                    failure.role,
+                    failure.mode,
+                    failure.category,
+                    failure.sanitized_message
+                );
+                if let Some(target) = &failure.target {
+                    detail.push_str(&format!("\nTask workspace: {target}"));
+                }
+                if let Some(fix) = &failure.actionable_fix {
+                    detail.push_str(&format!("\nNext step: {fix}"));
+                }
+                detail
+            }
             Self::HarnessTimedOut { secs } => {
                 format!(
                     "The configured planning budget expired after {secs}s. Already saved stories are preserved; retry task generation to resume. Set KOOLADE_TURN_TIMEOUT_SECS before starting Kool.ad/e to change the budget."

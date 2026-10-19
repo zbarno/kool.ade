@@ -19,6 +19,10 @@ fn classify_provider_failure(reason: &str) -> CodexFailureCategory {
     }
 }
 
+pub(super) fn is_host_code_mode_disabled(reason: &str) -> bool {
+    classify_provider_failure(reason) == CodexFailureCategory::HostCodeModeDisabled
+}
+
 pub(super) fn diagnose_provider_failure(reason: &str, access: ToolAccess) -> String {
     match classify_provider_failure(reason) {
         CodexFailureCategory::HostCodeModeDisabled if access != ToolAccess::None => format!(
@@ -40,10 +44,7 @@ pub(super) fn provider_failure(reason: &str, access: ToolAccess, stderr_tail: St
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CodexFailureCategory, classify_provider_failure, diagnose_provider_failure,
-        provider_failure,
-    };
+    use super::{CodexFailureCategory, classify_provider_failure, diagnose_provider_failure};
     use crate::harness::ToolAccess;
 
     #[test]
@@ -61,7 +62,7 @@ mod tests {
     }
 
     #[test]
-    fn host_code_mode_event_returns_typed_failure_when_mcp_tools_are_available() {
+    fn host_code_mode_event_is_recognized_as_recoverable_when_a_turn_continues() {
         let Some(crate::harness::codex_harness::CodexEvent::Failure(provider_message)) =
             crate::harness::codex_harness::parse_event(
                 r#"{"type":"turn.failed","error":{"message":"code mode is disabled on host"}}"#,
@@ -69,17 +70,10 @@ mod tests {
         else {
             panic!("Codex failure event was not parsed");
         };
-        let error = provider_failure(
-            &provider_message,
-            ToolAccess::BoundedImplementation,
-            "provider stderr".into(),
-        );
-        assert_eq!(
-            error,
-            crate::error::AppError::HarnessFailed {
-                reason: "Codex host code mode is disabled by Kool.ad/e policy. The application MCP tools are configured for this turn; use those tools for repository access. Provider message: code mode is disabled on host".into(),
-                stderr_tail: "provider stderr".into(),
-            }
+        assert!(super::super::is_host_code_mode_disabled(&provider_message));
+        assert!(
+            diagnose_provider_failure(&provider_message, ToolAccess::BoundedImplementation)
+                .contains("application MCP tools are configured")
         );
     }
 

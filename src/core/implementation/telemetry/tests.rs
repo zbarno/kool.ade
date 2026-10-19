@@ -33,6 +33,20 @@ impl AiHarness for UsageHarness {
     fn check_available(&self) -> Result<String, crate::error::AppError> {
         Ok("1.2".into())
     }
+    fn route_provenance(
+        &self,
+        _request: &PlanningRequest,
+    ) -> Option<crate::harness::HarnessRouteProvenance> {
+        Some(crate::harness::HarnessRouteProvenance {
+            provider_id: "codex".into(),
+            role: crate::execution::contract::HarnessRole::Implementer,
+            work_category: Some("implementation".into()),
+            selected_model: Some("model-a".into()),
+            requested_model: Some("model-a".into()),
+            capability_probe_id: Some("synthetic-probe".into()),
+            capability_generation: Some(4),
+        })
+    }
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {
         self.runtime_config_sources
             .lock()
@@ -142,6 +156,19 @@ fn failed_attempt_usage_is_retained_and_retry_appends_a_distinct_record() {
     assert_eq!(records[0].outcome, "failed");
     assert_eq!(records[0].input_tokens, Some(100));
     assert_eq!(records[0].estimated_cost_usd_micros, Some(250));
+    assert_eq!(records[0].routed_harness.as_deref(), Some("codex"));
+    assert_eq!(records[0].provider.as_deref(), Some("example"));
+    assert_eq!(records[0].route_role.as_deref(), Some("Implementer"));
+    assert_eq!(records[0].work_category.as_deref(), Some("implementation"));
+    assert_eq!(
+        records[0].capability_probe_id.as_deref(),
+        Some("synthetic-probe")
+    );
+    assert_eq!(records[0].capability_generation, Some(4));
+    assert_eq!(records[0].model.as_deref(), Some("model-a"));
+    assert_eq!(records[0].requested_model.as_deref(), Some("model-a"));
+    assert_eq!(records[0].thinking_level.as_deref(), Some("medium"));
+    assert_eq!(records[0].execution_mode.as_deref(), Some("Implementation"));
     assert_eq!(records[1].outcome, "completed");
     assert!(std::fs::read_dir(&root).unwrap().next().is_none());
 

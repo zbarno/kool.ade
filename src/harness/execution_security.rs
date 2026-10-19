@@ -66,6 +66,18 @@ pub(crate) use application_boundary::override_test_app_binary;
 pub(crate) use application_boundary::{
     ApplicationBoundary, CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch,
 };
+
+/// Confirm that the installed CLI exposes the invocation and isolation
+/// controls required by its clean application launch profile.
+pub(crate) fn verify_scriptable_invocation(
+    provider_id: &str,
+    executable: &std::path::Path,
+    version: &str,
+) -> anyhow::Result<()> {
+    let provider = CliProvider::from_id(provider_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown CLI provider '{provider_id}'"))?;
+    ProfileProbeEvidence::probe(provider, executable, version.to_owned()).map(|_| ())
+}
 pub(crate) use mcp_server::serve as serve_mcp_server;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -172,6 +184,34 @@ pub(crate) fn for_harness(id: &str) -> Option<HarnessCapabilities> {
 
 pub(crate) fn implementation_route_available(id: &str) -> bool {
     for_harness(id).is_some_and(HarnessCapabilities::supports_implementation)
+}
+
+/// Whether a provider adapter in this build implements the selected mode.
+/// Discovery combines this with the installed CLI's verified launch profile.
+pub(crate) fn supports_mode_contract(id: &str, mode: ExecutionMode) -> bool {
+    for_harness(id).is_some_and(|capabilities| capabilities.supports(mode))
+}
+
+/// Whether this build has a configured app-owned MCP adapter and execution
+/// policy for every public mode and role of a supported CLI. This records the
+/// application bridge contract; a live Docker target is probed separately.
+pub(crate) fn supports_universal_role_contract(id: &str) -> bool {
+    let Some(provider) = CliProvider::from_id(id) else {
+        return false;
+    };
+    let Some(capabilities) = for_harness(id) else {
+        return false;
+    };
+    let profile = provider.profile_requirements();
+    if profile.launch_tokens.is_empty() || profile.capabilities.is_empty() {
+        return false;
+    }
+    ExecutionMode::ALL
+        .into_iter()
+        .all(|mode| capabilities.supports(mode))
+        && crate::execution::contract::HarnessRole::ALL
+            .into_iter()
+            .all(|role| capabilities.supports(role.harness_mode()))
 }
 
 pub(crate) fn summary_for_harness(id: &str) -> &'static str {

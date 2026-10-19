@@ -44,6 +44,8 @@ impl AiHarness for CopilotHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        let reasoning_effort =
+            crate::harness::validate_reasoning_level("copilot", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Copilot CLI", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
             .map_err(|error| {
@@ -63,6 +65,7 @@ impl AiHarness for CopilotHarness {
             model.as_deref(),
             usage_file.as_ref().map(|file| file.path.as_path()),
         );
+        argv.extend(["--effort".into(), reasoning_effort.into()]);
         let mut child_env = Vec::new();
         boundary
             .configure(

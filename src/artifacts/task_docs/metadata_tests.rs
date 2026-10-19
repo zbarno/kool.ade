@@ -128,7 +128,9 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
 
 #[test]
 fn generated_task_routing_round_trips_with_parent_attribution_and_rejects_manager() {
-    use crate::persistence::harness_settings::{IMPLEMENTATION, MANAGER, QA, WorkRoute};
+    use crate::persistence::harness_settings::{
+        IMPLEMENTATION, INVESTIGATION, MANAGER, QA, RECONCILIATION, WorkRoute,
+    };
     let (identity, _, _) = identified_story();
     let source_uid = uuid::Uuid::new_v4().to_string();
     let parent_uid = uuid::Uuid::new_v4().to_string();
@@ -144,6 +146,20 @@ fn generated_task_routing_round_trips_with_parent_attribution_and_rejects_manage
             QA.into(),
             WorkRoute {
                 harness: "claude".into(),
+                model: None,
+            },
+        ),
+        (
+            INVESTIGATION.into(),
+            WorkRoute {
+                harness: "opencode".into(),
+                model: Some("openai/gpt-test".into()),
+            },
+        ),
+        (
+            RECONCILIATION.into(),
+            WorkRoute {
+                harness: "codex".into(),
                 model: None,
             },
         ),

@@ -108,6 +108,16 @@ impl<'a> CaptureHarness<'a> {
             record.phase = Some(phase.clone());
             record.harness_version = version.clone();
             record.thinking_level = Some(request.reasoning_level.clone());
+            record.execution_mode = Some(format!("{:?}", request.mode));
+            if let Some(route) = self.inner.route_provenance(request) {
+                record.routed_harness = Some(route.provider_id);
+                record.route_role = Some(format!("{:?}", route.role));
+                record.work_category = route.work_category;
+                record.model = route.selected_model;
+                record.requested_model = route.requested_model;
+                record.capability_probe_id = route.capability_probe_id;
+                record.capability_generation = route.capability_generation;
+            }
             record.started_at = call
                 .as_ref()
                 .and_then(|call| call.started_at)
@@ -123,8 +133,10 @@ impl<'a> CaptureHarness<'a> {
                 record.provider = call.as_ref().and_then(|call| call.provider.clone());
                 record.api = call.as_ref().and_then(|call| call.api.clone());
                 record.model = call.as_ref().and_then(|call| call.model.clone());
-                record.requested_model =
-                    call.as_ref().and_then(|call| call.requested_model.clone());
+                record.requested_model = call
+                    .as_ref()
+                    .and_then(|call| call.requested_model.clone())
+                    .or(record.requested_model);
                 record.input_tokens = call.as_ref().and_then(|call| call.input_tokens);
                 record.output_tokens = call.as_ref().and_then(|call| call.output_tokens);
                 record.cache_read_tokens = call.as_ref().and_then(|call| call.cache_read_tokens);
@@ -215,6 +227,12 @@ impl Drop for ActiveSpan {
 mod tests;
 
 impl AiHarness for CaptureHarness<'_> {
+    fn route_provenance(
+        &self,
+        request: &PlanningRequest,
+    ) -> Option<crate::harness::HarnessRouteProvenance> {
+        self.inner.route_provenance(request)
+    }
     fn label(&self) -> String {
         self.inner.label()
     }
@@ -257,6 +275,16 @@ fn invocation_outcome(result: &Result<HarnessOutcome, crate::error::AppError>) -
     match result {
         Ok(_) => "completed",
         Err(crate::error::AppError::HarnessTimedOut { .. }) => "timed-out",
+        Err(crate::error::AppError::HarnessExecutionFailed { failure })
+            if failure.category == crate::harness::HarnessFailureCategory::TimedOut =>
+        {
+            "timed-out"
+        }
+        Err(crate::error::AppError::HarnessExecutionFailed { failure })
+            if failure.category == crate::harness::HarnessFailureCategory::Cancelled =>
+        {
+            "cancelled"
+        }
         Err(crate::error::AppError::HarnessFailed { reason, .. })
             if reason.to_ascii_lowercase().contains("cancel") =>
         {

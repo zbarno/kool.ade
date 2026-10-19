@@ -12,7 +12,7 @@ use crate::harness::{
 };
 
 mod failures;
-use failures::provider_failure;
+use failures::{is_host_code_mode_disabled, provider_failure};
 
 impl AiHarness for CodexHarness {
     fn label(&self) -> String {
@@ -36,6 +36,7 @@ impl AiHarness for CodexHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::validate_reasoning_level("codex", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Codex", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
             .map_err(|error| {
@@ -89,6 +90,7 @@ impl AiHarness for CodexHarness {
         let mut stderr = Vec::new();
         let mut exit_status = None;
         let mut final_text = String::new();
+        let mut deferred_host_code_mode_failure = None;
         let mut activity = Vec::new();
         let mut model_calls = Vec::new();
         let started_at = chrono::Utc::now();
@@ -121,7 +123,10 @@ impl AiHarness for CodexHarness {
                     telemetry.updates += 1;
                     if let Some(event) = parse_event(&line) {
                         match event {
-                            CodexEvent::Message(text) => final_text = text,
+                            CodexEvent::Message(text) => {
+                                final_text = text;
+                                deferred_host_code_mode_failure = None;
+                            }
                             CodexEvent::Activity(text) => activity.push(text),
                             CodexEvent::Usage {
                                 call_id,
@@ -152,6 +157,15 @@ impl AiHarness for CodexHarness {
                                 });
                             }
                             CodexEvent::Failure(reason) => {
+                                if is_host_code_mode_disabled(&reason) {
+                                    // Codex can report its deliberately disabled
+                                    // host-native path while continuing with the
+                                    // application MCP tools. Defer the warning
+                                    // until the turn ends; a later assistant
+                                    // result proves the warning was recoverable.
+                                    deferred_host_code_mode_failure = Some(reason);
+                                    continue;
+                                }
                                 return Err(provider_failure(
                                     &reason,
                                     request.mode.tool_access(),
@@ -189,6 +203,13 @@ impl AiHarness for CodexHarness {
                 Err(PollState::Closed) => break,
                 Err(PollState::Pending) => {}
             }
+        }
+        if let Some(reason) = deferred_host_code_mode_failure {
+            return Err(provider_failure(
+                &reason,
+                request.mode.tool_access(),
+                stderr_tail(&stderr),
+            ));
         }
         match exit_status {
             Some(true) => {}

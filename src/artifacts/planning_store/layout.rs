@@ -15,6 +15,7 @@ pub mod paths {
     pub const CONFIG: &str = "config";
     pub const PROJECT_CONFIG: &str = "config/project.md";
     pub const PROJECT_MANIFEST: &str = "config/repositories.json";
+    pub const HARNESS_ROUTES: &str = "config/harness-routes.json";
     pub const PLANNING: &str = "planning";
     pub const PRODUCT: &str = "planning/product";
     pub const PRODUCT_INDEX: &str = "planning/product/index.md";
