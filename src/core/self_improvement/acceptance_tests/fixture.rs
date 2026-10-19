@@ -170,9 +170,10 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
         .env(super::RESTART_CHILD, &planning_root)
         .status()
         .unwrap();
-    assert!(
-        status.success(),
-        "fresh process could not resume the approved run"
+    assert_eq!(
+        status.code(),
+        Some(86),
+        "restart child must persist clone allocation and terminate immediately"
     );
     let planning = PlanningStore::new(project_id, planning_root, StoreMode::ManagedLocal);
     let runs = SelfImprovementStore::new(&planning);

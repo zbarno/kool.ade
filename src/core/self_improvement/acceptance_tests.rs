@@ -44,7 +44,9 @@ fn verify_restart_child() -> bool {
         updated.phase,
         crate::core::self_improvement::SelfImprovementPhaseV1::Implementing
     );
-    true
+    // Terminate without running test-harness teardown or Rust destructors. The
+    // parent verifies that the committed event survives this process boundary.
+    std::process::exit(86)
 }
 
 #[derive(Clone, Copy)]
