@@ -1,22 +1,5 @@
 use super::super::HarnessProbe;
 
-pub(super) fn failed_probe(id: &str, message: &str) -> HarnessProbe {
-    HarnessProbe {
-        id: id.into(),
-        status: format!("{id} (probe failed)"),
-        version: None,
-        executable: None,
-        diagnostic: Some(message.into()),
-        ready: false,
-        models: Vec::new(),
-        default_model: None,
-        model_catalog_fresh: false,
-        configuration_required: false,
-        authentication: crate::execution::contract::ReadinessState::Unknown,
-        implementation_available: false,
-    }
-}
-
 pub(in crate::app::dialogs::harness_setup) fn apply_probe_results(
     settings: &mut crate::persistence::harness_settings::HarnessSettings,
     reports: &[HarnessProbe],
@@ -78,12 +61,14 @@ pub(super) fn update_settings_from_probe(
             version: report.version.clone(),
             executable: report.executable.clone(),
             diagnostic: report.diagnostic.clone(),
-            ready: report.ready,
+            ready: report.ready
+                && report.authentication == crate::execution::contract::ReadinessState::Ready,
             models: report.models.clone(),
             default_model: report.default_model.clone(),
             model_catalog_fresh: report.model_catalog_fresh,
             configuration_required: report.configuration_required,
-            implementation_available: report.implementation_available,
+            implementation_available: report.implementation_available
+                && report.authentication == crate::execution::contract::ReadinessState::Ready,
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
             capability_snapshot: Some(capability_snapshot),
         },
@@ -112,7 +97,9 @@ pub(in crate::app::dialogs::harness_setup) fn update_runtime_readiness(
         }
     }
     for report in reports {
-        report.implementation_available = report.ready && implementation_available;
+        report.implementation_available = report.ready
+            && report.authentication == ReadinessState::Ready
+            && implementation_available;
     }
 }
 

@@ -1,18 +1,12 @@
 use serde_json::{Map, Value, json};
 use std::{fs, io::Read, path::Path};
 
+mod managed;
+
 const CONFIG_LIMIT: u64 = 1_048_576;
 
 pub(super) fn provider_settings() -> anyhow::Result<Value> {
-    for path in [
-        Path::new("/etc/opencode/opencode.json"),
-        Path::new("/etc/opencode/opencode.jsonc"),
-    ] {
-        anyhow::ensure!(
-            !path.exists(),
-            "OpenCode has administrator-managed settings; Kool.ad/e cannot verify its tool policy"
-        );
-    }
+    managed::ensure_absent()?;
     let mut output = json!({
         "permission": {},
         "tools": {},

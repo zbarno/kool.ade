@@ -54,6 +54,8 @@ pub struct LifecycleView {
     pub implementation_head_sha: Option<String>,
     pub approved_target_hash: Option<String>,
     pub deployed_spec_hash: Option<String>,
+    pub deployment_status: Option<String>,
+    pub deployment_observed_at_ms: Option<u64>,
     pub spec_revision: Option<u64>,
     pub spec_status: Option<crate::core::lifecycle::SpecReconciliationStatusV1>,
     pub pending_spec_triggers: usize,

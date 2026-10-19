@@ -2,6 +2,7 @@ use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
 use super::{FeatureEvent, FeatureGoal, TaskEvent, TaskRecord};
 mod current_implementation;
+mod deployment;
 mod feature_delta_authorization;
 mod feature_event;
 mod pr_state;
@@ -22,6 +23,8 @@ pub(crate) use types::Snapshot;
 pub use types::{LifecycleActor, LifecycleEventKind, LifecycleEventRecord};
 pub(super) mod task_transition;
 pub use current_implementation::CurrentImplementationEvidenceV1;
+pub use deployment::DeploymentEvidenceV1;
+pub(crate) use deployment::DeploymentObservation;
 use records::{
     EventProjection, create_pair, event_path, event_record, feature_path, now_unix_ms, task_path,
 };

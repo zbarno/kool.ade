@@ -128,10 +128,7 @@ fn configured_alternate_implementation_route_fails_closed_without_repository_acc
                 configuration_required: false,
                 implementation_available: false,
                 checked_at_unix_ms: now,
-                capability_snapshot: Some(routing::authentication::capability_snapshot(
-                    "codex",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(super::routing::authentication::ready_snapshot("codex")),
             },
         )]),
         ..Default::default()

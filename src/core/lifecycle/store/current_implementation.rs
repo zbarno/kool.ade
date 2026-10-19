@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::artifacts::planning_store::StoreError;
 
-mod origin;
+pub(super) mod origin;
 
 /// Immutable evidence that a merged PR commit is present in a mapped local
 /// repository checkout. Provider-reported SHA values alone never create it.
@@ -56,13 +56,13 @@ impl CurrentImplementationEvidenceV1 {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct CurrentProjection {
-    schema_version: u16,
-    uid: String,
-    created_at_ms: u64,
-    updated_at_ms: u64,
-    revision: u64,
-    record: CurrentImplementationEvidenceV1,
+pub(super) struct CurrentProjection {
+    pub(super) schema_version: u16,
+    pub(super) uid: String,
+    pub(super) created_at_ms: u64,
+    pub(super) updated_at_ms: u64,
+    pub(super) revision: u64,
+    pub(super) record: CurrentImplementationEvidenceV1,
 }
 
 mod promotion;

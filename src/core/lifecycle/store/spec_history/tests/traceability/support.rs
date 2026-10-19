@@ -95,6 +95,7 @@ pub(crate) fn answered_decision(
         depends_on_question_ids: Vec::new(),
         status: crate::core::planning::QuestionStatus::Answered,
         answer_text: Some("Retain the explicit mapping.".into()),
+        evidence_resolution: None,
         selected_option: Some("retain".into()),
         answered_by: Some("Fixture operator".into()),
         answered_at_ms: Some(1),

@@ -181,6 +181,53 @@ fn late_probe_from_previous_generation_cannot_replace_saved_result() {
 }
 
 #[test]
+fn internal_probe_failure_keeps_the_last_record_stale_and_unusable() {
+    let mut settings = HarnessSettings::default();
+    let mut previous = report(true);
+    previous.models = vec!["known-model".into()];
+    previous.default_model = Some("known-model".into());
+    super::super::discovery::apply_probe_results(&mut settings, &[previous], None, 1);
+    super::super::invalidate_discovery(&mut settings, Some("pi"));
+    assert!(!settings.discovered["pi"].model_catalog_fresh);
+    let mut dialog = DlgHarnessSetup {
+        settings,
+        probe_view: ProbeView::Pending,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: Default::default(),
+        probe_rx: None,
+        scan_generation: 22,
+        scan_cancel: None,
+        runtime_available: None,
+        scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
+    };
+    let failure = super::super::probe_result::internal_failure_result("pi", 22, 100, 8);
+
+    dialog.apply_probe_message(super::super::discovery::ProbeMessage::Provider {
+        generation: 22,
+        result: failure,
+    });
+
+    let saved = &dialog.settings.discovered["pi"];
+    assert_eq!(saved.executable.as_deref(), Some("/example/bin/pi"));
+    assert!(saved.ready);
+    assert!(saved.capability_snapshot.is_none());
+    assert!(!saved.is_fresh_at(crate::persistence::harness_settings::current_unix_ms()));
+    assert!(!saved.model_catalog_fresh);
+    assert_eq!(saved.models, ["known-model"]);
+    assert_eq!(
+        dialog.probe_results["pi"].diagnostic_code,
+        Some(crate::harness::discovery::ProbeDiagnosticCode::InternalProbeFailure)
+    );
+    assert_eq!(
+        dialog.probe_results["pi"].model_catalog_status,
+        crate::harness::discovery::ModelCatalogStatus::Stale
+    );
+}
+
+#[test]
 fn closing_discovery_cancels_the_active_provider_scan() {
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let mut dialog = DlgHarnessSetup {
