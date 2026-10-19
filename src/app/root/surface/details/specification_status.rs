@@ -126,6 +126,35 @@ pub(in crate::app::root::surface) fn for_markdown(
             ) => "needs decision",
         Some(_) => "current",
     };
+    let current_implementation = lifecycle
+        .load_current_implementation(&identity.uid)
+        .map_err(|error| error.to_string())?;
+    let deployment = lifecycle
+        .load_deployment_evidence(&identity.uid)
+        .map_err(|error| error.to_string())?;
+    let deployment_status = deployment
+        .as_ref()
+        .zip(current_implementation.as_ref())
+        .filter(|(deployment, current)| deployment.matches_current(current))
+        .map(|(deployment, _)| {
+            deployment.state.clone().unwrap_or_else(|| {
+                if deployment.deployment_id.is_some() {
+                    "deployment found; status unavailable".into()
+                } else {
+                    "no matching production deployment".into()
+                }
+            })
+        });
+    let deployment_observed_at_ms = deployment
+        .as_ref()
+        .zip(current_implementation.as_ref())
+        .filter(|(deployment, current)| deployment.matches_current(current))
+        .map(|(deployment, _)| deployment.observed_at_ms);
+    let deployed_spec_hash = deployment
+        .as_ref()
+        .zip(current_implementation.as_ref())
+        .and_then(|(deployment, current)| deployment.deployed_spec_hash(current))
+        .map(str::to_owned);
     let mut status = crate::ui::FeatureSpecificationStatus {
         feature_uid: Some(identity.uid.clone()),
         current_spec_hash,
@@ -137,10 +166,11 @@ pub(in crate::app::root::surface) fn for_markdown(
             .map(|revision| revision.reconciliation_status),
         outcome_reason: revision.and_then(|revision| revision.outcome_reason),
         pending_triggers,
-        current_implementation: lifecycle
-            .load_current_implementation(&identity.uid)
-            .map_err(|error| error.to_string())?,
+        current_implementation,
         current_implementation_stale: false,
+        deployment_status,
+        deployment_observed_at_ms,
+        deployed_spec_hash,
         ..Default::default()
     };
     if let Some(current) = status.current_implementation.as_ref() {

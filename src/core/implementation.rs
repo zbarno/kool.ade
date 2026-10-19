@@ -7,6 +7,8 @@ mod checks_gate;
 pub mod cleanup;
 mod code_review;
 mod controller;
+mod deployment_refresh;
+pub(crate) use deployment_refresh::needs_refresh as deployment_needs_refresh;
 mod execution;
 mod initial_reconciliation;
 mod integration;
