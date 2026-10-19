@@ -2,10 +2,10 @@ use super::*;
 
 /// Production boundary: the app synchronizer may enter Implementing only after
 /// the normal task implementation reports a ready isolated clone matching the
-/// approved repository, source SHA, and branch pair. A core state-machine test
-/// cannot prove the app projection checks that evidence. Uses the headless app
-/// fixture and a synthetic implementation record; no Docker or network service.
-/// Setup cost is low: one persisted feature task and two synchronizer passes.
+/// approved task, repository, source SHA, and branch pair. A core state-machine
+/// test cannot prove the app projection checks that evidence. Uses the headless
+/// app fixture and synthetic implementation records; no Docker or network.
+/// Setup cost is low: one persisted feature task and repeated sync projections.
 pub(super) fn verify_clone_dispatch(
     app: &mut crate::app::root::KooladeApp,
     lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
@@ -18,13 +18,30 @@ pub(super) fn verify_clone_dispatch(
     let run = runs.load(run_uid).unwrap();
     assert_eq!(run.phase, Phase::Ready);
     let clone_path = std::env::temp_dir().join(format!("task-clone-{task_uid}"));
-    let wrong_target = implementation_record(&run, task_uid, &clone_path, "wrong-repository");
-    insert_implementation(app, wrong_target);
-    synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
-    let still_ready = runs.load(run_uid).unwrap();
-    assert_eq!(still_ready.phase, Phase::Ready);
-    assert!(still_ready.clone_uid.is_none());
-    assert_app_idle(app);
+    for mismatch in [
+        CloneMismatch::Task,
+        CloneMismatch::Repository,
+        CloneMismatch::Kind,
+        CloneMismatch::NotReady,
+        CloneMismatch::PathNotRegistered,
+        CloneMismatch::SourceSha,
+        CloneMismatch::SourceBranch,
+        CloneMismatch::DestinationBranch,
+        CloneMismatch::RepositoryIdentity,
+    ] {
+        let mut target =
+            implementation_record(&run, task_uid, &clone_path, &run.target_repository_uid);
+        mismatch.apply(&mut target);
+        insert_implementation(app, target);
+        synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
+        let still_ready = runs.load(run_uid).unwrap();
+        assert_eq!(still_ready.phase, Phase::Ready, "accepted {mismatch:?}");
+        assert!(
+            still_ready.clone_uid.is_none(),
+            "allocated clone for {mismatch:?}"
+        );
+        assert_app_idle(app);
+    }
 
     let valid_target =
         implementation_record(&run, task_uid, &clone_path, &run.target_repository_uid);
@@ -34,6 +51,37 @@ pub(super) fn verify_clone_dispatch(
     assert_eq!(implementing.phase, Phase::Implementing);
     assert!(implementing.clone_uid.is_some());
     assert_app_idle(app);
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CloneMismatch {
+    Task,
+    Repository,
+    Kind,
+    NotReady,
+    PathNotRegistered,
+    SourceSha,
+    SourceBranch,
+    DestinationBranch,
+    RepositoryIdentity,
+}
+
+impl CloneMismatch {
+    fn apply(self, target: &mut crate::core::implementation::Implementation) {
+        use crate::core::implementation::TaskRepositoryKind;
+
+        match self {
+            Self::Task => target.task_uid = Some(uuid::Uuid::new_v4().to_string()),
+            Self::Repository => target.repository_id = Some("wrong-repository".into()),
+            Self::Kind => target.task_repository_kind = TaskRepositoryKind::LegacyWorktree,
+            Self::NotReady => target.task_repository_ready = false,
+            Self::PathNotRegistered => target.task_repositories.clear(),
+            Self::SourceSha => target.source_commit = Some("wrong-source-sha".into()),
+            Self::SourceBranch => target.source_branch = Some("feat/wrong-source".into()),
+            Self::DestinationBranch => target.destination_branch = Some("release".into()),
+            Self::RepositoryIdentity => target.repository_identity = None,
+        }
+    }
 }
 
 fn implementation_record(
