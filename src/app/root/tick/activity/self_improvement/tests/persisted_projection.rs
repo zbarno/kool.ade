@@ -105,6 +105,19 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             },
         )
         .unwrap();
+    let mut forged_user_approval = user_approval(&snapshot_uid, &hash);
+    forged_user_approval.author_run_id = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+    assert!(
+        lifecycle
+            .apply_feature_event(
+                &feature_uid,
+                feature.revision,
+                &uuid::Uuid::new_v4().to_string(),
+                FeatureEvent::UserPlanDecision(forged_user_approval),
+            )
+            .is_err(),
+        "agent-attributed data cannot be persisted as a user plan approval"
+    );
     synchronize_run(project, &lifecycle, &runs, &run.run_uid).unwrap();
     let projected = runs.load(&run.run_uid).unwrap();
     assert_eq!(projected.phase, Phase::Planning);
