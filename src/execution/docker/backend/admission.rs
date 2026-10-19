@@ -75,9 +75,9 @@ fn capacity_error(unknown: bool) -> ExecutionError {
     ExecutionError::new(
         ExecutionErrorKind::EnvironmentUnavailable,
         if unknown {
-            "Cannot start a local execution while CPU or memory capacity is unknown and another execution owns host capacity"
+            crate::execution::errors::LOCAL_CAPACITY_UNKNOWN_REJECTION
         } else {
-            "Local worker CPU or memory reservation is full"
+            crate::execution::errors::LOCAL_START_CAPACITY_REJECTION
         },
         true,
     )

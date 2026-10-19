@@ -196,12 +196,7 @@ fn work_result_fixture_matches_task_identity_without_matching_dependency_ids() {
             .unwrap(),
     )
     .unwrap();
-    assert!(
-        result["verification"][0]
-            .as_str()
-            .unwrap()
-            .contains("test -f src/task-1.rs")
-    );
+    assert_eq!(result["verification"][0], "test -f src/task-1.rs");
 }
 
 #[test]
