@@ -17,7 +17,7 @@ async fn cancellation_after_stage_out_keeps_durable_artifact_manifest() {
     }
 
     let fixture = Fixture::new();
-    let workspace = workspace();
+    let (workspace, _) = committed_workspace(&fixture);
     let (backend, task_clone) = backend_with_owner(
         &fixture,
         workspace.clone(),

@@ -5,10 +5,17 @@ use std::collections::BTreeSet;
 use crate::{
     execution::contract::WorkspaceRef,
     project_runtime::{
-        AppTargetV1, ProjectCapabilityManifestV1, RuntimeOperation, RuntimeReceiptState,
-        RuntimeReceiptV1,
+        AppSurface, AppTargetV1, ProjectCapabilityManifestV1, RuntimeOperation,
+        RuntimeReceiptState, RuntimeReceiptV1,
     },
 };
+
+pub(super) fn supports_recipe_surface(surface: AppSurface) -> bool {
+    matches!(
+        surface,
+        AppSurface::Web | AppSurface::LinuxDesktop | AppSurface::HeadlessService
+    )
+}
 
 pub(super) type ApprovedCandidate = (
     String,

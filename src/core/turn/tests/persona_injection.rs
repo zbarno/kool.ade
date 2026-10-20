@@ -65,10 +65,11 @@ fn bound_here(home: &LockedPersonaHome) -> bool {
 }
 
 /// Holds `KOOLADE_HOME` pointed at a fresh tagged temp dir for the
-/// guard's lifetime; on drop it REMOVES the variable (not
-/// restores) and wipes the dir, both under the still-held lock.
+/// guard's lifetime; on drop it restores the prior value and wipes
+/// the dir, both under the still-held lock.
 struct LockedPersonaHome {
     home: std::path::PathBuf,
+    previous: Option<std::ffi::OsString>,
     _lock: crate::test_support::ProcessEnvironmentLock,
 }
 
@@ -94,7 +95,11 @@ impl LockedPersonaHome {
                 Some(home.as_os_str()),
                 "KOOLADE_HOME was overwritten between claim and verify",
             );
-            return LockedPersonaHome { home, _lock: lock };
+            return LockedPersonaHome {
+                home,
+                previous: before,
+                _lock: lock,
+            };
         }
         drop(lock);
         panic!("could not observe a settled KOOLADE_HOME in five escalated waits");
@@ -104,7 +109,12 @@ impl LockedPersonaHome {
 impl Drop for LockedPersonaHome {
     fn drop(&mut self) {
         // Panic-free by construction — this may run during unwind.
-        unsafe { std::env::remove_var("KOOLADE_HOME") };
+        unsafe {
+            match self.previous.take() {
+                Some(previous) => std::env::set_var("KOOLADE_HOME", previous),
+                None => std::env::remove_var("KOOLADE_HOME"),
+            }
+        }
         let _ = std::fs::remove_dir_all(&self.home);
     }
 }

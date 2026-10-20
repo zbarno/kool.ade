@@ -79,6 +79,11 @@ impl Fixture {
     }
 
     pub(super) fn commit_task_clone(path: &std::path::Path) -> String {
+        fs::write(
+            path.join("runtime-fixture.txt"),
+            "synthetic committed source\n",
+        )
+        .expect("write synthetic task source");
         let run_git = |args: &[&str]| {
             let output = Command::new("git")
                 .args(args)
@@ -147,6 +152,13 @@ pub(super) fn workspace() -> WorkspaceRef {
         task_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         source_sha: "a".repeat(40),
     }
+}
+
+pub(super) fn committed_workspace(fixture: &Fixture) -> (WorkspaceRef, PathBuf) {
+    let mut workspace = workspace();
+    let task_clone = fixture.task_clone(&workspace);
+    workspace.source_sha = Fixture::commit_task_clone(&task_clone);
+    (workspace, task_clone)
 }
 
 pub(super) fn request(workspace: WorkspaceRef, script: &str) -> ExecutionRequestV1 {

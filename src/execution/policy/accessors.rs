@@ -13,6 +13,10 @@ impl ExecutionPolicyV1 {
         self.approved_recipe_command.as_ref()
     }
 
+    pub fn requires_reviewed_source_checkout(&self) -> bool {
+        self.mode == ExecutionModeV1::Verification && self.approved_recipe_command.is_some()
+    }
+
     pub fn mode(&self) -> ExecutionModeV1 {
         self.mode
     }
