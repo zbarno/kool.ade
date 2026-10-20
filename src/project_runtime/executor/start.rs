@@ -66,11 +66,18 @@ pub(super) fn execute(
     let artifact_paths = build_artifacts.paths;
     let build_hashes = build_artifacts.hashes;
     let script = start_script(manifest, target, recipe, probe)?;
+    let authorization_ref = session.verify_local_recipe_approval(
+        store,
+        &target.target_id,
+        recipe,
+        Some(&target.project_relative_root),
+    )?;
     let timeout = Duration::from_secs(recipe.timeout_seconds.min(MAX_START_SECONDS));
     let (output, process) = match session.start_scoped_runtime_process_with_artifacts(
         &script,
         timeout,
         &target.project_relative_root,
+        authorization_ref,
         &artifact_paths,
     ) {
         Ok(result) => result,

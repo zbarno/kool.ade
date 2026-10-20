@@ -127,38 +127,52 @@ impl ExecutionSession {
         use std::collections::BTreeSet;
 
         self.renew_remote_capacity_lease()?;
-        self.verify_local_recipe_approval(runtime, target_id, recipe, Some(target_root))?;
+        let authorization_ref =
+            self.verify_local_recipe_approval(runtime, target_id, recipe, Some(target_root))?;
         recipe
             .validate()
             .map_err(|_| policy_error("Project execution recipe failed validation"))?;
-        if self.mode != crate::execution::contract::ExecutionModeV1::Verification
-            || recipe.source != crate::project_runtime::RecipeSource::UserApproved
-        {
+        if self.mode != crate::execution::contract::ExecutionModeV1::Verification {
             return Err(policy_error(
-                "Scoped recipe execution requires an explicitly user-approved verification recipe",
+                "Scoped recipe execution requires verification mode",
             ));
         }
-        let approval = recipe
-            .evidence_refs
-            .iter()
-            .find(|reference| reference.starts_with("user-approval:"))
-            .cloned()
-            .ok_or_else(|| policy_error("Recipe approval evidence is missing"))?;
         let working_directory = strip_target_root(target_root, &recipe.working_directory_relative)?;
         validate_artifact_outputs(recipe, target_root, artifact_paths)?;
-        let policy = ExecutionPolicyV1::for_approved_recipe(
-            self.resources.clone(),
-            target_root.to_owned(),
-            approval,
-            recipe.executable_id.clone(),
-            recipe.argv.clone(),
-            working_directory.clone(),
-            recipe
-                .allowed_env_keys
-                .iter()
-                .cloned()
-                .collect::<BTreeSet<_>>(),
-        )
+        let environment = recipe
+            .allowed_env_keys
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let policy = match &recipe.source {
+            crate::project_runtime::RecipeSource::UserApproved => {
+                ExecutionPolicyV1::for_approved_recipe(
+                    self.resources.clone(),
+                    target_root.to_owned(),
+                    authorization_ref,
+                    recipe.executable_id.clone(),
+                    recipe.argv.clone(),
+                    working_directory.clone(),
+                    environment,
+                )
+            }
+            crate::project_runtime::RecipeSource::TrustedAdapter => {
+                ExecutionPolicyV1::for_trusted_adapter_recipe(
+                    self.resources.clone(),
+                    target_root.to_owned(),
+                    authorization_ref,
+                    recipe.executable_id.clone(),
+                    recipe.argv.clone(),
+                    working_directory.clone(),
+                    environment,
+                )
+            }
+            crate::project_runtime::RecipeSource::ValidatedProjectConfig => {
+                return Err(policy_error(
+                    "Project-config recipes require independent validation before execution",
+                ));
+            }
+        }
         .map_err(|_| policy_error("Scoped recipe authorization is invalid"))?;
         if self
             .busy
@@ -201,13 +215,13 @@ impl ExecutionSession {
         result
     }
 
-    fn verify_local_recipe_approval(
+    pub(crate) fn verify_local_recipe_approval(
         &self,
         runtime: &crate::project_runtime::ProjectRuntimeStore<'_>,
         target_id: &str,
         recipe: &crate::project_runtime::ExecutionRecipeV1,
         expected_root: Option<&str>,
-    ) -> Result<(), ExecutionError> {
+    ) -> Result<String, ExecutionError> {
         let manifest = runtime
             .load_manifest()
             .map_err(|_| policy_error("Project runtime approval state is unavailable"))?
@@ -241,7 +255,25 @@ impl ExecutionSession {
                 "Recipe has no matching local approval for this selected task target",
             ));
         }
-        Ok(())
+        match &recipe.source {
+            crate::project_runtime::RecipeSource::UserApproved => recipe
+                .evidence_refs
+                .iter()
+                .find(|reference| reference.starts_with("user-approval:"))
+                .cloned()
+                .ok_or_else(|| policy_error("Recipe approval evidence is missing")),
+            crate::project_runtime::RecipeSource::TrustedAdapter => {
+                let origin =
+                    crate::project_runtime::ProjectRuntimeStore::trusted_adapter_origin_sha256(
+                        &manifest, target,
+                    )
+                    .map_err(|_| policy_error("Trusted adapter provenance is unavailable"))?;
+                Ok(format!("trusted-adapter-provenance:{origin}"))
+            }
+            crate::project_runtime::RecipeSource::ValidatedProjectConfig => Err(policy_error(
+                "Project-config recipes require independent validation before execution",
+            )),
+        }
     }
 }
 

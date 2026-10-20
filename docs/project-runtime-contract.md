@@ -29,18 +29,38 @@ target and operation only when its source is explicitly `user_approved`.
 Approval evidence is recorded on that recipe. These controller-facing APIs
 preserve task/source identity and do not themselves grant Docker or
 dependency-broker capabilities.
-`add_user_target_override` and `ProjectRuntimeStore::add_user_target_and_save`
-let an authenticated controller add an explicitly selected target for an
-unknown stack. The target can select an app surface and project-relative root;
-its recipes must cite the controller's approval reference. A generic logical
-tool ID and discrete argv are allowed, so no Rust/npm-specific adapter is
-required to describe an unfamiliar project. Task Details does not yet expose
-the custom-target form; it currently exposes discovery, selection, and recipe
-approval for detected targets.
+For detected targets, the Build approval form accepts a bounded list of
+expected output paths relative to the app root. The same canonical paths are
+stored as the output allowlist and expected artifacts, so the build receipt can
+only pass after those files are captured and hashed.
+`add_user_target_override` remains a controller-level proposal helper.
+`ProjectRuntimeStore::add_user_target_and_save` accepts a user `GateReceipt`
+whose subject hash covers the target, recipes, readiness probe, task,
+workspace, repository, and source identity. The store writes the receipt and
+manifest atomically with revision fences, while a separate operator-local
+record binds the same proposal and receipt to the current user. Execution
+requires both records and fails closed if the local approval is absent, stale,
+or revoked; shared planning JSON alone cannot authorize a `user-target-*`.
+A caller-provided approval string alone cannot authorize a custom target. The
+readiness-aware variant also persists the matching probe atomically. Task
+Details exposes a custom-target form for selecting Web, Linux desktop, or
+Headless service and a repository-relative app root. Build and test recipes
+can be omitted independently, but at least one complete recipe is required.
+A Start recipe requires a Build recipe because Start consumes verified build
+artifacts. Each recipe needs a logical executable ID and discrete argv, and is
+validated and saved with the same user-approval evidence and revision fence as
+recipes for detected targets. Build artifact paths are relative to the app
+root. Start recipes also save a surface-appropriate readiness probe (HTTP for
+Web, local health for services, process alive for Linux desktop). The new
+target remains `ReadyButUntested`; approval is not QA evidence. Target
+selection remains an explicit Task Details action when the manifest has
+multiple targets.
 
 `ExecutionRecipeV1` stores a logical executor tool ID and discrete arguments.
 It rejects shell-evaluation switches, absolute or parent-traversing paths,
 protected environment variables, unbounded timeouts, and Git metadata output.
+Recipe working directories and output paths are relative to the selected
+target's project root.
 `ProjectRuntimeExecutor` resolves the selected target and recipe from the saved
 manifest, checks the task and source SHA against the assigned workspace, rejects
 metadata-only recipes, and dispatches discrete argv through a Docker
@@ -55,7 +75,7 @@ Example recipe payload:
   "schema_version": 1,
   "recipe_id": "web-build",
   "source": "user_approved",
-  "working_directory_relative": "apps/site",
+  "working_directory_relative": ".",
   "executable_id": "npm",
   "argv": ["run", "build"],
   "allowed_env_keys": [],

@@ -1,5 +1,6 @@
 use super::ExecutionPolicyV1;
 use crate::execution::{contract::ExecutionModeV1, contract::ExecutionRequestV1};
+use sha2::Digest;
 
 impl ExecutionPolicyV1 {
     pub fn validate_request(&self, request: &ExecutionRequestV1) -> anyhow::Result<()> {
@@ -27,7 +28,14 @@ impl ExecutionPolicyV1 {
             anyhow::ensure!(
                 request.argv == exact_argv
                     && request.working_directory_relative == approved.working_directory_relative
-                    && request.environment_allowlist == approved.allowed_environment_names,
+                    && request.environment_allowlist == approved.allowed_environment_names
+                    && match (&approved.stdin_script_sha256, &request.stdin) {
+                        (Some(expected), Some(script)) => {
+                            format!("{:x}", sha2::Sha256::digest(script.as_bytes())) == *expected
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    },
                 "execution request differs from the explicitly approved project recipe"
             );
         } else {
@@ -150,8 +158,7 @@ impl ExecutionPolicyV1 {
                     && self
                         .filesystem
                         .contains(&FilesystemGrantV1::WorkspaceScopedWrite)
-                    && command.approval_ref.starts_with("user-approval:")
-                    && command.approval_ref.len() <= 2048
+                    && super::valid_recipe_authorization_ref(&command.approval_ref)
                     && command.executable_id.len() <= 128
                     && self.command_capabilities.contains(&command.executable_id)
                     && command.argv.len() <= 128
@@ -159,6 +166,12 @@ impl ExecutionPolicyV1 {
                         .argv
                         .iter()
                         .all(|arg| arg.len() <= 4096 && !arg.contains('\0'))
+                    && command.stdin_script_sha256.as_ref().is_none_or(|digest| {
+                        command.executable_id == "sh"
+                            && command.argv == ["-s"]
+                            && digest.len() == 64
+                            && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
                     && command.allowed_environment_names == self.environment_names,
                 "approved recipe command grant is invalid"
             );
@@ -193,7 +206,7 @@ pub(super) fn validate_write_scope(value: &str) -> anyhow::Result<()> {
             && path
                 .components()
                 .all(|component| matches!(component, std::path::Component::Normal(_))),
-        "workspace write scope must be a non-root relative directory"
+        "workspace write scope must be a canonical relative directory"
     );
     anyhow::ensure!(
         !path

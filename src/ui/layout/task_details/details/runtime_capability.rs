@@ -1,9 +1,12 @@
 use crate::ui::{Surface, task_detail};
 
+mod target_override;
+
 #[derive(Clone, Default)]
 struct RecipeDraft {
     executable_id: String,
     argv_lines: String,
+    artifact_paths: String,
     readiness_port: String,
     readiness_path: String,
 }
@@ -48,6 +51,7 @@ pub(super) fn paint(
         let Some(revision) = runtime.manifest_revision else {
             return;
         };
+        target_override::paint(ui, surface, ticket, revision);
         if runtime.targets.is_empty() {
             ui.label("No targets are recorded for this task.");
             return;
@@ -149,6 +153,10 @@ fn recipe_form(
             });
             ui.label("Web targets require an approved local port; Linux desktop targets use process readiness.");
         }
+        if operation == task_detail::RuntimeRecipeOperation::Build {
+            ui.label("Expected output paths relative to the app root, one per line");
+            ui.text_edit_multiline(&mut draft.artifact_paths);
+        }
         if ui
             .add_enabled(
                 !draft.executable_id.trim().is_empty() && !draft.argv_lines.trim().is_empty(),
@@ -162,8 +170,11 @@ fn recipe_form(
                     ticket: ticket.to_owned(),
                     target_id: target.target_id.clone(),
                     operation,
+                    approval_proof:
+                        crate::ui::layout::RuntimeTargetApprovalProof::from_user_approval_click(),
                     executable_id: draft.executable_id.trim().to_owned(),
                     argv_lines: draft.argv_lines.clone(),
+                    artifact_paths: draft.artifact_paths.clone(),
                     readiness_port: draft.readiness_port.clone(),
                     readiness_path: draft.readiness_path.clone(),
                     expected_manifest_revision: revision,
@@ -176,4 +187,13 @@ fn recipe_form(
 
 fn dispatch(surface: &mut dyn Surface, command: task_detail::Command) {
     surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(command));
+}
+
+#[cfg(test)]
+pub(in crate::ui::layout::task_details) fn seed_custom_target_repository_root_draft(
+    context: &egui::Context,
+    ticket: &str,
+    app_surface: crate::project_runtime::AppSurface,
+) {
+    target_override::seed_test_repository_root_draft(context, ticket, app_surface);
 }

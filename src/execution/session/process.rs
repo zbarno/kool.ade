@@ -97,12 +97,14 @@ impl ExecutionSession {
         script: &str,
         timeout: Duration,
         root_relative: &str,
+        authorization_ref: String,
         artifact_paths: &[String],
     ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
-        let policy = crate::execution::policy::ExecutionPolicyV1::for_scoped_workspace_write(
-            self.mode,
+        let policy = crate::execution::policy::ExecutionPolicyV1::for_scoped_runtime_launcher(
             self.resources.clone(),
             root_relative.to_owned(),
+            authorization_ref,
+            script,
         )
         .and_then(|policy| policy.with_artifact_paths(artifact_paths.to_vec()))
         .map_err(|_| policy_error("Scoped runtime process authorization is invalid"))?;

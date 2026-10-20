@@ -116,8 +116,8 @@ impl Drop for LockedPersonaHome {
 /// pre-execution diagnostic notice. Incumbent-paced 250ms polls:
 /// gitops subprocess launches open LiveProgress gaps in the tens
 /// of ms, so the probe interval must exceed them. A bounded
-/// run of consecutive idle probes distinguishes ordinary silence
-/// from a truly vanished turn (closed channel idles forever).
+/// run of consecutive idle probes distinguishes ordinary silence from a truly
+/// vanished turn (closed channel idles forever), including under suite load.
 fn drain_collecting(controller: &TurnController) -> (TurnOutcome, Vec<String>) {
     const IDLE_BUDGET: usize = 120;
     let mut activities = Vec::new();
@@ -133,9 +133,7 @@ fn drain_collecting(controller: &TurnController) -> (TurnOutcome, Vec<String>) {
             Some(TurnEvt::Done(o)) => return (*o, activities),
             None => {
                 idle += 1;
-                if idle >= IDLE_BUDGET {
-                    panic!("turn vanished: no terminal event within {IDLE_BUDGET} idle probes");
-                }
+                assert!(idle < IDLE_BUDGET, "turn vanished: no terminal event");
             }
         }
     }

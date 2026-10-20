@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "tests/custom_target.rs"]
+mod custom_target;
+#[path = "tests/custom_target_provenance.rs"]
+mod custom_target_provenance;
 #[path = "tests/discovery.rs"]
 mod discovery;
 #[path = "tests/store.rs"]

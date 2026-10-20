@@ -4,7 +4,7 @@ mod lifecycle_publication;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
-mod runtime_capability;
+pub(super) mod runtime_capability;
 mod target;
 
 pub(super) fn paint(

@@ -7,7 +7,45 @@ use crate::{
     ui::task_detail::RuntimeRecipeOperation,
 };
 
+mod recipe_artifacts;
+mod target_override;
+
 impl KooladeApp {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn add_runtime_target(
+        &mut self,
+        ticket: &str,
+        app_surface: AppSurface,
+        project_relative_root: &str,
+        artifact_paths: &str,
+        build: &crate::ui::task_detail::RuntimeRecipeInput,
+        test: &crate::ui::task_detail::RuntimeRecipeInput,
+        start: &crate::ui::task_detail::RuntimeRecipeInput,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
+        readiness_port: &str,
+        readiness_path: &str,
+        expected_revision: u64,
+    ) {
+        let result = match &self.screen {
+            Screen::Connected(project) => target_override::add(
+                project,
+                ticket,
+                app_surface,
+                project_relative_root,
+                artifact_paths,
+                build,
+                test,
+                start,
+                approval_proof,
+                readiness_port,
+                readiness_path,
+                expected_revision,
+            ),
+            Screen::Welcome => Err("Connect a project before adding a runtime target.".into()),
+        };
+        self.runtime_capability_result(result);
+    }
+
     pub(super) fn discover_runtime_targets(&mut self, ticket: &str) {
         let result = match &self.screen {
             Screen::Connected(project) => (|| {
@@ -107,8 +145,10 @@ impl KooladeApp {
         ticket: &str,
         target_id: &str,
         ui_operation: RuntimeRecipeOperation,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         executable_id: &str,
         argv_lines: &str,
+        artifact_paths: &str,
         readiness_port: &str,
         readiness_path: &str,
         expected_revision: u64,
@@ -164,8 +204,9 @@ impl KooladeApp {
                     {
                         return Err("Recipe arguments contain control characters or exceed the argument limit.".into());
                     }
-                    let approval_id = uuid::Uuid::new_v4();
-                    let recipe_id = format!("user-{}", approval_id.simple());
+                    let artifact_paths = recipe_artifacts::parse(artifact_paths)?;
+                    let approval_id = approval_proof.receipt_uid();
+                    let recipe_id = format!("user-{}", approval_id.replace('-', ""));
                     let recipe = ExecutionRecipeV1 {
                         schema_version: 1,
                         recipe_id: recipe_id.clone(),
@@ -174,10 +215,10 @@ impl KooladeApp {
                         executable_id: executable_id.trim().to_owned(),
                         argv,
                         allowed_env_keys: Vec::new(),
-                        allowed_output_paths: Vec::new(),
+                        allowed_output_paths: artifact_paths.clone(),
                         timeout_seconds: 1200,
                         expected_exit_codes: vec![0],
-                        expected_artifacts: Vec::new(),
+                        expected_artifacts: artifact_paths,
                         cache_scope: None,
                         prerequisite_tool_ids: vec![executable_id.trim().to_owned()],
                         network_requirement: NetworkRequirement::Denied,
@@ -209,7 +250,14 @@ impl KooladeApp {
                     } else {
                         None
                     };
-                    store.approve_recipe_with_readiness_and_save(target_id, operation, recipe, readiness, expected_revision)
+                    store.approve_recipe_with_readiness_and_save(
+                        target_id,
+                        operation,
+                        recipe,
+                        readiness,
+                        approval_proof,
+                        expected_revision,
+                    )
                     .map(|_| "Runtime recipe explicitly approved and saved. It has not been executed.".to_owned())
                     .map_err(|error| error.to_string())
                 })()
