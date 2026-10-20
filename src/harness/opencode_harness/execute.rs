@@ -30,6 +30,8 @@ impl AiHarness for OpenCodeHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        let reasoning_variant =
+            crate::harness::validate_reasoning_level("opencode", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("OpenCode", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
             .map_err(|error| {
@@ -55,6 +57,7 @@ impl AiHarness for OpenCodeHarness {
         if let Some(model) = &model {
             argv.extend(["--model".into(), model.clone()]);
         }
+        argv.extend(["--variant".into(), reasoning_variant.into()]);
         let prompt = prompt_input(request, boundary.system_policy());
         let mut env = Vec::new();
         boundary

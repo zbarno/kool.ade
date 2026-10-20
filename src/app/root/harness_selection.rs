@@ -1,11 +1,65 @@
-use crate::harness::{
-    AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, CopilotHarness, OpenCodeHarness,
-    PiHarness,
-};
+mod role_router;
 mod route_readiness;
+mod routing;
 mod wrappers;
+#[cfg(test)]
+use crate::harness::AiHarness;
+pub(crate) use role_router::role_for_work_category;
 use route_readiness::has_current_authenticated_snapshot;
+#[cfg(test)]
+pub(crate) use routing::configured_harness_for_task;
+pub(crate) use routing::{configured_harness_for_project, configured_harness_for_project_task};
+#[cfg(test)]
 use wrappers::{ImplementationQaHarness, RoutedHarness, UnavailableHarness};
+
+#[cfg(test)]
+fn route_selection<'a>(
+    settings: &'a crate::persistence::harness_settings::HarnessSettings,
+    work_type: Option<&'a str>,
+    legacy: Option<&'a str>,
+    task_route: Option<&'a crate::persistence::harness_settings::WorkRoute>,
+) -> (
+    Option<&'a str>,
+    Option<&'a crate::persistence::harness_settings::WorkRoute>,
+) {
+    routing::route_selection(
+        settings,
+        empty_project_routes(),
+        work_type,
+        legacy,
+        task_route,
+    )
+}
+
+#[cfg(test)]
+fn empty_project_routes()
+-> &'static std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute> {
+    static ROUTES: std::sync::OnceLock<
+        std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    > = std::sync::OnceLock::new();
+    ROUTES.get_or_init(std::collections::BTreeMap::new)
+}
+
+#[cfg(test)]
+fn routed_harness(
+    settings: &crate::persistence::harness_settings::HarnessSettings,
+    work_type: Option<&str>,
+    legacy: Option<&str>,
+    task_route: Option<&crate::persistence::harness_settings::WorkRoute>,
+) -> Box<dyn crate::harness::AiHarness> {
+    routing::routed_harness(
+        settings,
+        empty_project_routes(),
+        work_type,
+        legacy,
+        task_route,
+    )
+}
+
+#[cfg(test)]
+fn resolve(selected: Option<&str>) -> Box<dyn crate::harness::AiHarness> {
+    routing::resolve(selected)
+}
 
 pub(crate) fn validate_task_routes(
     settings: &crate::persistence::harness_settings::HarnessSettings,
@@ -17,12 +71,7 @@ pub(crate) fn validate_task_routes(
                 "Kool.ad/e Manager is application-routed and cannot be overridden by a task".into(),
             );
         }
-        if !matches!(
-            category.as_str(),
-            crate::persistence::harness_settings::IMPLEMENTATION
-                | crate::persistence::harness_settings::QA
-                | crate::persistence::harness_settings::DOCUMENTATION
-        ) {
+        if !crate::persistence::harness_settings::is_task_routable_category(category) {
             return Err(format!(
                 "Task work category '{category}' cannot be overridden"
             ));
@@ -55,8 +104,21 @@ pub(crate) fn validate_task_routes(
                 route.harness
             ));
         }
-        if !detected.implementation_available
-            || !crate::harness::implementation_route_available(&route.harness)
+        let role = role_for_work_category(category).ok_or_else(|| {
+            format!("Task work category '{category}' has no supported harness role")
+        })?;
+        if !detected.supports_role_at(
+            role,
+            crate::persistence::harness_settings::current_unix_ms(),
+        ) {
+            return Err(format!(
+                "Harness '{}' has no current capability proof for the {category} role; refresh Coding tools and review its provider diagnostics",
+                route.harness
+            ));
+        }
+        if *category == crate::persistence::harness_settings::IMPLEMENTATION
+            && (!detected.implementation_available
+                || !crate::harness::implementation_route_available(&route.harness))
         {
             return Err(format!(
                 "Harness '{}' cannot run inside Kool.ad/e's application-owned Docker execution session. Select a supported tool before starting the task.",
@@ -74,196 +136,6 @@ pub(crate) fn validate_task_routes(
         }
     }
     Ok(())
-}
-
-pub(crate) fn configured_harness(
-    override_harness: &mut Option<Box<dyn AiHarness>>,
-) -> Box<dyn AiHarness> {
-    configured_harness_for(override_harness, None)
-}
-
-pub(crate) fn configured_harness_for(
-    override_harness: &mut Option<Box<dyn AiHarness>>,
-    work_type: Option<&str>,
-) -> Box<dyn AiHarness> {
-    configured_harness_for_task(override_harness, work_type, &Default::default())
-}
-
-pub(crate) fn configured_harness_for_task(
-    override_harness: &mut Option<Box<dyn AiHarness>>,
-    work_type: Option<&str>,
-    task_routes: &std::collections::BTreeMap<
-        String,
-        crate::persistence::harness_settings::WorkRoute,
-    >,
-) -> Box<dyn AiHarness> {
-    if let Some(harness) = override_harness.take() {
-        return harness;
-    }
-    let settings = crate::persistence::harness_settings::load().0;
-    if work_type == Some(crate::persistence::harness_settings::MANAGER)
-        && task_routes.contains_key(crate::persistence::harness_settings::MANAGER)
-    {
-        return Box::new(UnavailableHarness(
-            "Kool.ad/e Manager is application-routed and cannot be overridden by a task".into(),
-        ));
-    }
-    let legacy = (std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() == Ok("codex"))
-        .then_some("codex");
-    // An uncategorized task turn is context-only. If an implementation route
-    // was explicitly configured, still use and validate it instead of silently
-    // falling back to the global default.
-    let task_route = work_type
-        .and_then(|category| task_routes.get(category))
-        .or_else(|| {
-            work_type
-                .is_none()
-                .then(|| task_routes.get(crate::persistence::harness_settings::IMPLEMENTATION))
-                .flatten()
-        });
-    let harness = routed_harness(&settings, work_type, legacy, task_route);
-    if work_type == Some(crate::persistence::harness_settings::IMPLEMENTATION) {
-        let qa = routed_harness(
-            &settings,
-            Some(crate::persistence::harness_settings::QA),
-            legacy,
-            task_routes.get(crate::persistence::harness_settings::QA),
-        );
-        Box::new(ImplementationQaHarness {
-            implementation: harness,
-            qa,
-        })
-    } else {
-        harness
-    }
-}
-
-fn routed_harness(
-    settings: &crate::persistence::harness_settings::HarnessSettings,
-    work_type: Option<&str>,
-    legacy: Option<&str>,
-    task_route: Option<&crate::persistence::harness_settings::WorkRoute>,
-) -> Box<dyn AiHarness> {
-    let (selected, route) = route_selection(settings, work_type, legacy, task_route);
-    let harness = resolve(selected);
-    let harness_id = route
-        .map(|route| route.harness.as_str())
-        .or(selected)
-        .unwrap_or("pi");
-    let detected = settings.discovered.get(harness_id);
-    let discovery_fresh = detected.is_some_and(|entry| {
-        entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-    });
-    let authenticated = detected.is_some_and(|entry| {
-        has_current_authenticated_snapshot(
-            harness_id,
-            entry,
-            crate::persistence::harness_settings::current_unix_ms(),
-        )
-    });
-    let route_requires_discovery = work_type.is_some() || route.is_some();
-    if route_requires_discovery && !discovery_fresh {
-        return Box::new(UnavailableHarness(format!(
-            "Discovery for {harness_id} is stale. Refresh Coding tools before starting this task; no fallback will run it."
-        )));
-    }
-    if route_requires_discovery && !detected.is_some_and(|entry| entry.ready) {
-        return Box::new(UnavailableHarness(format!(
-            "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."
-        )));
-    }
-    if route_requires_discovery && !authenticated {
-        return Box::new(UnavailableHarness(format!(
-            "Authentication for harness {harness_id} is unconfirmed or unavailable; no current authenticated capability snapshot exists. Refresh Coding tools before starting this task; no fallback will run it."
-        )));
-    }
-    let implementation_route = work_type
-        == Some(crate::persistence::harness_settings::IMPLEMENTATION)
-        || (work_type.is_none() && route.is_some());
-    if implementation_route {
-        if !detected.is_some_and(|entry| entry.implementation_available) {
-            return Box::new(UnavailableHarness(format!(
-                "Harness {harness_id} is not currently available for implementation inside Kool.ad/e's application-owned Docker execution session. Refresh Coding tools or select a supported tool."
-            )));
-        }
-        if !crate::harness::implementation_route_available(harness_id) {
-            return Box::new(UnavailableHarness(format!(
-                "Harness {harness_id} has no supported application-owned implementation route. Select a supported tool before starting the task."
-            )));
-        }
-    }
-    // Route selection establishes provider and model identity. Whether this
-    // operation needs repository tools is determined by PlanningRequest.mode
-    // at execution time; a context-only role must remain usable without a
-    // repository execution target.
-    let explicit_model = route
-        .and_then(|route| route.model.as_deref())
-        .filter(|model| !model.trim().is_empty());
-    if let Some(model) = explicit_model
-        && !detected.is_some_and(|entry| {
-            entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-                && entry.model_catalog_fresh
-                && entry.models.iter().any(|available| available == model)
-        })
-    {
-        return Box::new(UnavailableHarness(format!(
-            "The selected model '{model}' is not in the refreshed {harness_id} CLI model catalog. Open Coding tools, refresh discovery, and choose an available model."
-        )));
-    }
-    let default_model_hint = settings
-        .discovered
-        .get(harness_id)
-        .filter(|detected| {
-            detected.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-                && detected.model_catalog_fresh
-        })
-        .and_then(|detected| detected.default_model.clone());
-    Box::new(RoutedHarness {
-        inner: harness,
-        harness_id: harness_id.to_owned(),
-        model: explicit_model.map(str::to_owned),
-        default_model_hint,
-    })
-}
-
-fn route_selection<'a>(
-    settings: &'a crate::persistence::harness_settings::HarnessSettings,
-    work_type: Option<&str>,
-    legacy: Option<&'a str>,
-    task_route: Option<&'a crate::persistence::harness_settings::WorkRoute>,
-) -> (
-    Option<&'a str>,
-    Option<&'a crate::persistence::harness_settings::WorkRoute>,
-) {
-    let route = task_route
-        .or_else(|| work_type.and_then(|category| settings.work_routes.get(category)))
-        .or_else(|| {
-            work_type
-                .is_none()
-                .then(|| {
-                    settings
-                        .work_routes
-                        .get(crate::persistence::harness_settings::IMPLEMENTATION)
-                })
-                .flatten()
-        });
-    let selected = route
-        .map(|route| route.harness.as_str())
-        .or(settings.default_harness.as_deref())
-        .or(legacy);
-    (selected, route)
-}
-
-fn resolve(selected: Option<&str>) -> Box<dyn AiHarness> {
-    match selected {
-        None | Some("pi") => Box::new(PiHarness),
-        Some("codex") => Box::new(CodexHarness),
-        Some("claude") => Box::new(ClaudeHarness),
-        Some("copilot") => Box::new(CopilotHarness),
-        Some("opencode") => Box::new(OpenCodeHarness),
-        Some("antigravity") => Box::new(AntigravityHarness),
-        Some(id) => Box::new(UnavailableHarness(id.to_owned())),
-    }
 }
 
 #[cfg(test)]

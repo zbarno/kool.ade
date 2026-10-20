@@ -28,6 +28,7 @@ impl AiHarness for PiHarness {
         req: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::validate_reasoning_level("pi", &req.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Pi", req)?;
         let boundary =
             crate::harness::execution_security::ApplicationBoundary::new(req).map_err(|error| {

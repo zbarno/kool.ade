@@ -6,6 +6,8 @@ use crate::harness::discovery::ProbeResult;
 
 mod results;
 pub(super) use results::apply_probe_results;
+#[cfg(test)]
+pub(super) use results::update_runtime_readiness;
 use results::update_settings_from_probe;
 mod workers;
 
