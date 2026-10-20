@@ -18,6 +18,8 @@ pub use capacity::{
     record_auto_worker_selection, reserve_auto_capacity, reserve_capacity,
 };
 pub(crate) use config::trust_reported_capabilities;
+#[cfg(test)]
+pub(crate) use config::trust_reported_capabilities_with_test_lock;
 pub use config::{configure, configure_resource_limit, list};
 pub use enrollment::{revoke, trust};
 pub use probe::{RemoteWorkerHealth, RemoteWorkerProbe, record_probe};

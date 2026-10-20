@@ -80,8 +80,51 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         sshd.add_controller_known_host(worker_id).unwrap();
         let probe = RemoteWorkerClient::connect_for_probe(worker)
             .expect("fixture worker must pass the real SSH capability probe");
-        crate::persistence::remote_workers::trust_reported_capabilities(worker_id, probe.probe())
-            .expect("test enrollment must explicitly trust the reported image and policy");
+        let report = probe.probe();
+        let capabilities = report
+            .capabilities
+            .as_ref()
+            .expect("fixture worker must report its runtime capabilities");
+        assert_eq!(
+            capabilities.app_version,
+            env!("CARGO_PKG_VERSION"),
+            "fixture worker must run the same application version"
+        );
+        assert_eq!(
+            capabilities.policy_hash,
+            crate::execution::policy::policy_hash(),
+            "fixture worker must report the current execution policy"
+        );
+        let architecture = report
+            .architecture
+            .as_deref()
+            .expect("fixture worker must report its architecture");
+        let mut test_lock = crate::execution::docker::images::ImageLock::bundled()
+            .expect("controller must have a valid bundled image lock");
+        let general_image = test_lock
+            .select(RuntimeProfile::General, architecture)
+            .expect("controller must have a general image for the worker architecture")
+            .clone();
+        assert!(
+            capabilities
+                .trusted_image_digests
+                .contains(&general_image.digest),
+            "fixture worker must report the exact locally locked general image"
+        );
+        // Model a reviewed runtime promotion in the test lock, then pass the live worker report
+        // through the same promotion-gated trust implementation used by production enrollment.
+        test_lock
+            .profiles
+            .get_mut("general")
+            .expect("bundled lock must include the general profile")
+            .iter_mut()
+            .find(|image| image.digest == general_image.digest)
+            .expect("selected image must remain in the general profile")
+            .runtime_enabled = true;
+        crate::persistence::remote_workers::trust_reported_capabilities_with_test_lock(
+            worker_id, report, &test_lock,
+        )
+        .expect("test enrollment must pass the production promotion-gated trust path");
     }
     assert!(dispatcher.is_file());
 
