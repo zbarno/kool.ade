@@ -24,6 +24,18 @@ pub(crate) enum CliProvider {
 }
 
 impl CliProvider {
+    pub(crate) fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "codex" => Some(Self::Codex),
+            "claude" => Some(Self::Claude),
+            "antigravity" => Some(Self::Antigravity),
+            "opencode" => Some(Self::OpenCode),
+            "copilot" => Some(Self::Copilot),
+            "pi" => Some(Self::Pi),
+            _ => None,
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             Self::Codex => "Codex",
@@ -52,6 +64,7 @@ impl CliProvider {
                     "--permission-prompts",
                     "--tools",
                     "--permission-mode",
+                    "--effort",
                     "--strict-mcp-config",
                     "--mcp-config",
                     "--allowedTools",
@@ -62,6 +75,7 @@ impl CliProvider {
                     "--strict-mcp-config",
                     "--permission-mode",
                     "dontAsk",
+                    "--effort",
                 ],
                 environment_keys: &[],
             },
@@ -79,7 +93,12 @@ impl CliProvider {
                     "--ignore-user-config",
                     "--skip-git-repo-check",
                 ],
-                launch_tokens: &["--sandbox", "--ignore-user-config", "--skip-git-repo-check"],
+                launch_tokens: &[
+                    "--sandbox",
+                    "--ignore-user-config",
+                    "--skip-git-repo-check",
+                    "--config",
+                ],
                 environment_keys: &[],
             },
             Self::Pi => ProfileRequirements {
@@ -114,6 +133,7 @@ impl CliProvider {
                     "--no-skills",
                     "--no-prompt-templates",
                     "--no-themes",
+                    "--thinking",
                 ],
                 environment_keys: &["PI_CODING_AGENT_DIR", "PI_OFFLINE"],
             },
@@ -133,6 +153,7 @@ impl CliProvider {
                     "--output-format",
                     "stream-json",
                     "--sandbox",
+                    "--effort",
                 ],
                 environment_keys: &["HOME", "XDG_CONFIG_HOME"],
             },
@@ -140,9 +161,24 @@ impl CliProvider {
                 minimum_version: None,
                 help_commands: &[&["--help"], &["run", "--help"]],
                 capabilities: &[
-                    "--pure", "run", "--format", "--auto", "--dir", "--agent", "--model",
+                    "--pure",
+                    "run",
+                    "--format",
+                    "--auto",
+                    "--dir",
+                    "--agent",
+                    "--model",
+                    "--variant",
                 ],
-                launch_tokens: &["--pure", "run", "--format", "json", "--auto", "--dir"],
+                launch_tokens: &[
+                    "--pure",
+                    "run",
+                    "--format",
+                    "json",
+                    "--auto",
+                    "--dir",
+                    "--variant",
+                ],
                 environment_keys: &["HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT"],
             },
             Self::Copilot => ProfileRequirements {
@@ -153,6 +189,7 @@ impl CliProvider {
                     "--no-ask-user",
                     "--no-auto-update",
                     "--available-tools",
+                    "--effort",
                     "--additional-mcp-config",
                     "--disable-builtin-mcps",
                     "--no-custom-instructions",
@@ -165,6 +202,7 @@ impl CliProvider {
                     "--no-ask-user",
                     "--no-auto-update",
                     "--available-tools=",
+                    "--effort",
                 ],
                 environment_keys: &["COPILOT_HOME", "COPILOT_CACHE_HOME"],
             },

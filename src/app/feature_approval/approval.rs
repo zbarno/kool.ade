@@ -123,9 +123,10 @@ impl KooladeApp {
             }
             #[cfg(not(test))]
             {
-                let harness = super::configured_harness_for(
+                let harness = crate::app::root::configured_harness_for_project(
                     &mut self.task_harness,
                     Some(crate::persistence::harness_settings::PLAN_REVIEW),
+                    &p.state.harness_routes.routes,
                 );
                 crate::app::root::plan_review::PlanReview::start(p, id.to_owned(), harness)
             }

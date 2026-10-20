@@ -59,9 +59,10 @@ impl KooladeApp {
             Err("test-only reviewer outcomes must be supplied explicitly".into());
         #[cfg(not(test))]
         let review_start = {
-            let harness = super::super::configured_harness_for(
+            let harness = crate::app::root::configured_harness_for_project(
                 harness_slot,
                 Some(crate::persistence::harness_settings::PLAN_REVIEW),
+                &project.state.harness_routes.routes,
             );
             crate::app::root::plan_review::PlanReview::start(project, id.to_owned(), harness)
         };

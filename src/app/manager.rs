@@ -4,6 +4,7 @@ mod dependency;
 mod dispositions;
 mod execute;
 mod prompt;
+mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 pub(super) use dispositions::{
@@ -77,10 +78,11 @@ impl Manager {
             activity: Some("Project manager prompt prepared".into()),
             ..Default::default()
         });
+        let manager_task_id = uuid::Uuid::new_v4().hyphenated().to_string();
         let request = PlanningRequest {
-            mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
-            task_id: None,
-            execution_workspace: None,
+            mode: crate::harness::ExecutionMode::Planning,
+            task_id: Some(manager_task_id.clone()),
+            execution_workspace: manager_execution_workspace(project, &manager_task_id),
             destination_sha: None,
             prompt_manifest: prompt_manifest.clone(),
             reasoning_level: "xhigh".into(),
@@ -96,7 +98,63 @@ impl Manager {
             authorization_verifier: None,
             review_identity: None,
         };
-        execute::launch(harness, request, prepared, product_prepared, done);
+        let route = harness.route_provenance(&request);
+        let harness_label = harness.label();
+        let project_root = project.state.repo_root.clone();
+        if request.execution_workspace.is_none() {
+            let message = "Kool.ad/e could not bind the current project revision to a read-only Manager workspace. Repair or refresh the project Git checkout, then retry. Manager did not invoke a provider or run repository commands.";
+            let failure = crate::error::AppError::HarnessExecutionFailed {
+                failure: Box::new(crate::harness::HarnessExecutionFailure {
+                    provider_id: route
+                        .as_ref()
+                        .map(|route| route.provider_id.clone())
+                        .unwrap_or_else(|| "unknown".into()),
+                    role: crate::execution::contract::HarnessRole::Manager,
+                    mode: request.mode,
+                    target: None,
+                    category: crate::harness::HarnessFailureCategory::ToolBridgeUnavailable,
+                    provider_code: None,
+                    sanitized_message: message.into(),
+                    actionable_fix: Some(
+                        "Repair or reconnect the selected project Git checkout before retrying Manager.".into(),
+                    ),
+                    retryable: false,
+                }),
+            };
+            let detail = failure.detail();
+            telemetry::persist_invocation(
+                &project_root,
+                &harness_label,
+                route.as_ref(),
+                &request,
+                &manager_task_id,
+                telemetry::InvocationOutcome {
+                    status: "blocked",
+                    failure_category: Some("tool_bridge_unavailable"),
+                    failure_message: Some(&detail),
+                },
+            );
+            let _ = done.send(Err(detail));
+            return Self {
+                progress,
+                result,
+                cancel,
+                prompt_manifest,
+            };
+        }
+        execute::launch(
+            harness,
+            request,
+            prepared,
+            product_prepared,
+            execute::InvocationContext {
+                route,
+                harness_label,
+                project_root,
+                execution_id: manager_task_id,
+            },
+            done,
+        );
         Self {
             progress,
             result,
@@ -130,3 +188,38 @@ impl Drop for Manager {
 
 #[cfg(test)]
 mod tests;
+
+fn manager_execution_workspace(
+    project: &super::session::Project,
+    task_id: &str,
+) -> Option<crate::execution::contract::WorkspaceRef> {
+    let repo_root = &project.state.repo_root;
+    let root_metadata = std::fs::symlink_metadata(repo_root).ok()?;
+    if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
+        return None;
+    }
+    let git_metadata = std::fs::symlink_metadata(repo_root.join(".git")).ok()?;
+    if git_metadata.file_type().is_symlink() || !(git_metadata.is_dir() || git_metadata.is_file()) {
+        return None;
+    }
+    let root = repo_root.canonicalize().ok()?;
+    let mut git = crate::core::planning_sync::validated_git_command(&root).ok()?;
+    let output = git.args(["rev-parse", "--verify", "HEAD"]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let source_sha = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    if !crate::execution::contract::is_valid_sha(&source_sha) {
+        return None;
+    }
+    Some(crate::execution::contract::WorkspaceRef {
+        project_id: project
+            .state
+            .planning_store
+            .project_id
+            .hyphenated()
+            .to_string(),
+        task_id: task_id.to_owned(),
+        source_sha,
+    })
+}

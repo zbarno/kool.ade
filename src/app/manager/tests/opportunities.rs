@@ -88,7 +88,8 @@ fn product_proposal_json() -> serde_json::Value {
     proposal
 }
 
-fn initialized_repository() -> (tempfile::TempDir, crate::app::session::Project, String) {
+pub(super) fn initialized_repository() -> (tempfile::TempDir, crate::app::session::Project, String)
+{
     let temp = tempfile::tempdir().expect("temporary project directory");
     let root = temp.path();
     git(root, &["init", "-q"]);

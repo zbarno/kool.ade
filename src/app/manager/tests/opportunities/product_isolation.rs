@@ -28,6 +28,12 @@ impl AiHarness for SplitOpportunityHarness {
                 !request.prompt_body.contains("PRIVATE-SAMPLE-CUSTOMER-DATA"),
                 "the product scan prompt must exclude user project conversation data"
             );
+            assert_eq!(
+                request.mode,
+                crate::harness::ExecutionMode::ReadOnlyAnalysis
+            );
+            assert!(request.task_id.is_none());
+            assert!(request.execution_workspace.is_none());
             assert_ne!(request.repo_root, self.user_project_root);
             assert_ne!(request.repo_root, self.product_checkout);
             assert!(
@@ -53,7 +59,8 @@ impl AiHarness for SplitOpportunityHarness {
 /// Production boundary: validate and persist a product-target Manager
 /// proposal using the public product contract, then reject one that cites
 /// private workspace evidence. It also checks the product scan receives no
-/// workspace conversation and runs from an empty app-owned directory. Unit schema
+/// workspace conversation or execution authority and runs from an empty
+/// app-owned directory. Unit schema
 /// tests cannot prove prompt, cwd, hashes, confidentiality, repository binding,
 /// and durable storage agree. Uses temporary Git repos and local stores; no
 /// Docker or network. Setup cost is several Git calls and store writes.

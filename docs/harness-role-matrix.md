@@ -25,6 +25,21 @@ changes the mode's tool access.
 | Documentation refresh | `Implementation` | Bounded implementation | Proposed documentation changes in the task clone |
 | Reconciliation | `Reconciliation` | None | Structured conflict/reconciliation decision; publication stays app-owned |
 
+## Configurable role routes
+
+Coding tools Settings exposes provider/model routes for Manager, general
+planning, specification, feature planning, task generation, investigation,
+independent plan review, implementation, code QA, documentation,
+reconciliation, decision explanation, repair work, and Runtime QA review.
+Project Settings can override these routes for one project. Route precedence is
+task override, project route, global role route, selected default, then the
+legacy Codex setting. Planning/analysis, review, reconciliation, and Runtime
+QA review keep their role's existing `ExecutionMode` and tool authority. Task
+overrides may choose any supported work category except Manager. Manager's
+provider may be selected globally or per project, while its application-owned
+authority cannot be replaced by a task override. Runtime QA review routing
+does not satisfy the separate approved driver/runtime policy gate.
+
 The QA command phase uses the existing mode contract until the public
 `ExecutionMode` is deliberately extended. It must run with the Docker
 `Verification` policy and must not gain write authority from the provider or
@@ -82,7 +97,19 @@ following:
 
 The execution contract and settings store now define and persist
 `HarnessCapabilitySnapshotV1` with entries for every mode and role. Discovery
-leaves mode and role support unknown until those capabilities are actually
-probed; The application-owned Docker bridge and target routing are implemented in the
-integrated candidate. Every `P` cell still requires evidence for that exact
-provider, role, and execution mode before it can be treated as usable.
+marks the provider's mode and role contract ready only after it confirms
+authentication, a fresh model catalog, the exact executable's clean launch
+profile, and a supported application adapter. The app MCP adapter contract and
+live execution target are recorded separately; tool modes require both at
+routing time, while context-only modes do not require Docker. Project routes
+are stored in the project's planning store and participate in the same central
+precedence resolver across planning, task, review, reconciliation, and QA
+entry points. The six-by-seven
+fake CLI result matrix now exercises each production adapter through
+`execute_with_model` and checks normalized final output. The separate MCP
+authority E2E verifies that provider role calls use only the application-owned
+MCP tools. Together these prove invocation and tool configuration, but not
+that each real provider interprets every tool policy identically. Full role
+workflow E2E coverage, normalized typed provider failures, model/reasoning
+validation, and Docker-backed provider smoke tests remain open before treating
+every `P` cell as release-ready.

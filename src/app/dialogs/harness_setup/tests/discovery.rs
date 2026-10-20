@@ -21,10 +21,24 @@ fn invalidating_a_manual_provider_keeps_only_stale_diagnostics() {
         crate::execution::contract::ReadinessState::Unavailable
     );
     assert_eq!(
+        snapshot.scriptable_invocation,
+        crate::execution::contract::ReadinessState::Unavailable
+    );
+    assert!(
+        settings.discovered["pi"].diagnostic.as_deref().is_some_and(
+            |diagnostic| diagnostic.contains("discovered CLI executable is not a file")
+        )
+    );
+    assert_eq!(
         snapshot.execution_target,
-        crate::execution::contract::ReadinessState::Unknown
+        crate::execution::contract::ReadinessState::Ready
     );
     assert!(!snapshot.supports_role(crate::execution::contract::HarnessRole::Implementer));
+    assert!(
+        snapshot.modes.iter().all(|mode| {
+            mode.available == crate::execution::contract::ReadinessState::Unavailable
+        })
+    );
     assert!(
         settings.discovered["pi"]
             .is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
@@ -37,6 +51,99 @@ fn invalidating_a_manual_provider_keeps_only_stale_diagnostics() {
     assert!(!detected.implementation_available);
     assert!(detected.capability_snapshot.is_none());
     assert_eq!(detected.version.as_deref(), Some("0.30.1"));
+}
+
+#[cfg(unix)]
+#[test]
+fn verified_profiles_enable_provider_roles_without_a_docker_target() {
+    use crate::execution::contract::{HarnessRole, ReadinessState};
+    use std::fs;
+
+    let root =
+        std::env::temp_dir().join(format!("harness-profile-matrix-{}", uuid::Uuid::new_v4()));
+    fs::create_dir(&root).unwrap();
+    for (id, version) in [
+        ("pi", "0.30.1"),
+        ("codex", "1.0.0"),
+        ("claude", "2.1.268"),
+        ("opencode", "1.0.0"),
+        ("copilot", "1.0.0"),
+        ("antigravity", "1.0.0"),
+    ] {
+        let binary = root.join(id);
+        fs::write(&binary, "synthetic provider executable").unwrap();
+        let mut provider = report(true);
+        provider.id = id.into();
+        provider.executable = Some(binary.to_string_lossy().into_owned());
+        provider.version = Some(version.into());
+        provider.implementation_available = false;
+        let mut settings = HarnessSettings::default();
+        super::super::discovery::apply_probe_results(
+            &mut settings,
+            std::slice::from_ref(&provider),
+            None,
+            1,
+        );
+        let snapshot = settings.discovered[id]
+            .capability_snapshot
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(
+            snapshot.scriptable_invocation,
+            ReadinessState::Ready,
+            "{id}"
+        );
+        assert_eq!(
+            snapshot.docker_mcp_bridge,
+            ReadinessState::Unavailable,
+            "{id}"
+        );
+        assert_eq!(
+            snapshot.execution_target,
+            ReadinessState::Unavailable,
+            "{id}"
+        );
+        assert!(
+            snapshot
+                .modes
+                .iter()
+                .all(|mode| mode.available == ReadinessState::Ready),
+            "{id}"
+        );
+        assert!(
+            snapshot
+                .roles
+                .iter()
+                .filter(|role| role.role.requires_execution_target())
+                .all(|role| role.available == ReadinessState::Unavailable),
+            "{id}"
+        );
+        assert!(
+            snapshot
+                .roles
+                .iter()
+                .filter(|role| !role.role.requires_execution_target())
+                .all(|role| role.available == ReadinessState::Ready),
+            "{id}"
+        );
+        assert!(snapshot.supports_role(HarnessRole::SpecReconciler), "{id}");
+        assert!(!snapshot.supports_role(HarnessRole::Implementer), "{id}");
+
+        let mut refreshed_report = provider.clone();
+        super::super::discovery::update_runtime_readiness(
+            &mut settings,
+            std::slice::from_mut(&mut refreshed_report),
+            true,
+        );
+        let refreshed = settings.discovered[id]
+            .capability_snapshot
+            .as_ref()
+            .unwrap();
+        assert_eq!(refreshed.docker_mcp_bridge, ReadinessState::Ready, "{id}");
+        assert!(refreshed.supports_role(HarnessRole::Implementer), "{id}");
+    }
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

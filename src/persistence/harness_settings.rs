@@ -52,9 +52,38 @@ pub struct WorkRoute {
 
 pub const IMPLEMENTATION: &str = "implementation";
 pub const MANAGER: &str = "manager";
+pub const PLANNING: &str = "planning";
+pub const SPECIFICATION: &str = "specification";
+pub const FEATURE_PLANNING: &str = "feature_planning";
+pub const TASK_GENERATION: &str = "task_generation";
+pub const INVESTIGATION: &str = "investigation";
 pub const PLAN_REVIEW: &str = "plan_review";
 pub const QA: &str = "qa_verification";
+pub const RUNTIME_QA: &str = "runtime_qa";
 pub const DOCUMENTATION: &str = "documentation";
+pub const RECONCILIATION: &str = "reconciliation";
+pub const DECISION_EXPLANATION: &str = "decision_explanation";
+pub const REPAIR: &str = "repair";
+
+pub const TASK_ROUTABLE_CATEGORIES: &[&str] = &[
+    PLANNING,
+    SPECIFICATION,
+    FEATURE_PLANNING,
+    TASK_GENERATION,
+    INVESTIGATION,
+    PLAN_REVIEW,
+    IMPLEMENTATION,
+    QA,
+    RUNTIME_QA,
+    DOCUMENTATION,
+    RECONCILIATION,
+    DECISION_EXPLANATION,
+    REPAIR,
+];
+
+pub fn is_task_routable_category(category: &str) -> bool {
+    TASK_ROUTABLE_CATEGORIES.contains(&category)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

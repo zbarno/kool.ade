@@ -1,5 +1,5 @@
 use crate::{
-    app::{root::configured_harness_for, session::Project},
+    app::session::Project,
     core::lifecycle::{LifecycleStore, SpecSyncQueueEntryV1},
 };
 
@@ -46,9 +46,10 @@ pub(super) fn advance_feature_spec_reconciliation(
     {
         project.task_chats.ensure_loaded(&project.chat_slug);
     }
-    let harness = configured_harness_for(
+    let harness = crate::app::root::configured_harness_for_project(
         task_harness,
         Some(crate::persistence::harness_settings::PLAN_REVIEW),
+        &project.state.harness_routes.routes,
     );
     let route = harness.label();
     match crate::app::root::spec_reconciliation::FeatureSpecReconciliation::start(
