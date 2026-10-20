@@ -47,6 +47,11 @@ pub(super) fn paint(
                             && !board.is_archived(&item.key)
                             && !board.cancelled.contains(&crate::persistence::cancelled_work::planning_id(&item.uid)))
                         .collect::<Vec<_>>();
+                    let pr_work = board
+                        .lifecycle_pr_work
+                        .iter()
+                        .filter(|task| cards::pr_task_column(task.preparation.status) == column)
+                        .collect::<Vec<_>>();
                     let cards = docs
                         .iter()
                         .filter(|doc| {
@@ -94,6 +99,7 @@ pub(super) fn paint(
                                 ui.set_min_height(height);
                                 ui.horizontal(|ui| {
                                     let count = cards.len()
+                                        + pr_work.len()
                                         + questions.len()
                                         + planning.len()
                                         + clarifications
@@ -162,6 +168,7 @@ pub(super) fn paint(
                                     theme::BORDER.gamma_multiply(0.65),
                                 );
                                 let visible_count = cards.len()
+                                    + pr_work.len()
                                     + questions.len()
                                     + planning.len()
                                     + clarifications
@@ -202,6 +209,9 @@ pub(super) fn paint(
                                     .id_salt(("task_board_column", column))
                                     .max_height(height - 76.0)
                                     .show(ui, |ui| {
+                                        for task in &pr_work {
+                                            cards::pr_task(ui, task, column, selected_path);
+                                        }
                                         if column == 3 {
                                             attention::paint(
                                                 ui,

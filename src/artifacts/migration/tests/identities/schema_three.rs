@@ -87,6 +87,7 @@ fn schema_three_seeds_stable_ids_and_relationships_idempotently() {
         approved_specification: None,
         approved_product_context: None,
         completed_dependency_context: None,
+        manager_repair_context: None,
         branch: "koolade/saved-search".into(),
         source_branch: None,
         destination_branch: None,

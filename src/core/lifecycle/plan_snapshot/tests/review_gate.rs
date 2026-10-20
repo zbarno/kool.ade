@@ -61,6 +61,9 @@ fn task_gate_requires_a_current_independent_approved_plan_review() {
     let rejected = plan_receipt(&snapshot, GateDecision::Rejected);
     let finding_verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: false,
         outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::BlockingFindings),
         coverage: snapshot
@@ -82,8 +85,13 @@ fn task_gate_requires_a_current_independent_approved_plan_review() {
         findings: vec![crate::harness::prompt_catalog::ReviewFindingV1 {
             id: "F-1".into(),
             requirement: snapshot.requirements[0].stable_id.clone(),
+            location_detail: None,
+            rationale: String::new(),
+            affected_requirement_ids: Vec::new(),
+            suggested_action: None,
             severity: crate::harness::prompt_catalog::Severity::High,
             kind: crate::harness::prompt_catalog::FindingKind::Requirements,
+            scope: None,
             location: "requirement REQ-001".into(),
             evidence: vec![format!("plan:{}", snapshot.uid)],
             repro: Some("The export acceptance text omits empty results.".into()),
@@ -226,6 +234,9 @@ fn task_gate_requires_a_current_independent_approved_plan_review() {
     let approved = plan_receipt(&snapshot, GateDecision::Approved);
     let passing_verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: true,
         outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
         coverage: snapshot
@@ -251,6 +262,9 @@ fn passing_verdict_for(
 ) -> crate::harness::prompt_catalog::ReviewVerdictV1 {
     crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: true,
         outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
         coverage: snapshot

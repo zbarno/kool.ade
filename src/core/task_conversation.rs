@@ -39,6 +39,9 @@ pub fn presentation(
             crate::core::planning_work::WorkKind::PlanReviewDisposition => {
                 "Continue this plan-review decision here. The finding and Manager disposition are attached to this thread; plan changes still require fresh user confirmation."
             }
+            crate::core::planning_work::WorkKind::CodeReviewDisposition => {
+                "Continue this code-review disposition here. The current finding and Manager decision are attached to this thread; code changes require fresh verification and independent review."
+            }
             _ => {
                 "Continue planning this task here. Questions and assumptions are tracked on the board."
             }

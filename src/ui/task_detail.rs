@@ -81,6 +81,10 @@ pub struct LifecycleView {
     pub subtasks: Vec<TaskRelationView>,
     pub task_revision: u64,
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
+    pub code_review_attempts: Vec<crate::core::lifecycle::GateReceipt>,
+    pub current_code_review: Option<CodeReviewInspectionView>,
+    pub code_review_dispositions: Vec<CodeReviewDispositionView>,
+    pub code_review_load_error: Option<String>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa_run_id: Option<String>,
     pub spec_reconciliation: Option<crate::core::lifecycle::GateReceipt>,
@@ -119,6 +123,30 @@ pub struct LifecyclePlanReviewView {
     pub confirmation: Option<crate::core::lifecycle::GateReceipt>,
     pub review: Option<crate::core::lifecycle::GateReceipt>,
     pub verdict: Option<crate::harness::prompt_catalog::ReviewVerdictV1>,
+}
+
+#[derive(Clone)]
+pub struct CodeReviewInspectionView {
+    pub task_uid: String,
+    pub subject_hash: String,
+    pub diff_hash: String,
+    pub head_sha: String,
+    pub prompt_hash: String,
+    pub reviewer_run_id: String,
+    pub reviewer_session_id: String,
+    pub verdict: crate::harness::prompt_catalog::ReviewVerdictV1,
+}
+
+#[derive(Clone)]
+pub struct CodeReviewDispositionView {
+    pub finding_id: String,
+    pub subject_hash: String,
+    pub scope: Option<crate::harness::prompt_catalog::FindingScopeV1>,
+    pub status: crate::core::planning_work::CodeReviewDispositionStatusV1,
+    pub work_id: String,
+    pub title: String,
+    pub work_status: crate::core::planning_work::WorkStatus,
+    pub occurrence_count: u32,
 }
 
 #[derive(Clone)]

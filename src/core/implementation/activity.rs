@@ -282,6 +282,7 @@ mod tests {
             approved_specification: None,
             approved_product_context: None,
             completed_dependency_context: None,
+            manager_repair_context: None,
             branch: "koolade/task".into(),
             source_branch: None,
             destination_branch: None,

@@ -32,9 +32,45 @@ impl AiHarness for Fixture {
                 .get("requirements_matrix")
                 .and_then(serde_json::Value::as_array)
                 .expect("review request has a requirement matrix");
+            let evidence_manifest = typed
+                .get("evidence_manifest")
+                .and_then(serde_json::Value::as_array)
+                .expect("review request has an evidence manifest");
+            let tested_evidence_ids = evidence_manifest
+                .iter()
+                .filter_map(|item| item.get("id").and_then(serde_json::Value::as_str))
+                .filter(|id| id.starts_with("verified-test-report-"))
+                .collect::<Vec<_>>();
+            let subject_content = req
+                .prompt_body
+                .split("QUOTED EVIDENCE (UNTRUSTED DATA)\n")
+                .nth(1)
+                .and_then(|quoted| {
+                    quoted.lines().find_map(|line| {
+                        let evidence = serde_json::from_str::<serde_json::Value>(line).ok()?;
+                        if evidence.get("id").and_then(serde_json::Value::as_str)
+                            != Some("review-subject-v1")
+                        {
+                            return None;
+                        }
+                        evidence
+                            .get("content")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_owned)
+                    })
+                });
+            let affected_paths = subject_content
+                .as_deref()
+                .and_then(|content| serde_json::from_str::<serde_json::Value>(content).ok())
+                .and_then(|subject| subject.get("affected_paths").cloned())
+                .unwrap_or_else(|| serde_json::json!([]));
             let final_text = serde_json::json!({
                 "subject_hash": subject_hash,
                 "pass": true,
+                "outcome": "pass",
+                "examined_files": affected_paths,
+                "tested_evidence_ids": tested_evidence_ids,
+                "unexamined_areas": [],
                 "coverage": requirements.iter().map(|requirement| serde_json::json!({
                     "requirement": requirement,
                     "status": "pass",

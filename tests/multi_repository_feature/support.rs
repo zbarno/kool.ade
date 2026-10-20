@@ -115,6 +115,9 @@ pub(super) fn approve_and_record_reviewer_receipt(
     let revision = store.revision().unwrap();
     let verdict = koolade::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot["contentHash"].as_str().unwrap().to_owned(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: true,
         outcome: Some(koolade::harness::prompt_catalog::ReviewOutcomeV1::Pass),
         coverage: snapshot["requirements"]

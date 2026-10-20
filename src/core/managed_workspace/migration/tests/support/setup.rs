@@ -127,6 +127,7 @@ pub(super) fn build(label: &str, include_workspace_id: bool) -> super::Fixture {
         routing_overrides: Default::default(),
         routing_inherited_from: None,
         follow_up_task: None,
+        code_review_disposition: None,
         detail: "Preserve the approval and task state.".into(),
         record_revision: 0,
         record_baseline: None,

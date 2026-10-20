@@ -70,4 +70,10 @@ pub struct TaskRecord {
     pub pr_work_item_uid: Option<String>,
 }
 
+impl TaskRecord {
+    pub fn repair_budget_exhausted(&self) -> bool {
+        self.repair_attempts >= MAX_REPAIR_ATTEMPTS
+    }
+}
+
 mod validation;
