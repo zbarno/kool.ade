@@ -234,6 +234,22 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
     }
 }
 
+fn cargo_recipe(id: &str, argv: &[&str]) -> ExecutionRecipeV1 {
+    recipe(id, "cargo", argv)
+}
+
+fn output_recipe(id: &str, tool: &str, argv: &[&str], output: &str) -> ExecutionRecipeV1 {
+    let mut recipe = recipe(id, tool, argv);
+    if !recipe
+        .allowed_output_paths
+        .iter()
+        .any(|path| path == output)
+    {
+        recipe.allowed_output_paths.push(output.into());
+    }
+    recipe
+}
+
 fn stack_recipes() -> Vec<(
     RuntimeProfile,
     &'static str,
@@ -245,9 +261,9 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Rust,
             "cargo",
-            recipe("rust-build", "cargo", &["build", "--offline"]),
-            recipe("rust-test", "cargo", &["test", "--offline", "-vv"]),
-            recipe("rust-start", "cargo", &["run", "--offline", "--quiet"]),
+            cargo_recipe("rust-build", &["build", "--offline"]),
+            cargo_recipe("rust-test", &["test", "--offline", "-vv"]),
+            cargo_recipe("rust-start", &["run", "--offline", "--quiet"]),
         ),
         (
             RuntimeProfile::Node,
@@ -262,17 +278,21 @@ fn stack_recipes() -> Vec<(
             recipe(
                 "python-build",
                 "python",
-                &["-m", "compileall", "-q", "app.py"],
+                &[
+                    "-B",
+                    "-c",
+                    "import ast; ast.parse(open('app.py', encoding='utf-8').read())",
+                ],
             ),
-            recipe("python-test", "python", &["-m", "unittest", "-q"]),
-            recipe("python-start", "python", &["app.py"]),
+            recipe("python-test", "python", &["-B", "-m", "unittest", "-q"]),
+            recipe("python-start", "python", &["-B", "app.py"]),
         ),
         (
             RuntimeProfile::Go,
             "go",
-            recipe("go-build", "go", &["build", "-o", "app", "main.go"]),
-            recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
-            recipe("go-start", "go", &["run", "main.go"]),
+            output_recipe("go-build", "go", &["build", "-o", "app", "main.go"], "app"),
+            output_recipe("go-test", "go", &["test", "main.go", "main_test.go"], "app"),
+            output_recipe("go-start", "go", &["run", "main.go"], "app"),
         ),
     ]
 }
