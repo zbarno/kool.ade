@@ -17,9 +17,11 @@ pub(in crate::ui::layout::board::columns) fn task(
     let title = task_cards::card_summary(super::super::super::presentation::human_title(
         &doc.title, &doc.path,
     ));
-    let needs_input = super::super::attention::linked_user_action(board, &doc.path);
     let lifecycle_phase = board.lifecycle_tasks.get(&doc.path).copied();
-    let pr_status = board.lifecycle_pr_statuses.get(&doc.path).copied();
+    let pr_status = (lifecycle_phase != Some(crate::core::lifecycle::TaskPhase::Done))
+        .then(|| board.lifecycle_pr_statuses.get(&doc.path).copied())
+        .flatten();
+    let needs_input = super::super::attention::linked_user_action(board, &doc.path);
     let pr_needs_user_action = matches!(
         pr_status,
         Some(
