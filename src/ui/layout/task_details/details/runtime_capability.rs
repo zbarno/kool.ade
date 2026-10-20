@@ -1,11 +1,13 @@
 use crate::ui::{Surface, task_detail};
 
+mod recipe_adapter;
 mod target_override;
 
 #[derive(Clone, Default)]
 struct RecipeDraft {
     executable_id: String,
     argv_lines: String,
+    artifact_paths: String,
     readiness_port: String,
     readiness_path: String,
 }
@@ -154,6 +156,19 @@ fn recipe_form(
             .ctx()
             .data_mut(|data| data.get_temp::<RecipeDraft>(id))
             .unwrap_or_default();
+        if let Some(suggestion) = recipe_adapter::suggestion(
+            target.detected_language.as_deref(),
+            operation,
+        ) && ui
+            .button(format!("Fill {} adapter template", suggestion.label))
+            .clicked()
+        {
+            draft.executable_id = suggestion.executable_id.into();
+            draft.argv_lines = suggestion.argv.join("\n");
+        }
+        if target.detected_language.is_some() {
+            ui.label("Adapter templates only prefill visible argv. Inspect and approve a recipe before it can run.");
+        }
         ui.horizontal(|ui| {
             ui.label("Executable ID");
             ui.text_edit_singleline(&mut draft.executable_id);
@@ -178,6 +193,10 @@ fn recipe_form(
                 }
             }
         }
+        if operation == task_detail::RuntimeRecipeOperation::Build {
+            ui.label("Expected output paths relative to the app root, one per line");
+            ui.text_edit_multiline(&mut draft.artifact_paths);
+        }
         if ui
             .add_enabled(
                 !draft.executable_id.trim().is_empty() && !draft.argv_lines.trim().is_empty(),
@@ -195,6 +214,7 @@ fn recipe_form(
                         crate::ui::layout::RuntimeTargetApprovalProof::from_user_approval_click(),
                     executable_id: draft.executable_id.trim().to_owned(),
                     argv_lines: draft.argv_lines.clone(),
+                    artifact_paths: draft.artifact_paths.clone(),
                     readiness_port: draft.readiness_port.clone(),
                     readiness_path: draft.readiness_path.clone(),
                     expected_manifest_revision: revision,

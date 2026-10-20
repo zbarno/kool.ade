@@ -29,6 +29,10 @@ target and operation only when its source is explicitly `user_approved`.
 Approval evidence is recorded on that recipe. These controller-facing APIs
 preserve task/source identity and do not themselves grant Docker or
 dependency-broker capabilities.
+For detected targets, the Build approval form accepts a bounded list of
+expected output paths relative to the app root. The same canonical paths are
+stored as the output allowlist and expected artifacts, so the build receipt can
+only pass after those files are captured and hashed.
 `add_user_target_override` remains a controller-level proposal helper.
 `ProjectRuntimeStore::add_user_target_and_save` accepts a user `GateReceipt`
 whose subject hash covers the target, recipes, readiness probe, task,

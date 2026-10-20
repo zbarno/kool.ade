@@ -263,6 +263,7 @@ pub enum Command {
         approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         executable_id: String,
         argv_lines: String,
+        artifact_paths: String,
         readiness_port: String,
         readiness_path: String,
         expected_manifest_revision: u64,

@@ -7,6 +7,7 @@ use crate::{
     ui::task_detail::RuntimeRecipeOperation,
 };
 
+mod recipe_artifacts;
 mod target_override;
 
 impl KooladeApp {
@@ -149,6 +150,7 @@ impl KooladeApp {
         approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         executable_id: &str,
         argv_lines: &str,
+        artifact_paths: &str,
         readiness_port: &str,
         readiness_path: &str,
         expected_revision: u64,
@@ -204,6 +206,7 @@ impl KooladeApp {
                     {
                         return Err("Recipe arguments contain control characters or exceed the argument limit.".into());
                     }
+                    let artifact_paths = recipe_artifacts::parse(artifact_paths)?;
                     let approval_id = approval_proof.receipt_uid();
                     let recipe_id = format!("user-{}", approval_id.replace('-', ""));
                     let recipe = ExecutionRecipeV1 {
@@ -214,10 +217,10 @@ impl KooladeApp {
                         executable_id: executable_id.trim().to_owned(),
                         argv,
                         allowed_env_keys: Vec::new(),
-                        allowed_output_paths: Vec::new(),
+                        allowed_output_paths: artifact_paths.clone(),
                         timeout_seconds: 1200,
                         expected_exit_codes: vec![0],
-                        expected_artifacts: Vec::new(),
+                        expected_artifacts: artifact_paths,
                         cache_scope: None,
                         prerequisite_tool_ids: vec![executable_id.trim().to_owned()],
                         network_requirement: NetworkRequirement::Denied,

@@ -20,6 +20,7 @@ pub struct PreparedDependencyChoice {
 pub struct RuntimeTargetChoice {
     pub target_id: String,
     pub label: String,
+    pub detected_language: Option<String>,
     pub app_surface: crate::project_runtime::AppSurface,
     pub selected: bool,
     pub state: String,

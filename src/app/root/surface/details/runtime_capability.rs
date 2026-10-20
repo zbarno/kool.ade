@@ -68,6 +68,10 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         .map(|target| RuntimeTargetChoice {
             target_id: target.target_id.clone(),
             app_surface: target.app_surface,
+            detected_language: target_language(
+                &target.project_relative_root,
+                &manifest.evidence_refs,
+            ),
             label: format!(
                 "{:?} · {}",
                 target.app_surface, target.project_relative_root
@@ -114,6 +118,27 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
     Some(view)
 }
 
+fn target_language(root: &str, evidence_refs: &[String]) -> Option<String> {
+    evidence_refs.iter().find_map(|evidence| {
+        let path = std::path::Path::new(evidence);
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(|parent| parent.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|| ".".into());
+        if parent != root {
+            return None;
+        }
+        match path.file_name()?.to_str()? {
+            "Cargo.toml" => Some("Rust".into()),
+            "package.json" => Some("JavaScript".into()),
+            "pyproject.toml" | "requirements.txt" => Some("Python".into()),
+            "go.mod" => Some("Go".into()),
+            _ => None,
+        }
+    })
+}
+
 fn surface_applicability(
     surface: AppSurface,
 ) -> crate::project_runtime_capability::QaApplicability {
@@ -129,6 +154,28 @@ fn surface_applicability(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn target_language_uses_only_manifest_evidence_in_the_target_root() {
+        let evidence = vec![
+            "apps/web/package.json".to_owned(),
+            "services/api/go.mod".to_owned(),
+            "Cargo.toml".to_owned(),
+            "apps/unknown/project.yaml".to_owned(),
+        ];
+
+        assert_eq!(
+            target_language("apps/web", &evidence).as_deref(),
+            Some("JavaScript")
+        );
+        assert_eq!(
+            target_language("services/api", &evidence).as_deref(),
+            Some("Go")
+        );
+        assert_eq!(target_language(".", &evidence).as_deref(), Some("Rust"));
+        assert_eq!(target_language("apps/unknown", &evidence), None);
+        assert_eq!(target_language("apps", &evidence), None);
+    }
 
     #[test]
     fn surface_applicability_keeps_service_and_unsupported_targets_out_of_visual_qa() {
