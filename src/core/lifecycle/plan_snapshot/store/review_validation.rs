@@ -72,7 +72,11 @@ pub(super) fn validate_verdict(
                     .evidence
                     .iter()
                     .any(|reference| !allowed_evidence.contains(reference))
-                || (verdict.pass && matches!(item.severity, Severity::Blocker | Severity::High))
+                || (verdict.pass
+                    && matches!(
+                        item.severity,
+                        Severity::Critical | Severity::Blocker | Severity::High
+                    ))
         })
     {
         return Err("plan review verdict is incomplete or inconsistent with its snapshot".into());

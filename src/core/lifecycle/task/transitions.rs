@@ -237,8 +237,13 @@ impl TaskRecord {
             && is_sha256(review_subject_sha256)
             && receipt.subject_uid == self.task_uid
             && receipt.actor == GateActor::IndependentReviewer
-            && receipt.prompt_role()
-                == Some(crate::harness::prompt_catalog::PromptRole::CodeReviewer)
+            && receipt.prompt_role().is_some_and(|role| {
+                matches!(
+                    role,
+                    crate::harness::prompt_catalog::PromptRole::CodeReviewer
+                        | crate::harness::prompt_catalog::PromptRole::CodeReviewerV1
+                )
+            })
             && receipt.validate().is_ok()
     }
 

@@ -36,16 +36,19 @@ fn code_reviewer_receives_the_complete_subject_in_read_only_mode() {
         spec: "approved requirement",
         report: "{\"tests\":[\"cargo test\"]}",
         requirements: &requirements,
+        subject_context: "{\"linked_subtask_ids\":[],\"runtime_qa_receipt_ids\":[]}",
         author: &author,
         reviewer: &reviewer,
+        arbitration: None,
     })
     .unwrap();
     assert_eq!(request.mode, ExecutionMode::ReadOnlyAnalysis);
     assert!(request.execution_workspace.is_none());
     assert_eq!(request.review_identity.as_ref(), Some(&reviewer));
-    assert_eq!(manifest.role_version, "code_review/v1");
+    assert_eq!(manifest.role_version, "code_review/v2");
     assert!(request.prompt_body.contains("diff --git a/src/lib.rs"));
     assert!(request.prompt_body.contains("approved requirement"));
+    assert!(request.prompt_body.contains("review-subject-v1"));
     assert!(evidence_ids.contains("verified-test-report-0"));
     assert_eq!(request.task_id.as_deref(), state.task_uid.as_deref());
 }

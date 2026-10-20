@@ -6,9 +6,14 @@ pub const FILE: &str = crate::artifacts::layout::canonical::WORK;
 pub const STORE_FILE: &str = crate::artifacts::planning_store::paths::WORK;
 const SCHEMA_VERSION: u32 = 3;
 
+mod code_review_disposition;
 mod projection;
 mod storage;
 mod validation;
+pub use code_review_disposition::{
+    CodeReviewDispositionStatusV1, CodeReviewFindingDispositionV1,
+    MAX_CODE_REVIEW_ARBITRATION_ATTEMPTS,
+};
 use validation::validate;
 pub use validation::{routing_for_feature, save, save_expected};
 mod reconcile;
@@ -30,6 +35,7 @@ pub enum WorkKind {
     Question,
     TaskGeneration,
     PlanReviewDisposition,
+    CodeReviewDisposition,
 }
 
 impl WorkKind {
@@ -42,6 +48,7 @@ impl WorkKind {
             Self::Question => "Question",
             Self::TaskGeneration => "Task generation",
             Self::PlanReviewDisposition => "Plan review",
+            Self::CodeReviewDisposition => "Code review",
         }
     }
 
@@ -53,7 +60,7 @@ impl WorkKind {
             Self::NewProject => routes::SPECIFICATION,
             Self::DocumentationRefresh => routes::DOCUMENTATION,
             Self::TaskGeneration => routes::TASK_GENERATION,
-            Self::PlanReviewDisposition => routes::MANAGER,
+            Self::PlanReviewDisposition | Self::CodeReviewDisposition => routes::MANAGER,
         }
     }
 
@@ -79,6 +86,9 @@ impl WorkKind {
             }
             Self::PlanReviewDisposition => {
                 "Resolve one Manager disposition for a persisted independent plan-review finding. Preserve the user's goal, cite the reviewed evidence, and require fresh user confirmation after any plan change."
+            }
+            Self::CodeReviewDisposition => {
+                "Resolve one Manager disposition for a persisted independent code-review finding. Preserve the approved specification, make the smallest scoped repair, and require fresh verification and independent review after code changes."
             }
         }
     }
@@ -155,6 +165,8 @@ pub struct Work {
     pub routing_inherited_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_up_task: Option<FollowUpTaskOffer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_review_disposition: Option<CodeReviewFindingDispositionV1>,
     pub detail: String,
     /// Revision captured when this record was loaded; not part of legacy
     /// aggregate serialization.
@@ -183,6 +195,7 @@ impl PartialEq for Work {
             && self.routing_overrides == other.routing_overrides
             && self.routing_inherited_from == other.routing_inherited_from
             && self.follow_up_task == other.follow_up_task
+            && self.code_review_disposition == other.code_review_disposition
             && self.detail == other.detail
     }
 }
@@ -213,6 +226,7 @@ impl Work {
             routing_overrides: std::collections::BTreeMap::new(),
             routing_inherited_from: None,
             follow_up_task: None,
+            code_review_disposition: None,
             detail,
             record_revision: 0,
             record_baseline: None,

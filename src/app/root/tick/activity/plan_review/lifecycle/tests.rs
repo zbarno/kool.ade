@@ -49,14 +49,22 @@ fn unresolved_arbitration_remains_selectable_until_bounded_escalation() {
         crate::app::manager::next_plan_arbitration(&mut project).unwrap();
     let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: false,
         outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::BlockingFindings),
         coverage: Vec::new(),
         findings: vec![crate::harness::prompt_catalog::ReviewFindingV1 {
             id: "F-1".into(),
             requirement: "REQ-1".into(),
+            location_detail: None,
+            rationale: String::new(),
+            affected_requirement_ids: Vec::new(),
+            suggested_action: None,
             severity: crate::harness::prompt_catalog::Severity::High,
             kind: crate::harness::prompt_catalog::FindingKind::Requirements,
+            scope: None,
             location: "requirement REQ-1".into(),
             evidence: vec!["plan:snapshot".into()],
             repro: Some("The issue remains after arbitration.".into()),

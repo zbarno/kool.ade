@@ -105,7 +105,8 @@ pub(super) fn apply_review_verdict(
             _ => super::super::QaFindingCategory::Functional,
         };
         let severity = match finding.severity {
-            crate::harness::prompt_catalog::Severity::Blocker => {
+            crate::harness::prompt_catalog::Severity::Critical
+            | crate::harness::prompt_catalog::Severity::Blocker => {
                 super::super::QaFindingSeverity::Critical
             }
             crate::harness::prompt_catalog::Severity::High => super::super::QaFindingSeverity::High,
@@ -113,6 +114,9 @@ pub(super) fn apply_review_verdict(
                 super::super::QaFindingSeverity::Medium
             }
             crate::harness::prompt_catalog::Severity::Low => super::super::QaFindingSeverity::Low,
+            crate::harness::prompt_catalog::Severity::Informational => {
+                super::super::QaFindingSeverity::Low
+            }
         };
         let smallest_fix = finding.proposed_correction.clone();
         result.findings.push(super::super::QaFindingV1 {

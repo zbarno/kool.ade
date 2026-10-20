@@ -15,6 +15,9 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
     let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
+            examined_files: Vec::new(),
+            tested_evidence_ids: Vec::new(),
+            unexamined_areas: Vec::new(),
             pass: false,
             outcome: None,
             coverage: vec![CoverageV1 {

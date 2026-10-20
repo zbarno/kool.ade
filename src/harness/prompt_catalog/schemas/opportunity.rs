@@ -44,6 +44,7 @@ pub enum ManagerActionKind {
     RepairPlan,
     Investigate,
     AskUser,
+    AcceptRisk,
     PromoteFollowUp,
     ContestFinding,
     MaintainSpecification,

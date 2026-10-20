@@ -6,9 +6,17 @@ mod prompt;
 mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
+pub(crate) use dispositions::has_unpromoted_nonblocking_findings;
+#[cfg(test)]
+pub(super) use dispositions::persist_plan_dispositions;
+pub(crate) use dispositions::{
+    CodeReviewArbitrationRequest, approve_code_review_risk, finish_code_review_arbitration,
+    finish_code_review_repair, mark_code_review_repair_failed, next_code_review_arbitration,
+    next_code_review_repair,
+};
 pub(super) use dispositions::{
     has_pending_plan_contest, has_pending_plan_repair, next_plan_arbitration, next_plan_repair,
-    persist_plan_dispositions,
+    persist_dispositions,
 };
 
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
@@ -34,6 +42,8 @@ pub(super) struct ManagerOutput {
     pub opportunities: Vec<crate::harness::prompt_catalog::OpportunityProposalV1>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
     pub planning_revision: String,
+    pub code_review_targets:
+        std::collections::HashMap<String, catalog::code_reviews::FindingTarget>,
 }
 
 pub(super) fn persist_output(project: &super::session::Project, output: &ManagerOutput) -> String {
@@ -68,6 +78,10 @@ impl Manager {
         let review_targets = prepared
             .as_ref()
             .map(|prompt| prompt.review_targets.clone())
+            .unwrap_or_default();
+        let code_review_targets = prepared
+            .as_ref()
+            .map(|prompt| prompt.code_review_targets.clone())
             .unwrap_or_default();
         let prompt_body = prepared
             .as_ref()
@@ -196,6 +210,7 @@ impl Manager {
                     evidence_hashes.clone(),
                     planning_revision.clone(),
                     &review_targets,
+                    &code_review_targets,
                 );
                 if outcome.is_ok() {
                     failure_category = None;

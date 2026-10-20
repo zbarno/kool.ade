@@ -52,7 +52,7 @@ fn reviewer_dispatch_requires_distinct_controller_identity_and_read_only_prompt(
     let mut request = planning_request(ExecutionMode::ReadOnlyAnalysis);
     request.telemetry_phase = Some("independent_code_review".into());
     request.prompt_manifest = Some(crate::harness::prompt_catalog::PromptManifest {
-        role_version: "code_review/v1".into(),
+        role_version: "code_review/v2".into(),
         system_template_sha256: "0".repeat(64),
         policy_template_sha256: "0".repeat(64),
         user_template_sha256: "0".repeat(64),

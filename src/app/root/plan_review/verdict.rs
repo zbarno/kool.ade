@@ -16,6 +16,9 @@ pub(super) fn unable_verdict(
 ) -> ReviewVerdictV1 {
     ReviewVerdictV1 {
         subject_hash: subject_hash.to_owned(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: false,
         outcome: Some(ReviewOutcomeV1::ReviewUnable),
         coverage: requirements
