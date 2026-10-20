@@ -40,6 +40,8 @@ pub(super) fn worker_state_command(
     }
     let state = root.join("worker-state");
     let executions = state.join("executions");
+    let worker_pid = state.join("worker-process.pid");
+    let worker_command = state.join("serve-worker.sh");
     fs::create_dir_all(&executions)?;
     fs::write(executions.join("owner-instance-id"), worker_id)?;
     #[cfg(unix)]
@@ -51,11 +53,18 @@ pub(super) fn worker_state_command(
             executions.join("owner-instance-id"),
             fs::Permissions::from_mode(0o600),
         )?;
+        fs::write(
+            &worker_command,
+            format!(
+                "#!/bin/sh\numask 077\nprintf '%s\\n' \"$$\" > {}\nexec /usr/bin/env KOOLADE_HOME={} {} worker serve --stdio\n",
+                shell_quote(&worker_pid.to_string_lossy()),
+                shell_quote(&state.to_string_lossy()),
+                binary,
+            ),
+        )?;
+        fs::set_permissions(&worker_command, fs::Permissions::from_mode(0o700))?;
     }
-    Ok(format!(
-        "/usr/bin/env KOOLADE_HOME={} {binary} worker serve --stdio",
-        shell_quote(&state.to_string_lossy())
-    ))
+    Ok(shell_quote(&worker_command.to_string_lossy()))
 }
 
 pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn find_sshd() -> Option<PathBuf>

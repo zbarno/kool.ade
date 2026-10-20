@@ -33,8 +33,6 @@ mod private_files;
 pub struct RemoteExecutionBackend {
     target: ExecutionTarget,
     client: Mutex<RemoteWorkerClient>,
-    #[cfg(test)]
-    test_terminator: Option<super::transport::TestTransportTerminator>,
     source_root: Option<PathBuf>,
     controller_id: String,
     result_root: PathBuf,
@@ -102,14 +100,9 @@ impl RemoteExecutionBackend {
             .map_err(|_| disconnected())?;
         let result_root = crate::persistence::state_root().join("remote-results");
         fs::create_dir_all(&result_root).map_err(|_| disconnected())?;
-        let client = RemoteWorkerClient::connect(config)?;
-        #[cfg(test)]
-        let test_terminator = client.transport_terminator_for_test();
         Ok(Self {
             target,
-            client: Mutex::new(client),
-            #[cfg(test)]
-            test_terminator,
+            client: Mutex::new(RemoteWorkerClient::connect(config)?),
             source_root,
             controller_id,
             result_root,

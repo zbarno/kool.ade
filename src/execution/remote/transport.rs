@@ -1,6 +1,4 @@
 use super::{protocol, ssh::VerifiedSshWorker};
-#[cfg(test)]
-use std::sync::atomic::{AtomicI32, Ordering};
 use std::{
     io::{self, Read},
     process::{Child, ChildStdin},
@@ -27,31 +25,6 @@ pub(super) trait RemoteRpcTransport: Send {
     #[allow(dead_code)] // The test-only client hook terminates a fakeable transport.
     fn terminate(&mut self) -> io::Result<()>;
     fn diagnostic_stderr(&self) -> String;
-    #[cfg(test)]
-    fn test_terminator(&self) -> Option<TestTransportTerminator> {
-        None
-    }
-}
-
-#[cfg(test)]
-#[derive(Clone)]
-pub(super) struct TestTransportTerminator(Arc<AtomicI32>);
-
-#[cfg(test)]
-impl TestTransportTerminator {
-    pub(super) fn terminate(&self) {
-        let pid = self.0.load(Ordering::Acquire);
-        #[cfg(unix)]
-        if pid > 0 {
-            // The E2E disconnect hook must be able to break a blocked receive while the
-            // backend client mutex is held by that receive operation.
-            unsafe {
-                libc::kill(pid, libc::SIGKILL);
-            }
-        }
-        #[cfg(not(unix))]
-        let _ = pid;
-    }
 }
 
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(16 * 60);
@@ -65,8 +38,6 @@ pub struct SshTransport {
     stderr: Arc<Mutex<Vec<u8>>>,
     outbound: protocol::SessionValidator,
     inbound: protocol::SessionValidator,
-    #[cfg(test)]
-    test_pid: Arc<AtomicI32>,
 }
 
 impl SshTransport {
@@ -97,8 +68,6 @@ impl SshTransport {
         let stderr = Arc::new(Mutex::new(Vec::new()));
         let capture = stderr.clone();
         thread::spawn(move || drain_stderr(stderr_pipe, capture));
-        #[cfg(test)]
-        let test_pid = Arc::new(AtomicI32::new(child.id() as i32));
         Ok(Self {
             child,
             input,
@@ -106,8 +75,6 @@ impl SshTransport {
             stderr,
             outbound: protocol::SessionValidator::default(),
             inbound: protocol::SessionValidator::default(),
-            #[cfg(test)]
-            test_pid,
         })
     }
 
@@ -159,8 +126,6 @@ impl SshTransport {
             self.child.kill()?;
         }
         let _ = self.child.wait()?;
-        #[cfg(test)]
-        self.test_pid.store(0, Ordering::Release);
         Ok(())
     }
 
@@ -198,11 +163,6 @@ impl RemoteRpcTransport for SshTransport {
 
     fn diagnostic_stderr(&self) -> String {
         SshTransport::diagnostic_stderr(self)
-    }
-
-    #[cfg(test)]
-    fn test_terminator(&self) -> Option<TestTransportTerminator> {
-        Some(TestTransportTerminator(self.test_pid.clone()))
     }
 }
 
@@ -259,7 +219,6 @@ mod tests {
             .stderr(std::process::Stdio::piped())
             .spawn()
             .unwrap();
-        let test_pid = Arc::new(AtomicI32::new(child.id() as i32));
         let transport = SshTransport {
             input: child.stdin.take().unwrap(),
             child,
@@ -267,7 +226,6 @@ mod tests {
             stderr: Arc::new(Mutex::new(Vec::new())),
             outbound: protocol::SessionValidator::default(),
             inbound: protocol::SessionValidator::default(),
-            test_pid,
         };
         let mut transport = transport;
 

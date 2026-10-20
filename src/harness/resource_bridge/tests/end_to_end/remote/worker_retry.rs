@@ -6,7 +6,6 @@ use crate::{
     execution::{
         contract::{ResourceBudgetV1, TargetPreference, WorkspaceRef},
         remote::client::RemoteWorkerClient,
-        session::AuthorizationGenerationVerifier,
     },
     harness::{ExecutionMode, LiveProgress, PlanningRequest},
     persistence::execution_environment_settings::TaskCapabilityRequirements,
@@ -16,6 +15,9 @@ use std::{
     sync::{Arc, Mutex, atomic::AtomicBool, mpsc},
 };
 
+mod authorization;
+use authorization::ObservedAuthorization;
+
 #[test]
 fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     if !cfg!(target_os = "linux")
@@ -24,11 +26,13 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         return;
     }
     // Production boundary: the actual auto scheduler probes trusted workers, reserves capacity,
-    // pins the selected target, confirms a Git-backed claim loss, excludes that worker, and
-    // retries over authenticated SSH with rootless Docker. A unit backend cannot prove this path
-    // composes with worker enrollment, host-key verification, Docker staging, and result fencing.
-    // Dependencies: rootless Docker, sshd, and KOOLADE_TEST_WORKER_BINARY.
-    // Setup cost: two worker keys/configs, two handshakes per scheduler pass, and a bare Git remote.
+    // pins the selected target, confirms a Git-backed claim loss after the worker process dies,
+    // excludes that worker, and retries over authenticated SSH with rootless Docker. A unit
+    // backend cannot prove this path composes with worker enrollment, host-key verification,
+    // Docker staging, result fencing, and cleanup of a killed worker's labeled container.
+    // Dependencies: rootless Docker CLI/daemon, sshd, and KOOLADE_TEST_WORKER_BINARY.
+    // Setup cost: two worker keys/configs, two handshakes per scheduler pass, a bare Git remote,
+    // and a label-scoped Docker cleanup after worker loss.
     let worker_binary = std::env::var_os("KOOLADE_TEST_WORKER_BINARY")
         .map(std::path::PathBuf::from)
         .expect("remote Docker E2E requires KOOLADE_TEST_WORKER_BINARY");
@@ -218,13 +222,23 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         &first_worker_home,
         &first_sshd_log,
     );
-    session.terminate_remote_connection_for_test();
+    let first_sshd = if first_worker_id == worker_a_id {
+        &sshd_a
+    } else {
+        &sshd_b
+    };
+    first_sshd
+        .terminate_worker_process_for_test()
+        .expect("the selected worker process should be terminated for the loss E2E");
     let output = controller
         .take()
         .expect("controller should still be running")
         .join()
         .expect("controller should not panic while retrying on another worker")
         .expect("confirmed worker loss should retry on another trusted worker");
+    first_sshd
+        .cleanup_worker_containers_for_test(&first_worker_id)
+        .expect("lost worker's containers must be removed and verified by owner label");
 
     assert_eq!(output.result.exit_code, Some(0));
     assert_eq!(
@@ -255,47 +269,6 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     drop(retry_session);
     drop(sshd_a);
     drop(sshd_b);
-}
-
-#[derive(Debug)]
-struct ObservedAuthorization {
-    claim: Arc<ClaimLeaseHandle>,
-    statuses: Arc<Mutex<Vec<Option<AttemptStatus>>>>,
-}
-
-impl AuthorizationGenerationVerifier for ObservedAuthorization {
-    fn generation(&self) -> String {
-        self.claim.generation()
-    }
-
-    fn verify(&self, generation: &str) -> Result<(), crate::execution::errors::ExecutionError> {
-        self.statuses.lock().unwrap().push(
-            self.claim
-                .execution_attempt_for_test()
-                .map(|attempt| attempt.status),
-        );
-        <ClaimLeaseHandle as AuthorizationGenerationVerifier>::verify(&self.claim, generation)
-    }
-
-    fn begin_remote_attempt(
-        &self,
-        attempt_id: &str,
-        worker_id: &str,
-    ) -> Result<String, crate::execution::errors::ExecutionError> {
-        self.claim.begin_remote_attempt(attempt_id, worker_id)
-    }
-
-    fn mark_remote_attempt_started(&self) -> Result<(), crate::execution::errors::ExecutionError> {
-        self.claim.mark_remote_attempt_started()
-    }
-
-    fn finish_remote_attempt(&self) -> Result<(), crate::execution::errors::ExecutionError> {
-        self.claim.finish_remote_attempt()
-    }
-
-    fn confirm_remote_attempt_lost(&self) -> Result<(), crate::execution::errors::ExecutionError> {
-        self.claim.confirm_remote_attempt_lost()
-    }
 }
 
 fn install_ssh_dispatcher(

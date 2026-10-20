@@ -23,18 +23,8 @@ pub(super) struct SshdFixture {
     known_hosts: PathBuf,
     ssh_wrapper: PathBuf,
     unauthenticated_wrapper: PathBuf,
+    worker_process_pid_file: Option<PathBuf>,
     pub(super) host_fingerprint: String,
-}
-
-struct ChildGuard(Option<Child>);
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        if let Some(child) = &mut self.0 {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
 }
 
 impl SshdFixture {
@@ -179,6 +169,8 @@ impl SshdFixture {
             known_hosts,
             ssh_wrapper,
             unauthenticated_wrapper,
+            worker_process_pid_file: worker_id
+                .map(|_| root.join("worker-state/worker-process.pid")),
             host_fingerprint,
         };
         fixture.wait_ready()?;
@@ -194,6 +186,25 @@ impl SshdFixture {
             verified_host_key_fingerprint: self.host_fingerprint.clone(),
             known_hosts_path: self.known_hosts.clone(),
             ssh_binary: self.ssh_wrapper.clone(),
+        }
+    }
+
+    pub(super) fn terminate_worker_process_for_test(&self) -> std::io::Result<()> {
+        let pid_path = self.worker_process_pid_file.as_ref().ok_or_else(|| {
+            std::io::Error::other("worker process tracking is unavailable for this fixture")
+        })?;
+        let pid = fs::read_to_string(pid_path)?
+            .trim()
+            .parse::<libc::pid_t>()
+            .map_err(std::io::Error::other)?;
+        if pid <= 0 {
+            return Err(std::io::Error::other("worker process ID is invalid"));
+        }
+        let result = unsafe { libc::kill(pid, libc::SIGKILL) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
         }
     }
 
@@ -279,12 +290,8 @@ impl SshdFixture {
     }
 }
 
-impl Drop for SshdFixture {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
+mod container_cleanup;
+use guards::ChildGuard;
+mod guards;
 mod helpers;
 pub(super) use helpers::*;

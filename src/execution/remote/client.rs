@@ -62,8 +62,6 @@ pub struct RemoteWorkerClient {
     sequences: HashMap<String, u64>,
     last_health_check: Instant,
     system_image_capability_key: [u8; 32],
-    #[cfg(test)]
-    test_terminator: Option<super::transport::TestTransportTerminator>,
 }
 
 impl RemoteWorkerClient {
@@ -74,13 +72,6 @@ impl RemoteWorkerClient {
     #[cfg(test)]
     pub fn terminate_transport_for_test(&mut self) {
         let _ = self.transport.terminate();
-    }
-
-    #[cfg(test)]
-    pub(super) fn transport_terminator_for_test(
-        &self,
-    ) -> Option<super::transport::TestTransportTerminator> {
-        self.test_terminator.clone()
     }
 
     pub fn connect(config: &SshWorkerConfig) -> Result<Self, ExecutionError> {
@@ -102,8 +93,6 @@ impl RemoteWorkerClient {
         let transport: Box<dyn RemoteRpcTransport> =
             Box::new(SshTransport::connect(&worker).map_err(|_| disconnected())?);
         let system_image_capability_key = new_capability_key();
-        #[cfg(test)]
-        let test_terminator = transport.test_terminator();
         let mut client = Self {
             config: config.clone(),
             transport,
@@ -112,8 +101,6 @@ impl RemoteWorkerClient {
             sequences: HashMap::new(),
             last_health_check: Instant::now(),
             system_image_capability_key,
-            #[cfg(test)]
-            test_terminator,
         };
         let ack = client
             .exchange(
