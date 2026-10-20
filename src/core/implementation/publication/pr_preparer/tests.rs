@@ -145,3 +145,32 @@ fn stale_pr_preparer_receipts_are_removed_so_restart_can_rebuild_them() {
     assert!(read_reusable_receipt(&path, &scope).unwrap().is_some());
     assert!(path.exists());
 }
+
+// Production boundary: the persisted PR Preparer receipt must materialize the
+// body file consumed by the provider controller, including after restart. A
+// string-rendering unit test cannot prove replacement/recovery ordering. Uses
+// one temporary directory, no network/provider/Docker; negligible setup.
+#[test]
+fn publication_body_uses_current_validated_proposal_after_restart() {
+    let scope = scope();
+    let current = receipt(&scope);
+    let temp = tempfile::tempdir().unwrap();
+    let receipt_path = temp.path().join("pr-preparer-v1.json");
+    fs::write(&receipt_path, serde_json::to_vec(&current).unwrap()).unwrap();
+    let body_path = temp.path().join("pr-body.md");
+    fs::write(&body_path, "Old verification-only summary").unwrap();
+    let reopened = read_reusable_receipt(&receipt_path, &scope)
+        .unwrap()
+        .unwrap();
+    super::body::write(temp.path(), &reopened, &scope).unwrap();
+    let body = fs::read_to_string(&body_path).unwrap();
+    assert!(body.starts_with(&current.proposal.description));
+    assert!(body.contains(&scope.scope_sha256));
+    assert!(body.contains("src/main.rs"));
+    assert!(!body.contains("Old verification-only summary"));
+
+    let mut stale = current;
+    stale.scope_sha256 = "b".repeat(64);
+    assert!(super::body::write(temp.path(), &stale, &scope).is_err());
+    assert_eq!(fs::read_to_string(body_path).unwrap(), body);
+}

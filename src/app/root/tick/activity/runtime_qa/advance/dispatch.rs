@@ -10,9 +10,10 @@ pub(super) fn dispatch_queued_worker(
     if project.activity.runtime_qa_worker.is_none()
         && let Some((prepared, task_uid)) = launch
     {
-        let harness = crate::app::root::configured_harness_for_task(
+        let harness = crate::app::root::configured_harness_for_project_task(
             task_harness,
-            Some(crate::persistence::harness_settings::QA),
+            Some(crate::persistence::harness_settings::RUNTIME_QA),
+            &project.state.harness_routes.routes,
             &prepared.task_routes,
         );
         let store = match crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(

@@ -3,6 +3,36 @@ use crate::harness::{ExecutionMode, ToolAccess};
 use std::sync::{Arc, atomic::AtomicBool, mpsc};
 
 #[test]
+fn resource_budget_overrides_are_task_scoped_and_restored() {
+    let budget = ResourceBudgetV1 {
+        cpu_millis: 1_000,
+        memory_bytes: 512 * 1024 * 1024,
+        process_count: 128,
+        temporary_disk_bytes: 1024 * 1024 * 1024,
+        output_bytes: 8 * 1024 * 1024,
+    };
+    let later_budget = ResourceBudgetV1 {
+        cpu_millis: 500,
+        ..budget.clone()
+    };
+    let overrides = override_test_resource_budgets([
+        ("task-1".into(), budget.clone()),
+        ("task-1".into(), later_budget.clone()),
+    ]);
+    assert_eq!(default_resource_budget(Some("task-1")), later_budget);
+    assert_ne!(default_resource_budget(Some("task-2")), budget);
+    drop(overrides);
+    assert_eq!(
+        default_resource_budget(Some("task-1")),
+        ResourceBudgetV1::default()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[path = "tests/docker_provider_mcp.rs"]
+mod docker_provider_mcp;
+
+#[test]
 fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {

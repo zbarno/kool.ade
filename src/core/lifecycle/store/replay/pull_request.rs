@@ -106,16 +106,20 @@ pub(super) fn replay_for_task(
             || next.status != *status
             || !allowed_transition(preparation.status, next.status)
             || !same_pr_identity(&preparation, next)
-            || (preparation.status == PullRequestPreparationStatus::AwaitingAuthorization
+            || (preparation.publication_authorization.is_none()
+                && next.publication_authorization.is_some()
                 && event.actor != LifecycleActor::User)
-            || (preparation.status != PullRequestPreparationStatus::AwaitingAuthorization
+            || (!(preparation.publication_authorization.is_none()
+                && next.publication_authorization.is_some())
                 && event.actor != LifecycleActor::ApplicationPolicy)
+            || !validation::valid_recovery_transition(&preparation, next)
         {
             return Err(StoreError::MalformedState(
                 "PR event revision does not match its replay position".into(),
             ));
         }
-        if preparation.status == PullRequestPreparationStatus::AwaitingAuthorization
+        if preparation.publication_authorization.is_none()
+            && next.publication_authorization.is_some()
             && !authorization_matches_task(next, task, work_item_uid)
         {
             return Err(StoreError::MalformedState(
@@ -154,6 +158,7 @@ fn validate_creation(
         || preparation.provider_pr_url.is_some()
         || preparation.head_sha.is_some()
         || preparation.base_sha.is_some()
+        || preparation.recovery.is_some()
     {
         return Err(StoreError::MalformedState(
             "initial PR preparation state is invalid".into(),

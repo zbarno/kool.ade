@@ -6,8 +6,10 @@ use crate::{
     },
 };
 
+mod recovery;
 #[cfg(test)]
 mod tests;
+pub(in crate::core::implementation) use recovery::preserve_done_after_failure;
 
 #[derive(Clone)]
 pub(in crate::core::implementation) struct LifecyclePublication {
@@ -18,6 +20,18 @@ pub(in crate::core::implementation) enum LifecyclePublicationGate {
     Legacy,
     Blocked(String),
     Authorized(LifecyclePublication),
+}
+
+pub(in crate::core::implementation) fn implementation_is_done(
+    store: &PlanningStore,
+    implementation: &Implementation,
+) -> anyhow::Result<bool> {
+    let Some(uid) = implementation.task_uid.as_deref() else {
+        return Ok(false);
+    };
+    Ok(LifecycleStore::new(store)
+        .task_for_planning_item(uid)?
+        .is_some_and(|task| task.phase == crate::core::lifecycle::TaskPhase::Done))
 }
 
 /// The explicit Create PR action is the user authorization boundary. Persist
@@ -57,7 +71,10 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
     let work = lifecycle.load_pr_preparation(&work_item_uid)?;
     lifecycle.ensure_product_specification_current(&task.feature_uid)?;
     match work.status {
-        PullRequestPreparationStatus::AwaitingAuthorization => {
+        PullRequestPreparationStatus::AwaitingAuthorization
+        | PullRequestPreparationStatus::NeedsAttention
+            if work.publication_authorization.is_none() =>
+        {
             let subject_sha256 = task
                 .implementation_sha256
                 .as_deref()
@@ -85,7 +102,7 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
                 &receipt,
             )?;
         }
-        PullRequestPreparationStatus::Publishing => {
+        PullRequestPreparationStatus::Publishing | PullRequestPreparationStatus::NeedsAttention => {
             anyhow::ensure!(
                 work.publication_authorization
                     .as_ref()
@@ -135,20 +152,24 @@ pub(in crate::core::implementation) fn finish_lifecycle_publication(
         .pr_details
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("PR publisher returned without reviewed head details"))?;
-    anyhow::ensure!(
-        implementation.pr_state == Some(PullRequestState::Open),
-        "PR publisher did not report an open pull request"
-    );
+    let status = match implementation.pr_state {
+        Some(PullRequestState::Open) => PullRequestPreparationStatus::Opened,
+        Some(PullRequestState::Closed) => PullRequestPreparationStatus::ClosedUnmerged,
+        Some(PullRequestState::Merged) => {
+            anyhow::bail!("PR publisher reported merged without an authoritative merge commit")
+        }
+        None => anyhow::bail!("PR publisher did not report a provider pull request state"),
+    };
     let event_uid = event_uid(
         &binding.work_item_uid,
-        &format!("opened:{}:{}", details.number, details.head_sha),
+        &format!("{status:?}:{}:{}", details.number, details.head_sha),
     );
     lifecycle.record_pr_publication_state(
         &binding.work_item_uid,
         work.revision,
         &event_uid,
         crate::core::lifecycle::PullRequestPublicationState {
-            status: PullRequestPreparationStatus::Opened,
+            status,
             provider_pr_id: Some(details.number),
             provider_pr_url: Some(provider_pr_url),
             head_sha: Some(details.head_sha.clone()),

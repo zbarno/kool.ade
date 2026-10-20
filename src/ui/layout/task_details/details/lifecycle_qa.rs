@@ -114,6 +114,7 @@ mod tests {
     #[test]
     fn task_details_display_requirement_coverage_and_run_outcome() {
         let lifecycle = LifecycleView {
+            feature_uid: "feature-uid".into(),
             feature_phase: FeaturePhase::Executing,
             task_phase: TaskPhase::AwaitingSpecReconciliation,
             parent_task_uid: None,
@@ -123,6 +124,7 @@ mod tests {
             task_revision: 2,
             code_review: None,
             runtime_qa: None,
+            runtime_qa_run_id: None,
             spec_reconciliation: None,
             current_spec_hash: None,
             implementation_head_sha: None,
@@ -190,6 +192,7 @@ mod tests {
     #[test]
     fn task_details_identify_headless_visual_qa_as_not_applicable_with_signoff() {
         let lifecycle = LifecycleView {
+            feature_uid: "feature-uid".into(),
             feature_phase: FeaturePhase::Executing,
             task_phase: TaskPhase::AwaitingSpecReconciliation,
             parent_task_uid: None,
@@ -199,6 +202,7 @@ mod tests {
             task_revision: 3,
             code_review: None,
             runtime_qa: None,
+            runtime_qa_run_id: None,
             spec_reconciliation: None,
             current_spec_hash: None,
             implementation_head_sha: None,

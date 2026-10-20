@@ -67,6 +67,8 @@ pub(super) fn for_task(
                 .ok_or_else(|| "runtime QA screenshot bytes are missing".to_owned())?;
             Ok(crate::ui::task_detail::RuntimeQaScreenshotView {
                 id: metadata.id.clone(),
+                scenario_id: metadata.scenario_id.clone(),
+                sha256: metadata.sha256.clone(),
                 width: metadata.width,
                 height: metadata.height,
                 bytes: artifact.bytes.clone(),

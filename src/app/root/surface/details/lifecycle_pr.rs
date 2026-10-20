@@ -24,7 +24,11 @@ pub(super) fn for_ticket(
                 return (None, None, None);
             };
             match lifecycle.load_pr_preparation(&uid) {
-                Ok(work) => (Some(uid), Some(work.status), None),
+                Ok(work) => (
+                    Some(uid),
+                    Some(work.status),
+                    work.recovery.and_then(|recovery| recovery.last_failure),
+                ),
                 Err(error) => (Some(uid), None, Some(error.to_string())),
             }
         }

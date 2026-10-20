@@ -110,9 +110,10 @@ pub(super) fn advance_dependency_review(
             stored.clone()
         };
         project.save_task_activity(&ticket);
-        let harness = crate::app::root::configured_harness_for(
+        let harness = crate::app::root::configured_harness_for_project(
             task_harness,
             Some(crate::persistence::harness_settings::MANAGER),
+            &project.state.harness_routes.routes,
         );
         project.activity.dependency_manager = Some(crate::app::manager::DependencyReview::start(
             project,

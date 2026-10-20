@@ -20,9 +20,10 @@ pub(super) fn start(app: &mut KooladeApp, ticket: &str) {
             .warning("A runtime QA applicability review is already running.");
         return;
     }
-    let harness = crate::app::root::configured_harness_for_task(
+    let harness = crate::app::root::configured_harness_for_project_task(
         &mut app.task_harness,
         Some(crate::persistence::harness_settings::QA),
+        &project.state.harness_routes.routes,
         &Default::default(),
     );
     project.activity.runtime_qa_applicability_review = Some(

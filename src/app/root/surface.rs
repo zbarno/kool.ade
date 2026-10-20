@@ -1,6 +1,8 @@
 use super::*;
 
 mod details;
+mod plan_review;
+mod runtime_qa;
 
 impl Surface for KooladeApp {
     fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {
@@ -175,6 +177,21 @@ impl Surface for KooladeApp {
                 .unwrap_or(&[]),
             _ => &[],
         }
+    }
+    fn load_runtime_qa_screenshots(
+        &self,
+        ticket: &str,
+        qa_run_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<crate::ui::task_detail::RuntimeQaScreenshotGalleryView, String> {
+        self.runtime_qa_screenshots(ticket, qa_run_id, offset, limit)
+    }
+    fn lifecycle_plan_review(
+        &self,
+        feature_uid: &str,
+    ) -> Result<crate::ui::task_detail::LifecyclePlanReviewView, String> {
+        self.load_lifecycle_plan_review(feature_uid)
     }
     fn task_chat_context(&self, key: &str) -> Option<String> {
         let Screen::Connected(p) = &self.screen else {

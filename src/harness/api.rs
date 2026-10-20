@@ -17,6 +17,9 @@ use crate::error::AppError;
 mod activity;
 mod dependency;
 mod execution;
+mod execution_failure;
+mod reasoning;
+mod route;
 pub use activity::{
     ActivityTelemetry, CleanLaunchTelemetry, LivePost, LiveProgress, ModelCallUsage,
 };
@@ -27,6 +30,10 @@ pub use dependency::{
     DependencyRequestStatus, DependencyRetryResult, PackageEcosystem,
 };
 pub use execution::{ExecutionMode, PlanningRequest, ToolAccess};
+pub(crate) use execution_failure::normalize_provider_error;
+pub use execution_failure::{HarnessExecutionFailure, HarnessFailureCategory};
+pub(crate) use reasoning::validate_reasoning_level;
+pub use route::HarnessRouteProvenance;
 
 /// Model-selected logical sources for a bounded planning turn. References are
 /// suggestions only; the application resolves each against its current catalog.
@@ -246,6 +253,12 @@ pub struct ReviewExecutionIdentity {
 pub trait AiHarness: Send + Sync {
     /// Human-readable backend label for the UI (e.g. "pi 0.84.4").
     fn label(&self) -> String;
+
+    /// Route identity and capability evidence captured when this adapter was
+    /// selected. Wrapper harnesses preserve this for durable invocation logs.
+    fn route_provenance(&self, _request: &PlanningRequest) -> Option<HarnessRouteProvenance> {
+        None
+    }
 
     /// Availability probe (executables present, sane version).
     fn check_available(&self) -> Result<String, AppError>;

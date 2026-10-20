@@ -7,6 +7,12 @@ mod setup;
 
 #[test]
 fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
+    // Production boundary: board action -> queue -> provider MCP -> Docker worker.
+    // The invariant is that independent tasks overlap while a third waits for a
+    // slot, with review and planning activity remaining live. A unit test cannot
+    // prove this cross-process dispatch and admission behavior. This requires a
+    // working Docker Engine and built app binary; fixture setup creates temporary
+    // Git repositories and Docker executions, so it is a high-cost integration test.
     // Capability detection resolves Docker through PATH, which this fixture
     // replaces later. Keep the initial host observation outside concurrent
     // PATH and provider override windows too.
@@ -40,6 +46,33 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         crate::harness::execution_security::override_test_app_binary(app_binary);
 
     let prepared = setup::prepare(root.clone());
+    let _resource_budgets = crate::harness::execution_security::override_test_resource_budgets(
+        prepared
+            .docs
+            .iter()
+            .take(2)
+            .chain(prepared.docs.iter().skip(3).take(1))
+            .map(|doc| {
+                (
+                    doc.identity
+                        .as_ref()
+                        .expect("fixture task has an identity")
+                        .uid
+                        .clone(),
+                    crate::execution::contract::ResourceBudgetV1 {
+                        // The fixture exercises app queue concurrency, not
+                        // host saturation. Keep each fake task small enough
+                        // that two workers still fit on constrained CI
+                        // runners while retaining real Docker enforcement.
+                        cpu_millis: 100,
+                        memory_bytes: 128 * 1024 * 1024,
+                        process_count: 256,
+                        temporary_disk_bytes: 1024 * 1024 * 1024,
+                        output_bytes: 8 * 1024 * 1024,
+                    },
+                )
+            }),
+    );
     let cleanup_root = run::exercise(prepared);
     drop(_restore_home);
     fake_pi::remove_test_root(&cleanup_root);

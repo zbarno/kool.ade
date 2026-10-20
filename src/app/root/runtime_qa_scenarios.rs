@@ -43,9 +43,10 @@ impl KooladeApp {
                 .warning("A scenario proposal already exists for this immutable QA request.");
             return;
         }
-        let harness = crate::app::root::configured_harness_for_task(
+        let harness = crate::app::root::configured_harness_for_project_task(
             &mut self.task_harness,
             Some(crate::persistence::harness_settings::QA),
+            &project.state.harness_routes.routes,
             &Default::default(),
         );
         project.activity.runtime_qa_scenario_synthesis = Some(

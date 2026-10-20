@@ -75,6 +75,31 @@ pub(super) fn paint(
             );
         });
         clear_if_closed(selection, closed);
+    } else if let Some(feature_uid) = selection
+        .as_deref()
+        .and_then(|key| key.strip_prefix("feature-plan-review:"))
+        .and_then(|uid| {
+            board.lifecycle_features.iter().find(|feature| {
+                feature.feature_uid == uid
+                    && feature.phase == crate::core::lifecycle::FeaturePhase::PlanReviewPending
+            })
+        })
+        .map(|feature| feature.feature_uid.as_str())
+    {
+        let feature_uid = feature_uid.to_owned();
+        let key = format!("feature-plan-review:{feature_uid}");
+        let review = surface.lifecycle_plan_review(&feature_uid);
+        let closed = crate::ui::overlays::show_task_modal(ui, &key, bounds, |ui| match &review {
+            Ok(review) => super::super::task_details::paint_plan_review(ui, review),
+            Err(error) => {
+                ui.heading("Plan Review");
+                ui.label(crate::ui::theme::metadata_text(
+                    "Independent reviewer · in progress",
+                ));
+                ui.colored_label(crate::ui::theme::WARNING, error);
+            }
+        });
+        clear_if_closed(selection, closed);
     } else if let Some(action) = selection.as_deref().and_then(|key| {
         surface
             .feature_actions(None)

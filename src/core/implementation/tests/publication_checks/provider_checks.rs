@@ -1,7 +1,11 @@
 use super::*;
 
+#[path = "provider_checks/head_binding.rs"]
+mod head_binding;
 #[path = "provider_checks/remote_guards.rs"]
 mod remote_guards;
+#[path = "provider_checks/unknown_outcome.rs"]
+mod unknown_outcome;
 
 #[test]
 fn independent_check_gate_pushes_only_the_candidate_and_records_the_exact_result() {

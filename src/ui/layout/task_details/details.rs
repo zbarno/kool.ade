@@ -1,4 +1,6 @@
 use super::*;
+mod lifecycle_pr;
+mod lifecycle_publication;
 mod lifecycle_qa;
 mod lifecycle_spec;
 mod linkage;
@@ -69,41 +71,22 @@ pub(super) fn paint(
                         );
                     });
                 }
-            } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()) {
+            } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()).filter(|_| {
+                view.lifecycle_pr_status != Some(crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention)
+            }) {
                 ui.label(if presentation.pull_request_closed {
                     "Reopen the pull request on GitHub to continue review."
                 } else {
                     "Review the published changes."
                 });
                 ui.hyperlink_to("Open PR", url);
-            } else if view.lifecycle_pr_status
-                == Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization)
+            } else if matches!(view.lifecycle_pr_status,
+                Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                    | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention))
             {
-                ui.label("Implementation, independent review, runtime QA, and specification sync are complete. Authorize the single parent pull request when ready.");
-                if let Some(error) = view.lifecycle_pr_error.as_deref() {
-                    ui.colored_label(theme::DANGER, format!("PR preparation status unavailable: {error}"));
-                }
-                if ui
-                    .add_enabled(
-                        view.can_start
-                            && record.is_some_and(|record| matches!(
-                                record.status,
-                                crate::core::implementation::ImplementationStatus::ReadyToPublish
-                                    | crate::core::implementation::ImplementationStatus::AwaitingApproval
-                            )),
-                        egui::Button::new(RichText::new("Authorize and create pull request").strong().color(theme::TEXT))
-                            .fill(theme::ACTION)
-                            .min_size(egui::vec2(0.0, 36.0)),
-                    )
-                    .clicked()
-                {
-                    dispatch(
-                        s,
-                        crate::ui::task_detail::Command::PublishLifecyclePr {
-                            ticket: ticket.to_owned(),
-                        },
-                    );
-                }
+                lifecycle_publication::paint(ui, s, ticket, view, record);
+            } else if let Some(status) = view.lifecycle_pr_status {
+                lifecycle_pr::paint(ui, s, ticket, view, record, status);
             } else if view
                 .lifecycle
                 .as_ref()
@@ -198,11 +181,6 @@ pub(super) fn paint(
     runtime_qa_scenarios::paint(ui, s, presentation.ticket, presentation.view);
     runtime_qa_applicability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
-    lifecycle::paint(
-        ui,
-        presentation.view.lifecycle.as_ref(),
-        presentation.view.lifecycle_error.as_deref(),
-    );
     lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
     linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
@@ -264,6 +242,16 @@ pub(super) fn paint(
         crate::ui::spec_viewer::render(ui, Some(&doc.text));
     });
     ui.collapsing("Technical details", |ui| paint_task_properties(ui, s, doc));
+    {
+        let mut lifecycle_surface = Some(&mut *s);
+        lifecycle::paint(
+            ui,
+            &mut lifecycle_surface,
+            ticket,
+            presentation.view.lifecycle.as_ref(),
+            presentation.view.lifecycle_error.as_deref(),
+        );
+    }
 }
 
 fn paint_attention(

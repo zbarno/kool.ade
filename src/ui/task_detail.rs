@@ -95,6 +95,7 @@ pub struct RemotePrivateFileGrantWorker {
 
 #[derive(Clone)]
 pub struct LifecycleView {
+    pub feature_uid: String,
     pub feature_phase: crate::core::lifecycle::FeaturePhase,
     pub task_phase: crate::core::lifecycle::TaskPhase,
     pub parent_task_uid: Option<String>,
@@ -104,6 +105,7 @@ pub struct LifecycleView {
     pub task_revision: u64,
     pub code_review: Option<crate::core::lifecycle::GateReceipt>,
     pub runtime_qa: Option<crate::core::lifecycle::GateReceipt>,
+    pub runtime_qa_run_id: Option<String>,
     pub spec_reconciliation: Option<crate::core::lifecycle::GateReceipt>,
     pub current_spec_hash: Option<String>,
     pub implementation_head_sha: Option<String>,
@@ -135,13 +137,32 @@ pub struct RuntimeQaEvidenceView {
 #[derive(Clone)]
 pub struct RuntimeQaScreenshotView {
     pub id: String,
+    pub scenario_id: String,
+    pub sha256: String,
     pub width: u16,
     pub height: u16,
     pub bytes: Vec<u8>,
 }
 
 #[derive(Clone)]
+pub struct RuntimeQaScreenshotGalleryView {
+    pub total: usize,
+    pub screenshots: Vec<RuntimeQaScreenshotView>,
+}
+
+#[derive(Clone)]
+pub struct LifecyclePlanReviewView {
+    pub feature_uid: String,
+    pub snapshot: crate::core::lifecycle::PlanSnapshotV1,
+    pub confirmation: Option<crate::core::lifecycle::GateReceipt>,
+    pub review: Option<crate::core::lifecycle::GateReceipt>,
+    pub verdict: Option<crate::harness::prompt_catalog::ReviewVerdictV1>,
+}
+
+#[derive(Clone)]
 pub struct TaskRelationView {
+    pub planning_item_uid: String,
+    pub lifecycle_task_uid: Option<String>,
     pub title: String,
     pub status: String,
     pub acceptance_criteria: Vec<String>,
