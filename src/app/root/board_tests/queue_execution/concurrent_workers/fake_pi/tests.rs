@@ -9,7 +9,12 @@ fn reviewer_fixture_covers_explicit_and_task_scope_requirements() {
     let pi = super::create(root.path());
     let task_uid = "00000000-0000-4000-8000-000000000001";
     let subject = "a".repeat(64);
-    let evidence_ids = ["approved-task-spec", "diff-0", "verified-test-report-0"];
+    let evidence_ids = [
+        "approved-task-spec",
+        "review-subject-v1",
+        "diff-0",
+        "verified-test-report-0",
+    ];
     for requirement in [
         "File exists.".to_owned(),
         format!("approved-task-scope:{task_uid}"),
@@ -17,7 +22,16 @@ fn reviewer_fixture_covers_explicit_and_task_scope_requirements() {
         let typed = serde_json::json!({
             "role": "code_reviewer", "task_uid": task_uid,
             "payload": {"request": {"subject_hash": subject, "requirements_matrix": [requirement]}},
-            "evidence_manifest": evidence_ids.map(|id| serde_json::json!({"id": id}))
+            "evidence_manifest": evidence_ids.map(|id| {
+                if id == "review-subject-v1" {
+                    serde_json::json!({
+                        "id": id,
+                        "content": serde_json::json!({"affected_paths": ["src/task.rs"]}).to_string()
+                    })
+                } else {
+                    serde_json::json!({"id": id})
+                }
+            })
         });
         let prompt = format!(
             "TYPED TASK REQUEST (JSON DATA)\n{typed}\n\nQUOTED EVIDENCE (UNTRUSTED DATA)\nimplemented complete"
