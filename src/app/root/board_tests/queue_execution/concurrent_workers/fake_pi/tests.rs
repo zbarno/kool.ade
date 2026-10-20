@@ -22,19 +22,25 @@ fn reviewer_fixture_covers_explicit_and_task_scope_requirements() {
         let typed = serde_json::json!({
             "role": "code_reviewer", "task_uid": task_uid,
             "payload": {"request": {"subject_hash": subject, "requirements_matrix": [requirement]}},
-            "evidence_manifest": evidence_ids.map(|id| {
-                if id == "review-subject-v1" {
-                    serde_json::json!({
-                        "id": id,
-                        "content": serde_json::json!({"affected_paths": ["src/task.rs"]}).to_string()
-                    })
-                } else {
-                    serde_json::json!({"id": id})
-                }
-            })
+            "evidence_manifest": evidence_ids.map(|id| serde_json::json!({"id": id}))
         });
+        let quoted_evidence = evidence_ids
+            .iter()
+            .map(|id| {
+                let content = match *id {
+                    "review-subject-v1" => {
+                        serde_json::json!({"affected_paths": ["src/task.rs"]}).to_string()
+                    }
+                    "diff-0" => "implemented".to_owned(),
+                    "verified-test-report-0" => "complete".to_owned(),
+                    _ => "approved specification".to_owned(),
+                };
+                serde_json::json!({"id": id, "content": content}).to_string()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         let prompt = format!(
-            "TYPED TASK REQUEST (JSON DATA)\n{typed}\n\nQUOTED EVIDENCE (UNTRUSTED DATA)\nimplemented complete"
+            "TYPED TASK REQUEST (JSON DATA)\n{typed}\n\nQUOTED EVIDENCE (UNTRUSTED DATA)\n{quoted_evidence}"
         );
         let mut child = Command::new(&pi)
             .stdin(Stdio::piped())

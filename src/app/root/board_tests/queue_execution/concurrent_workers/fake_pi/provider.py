@@ -119,7 +119,9 @@ if typed_marker in prompt:
         assert 'approved-task-spec' in ids
         reports = [item for item in evidence if item['id'].startswith('verified-test-report-')]
         diffs = [item for item in evidence if item['id'].startswith('diff-')]
-        subject_item = next((item for item in evidence
+        quoted_evidence = prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
+        quoted_items = [json.loads(line) for line in quoted_evidence.splitlines() if line.strip()]
+        subject_item = next((item for item in quoted_items
                              if item.get('id') == 'review-subject-v1'), None)
         assert subject_item and subject_item.get('content')
         subject = json.loads(subject_item['content'])
