@@ -86,7 +86,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     };
     let mut reservation = WorkspaceStartReservation::new(prepared);
     workspace.revalidate()?;
-    let reviewed_source = request.mode == crate::execution::contract::ExecutionModeV1::Verification;
+    let reviewed_source = request.policy.requires_reviewed_source_checkout();
     let writable = super::super::execute::workspace_write_enabled(request);
     let snapshot = if reviewed_source {
         staging::capture_reviewed(

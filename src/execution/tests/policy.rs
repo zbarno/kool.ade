@@ -10,6 +10,7 @@ fn verification_policy_allows_the_python_and_go_stack_recipes() {
     .unwrap();
     assert!(policy.command_capabilities().contains("python"));
     assert!(policy.command_capabilities().contains("go"));
+    assert!(!policy.requires_reviewed_source_checkout());
 }
 
 #[test]
@@ -88,6 +89,7 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
     )
     .unwrap();
     request.validate_under_policy(1, &ceiling).unwrap();
+    assert!(request.policy.requires_reviewed_source_checkout());
 
     request.argv[2] = "../sibling".into();
     assert!(request.validate_at(1).is_err());

@@ -1,4 +1,7 @@
-use super::{approved_candidate, latest_receipt, next_operation, receipt_allows_next};
+use super::{
+    approved_candidate, latest_receipt, next_operation, receipt_allows_next,
+    supports_recipe_surface,
+};
 use crate::{
     execution::contract::WorkspaceRef,
     project_runtime::{
@@ -7,6 +10,14 @@ use crate::{
         RuntimeReceiptV1, TargetCapabilityState,
     },
 };
+
+#[test]
+fn generic_recipe_queue_accepts_headless_targets_but_rejects_unsupported_surfaces() {
+    assert!(supports_recipe_surface(AppSurface::HeadlessService));
+    assert!(supports_recipe_surface(AppSurface::Web));
+    assert!(supports_recipe_surface(AppSurface::LinuxDesktop));
+    assert!(!supports_recipe_surface(AppSurface::UnsupportedTarget));
+}
 
 fn receipt(state: RuntimeReceiptState, observed_at_unix_ms: u64) -> RuntimeReceiptV1 {
     operation_receipt(
@@ -117,6 +128,79 @@ fn runtime_recipe_queue_requires_build_test_then_start_readiness_receipts() {
     );
     target.readiness_probe_ref = None;
     assert!(next_operation(&target, &[build, test], &source_sha).is_err());
+}
+
+#[test]
+fn headless_targets_run_approved_build_test_and_start_recipes_without_visual_claims() {
+    let mut target = AppTargetV1 {
+        target_id: "service".into(),
+        owning_task_id: "task-1".into(),
+        repository_id: "repo".into(),
+        app_surface: AppSurface::HeadlessService,
+        project_relative_root: "services/api".into(),
+        build_recipe_ref: Some("build-v1".into()),
+        test_recipe_refs: vec!["test-v1".into()],
+        start_recipe_ref: Some("start-v1".into()),
+        readiness_probe_ref: Some("ready-v1".into()),
+        artifact_spec_ref: None,
+        fixture_ref: None,
+        required_dependencies: Vec::new(),
+        supported_driver_ids: Vec::new(),
+        port_needs: Vec::new(),
+        environment_policy_ref: "default".into(),
+        capability_state: TargetCapabilityState::ReadyButUntested,
+    };
+    let source_sha = "a".repeat(40);
+    let build = RuntimeReceiptV1 {
+        target_id: "service".into(),
+        ..operation_receipt(
+            RuntimeOperation::Build,
+            "build-v1",
+            RuntimeReceiptState::Passed,
+            10,
+        )
+    };
+    let test = RuntimeReceiptV1 {
+        operation: RuntimeOperation::Test,
+        target_id: "service".into(),
+        ..operation_receipt(
+            RuntimeOperation::Test,
+            "test-v1",
+            RuntimeReceiptState::Passed,
+            20,
+        )
+    };
+
+    assert!(supports_recipe_surface(target.app_surface));
+    assert_eq!(
+        next_operation(&target, &[], &source_sha).unwrap(),
+        Some((RuntimeOperation::Build, vec!["build-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(&target, std::slice::from_ref(&build), &source_sha).unwrap(),
+        Some((RuntimeOperation::Test, vec!["test-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(&target, &[build.clone(), test.clone()], &source_sha).unwrap(),
+        Some((RuntimeOperation::Start, vec!["start-v1".into()]))
+    );
+    let start = RuntimeReceiptV1 {
+        operation: RuntimeOperation::Start,
+        target_id: "service".into(),
+        ..operation_receipt(
+            RuntimeOperation::Start,
+            "start-v1",
+            RuntimeReceiptState::Passed,
+            30,
+        )
+    };
+    assert_eq!(
+        next_operation(&target, &[build, test, start], &source_sha).unwrap(),
+        None
+    );
+
+    target.app_surface = AppSurface::UnsupportedTarget;
+    assert!(!supports_recipe_surface(target.app_surface));
 }
 
 #[test]

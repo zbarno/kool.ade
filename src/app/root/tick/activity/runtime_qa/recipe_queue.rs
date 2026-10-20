@@ -14,8 +14,8 @@ use crate::{
         session::ExecutionSession,
     },
     project_runtime::{
-        AppSurface, ProjectRuntimeExecutor, ProjectRuntimeStore, RuntimeOperation,
-        RuntimeReceiptState, RuntimeReceiptV1, TargetCapabilityState,
+        ProjectRuntimeExecutor, ProjectRuntimeStore, RuntimeOperation, RuntimeReceiptState,
+        RuntimeReceiptV1, TargetCapabilityState,
     },
 };
 
@@ -222,10 +222,7 @@ fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandid
         target.owning_task_id == item_uid
             && target.repository_id == manifest.repository_id
             && manifest.is_active_target(item_uid, &target.target_id)
-            && matches!(
-                target.app_surface,
-                AppSurface::Web | AppSurface::LinuxDesktop
-            )
+            && candidate::supports_recipe_surface(target.app_surface)
             && matches!(
                 target.capability_state,
                 TargetCapabilityState::Ready | TargetCapabilityState::ReadyButUntested

@@ -37,7 +37,7 @@ async fn cancelling_one_parallel_task_preserves_the_other_same_named_branch_clon
     init_branch(&clone_a);
     init_branch(&clone_b);
 
-    let projects = fixture.root.join("koolade-home/projects");
+    let projects = fixture.home.join("projects");
     let resolver_a = Arc::new(
         OwnedTaskWorkspaceResolver::new(&projects, task_a.clone(), &clone_a)
             .expect("registered task A clone"),

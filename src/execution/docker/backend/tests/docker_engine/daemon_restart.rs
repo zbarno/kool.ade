@@ -129,7 +129,7 @@ fn backend_for_endpoint(
     std::path::PathBuf,
 ) {
     let clone = fixture.task_clone(&workspace);
-    let projects = fixture.root.join("koolade-home/projects");
+    let projects = fixture.home.join("projects");
     let resolver = Arc::new(
         crate::execution::docker::backend::OwnedTaskWorkspaceResolver::new(
             &projects, workspace, &clone,
