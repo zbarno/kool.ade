@@ -10,7 +10,7 @@ use super::{
 
 mod load;
 mod queue;
-pub(super) use load::load_tasks;
+pub(super) use load::{load_features, load_tasks};
 use queue::queued_record;
 
 pub(super) struct AdditionalTransition {

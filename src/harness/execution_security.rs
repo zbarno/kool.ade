@@ -4,6 +4,8 @@ mod application_boundary;
 mod mcp_server;
 mod session_bridge;
 #[cfg(test)]
+pub(crate) use application_boundary::auto_remote_session_for_retry_test;
+#[cfg(test)]
 pub(crate) fn request_remote_dependency_over_application_bridge(
     scratch: &std::path::Path,
     session: std::sync::Arc<crate::execution::session::ExecutionSession>,

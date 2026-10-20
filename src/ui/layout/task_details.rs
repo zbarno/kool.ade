@@ -225,3 +225,10 @@ pub(super) fn paint_feature_approval(
 ) {
     planning::paint_feature_approval(ui, surface, action);
 }
+
+pub(super) fn paint_plan_review(
+    ui: &mut egui::Ui,
+    review: &crate::ui::task_detail::LifecyclePlanReviewView,
+) {
+    planning::paint_plan_review(ui, review);
+}

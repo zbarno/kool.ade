@@ -11,13 +11,23 @@ pub(in crate::ui::layout::board::columns) fn task(
 ) {
     let active = s.implementation_active(&doc.path);
     let waiting = s.implementation_waiting_for_capacity(&doc.path);
-    let complete = task_document_board_column(s, doc) == 4;
+    let complete = super::task_card_column(s, board, doc) == 4;
     let prerequisite =
         dependency_blocker(s, board, doc).map(|title| format!("Waiting for {title}"));
     let title = task_cards::card_summary(super::super::super::presentation::human_title(
         &doc.title, &doc.path,
     ));
     let needs_input = super::super::attention::linked_user_action(board, &doc.path);
+    let lifecycle_phase = board.lifecycle_tasks.get(&doc.path).copied();
+    let pr_status = board.lifecycle_pr_statuses.get(&doc.path).copied();
+    let pr_needs_user_action = matches!(
+        pr_status,
+        Some(
+            crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention
+                | crate::core::lifecycle::PullRequestPreparationStatus::ClosedUnmerged
+        )
+    );
     let status = if active {
         "Kool.ad/e is working on this task"
     } else if let Some(prerequisite) = prerequisite.as_deref() {
@@ -27,18 +37,27 @@ pub(in crate::ui::layout::board::columns) fn task(
     } else if needs_input.is_some() {
         "Waiting for your decision"
     } else {
-        match column {
-            0 => "Ready for implementation",
-            1 => "In progress",
-            2 => "Ready for review",
-            3 => "Needs attention",
-            _ => "Completed",
-        }
+        lifecycle_phase.map_or_else(
+            || match column {
+                0 => "Ready for implementation",
+                1 => "In progress",
+                2 => "Ready for review",
+                3 => "Needs attention",
+                _ => "Completed",
+            },
+            |phase| super::task_semantics::next_step(phase, pr_status),
+        )
     };
     let open_details =
         task_cards::board_card(ui, &doc.path, None, active, column == 3, complete, |ui| {
             ui.horizontal_wrapped(|ui| {
-                if needs_input.is_some() {
+                theme::badge(
+                    ui,
+                    super::task_semantics::kind_label(doc, lifecycle_phase, pr_status),
+                    theme::PANEL,
+                    theme::TEXT_DIM,
+                );
+                if needs_input.is_some() || pr_needs_user_action {
                     super::super::attention::badge(
                         ui,
                         super::super::attention::Kind::WaitingOnUser,
@@ -53,13 +72,19 @@ pub(in crate::ui::layout::board::columns) fn task(
                         ui,
                         super::super::attention::task_kind(s, &doc.path),
                     );
-                } else {
-                    theme::badge(ui, "Task", theme::PANEL, theme::TEXT_DIM);
                 }
-                if let Some(phase) = board.lifecycle_tasks.get(&doc.path) {
+                if let Some(phase) = lifecycle_phase {
                     theme::badge(
                         ui,
-                        crate::ui::task_detail::task_phase_label(*phase),
+                        crate::ui::task_detail::task_phase_label(phase),
+                        theme::ACCENT_SOFT,
+                        theme::TEXT,
+                    );
+                }
+                if let Some(status) = pr_status {
+                    theme::badge(
+                        ui,
+                        super::task_semantics::pr_status_label(status),
                         theme::ACCENT_SOFT,
                         theme::TEXT,
                     );
@@ -83,12 +108,15 @@ pub(in crate::ui::layout::board::columns) fn task(
             }
             ui.label(theme::helper_text(status));
             super::super::super::super::activity::paint_card(ui, s, &doc.path, true);
-            if (column == 2 || column == 3)
+            let pr_action = pr_status.and_then(super::task_semantics::pr_action_label);
+            if (column == 2 || column == 3 || pr_action.is_some())
                 && ui
                     .add_sized(
                         [ui.available_width(), 28.0],
                         egui::Button::new(if needs_input.is_some() {
                             "Respond"
+                        } else if let Some(action) = pr_action {
+                            action
                         } else if column == 2 {
                             "Review"
                         } else {

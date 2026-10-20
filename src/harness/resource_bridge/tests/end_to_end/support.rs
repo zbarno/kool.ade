@@ -15,6 +15,22 @@ pub(super) fn task_home(path: &Path) -> TaskHome {
     }
 }
 
+pub(super) fn task_home_with_path(path: &Path, prepend_path: &Path) -> TaskHome {
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", path);
+    let mut paths = vec![prepend_path.to_owned()];
+    paths.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    environment.set(
+        "PATH",
+        std::env::join_paths(paths).expect("test PATH entries should be valid"),
+    );
+    TaskHome {
+        _environment: environment,
+    }
+}
+
 pub(super) fn task_home_with_host_secret_probe(path: &Path) -> TaskHome {
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
     environment.set("KOOLADE_HOME", path);

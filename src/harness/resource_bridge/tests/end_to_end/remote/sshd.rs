@@ -26,8 +26,35 @@ pub(super) struct SshdFixture {
     pub(super) host_fingerprint: String,
 }
 
+struct ChildGuard(Option<Child>);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(child) = &mut self.0 {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 impl SshdFixture {
     pub(super) fn start(root: &Path, worker_binary: &Path) -> std::io::Result<Self> {
+        Self::start_with_worker_identity(root, worker_binary, None)
+    }
+
+    pub(super) fn start_for_worker(
+        root: &Path,
+        worker_binary: &Path,
+        worker_id: &str,
+    ) -> std::io::Result<Self> {
+        Self::start_with_worker_identity(root, worker_binary, Some(worker_id))
+    }
+
+    fn start_with_worker_identity(
+        root: &Path,
+        worker_binary: &Path,
+        worker_id: Option<&str>,
+    ) -> std::io::Result<Self> {
         let sshd = find_sshd().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "sshd was not found")
         })?;
@@ -88,6 +115,7 @@ impl SshdFixture {
             .ok_or_else(|| std::io::Error::other("SSH host-key fingerprint is missing"))?
             .to_owned();
 
+        let worker_command = worker_state_command(root, worker_binary, worker_id)?;
         let config = root.join("sshd_config");
         fs::write(
             &config,
@@ -106,12 +134,12 @@ impl SshdFixture {
                  PermitRootLogin yes\n\
                  UsePAM no\n\
                  AllowUsers {username}\n\
-                 AcceptEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR PATH\n\
-                 ForceCommand {} worker serve --stdio\n",
+                 AcceptEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR\n\
+                 ForceCommand {}\n",
                 host_key.display(),
                 root.join("sshd.pid").display(),
                 authorized_keys.display(),
-                shell_quote(&worker_binary.canonicalize()?.to_string_lossy()),
+                worker_command,
             ),
         )?;
         let mut command = if unsafe { libc::geteuid() } == 0 {
@@ -127,7 +155,7 @@ impl SshdFixture {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::from(fs::File::create(root.join("sshd.log"))?));
-        let child = command.spawn()?;
+        let mut child = ChildGuard(Some(command.spawn()?));
 
         let ssh_config = root.join("ssh_config");
         write_client_config(&ssh_config, port, &client_key)?;
@@ -137,7 +165,10 @@ impl SshdFixture {
         let unauthenticated_wrapper = write_wrapper(root, "ssh-bad-auth", &bad_ssh_config)?;
 
         let mut fixture = Self {
-            child,
+            child: child
+                .0
+                .take()
+                .expect("sshd child is guarded until fixture setup"),
             root: root.to_owned(),
             sshd,
             username,
@@ -164,33 +195,6 @@ impl SshdFixture {
             known_hosts_path: self.known_hosts.clone(),
             ssh_binary: self.ssh_wrapper.clone(),
         }
-    }
-
-    pub(super) fn worker_config_with_home(
-        &self,
-        worker_id: &str,
-        worker_home: &Path,
-    ) -> std::io::Result<SshWorkerConfig> {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut worker = self.worker_config(worker_id);
-        let wrapper = self.root.join(format!("ssh-worker-{worker_id}"));
-        let config = self.root.join("ssh_config");
-        let ssh = find_ssh().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::NotFound, "ssh was not found")
-        })?;
-        fs::write(
-            &wrapper,
-            format!(
-                "#!/bin/sh\nexport KOOLADE_HOME={}\nexec {} -F {} \"$@\"\n",
-                shell_quote(&worker_home.to_string_lossy()),
-                shell_quote(&ssh.to_string_lossy()),
-                shell_quote(&config.to_string_lossy()),
-            ),
-        )?;
-        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700))?;
-        worker.ssh_binary = wrapper;
-        Ok(worker)
     }
 
     pub(super) fn unauthenticated_worker(&self, worker: &SshWorkerConfig) -> VerifiedSshWorker {

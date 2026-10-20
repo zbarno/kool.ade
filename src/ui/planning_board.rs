@@ -24,6 +24,10 @@ pub struct ViewModel {
     pub cancelled: BTreeSet<String>,
     /// Persisted lifecycle phase by task-document path; rendering only.
     pub lifecycle_tasks: std::collections::BTreeMap<String, crate::core::lifecycle::TaskPhase>,
+    pub lifecycle_pr_statuses:
+        std::collections::BTreeMap<String, crate::core::lifecycle::PullRequestPreparationStatus>,
+    pub lifecycle_features: Vec<crate::core::lifecycle::FeatureGoal>,
+    pub lifecycle_feature_tasks: Vec<crate::core::lifecycle::TaskRecord>,
     pub lifecycle_error: Option<String>,
 }
 

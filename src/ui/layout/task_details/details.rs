@@ -1,4 +1,5 @@
 use super::*;
+mod lifecycle_pr;
 mod lifecycle_publication;
 mod lifecycle_spec;
 mod linkage;
@@ -81,6 +82,8 @@ pub(super) fn paint(
                     | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention))
             {
                 lifecycle_publication::paint(ui, s, ticket, view, record);
+            } else if let Some(status) = view.lifecycle_pr_status {
+                lifecycle_pr::paint(ui, s, ticket, view, record, status);
             } else if view
                 .lifecycle
                 .as_ref()
@@ -173,11 +176,6 @@ pub(super) fn paint(
     target::paint_execution_evidence(ui, presentation.view);
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
-    lifecycle::paint(
-        ui,
-        presentation.view.lifecycle.as_ref(),
-        presentation.view.lifecycle_error.as_deref(),
-    );
     linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming_cancel = ui
@@ -238,6 +236,16 @@ pub(super) fn paint(
         crate::ui::spec_viewer::render(ui, Some(&doc.text));
     });
     ui.collapsing("Technical details", |ui| paint_task_properties(ui, s, doc));
+    {
+        let mut lifecycle_surface = Some(&mut *s);
+        lifecycle::paint(
+            ui,
+            &mut lifecycle_surface,
+            ticket,
+            presentation.view.lifecycle.as_ref(),
+            presentation.view.lifecycle_error.as_deref(),
+        );
+    }
 }
 
 fn paint_attention(
