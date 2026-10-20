@@ -31,7 +31,7 @@ fn verifier(planning: PlanningStore) -> SelfImprovementExecutionVerifier {
         state_path: std::path::PathBuf::new(),
         planning_item_uid: uuid::Uuid::new_v4().to_string(),
         expected_run_uid: uuid::Uuid::new_v4().to_string(),
-        expected_generation: "self-improvement:run:4".into(),
+        expected_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
         feature_uid: uuid::Uuid::new_v4().to_string(),
         task_uid: uuid::Uuid::new_v4().to_string(),
         repository_uid: uuid::Uuid::new_v4().to_string(),
@@ -42,6 +42,17 @@ fn verifier(planning: PlanningStore) -> SelfImprovementExecutionVerifier {
         prior_verifier: None,
         prior_generation: None,
     }
+}
+
+#[test]
+fn execution_authorization_generation_is_a_canonical_uuid() {
+    let run_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let generation = execution_generation(&run_uid, 3).unwrap();
+    let parsed = uuid::Uuid::parse_str(&generation)
+        .expect("execution generations must satisfy the session contract");
+
+    assert_eq!(parsed.hyphenated().to_string(), generation);
+    assert_ne!(generation, execution_generation(&run_uid, 4).unwrap());
 }
 
 #[test]

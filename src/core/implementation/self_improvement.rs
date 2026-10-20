@@ -70,7 +70,7 @@ pub(super) fn authorize_resolved_task_source(
         // the first Docker operation.
         isolated_clone: implementation.task_repository_kind == TaskRepositoryKind::Clone,
     })?;
-    let generation = format!("self-improvement:{}:{}", run.run_uid, run.revision);
+    let generation = execution_generation(&run.run_uid, run.revision)?;
     let prior_generation = prior_verifier
         .as_ref()
         .map(|verifier| verifier.generation());
@@ -91,6 +91,16 @@ pub(super) fn authorize_resolved_task_source(
         prior_verifier,
         prior_generation,
     })))
+}
+
+fn execution_generation(run_uid: &str, revision: u64) -> Result<String, uuid::Error> {
+    let run_namespace = uuid::Uuid::parse_str(run_uid)?;
+    Ok(uuid::Uuid::new_v5(
+        &run_namespace,
+        format!("self-improvement-execution:{revision}").as_bytes(),
+    )
+    .hyphenated()
+    .to_string())
 }
 
 fn verify_plan_binding(
