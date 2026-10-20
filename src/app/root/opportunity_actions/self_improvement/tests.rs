@@ -131,6 +131,49 @@ fn guest_cannot_confirm_self_improvement_installation() {
     }));
 }
 
+/// Production boundary: a configured display name reaches the UI action but
+/// cannot install a merged update when the authenticated GitHub profile probe
+/// fails. A store test cannot prove the action requires this live identity
+/// lookup before recording installation. Dependencies are a headless app and
+/// a temporary failing `gh` executable; no network or Docker. Setup cost is
+/// one fixture and a short subprocess.
+#[cfg(unix)]
+#[test]
+fn named_user_cannot_confirm_installation_without_github_authentication() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let gh = bin.join("gh");
+    std::fs::write(&gh, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let mut app = crate::app::root::board_tests::fixture();
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture should be connected")
+    };
+    project.state.identity = crate::domain::user::ResolvedIdentity {
+        user: crate::domain::user::CurrentUser::new("Configured Name", Vec::new()),
+        source: crate::domain::IdentitySource::ConfigBlock,
+    };
+    environment.set("PATH", &bin);
+
+    app.dispatch_ui_command(
+        crate::ui::ApplicationCommand::ConfirmSelfImprovementInstallation {
+            run_uid: uuid::Uuid::new_v4().to_string(),
+            expected_revision: 1,
+        },
+    );
+
+    assert!(
+        app.toasts
+            .last_message()
+            .is_some_and(|message| { message.contains("GitHub authentication is required") })
+    );
+}
+
 /// Production boundary: exercise the board action, persisted user receipt,
 /// feature creation, and self-improvement run setup together. A unit test
 /// cannot prove the UI action wires those services in the right order. It
