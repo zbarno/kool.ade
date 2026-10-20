@@ -68,10 +68,24 @@ pub(super) fn synchronize(project: &mut Project) {
                 continue;
             }
         };
-        let Ok(run) = runs.load(&run_uid) else {
-            continue;
+        let run = match runs.load(&run_uid) {
+            Ok(run) => run,
+            Err(error) => {
+                warn_once(
+                    project,
+                    format!("Could not load pursued self-improvement run {run_uid}: {error}"),
+                );
+                continue;
+            }
         };
         if !proposal.related_feature_uids.contains(&run.feature_uid) {
+            warn_once(
+                project,
+                format!(
+                    "Pursued opportunity {} is not linked to self-improvement feature {}",
+                    proposal.opportunity_uid, run.feature_uid
+                ),
+            );
             continue;
         }
         if let Err(error) = synchronize_run(project, &lifecycle, &runs, &run_uid) {
@@ -129,25 +143,6 @@ fn synchronize_run(
         let Some(plan_hash) = feature.approved_plan_sha256.as_ref() else {
             return Ok(());
         };
-        let Some(targets) = project
-            .state
-            .workflow
-            .feature_branch_targets
-            .get(&run.feature_uid)
-        else {
-            return Ok(());
-        };
-        let records = lifecycle
-            .events_for_feature(&run.feature_uid)
-            .map_err(|error| error.to_string())?;
-        let Some((_user, review)) = reviewed_plan_receipts(&feature, &records, plan_hash) else {
-            return Ok(());
-        };
-        if feature.plan_snapshot_sha256.as_deref() != Some(plan_hash)
-            || feature.task_uids.is_empty()
-        {
-            return Ok(());
-        }
         let snapshot_uid = feature
             .plan_snapshot_uid
             .as_deref()
@@ -167,6 +162,23 @@ fn synchronize_run(
             return Err(
                 "persisted plan snapshot does not match the approved self-improvement plan".into(),
             );
+        }
+        let Some(targets) = project
+            .state
+            .workflow
+            .feature_branch_targets
+            .get(&snapshot.feature_id)
+        else {
+            return Ok(());
+        };
+        let records = lifecycle
+            .events_for_feature(&run.feature_uid)
+            .map_err(|error| error.to_string())?;
+        let Some((_user, review)) = reviewed_plan_receipts(&feature, &records, plan_hash) else {
+            return Ok(());
+        };
+        if feature.task_uids.is_empty() {
+            return Ok(());
         }
         let capability_id = snapshot.capability_id.clone().ok_or_else(|| {
             "approved self-improvement plan must name its stable Capability ID".to_owned()

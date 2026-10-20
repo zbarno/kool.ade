@@ -1,10 +1,12 @@
 use super::*;
 
 /// Production boundary: persisted opportunity, approval, clone, code-review, and runtime-QA
-/// records flow through the app synchronizer into the durable self-improvement run projection.
+/// records flow through the app synchronizer into the durable self-improvement run projection,
+/// including the first synchronization after reopening the project.
 /// A unit test of receipt matching cannot prove the synchronizer reads the persisted gates in
-/// order or keeps the run from advancing before each receipt exists. Uses temporary local stores
-/// and Git only; no Docker or network. Setup cost is one headless project fixture and local writes.
+/// order, restores project state after restart, or keeps the run from advancing before each
+/// receipt exists. Uses temporary local stores and Git only; no Docker or network. Setup cost is
+/// one headless project fixture and local writes.
 #[test]
 fn synchronize_requires_persisted_user_and_independent_plan_approval_before_ready() {
     use crate::core::{
@@ -25,7 +27,7 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     crate::app::root::board_tests::click_text(&mut app, &context, "Improvement proposals (1)");
     crate::app::root::board_tests::click_text(&mut app, &context, "Improve planning reliability");
     crate::app::root::board_tests::click_text(&mut app, &context, "Pursue");
-    let (planning, run_uid, feature_uid) = {
+    let (planning, run_uid, feature_uid, feature_id) = {
         let crate::app::root::Screen::Connected(project) = &mut app.screen else {
             panic!("fixture should remain connected")
         };
@@ -50,26 +52,37 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         let runs = SelfImprovementStore::new(&planning);
         let run = runs.load(&run_uid).unwrap();
         assert_eq!(run.phase, Phase::Planning);
+        let feature_id = project
+            .state
+            .active_feature
+            .as_ref()
+            .map(|(id, _)| id.clone())
+            .expect("Pursue creates its draft product feature");
         project.state.workflow.feature_branch_targets.insert(
-            run.feature_uid.clone(),
+            feature_id.clone(),
             BranchTargets {
                 source: "feat/fixture".into(),
                 destination: "main".into(),
             },
         );
-        (planning, run_uid, run.feature_uid)
+        crate::artifacts::task_docs::save_workflow(
+            &project.state.planning_store,
+            &project.state.workflow,
+        )
+        .unwrap();
+        (planning, run_uid, run.feature_uid, feature_id)
     };
     let runs = SelfImprovementStore::new(&planning);
 
     let identity = crate::domain::ArtifactIdentity {
         uid: feature_uid.clone(),
-        display_id: "CHG-175-FIXTURE".into(),
+        display_id: feature_id.clone(),
         title: "Persisted approval fixture".into(),
         parent_uid: None,
     };
     let markdown = "# Persisted approval fixture\n\n## Intent\n\nExercise persisted self-improvement approval.\n\n## Current Behavior\n\nThe fixture is not yet approved.\n\n## Desired Behavior\n\nThe approved capability remains bound to its stable ID.\n\n## Capability ID\n\nself-improvement-lifecycle\n\n## Scope\n\n- planning approval projection\n\n## Requirements\n\n- Bind the approved capability ID.\n\n## Acceptance Criteria\n\n- AC-001: The capability ID is persisted in the approved snapshot.\n";
     let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
-        "CHG-175-FIXTURE",
+        &feature_id,
         &identity,
         markdown,
         "self-improvement test approval contract",
@@ -293,10 +306,83 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         ),
         runs.load(&run_uid).unwrap().target_repository_uid
     );
-    synchronize_app_run(&mut app, &lifecycle, &runs, &run_uid).unwrap();
+    let repo_root = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project.state.repo_root.clone(),
+        _ => panic!("fixture should remain connected"),
+    };
+    let mut reopened = crate::app::session::test_support::project_from(&repo_root);
+    reopened.state =
+        crate::core::state::PlannerState::load_with_store(&repo_root, &planning).unwrap();
+    app.screen = crate::app::root::Screen::Connected(Box::new(reopened));
 
-    let projected = runs.load(&run_uid).unwrap();
-    assert_eq!(projected.phase, Phase::Ready);
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("reopened fixture should remain connected")
+    };
+    assert!(project.active_turn.is_none());
+    let reopened_opportunities = OpportunityStore::new(&project.state.planning_store);
+    assert!(
+        reopened_opportunities
+            .list()
+            .unwrap()
+            .iter()
+            .any(|proposal| proposal.opportunity_uid == uid)
+    );
+    let reopened_proposal = reopened_opportunities.load(&uid).unwrap().0;
+    assert_eq!(
+        reopened_proposal.target.kind,
+        crate::core::opportunity::OpportunityTargetKindV1::KooladeProduct
+    );
+    assert!(
+        reopened_proposal
+            .related_feature_uids
+            .contains(&feature_uid)
+    );
+    let reopened_decision = reopened_opportunities
+        .decision_for_opportunity(&uid)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        reopened_decision.decision,
+        OpportunityDecisionKindV1::Pursue
+    );
+    assert!(
+        project
+            .state
+            .planning_store
+            .list_record_paths("state/lifecycle_features")
+            .unwrap()
+            .contains(&format!("state/lifecycle_features/{feature_uid}.json"))
+    );
+    let reopened_feature = LifecycleStore::new(&project.state.planning_store)
+        .load_feature(&feature_uid)
+        .unwrap();
+    assert_eq!(
+        reopened_feature.approved_plan_sha256.as_deref(),
+        Some(hash.as_str())
+    );
+    let reopened_run = SelfImprovementStore::new(&project.state.planning_store)
+        .load(&run_uid)
+        .unwrap();
+    assert_eq!(reopened_run.feature_uid, feature_uid);
+    assert_eq!(reopened_run.approved_decision_uid, reopened_decision.uid);
+    assert_eq!(
+        SelfImprovementStore::run_uid_for_decision(&reopened_decision.uid).unwrap(),
+        run_uid
+    );
+    assert!(
+        reopened_proposal
+            .related_feature_uids
+            .contains(&reopened_run.feature_uid)
+    );
+    crate::app::root::tick::activity::self_improvement::synchronize(project);
+    let reopened_runs = SelfImprovementStore::new(&project.state.planning_store);
+    let projected = reopened_runs.load(&run_uid).unwrap();
+    assert_eq!(
+        projected.phase,
+        Phase::Ready,
+        "startup activity did not reconcile the run: {:?}",
+        project.activity.pending
+    );
     assert_eq!(projected.plan_approval_hash.as_deref(), Some(hash.as_str()));
     assert_eq!(
         projected.capability_id.as_deref(),
