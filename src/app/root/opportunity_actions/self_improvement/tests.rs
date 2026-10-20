@@ -10,6 +10,8 @@ use crate::{
     harness::prompt_catalog::{OpportunityChoice, OpportunityDecisionV1},
 };
 
+#[path = "tests/installation.rs"]
+mod installation;
 #[path = "tests/retry_recovery.rs"]
 mod retry_recovery;
 

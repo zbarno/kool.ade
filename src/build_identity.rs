@@ -2,11 +2,38 @@ const BUILD_COMMIT: &str = env!("KOOLADE_BUILD_COMMIT");
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
+thread_local! {
+    static TEST_IDENTITY: std::cell::Cell<Option<(&'static str, &'static str)>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
 #[path = "build_identity/git.rs"]
 mod git;
 
 pub(crate) fn current() -> Option<(&'static str, &'static str)> {
+    #[cfg(test)]
+    if let Some(identity) = TEST_IDENTITY.with(std::cell::Cell::get) {
+        return Some(identity);
+    }
     (valid_commit(BUILD_COMMIT)).then_some((APP_VERSION, BUILD_COMMIT))
+}
+
+#[cfg(test)]
+pub(crate) struct TestIdentityGuard(Option<(&'static str, &'static str)>);
+
+#[cfg(test)]
+pub(crate) fn override_for_test(version: &'static str, commit: &'static str) -> TestIdentityGuard {
+    let previous = TEST_IDENTITY.with(|identity| identity.replace(Some((version, commit))));
+    TestIdentityGuard(previous)
+}
+
+#[cfg(test)]
+impl Drop for TestIdentityGuard {
+    fn drop(&mut self) {
+        TEST_IDENTITY.with(|identity| identity.set(self.0));
+    }
 }
 
 fn valid_commit(value: &str) -> bool {
