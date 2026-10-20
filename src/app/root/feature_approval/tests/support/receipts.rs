@@ -104,8 +104,13 @@ pub(crate) fn record_test_plan_review(
         vec![crate::harness::prompt_catalog::ReviewFindingV1 {
             id: "TEST-FINDING".into(),
             requirement: snapshot.requirements[0].stable_id.clone(),
+            location_detail: None,
+            rationale: String::new(),
+            affected_requirement_ids: Vec::new(),
+            suggested_action: None,
             severity: crate::harness::prompt_catalog::Severity::High,
             kind: crate::harness::prompt_catalog::FindingKind::Requirements,
+            scope: None,
             location: "test fixture requirement".into(),
             evidence: vec![format!("plan:{}", snapshot.uid)],
             repro: Some("The fixture omits one requirement detail.".into()),
@@ -114,6 +119,9 @@ pub(crate) fn record_test_plan_review(
     };
     let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: approved,
         outcome: Some(if approved {
             crate::harness::prompt_catalog::ReviewOutcomeV1::Pass

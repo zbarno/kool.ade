@@ -89,6 +89,7 @@ fn task_move_preserves_queue_workflow_approvals_and_implementation_evidence() {
         approved_specification: Some("frozen approved specification".into()),
         approved_product_context: Some("frozen product context".into()),
         completed_dependency_context: None,
+        manager_repair_context: None,
         branch: format!("koolade/{old_allocation_key}"),
         source_branch: None,
         destination_branch: None,

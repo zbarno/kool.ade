@@ -250,6 +250,9 @@ pub(super) fn prepare(
             prompt: rendered.manifest,
             verdict: crate::harness::prompt_catalog::ReviewVerdictV1 {
                 subject_hash: String::new(),
+                examined_files: Vec::new(),
+                tested_evidence_ids: Vec::new(),
+                unexamined_areas: Vec::new(),
                 pass: false,
                 outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable),
                 coverage: Vec::new(),
