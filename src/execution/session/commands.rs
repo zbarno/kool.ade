@@ -175,7 +175,7 @@ impl ExecutionSession {
         }
         .map_err(|_| policy_error("Scoped recipe authorization is invalid"))?;
         let policy = policy
-            .with_source_output_paths(recipe.allowed_output_paths.clone())
+            .with_source_output_paths(recipe_source_output_paths(recipe))
             .map_err(|_| policy_error("Scoped recipe output authorization is invalid"))?;
         if self
             .busy
@@ -278,6 +278,15 @@ impl ExecutionSession {
             )),
         }
     }
+}
+
+fn recipe_source_output_paths(recipe: &crate::project_runtime::ExecutionRecipeV1) -> Vec<String> {
+    recipe
+        .allowed_output_paths
+        .iter()
+        .chain(recipe.expected_artifacts.iter())
+        .cloned()
+        .collect()
 }
 
 fn approved_recipe_matches(

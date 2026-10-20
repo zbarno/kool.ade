@@ -1,6 +1,7 @@
 use crate::{
     app::session::Project,
-    project_runtime::ProjectRuntimeStore,
+    execution::docker::images::ImageLock,
+    project_runtime::{ProjectRuntimeStore, TargetCapabilityState},
     ui::task_detail::{RuntimeCapabilityView, RuntimeTargetChoice},
 };
 
@@ -50,19 +51,23 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
     view.frameworks = manifest.frameworks.clone();
     view.manifest_revision = Some(manifest.revision);
     view.selected_target_id = manifest.selected_target_id.clone();
+    let inventory = ImageLock::bundled().ok().map(|lock| {
+        super::super::runtime_capability_inventory::RuntimeCapabilityInventory::from_locked_images(
+            &lock,
+        )
+    });
+    if inventory.is_none() {
+        view.message = Some(
+            "Pinned runtime image inventory is unavailable; target readiness cannot be assessed."
+                .into(),
+        );
+    }
     view.targets = manifest
         .candidate_targets
         .iter()
         .filter(|target| target.owning_task_id == identity.uid)
-        .map(|target| RuntimeTargetChoice {
-            target_id: target.target_id.clone(),
-            label: format!(
-                "{:?} · {}",
-                target.app_surface, target.project_relative_root
-            ),
-            surface: target.app_surface,
-            selected: manifest.is_active_target(&identity.uid, &target.target_id),
-            state: if target
+        .map(|target| {
+            let locally_unauthorized = target
                 .build_recipe_ref
                 .iter()
                 .chain(target.test_recipe_refs.iter())
@@ -74,28 +79,62 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
                         .chain(manifest.user_overrides.iter())
                         .find(|recipe| recipe.recipe_id == *id)
                 })
-                .any(|recipe| !store.recipe_is_locally_approved(&manifest, target, recipe))
-            {
-                "UnauthorizedRecipe".into()
+                .any(|recipe| !store.recipe_is_locally_approved(&manifest, target, recipe));
+            let assessment = inventory.as_ref().map(|inventory| {
+                inventory.assess_target(&manifest, &target.target_id, &identity.uid)
+            });
+            let diagnostics = match assessment.as_ref() {
+                Some(Ok(assessment)) => assessment
+                    .report
+                    .gaps
+                    .iter()
+                    .map(|gap| gap.remediation())
+                    .collect(),
+                Some(Err(error)) => vec![format!("Capability assessment failed closed: {error}.")],
+                None => vec![
+                    "Pinned runtime image inventory is unavailable; readiness is unknown.".into(),
+                ],
+            };
+            let state = if locally_unauthorized {
+                TargetCapabilityState::UnauthorizedRecipe
+            } else if let Some(Ok(assessment)) = assessment.as_ref() {
+                if assessment.capability_state == TargetCapabilityState::Ready
+                    && target.capability_state == TargetCapabilityState::ReadyButUntested
+                {
+                    TargetCapabilityState::ReadyButUntested
+                } else {
+                    assessment.capability_state.clone()
+                }
             } else {
-                format!("{:?}", target.capability_state)
-            },
-            recipes: [
-                target
-                    .build_recipe_ref
-                    .as_deref()
-                    .map(|id| format!("build: {id}")),
-                (!target.test_recipe_refs.is_empty())
-                    .then(|| format!("test: {}", target.test_recipe_refs.join(", "))),
-                target
-                    .start_recipe_ref
-                    .as_deref()
-                    .map(|id| format!("start: {id}")),
-            ]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join(" · "),
+                target.capability_state.clone()
+            };
+            RuntimeTargetChoice {
+                target_id: target.target_id.clone(),
+                label: format!(
+                    "{:?} · {}",
+                    target.app_surface, target.project_relative_root
+                ),
+                surface: target.app_surface,
+                selected: manifest.is_active_target(&identity.uid, &target.target_id),
+                state: format!("{state:?}"),
+                diagnostics,
+                recipes: [
+                    target
+                        .build_recipe_ref
+                        .as_deref()
+                        .map(|id| format!("build: {id}")),
+                    (!target.test_recipe_refs.is_empty())
+                        .then(|| format!("test: {}", target.test_recipe_refs.join(", "))),
+                    target
+                        .start_recipe_ref
+                        .as_deref()
+                        .map(|id| format!("start: {id}")),
+                ]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · "),
+            }
         })
         .collect();
     Some(view)

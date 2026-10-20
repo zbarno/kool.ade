@@ -153,10 +153,10 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         executable_id: "npm".into(),
         argv: vec!["run".into(), "build".into()],
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: vec!["dist".into()],
+        allowed_output_paths: Vec::new(),
         timeout_seconds: 60,
         expected_exit_codes: vec![0],
-        expected_artifacts: Vec::new(),
+        expected_artifacts: vec!["dist/index.html".into()],
         cache_scope: None,
         prerequisite_tool_ids: vec!["npm".into()],
         network_requirement: NetworkRequirement::Denied,
@@ -214,6 +214,7 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
     .unwrap()
     .unwrap();
     assert_eq!(candidate.4, ["npm"]);
+    assert_eq!(candidate.5, ["apps/web/dist/index.html"]);
 
     for (executable, tool) in [("python", "python"), ("go", "go")] {
         manifest.recipes[0].executable_id = executable.into();

@@ -47,6 +47,7 @@ mod planning_repository_surface;
 mod planning_work;
 mod repository_switcher;
 mod requested_action;
+mod runtime_capability_inventory;
 mod setup_attention;
 mod specification_trace_navigation;
 mod surface;

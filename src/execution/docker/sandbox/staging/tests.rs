@@ -123,6 +123,40 @@ fn reviewed_capture_binds_staged_bytes_to_the_pinned_git_tree() {
     );
 }
 
+// Production boundary: reviewed task-clone staging must accept a generated
+// file authorized only by the recipe's expected-artifact list. A path matcher
+// unit test cannot prove checkout verification and snapshot comparison agree.
+// This uses the local Git executable to initialize and commit one temporary
+// repository; setup cost is low and Docker or network access is not required.
+#[test]
+fn reviewed_capture_accepts_expected_artifact_only_outputs() {
+    let fixture = Fixture::new();
+    git(&fixture.0, &["init", "--quiet"]);
+    git(&fixture.0, &["config", "user.name", "Fixture"]);
+    git(
+        &fixture.0,
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    git(&fixture.0, &["add", "source.txt"]);
+    git(&fixture.0, &["commit", "--quiet", "-m", "reviewed source"]);
+    let source_sha = git(&fixture.0, &["rev-parse", "HEAD"]);
+    fs::create_dir_all(fixture.0.join("dist")).unwrap();
+    fs::write(fixture.0.join("dist/index.html"), b"built output").unwrap();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+
+    let snapshot = capture_reviewed(
+        &workspace,
+        &source_sha,
+        &["dist/index.html".into()],
+        None,
+        1024 * 1024,
+        true,
+    )
+    .expect("the expected artifact is an authorized source output");
+
+    assert!(snapshot.manifest.contains_key(Path::new("dist/index.html")));
+}
+
 fn git(root: &Path, args: &[&str]) -> String {
     let output = std::process::Command::new("git")
         .arg("-C")

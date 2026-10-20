@@ -77,6 +77,47 @@ impl Fixture {
         fs::create_dir_all(path.join("evidence")).unwrap();
         path
     }
+
+    pub(super) fn commit_task_clone(path: &std::path::Path) -> String {
+        let run_git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(path)
+                .output()
+                .expect("git must be available for the Docker backend fixture");
+            assert!(
+                output.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            output
+        };
+        run_git(&["init", "--quiet", "--initial-branch=main"]);
+        run_git(&["add", "--all"]);
+        let commit = Command::new("git")
+            .args([
+                "-c",
+                "user.name=Koolade Test Fixture",
+                "-c",
+                "user.email=koolade-test-fixture@users.noreply.github.com",
+                "commit",
+                "--quiet",
+                "--message",
+                "Create synthetic runtime fixture",
+            ])
+            .current_dir(path)
+            .output()
+            .expect("git must be available for the Docker backend fixture");
+        assert!(
+            commit.status.success(),
+            "git commit failed: {}",
+            String::from_utf8_lossy(&commit.stderr)
+        );
+        String::from_utf8(run_git(&["rev-parse", "HEAD"]).stdout)
+            .expect("git SHA is UTF-8")
+            .trim()
+            .to_owned()
+    }
 }
 
 impl Drop for Fixture {

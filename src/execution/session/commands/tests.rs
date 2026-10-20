@@ -1,4 +1,4 @@
-use super::{strip_target_root, validate_artifact_outputs};
+use super::{recipe_source_output_paths, strip_target_root, validate_artifact_outputs};
 use crate::project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource};
 
 #[test]
@@ -22,7 +22,7 @@ fn artifact_selection_must_stay_inside_approved_recipe_outputs() {
         executable_id: "npm".into(),
         argv: vec!["run".into(), "build".into()],
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: vec!["apps/web/dist".into()],
+        allowed_output_paths: Vec::new(),
         timeout_seconds: 60,
         expected_exit_codes: vec![0],
         expected_artifacts: vec!["apps/web/dist/index.html".into()],
@@ -38,4 +38,30 @@ fn artifact_selection_must_stay_inside_approved_recipe_outputs() {
             .is_err()
     );
     assert!(validate_artifact_outputs(&recipe, ".", &["dist/index.html".into()],).is_err());
+}
+
+#[test]
+fn expected_artifacts_are_also_authorized_for_source_staging() {
+    let recipe = ExecutionRecipeV1 {
+        schema_version: 1,
+        recipe_id: "web-build".into(),
+        source: RecipeSource::UserApproved,
+        working_directory_relative: "apps/web".into(),
+        executable_id: "npm".into(),
+        argv: vec!["run".into(), "build".into()],
+        allowed_env_keys: Vec::new(),
+        allowed_output_paths: Vec::new(),
+        timeout_seconds: 60,
+        expected_exit_codes: vec![0],
+        expected_artifacts: vec!["apps/web/dist/index.html".into()],
+        cache_scope: None,
+        prerequisite_tool_ids: Vec::new(),
+        network_requirement: NetworkRequirement::Denied,
+        evidence_refs: vec!["user-approval:approval-1".into()],
+    };
+
+    assert_eq!(
+        recipe_source_output_paths(&recipe),
+        ["apps/web/dist/index.html"]
+    );
 }

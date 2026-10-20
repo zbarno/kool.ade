@@ -66,6 +66,7 @@ pub(super) fn approved_candidate(
         recipe
             .allowed_output_paths
             .iter()
+            .chain(recipe.expected_artifacts.iter())
             .map(|path| workspace_output_path(&target.project_relative_root, path))
     }));
     allowed_untracked_outputs.sort();

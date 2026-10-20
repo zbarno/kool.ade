@@ -1,16 +1,12 @@
+use super::request::verify_provenance_for_request;
 use crate::{
     app::session::Project,
     core::lifecycle::TaskRecord,
     execution::docker::images::{ImageLock, RuntimeProfile},
     project_runtime::{AppSurface, ProjectRuntimeStore},
-    project_runtime_capability::{
-        ApprovedCapabilityInventory, CapabilityGap, assess_manifest_target,
-    },
+    project_runtime_capability::CapabilityGap,
     runtime_qa::QaPlatform,
 };
-use std::collections::BTreeSet;
-
-use super::request::verify_provenance_for_request;
 
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
@@ -87,20 +83,12 @@ pub(super) fn unavailable_reason(
             ));
         }
     };
-    let (tools, drivers) = locked_capabilities(&lock);
-    let inventory = ApprovedCapabilityInventory {
-        manifest: &manifest,
-        available_tool_ids: &tools,
-        // No broker inventory is wired into this call site yet. Treat every
-        // declared dependency as missing until an approved inventory exists.
-        available_dependency_ids: &BTreeSet::new(),
-        available_driver_ids: &drivers,
-    };
-    let assessment = match assess_manifest_target(
+    let inventory =
+        crate::app::root::runtime_capability_inventory::RuntimeCapabilityInventory::from_locked_images(&lock);
+    let assessment = match inventory.assess_target(
         &manifest,
         &target.target_id,
         task.planning_item_uid.as_deref().unwrap_or_default(),
-        &inventory,
     ) {
         Ok(assessment) => assessment,
         Err(error) => {
@@ -163,82 +151,4 @@ pub(super) fn unavailable_reason(
         ));
     }
     None
-}
-
-fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
-    let profiles = [
-        RuntimeProfile::General,
-        RuntimeProfile::Rust,
-        RuntimeProfile::Node,
-        RuntimeProfile::Python,
-        RuntimeProfile::Go,
-    ];
-    let mut tools = BTreeSet::new();
-    for profile in profiles {
-        for architecture in ["amd64", "arm64"] {
-            if let Ok(image) = lock.select(profile, architecture) {
-                tools.extend(
-                    image
-                        .tool_versions
-                        .into_keys()
-                        .filter(|tool| !matches!(tool.as_str(), "base" | "shell")),
-                );
-            }
-        }
-    }
-    let drivers = [
-        ("web-driver", RuntimeProfile::BrowserQa),
-        ("linux-desktop-driver", RuntimeProfile::DesktopQa),
-    ]
-    .into_iter()
-    .filter(|(_, profile)| {
-        ["amd64", "arm64"]
-            .into_iter()
-            .any(|architecture| lock.select(*profile, architecture).is_ok())
-    })
-    .map(|(id, _)| id.to_owned())
-    .collect();
-    (tools, drivers)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn capability_inventory_uses_only_locked_tools_and_enabled_qa_drivers() {
-        let lock = ImageLock::bundled().unwrap();
-        let (tools, drivers) = locked_capabilities(&lock);
-        let mut expected_tools = BTreeSet::new();
-        for profile in [
-            RuntimeProfile::General,
-            RuntimeProfile::Rust,
-            RuntimeProfile::Node,
-            RuntimeProfile::Python,
-            RuntimeProfile::Go,
-        ] {
-            for architecture in ["amd64", "arm64"] {
-                if let Ok(image) = lock.select(profile, architecture) {
-                    expected_tools.extend(
-                        image
-                            .tool_versions
-                            .into_keys()
-                            .filter(|tool| !matches!(tool.as_str(), "base" | "shell")),
-                    );
-                }
-            }
-        }
-        assert_eq!(tools, expected_tools);
-        assert!(!tools.contains("base"));
-        assert!(!tools.contains("shell"));
-        for (driver, profile) in [
-            ("web-driver", RuntimeProfile::BrowserQa),
-            ("linux-desktop-driver", RuntimeProfile::DesktopQa),
-        ] {
-            let enabled = ["amd64", "arm64"]
-                .into_iter()
-                .any(|architecture| lock.select(profile, architecture).is_ok());
-            assert_eq!(drivers.contains(driver), enabled);
-        }
-    }
 }

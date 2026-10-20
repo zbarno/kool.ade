@@ -168,6 +168,7 @@ pub struct RuntimeTargetChoice {
     pub surface: crate::project_runtime::AppSurface,
     pub selected: bool,
     pub state: String,
+    pub diagnostics: Vec<String>,
     pub recipes: String,
 }
 

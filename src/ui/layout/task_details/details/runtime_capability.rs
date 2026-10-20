@@ -94,6 +94,9 @@ pub(super) fn paint(
             .and_then(|id| runtime.targets.iter().find(|target| target.target_id == id))
         {
             ui.label(format!("Capability: {}", target.state));
+            for diagnostic in &target.diagnostics {
+                ui.label(egui::RichText::new(diagnostic).small().weak());
+            }
             if let Some(diagnostic) = target_surface_diagnostic(target.surface) {
                 ui.label(egui::RichText::new(diagnostic).small().weak());
             }
