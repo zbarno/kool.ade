@@ -7,6 +7,9 @@ use crate::{
     },
 };
 
+#[path = "publication_retries/recovery.rs"]
+mod recovery;
+
 fn ready() -> (Fixture, PlanningStore, PullRequestPreparation, GateReceipt) {
     let fixture = Fixture::new();
     let store = fixture.store();
@@ -87,8 +90,6 @@ fn later_publishing_event_with_the_same_receipt_remains_pending() {
         provider_pr_url: None,
         head_sha: None,
         base_sha: None,
-        base_branch: None,
-        merged_at: None,
         merged_commit_sha: None,
     };
     let attention = lifecycle
@@ -128,10 +129,20 @@ fn later_publishing_event_with_the_same_receipt_remains_pending() {
 // and retries. Unit predicate tests cannot prove ordering. Local store/thread,
 // moderate setup, no Docker/network; the hook only controls the race schedule.
 fn concurrent_trigger_between_scan_and_commit_fences_initial_and_retry_attempts() {
-    for retry in [false, true] {
+    for retry in 0..3 {
         let (_fixture, store, mut work, receipt) = ready();
-        if retry {
+        if retry > 0 {
             work = authorize(&store, &work, &receipt).unwrap();
+        }
+        if retry == 2 {
+            work = LifecycleStore::new(&store)
+                .record_pr_publication_failure(
+                    &work.work_item_uid,
+                    work.revision,
+                    &uuid::Uuid::new_v4().to_string(),
+                    "Provider response was lost; reconcile before retry",
+                )
+                .unwrap();
         }
         let concurrent_store = store.clone();
         let feature_uid = work.feature_uid.clone();

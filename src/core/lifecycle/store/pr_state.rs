@@ -15,6 +15,7 @@ use super::{
 };
 
 mod gate;
+mod recovery;
 
 pub(super) fn authorize(
     store: &PlanningStore,
@@ -47,7 +48,10 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
     let lifecycle = LifecycleStore::new(store);
     gate::check(&lifecycle, &record)?;
     if record.publication_authorization.as_ref() == Some(receipt)
-        && record.status != PullRequestPreparationStatus::AwaitingAuthorization
+        && matches!(
+            record.status,
+            PullRequestPreparationStatus::Publishing | PullRequestPreparationStatus::Opened
+        )
     {
         before_commit();
         // The locked revision check is the retry attempt's linearization point.
@@ -56,7 +60,11 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
     }
     let task = lifecycle.load_task(&record.task_uid)?;
     if record.revision != expected_revision
-        || record.status != PullRequestPreparationStatus::AwaitingAuthorization
+        || !matches!(
+            record.status,
+            PullRequestPreparationStatus::AwaitingAuthorization
+                | PullRequestPreparationStatus::NeedsAttention
+        )
         || task.phase != TaskPhase::Done
         || task.pr_work_item_uid.as_deref() != Some(work_item_uid)
         || receipt.actor != GateActor::User
@@ -64,20 +72,39 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
         || receipt.subject_uid != work_item_uid
         || Some(receipt.subject_sha256.as_str()) != task.implementation_sha256.as_deref()
         || receipt.evidence_refs != [format!("user-action:create-pr:{work_item_uid}")]
+        || record
+            .publication_authorization
+            .as_ref()
+            .is_some_and(|existing| existing != receipt)
     {
         return Err(StoreError::MalformedState(
             "PR publication requires current Done gates and explicit user authorization bound to the reviewed implementation".into(),
         ));
     }
+    let already_authorized = record.publication_authorization.is_some();
+    let actor = if already_authorized {
+        LifecycleActor::ApplicationPolicy
+    } else {
+        LifecycleActor::User
+    };
     record.publication_authorization = Some(receipt.clone());
     record.status = PullRequestPreparationStatus::Publishing;
+    let recovery = record
+        .recovery
+        .get_or_insert(super::PrPublicationRecoveryV1 {
+            attempt: u64::from(already_authorized),
+            last_failure: None,
+        });
+    recovery.attempt = recovery.attempt.checked_add(1).ok_or_else(|| {
+        StoreError::MalformedState("PR publication attempt counter exhausted".into())
+    })?;
     before_commit();
     persist(
         store,
         record,
         expected_revision,
         event_uid,
-        LifecycleActor::User,
+        actor,
         Some(&store_revision),
     )
 }
@@ -96,8 +123,6 @@ pub(super) fn record_state(
         provider_pr_url,
         head_sha,
         base_sha,
-        base_branch,
-        merged_at,
         merged_commit_sha,
     } = update;
     let mut record = read(store, work_item_uid)?;
@@ -106,8 +131,6 @@ pub(super) fn record_state(
         && record.provider_pr_url == provider_pr_url
         && record.head_sha == head_sha
         && record.base_sha == base_sha
-        && record.base_branch == base_branch
-        && record.merged_at == merged_at
         && record.merged_commit_sha == merged_commit_sha
     {
         return Ok(record);
@@ -117,6 +140,9 @@ pub(super) fn record_state(
         (
             PullRequestPreparationStatus::Publishing,
             PullRequestPreparationStatus::Opened
+        ) | (
+            PullRequestPreparationStatus::Publishing,
+            PullRequestPreparationStatus::ClosedUnmerged
         ) | (
             PullRequestPreparationStatus::Publishing,
             PullRequestPreparationStatus::NeedsAttention,
@@ -151,13 +177,18 @@ pub(super) fn record_state(
             "merged pull request requires an authoritative merge commit".into(),
         ));
     }
+    if status == PullRequestPreparationStatus::Publishing
+        && let Some(recovery) = record.recovery.as_mut()
+    {
+        recovery.attempt = recovery.attempt.checked_add(1).ok_or_else(|| {
+            StoreError::MalformedState("PR publication attempt counter exhausted".into())
+        })?;
+    }
     record.status = status;
     record.provider_pr_id = provider_pr_id;
     record.provider_pr_url = provider_pr_url;
     record.head_sha = head_sha;
     record.base_sha = base_sha;
-    record.base_branch = base_branch;
-    record.merged_at = merged_at;
     record.merged_commit_sha = merged_commit_sha;
     let actor = LifecycleActor::ApplicationPolicy;
     persist(store, record, expected_revision, event_uid, actor, None)

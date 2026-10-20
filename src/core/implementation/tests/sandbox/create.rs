@@ -86,7 +86,30 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
     ]);
     git(&["push", "-q", "origin", "main"]);
     let gh = root.join("gh-fixture");
-    fs::write(&gh, "#!/bin/sh\nroot=$(dirname \"$0\")\nif [ -f \"$root/offline\" ]; then echo 'simulated GitHub unavailable' >&2; exit 1; fi\nif [ \"$1\" = run ] && [ \"$2\" = list ]; then\n commit=''\n while [ \"$#\" -gt 0 ]; do if [ \"$1\" = --commit ]; then shift; commit=$1; fi; shift; done\n printf '[{\"headSha\":\"%s\",\"status\":\"completed\",\"conclusion\":\"success\",\"workflowName\":\"fixture\",\"createdAt\":\"2099-01-01T00:00:00Z\",\"url\":\"https://github.com/fixture/repo/actions/runs/1\"}]\\n' \"$commit\"\nelif [ \"$2\" = list ]; then\n if [ -f \"$root/pr-created\" ]; then echo '[{\"url\":\"https://github.com/fixture/repo/pull/1\",\"state\":\"OPEN\"}]'; else echo '[]'; fi\nelse\n printf '%s\\n' \"$@\" > \"$root/pr-args\"\n echo created >> \"$root/pr-created\"\n echo 'https://github.com/fixture/repo/pull/1'\nfi\n").unwrap();
+    fs::write(
+        &gh,
+        r##"#!/bin/sh
+root=$(dirname "$0")
+if [ -f "$root/offline" ]; then echo 'simulated GitHub unavailable' >&2; exit 1; fi
+if [ "$1" = run ] && [ "$2" = list ]; then
+ commit=''
+ while [ "$#" -gt 0 ]; do if [ "$1" = --commit ]; then shift; commit=$1; fi; shift; done
+ printf '[{"headSha":"%s","status":"completed","conclusion":"success","workflowName":"fixture","createdAt":"2099-01-01T00:00:00Z","url":"https://github.com/fixture/repo/actions/runs/1"}]\n' "$commit"
+elif [ "$2" = list ]; then
+ if [ -f "$root/pr-created" ]; then echo '[{"url":"https://github.com/fixture/repo/pull/1","state":"OPEN"}]'; else echo '[]'; fi
+elif [ "$2" = view ]; then
+ head=$(git --git-dir "$root/remote.git" for-each-ref --format='%(objectname)' refs/heads/koolade | head -n 1)
+ base_branch=$(awk 'previous {print; exit} $0=="--base" {previous=1}' "$root/pr-args")
+ base=$(git --git-dir "$root/remote.git" rev-parse "refs/heads/$base_branch")
+ printf '{"url":"https://github.com/fixture/repo/pull/1","number":1,"state":"OPEN","headRefOid":"%s","baseRefOid":"%s","baseRefName":"%s"}\n' "$head" "$base" "$base_branch"
+else
+ printf '%s\n' "$@" > "$root/pr-args"
+ echo created >> "$root/pr-created"
+ echo 'https://github.com/fixture/repo/pull/1'
+fi
+"##,
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

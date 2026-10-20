@@ -6,6 +6,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+mod body;
 mod request;
 mod validation;
 
@@ -46,6 +47,7 @@ pub(in crate::core::implementation) fn prepare_lifecycle_pr_proposal(
         work.status,
         PullRequestPreparationStatus::AwaitingAuthorization
             | PullRequestPreparationStatus::Publishing
+            | PullRequestPreparationStatus::NeedsAttention
     ) {
         return Ok(false);
     }
@@ -79,7 +81,8 @@ pub(in crate::core::implementation) fn prepare_lifecycle_pr_proposal(
     let request = request::build_request(state, &task, &included_tasks, &feature, &scope, runner)?;
     let receipt_path = dir.join(RECEIPT_FILE);
     let had_receipt = receipt_path.exists();
-    if validation::read_reusable_receipt(&receipt_path, &scope)?.is_some() {
+    if let Some(receipt) = validation::read_reusable_receipt(&receipt_path, &scope)? {
+        body::write(dir, &receipt, &scope)?;
         runner.update(
             "Reusing the validated PR Preparer proposal for the unchanged integrated diff…",
         );
@@ -112,11 +115,12 @@ pub(in crate::core::implementation) fn prepare_lifecycle_pr_proposal(
     validation::validate_proposal(&proposal, &scope.expected)?;
     let receipt = PreparedProposalV1 {
         schema_version: 1,
-        scope_sha256: scope.scope_sha256,
+        scope_sha256: scope.scope_sha256.clone(),
         prompt: request.manifest,
         proposal,
     };
     crate::artifacts::atomic_write_bytes(&receipt_path, &serde_json::to_vec_pretty(&receipt)?)?;
+    body::write(dir, &receipt, &scope)?;
     runner.update("PR Preparer matched the application-validated publication scope.");
     Ok(true)
 }

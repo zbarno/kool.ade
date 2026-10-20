@@ -176,8 +176,6 @@ fn task_completion_and_pr_preparation_are_committed_as_one_transition() {
         work.merged_commit_sha.as_deref(),
         Some(merge_commit.as_str())
     );
-    assert_eq!(work.base_branch.as_deref(), Some("main"));
-    assert_eq!(work.merged_at.as_deref(), Some("2026-10-18T00:00:00Z"));
     current_support::assert_current_evidence(
         &lifecycle,
         &store,

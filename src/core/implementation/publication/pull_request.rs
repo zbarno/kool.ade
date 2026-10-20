@@ -1,5 +1,8 @@
 use super::*;
+mod inspection;
+
 use crate::core::implementation::repository_cache::RepositoryCache;
+use inspection::inspect_pull_request;
 
 pub(in crate::core::implementation) fn create_pull_request(
     dir: &Path,
@@ -111,6 +114,13 @@ pub(in crate::core::implementation) fn create_pull_request(
             "The existing PR is closed or merged. Review it before publishing more changes; no duplicate PR created."
         );
     }
+    if let Some(cache) = repository_cache.as_ref() {
+        let current_base = cache.refresh_branch(&state.base, runner)?;
+        anyhow::ensure!(
+            current_base == state.base_commit,
+            "Destination branch moved after publication preparation; refresh integration, independent review, QA and specification evidence before publishing"
+        );
+    }
     let current_branch =
         runner.git(&state.task_repository, &["symbolic-ref", "--short", "HEAD"])?;
     anyhow::ensure!(
@@ -145,19 +155,24 @@ pub(in crate::core::implementation) fn create_pull_request(
     // planning lease after the code ref push and before asking GitHub to create
     // a PR; the remote API request itself cannot be transactionally fenced.
     verify_claim(claim_lease)?;
+    let url;
+    let inspection;
     if let Some(pr) = existing.first() {
         anyhow::ensure!(
             pr["state"] != "CLOSED",
             "The existing PR is closed. Review it before continuing; no duplicate PR created."
         );
-        state.pr_url = pr["url"].as_str().map(String::from);
-        state.pr_details = pull_request_details(pr, state.pr_url.as_deref(), state);
+        url = pr["url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Existing PR response omitted its URL"))?
+            .to_owned();
+        inspection = inspect_pull_request(&url, &repository, state, runner)?;
     } else {
         // The GitHub API cannot join the planning or code Git transactions, so
         // recheck immediately before creating the PR.
         verify_claim(claim_lease)?;
         let body = dir.join("pr-body.md");
-        let url = runner.command(
+        url = runner.command(
             &state.task_repository,
             &runner.gh,
             &[
@@ -176,10 +191,10 @@ pub(in crate::core::implementation) fn create_pull_request(
                     .ok_or_else(|| anyhow::anyhow!("Invalid PR body path"))?,
             ],
         )?;
-        state.pr_url = Some(url);
-        state.pr_details =
-            pull_request_details(&serde_json::Value::Null, state.pr_url.as_deref(), state);
+        inspection = inspect_pull_request(&url, &repository, state, runner)?;
     }
+    state.pr_url = Some(url);
+    state.pr_details = Some(inspection.details);
     anyhow::ensure!(
         state
             .pr_url
@@ -187,52 +202,16 @@ pub(in crate::core::implementation) fn create_pull_request(
             .is_some_and(|url| url.starts_with("https://")),
         "GitHub did not return a PR URL"
     );
-    state.status = ImplementationStatus::AwaitingReview;
-    state.pr_state = Some(PullRequestState::Open);
+    state.pr_state = Some(inspection.state);
+    state.status = match inspection.state {
+        PullRequestState::Open => ImplementationStatus::AwaitingReview,
+        PullRequestState::Closed => ImplementationStatus::PullRequestClosed,
+        PullRequestState::Merged => anyhow::bail!(
+            "Provider reports a merged pull request without an authoritative merge commit"
+        ),
+    };
     update_pull_request_detail(state);
     Ok(())
-}
-
-fn pull_request_details(
-    value: &serde_json::Value,
-    url: Option<&str>,
-    state: &Implementation,
-) -> Option<super::super::PullRequestDetails> {
-    let url = url?;
-    let number = value["number"]
-        .as_u64()
-        .or_else(|| pull_request_number(url))?;
-    let head_sha = value["headRefOid"]
-        .as_str()
-        .or(state.verified_head.as_deref())?;
-    let base_sha = value["baseRefOid"]
-        .as_str()
-        .filter(|sha| valid_sha(sha))
-        .map(str::to_owned);
-    let base_branch = value["baseRefName"]
-        .as_str()
-        .or(state.destination_branch.as_deref())
-        .unwrap_or(&state.base);
-    (number > 0 && valid_sha(head_sha) && !base_branch.is_empty()).then(|| {
-        super::super::PullRequestDetails {
-            number,
-            head_sha: head_sha.to_owned(),
-            base_sha,
-            base_branch: base_branch.to_owned(),
-            merged_at: None,
-        }
-    })
-}
-
-fn pull_request_number(url: &str) -> Option<u64> {
-    let (_, path) = url.strip_prefix("https://")?.split_once('/')?;
-    let mut segments = path.trim_end_matches('/').rsplit('/');
-    let number = segments.next()?.parse::<u64>().ok()?;
-    (segments.next()? == "pull" && number > 0).then_some(number)
-}
-
-fn valid_sha(sha: &str) -> bool {
-    matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn verify_claim(

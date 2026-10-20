@@ -17,11 +17,10 @@ pub(super) fn check(
         .filter(|event| {
             event.actor == LifecycleActor::User
                 && event.task_uid.as_deref() == Some(work.task_uid.as_str())
-                && event.expected_revision == 1
                 && matches!(&event.event, LifecycleEventKind::PullRequestState { work_item_uid, status }
                     if work_item_uid == &work.work_item_uid && *status == PullRequestPreparationStatus::Publishing)
                 && event.pr_preparation_after.as_ref().is_some_and(|after| {
-                    after.revision == 2
+                    after.revision == event.expected_revision.saturating_add(1)
                         && after.work_item_uid == work.work_item_uid
                         && after.feature_uid == work.feature_uid
                         && after.task_uid == work.task_uid
@@ -33,8 +32,10 @@ pub(super) fn check(
         })
         .map(|event| event.uid)
         .collect::<Vec<_>>();
-    let exempt = (work.status == PullRequestPreparationStatus::Publishing
-        && authorization_events.len() == 1)
+    let exempt = (matches!(
+        work.status,
+        PullRequestPreparationStatus::Publishing | PullRequestPreparationStatus::NeedsAttention
+    ) && authorization_events.len() == 1)
         .then(|| authorization_events[0].as_str());
     let pending = lifecycle.list_spec_sync_queue(&work.feature_uid, false)?;
     let blocked = pending.iter().any(|entry| {

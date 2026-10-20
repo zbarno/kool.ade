@@ -111,12 +111,11 @@ impl Fixture {
             updated_at_ms: 1,
             status: PullRequestPreparationStatus::AwaitingAuthorization,
             publication_authorization: None,
+            recovery: None,
             provider_pr_id: None,
             provider_pr_url: None,
             head_sha: None,
             base_sha: None,
-            base_branch: None,
-            merged_at: None,
             merged_commit_sha: None,
         };
         store

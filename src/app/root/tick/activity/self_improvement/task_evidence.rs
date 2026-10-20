@@ -257,11 +257,17 @@ fn synchronize_parent_progress(
                 .as_ref()
                 .and_then(|record| record.head_sha.clone())
                 .or_else(|| implementation.and_then(|state| state.verified_head.clone())),
-            pr_base_branch: pr.as_ref().and_then(|record| record.base_branch.clone()),
+            pr_base_branch: implementation.and_then(|state| {
+                state
+                    .pr_details
+                    .as_ref()
+                    .map(|details| details.base_branch.clone())
+            }),
             pr_merged_commit_sha: pr
                 .as_ref()
                 .and_then(|record| record.merged_commit_sha.clone()),
-            pr_merged_at: pr.as_ref().and_then(|record| record.merged_at.clone()),
+            pr_merged_at: implementation
+                .and_then(|state| state.pr_details.as_ref()?.merged_at.clone()),
         };
         if run
             .parent_task_progress
