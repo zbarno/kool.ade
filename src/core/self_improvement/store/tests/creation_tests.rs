@@ -43,6 +43,60 @@ fn pursued_product_decision_creates_one_durable_run_and_replay_is_idempotent() {
 }
 
 #[test]
+fn self_improvement_runs_keep_each_users_persisted_pursue_provenance() {
+    let temp = TempDir::new();
+    let store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        temp.0.join("planning"),
+        StoreMode::ManagedLocal,
+    );
+    let opportunities = OpportunityStore::new(&store);
+    let runs = SelfImprovementStore::new(&store);
+    let users = ["synthetic-user-a", "synthetic-user-b"];
+    let mut receipts = Vec::new();
+
+    for user in users {
+        let OpportunitySaveResult::Created {
+            proposal,
+            record_revision,
+        } = opportunities.save_advisory(opportunity()).unwrap()
+        else {
+            panic!("each synthetic opportunity should be created")
+        };
+        let mut decision = decision_for(&proposal);
+        decision.user_id = user.into();
+        opportunities
+            .record_user_decision(record_revision, &decision, user)
+            .unwrap();
+        let created = runs
+            .create_from_pursued(&opportunities, &decision.uid, run(&decision.uid, &proposal))
+            .unwrap();
+        receipts.push((user, decision.uid, proposal.opportunity_uid, created));
+    }
+
+    for (user, decision_uid, opportunity_uid, run) in &receipts {
+        let decision = opportunities.decision(decision_uid).unwrap();
+        assert_eq!(decision.user_id, *user);
+        assert_eq!(decision.opportunity_uid, *opportunity_uid);
+        assert_eq!(run.approved_decision_uid, *decision_uid);
+        assert_eq!(run.opportunity_uid, *opportunity_uid);
+        assert_eq!(runs.load(&run.run_uid).unwrap(), *run);
+    }
+
+    let (_, _, _, first_run) = &receipts[0];
+    let (_, second_decision, _, _) = &receipts[1];
+    let forged_cross_user_run = SelfImprovementRunV1 {
+        approved_decision_uid: second_decision.clone(),
+        ..first_run.clone()
+    };
+    assert!(
+        runs.create_from_pursued(&opportunities, second_decision, forged_cross_user_run,)
+            .is_err(),
+        "a user's Pursue receipt cannot authorize another user's opportunity/run"
+    );
+}
+
+#[test]
 fn active_run_limit_is_durable_blocks_new_pursuit_and_releases_after_cancel() {
     let temp = TempDir::new();
     let store = PlanningStore::new(
