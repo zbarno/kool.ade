@@ -68,3 +68,55 @@ fn evidence_id_cannot_be_reused_for_conflicting_content() {
         .is_err()
     );
 }
+
+#[test]
+fn shared_manager_dispositions_route_by_their_evidence_type() {
+    use crate::harness::prompt_catalog::{FindingScopeV1, ManagerActionKind};
+
+    let plan_id = "plan-review:snapshot".to_owned();
+    let code_id = "code-review-finding:current".to_owned();
+    let plan_targets = [(
+        plan_id.clone(),
+        reviews::ReviewTarget {
+            feature_id: "CHG-004".into(),
+            revision: "a".repeat(64),
+            finding_ids: vec!["F-1".into()],
+            finding_claims: Default::default(),
+            evidence_ids: Vec::new(),
+        },
+    )]
+    .into();
+    let code_target = code_reviews::FindingTarget {
+        task_uid: "00000000-0000-4000-8000-000000000001".into(),
+        feature_uid: "00000000-0000-4000-8000-000000000002".into(),
+        subject_hash: "b".repeat(64),
+        finding_id: "finding-1".into(),
+        finding_fingerprint: "c".repeat(64),
+        scope: FindingScopeV1::NonBlocking,
+    };
+    let code_targets = [(code_id.clone(), code_target.clone())].into();
+    let evidence: HashSet<String> = [plan_id.clone(), code_id.clone()].into();
+    let actions = [
+        crate::harness::prompt_catalog::ManagerActionV1 {
+            kind: ManagerActionKind::AskUser,
+            target: "CHG-004#F-1".into(),
+            reason: "The plan reviewer needs this product decision before proceeding.".into(),
+            evidence: vec![plan_id.clone()],
+            expected_revision: "a".repeat(64),
+            contradiction: None,
+        },
+        crate::harness::prompt_catalog::ManagerActionV1 {
+            kind: ManagerActionKind::PromoteFollowUp,
+            target: format!("{}#finding-1", code_target.task_uid),
+            reason: "This independent improvement should be tracked outside the current task."
+                .into(),
+            evidence: vec![code_id],
+            expected_revision: code_target.subject_hash,
+            contradiction: None,
+        },
+    ];
+    assert!(
+        reviews::validate_dispositions(&actions, &plan_targets, &evidence, &HashMap::new()).is_ok()
+    );
+    assert!(code_reviews::validate_dispositions(&actions, &code_targets, &evidence).is_ok());
+}

@@ -7,6 +7,7 @@ use crate::harness::prompt_catalog::{
     RenderedPrompt, RoleInputV1, RoleOutputV1, RolePayloadV1,
 };
 
+pub(in crate::app::manager) mod code_reviews;
 mod opportunities;
 pub(in crate::app::manager) mod reviews;
 pub(super) use opportunities::persist_opportunities;
@@ -21,6 +22,7 @@ pub(super) struct ManagerPrompt {
     pub evidence_hashes: std::collections::HashMap<String, String>,
     pub planning_revision: String,
     pub review_targets: std::collections::HashMap<String, reviews::ReviewTarget>,
+    pub code_review_targets: std::collections::HashMap<String, code_reviews::FindingTarget>,
 }
 
 pub(super) fn render(
@@ -70,6 +72,7 @@ pub(super) fn render(
     let summary = super::Manager::prompt_body(project, events);
     let trusted_evidence = opportunities::trusted_opportunity_evidence(project);
     let plan_review_evidence = reviews::current_review_evidence(project);
+    let code_review_evidence = code_reviews::current_findings(project)?;
     let mut evidence_manifest = vec![EvidenceItem {
         id: "workspace-summary".into(),
         workspace_uid: workspace_uid.clone(),
@@ -79,6 +82,11 @@ pub(super) fn render(
         content: summary,
     }];
     evidence_manifest.extend(trusted_evidence);
+    let code_review_targets = code_review_evidence
+        .iter()
+        .map(|(item, target)| (item.id.clone(), target.clone()))
+        .collect();
+    evidence_manifest.extend(code_review_evidence.into_iter().map(|(item, _)| item));
     let mut public_evidence_ids = HashSet::new();
     let mut evidence_repository_refs = HashMap::new();
     if let Some(repository_ref) = &koolade_product_repository_ref {
@@ -186,6 +194,7 @@ pub(super) fn render(
         evidence_hashes,
         planning_revision: project.state.baseline_planning_revision.clone(),
         review_targets,
+        code_review_targets,
     })
 }
 
@@ -245,6 +254,7 @@ pub(super) fn decode(
     evidence_hashes: std::collections::HashMap<String, String>,
     planning_revision: String,
     review_targets: &std::collections::HashMap<String, reviews::ReviewTarget>,
+    code_review_targets: &std::collections::HashMap<String, code_reviews::FindingTarget>,
 ) -> Result<ManagerOutput, String> {
     let RoleOutputV1::Manager(output) =
         crate::harness::prompt_catalog::validate_output_with_context(
@@ -260,6 +270,11 @@ pub(super) fn decode(
         review_targets,
         &context.evidence_ids,
         &context.evidence_content,
+    )?;
+    code_reviews::validate_dispositions(
+        &output.proposed_actions,
+        code_review_targets,
+        &context.evidence_ids,
     )?;
     let proposed_actions = output.proposed_actions;
     let mut lines = vec![output.summary];
@@ -284,5 +299,6 @@ pub(super) fn decode(
         opportunities: output.opportunities,
         evidence_hashes,
         planning_revision,
+        code_review_targets: code_review_targets.clone(),
     })
 }

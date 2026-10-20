@@ -113,7 +113,11 @@ impl KooladeApp {
                     }
                 };
                 let mut lifecycle_pr_statuses = std::collections::BTreeMap::new();
+                let mut lifecycle_pr_work = Vec::new();
                 for task in &lifecycle_feature_tasks {
+                    if task.parent_task_uid.is_some() {
+                        continue;
+                    }
                     let (Some(planning_uid), Some(pr_uid)) = (
                         task.planning_item_uid.as_deref(),
                         task.pr_work_item_uid.as_deref(),
@@ -131,6 +135,13 @@ impl KooladeApp {
                     match lifecycle_store.load_pr_preparation(pr_uid) {
                         Ok(preparation) => {
                             lifecycle_pr_statuses.insert(document.path.clone(), preparation.status);
+                            lifecycle_pr_work.push(
+                                crate::ui::planning_board::LifecyclePrBoardTask {
+                                    parent_path: document.path.clone(),
+                                    parent_title: document.title.clone(),
+                                    preparation,
+                                },
+                            );
                         }
                         Err(error) => {
                             lifecycle_error.get_or_insert_with(|| error.to_string());
@@ -155,6 +166,7 @@ impl KooladeApp {
                     cancelled: p.cancelled_work.clone(),
                     lifecycle_tasks,
                     lifecycle_pr_statuses,
+                    lifecycle_pr_work,
                     lifecycle_features,
                     lifecycle_feature_tasks,
                     lifecycle_error,

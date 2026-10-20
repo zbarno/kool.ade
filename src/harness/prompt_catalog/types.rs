@@ -8,6 +8,7 @@ pub(crate) use payload::validate_payload;
 #[serde(rename_all = "snake_case")]
 pub enum PromptRole {
     Manager,
+    ManagerV6,
     ManagerV5,
     ManagerV4,
     ManagerV3,
@@ -20,6 +21,7 @@ pub enum PromptRole {
     Decomposer,
     Implementer,
     CodeReviewer,
+    CodeReviewerV1,
     RuntimeQaReviewer,
     RuntimeQaReviewerV2,
     SpecReconciler,
@@ -30,7 +32,8 @@ pub enum PromptRole {
 impl PromptRole {
     pub fn id(self) -> &'static str {
         match self {
-            Self::Manager => "manager/v6",
+            Self::Manager => "manager/v7",
+            Self::ManagerV6 => "manager/v6",
             Self::ManagerV5 => "manager/v5",
             Self::ManagerV4 => "manager/v4",
             Self::ManagerV3 => "manager/v3",
@@ -42,7 +45,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => "plan_reviewer/v1",
             Self::Decomposer => "decomposer/v2",
             Self::Implementer => "implementer/v1",
-            Self::CodeReviewer => "code_review/v1",
+            Self::CodeReviewer => "code_review/v2",
+            Self::CodeReviewerV1 => "code_review/v1",
             Self::RuntimeQaReviewer => "runtime_qa/v1",
             Self::RuntimeQaReviewerV2 => "runtime_qa/v2",
             Self::SpecReconciler => "spec_sync/v1",
@@ -53,9 +57,11 @@ impl PromptRole {
 
     pub fn output_schema_version(self) -> &'static str {
         match self {
-            Self::Manager | Self::ManagerV5 | Self::ManagerV4 | Self::ManagerV3 => {
-                "ManagerOutputV2"
-            }
+            Self::Manager
+            | Self::ManagerV6
+            | Self::ManagerV5
+            | Self::ManagerV4
+            | Self::ManagerV3 => "ManagerOutputV2",
             Self::ManagerV2 => "ManagerOutputV1",
             Self::Planner => "PlannerOutputV2",
             Self::PlannerV2 => "PlannerOutputV1",
@@ -63,6 +69,7 @@ impl PromptRole {
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer
+            | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2 => "ReviewVerdictV1",
             Self::Decomposer => "TaskGraphV1",
@@ -74,7 +81,8 @@ impl PromptRole {
 
     pub(crate) fn system(self) -> &'static str {
         match self {
-            Self::Manager => include_str!("../../../prompts/v6/manager.system.md"),
+            Self::Manager => include_str!("../../../prompts/v7/manager.system.md"),
+            Self::ManagerV6 => include_str!("../../../prompts/v6/manager.system.md"),
             Self::ManagerV5 => include_str!("../../../prompts/v5/manager.system.md"),
             Self::ManagerV4 => include_str!("../../../prompts/v4/manager.system.md"),
             Self::ManagerV3 => include_str!("../../../prompts/v3/manager.system.md"),
@@ -86,7 +94,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.system.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.system.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.system.md"),
-            Self::CodeReviewer => include_str!("../../../prompts/v1/code_review.system.md"),
+            Self::CodeReviewer => include_str!("../../../prompts/v2/code_review.system.md"),
+            Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.system.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.system.md"),
             Self::RuntimeQaReviewerV2 => {
                 include_str!("../../../prompts/v2/runtime_qa.system.md")
@@ -99,7 +108,8 @@ impl PromptRole {
 
     pub(crate) fn user(self) -> &'static str {
         match self {
-            Self::Manager => include_str!("../../../prompts/v6/manager.user.md"),
+            Self::Manager => include_str!("../../../prompts/v7/manager.user.md"),
+            Self::ManagerV6 => include_str!("../../../prompts/v6/manager.user.md"),
             Self::ManagerV5 => include_str!("../../../prompts/v5/manager.user.md"),
             Self::ManagerV4 => include_str!("../../../prompts/v4/manager.user.md"),
             Self::ManagerV3 => include_str!("../../../prompts/v3/manager.user.md"),
@@ -111,7 +121,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.user.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.user.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.user.md"),
-            Self::CodeReviewer => include_str!("../../../prompts/v1/code_review.user.md"),
+            Self::CodeReviewer => include_str!("../../../prompts/v2/code_review.user.md"),
+            Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.user.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.user.md"),
             Self::RuntimeQaReviewerV2 => include_str!("../../../prompts/v2/runtime_qa.user.md"),
             Self::SpecReconciler => include_str!("../../../prompts/v1/spec_sync.user.md"),
@@ -123,6 +134,7 @@ impl PromptRole {
     pub(crate) fn privileges(self) -> &'static str {
         match self {
             Self::Manager
+            | Self::ManagerV6
             | Self::ManagerV5
             | Self::ManagerV4
             | Self::ManagerV3
@@ -136,6 +148,7 @@ impl PromptRole {
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer
+            | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2 => "read_only; isolated_fresh_review_context",
             Self::Implementer | Self::RepairWorker => {
@@ -147,6 +160,7 @@ impl PromptRole {
     pub(crate) fn policy(self) -> &'static str {
         match self {
             Self::Manager
+            | Self::ManagerV6
             | Self::ManagerV5
             | Self::ManagerV4
             | Self::ManagerV3

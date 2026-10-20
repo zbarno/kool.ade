@@ -50,6 +50,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
         approved_specification: None,
         approved_product_context: None,
         completed_dependency_context: None,
+        manager_repair_context: None,
         branch: "koolade/old-name".into(),
         source_branch: None,
         destination_branch: None,

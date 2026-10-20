@@ -1,0 +1,59 @@
+[
+  {
+    "id": "seeded-overengineering-and-unrelated-change",
+    "subject_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "requirements": ["AC-1", "AC-2"],
+    "diff": "diff --git a/src/retry.rs b/src/retry.rs\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/src/retry.rs\n@@ -0,0 +1 @@\n+pub fn retry_once<T>(operation: impl FnOnce() -> T) -> T { operation() }\ndiff --git a/src/metrics.rs b/src/metrics.rs\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/src/metrics.rs\n@@ -0,0 +1 @@\n+pub fn count_widget_clicks() -> u64 { 0 }",
+    "expected_categories": ["overengineering", "out_of_scope"],
+    "expected_files": ["src/retry.rs", "src/metrics.rs"],
+    "expected_finding_paths": {
+      "overengineering": "src/retry.rs",
+      "out_of_scope": "src/metrics.rs"
+    },
+    "output": {
+      "subject_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "pass": false,
+      "outcome": "blocking_findings",
+      "examined_files": ["src/retry.rs", "src/metrics.rs"],
+      "tested_evidence_ids": ["verified-test-report-0"],
+      "unexamined_areas": [],
+      "coverage": [
+        {"requirement": "AC-1", "status": "fail", "evidence": ["diff-0"]},
+        {"requirement": "AC-2", "status": "fail", "evidence": ["diff-0"]}
+      ],
+      "findings": [
+        {
+          "id": "F-OVERENGINEERING",
+          "requirement": "AC-1",
+          "severity": "medium",
+          "kind": "overengineering",
+          "scope": "blocking",
+          "location": "src/retry.rs:1",
+          "location_detail": {"file": "src/retry.rs", "line_start": 1, "line_end": 1},
+          "evidence": ["diff-0"],
+          "repro": null,
+          "rationale": "A one-line pass-through wrapper adds no behavior and expands the change surface.",
+          "affected_requirement_ids": ["AC-1"],
+          "suggested_action": "repair",
+          "proposed_correction": "Remove the pass-through wrapper and call the operation directly."
+        },
+        {
+          "id": "F-OUT-OF-SCOPE",
+          "requirement": "AC-2",
+          "severity": "medium",
+          "kind": "out_of_scope",
+          "scope": "blocking",
+          "location": "src/metrics.rs:1",
+          "location_detail": {"file": "src/metrics.rs", "line_start": 1, "line_end": 1},
+          "evidence": ["diff-0"],
+          "repro": null,
+          "rationale": "The widget-click metric is unrelated to the approved retry behavior and has no acceptance-criteria link.",
+          "affected_requirement_ids": ["AC-2"],
+          "suggested_action": "repair",
+          "proposed_correction": "Remove the unrelated metric change from this task."
+        }
+      ],
+      "untested": []
+    }
+  }
+]

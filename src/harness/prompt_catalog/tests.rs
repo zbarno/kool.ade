@@ -51,6 +51,8 @@ mod provider_parity;
 mod reviews;
 #[path = "tests/roles.rs"]
 mod roles;
+#[path = "tests/seeded_review_eval.rs"]
+mod seeded_review_eval;
 #[path = "tests/spec_delta.rs"]
 mod spec_delta;
 #[path = "tests/task_graph.rs"]
