@@ -374,7 +374,10 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             .related_feature_uids
             .contains(&reopened_run.feature_uid)
     );
-    crate::app::root::tick::activity::self_improvement::synchronize(project);
+    app.advance_activity();
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("activity tick should keep the reopened fixture connected")
+    };
     let reopened_runs = SelfImprovementStore::new(&project.state.planning_store);
     let projected = reopened_runs.load(&run_uid).unwrap();
     assert_eq!(
