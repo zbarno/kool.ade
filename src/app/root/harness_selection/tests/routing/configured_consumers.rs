@@ -44,30 +44,111 @@ fn implementation_repair_attempt_uses_the_configured_repair_provider() {
     });
 }
 
+#[test]
+fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
+    use crate::persistence::harness_settings as categories;
+
+    let providers = [
+        "pi",
+        "codex",
+        "claude",
+        "opencode",
+        "copilot",
+        "antigravity",
+    ];
+    let work_categories = [
+        categories::MANAGER,
+        categories::PLANNING,
+        categories::SPECIFICATION,
+        categories::FEATURE_PLANNING,
+        categories::TASK_GENERATION,
+        categories::INVESTIGATION,
+        categories::PLAN_REVIEW,
+        categories::IMPLEMENTATION,
+        categories::QA,
+        categories::RUNTIME_QA,
+        categories::DOCUMENTATION,
+        categories::RECONCILIATION,
+        categories::DECISION_EXPLANATION,
+        categories::REPAIR,
+    ];
+
+    for provider in providers {
+        let routes = work_categories
+            .iter()
+            .map(|category| {
+                (
+                    (*category).to_owned(),
+                    WorkRoute {
+                        harness: provider.into(),
+                        model: Some("synthetic-default".into()),
+                    },
+                )
+            })
+            .collect();
+        let settings = settings_with_routes(routes);
+
+        for category in work_categories {
+            let harness = routed_harness(&settings, Some(category), None, None);
+            let mut role_request = request();
+            role_request.mode =
+                crate::app::root::harness_selection::role_for_work_category(category)
+                    .expect("every configured role has a mode")
+                    .harness_mode();
+            let provenance = harness
+                .route_provenance(&role_request)
+                .unwrap_or_else(|| panic!("{provider} route for {category} lacks provenance"));
+
+            assert_eq!(provenance.provider_id, provider, "{category}");
+            assert_eq!(provenance.work_category.as_deref(), Some(category));
+            assert_eq!(
+                provenance.selected_model.as_deref(),
+                Some("synthetic-default")
+            );
+            assert_eq!(
+                provenance.requested_model.as_deref(),
+                Some("synthetic-default")
+            );
+            assert_eq!(
+                provenance.role,
+                crate::app::root::harness_selection::role_for_work_category(category).unwrap(),
+                "{provider} {category}"
+            );
+        }
+    }
+}
+
 fn settings_with_routes(work_routes: BTreeMap<String, WorkRoute>) -> HarnessSettings {
     let now = crate::persistence::harness_settings::current_unix_ms();
-    let discovered = ["pi", "codex", "claude"]
-        .into_iter()
-        .map(|provider| {
-            (
-                provider.into(),
-                DetectedHarness {
-                    status: format!("{provider} ready"),
-                    version: Some("1.0.0".into()),
-                    executable: Some(format!("/synthetic/bin/{provider}")),
-                    diagnostic: None,
-                    ready: true,
-                    models: vec!["synthetic-default".into()],
-                    default_model: Some("synthetic-default".into()),
-                    model_catalog_fresh: true,
-                    configuration_required: false,
-                    implementation_available: true,
-                    checked_at_unix_ms: now,
-                    capability_snapshot: Some(super::authentication::ready_snapshot(provider)),
-                },
-            )
-        })
-        .collect();
+    let discovered = [
+        "pi",
+        "codex",
+        "claude",
+        "opencode",
+        "copilot",
+        "antigravity",
+    ]
+    .into_iter()
+    .map(|provider| {
+        (
+            provider.into(),
+            DetectedHarness {
+                status: format!("{provider} ready"),
+                version: Some("1.0.0".into()),
+                executable: Some(format!("/synthetic/bin/{provider}")),
+                diagnostic: None,
+                ready: true,
+                models: vec!["synthetic-default".into()],
+                default_model: Some("synthetic-default".into()),
+                model_catalog_fresh: true,
+                configuration_required: false,
+                implementation_available: true,
+                checked_at_unix_ms: now,
+                capability_snapshot: Some(super::authentication::ready_snapshot(provider)),
+            },
+        )
+    })
+    .collect();
     HarnessSettings {
         default_harness: Some("pi".into()),
         work_routes,

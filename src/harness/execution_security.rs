@@ -61,11 +61,11 @@ pub(crate) const UNSAFE_PROVIDER_LAUNCH_ENV: &[&str] = &[
 ];
 
 pub(crate) use application_boundary::PrivateDirectory;
-#[cfg(test)]
-pub(crate) use application_boundary::override_test_app_binary;
 pub(crate) use application_boundary::{
     ApplicationBoundary, CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch,
 };
+#[cfg(test)]
+pub(crate) use application_boundary::{override_test_app_binary, override_test_resource_budgets};
 
 /// Confirm that the installed CLI exposes the invocation and isolation
 /// controls required by its clean application launch profile.
