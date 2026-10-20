@@ -31,6 +31,7 @@ mod agent_updates;
 mod attention;
 mod clarification;
 mod clipboard;
+pub(crate) mod code_review_arbitration;
 mod connection;
 mod dependency_authorization;
 mod desktop_app;

@@ -42,6 +42,31 @@ pub(in crate::app::root) fn advance_spec_reconciliation(
             }
         };
     for mut task in candidates {
+        match crate::app::manager::has_unpromoted_nonblocking_findings(project, &task.task_uid) {
+            Ok(false) => {}
+            Ok(true) => {
+                let message = format!(
+                    "Task {} is waiting for Man.ager to promote each current nonblocking code-review finding before completion.",
+                    task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                );
+                if !project
+                    .activity
+                    .pending
+                    .iter()
+                    .any(|event| event == &message)
+                {
+                    project.activity.pending.push(message);
+                }
+                continue;
+            }
+            Err(error) => {
+                project.activity.pending.push(format!(
+                    "Task {} code-review dispositions could not be checked before specification reconciliation: {error}",
+                    task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+                ));
+                continue;
+            }
+        }
         let lifecycle = LifecycleStore::new(&project.state.planning_store);
         match lifecycle.list_spec_sync_queue(&task.feature_uid, false) {
             Ok(entries) if entries.iter().any(|entry| entry.source_task_uid.is_none()) => continue,

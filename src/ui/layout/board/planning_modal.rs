@@ -111,6 +111,7 @@ pub(super) fn paint(
                 work.kind,
                 crate::core::planning_work::WorkKind::TaskGeneration
                     | crate::core::planning_work::WorkKind::PlanReviewDisposition
+                    | crate::core::planning_work::WorkKind::CodeReviewDisposition
             ) && (work.feature_uid.as_deref()
                 == action
                     .plan_snapshot

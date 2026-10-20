@@ -176,6 +176,14 @@ pub(super) fn paint(
     target::paint_execution_evidence(ui, presentation.view);
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
+    let mut lifecycle_surface = Some(&mut *s);
+    lifecycle::paint(
+        ui,
+        &mut lifecycle_surface,
+        presentation.ticket,
+        presentation.view.lifecycle.as_ref(),
+        presentation.view.lifecycle_error.as_deref(),
+    );
     linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming_cancel = ui

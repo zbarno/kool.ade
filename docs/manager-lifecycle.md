@@ -70,12 +70,50 @@ author/reviewer run and session identities. The app creates these receipts
 from the current prompt execution and validates them against the exact plan,
 code head, and review subject before accepting them.
 
+The code-review subject records the approved plan and task-spec hashes, frozen
+head/base and complete diff hash, linked subtasks, affected paths, validated
+test receipt hashes, available build artifacts, runtime-QA receipts, and prior
+review receipt IDs. The reviewer receives that manifest with the complete diff
+and evidence. Repair records also carry a normalized finding fingerprint so a
+fresh review cannot resolve a recurring defect merely by changing its finding
+ID. Repairs stop at the task's three-attempt budget and move to Needs Attention
+for explicit Manager triage.
+
 The application has integration points for explicit user plan confirmation,
 independent plan review, reviewed-plan task generation, claim-fenced
 implementation, independent code review, applicable runtime QA, specification
-reconciliation, and a distinct PR-preparation work item. These integrations
-are not yet a single end-to-end lifecycle coordinator across all application
-paths; legacy feature and task workflows remain. The transition store writes
+reconciliation, and a distinct PR-preparation work item. Current-head code
+review findings are supplied to Man.ager as validated evidence and its repair,
+user-decision, or follow-up dispositions are persisted as task-linked board
+work. Each disposition record carries the finding ID, exact review-subject
+hash, decision status, rationale, owner work ID, and source evidence reference
+as structured planning-work metadata, including a recurrence count. The
+Manager can request user acceptance for a nonblocking residual risk, but only
+an explicit Task Details action records RiskApproved; blocking findings
+cannot be risk-approved. A passing code review can carry only explicitly
+nonblocking findings; specification reconciliation waits until each current
+nonblocking finding is promoted to a follow-up or explicitly risk-approved.
+Manager-assigned
+blocking repairs are revalidated against the current failing receipt and exact
+task head before the existing isolated task worker is restarted. The worker
+receives a bounded application-owned repair context and must preserve the
+approved specification; a fresh independent review resolves or reopens the
+repair disposition. If a repair cannot be started or the fresh review still
+finds the defect, the work is moved to Needs Attention for Manager triage
+instead of being dispatched in an unbounded loop.
+Code-review verdicts enumerate examined files, tested evidence IDs, and
+unexamined areas. Findings carry a typed category, severity, blocking scope,
+file and line location, rationale, affected requirements, and suggested action;
+the app validates those fields against the frozen diff and evidence manifest.
+The reviewer evaluation fixture seeds both a pass-through abstraction and an
+unrelated change. Its default test verifies the typed oracle and that the
+production CodeReviewer prompt receives the complete diff. With Pi configured,
+the opt-in live check runs `KOOLADE_RUN_LIVE_CODE_REVIEW_EVAL=1 cargo +1.98.1
+nextest run --locked --lib --run-ignored ignored-only
+live_reviewer_detects_seeded_overengineering_and_unrelated_changes` and
+requires the returned verdict to identify both categories. These integrations
+are not yet a single end-to-end lifecycle coordinator across
+all application paths; legacy feature and task workflows remain. The transition store writes
 each snapshot and event in the same revision-checked planning-store
 transaction. Implementation `Done` is separate from PR opening and merging.
 PR publication requires its own authorization and records its state

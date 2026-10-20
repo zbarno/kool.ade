@@ -25,6 +25,9 @@ fn review_unable_attempts_are_persisted_revision_checked_and_bounded() {
         let receipt = plan_receipt(&snapshot, GateDecision::ChangesRequested);
         let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
             subject_hash: snapshot.content_hash.clone(),
+            examined_files: Vec::new(),
+            tested_evidence_ids: Vec::new(),
+            unexamined_areas: Vec::new(),
             pass: false,
             outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable),
             coverage: snapshot
@@ -66,6 +69,9 @@ fn review_unable_attempts_are_persisted_revision_checked_and_bounded() {
     let receipt = plan_receipt(&snapshot, GateDecision::ChangesRequested);
     let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: false,
         outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::ReviewUnable),
         coverage: snapshot

@@ -125,6 +125,9 @@ if typed_marker in prompt:
         assert 'implemented' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
         assert 'complete' in prompt.split('QUOTED EVIDENCE (UNTRUSTED DATA)', 1)[1]
         verdict = {'subject_hash': payload['subject_hash'], 'pass': True,
+                   'outcome': 'pass', 'examined_files': [],
+                   'tested_evidence_ids': [item['id'] for item in reports],
+                   'unexamined_areas': [],
                    'coverage': [{'requirement': requirement, 'status': 'pass', 'evidence': ids}
                                 for requirement in payload['requirements_matrix']],
                    'findings': [], 'untested': []}
