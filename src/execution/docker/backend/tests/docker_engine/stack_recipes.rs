@@ -278,14 +278,10 @@ fn stack_recipes() -> Vec<(
             recipe(
                 "python-build",
                 "python",
-                &[
-                    "-B",
-                    "-c",
-                    "import ast; ast.parse(open('app.py', encoding='utf-8').read())",
-                ],
+                &["-m", "compileall", "-q", "app.py"],
             ),
-            recipe("python-test", "python", &["-B", "-m", "unittest", "-q"]),
-            recipe("python-start", "python", &["-B", "app.py"]),
+            recipe("python-test", "python", &["-m", "unittest", "-q"]),
+            recipe("python-start", "python", &["app.py"]),
         ),
         (
             RuntimeProfile::Go,
