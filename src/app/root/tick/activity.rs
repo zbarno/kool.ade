@@ -73,8 +73,20 @@ impl KooladeApp {
                             )),
                         }
                         project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
-                    },
-                    Err(_) => project.remember_chat(vec![ChatMessage::new(ChatRole::System, "Project-manager update unavailable after retry; task work continues. You can still send a message.", None)]),
+                    }
+                    Err(error) => {
+                        let detail = crate::core::context_build::clip(
+                            &crate::error::redact_secrets(&error),
+                            1200,
+                        );
+                        project.remember_chat(vec![ChatMessage::new(
+                            ChatRole::System,
+                            format!(
+                                "Project-manager update unavailable: {detail} Task work continues; you can still send a message."
+                            ),
+                            None,
+                        )]);
+                    }
                 }
             }
             // Stalled-worker patrol: surfaced and acted upon at most once per
@@ -98,9 +110,10 @@ impl KooladeApp {
                 Instant::now(),
             ) {
                 let events = std::mem::take(&mut project.activity.pending);
-                let harness = configured_harness_for(
+                let harness = crate::app::root::configured_harness_for_project(
                     &mut self.task_harness,
                     Some(crate::persistence::harness_settings::MANAGER),
+                    &project.state.harness_routes.routes,
                 );
                 let route_label = harness.label();
                 project.activity.manager = Some(crate::app::manager::Manager::start(
@@ -129,9 +142,10 @@ impl KooladeApp {
             && let Some((feature_id, arbitration)) =
                 crate::app::manager::next_plan_arbitration(project)
         {
-            let harness = configured_harness_for(
+            let harness = crate::app::root::configured_harness_for_project(
                 &mut self.task_harness,
                 Some(crate::persistence::harness_settings::PLAN_REVIEW),
+                &project.state.harness_routes.routes,
             );
             match crate::app::root::plan_review::PlanReview::start_arbitration(
                 project,

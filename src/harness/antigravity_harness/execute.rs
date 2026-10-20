@@ -63,6 +63,7 @@ impl AiHarness for AntigravityHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::validate_reasoning_level("antigravity", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Antigravity", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
             .map_err(|error| {

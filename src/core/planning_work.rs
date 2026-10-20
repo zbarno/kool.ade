@@ -45,6 +45,18 @@ impl WorkKind {
         }
     }
 
+    pub fn harness_route_category(self) -> &'static str {
+        use crate::persistence::harness_settings as routes;
+        match self {
+            Self::Feature => routes::FEATURE_PLANNING,
+            Self::Bug | Self::Question => routes::INVESTIGATION,
+            Self::NewProject => routes::SPECIFICATION,
+            Self::DocumentationRefresh => routes::DOCUMENTATION,
+            Self::TaskGeneration => routes::TASK_GENERATION,
+            Self::PlanReviewDisposition => routes::MANAGER,
+        }
+    }
+
     pub fn planning_guidance(self) -> &'static str {
         match self {
             Self::Feature => {

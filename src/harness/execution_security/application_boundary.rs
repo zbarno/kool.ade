@@ -15,10 +15,16 @@ mod private_directory;
 mod providers;
 mod target;
 #[cfg(test)]
+mod test_overrides;
+#[cfg(test)]
 #[path = "application_boundary/tests.rs"]
 mod tests;
 pub(crate) use private_directory::PrivateDirectory;
 pub(crate) use providers::{CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch};
+#[cfg(test)]
+pub(crate) use test_overrides::override_test_resource_budgets;
+#[cfg(test)]
+use test_overrides::resource_budget_override;
 
 #[cfg(test)]
 static TEST_APP_BINARY_OVERRIDE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
@@ -113,7 +119,7 @@ impl ApplicationBoundary {
                 request,
                 workspace.clone(),
                 runtime_profile(&request.repo_root),
-                default_resource_budget(),
+                default_resource_budget(request.task_id.as_deref()),
             )?);
             bridge.bind_execution_session(session.clone())?;
             let ipc = SessionBridge::start(
@@ -140,7 +146,7 @@ impl ApplicationBoundary {
                     &request.repo_root,
                     ExecutionModeV1::PlanningReadOnly,
                     runtime_profile(&request.repo_root),
-                    default_resource_budget(),
+                    default_resource_budget(request.task_id.as_deref()),
                 )
                 .map_err(|error| {
                     anyhow::anyhow!(
@@ -277,6 +283,11 @@ fn runtime_profile(root: &Path) -> RuntimeProfile {
     }
 }
 
-fn default_resource_budget() -> ResourceBudgetV1 {
+fn default_resource_budget(_task_id: Option<&str>) -> ResourceBudgetV1 {
+    #[cfg(test)]
+    if let Some(budget) = _task_id.and_then(resource_budget_override) {
+        return budget;
+    }
+
     ResourceBudgetV1::default()
 }

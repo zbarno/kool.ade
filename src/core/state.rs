@@ -41,6 +41,8 @@ pub struct PlannerState {
     /// `active_feature` remains the current workflow focus for compatibility.
     pub active_features: Vec<(String, String)>,
     pub repositories: crate::core::project_repos::ProjectManifest,
+    /// Shared provider routes selected for this project's work categories.
+    pub harness_routes: crate::persistence::project_harness_routes::ProjectHarnessRoutes,
     /// Open-item queue (sorted per `items_io::sort_queue`).
     pub items: Vec<OpenItem>,
     /// Completed planning items remain available on the board with their outcomes.
@@ -113,6 +115,8 @@ impl PlannerState {
             crate::artifacts::product_docs::active_feature_for_workflow(store, &workflow);
         let repositories =
             crate::core::project_repos::ProjectManifest::load_with_code_root(store, repo)?;
+        let harness_routes =
+            crate::persistence::project_harness_routes::ProjectHarnessRoutes::load(store)?;
         let ending_revision = store.revision()?;
         anyhow::ensure!(
             starting_revision == ending_revision,
@@ -127,6 +131,7 @@ impl PlannerState {
             active_feature,
             active_features,
             repositories,
+            harness_routes,
             items,
             resolved_items,
             baseline_items_md,
