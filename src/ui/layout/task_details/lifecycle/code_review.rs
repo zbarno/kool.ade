@@ -2,7 +2,7 @@ use crate::{ui::task_detail::LifecycleView, ui::theme};
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
-    mut surface: Option<&mut dyn crate::ui::Surface>,
+    surface: &mut Option<&mut dyn crate::ui::Surface>,
     lifecycle: &LifecycleView,
 ) {
     if let Some(error) = &lifecycle.code_review_load_error {
@@ -159,7 +159,7 @@ pub(super) fn paint(
                         && review.verdict.pass
                         && disposition.subject_hash == review.subject_hash
                         && ui.button("Accept this residual risk").clicked()
-                        && let Some(surface) = surface.as_deref_mut()
+                        && let Some(surface) = surface.as_mut()
                     {
                         surface.dispatch(crate::ui::ApplicationCommand::ApproveCodeReviewRisk {
                             work_id: disposition.work_id.clone(),

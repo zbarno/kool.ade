@@ -1,8 +1,8 @@
 use super::*;
-mod qa_gallery;
-mod references;
 #[path = "lifecycle/code_review.rs"]
 mod code_review;
+mod qa_gallery;
+mod references;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -85,7 +85,7 @@ pub(super) fn paint(
         ui.label("Recorded gates");
         references::receipts(ui, surface, lifecycle);
         qa_gallery::paint(ui, surface, ticket, lifecycle);
-        code_review::paint(ui, surface.as_deref_mut(), lifecycle);
+        code_review::paint(ui, surface, lifecycle);
         ui.label(theme::helper_text(
             "Read-only lifecycle receipts. Missing evidence is shown as not recorded.",
         ));
