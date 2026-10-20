@@ -125,6 +125,11 @@ impl<'a> LifecycleStore<'a> {
         records::load_tasks(self.store)
     }
 
+    /// Loads the validated lifecycle feature snapshots in one planning-store pass.
+    pub fn list_features(&self) -> Result<Vec<FeatureGoal>, StoreError> {
+        records::load_features(self.store)
+    }
+
     /// Resolve the lifecycle identity for a persisted planning task without
     /// assuming that its path or display key equals the lifecycle UUID.
     pub fn task_for_planning_item(

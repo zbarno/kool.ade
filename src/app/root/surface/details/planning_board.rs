@@ -95,7 +95,48 @@ impl KooladeApp {
                         .map(|run| (proposal.opportunity_uid.clone(), run))
                     })
                     .collect();
-                let (lifecycle_tasks, lifecycle_error) = super::lifecycle_ui::board_phases(p);
+                let lifecycle_store =
+                    crate::core::lifecycle::LifecycleStore::new(&p.state.planning_store);
+                let (lifecycle_feature_tasks, task_error) = match lifecycle_store.list_tasks() {
+                    Ok(tasks) => (tasks, None),
+                    Err(error) => (Vec::new(), Some(error.to_string())),
+                };
+                let (lifecycle_tasks, mut lifecycle_error) = match task_error {
+                    Some(error) => (std::collections::BTreeMap::new(), Some(error)),
+                    None => super::lifecycle_ui::board_phases(p, &lifecycle_feature_tasks),
+                };
+                let lifecycle_features = match lifecycle_store.list_features() {
+                    Ok(features) => features,
+                    Err(error) => {
+                        lifecycle_error.get_or_insert_with(|| error.to_string());
+                        Vec::new()
+                    }
+                };
+                let mut lifecycle_pr_statuses = std::collections::BTreeMap::new();
+                for task in &lifecycle_feature_tasks {
+                    let (Some(planning_uid), Some(pr_uid)) = (
+                        task.planning_item_uid.as_deref(),
+                        task.pr_work_item_uid.as_deref(),
+                    ) else {
+                        continue;
+                    };
+                    let Some(document) = p.task_documents.iter().find(|document| {
+                        document
+                            .identity
+                            .as_ref()
+                            .is_some_and(|identity| identity.uid == planning_uid)
+                    }) else {
+                        continue;
+                    };
+                    match lifecycle_store.load_pr_preparation(pr_uid) {
+                        Ok(preparation) => {
+                            lifecycle_pr_statuses.insert(document.path.clone(), preparation.status);
+                        }
+                        Err(error) => {
+                            lifecycle_error.get_or_insert_with(|| error.to_string());
+                        }
+                    }
+                }
                 crate::ui::planning_board::ViewModel {
                     task_documents: p.task_documents.clone(),
                     planning_work,
@@ -113,6 +154,9 @@ impl KooladeApp {
                     archived: p.archived_tasks.clone(),
                     cancelled: p.cancelled_work.clone(),
                     lifecycle_tasks,
+                    lifecycle_pr_statuses,
+                    lifecycle_features,
+                    lifecycle_feature_tasks,
                     lifecycle_error,
                 }
             }

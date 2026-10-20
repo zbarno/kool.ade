@@ -14,7 +14,7 @@ mod queue;
 pub(super) use additional_transition::{
     AdditionalTransition, append_transition_with_additional_checks,
 };
-pub(super) use load::load_tasks;
+pub(super) use load::{load_features, load_tasks};
 use queue::queued_record;
 
 pub(super) fn create_pair<T: Serialize>(

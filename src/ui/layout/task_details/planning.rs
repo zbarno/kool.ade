@@ -158,3 +158,103 @@ pub(super) fn paint_feature_approval(
         });
     }
 }
+
+pub(super) fn paint_plan_review(
+    ui: &mut egui::Ui,
+    review: &crate::ui::task_detail::LifecyclePlanReviewView,
+) {
+    let snapshot = &review.snapshot;
+    ui.heading("Independent Plan Review");
+    ui.label(crate::ui::theme::metadata_text(format!(
+        "Feature {} · plan revision {}",
+        review.feature_uid, snapshot.spec_revision
+    )));
+    ui.label(crate::ui::theme::section_heading("Confirmed plan"));
+    ui.label(&snapshot.intent);
+    ui.label(egui::RichText::new("Expected outcome").strong());
+    ui.label(&snapshot.outcome);
+    ui.columns(2, |columns| {
+        columns[0].label(egui::RichText::new("Current behavior").strong());
+        columns[0].label(&snapshot.current_state);
+        columns[1].label(egui::RichText::new("Proposed behavior").strong());
+        columns[1].label(&snapshot.target_behavior);
+    });
+    plan_list(ui, "Included scope", &snapshot.scope);
+    plan_list(ui, "Explicit exclusions", &snapshot.non_goals);
+    plan_list(ui, "Acceptance criteria", &snapshot.acceptance_criteria);
+    plan_list(ui, "Risks", &snapshot.risks);
+    plan_list(
+        ui,
+        "Test strategy",
+        std::slice::from_ref(&snapshot.test_strategy),
+    );
+    ui.label(crate::ui::theme::helper_text(format!(
+        "Confirmed plan hash · {}",
+        snapshot.content_hash
+    )));
+    ui.label(crate::ui::theme::section_heading("Review evidence"));
+    ui.label(format!(
+        "User confirmation · {}",
+        review
+            .confirmation
+            .as_ref()
+            .map_or("not recorded", |receipt| receipt.subject_sha256.as_str())
+    ));
+    if let Some(receipt) = &review.review {
+        ui.label(format!(
+            "Independent review receipt · {}",
+            receipt.receipt_uid
+        ));
+    } else {
+        ui.label(crate::ui::theme::helper_text(
+            "The confirmed plan is awaiting an independent reviewer.",
+        ));
+    }
+    if let Some(verdict) = &review.verdict {
+        let (label, color) = if verdict.pass {
+            ("Review passed", crate::ui::theme::SUCCESS)
+        } else {
+            ("Review findings", crate::ui::theme::WARNING)
+        };
+        ui.colored_label(color, label);
+        for coverage in &verdict.coverage {
+            ui.label(format!(
+                "{} · {:?} · {}",
+                coverage.requirement,
+                coverage.status,
+                coverage.evidence.join(", ")
+            ));
+        }
+        for finding in &verdict.findings {
+            ui.group(|ui| {
+                ui.label(format!(
+                    "{} · {:?} · {:?}",
+                    finding.id, finding.severity, finding.kind
+                ));
+                ui.label(&finding.requirement);
+                ui.label(&finding.proposed_correction);
+                ui.label(crate::ui::theme::helper_text(format!(
+                    "{} · evidence: {}",
+                    finding.location,
+                    finding.evidence.join(", ")
+                )));
+            });
+        }
+        plan_list(ui, "Not covered yet", &verdict.untested);
+    }
+}
+
+fn plan_list(ui: &mut egui::Ui, title: &str, values: &[String]) {
+    if values.is_empty() {
+        return;
+    }
+    ui.collapsing(title, |ui| {
+        for value in values {
+            ui.label(format!("• {value}"));
+        }
+    });
+}
+
+#[cfg(test)]
+#[path = "planning/plan_review_tests.rs"]
+mod plan_review_tests;
