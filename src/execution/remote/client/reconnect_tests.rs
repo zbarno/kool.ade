@@ -124,6 +124,7 @@ fn reconnect_keeps_bootstrap_and_authorized_image_rpc_on_the_same_client_transpo
         sequences: HashMap::new(),
         last_health_check: Instant::now(),
         system_image_capability_key: [0x22; 32],
+        test_terminator: None,
     };
     client
         .reconnect_and_negotiate_with(
@@ -226,6 +227,7 @@ fn generic_client_request_rejects_private_bytes_before_transport() {
         sequences: HashMap::new(),
         last_health_check: Instant::now(),
         system_image_capability_key: [0x22; 32],
+        test_terminator: None,
     };
 
     let error = client
