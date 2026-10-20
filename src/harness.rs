@@ -23,6 +23,9 @@ pub mod pi_harness;
 pub mod pi_proc;
 pub(crate) mod pi_provider_settings;
 pub mod prompt_catalog;
+#[cfg(test)]
+#[path = "harness/provider_mode_matrix.rs"]
+mod provider_mode_matrix;
 pub mod responses;
 pub mod runtime_capabilities;
 pub(crate) mod runtime_config;
@@ -161,6 +164,11 @@ pub(crate) fn manual_executable_path_from(
         return Ok(None);
     };
     let configured = std::path::PathBuf::from(value);
+    if !configured.is_absolute() {
+        return Err(crate::error::AppError::HarnessNotFound {
+            detail: format!("Configured {id} executable path must be absolute"),
+        });
+    }
     let path = configured
         .canonicalize()
         .map_err(|_| crate::error::AppError::HarnessNotFound {
@@ -205,12 +213,15 @@ fn is_executable_file(metadata: &std::fs::Metadata) -> bool {
 mod tests;
 
 pub use antigravity_harness::AntigravityHarness;
+pub(crate) use api::normalize_provider_error;
+pub(crate) use api::validate_reasoning_level;
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, CleanLaunchTelemetry,
     DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,
     DependencyFailureCategory, DependencyKind, DependencyNeed, DependencyPackageIdentity,
     DependencyPreparationStatus, DependencyPreparationTelemetry, DependencyRequest,
-    DependencyRequestStatus, DependencyRetryResult, DocumentUpdate, ExecutionMode, HarnessOutcome,
+    DependencyRequestStatus, DependencyRetryResult, DocumentUpdate, ExecutionMode,
+    HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
     LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
     PlanningTaskOffer, RequestedAction, RetrievalPlan, ReviewExecutionIdentity, ToolAccess,
     TurnEnvelope, TurnItem, TurnItemUpdate,

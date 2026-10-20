@@ -31,6 +31,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
     let harness = ImplementationQaHarness {
         implementation: Box::new(CountHarness(Arc::new(AtomicUsize::new(0)), "impl")),
         qa: Box::new(CaptureMode(observed.clone())),
+        repair: None,
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
@@ -90,7 +91,7 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
             inner: Box::new(CountHarness(calls.clone(), "supported")),
             harness_id: provider.into(),
             model: None,
-            default_model_hint: None,
+            provenance: test_route_provenance(provider),
         };
         harness.execute(&request).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1, "{provider}");
@@ -101,12 +102,24 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
         inner: Box::new(CountHarness(calls.clone(), "unsupported")),
         harness_id: "unsupported".into(),
         model: None,
-        default_model_hint: None,
+        provenance: test_route_provenance("unsupported"),
     };
     let error = unsupported.execute(&request).unwrap_err();
     assert!(!error.detail().is_empty());
     assert!(error.detail().contains("unsupported"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+fn test_route_provenance(provider: &str) -> crate::harness::HarnessRouteProvenance {
+    crate::harness::HarnessRouteProvenance {
+        provider_id: provider.into(),
+        role: crate::execution::contract::HarnessRole::Implementer,
+        work_category: Some("implementation".into()),
+        selected_model: None,
+        requested_model: None,
+        capability_probe_id: None,
+        capability_generation: None,
+    }
 }
 
 #[test]
@@ -128,10 +141,7 @@ fn configured_alternate_implementation_route_fails_closed_without_repository_acc
                 configuration_required: false,
                 implementation_available: false,
                 checked_at_unix_ms: now,
-                capability_snapshot: Some(routing::authentication::capability_snapshot(
-                    "codex",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(super::routing::authentication::ready_snapshot("codex")),
             },
         )]),
         ..Default::default()

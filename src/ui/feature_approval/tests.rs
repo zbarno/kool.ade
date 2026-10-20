@@ -28,9 +28,13 @@ fn action() -> Action {
     Action {
         id: "F7".into(),
         specification: String::new(),
-        candidate: None,
         approved: false,
+        user_confirmed: false,
+        ready: true,
+        plan_snapshot: None,
+        review_verdict: None,
         prepare_tasks: false,
+        retry_review: false,
         compare_plans: false,
         plan_comparison: Some(crate::domain::PlanComparison {
             alternatives: vec![alternative("A"), alternative("B")],
@@ -42,6 +46,16 @@ fn action() -> Action {
             selected_plan: None,
         }),
     }
+}
+
+#[test]
+fn retry_review_action_has_an_explicit_label() {
+    let mut action = action();
+    action.retry_review = true;
+    assert_eq!(
+        action.label(),
+        "Start or retry independent plan review for F7"
+    );
 }
 
 fn frame(

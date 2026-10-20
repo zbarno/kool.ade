@@ -117,6 +117,7 @@ pub(super) fn for_ticket(
         });
     (
         Some(crate::ui::task_detail::LifecycleView {
+            feature_uid: task.feature_uid.clone(),
             feature_phase: feature.phase,
             task_phase: task.phase,
             parent_task_uid: task.parent_task_uid.clone(),
@@ -126,6 +127,14 @@ pub(super) fn for_ticket(
             task_revision: task.revision,
             code_review: task.code_review,
             runtime_qa: task.runtime_qa,
+            runtime_qa_run_id: task
+                .qa_execution
+                .as_ref()
+                .filter(|execution| {
+                    execution.status == crate::core::lifecycle::QaExecutionStatusV1::Completed
+                })
+                .and_then(|execution| execution.request.as_ref())
+                .map(|request| request.qa_run_id.clone()),
             spec_reconciliation: task.spec_reconciliation,
             current_spec_hash,
             implementation_head_sha: spec_revision
@@ -177,18 +186,15 @@ fn specification_deltas_for_task(
 
 pub(in crate::app::root::surface) fn board_phases(
     project: &Project,
+    tasks: &[crate::core::lifecycle::TaskRecord],
 ) -> (
     std::collections::BTreeMap<String, crate::core::lifecycle::TaskPhase>,
     Option<String>,
 ) {
-    let lifecycle = LifecycleStore::new(&project.state.planning_store);
-    let tasks = match lifecycle.list_tasks() {
-        Ok(tasks) => tasks,
-        Err(error) => return (std::collections::BTreeMap::new(), Some(error.to_string())),
-    };
-    let mappings = tasks.into_iter().filter_map(|task| {
+    let mappings = tasks.iter().filter_map(|task| {
         task.planning_item_uid
-            .map(|planning_item_uid| (planning_item_uid, task.phase))
+            .as_ref()
+            .map(|planning_item_uid| (planning_item_uid.clone(), task.phase))
     });
     let (phases, has_ambiguous) = phase_index(mappings);
     let by_path = project

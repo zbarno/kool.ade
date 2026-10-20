@@ -1,5 +1,12 @@
 use std::path::{Path, PathBuf};
 
+#[path = "fake_pi/cleanup.rs"]
+pub(super) mod cleanup;
+
+pub(super) fn remove_test_root(root: &Path) {
+    cleanup::remove_test_root(root);
+}
+
 fn authenticated_capability_snapshot() -> crate::execution::contract::HarnessCapabilitySnapshotV1 {
     use crate::execution::contract::{
         HarnessCapabilitySnapshotV1, ModeReadinessV1, ReadinessState, RoleReadinessV1,
@@ -96,18 +103,19 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
                 crate::persistence::harness_settings::DetectedHarness {
                     status: "pi fixture 1.0".into(),
                     version: Some("1.0".into()),
-                    executable: None,
+                    executable: Some(root.join("pi-fixture").to_string_lossy().into_owned()),
                     diagnostic: None,
                     ready: true,
-                    models: Vec::new(),
-                    default_model: None,
-                    model_catalog_fresh: false,
+                    models: vec!["fixture-model".into()],
+                    default_model: Some("fixture-model".into()),
+                    model_catalog_fresh: true,
                     configuration_required: false,
                     implementation_available: true,
                     checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
                     capability_snapshot: Some(authenticated_capability_snapshot()),
                 },
             )]),
+            default_harness: Some("pi".into()),
             ..Default::default()
         },
     )

@@ -7,6 +7,28 @@ const FILE: &str = "harness-settings.json";
 pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
 const CURRENT_SCHEMA_VERSION: u8 = 4;
 
+#[cfg(test)]
+thread_local! {
+    static SETTINGS_PATH_OVERRIDE: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+struct RestoreSettingsPath(Option<std::path::PathBuf>);
+
+#[cfg(test)]
+impl Drop for RestoreSettingsPath {
+    fn drop(&mut self) {
+        SETTINGS_PATH_OVERRIDE.with(|path| *path.borrow_mut() = self.0.take());
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn with_settings_path<R>(path: std::path::PathBuf, run: impl FnOnce() -> R) -> R {
+    let previous = SETTINGS_PATH_OVERRIDE.with(|slot| slot.replace(Some(path)));
+    let _restore = RestoreSettingsPath(previous);
+    run()
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct HarnessSettings {
@@ -30,9 +52,38 @@ pub struct WorkRoute {
 
 pub const IMPLEMENTATION: &str = "implementation";
 pub const MANAGER: &str = "manager";
+pub const PLANNING: &str = "planning";
+pub const SPECIFICATION: &str = "specification";
+pub const FEATURE_PLANNING: &str = "feature_planning";
+pub const TASK_GENERATION: &str = "task_generation";
+pub const INVESTIGATION: &str = "investigation";
 pub const PLAN_REVIEW: &str = "plan_review";
 pub const QA: &str = "qa_verification";
+pub const RUNTIME_QA: &str = "runtime_qa";
 pub const DOCUMENTATION: &str = "documentation";
+pub const RECONCILIATION: &str = "reconciliation";
+pub const DECISION_EXPLANATION: &str = "decision_explanation";
+pub const REPAIR: &str = "repair";
+
+pub const TASK_ROUTABLE_CATEGORIES: &[&str] = &[
+    PLANNING,
+    SPECIFICATION,
+    FEATURE_PLANNING,
+    TASK_GENERATION,
+    INVESTIGATION,
+    PLAN_REVIEW,
+    IMPLEMENTATION,
+    QA,
+    RUNTIME_QA,
+    DOCUMENTATION,
+    RECONCILIATION,
+    DECISION_EXPLANATION,
+    REPAIR,
+];
+
+pub fn is_task_routable_category(category: &str) -> bool {
+    TASK_ROUTABLE_CATEGORIES.contains(&category)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,6 +175,10 @@ pub fn current_unix_ms() -> u64 {
 }
 
 pub fn settings_path() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Some(path) = SETTINGS_PATH_OVERRIDE.with(|path| path.borrow().clone()) {
+        return path;
+    }
     crate::persistence::state_root().join(FILE)
 }
 

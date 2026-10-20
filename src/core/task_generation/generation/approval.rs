@@ -64,9 +64,13 @@ pub(super) fn approved_snapshot(
         &snapshot,
     )
     .map_err(|error| AppError::Other(error.to_string()))?;
-    if !goal_matches || !snapshot_persisted || !confirmed || !reviewed {
+    let readiness = crate::core::lifecycle::plan_snapshot::require_current_readiness(
+        &state.planning_store,
+        &snapshot,
+    );
+    if !goal_matches || !snapshot_persisted || !confirmed || !reviewed || readiness.is_err() {
         return Err(AppError::Other(format!(
-            "The approved plan snapshot or its confirmation/review receipts are stale (feature={feature_id}, feature_uid={}, snapshot_uid={}, plan_hash={}, goal={goal_matches}, snapshot={snapshot_persisted}, confirmation={confirmed}, review={reviewed}).",
+            "The approved plan snapshot, readiness evidence, or its confirmation/review receipts are stale (feature={feature_id}, feature_uid={}, snapshot_uid={}, plan_hash={}, goal={goal_matches}, snapshot={snapshot_persisted}, confirmation={confirmed}, review={reviewed}, readiness={readiness:?}).",
             snapshot.feature_uid, snapshot.uid, snapshot.content_hash
         )));
     }

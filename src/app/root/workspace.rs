@@ -70,6 +70,26 @@ impl KooladeApp {
             if purpose == crate::core::workflow::TurnPurpose::Question {
                 work.kind = crate::core::planning_work::WorkKind::Question;
             }
+            if key.starts_with("plan-confirmation-changes:") {
+                work.kind = crate::core::planning_work::WorkKind::PlanReviewDisposition;
+                work.title = "Revise plan from user feedback".into();
+                work.detail =
+                    format!("User requested changes to the current plan candidate.\n\n{text}");
+                if let Some(feature_id) = comparison_feature {
+                    work.feature_id = Some(feature_id.to_owned());
+                    work.feature_uid = project
+                        .state
+                        .active_features
+                        .iter()
+                        .find(|(id, _)| id == feature_id)
+                        .and_then(|(_, markdown)| {
+                            crate::domain::ArtifactIdentity::from_markdown(markdown)
+                                .ok()
+                                .flatten()
+                        })
+                        .map(|identity| identity.uid);
+                }
+            }
             project.planning_work.push(work);
             if let Err(error) = project.save_planning_work() {
                 project.planning_work.pop();
@@ -85,7 +105,23 @@ impl KooladeApp {
             .cloned();
         let work_guidance = work
             .as_ref()
-            .map(|work| format!("{} — {}", work.kind.label(), work.kind.planning_guidance()))
+            .filter(|work| work.key.starts_with("task:manager-plan-repair:"))
+            .map(|_| {
+                "Manager-directed repair of an independent plan finding. Use the exact finding, counterexample, and evidence in this task. Preserve the user's original goal and approved intent; do not guess at product decisions. Update only the identified feature specification. Any candidate change must be confirmed again by the user before review or task generation."
+                    .to_owned()
+            })
+            .or_else(|| {
+                work.as_ref()
+                    .filter(|work| work.key.starts_with("plan-confirmation-changes:"))
+                    .map(|_| {
+                        "The user explicitly requested changes to this unconfirmed plan candidate. Ask for their specific direction before editing. Preserve the original goal and scope where possible. Never interpret this request as plan confirmation or permission to generate tasks; any revised candidate requires a separate explicit confirmation and independent review.".to_owned()
+                    })
+            })
+            .or_else(|| {
+                work.as_ref().map(|work| {
+                    format!("{} — {}", work.kind.label(), work.kind.planning_guidance())
+                })
+            })
             .unwrap_or_else(|| "Feature".into());
         let activity = match purpose {
             crate::core::workflow::TurnPurpose::GenerateTasks => "Generating implementation tasks…",
@@ -120,15 +156,17 @@ impl KooladeApp {
             purpose,
             comparison_feature: comparison_feature.map(str::to_owned),
         };
-        let work_type = work
-            .as_ref()
-            .filter(|work| work.kind == crate::core::planning_work::WorkKind::DocumentationRefresh)
-            .map(|_| crate::persistence::harness_settings::DOCUMENTATION);
+        let work_type = work.as_ref().map(|work| work.kind.harness_route_category());
         let task_routes = work
             .as_ref()
             .map(|work| work.routing_overrides.clone())
             .unwrap_or_default();
-        let harness = configured_harness_for_task(&mut self.task_harness, work_type, &task_routes);
+        let harness = crate::app::root::configured_harness_for_project_task(
+            &mut self.task_harness,
+            work_type,
+            &project.state.harness_routes.routes,
+            &task_routes,
+        );
         let route_label = harness.label();
         let ctrl = TurnController::start(inputs, harness);
         project.active_turn = Some(std::rc::Rc::new(ctrl));

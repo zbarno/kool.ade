@@ -86,6 +86,14 @@ fn trigger_for_event(event: &LifecycleEventRecord) -> (SpecSyncTriggerKindV1, Op
                 Some("task start/cancel does not change reviewed specification evidence".into()),
             ),
         },
-        LifecycleEventKind::PullRequestState { .. } => (SpecSyncTriggerKindV1::PullRequest, None),
+        LifecycleEventKind::PullRequestState { status, .. } => (
+            SpecSyncTriggerKindV1::PullRequest,
+            event.pr_preparation_after.as_ref().filter(|after| {
+                matches!(status,
+                    crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention
+                    | crate::core::lifecycle::PullRequestPreparationStatus::Publishing)
+                    && after.recovery.as_ref().is_some_and(|recovery| recovery.last_failure.is_some())
+            }).map(|_| "publication transport failure/retry preserves the reviewed implementation and specification evidence".into()),
+        ),
     }
 }

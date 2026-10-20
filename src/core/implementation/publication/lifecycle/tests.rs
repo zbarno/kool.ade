@@ -1,7 +1,11 @@
-use super::{LifecyclePublicationGate, prepare_lifecycle_publication};
+use super::{
+    LifecyclePublicationGate, finish_lifecycle_publication, prepare_lifecycle_publication,
+};
+use crate::core::implementation::PullRequestState;
 use crate::core::lifecycle::{LifecycleStore, PullRequestPreparationStatus, TaskPhase};
 
 mod fixture;
+mod recovery;
 use fixture::Fixture;
 
 /// Production boundary: the app's publication gate resolves a persisted Done
@@ -74,6 +78,48 @@ fn integrated_head_cannot_reuse_reviewed_head_authorization() {
         ));
         assert_eq!(reopened.revision().unwrap(), revision);
     }
+}
+
+#[test]
+fn closed_provider_observation_is_durably_recorded_as_closed_unmerged() {
+    let fixture = Fixture::new(40);
+    let lifecycle = LifecycleStore::new(&fixture.store);
+    let mut implementation = fixture.implementation();
+    implementation.verified_head = Some(fixture.reviewed_head.clone());
+    let LifecyclePublicationGate::Authorized(binding) =
+        prepare_lifecycle_publication(&fixture.store, &implementation).unwrap()
+    else {
+        panic!("fixture should authorize publication");
+    };
+    implementation.pr_url = Some("https://github.com/fixture/repo/pull/1".into());
+    implementation.pr_details = Some(crate::core::implementation::PullRequestDetails {
+        number: 1,
+        head_sha: fixture.reviewed_head.clone(),
+        base_sha: Some("d".repeat(40)),
+        base_branch: "main".into(),
+    });
+    implementation.pr_state = Some(PullRequestState::Closed);
+
+    finish_lifecycle_publication(&fixture.store, &implementation, Some(binding)).unwrap();
+
+    let work = lifecycle.load_pr_preparation(&fixture.work_uid).unwrap();
+    assert_eq!(work.status, PullRequestPreparationStatus::ClosedUnmerged);
+    assert_eq!(work.provider_pr_id, Some(1));
+    assert_eq!(
+        work.provider_pr_url.as_deref(),
+        Some("https://github.com/fixture/repo/pull/1")
+    );
+    assert_eq!(
+        work.head_sha.as_deref(),
+        Some(fixture.reviewed_head.as_str())
+    );
+    assert_eq!(work.merged_commit_sha, None);
+    let reopened_store = fixture.reopen();
+    let reopened = LifecycleStore::new(&reopened_store);
+    assert_eq!(
+        reopened.load_pr_preparation(&fixture.work_uid).unwrap(),
+        work
+    );
 }
 
 fn assert_head_blocked(fixture: &Fixture, implementation: &super::Implementation) {

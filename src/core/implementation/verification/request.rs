@@ -100,7 +100,7 @@ pub(super) fn build(
         reasoning_level: "medium".into(),
         telemetry_phase: Some(
             if verification_corrections > 0 {
-                "qa_verification"
+                "repair"
             } else if attempt == 1 {
                 "implementation"
             } else {

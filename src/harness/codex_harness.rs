@@ -89,12 +89,7 @@ impl CodexHarness {
             }
         };
         let version = run_probe(&path, &["--version"]).ok().and_then(|output| {
-            output
-                .lines()
-                .next()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(str::to_owned)
+            crate::harness::discovery::normalize_cli_version(&output, &["codex-cli"], false)
         });
         match Self::check_binary(&path) {
             Ok(version) => CodexProbeReport {
@@ -129,15 +124,12 @@ impl CodexHarness {
     }
 
     pub(super) fn check_binary(path: &Path) -> Result<String, AppError> {
-        let version = run_probe(path, &["--version"])?
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
-        if version.is_empty() {
-            return Err(AppError::Other("Codex CLI did not report a version".into()));
-        }
+        let version = crate::harness::discovery::normalize_cli_version(
+            &run_probe(path, &["--version"])?,
+            &["codex-cli"],
+            false,
+        )
+        .ok_or_else(|| AppError::Other("Codex CLI did not report a safe version".into()))?;
         #[cfg(test)]
         check_supported_capabilities(path)?;
         #[cfg(not(test))]

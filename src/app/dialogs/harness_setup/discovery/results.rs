@@ -1,22 +1,5 @@
 use super::super::HarnessProbe;
 
-pub(super) fn failed_probe(id: &str, message: &str) -> HarnessProbe {
-    HarnessProbe {
-        id: id.into(),
-        status: format!("{id} (probe failed)"),
-        version: None,
-        executable: None,
-        diagnostic: Some(message.into()),
-        ready: false,
-        models: Vec::new(),
-        default_model: None,
-        model_catalog_fresh: false,
-        configuration_required: false,
-        authentication: crate::execution::contract::ReadinessState::Unknown,
-        implementation_available: false,
-    }
-}
-
 pub(in crate::app::dialogs::harness_setup) fn apply_probe_results(
     settings: &mut crate::persistence::harness_settings::HarnessSettings,
     reports: &[HarnessProbe],
@@ -70,20 +53,27 @@ pub(super) fn update_settings_from_probe(
     report: &HarnessProbe,
     generation: u64,
 ) {
-    let capability_snapshot = snapshot_from_probe(report, generation);
+    let (capability_snapshot, profile_diagnostic) = snapshot_from_probe(report, generation);
+    let diagnostic = [report.diagnostic.as_deref(), profile_diagnostic.as_deref()]
+        .into_iter()
+        .flatten()
+        .filter(|message| !message.trim().is_empty())
+        .collect::<Vec<_>>();
     settings.discovered.insert(
         report.id.clone(),
         crate::persistence::harness_settings::DetectedHarness {
             status: report.status.clone(),
             version: report.version.clone(),
             executable: report.executable.clone(),
-            diagnostic: report.diagnostic.clone(),
-            ready: report.ready,
+            diagnostic: (!diagnostic.is_empty()).then(|| diagnostic.join("; ")),
+            ready: report.ready
+                && report.authentication == crate::execution::contract::ReadinessState::Ready,
             models: report.models.clone(),
             default_model: report.default_model.clone(),
             model_catalog_fresh: report.model_catalog_fresh,
             configuration_required: report.configuration_required,
-            implementation_available: report.implementation_available,
+            implementation_available: report.implementation_available
+                && report.authentication == crate::execution::contract::ReadinessState::Ready,
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
             capability_snapshot: Some(capability_snapshot),
         },
@@ -109,17 +99,55 @@ pub(in crate::app::dialogs::harness_setup) fn update_runtime_readiness(
             } else {
                 ReadinessState::Unavailable
             };
+            snapshot.docker_mcp_bridge = if implementation_available
+                && snapshot.validate().is_ok()
+                && snapshot.cli_binary == ReadinessState::Ready
+                && snapshot
+                    .cli_version
+                    .as_deref()
+                    .is_some_and(|version| !version.trim().is_empty())
+                && snapshot.authentication == ReadinessState::Ready
+                && snapshot.model_catalog == ReadinessState::Ready
+                && snapshot.scriptable_invocation == ReadinessState::Ready
+                && crate::harness::execution_security::supports_universal_role_contract(id)
+            {
+                ReadinessState::Ready
+            } else {
+                ReadinessState::Unavailable
+            };
+            for role in &mut snapshot.roles {
+                if role.role.requires_execution_target() {
+                    role.available = if snapshot.execution_target == ReadinessState::Ready
+                        && snapshot.cli_binary == ReadinessState::Ready
+                        && snapshot.authentication == ReadinessState::Ready
+                        && snapshot.model_catalog == ReadinessState::Ready
+                        && snapshot.scriptable_invocation == ReadinessState::Ready
+                        && crate::harness::execution_security::supports_mode_contract(
+                            id,
+                            role.role.harness_mode(),
+                        ) {
+                        ReadinessState::Ready
+                    } else {
+                        ReadinessState::Unavailable
+                    };
+                }
+            }
         }
     }
     for report in reports {
-        report.implementation_available = report.ready && implementation_available;
+        report.implementation_available = report.ready
+            && report.authentication == ReadinessState::Ready
+            && implementation_available;
     }
 }
 
 fn snapshot_from_probe(
     report: &HarnessProbe,
     generation: u64,
-) -> crate::execution::contract::HarnessCapabilitySnapshotV1 {
+) -> (
+    crate::execution::contract::HarnessCapabilitySnapshotV1,
+    Option<String>,
+) {
     use crate::execution::contract::{
         HarnessCapabilitySnapshotV1, HarnessRole, ModeReadinessV1, ReadinessState, RoleReadinessV1,
     };
@@ -137,40 +165,122 @@ fn snapshot_from_probe(
         | crate::harness::discovery::ModelCatalogStatus::Unavailable => ReadinessState::Unavailable,
         crate::harness::discovery::ModelCatalogStatus::NotChecked => ReadinessState::Unknown,
     };
-
-    HarnessCapabilitySnapshotV1 {
-        schema_version: 1,
-        provider_id: report.id.clone(),
-        probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        probe_cancellation_generation: generation,
-        probe_sequence: 1,
+    let (scriptable_invocation, profile_diagnostic) =
+        match (report.executable.as_deref(), report.version.as_deref()) {
+            (Some(executable), Some(version)) => {
+                let path = std::path::Path::new(executable);
+                let profile = if path.is_file() {
+                    crate::harness::execution_security::verify_scriptable_invocation(
+                        &report.id, path, version,
+                    )
+                } else {
+                    Err(anyhow::anyhow!("discovered CLI executable is not a file"))
+                };
+                match profile {
+                    Ok(()) => (ReadinessState::Ready, None),
+                    Err(error) => (
+                        ReadinessState::Unavailable,
+                        Some(crate::error::redact_secrets(&error.to_string())),
+                    ),
+                }
+            }
+            _ => (ReadinessState::Unknown, None),
+        };
+    let adapter_contract =
+        if crate::harness::execution_security::supports_universal_role_contract(&report.id) {
+            ReadinessState::Ready
+        } else {
+            ReadinessState::Unavailable
+        };
+    let provider_capability = if [
         cli_binary,
-        cli_version: report.version.clone(),
         authentication,
         model_catalog,
-        // Current discovery does not prove the provider's non-interactive
-        // request/response contract for every mode.
-        scriptable_invocation: ReadinessState::Unknown,
-        // Discovery does not establish a live provider session or bridge.
-        docker_mcp_bridge: ReadinessState::Unavailable,
-        // Runtime readiness arrives independently from provider discovery.
-        execution_target: ReadinessState::Unknown,
-        failure: None,
-        modes: ExecutionMode::ALL
-            .into_iter()
-            .map(|mode| ModeReadinessV1 {
-                mode,
-                available: ReadinessState::Unknown,
-                failure: None,
-            })
-            .collect(),
-        roles: HarnessRole::ALL
-            .into_iter()
-            .map(|role| RoleReadinessV1 {
-                role,
-                available: ReadinessState::Unknown,
-                failure: None,
-            })
-            .collect(),
-    }
+        scriptable_invocation,
+        adapter_contract,
+    ]
+    .contains(&ReadinessState::Unavailable)
+    {
+        ReadinessState::Unavailable
+    } else if [
+        cli_binary,
+        authentication,
+        model_catalog,
+        scriptable_invocation,
+        adapter_contract,
+    ]
+    .contains(&ReadinessState::Unknown)
+    {
+        ReadinessState::Unknown
+    } else {
+        ReadinessState::Ready
+    };
+
+    let execution_target = if report.implementation_available {
+        ReadinessState::Ready
+    } else {
+        ReadinessState::Unavailable
+    };
+
+    (
+        HarnessCapabilitySnapshotV1 {
+            schema_version: 1,
+            provider_id: report.id.clone(),
+            probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            probe_cancellation_generation: generation,
+            probe_sequence: generation,
+            cli_binary,
+            cli_version: report.version.clone(),
+            authentication,
+            model_catalog,
+            scriptable_invocation,
+            // This is the app-owned, provider-specific MCP adapter contract.
+            // Runtime Docker availability is tracked separately below.
+            docker_mcp_bridge: if provider_capability == ReadinessState::Ready
+                && execution_target == ReadinessState::Ready
+            {
+                ReadinessState::Ready
+            } else {
+                ReadinessState::Unavailable
+            },
+            execution_target,
+            failure: None,
+            modes: ExecutionMode::ALL
+                .into_iter()
+                .map(|mode| ModeReadinessV1 {
+                    mode,
+                    available: if provider_capability != ReadinessState::Ready {
+                        provider_capability
+                    } else if crate::harness::execution_security::supports_mode_contract(
+                        &report.id, mode,
+                    ) {
+                        ReadinessState::Ready
+                    } else {
+                        ReadinessState::Unavailable
+                    },
+                    failure: None,
+                })
+                .collect(),
+            roles: HarnessRole::ALL
+                .into_iter()
+                .map(|role| RoleReadinessV1 {
+                    role,
+                    available: if provider_capability != ReadinessState::Ready {
+                        provider_capability
+                    } else if !crate::harness::execution_security::supports_mode_contract(
+                        &report.id,
+                        role.harness_mode(),
+                    ) || (role.requires_execution_target()
+                        && execution_target != ReadinessState::Ready)
+                    {
+                        ReadinessState::Unavailable
+                    } else {
+                        ReadinessState::Ready
+                    },
+                    failure: None,
+                })
+                .collect(),
+        },
+        profile_diagnostic,
+    )
 }

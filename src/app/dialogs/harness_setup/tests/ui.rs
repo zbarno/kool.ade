@@ -1,5 +1,10 @@
 use super::*;
 
+mod close_reopen;
+mod invalid_manual_path;
+mod refresh_click;
+mod retry_provider;
+
 #[test]
 fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
     assert_eq!(

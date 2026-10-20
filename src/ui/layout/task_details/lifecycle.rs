@@ -1,7 +1,11 @@
 use super::*;
+mod qa_gallery;
+mod references;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
+    surface: &mut Option<&mut dyn crate::ui::Surface>,
+    ticket: &str,
     lifecycle: Option<&crate::ui::task_detail::LifecycleView>,
     error: Option<&str>,
 ) {
@@ -28,33 +32,7 @@ pub(super) fn paint(
                 lifecycle.task_revision
             ));
         });
-        if lifecycle.parent_task.is_some()
-            || !lifecycle.dependencies.is_empty()
-            || !lifecycle.subtasks.is_empty()
-        {
-            ui.label(theme::section_heading("Task relationships"));
-            if let Some(parent) = &lifecycle.parent_task {
-                ui.label(format!(
-                    "Subtask of {} · {} · changes are included in the parent's single pull request.",
-                    parent.title, parent.status
-                ));
-            }
-            if !lifecycle.dependencies.is_empty() {
-                ui.label("Dependencies");
-                for dependency in &lifecycle.dependencies {
-                    ui.label(format!("{} · {}", dependency.title, dependency.status));
-                }
-            }
-            if !lifecycle.subtasks.is_empty() {
-                ui.label("Owned subtasks · all changes are included in this parent's single pull request");
-                for subtask in &lifecycle.subtasks {
-                    ui.label(format!("{} · {}", subtask.title, subtask.status));
-                    for criterion in &subtask.acceptance_criteria {
-                        ui.label(format!("  • {criterion}"));
-                    }
-                }
-            }
-        }
+        references::relationships(ui, surface, lifecycle);
         ui.label("Specification state");
         state_row(
             ui,
@@ -63,13 +41,13 @@ pub(super) fn paint(
         );
         state_row(
             ui,
-            "Reviewed implementation",
+            "Implemented on branch",
             lifecycle.implementation_head_sha.as_deref(),
         );
-        state_row(ui, "Approved target", lifecycle.approved_target_hash.as_deref());
+        state_row(ui, "Target planned", lifecycle.approved_target_hash.as_deref());
         state_row(
             ui,
-            "Provider-reported merge commit",
+            "Merged commit",
             lifecycle.merged_commit_sha.as_deref(),
         );
         state_row(ui, "Deployed", lifecycle.deployed_spec_hash.as_deref());
@@ -101,32 +79,10 @@ pub(super) fn paint(
             })
         ));
         ui.label(format!("Pending specification triggers · {}", lifecycle.pending_spec_triggers));
-        if !lifecycle.specification_deltas.is_empty() {
-            ui.label("Specification findings linked to this task");
-            for (revision, delta) in &lifecycle.specification_deltas {
-                ui.label(format!(
-                    "Revision {revision} · {} · {:?}",
-                    delta.requirement_id, delta.classification
-                ));
-                if let Some(proposed) = delta.proposed_target.as_deref() {
-                    ui.small(format!("Proposed target: {proposed}"));
-                }
-                if let Some(observed) = delta.observed_current.as_deref() {
-                    ui.small(format!("Observed current state: {observed}"));
-                }
-                for evidence in &delta.evidence_refs {
-                    ui.small(format!("Evidence: {evidence}"));
-                }
-            }
-        }
+        references::deltas(ui, surface, lifecycle);
         ui.label("Recorded gates");
-        receipt_row(ui, "Code review", lifecycle.code_review.as_ref());
-        receipt_row(ui, "Runtime QA", lifecycle.runtime_qa.as_ref());
-        receipt_row(
-            ui,
-            "Specification reconciliation",
-            lifecycle.spec_reconciliation.as_ref(),
-        );
+        references::receipts(ui, surface, lifecycle);
+        qa_gallery::paint(ui, surface, ticket, lifecycle);
         ui.label(theme::helper_text(
             "Read-only lifecycle receipts. Missing evidence is shown as not recorded.",
         ));
@@ -138,41 +94,6 @@ fn state_row(ui: &mut egui::Ui, label: &str, hash: Option<&str>) {
         ui.label(RichText::new(label).strong());
         ui.label(hash.unwrap_or("Not recorded"));
     });
-}
-
-fn receipt_row(
-    ui: &mut egui::Ui,
-    label: &str,
-    receipt: Option<&crate::core::lifecycle::GateReceipt>,
-) {
-    let text = receipt_summary(receipt);
-    ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(label).strong());
-        ui.label(text);
-    });
-}
-
-fn receipt_summary(receipt: Option<&crate::core::lifecycle::GateReceipt>) -> String {
-    receipt.map_or_else(
-        || "Not recorded".to_owned(),
-        |receipt| {
-            format!(
-                "{} · {} evidence item(s)",
-                decision_label(receipt.decision),
-                receipt.evidence_refs.len()
-            )
-        },
-    )
-}
-
-fn decision_label(decision: crate::core::lifecycle::GateDecision) -> &'static str {
-    use crate::core::lifecycle::GateDecision;
-    match decision {
-        GateDecision::Approved => "Approved",
-        GateDecision::Rejected => "Rejected",
-        GateDecision::ChangesRequested => "Changes requested",
-        GateDecision::NotApplicable => "Not applicable",
-    }
 }
 
 fn feature_phase_label(phase: crate::core::lifecycle::FeaturePhase) -> &'static str {
@@ -193,7 +114,8 @@ fn feature_phase_label(phase: crate::core::lifecycle::FeaturePhase) -> &'static 
 
 #[cfg(test)]
 mod tests {
-    use super::{decision_label, feature_phase_label, paint, receipt_summary};
+    use super::references::{decision_label, receipt_summary};
+    use super::{feature_phase_label, paint};
     use crate::core::lifecycle::{FeaturePhase, GateDecision, GateReceipt, TaskPhase};
 
     fn mocked_receipt(decision: GateDecision) -> GateReceipt {
@@ -256,16 +178,21 @@ mod tests {
             FeaturePhase, PullRequestPreparationStatus, SpecReconciliationStatusV1, TaskPhase,
         };
         let lifecycle = crate::ui::task_detail::LifecycleView {
+            feature_uid: "feature-uid".into(),
             feature_phase: FeaturePhase::Complete,
             task_phase: TaskPhase::PrMerged,
             parent_task_uid: None,
             parent_task: None,
             dependencies: vec![crate::ui::task_detail::TaskRelationView {
+                planning_item_uid: "dependency-uid".into(),
+                lifecycle_task_uid: Some("dependency-task-uid".into()),
                 title: "Foundation task".into(),
                 status: "Done".into(),
                 acceptance_criteria: Vec::new(),
             }],
             subtasks: vec![crate::ui::task_detail::TaskRelationView {
+                planning_item_uid: "subtask-uid".into(),
+                lifecycle_task_uid: Some("subtask-task-uid".into()),
                 title: "Reviewed child task".into(),
                 status: "Awaiting approval".into(),
                 acceptance_criteria: vec!["The child behavior is observable.".into()],
@@ -273,6 +200,7 @@ mod tests {
             task_revision: 4,
             code_review: None,
             runtime_qa: None,
+            runtime_qa_run_id: None,
             spec_reconciliation: None,
             current_spec_hash: Some("current-hash".into()),
             implementation_head_sha: Some("reviewed-head".into()),
@@ -288,6 +216,7 @@ mod tests {
             merged_commit_sha: Some("provider-merge-sha".into()),
         };
         let context = egui::Context::default();
+        let mut surface = None;
         let mut output = context.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
@@ -298,7 +227,7 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    paint(ui, Some(&lifecycle), None);
+                    paint(ui, &mut surface, "task.md", Some(&lifecycle), None);
                 });
             },
         );
@@ -325,18 +254,24 @@ mod tests {
         assert!(
             rendered
                 .iter()
-                .any(|(text, _)| text.contains("Provider-reported merge commit"))
+                .any(|(text, _)| text.contains("Merged commit"))
         );
         assert!(rendered.iter().any(|(text, _)| text == "Dependencies"));
         assert!(
             rendered
                 .iter()
-                .any(|(text, _)| text.contains("Foundation task · Done"))
+                .any(|(text, _)| text.contains("Dependency: dependency-task-uid"))
         );
         assert!(
             rendered
                 .iter()
-                .any(|(text, _)| text.contains("Reviewed child task · Awaiting approval"))
+                .any(|(text, _)| text.contains("Subtask: subtask-task-uid"))
+        );
+        assert!(rendered.iter().any(|(text, _)| text == "Foundation task"));
+        assert!(
+            rendered
+                .iter()
+                .any(|(text, _)| text == "Reviewed child task")
         );
         assert!(
             rendered

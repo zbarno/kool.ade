@@ -15,7 +15,15 @@ pub(super) fn relation_for_planning_uid(
         .get(&document.path)
         .map(|state| state.status.label().to_owned())
         .unwrap_or_else(|| "Not started".to_owned());
+    let lifecycle_task_uid =
+        crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store)
+            .task_for_planning_item(planning_uid?)
+            .ok()
+            .flatten()
+            .map(|task| task.task_uid);
     Some(crate::ui::task_detail::TaskRelationView {
+        planning_item_uid: planning_uid?.to_owned(),
+        lifecycle_task_uid,
         title: document.title.clone(),
         status,
         acceptance_criteria: acceptance_criteria(&document.text),

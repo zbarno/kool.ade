@@ -1,164 +1,25 @@
 //! Independent project-manager updates; task workers never write into main chat.
 mod catalog;
 mod dependency;
+mod dispositions;
 mod prompt;
+mod telemetry;
+pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
-
-use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
-    time::{Duration, Instant},
+pub(super) use dispositions::{
+    has_pending_plan_contest, has_pending_plan_repair, next_plan_arbitration, next_plan_repair,
+    persist_plan_dispositions,
 };
 
-/// Cap on the SYNTHETIC stalled-worker note. A stuck queue previously fed
-/// itself: silence note -> manager turn -> re-arm ~2.5 min later -> endless
-/// LLM billing. Genuine milestone events (assignments, completions) still
-/// surface the manager on their own terms; only the manufactured
-/// "still running" note is subject to this cap.
-pub const PATROL_COOLDOWN: Duration = Duration::from_secs(30 * 60);
-/// Worker silence tolerated before a stalled-worker note is surfaced.
-const PATROL_NOTE_AFTER: Duration = Duration::from_secs(120);
-/// Minimum spacing between automatic manager patrols, measured from the
-/// previous patrol start (the watchdog's legacy pacing contract).
-const PATROL_MANAGER_AFTER: Duration = Duration::from_secs(30);
+use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
 
-#[derive(Default)]
-pub struct WorkspaceActivity {
-    pub overall: Option<LiveProgress>,
-    pub conversations: BTreeMap<String, LiveProgress>,
-    pub tasks: BTreeMap<String, LiveProgress>,
-    pub manager: Option<Manager>,
-    /// One queued Planner v4 pass, armed only by a saved clarification answer.
-    pub(crate) pending_clarification_planner: Option<(String, u64)>,
-    pub(crate) clarification_planner: Option<crate::app::root::planner_pass::ClarificationPlanner>,
-    pub(crate) clarification_planner_identity: Option<(String, u64, String)>,
-    pub(crate) plan_review: Option<crate::app::root::plan_review::PlanReview>,
-    pub(crate) plan_review_feature: Option<String>,
-    pub(crate) plan_review_revision: Option<String>,
-    pub(crate) spec_reconciliation: Option<crate::app::root::SpecReconciliation>,
-    pub(crate) feature_spec_reconciliation:
-        Option<crate::app::root::spec_reconciliation::FeatureSpecReconciliation>,
-    pub(crate) runtime_qa_worker: Option<crate::runtime_qa::QaWorkerHandle>,
-    pub(crate) runtime_recipe_worker: Option<crate::runtime_qa::RuntimeRecipeWorkerHandle>,
-    pub(crate) dependency_manager: Option<DependencyReview>,
-    pub(crate) pending_dependency_reviews: Vec<(String, crate::harness::DependencyRequest)>,
-    pub pending: Vec<String>,
-    pub last_update: Option<Instant>,
-    pub last_save: Option<Instant>,
-    /// Limits reconciliation of self-improvement projections to once per second.
-    pub last_self_improvement_sync: Option<Instant>,
-    /// Tickets whose persisted activity may be stale (dirty-tracking gate
-    /// for the periodic `activity.json` rewrite).
-    pub dirty_tickets: HashSet<String>,
-    /// Reconciled planning records awaiting a successful ledger write.
-    pub pending_planning_work: bool,
-    /// When the last synthetic stalled-worker patrol note was surfaced
-    /// (subject to [`PATROL_COOLDOWN`]).
-    pub last_patrol_note: Option<Instant>,
-}
-
-/// Pure gate: should a "worker still running" patrol note be surfaced?
-/// Clock is injected so tests stay wall-clock-free (house convention).
-pub fn patrol_note_due(
-    live_worker_count: usize,
-    pending_count: usize,
-    last_update: Option<Instant>,
-    last_note: Option<Instant>,
-    now: Instant,
-) -> bool {
-    live_worker_count > 0
-        && pending_count == 0
-        && last_update.is_none_or(|then| stale_by(then, now, PATROL_NOTE_AFTER))
-        && last_note.is_none_or(|then| stale_by(then, now, PATROL_COOLDOWN))
-}
-
-/// Pure gate: should an automatic manager patrol start? Driven exclusively
-/// by unconsumed pending events (real milestones, or the cooldown-capped
-/// synthetic stall note) plus patrol spacing — never by worker silence
-/// alone. See [`patrol_note_due`] for where `last_update` originates.
-pub fn patrol_manager_due(
-    has_active_turn: bool,
-    manager_running: bool,
-    pending_count: usize,
-    last_update: Option<Instant>,
-    now: Instant,
-) -> bool {
-    !has_active_turn
-        && !manager_running
-        && pending_count > 0
-        && last_update.is_none_or(|then| stale_by(then, now, PATROL_MANAGER_AFTER))
-}
-
-fn stale_by(then: Instant, now: Instant, by: Duration) -> bool {
-    now.checked_duration_since(then)
-        .is_some_and(|age| age >= by)
-}
-
-impl WorkspaceActivity {
-    /// Requeue dependency requests whose in-memory broker/review disappeared
-    /// while Kool.ad/e was closed. A saved authorization is not proof that
-    /// offline preparation completed.
-    pub fn recover_dependency_reviews(&mut self) -> Vec<String> {
-        let mut recovered = Vec::new();
-        for (ticket, progress) in &mut self.tasks {
-            let mut changed = false;
-            for request in &mut progress.dependency_requests {
-                if matches!(
-                    request.status,
-                    crate::harness::DependencyRequestStatus::Pending
-                        | crate::harness::DependencyRequestStatus::ManagerReviewing
-                        | crate::harness::DependencyRequestStatus::Authorized
-                ) {
-                    request.decision =
-                        crate::harness::DependencyDecision::RequiresUserAuthorization;
-                    request.status = crate::harness::DependencyRequestStatus::AwaitingUser;
-                    request.rationale = "Kool.ad/e restarted before dependency preparation completed. Review the request again; no new permission was granted during recovery.".into();
-                    changed = true;
-                }
-            }
-            if changed {
-                recovered.push(ticket.clone());
-            }
-        }
-        recovered
-    }
-
-    pub fn ensure_overall(&mut self) {
-        if self.overall.is_some() {
-            return;
-        }
-        let mut buckets = BTreeMap::<i64, u64>::new();
-        for progress in self.tasks.values().chain(self.conversations.values()) {
-            for (bucket, count) in &progress.telemetry.samples {
-                *buckets.entry(*bucket).or_default() += count;
-            }
-        }
-        let mut progress = LiveProgress::default();
-        progress.telemetry.samples = buckets.into_iter().collect();
-        self.overall = Some(progress);
-    }
-
-    /// Mark one ticket's persisted activity as potentially stale; the
-    /// periodic flush then rewrites only these tickets (instead of
-    /// every active ticket every 2 s whether changed or not).
-    pub fn mark_ticket_dirty(&mut self, ticket: &str) {
-        self.dirty_tickets.insert(ticket.to_owned());
-    }
-
-    /// Take out every dirty ticket for the periodic flush.
-    pub fn take_dirty_tickets(&mut self) -> Vec<String> {
-        let mut out: Vec<String> = std::mem::take(&mut self.dirty_tickets)
-            .into_iter()
-            .collect();
-        out.sort();
-        out
-    }
-}
+pub use activity::{PATROL_COOLDOWN, WorkspaceActivity, patrol_manager_due, patrol_note_due};
+mod activity;
 
 pub struct Manager {
     progress: mpsc::Receiver<LiveProgress>,
@@ -169,8 +30,10 @@ pub struct Manager {
 
 pub(super) struct ManagerOutput {
     pub summary: String,
+    pub proposed_actions: Vec<crate::harness::prompt_catalog::ManagerActionV1>,
     pub opportunities: Vec<crate::harness::prompt_catalog::OpportunityProposalV1>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
+    pub planning_revision: String,
 }
 
 pub(super) fn persist_output(project: &super::session::Project, output: &ManagerOutput) -> String {
@@ -198,6 +61,14 @@ impl Manager {
             .as_ref()
             .map(|prompt| prompt.evidence_hashes.clone())
             .unwrap_or_default();
+        let planning_revision = prepared
+            .as_ref()
+            .map(|prompt| prompt.planning_revision.clone())
+            .unwrap_or_default();
+        let review_targets = prepared
+            .as_ref()
+            .map(|prompt| prompt.review_targets.clone())
+            .unwrap_or_default();
         let prompt_body = prepared
             .as_ref()
             .map(|prompt| prompt.rendered.user.clone())
@@ -215,10 +86,12 @@ impl Manager {
             activity: Some("Project manager prompt prepared".into()),
             ..Default::default()
         });
+        let manager_task_id = uuid::Uuid::new_v4().hyphenated().to_string();
+        let execution_workspace = manager_execution_workspace(project, &manager_task_id);
         let request = PlanningRequest {
-            mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
-            task_id: None,
-            execution_workspace: None,
+            mode: crate::harness::ExecutionMode::Planning,
+            task_id: Some(manager_task_id.clone()),
+            execution_workspace,
             destination_sha: None,
             prompt_manifest: prompt_manifest.clone(),
             reasoning_level: "xhigh".into(),
@@ -234,6 +107,51 @@ impl Manager {
             authorization_verifier: None,
             review_identity: None,
         };
+        let route = harness.route_provenance(&request);
+        let harness_label = harness.label();
+        let project_root = project.state.repo_root.clone();
+        let execution_id = manager_task_id;
+        if request.execution_workspace.is_none() {
+            let message = "Kool.ad/e could not bind the current project revision to a read-only Manager workspace. Repair or refresh the project Git checkout, then retry. Manager did not invoke a provider or run repository commands.";
+            let failure = crate::error::AppError::HarnessExecutionFailed {
+                failure: Box::new(crate::harness::HarnessExecutionFailure {
+                    provider_id: route
+                        .as_ref()
+                        .map(|route| route.provider_id.clone())
+                        .unwrap_or_else(|| "unknown".into()),
+                    role: crate::execution::contract::HarnessRole::Manager,
+                    mode: request.mode,
+                    target: None,
+                    category: crate::harness::HarnessFailureCategory::ToolBridgeUnavailable,
+                    provider_code: None,
+                    sanitized_message: message.into(),
+                    actionable_fix: Some(
+                        "Repair or reconnect the selected project Git checkout before retrying Manager.".into(),
+                    ),
+                    retryable: false,
+                }),
+            };
+            let detail = failure.detail();
+            telemetry::persist_invocation(
+                &project_root,
+                &harness_label,
+                route.as_ref(),
+                &request,
+                &execution_id,
+                telemetry::InvocationOutcome {
+                    status: "blocked",
+                    failure_category: Some("tool_bridge_unavailable"),
+                    failure_message: Some(&detail),
+                },
+            );
+            let _ = done.send(Err(detail));
+            return Self {
+                progress,
+                result,
+                cancel,
+                prompt_manifest,
+            };
+        }
         std::thread::spawn(move || {
             let prepared = match prepared {
                 Ok(prepared) => prepared,
@@ -243,24 +161,69 @@ impl Manager {
                 }
             };
             let mut outcome = Err("Project manager did not complete".into());
-            for _ in 0..2 {
+            let mut failure_category = None;
+            let mut failure_message = None;
+            for attempt in 0..2 {
                 if request.cancel.load(Ordering::Relaxed) {
-                    return;
-                }
-                outcome = harness
-                    .execute(&request)
-                    .map_err(|e| e.detail())
-                    .and_then(|r| {
-                        catalog::decode(
-                            &r.final_text,
-                            &prepared.validation,
-                            evidence_hashes.clone(),
-                        )
-                    });
-                if outcome.is_ok() {
+                    failure_category = Some("cancelled".into());
+                    failure_message = Some("Manager invocation was cancelled.".into());
+                    outcome = Err("Manager invocation was cancelled.".into());
                     break;
                 }
+                let response = match harness.execute(&request) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        let retryable = matches!(
+                            &error,
+                            crate::error::AppError::HarnessExecutionFailed {
+                                failure,
+                            }
+                                if failure.retryable
+                        );
+                        let detail = error.detail();
+                        failure_category = Some(telemetry::failure_category(&error));
+                        failure_message = Some(crate::error::redact_secrets(&detail));
+                        outcome = Err(detail);
+                        if !retryable || attempt == 1 {
+                            break;
+                        }
+                        continue;
+                    }
+                };
+                outcome = catalog::decode(
+                    &response.final_text,
+                    &prepared.validation,
+                    evidence_hashes.clone(),
+                    planning_revision.clone(),
+                    &review_targets,
+                );
+                if outcome.is_ok() {
+                    failure_category = None;
+                    failure_message = None;
+                    break;
+                }
+                failure_category = Some("invalid_response".into());
+                failure_message = outcome
+                    .as_ref()
+                    .err()
+                    .map(|detail| crate::error::redact_secrets(detail));
             }
+            telemetry::persist_invocation(
+                &project_root,
+                &harness_label,
+                route.as_ref(),
+                &request,
+                &execution_id,
+                telemetry::InvocationOutcome {
+                    status: if outcome.is_ok() {
+                        "completed"
+                    } else {
+                        "failed"
+                    },
+                    failure_category: failure_category.as_deref(),
+                    failure_message: failure_message.as_deref(),
+                },
+            );
             let _ = done.send(outcome);
         });
         Self {
@@ -287,6 +250,41 @@ impl Manager {
             }
         }
     }
+}
+
+fn manager_execution_workspace(
+    project: &super::session::Project,
+    task_id: &str,
+) -> Option<crate::execution::contract::WorkspaceRef> {
+    let repo_root = &project.state.repo_root;
+    let root_metadata = std::fs::symlink_metadata(repo_root).ok()?;
+    if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
+        return None;
+    }
+    let git_metadata = std::fs::symlink_metadata(repo_root.join(".git")).ok()?;
+    if git_metadata.file_type().is_symlink() || !(git_metadata.is_dir() || git_metadata.is_file()) {
+        return None;
+    }
+    let root = repo_root.canonicalize().ok()?;
+    let mut git = crate::core::planning_sync::validated_git_command(&root).ok()?;
+    let output = git.args(["rev-parse", "--verify", "HEAD"]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let source_sha = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    if !crate::execution::contract::is_valid_sha(&source_sha) {
+        return None;
+    }
+    Some(crate::execution::contract::WorkspaceRef {
+        project_id: project
+            .state
+            .planning_store
+            .project_id
+            .hyphenated()
+            .to_string(),
+        task_id: task_id.to_owned(),
+        source_sha,
+    })
 }
 impl Drop for Manager {
     fn drop(&mut self) {

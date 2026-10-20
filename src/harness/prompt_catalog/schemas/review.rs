@@ -5,9 +5,19 @@ use serde::{Deserialize, Serialize};
 pub struct ReviewVerdictV1 {
     pub subject_hash: String,
     pub pass: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<ReviewOutcomeV1>,
     pub coverage: Vec<CoverageV1>,
     pub findings: Vec<ReviewFindingV1>,
     pub untested: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewOutcomeV1 {
+    Pass,
+    BlockingFindings,
+    ReviewUnable,
 }
 #[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

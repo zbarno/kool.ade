@@ -36,6 +36,9 @@ pub fn presentation(
             crate::core::planning_work::WorkKind::TaskGeneration => {
                 "Review this task's story-generation status here. Resolve the issue described in its details, then choose Generate tasks on the board to try again."
             }
+            crate::core::planning_work::WorkKind::PlanReviewDisposition => {
+                "Continue this plan-review decision here. The finding and Manager disposition are attached to this thread; plan changes still require fresh user confirmation."
+            }
             _ => {
                 "Continue planning this task here. Questions and assumptions are tracked on the board."
             }

@@ -1,6 +1,14 @@
 use super::{KooladeApp, Screen};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
 
+mod scheduling;
+
+pub(super) fn planner_for_changed_active_feature(
+    project: &super::session::Project,
+) -> Result<Option<(String, u64)>, String> {
+    scheduling::for_changed_active_feature(project)
+}
+
 mod defer;
 mod fence;
 #[cfg(test)]
@@ -9,13 +17,14 @@ mod tests;
 
 impl KooladeApp {
     pub(super) fn start_clarification_planner(&mut self, feature_uid: &str, plan_revision: u64) {
-        let harness = super::configured_harness_for(
-            &mut self.task_harness,
-            Some(crate::persistence::harness_settings::MANAGER),
-        );
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
+        let harness = crate::app::root::configured_harness_for_project(
+            &mut self.task_harness,
+            Some(crate::persistence::harness_settings::MANAGER),
+            &project.state.harness_routes.routes,
+        );
         let spec_revision = match super::planner_pass::spec_revision(project, feature_uid) {
             Ok(revision) => revision,
             Err(error) => {

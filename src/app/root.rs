@@ -21,6 +21,9 @@ mod conversation_tests;
 
 #[path = "feature_approval.rs"]
 mod feature_approval;
+#[cfg(test)]
+pub(crate) mod harness_selection;
+#[cfg(not(test))]
 mod harness_selection;
 
 mod adoption;
@@ -122,30 +125,41 @@ impl Drop for TestTempRoot {
     }
 }
 
-/// Application composition boundary for AI work. Pi is the configured MVP
-/// backend; tests and future settings may supply a different implementation.
-pub(super) fn configured_harness(
-    override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
-) -> Box<dyn crate::harness::AiHarness> {
-    harness_selection::configured_harness(override_harness)
-}
-
-pub(super) fn configured_harness_for(
+pub(crate) fn configured_harness_for_project(
     override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
     work_type: Option<&str>,
+    project_routes: &std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
 ) -> Box<dyn crate::harness::AiHarness> {
-    harness_selection::configured_harness_for(override_harness, work_type)
+    harness_selection::configured_harness_for_project(override_harness, work_type, project_routes)
 }
 
-pub(super) fn configured_harness_for_task(
+pub(crate) fn role_for_work_category(
+    category: &str,
+) -> Option<crate::execution::contract::HarnessRole> {
+    harness_selection::role_for_work_category(category)
+}
+
+pub(crate) fn configured_harness_for_project_task(
     override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
     work_type: Option<&str>,
+    project_routes: &std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
     task_routes: &std::collections::BTreeMap<
         String,
         crate::persistence::harness_settings::WorkRoute,
     >,
 ) -> Box<dyn crate::harness::AiHarness> {
-    harness_selection::configured_harness_for_task(override_harness, work_type, task_routes)
+    harness_selection::configured_harness_for_project_task(
+        override_harness,
+        work_type,
+        project_routes,
+        task_routes,
+    )
 }
 
 enum Screen {

@@ -9,11 +9,15 @@ use std::{
 
 mod process;
 mod result;
+mod version;
 use process::{is_cancelled, spawn_reader, terminate_group, wait_bounded};
+mod configured;
+pub(crate) use configured::run_with_environment;
+pub(crate) use version::normalize_cli_version;
 
 pub(crate) use result::{
     ExecutionCapability, ModelCatalogStatus, ProbeDiagnosticCode, ProbeKind, ProbeResult,
-    ProbeStatus,
+    ProbeStatus, is_valid_model_identifier,
 };
 
 pub(crate) const MODEL_PROBE_TIMEOUT: Duration = Duration::from_secs(15);

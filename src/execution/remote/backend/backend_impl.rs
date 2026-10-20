@@ -7,7 +7,7 @@ mod results;
 mod system_image;
 use crate::execution::{
     backend::{BackendFuture, BackendProbeV1, ExecutionBackend, WorkspaceLeaseV1},
-    contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1},
+    contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1, TargetLocation},
 };
 
 impl ExecutionBackend for RemoteExecutionBackend {
@@ -76,12 +76,17 @@ impl ExecutionBackend for RemoteExecutionBackend {
     ) -> BackendFuture<'a, WorkspaceLeaseV1> {
         Box::pin(async move {
             self.require_target(target)?;
-            self.stage_workspace(workspace)?;
-            self.request(
+            let (bytes, ms) = self.stage_workspace(workspace)?;
+            let lease: WorkspaceLeaseV1 = self.request(
                 EnvelopeKindV1::PrepareWorkspace,
                 CONTROL_EXECUTION_ID,
                 serde_json::json!({"workspace": workspace, "target": ExecutionTarget::local()}),
-            )
+            )?;
+            self.pending_workspace_transfers
+                .lock()
+                .map_err(|_| disconnected())?
+                .insert(lease.lease_id.clone(), (bytes, ms));
+            Ok(lease)
         })
     }
 
@@ -127,6 +132,21 @@ impl ExecutionBackend for RemoteExecutionBackend {
                 serde_json::json!({"lease": lease, "request": worker_request}),
             )?;
             drop(grant_use);
+            let upload = self
+                .pending_workspace_transfers
+                .lock()
+                .ok()
+                .and_then(|mut pending| pending.remove(&lease.lease_id));
+            if let (Some((bytes, ms)), TargetLocation::Remote { worker_id }) =
+                (upload, &self.target.location)
+            {
+                let _ = crate::persistence::remote_execution_telemetry::record_workspace_upload(
+                    &request.execution_id,
+                    worker_id,
+                    bytes,
+                    ms,
+                );
+            }
             let mut handle: ExecutionHandleV1 =
                 serde_json::from_value(response.payload).map_err(|_| incompatible())?;
             handle.target = self.target.clone();

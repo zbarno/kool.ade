@@ -1,4 +1,4 @@
-use super::super::board_tests::{click_text, fixture, frame, text_contains, text_position};
+use super::super::board_tests::{click_text, fixture, frame, text_position};
 use super::*;
 use sha2::Digest;
 use std::sync::{Arc, Mutex};
@@ -46,10 +46,11 @@ fn harness(replies: Vec<String>) -> (Box<dyn crate::harness::AiHarness>, Arc<Mut
 
 #[path = "tests/support.rs"]
 mod support;
+use support::decomposer_graph;
+pub(crate) use support::setup;
 pub(crate) use support::{
     assert_current_test_plan_confirmation, record_test_plan_author, record_test_plan_review,
 };
-use support::{decomposer_graph, setup};
 
 fn finish(app: &mut KooladeApp) -> bool {
     let Screen::Connected(p) = &app.screen else {
@@ -86,3 +87,5 @@ mod contract;
 mod live_generation;
 #[path = "tests/readiness.rs"]
 mod readiness;
+#[path = "tests/review_recovery.rs"]
+mod review_recovery;

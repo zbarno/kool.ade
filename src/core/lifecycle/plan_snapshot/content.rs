@@ -48,6 +48,46 @@ pub(super) fn stable_requirement_id(text: &str) -> String {
     }
 }
 
+pub(super) fn requirement_rationale(text: &str) -> String {
+    text.split_once("Rationale:")
+        .map(|(_, rationale)| rationale.trim().trim_end_matches('.').to_owned())
+        .filter(|rationale| !rationale.is_empty())
+        .unwrap_or_else(|| "Not specified in the source specification.".into())
+}
+
+pub(super) fn acceptance_criteria_refs(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut ids = Vec::new();
+    let mut index = 0;
+    while index + 2 < bytes.len() {
+        if bytes[index..index + 2].eq_ignore_ascii_case(b"AC") {
+            let start = index;
+            let mut end = index + 2;
+            if end < bytes.len() && bytes[end] == b'-' {
+                end += 1;
+            }
+            let digits = end;
+            while end < bytes.len() && bytes[end].is_ascii_digit() {
+                end += 1;
+            }
+            if end > digits && (start == 0 || !bytes[start - 1].is_ascii_alphanumeric()) {
+                let id = text[start..end].to_ascii_uppercase();
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+                index = end;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    ids
+}
+
+pub(super) fn deferred_assumptions(markdown: &str) -> Vec<String> {
+    list(&section(markdown, "Deferred Assumptions"))
+}
+
 #[cfg(test)]
 #[path = "content_tests.rs"]
 mod tests;

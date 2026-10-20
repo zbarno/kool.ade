@@ -219,6 +219,26 @@ impl Run {
                     )];
                     previous.clear();
                 }
+                Err(AppError::HarnessExecutionFailed { failure })
+                    if failure
+                        .sanitized_message
+                        .contains("no final assistant message") =>
+                {
+                    feedback = vec![
+                        "No final text was returned. Emit the requested complete JSON object."
+                            .into(),
+                    ];
+                    previous.clear();
+                }
+                Err(AppError::HarnessExecutionFailed { failure })
+                    if failure.sanitized_message.contains("read-only planning") =>
+                {
+                    feedback = vec![format!(
+                        "Bounded repository inspection stopped this response before the requested tool ran: {}. Return the complete requested JSON using only supplied context and evidence already gathered. Do not call repository tools again; record any unverified detail as focused discovery.",
+                        failure.sanitized_message
+                    )];
+                    previous.clear();
+                }
                 Err(error) => return Err(error),
             }
             self.write(

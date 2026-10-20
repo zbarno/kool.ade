@@ -32,6 +32,7 @@ pub(super) fn collect_artifacts<'a>(
             TargetLocation::Remote { worker_id } => worker_id.clone(),
             TargetLocation::Local => return Err(incompatible()),
         };
+        let transfer_started = std::time::Instant::now();
         let transfer: TransferManifestV1 = backend.request(
             EnvelopeKindV1::PrepareWorkspaceResult,
             &handle.execution_id,
@@ -46,6 +47,7 @@ pub(super) fn collect_artifacts<'a>(
             &format!("controller:{}", backend.controller_id),
         )
         .map_err(|_| incompatible())?;
+        let mut transferred_bytes = 0_u64;
         for (path, size_bytes) in transfer.file_specs() {
             let mut offset = 0_u64;
             while offset < size_bytes {
@@ -63,6 +65,7 @@ pub(super) fn collect_artifacts<'a>(
                         "transfer_id": transfer.transfer_id, "path": path, "offset": offset}),
                 )?;
                 let advanced = chunk.bytes.len() as u64;
+                transferred_bytes = transferred_bytes.saturating_add(advanced);
                 receiver.accept_chunk(&chunk).map_err(|_| incompatible())?;
                 offset = offset.checked_add(advanced).ok_or_else(incompatible)?;
                 if advanced == 0 {
@@ -77,6 +80,13 @@ pub(super) fn collect_artifacts<'a>(
         let verified = receiver
             .finalize_workspace_result(&workspace.workspace)
             .map_err(|_| incompatible())?;
+        let elapsed_ms = transfer_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+        let _ = crate::persistence::remote_execution_telemetry::record_result_download(
+            &handle.execution_id,
+            &worker_id,
+            transferred_bytes,
+            elapsed_ms,
+        );
         if let Err(error) = backend.stop_if_private_grant_revoked(handle).await {
             private_files::remove_result_transfer(&backend.result_root, &transfer.transfer_id)?;
             return Err(error);

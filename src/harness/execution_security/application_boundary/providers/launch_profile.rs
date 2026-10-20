@@ -123,14 +123,29 @@ impl ValidatedProviderLaunch {
         self.env.push(("PROFILE_DRIFT".into(), "1".into()));
     }
 
+    #[cfg(test)]
     pub(crate) fn bind(
         evidence: ProfileProbeEvidence,
         argv: Vec<String>,
         cwd: &Path,
         explicit_env: Vec<(String, String)>,
     ) -> anyhow::Result<Self> {
-        let env =
-            crate::harness::pi_proc::provider_environment(evidence.provider, cwd, &explicit_env);
+        Self::bind_for_workspace(evidence, argv, cwd, explicit_env, cwd)
+    }
+
+    pub(crate) fn bind_for_workspace(
+        evidence: ProfileProbeEvidence,
+        argv: Vec<String>,
+        cwd: &Path,
+        explicit_env: Vec<(String, String)>,
+        workspace_root: &Path,
+    ) -> anyhow::Result<Self> {
+        let env = crate::harness::pi_proc::provider_environment(
+            evidence.provider,
+            cwd,
+            workspace_root,
+            &explicit_env,
+        )?;
         let launch = Self {
             evidence,
             argv,
@@ -186,9 +201,10 @@ impl ValidatedProviderLaunch {
             .iter()
             .filter(|token| {
                 if token.ends_with('=') {
-                    !self.argv.iter().any(|argument| {
-                        argument.starts_with(**token) && argument.len() > token.len()
-                    })
+                    !self
+                        .argv
+                        .iter()
+                        .any(|argument| argument.starts_with(**token))
                 } else {
                     !self.argv.iter().any(|argument| argument == **token)
                 }

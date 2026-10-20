@@ -30,6 +30,7 @@ impl AiHarness for ClaudeHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::validate_reasoning_level("claude", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Claude Code", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
             .map_err(|error| {
@@ -68,13 +69,17 @@ impl AiHarness for ClaudeHarness {
             provider, &binary, version,
         )
         .map_err(AppError::from_provider_profile_error)?;
-        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
-            evidence,
-            argv,
-            boundary.working_directory(),
-            child_env,
-        )
-        .map_err(|error| AppError::Other(format!("Claude launch profile is invalid: {error}")))?;
+        let launch =
+            crate::harness::execution_security::ValidatedProviderLaunch::bind_for_workspace(
+                evidence,
+                argv,
+                boundary.working_directory(),
+                child_env,
+                &request.repo_root,
+            )
+            .map_err(|error| {
+                AppError::Other(format!("Claude launch profile is invalid: {error}"))
+            })?;
         let launch_profile = launch.telemetry(
             request
                 .prompt_manifest
@@ -220,7 +225,9 @@ pub(in crate::harness) fn developer_instructions(
 fn normalize_effort(value: &str) -> &'static str {
     match value.to_ascii_lowercase().as_str() {
         "low" => "low",
-        "high" | "xhigh" => "high",
+        "high" => "high",
+        "xhigh" => "xhigh",
+        "max" => "max",
         _ => "medium",
     }
 }

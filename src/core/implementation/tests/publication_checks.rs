@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "publication_checks/provider_checks.rs"]
 mod provider_checks;
+#[path = "publication_checks/reviewed_head.rs"]
+mod reviewed_head;
 #[path = "publication_checks/untracked_files.rs"]
 mod untracked_files;
 

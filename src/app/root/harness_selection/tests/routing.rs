@@ -1,8 +1,14 @@
 use super::*;
 #[path = "routing/authentication.rs"]
 pub(super) mod authentication;
+#[path = "routing/configured_consumers.rs"]
+mod configured_consumers;
 #[path = "routing/model_catalog.rs"]
 mod model_catalog;
+#[path = "routing/model_provenance.rs"]
+mod model_provenance;
+#[path = "routing/role_categories.rs"]
+mod role_categories;
 #[test]
 fn saved_supported_harness_ids_resolve_to_their_adapters() {
     assert!(resolve(Some("pi")).label().starts_with("pi "));
@@ -13,6 +19,19 @@ fn saved_supported_harness_ids_resolve_to_their_adapters() {
         resolve(Some("antigravity"))
             .label()
             .starts_with("Antigravity")
+    );
+}
+
+#[test]
+fn missing_user_default_does_not_silently_select_pi() {
+    let harness = resolve(None);
+    assert!(harness.label().contains("No CLI is selected"));
+    assert!(
+        harness
+            .check_available()
+            .unwrap_err()
+            .detail()
+            .contains("Choose a default in Coding tools")
     );
 }
 
@@ -137,13 +156,13 @@ fn task_route_overrides_each_category_and_remain_stable_when_app_defaults_change
 }
 
 #[test]
-fn provider_selection_is_not_blocked_before_the_request_mode_is_known() {
+fn explicit_implementation_route_requires_provider_implementation_availability() {
     use crate::persistence::harness_settings::{
         DetectedHarness, HarnessSettings, IMPLEMENTATION, WorkRoute,
     };
     let detected = |id: &str, implementation_available| DetectedHarness {
         status: format!("{id} ready"),
-        version: None,
+        version: Some("1.0.0".into()),
         executable: Some(format!("/tools/{id}")),
         diagnostic: None,
         ready: true,
@@ -153,10 +172,7 @@ fn provider_selection_is_not_blocked_before_the_request_mode_is_known() {
         configuration_required: false,
         implementation_available,
         checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-        capability_snapshot: Some(authentication::capability_snapshot(
-            id,
-            crate::execution::contract::ReadinessState::Ready,
-        )),
+        capability_snapshot: Some(authentication::ready_snapshot(id)),
     };
     let settings = HarnessSettings {
         default_harness: Some("pi".into()),
@@ -182,8 +198,7 @@ fn provider_selection_is_not_blocked_before_the_request_mode_is_known() {
         .map(|error| error.detail())
         .unwrap_or_default();
 
-    assert!(!error.contains("application-owned Docker execution session"));
-    assert!(!error.contains("no fallback"));
+    assert!(error.contains("not currently available for implementation"));
 }
 
 #[test]
@@ -196,8 +211,8 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
             "codex".into(),
             DetectedHarness {
                 status: "codex ready".into(),
-                version: None,
-                executable: None,
+                version: Some("1.0.0".into()),
+                executable: Some("/synthetic/bin/codex".into()),
                 diagnostic: None,
                 ready: true,
                 models: vec!["available".into()],
@@ -206,10 +221,7 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
                 configuration_required: false,
                 implementation_available: false,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(authentication::capability_snapshot(
-                    "codex",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(authentication::ready_snapshot("codex")),
             },
         )]),
         ..Default::default()
@@ -267,15 +279,22 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
         &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))]),
     )
     .unwrap();
-    assert!(
-        validate_task_routes(
-            &settings,
-            &std::collections::BTreeMap::from([(
-                crate::persistence::harness_settings::DOCUMENTATION.into(),
-                route(Some("available")),
-            )])
-        )
-        .unwrap_err()
-        .contains("application-owned Docker execution session")
-    );
+    let mut context_only = settings.clone();
+    let capabilities = context_only
+        .discovered
+        .get_mut("codex")
+        .unwrap()
+        .capability_snapshot
+        .as_mut()
+        .unwrap();
+    capabilities.docker_mcp_bridge = crate::execution::contract::ReadinessState::Unavailable;
+    capabilities.execution_target = crate::execution::contract::ReadinessState::Unavailable;
+    validate_task_routes(
+        &context_only,
+        &std::collections::BTreeMap::from([(
+            crate::persistence::harness_settings::DOCUMENTATION.into(),
+            route(Some("available")),
+        )]),
+    )
+    .expect("context-only documentation does not require an implementation sandbox");
 }

@@ -15,8 +15,8 @@ fn configured_model_missing_from_refreshed_catalog_fails_closed() {
             "pi".into(),
             DetectedHarness {
                 status: "pi ready".into(),
-                version: None,
-                executable: None,
+                version: Some("1.0.0".into()),
+                executable: Some("/synthetic/bin/pi".into()),
                 diagnostic: None,
                 ready: true,
                 models: vec!["available-model".into()],
@@ -25,10 +25,7 @@ fn configured_model_missing_from_refreshed_catalog_fails_closed() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(authentication::capability_snapshot(
-                    "pi",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(super::authentication::ready_snapshot("pi")),
             },
         )]),
         ..HarnessSettings::default()
@@ -59,8 +56,8 @@ fn route_label_reports_configured_default_model_before_harness_usage() {
             "pi".into(),
             DetectedHarness {
                 status: "pi ready".into(),
-                version: None,
-                executable: None,
+                version: Some("1.0.0".into()),
+                executable: Some("/synthetic/bin/pi".into()),
                 diagnostic: None,
                 ready: true,
                 models: vec!["gpt-configured".into()],
@@ -69,10 +66,7 @@ fn route_label_reports_configured_default_model_before_harness_usage() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(authentication::capability_snapshot(
-                    "pi",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(super::authentication::ready_snapshot("pi")),
             },
         )]),
         ..HarnessSettings::default()
@@ -83,15 +77,11 @@ fn route_label_reports_configured_default_model_before_harness_usage() {
         None,
         None,
     );
-    assert!(
-        harness
-            .label()
-            .ends_with(" / CLI default (last discovered: gpt-configured)")
-    );
+    assert!(harness.label().ends_with(" / gpt-configured"));
 }
 
 #[test]
-fn route_label_says_when_cli_does_not_report_its_default_model() {
+fn role_route_blocks_when_the_cli_default_model_is_unreported() {
     use crate::persistence::harness_settings::{DetectedHarness, HarnessSettings, WorkRoute};
     let settings = HarnessSettings {
         work_routes: std::collections::BTreeMap::from([(
@@ -105,8 +95,8 @@ fn route_label_says_when_cli_does_not_report_its_default_model() {
             "pi".into(),
             DetectedHarness {
                 status: "pi ready".into(),
-                version: None,
-                executable: None,
+                version: Some("1.0.0".into()),
+                executable: Some("/synthetic/bin/pi".into()),
                 diagnostic: None,
                 ready: true,
                 models: vec![],
@@ -115,10 +105,7 @@ fn route_label_says_when_cli_does_not_report_its_default_model() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(authentication::capability_snapshot(
-                    "pi",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(super::authentication::ready_snapshot("pi")),
             },
         )]),
         ..HarnessSettings::default()
@@ -129,11 +116,9 @@ fn route_label_says_when_cli_does_not_report_its_default_model() {
         None,
         None,
     );
-    assert!(
-        harness
-            .label()
-            .contains("CLI default (model not reported for pi)")
-    );
+    let error = harness.check_available().unwrap_err().detail();
+    assert!(error.contains("No verified model is selected for pi"));
+    assert!(error.contains("will not run with an unreported CLI default"));
 }
 
 #[test]
@@ -152,7 +137,7 @@ fn stale_discovery_cannot_route_a_saved_model() {
             "pi".into(),
             DetectedHarness {
                 status: "pi ready".into(),
-                version: Some("1.0".into()),
+                version: Some("1.0.0".into()),
                 executable: Some("/tools/pi".into()),
                 diagnostic: None,
                 ready: true,
@@ -164,7 +149,7 @@ fn stale_discovery_cannot_route_a_saved_model() {
                 checked_at_unix_ms: now.saturating_sub(
                     crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS + 1,
                 ),
-                capability_snapshot: None,
+                capability_snapshot: Some(super::authentication::ready_snapshot("pi")),
             },
         )]),
         ..HarnessSettings::default()
@@ -194,7 +179,7 @@ fn failed_optional_catalog_probe_does_not_treat_saved_models_as_fresh() {
             "codex".into(),
             DetectedHarness {
                 status: "codex ready".into(),
-                version: Some("1.0".into()),
+                version: Some("1.0.0".into()),
                 executable: Some("/tools/codex".into()),
                 diagnostic: Some("Model catalog could not be refreshed".into()),
                 ready: true,
@@ -204,10 +189,7 @@ fn failed_optional_catalog_probe_does_not_treat_saved_models_as_fresh() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(authentication::capability_snapshot(
-                    "codex",
-                    crate::execution::contract::ReadinessState::Ready,
-                )),
+                capability_snapshot: Some(super::authentication::ready_snapshot("codex")),
             },
         )]),
         ..HarnessSettings::default()
