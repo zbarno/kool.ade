@@ -11,12 +11,19 @@ fn fixture(name: &str) -> Vec<u8> {
     .unwrap()
 }
 
+fn fixture_clock() -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339("2026-10-17T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc)
+}
+
 #[test]
 fn synthetic_signed_bookworm_release_is_accepted_and_scoped() {
-    let release = verify_inrelease_with_keyring(
+    let release = verify_inrelease_with_keyring_at(
         &fixture("InRelease"),
         &fixture("archive-keyring.gpg"),
         &[SIGNER],
+        fixture_clock(),
     )
     .unwrap();
     assert_eq!(release.origin, "Debian");
@@ -49,14 +56,20 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
         .unwrap();
     changed[offset..offset + original.len()].copy_from_slice(replacement);
     assert!(
-        verify_inrelease_with_keyring(&changed, &fixture("archive-keyring.gpg"), &[SIGNER])
-            .is_err()
+        verify_inrelease_with_keyring_at(
+            &changed,
+            &fixture("archive-keyring.gpg"),
+            &[SIGNER],
+            fixture_clock(),
+        )
+        .is_err()
     );
     assert!(
-        verify_inrelease_with_keyring(
+        verify_inrelease_with_keyring_at(
             &fixture("InRelease"),
             BOOKWORM_KEYRING,
-            BOOKWORM_FINGERPRINTS
+            BOOKWORM_FINGERPRINTS,
+            fixture_clock(),
         )
         .is_err()
     );
@@ -66,16 +79,22 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
 fn unpinned_archive_keys_cannot_block_a_valid_pinned_signer() {
     let mut keyring = BOOKWORM_KEYRING.to_vec();
     keyring.extend(fixture("archive-keyring.gpg"));
-    let release = verify_inrelease_with_keyring(&fixture("InRelease"), &keyring, &[SIGNER]);
+    let release = verify_inrelease_with_keyring_at(
+        &fixture("InRelease"),
+        &keyring,
+        &[SIGNER],
+        fixture_clock(),
+    );
     assert!(release.is_ok());
 }
 
 #[test]
 fn signed_index_size_and_digest_are_enforced() {
-    let release = verify_inrelease_with_keyring(
+    let release = verify_inrelease_with_keyring_at(
         &fixture("InRelease"),
         &fixture("archive-keyring.gpg"),
         &[SIGNER],
+        fixture_clock(),
     )
     .unwrap();
     assert!(verify_index_bytes(&release, "main/binary-amd64/Packages.gz", b"").is_ok());
@@ -91,7 +110,8 @@ fn release_without_valid_until_uses_a_bounded_date_window() {
     let body = format!(
         "Origin: Debian\nLabel: Debian\nSuite: bookworm\nCodename: bookworm\nDate: {date}\nArchitectures: amd64 arm64\nComponents: main\nSHA256:\n e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz\n"
     );
-    let release = parse_release_body(&body).expect("Valid-Until is optional for Debian stable");
+    let release = parse_release_body_at(&body, Utc::now())
+        .expect("Valid-Until is optional for Debian stable");
     assert_eq!(
         release.valid_until_unix,
         (signed_date + chrono::Duration::days(180)).timestamp()
@@ -104,7 +124,7 @@ fn release_without_valid_until_is_rejected_after_180_days() {
     let body = format!(
         "Origin: Debian\nLabel: Debian\nSuite: bookworm\nCodename: bookworm\nDate: {date}\nArchitectures: amd64 arm64\nComponents: main\nSHA256:\n e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz\n"
     );
-    assert!(parse_release_body(&body).is_err());
+    assert!(parse_release_body_at(&body, Utc::now()).is_err());
 }
 
 #[test]
@@ -113,7 +133,7 @@ fn bookworm_release_accepts_debian_lifecycle_suite_label() {
     let body = format!(
         "Origin: Debian\nLabel: Debian\nSuite: oldstable\nCodename: bookworm\nDate: {date}\nArchitectures: amd64 arm64\nComponents: main\nSHA256:\n e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 main/binary-amd64/Packages.gz\n"
     );
-    let release = parse_release_body(&body).unwrap();
+    let release = parse_release_body_at(&body, Utc::now()).unwrap();
     assert_eq!(release.suite, "oldstable");
     assert_eq!(release.codename, "bookworm");
 }
@@ -122,5 +142,7 @@ fn bookworm_release_accepts_debian_lifecycle_suite_label() {
 fn supplied_valid_until_is_enforced_even_when_date_is_recent() {
     let date = Utc::now().format("%a, %d %b %Y %H:%M:%S +0000");
     let expiry = (Utc::now() - chrono::Duration::minutes(1)).format("%a, %d %b %Y %H:%M:%S +0000");
-    assert!(validate_release_window(&date.to_string(), Some(&expiry.to_string())).is_err());
+    assert!(
+        validate_release_window(&date.to_string(), Some(&expiry.to_string()), Utc::now()).is_err()
+    );
 }
