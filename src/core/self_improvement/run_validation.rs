@@ -6,7 +6,7 @@ use super::{SelfImprovementPhaseV1, SelfImprovementRunV1};
 impl SelfImprovementRunV1 {
     pub fn validate(&self) -> Result<(), String> {
         let valid_optional_digest = |value: &Option<String>| value.as_deref().is_none_or(is_digest);
-        if !matches!(self.schema_version, 1..=3)
+        if !matches!(self.schema_version, 1..=4)
             || !is_uuid(&self.run_uid)
             || !is_uuid(&self.opportunity_uid)
             || !is_uuid(&self.approved_decision_uid)

@@ -4,10 +4,12 @@
 use serde::{Deserialize, Serialize};
 
 mod capability_probe;
+mod github_auth;
 mod run_validation;
 mod store;
 mod transition;
 mod validation;
+pub(crate) use github_auth::authenticated_github_user_id;
 pub use store::{SelfImprovementStore, SelfImprovementTransitionV1, TaskSourceAuthorization};
 pub(crate) use validation::canonical_product_remote;
 
@@ -70,6 +72,8 @@ pub enum SelfImprovementEventV1 {
         version: String,
         build_commit_sha: String,
         operator_id: String,
+        #[serde(default)]
+        github_user_id: Option<String>,
     },
     Activated {
         evidence: SelfImprovementActivationEvidenceV1,

@@ -208,10 +208,18 @@ impl SelfImprovementRunV1 {
                 version,
                 build_commit_sha,
                 operator_id,
+                github_user_id,
             } if self.schema_version >= 2
                 && self.phase == SelfImprovementPhaseV1::MergedNotActivated
                 && valid_text(&version, 128)
                 && valid_text(&operator_id, 128)
+                && if self.schema_version >= 4 {
+                    github_user_id
+                        .as_deref()
+                        .is_some_and(super::github_auth::valid_github_user_id)
+                } else {
+                    github_user_id.is_none()
+                }
                 && Some(build_commit_sha.as_str()) == self.merged_sha.as_deref()
                 && is_git_sha(&build_commit_sha) =>
             {

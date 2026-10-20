@@ -132,14 +132,16 @@ impl SelfImprovementStore<'_> {
         run_uid: &str,
         expected_revision: u64,
         operator_id: &str,
+        github_user_id: &str,
     ) -> Result<super::SelfImprovementRunV1, StoreError> {
         let run = self.load(run_uid)?;
         if run.schema_version < 2
             || run.phase != SelfImprovementPhaseV1::MergedNotActivated
             || !crate::core::self_improvement::validation::valid_text(operator_id, 128)
+            || !super::super::github_auth::valid_github_user_id(github_user_id)
         {
             return Err(StoreError::MalformedState(
-                "installation confirmation requires an identified operator and a merged run".into(),
+                "installation confirmation requires an authenticated GitHub operator and a merged run".into(),
             ));
         }
         let Some((version, commit)) = crate::build_identity::current() else {
@@ -168,6 +170,7 @@ impl SelfImprovementStore<'_> {
                 version: version.to_owned(),
                 build_commit_sha: commit.to_owned(),
                 operator_id: operator_id.to_owned(),
+                github_user_id: Some(github_user_id.to_owned()),
             },
             true,
         )
@@ -212,6 +215,15 @@ impl SelfImprovementStore<'_> {
             });
         }
         let from_phase = record.data.phase;
+        if matches!(
+            &event,
+            SelfImprovementEventV1::Installed {
+                github_user_id: Some(_),
+                ..
+            }
+        ) {
+            record.data.schema_version = 4;
+        }
         record
             .data
             .apply(expected_revision, event.clone())

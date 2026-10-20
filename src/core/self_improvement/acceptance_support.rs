@@ -90,6 +90,22 @@ pub(super) fn assert_activation_requires_probe(
     })
     .to_string();
     let mut installed = run.clone();
+    installed.schema_version = 4;
+    let mut unauthenticated = installed.clone();
+    assert!(
+        unauthenticated
+            .apply(
+                unauthenticated.revision,
+                Event::Installed {
+                    version: "0.2.0".into(),
+                    build_commit_sha: merged_sha.to_owned(),
+                    operator_id: "synthetic-operator".into(),
+                    github_user_id: None,
+                },
+            )
+            .is_err(),
+        "a display name alone cannot authorize installation"
+    );
     installed
         .apply(
             installed.revision,
@@ -97,6 +113,7 @@ pub(super) fn assert_activation_requires_probe(
                 version: "0.2.0".into(),
                 build_commit_sha: merged_sha.to_owned(),
                 operator_id: "synthetic-operator".into(),
+                github_user_id: Some("5166344".into()),
             },
         )
         .expect("the capability probe follows an installed build");

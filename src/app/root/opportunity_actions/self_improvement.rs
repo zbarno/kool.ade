@@ -30,9 +30,22 @@ impl super::KooladeApp {
                 .warning("Set a current user identity before confirming installation.");
             return;
         }
+        let github_user_id = match crate::core::self_improvement::authenticated_github_user_id(
+            std::path::Path::new("gh"),
+        ) {
+            Ok(user_id) => user_id,
+            Err(error) => {
+                self.toasts.warning(error);
+                return;
+            }
+        };
         match SelfImprovementStore::new(&project.state.planning_store)
-            .record_installation_confirmation(run_uid, expected_revision, &operator_id)
-        {
+            .record_installation_confirmation(
+                run_uid,
+                expected_revision,
+                &operator_id,
+                &github_user_id,
+            ) {
             Ok(_) => self
                 .toasts
                 .success("Installation confirmation recorded; capability readiness is pending."),
