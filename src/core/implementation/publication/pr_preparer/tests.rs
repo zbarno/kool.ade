@@ -152,7 +152,14 @@ fn stale_pr_preparer_receipts_are_removed_so_restart_can_rebuild_them() {
 // one temporary directory, no network/provider/Docker; negligible setup.
 #[test]
 fn publication_body_uses_current_validated_proposal_after_restart() {
-    let scope = scope();
+    let mut scope = scope();
+    let private_marker = "SYNTHETIC_PRIVATE_CONTEXT_7f2a";
+    scope.feature_plan = format!("private planning note: {private_marker}");
+    scope.task_spec = format!("private task context: {private_marker}");
+    scope.gate_evidence = format!("private gate output: {private_marker}");
+    scope.verified_report = format!("private report: {private_marker}");
+    scope.diff = format!("private adjacent diff: {private_marker}");
+    scope.scope_manifest = format!("private manifest context: {private_marker}");
     let current = receipt(&scope);
     let temp = tempfile::tempdir().unwrap();
     let receipt_path = temp.path().join("pr-preparer-v1.json");
@@ -168,6 +175,7 @@ fn publication_body_uses_current_validated_proposal_after_restart() {
     assert!(body.contains(&scope.scope_sha256));
     assert!(body.contains("src/main.rs"));
     assert!(!body.contains("Old verification-only summary"));
+    assert!(!body.contains(private_marker));
 
     let mut stale = current;
     stale.scope_sha256 = "b".repeat(64);
