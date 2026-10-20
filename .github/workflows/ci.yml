@@ -215,6 +215,12 @@ jobs:
           --manifest-path tests/windows-process-tree/Cargo.toml
           windows::tests::windows_process_tree_terminates_descendants_when_owner_exits
           -- --exact --nocapture
+      - name: Verify provider PATH is restricted to Windows system directories
+        run: >-
+          cargo +1.98.1 test --locked
+          --manifest-path tests/windows-process-tree/Cargo.toml
+          launch_environment::tests::windows_provider_path_keeps_only_system_root_and_system32
+          -- --exact --nocapture
 
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.
