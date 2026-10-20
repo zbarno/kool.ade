@@ -1,5 +1,6 @@
 use super::super::{KooladeApp, Screen};
 use crate::ui::{ApplicationCommand, task_detail::Command as TaskDetailCommand};
+mod code_review;
 
 impl KooladeApp {
     pub(in crate::app::root) fn dispatch_ui_command(&mut self, command: ApplicationCommand) {
@@ -81,6 +82,9 @@ impl KooladeApp {
             }
             ApplicationCommand::ArchiveTask { ticket } => self.archive_task(&ticket),
             ApplicationCommand::CancelWork { key } => self.cancel_board_work(&key),
+            ApplicationCommand::ApproveCodeReviewRisk { work_id, task_uid, finding_id, subject_hash } => {
+                self.approve_code_review_risk_command(work_id, task_uid, finding_id, subject_hash)
+            }
             ApplicationCommand::ApprovePublication { ticket } => self.approve_publication(&ticket),
             ApplicationCommand::RequestPublicationChanges { ticket } => {
                 self.request_publication_changes(&ticket)

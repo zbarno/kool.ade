@@ -26,9 +26,18 @@ pub struct ViewModel {
     pub lifecycle_tasks: std::collections::BTreeMap<String, crate::core::lifecycle::TaskPhase>,
     pub lifecycle_pr_statuses:
         std::collections::BTreeMap<String, crate::core::lifecycle::PullRequestPreparationStatus>,
+    /// Separate PR-preparation cards linked to their completed parent tasks.
+    pub lifecycle_pr_work: Vec<LifecyclePrBoardTask>,
     pub lifecycle_features: Vec<crate::core::lifecycle::FeatureGoal>,
     pub lifecycle_feature_tasks: Vec<crate::core::lifecycle::TaskRecord>,
     pub lifecycle_error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct LifecyclePrBoardTask {
+    pub parent_path: String,
+    pub parent_title: String,
+    pub preparation: crate::core::lifecycle::PullRequestPreparation,
 }
 
 impl ViewModel {

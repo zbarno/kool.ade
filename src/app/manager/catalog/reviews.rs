@@ -108,7 +108,13 @@ pub(super) fn validate_dispositions(
         )
     };
     let mut seen = std::collections::HashMap::<String, usize>::new();
-    for action in actions.iter().filter(|action| is_disposition(&action.kind)) {
+    for action in actions.iter().filter(|action| {
+        is_disposition(&action.kind)
+            && !action
+                .evidence
+                .iter()
+                .any(|id| id.starts_with("code-review-finding:"))
+    }) {
         let referenced = action
             .evidence
             .iter()

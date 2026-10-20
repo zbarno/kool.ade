@@ -1,4 +1,4 @@
-use super::{Work, WorkKind, load, record_changes};
+use super::{CodeReviewDispositionStatusV1, Work, WorkKind, WorkStatus, load, record_changes};
 use crate::artifacts::planning_store::PlanningRoot;
 
 pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
@@ -13,6 +13,59 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
             uids.insert(item.uid.as_str()),
             "Duplicate planning work UID"
         );
+        match (&item.kind, &item.code_review_disposition) {
+            (WorkKind::CodeReviewDisposition, Some(disposition)) => {
+                anyhow::ensure!(
+                    disposition.finding_id.trim().len() <= 128
+                        && !disposition.finding_id.trim().is_empty()
+                        && !disposition.finding_id.chars().any(char::is_control)
+                        && is_sha256(&disposition.subject_hash)
+                        && disposition
+                            .finding_fingerprint
+                            .as_deref()
+                            .is_none_or(is_sha256)
+                        && disposition.occurrence_count > 0
+                        && disposition.arbitration_attempts
+                            <= super::MAX_CODE_REVIEW_ARBITRATION_ATTEMPTS
+                        && disposition.decision_reason.trim().len() >= 16
+                        && disposition.decision_reason.len() <= 2048
+                        && disposition.owner_work_id == item.uid
+                        && disposition.evidence_ref.starts_with("code-review-finding:")
+                        && disposition.evidence_ref.len() == 44
+                        && disposition.evidence_ref[20..]
+                            .bytes()
+                            .all(|byte| byte.is_ascii_hexdigit()),
+                    "Code-review disposition is incomplete or is not bound to its finding work record"
+                );
+                anyhow::ensure!(
+                    item.parent_uid.is_some(),
+                    "Code-review disposition must name its parent implementation task"
+                );
+                if disposition.status == CodeReviewDispositionStatusV1::Open {
+                    anyhow::ensure!(
+                        matches!(item.status, WorkStatus::NeedsAttention | WorkStatus::Done),
+                        "Open code-review decisions must remain on the attention lane"
+                    );
+                }
+                if disposition.status == CodeReviewDispositionStatusV1::RiskApproved {
+                    anyhow::ensure!(
+                        item.status == WorkStatus::Done
+                            && disposition.scope
+                                == Some(
+                                    crate::harness::prompt_catalog::FindingScopeV1::NonBlocking
+                                ),
+                        "Risk approval requires a completed nonblocking finding decision"
+                    );
+                }
+            }
+            (WorkKind::CodeReviewDisposition, None) => {
+                anyhow::bail!("Code-review work is missing its structured finding disposition");
+            }
+            (_, Some(_)) => anyhow::bail!(
+                "Structured code-review disposition is only valid on code-review work"
+            ),
+            (_, None) => {}
+        }
         if let Some(uid) = &item.parent_uid {
             anyhow::ensure!(
                 uuid::Uuid::parse_str(uid).is_ok(),
@@ -64,6 +117,10 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 pub fn save<R: PlanningRoot + ?Sized>(repo: &R, work: &[Work]) -> anyhow::Result<()> {
     let revision = repo.planning_store().revision()?;
     save_expected(repo, work, &revision)?;
@@ -100,7 +157,9 @@ pub fn routing_for_feature<R: PlanningRoot + ?Sized>(
     let work = load(repo)?.into_iter().rev().find(|work| {
         !matches!(
             work.kind,
-            WorkKind::TaskGeneration | WorkKind::PlanReviewDisposition
+            WorkKind::TaskGeneration
+                | WorkKind::PlanReviewDisposition
+                | WorkKind::CodeReviewDisposition
         ) && (feature_uid.is_some() && work.feature_uid.as_deref() == feature_uid
             || work.feature_id.as_deref() == Some(feature_id))
     });

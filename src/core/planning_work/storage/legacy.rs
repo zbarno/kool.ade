@@ -36,6 +36,7 @@ pub(super) fn migrate_legacy(work: super::LegacyWork) -> anyhow::Result<Work> {
         routing_overrides: std::collections::BTreeMap::new(),
         routing_inherited_from: None,
         follow_up_task: None,
+        code_review_disposition: None,
         detail: work.detail,
         record_revision: 0,
         record_baseline: None,

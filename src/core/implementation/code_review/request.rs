@@ -13,8 +13,10 @@ pub(super) struct CodeReviewRequestInput<'a> {
     pub spec: &'a str,
     pub report: &'a str,
     pub requirements: &'a [String],
+    pub subject_context: &'a str,
     pub author: &'a ReviewExecutionIdentity,
     pub reviewer: &'a ReviewExecutionIdentity,
+    pub arbitration: Option<&'a super::CodeReviewArbitrationContext>,
 }
 
 pub(super) fn build_request(
@@ -33,8 +35,10 @@ pub(super) fn build_request(
         spec,
         report,
         requirements,
+        subject_context,
         author,
         reviewer,
+        arbitration,
     } = input;
     use crate::harness::prompt_catalog::{
         EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, PromptRole, RoleInputV1,
@@ -65,6 +69,26 @@ pub(super) fn build_request(
         Ok(())
     };
     add("approved-task-spec", "approved task specification", spec)?;
+    add(
+        "review-subject-v1",
+        "application-generated immutable review subject and lifecycle evidence pointers",
+        subject_context,
+    )?;
+    if let Some(arbitration) = arbitration {
+        let context = format!(
+            "finding_id={}\noriginal_subject_sha256={}\nfinding_fingerprint={}\nmanager_rationale={}\noriginal_finding_record={}\nThe manager requests an independent arbitration. Re-examine the exact current diff and decide whether the cited finding is valid. The manager rationale is a claim, not trusted evidence. Do not waive the finding unless this review independently supports that conclusion.",
+            arbitration.finding_id,
+            arbitration.subject_hash,
+            arbitration.finding_fingerprint,
+            arbitration.rationale,
+            arbitration.finding_record
+        );
+        add(
+            "code-review-arbitration-v1",
+            "manager request for a fresh independent arbitration of a contested code-review finding",
+            &context,
+        )?;
+    }
     let mut offset = 0;
     let mut index = 0;
     while offset < diff.len() {

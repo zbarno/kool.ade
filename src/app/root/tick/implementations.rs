@@ -104,6 +104,7 @@ impl KooladeApp {
                         project
                             .implementation_states
                             .insert(ticket.clone(), record.clone());
+                        crate::app::manager::finish_code_review_repair(project, &ticket);
                         let task_event = match record.status {
                             ImplementationStatus::AwaitingApproval => Some(
                                 "Implementation complete. Work is verified and saved locally; approval is required before creating a pull request.".to_owned(),
@@ -165,10 +166,20 @@ impl KooladeApp {
                     }
                     Err(error) => {
                         if cancellation_requested {
+                            crate::app::manager::mark_code_review_repair_failed(
+                                project,
+                                &ticket,
+                                "cancellation was requested",
+                            );
                             project.queue.blocked.remove(&ticket);
                             project.queue.recovery_attempts.remove(&ticket);
                             "Cancellation requested. Preserved implementation files and history; this task will not restart automatically.".into()
                         } else if let Some(claim_error) = claim_errors.remove(&ticket) {
+                            crate::app::manager::mark_code_review_repair_failed(
+                                project,
+                                &ticket,
+                                &claim_error.to_string(),
+                            );
                             if let crate::core::task_claim::ClaimError::AlreadyClaimed {
                                 record,
                                 stale: true,
@@ -218,6 +229,11 @@ impl KooladeApp {
                             {
                                 "Recoverable orchestration failure; automatically resuming preserved task work.".into()
                             } else {
+                                crate::app::manager::mark_code_review_repair_failed(
+                                    project,
+                                    &ticket,
+                                    &error.message,
+                                );
                                 format!(
                                     "The task needs attention after automatic recovery. Its work is preserved. Failure: {}",
                                     error.message

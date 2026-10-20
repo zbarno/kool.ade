@@ -106,9 +106,21 @@ pub(super) fn board_column(
     }
 }
 
+pub(super) fn task_board_column(
+    phase: Option<TaskPhase>,
+    pr_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
+    fallback: usize,
+) -> usize {
+    if phase == Some(TaskPhase::Done) {
+        4
+    } else {
+        board_column(pr_status, fallback)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{board_column, kind_label, next_step, pr_action_label};
+    use super::{board_column, kind_label, next_step, pr_action_label, task_board_column};
     use crate::core::lifecycle::TaskPhase;
 
     #[test]
@@ -167,6 +179,27 @@ mod tests {
         assert_eq!(
             next_step(TaskPhase::Done, Some(needs_attention)),
             "Review PR failure in Task Details"
+        );
+    }
+
+    #[test]
+    fn completed_implementation_remains_done_while_pr_work_is_separate() {
+        assert_eq!(next_step(TaskPhase::Done, None), "Implementation complete");
+        assert_eq!(
+            task_board_column(
+                Some(TaskPhase::Done),
+                Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization),
+                4,
+            ),
+            4
+        );
+        assert_eq!(
+            task_board_column(
+                Some(TaskPhase::Repairing),
+                Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization),
+                2,
+            ),
+            3
         );
     }
 }

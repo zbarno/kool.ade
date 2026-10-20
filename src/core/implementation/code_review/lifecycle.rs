@@ -1,4 +1,4 @@
-use super::{CodeReviewReceiptV1, Implementation, Runner, digest};
+use super::{CodeReviewReceiptV1, Implementation, Runner, digest, receipt::is_approved_verdict};
 use crate::harness::ReviewExecutionIdentity;
 use crate::{
     artifacts::planning_store::PlanningStore,
@@ -198,7 +198,7 @@ fn gate_receipt(
         subject_uid: lifecycle_task_uid.to_owned(),
         subject_sha256: receipt.diff_hash.clone(),
         actor: GateActor::IndependentReviewer,
-        decision: if receipt.verdict.pass && receipt.verdict.findings.is_empty() {
+        decision: if is_approved_verdict(&receipt.verdict) {
             GateDecision::Approved
         } else {
             GateDecision::ChangesRequested

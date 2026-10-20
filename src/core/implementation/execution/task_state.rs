@@ -167,6 +167,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             approved_specification: read_approved_specification(planning_store, ticket),
             approved_product_context: scoped_product_context_with_store(planning_store, ticket)?,
             completed_dependency_context: dependency_context,
+            manager_repair_context: None,
             branch: format!("koolade/{}", key(ticket)),
             source_branch: explicit_source,
             source_ref,
