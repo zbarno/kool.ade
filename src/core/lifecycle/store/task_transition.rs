@@ -1,5 +1,3 @@
-use serde::{Deserialize, Serialize};
-
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 use crate::core::lifecycle::TaskPhase;
 
@@ -16,126 +14,11 @@ mod load;
 pub(super) use completion::ensure_feature_tasks_complete;
 pub(super) use load::load;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PullRequestPreparationStatus {
-    AwaitingAuthorization,
-    Publishing,
-    NeedsAttention,
-    Opened,
-    ClosedUnmerged,
-    Merged,
-}
-
-/// Durable, idempotently identified follow-up work created with task Done.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PullRequestPreparation {
-    pub schema_version: u16,
-    /// Canonical planning-store record identity.
-    pub uid: String,
-    pub work_item_uid: String,
-    pub feature_uid: String,
-    pub task_uid: String,
-    /// The parent task and its directly owned subtasks are scoped into this PR.
-    pub included_task_uids: Vec<String>,
-    pub revision: u64,
-    pub created_at_ms: u64,
-    pub updated_at_ms: u64,
-    pub status: PullRequestPreparationStatus,
-    /// Publication authority must be granted through a separate app-side action.
-    pub publication_authorization: Option<super::super::GateReceipt>,
-    #[serde(default)]
-    pub provider_pr_id: Option<u64>,
-    #[serde(default)]
-    pub provider_pr_url: Option<String>,
-    #[serde(default)]
-    pub head_sha: Option<String>,
-    #[serde(default)]
-    pub base_sha: Option<String>,
-    /// Merge commit SHA reported by the provider; it does not prove local checkout state.
-    #[serde(default)]
-    pub merged_commit_sha: Option<String>,
-}
-
-/// Provider state observed after a pull request publication or refresh.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PullRequestPublicationState {
-    pub status: PullRequestPreparationStatus,
-    pub provider_pr_id: Option<u64>,
-    pub provider_pr_url: Option<String>,
-    pub head_sha: Option<String>,
-    pub base_sha: Option<String>,
-    pub merged_commit_sha: Option<String>,
-}
-
-impl PullRequestPreparation {
-    pub(super) fn validate(&self) -> Result<(), StoreError> {
-        let valid_uid = |value: &str| uuid::Uuid::parse_str(value).is_ok();
-        if self.schema_version != 1
-            || !valid_uid(&self.uid)
-            || !valid_uid(&self.work_item_uid)
-            || self.uid != self.work_item_uid
-            || !valid_uid(&self.feature_uid)
-            || !valid_uid(&self.task_uid)
-            || self.included_task_uids.is_empty()
-            || self.included_task_uids.len() > 256
-            || self.included_task_uids.iter().any(|uid| !valid_uid(uid))
-            || !self.included_task_uids.contains(&self.task_uid)
-            || self
-                .included_task_uids
-                .iter()
-                .enumerate()
-                .any(|(index, uid)| {
-                    self.included_task_uids[..index]
-                        .iter()
-                        .any(|prior| prior == uid)
-                })
-            || self.revision == 0
-            || self.created_at_ms == 0
-            || self.updated_at_ms < self.created_at_ms
-            || self.provider_pr_id == Some(0)
-            || self
-                .provider_pr_url
-                .as_deref()
-                .is_some_and(|url| !url.starts_with("https://"))
-            || self
-                .head_sha
-                .as_deref()
-                .is_some_and(|sha| !super::super::types::is_git_oid(sha))
-            || self
-                .base_sha
-                .as_deref()
-                .is_some_and(|sha| !super::super::types::is_git_oid(sha))
-            || self
-                .merged_commit_sha
-                .as_deref()
-                .is_some_and(|sha| !super::super::types::is_git_oid(sha))
-            || self
-                .publication_authorization
-                .as_ref()
-                .is_some_and(|receipt| {
-                    receipt.validate().is_err()
-                        || receipt.actor != super::super::GateActor::User
-                        || receipt.decision != super::super::GateDecision::Approved
-                        || receipt.subject_uid != self.work_item_uid
-                })
-            || (self.status != PullRequestPreparationStatus::AwaitingAuthorization
-                && self.publication_authorization.is_none())
-            || (matches!(
-                self.status,
-                PullRequestPreparationStatus::Opened
-                    | PullRequestPreparationStatus::ClosedUnmerged
-                    | PullRequestPreparationStatus::Merged
-            ) && (self.provider_pr_url.is_none() || self.head_sha.is_none()))
-        {
-            return Err(StoreError::MalformedState(
-                "pull request preparation record is invalid".into(),
-            ));
-        }
-        Ok(())
-    }
-}
+mod publication;
+pub use publication::{
+    PrPublicationRecoveryV1, PullRequestPreparation, PullRequestPreparationStatus,
+    PullRequestPublicationState,
+};
 
 pub(super) fn apply_task_event(
     store: &PlanningStore,
@@ -250,6 +133,7 @@ pub(super) fn apply_task_event(
             updated_at_ms: now,
             status: PullRequestPreparationStatus::AwaitingAuthorization,
             publication_authorization: None,
+            recovery: None,
             provider_pr_id: None,
             provider_pr_url: None,
             head_sha: None,

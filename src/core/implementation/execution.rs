@@ -189,6 +189,11 @@ pub(super) fn run_with_planning_store_options(
         } else {
             error
         };
+        if publication_mode == PublicationMode::CreatePullRequest
+            && publication::preserve_done_after_failure(planning_store, &dir, &mut state, &error)?
+        {
+            return Ok(state);
+        }
         state.status = if lease_lost {
             ImplementationStatus::Blocked
         } else if runner.cancel.load(Ordering::SeqCst) {

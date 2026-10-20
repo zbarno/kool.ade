@@ -1,4 +1,5 @@
 use super::*;
+mod lifecycle_publication;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
@@ -66,41 +67,20 @@ pub(super) fn paint(
                         );
                     });
                 }
-            } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()) {
+            } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()).filter(|_| {
+                view.lifecycle_pr_status != Some(crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention)
+            }) {
                 ui.label(if presentation.pull_request_closed {
                     "Reopen the pull request on GitHub to continue review."
                 } else {
                     "Review the published changes."
                 });
                 ui.hyperlink_to("Open PR", url);
-            } else if view.lifecycle_pr_status
-                == Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization)
+            } else if matches!(view.lifecycle_pr_status,
+                Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                    | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention))
             {
-                ui.label("Implementation, independent review, runtime QA, and specification sync are complete. Authorize the single parent pull request when ready.");
-                if let Some(error) = view.lifecycle_pr_error.as_deref() {
-                    ui.colored_label(theme::DANGER, format!("PR preparation status unavailable: {error}"));
-                }
-                if ui
-                    .add_enabled(
-                        view.can_start
-                            && record.is_some_and(|record| matches!(
-                                record.status,
-                                crate::core::implementation::ImplementationStatus::ReadyToPublish
-                                    | crate::core::implementation::ImplementationStatus::AwaitingApproval
-                            )),
-                        egui::Button::new(RichText::new("Authorize and create pull request").strong().color(theme::TEXT))
-                            .fill(theme::ACTION)
-                            .min_size(egui::vec2(0.0, 36.0)),
-                    )
-                    .clicked()
-                {
-                    dispatch(
-                        s,
-                        crate::ui::task_detail::Command::PublishLifecyclePr {
-                            ticket: ticket.to_owned(),
-                        },
-                    );
-                }
+                lifecycle_publication::paint(ui, s, ticket, view, record);
             } else if view
                 .lifecycle
                 .as_ref()

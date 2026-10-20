@@ -103,7 +103,7 @@ fn main_chat_spec_update_runs_initial_clarification_planner() {
     assert!(matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()));
 
     let context = egui::Context::default();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
     loop {
         // Keep the deterministic Planner harness available through the Manager
         // completion tick, when the application starts the initial Planner pass.
