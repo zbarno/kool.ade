@@ -67,6 +67,7 @@ fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
             &session_a,
             "controller-a-started",
             &mut controller_a,
+            &task_home_path,
             &root_path.join("sshd.log"),
         );
 
@@ -113,12 +114,14 @@ pub(super) fn wait_for_remote_stdout<T: Debug>(
     session: &ExecutionSession,
     expected: &str,
     controller: &mut Option<JoinHandle<T>>,
+    event_home: &Path,
     sshd_log: &Path,
 ) {
     let deadline = Instant::now() + Duration::from_secs(90);
     loop {
         if let Some(handle) = session.active_handle_for_test()
-            && let Ok(events) = crate::persistence::execution_records::load_events(
+            && let Ok(events) = crate::persistence::execution_records::load_events_at(
+                event_home,
                 &handle.task_id,
                 &handle.execution_id,
                 crate::execution::contract::EventPageRequestV1::new(0, 256).unwrap(),

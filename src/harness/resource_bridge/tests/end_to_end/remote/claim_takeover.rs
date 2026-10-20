@@ -70,6 +70,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
         &session_a,
         "stale-worker-started",
         &mut stale_controller,
+        &task_home_path,
         &root.join("sshd.log"),
     );
 

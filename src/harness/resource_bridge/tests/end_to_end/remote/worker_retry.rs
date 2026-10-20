@@ -192,10 +192,16 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     );
     let first_worker_id = session.target_id().to_owned();
     assert!(first_worker_id == worker_a_id || first_worker_id == worker_b_id);
-    let first_sshd_log = if first_worker_id == worker_a_id {
-        worker_a_root.join("sshd.log")
+    let (first_sshd_log, first_worker_home) = if first_worker_id == worker_a_id {
+        (
+            worker_a_root.join("sshd.log"),
+            worker_a_root.join("worker-state"),
+        )
     } else {
-        worker_b_root.join("sshd.log")
+        (
+            worker_b_root.join("sshd.log"),
+            worker_b_root.join("worker-state"),
+        )
     };
 
     let running_session = session.clone();
@@ -209,6 +215,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         &session,
         "first-worker-started",
         &mut controller,
+        &first_worker_home,
         &first_sshd_log,
     );
     session.terminate_remote_connection_for_test();

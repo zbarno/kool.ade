@@ -168,6 +168,7 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
         &session,
         "private-file-read-only-ok",
         &mut controller,
+        &task_home_path,
         &root_path.join("sshd.log"),
     );
     if matches!(termination, GrantTermination::Revoked) {
