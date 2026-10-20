@@ -35,18 +35,26 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
 
     let worker_a_root = root.path().join("worker-a");
     let worker_b_root = root.path().join("worker-b");
-    fs::create_dir_all(&worker_a_root).unwrap();
-    fs::create_dir_all(&worker_b_root).unwrap();
+    let worker_a_home = worker_a_root.join("koolade-home");
+    let worker_b_home = worker_b_root.join("koolade-home");
+    fs::create_dir_all(&worker_a_home).unwrap();
+    fs::create_dir_all(&worker_b_home).unwrap();
     let sshd_a = sshd::SshdFixture::start(&worker_a_root, &worker_binary)
         .expect("CI must provide loopback sshd for worker A retry E2E");
     let sshd_b = sshd::SshdFixture::start(&worker_b_root, &worker_binary)
         .expect("CI must provide loopback sshd for worker B retry E2E");
-    let worker_a_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let worker_b_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let worker_a_id =
+        crate::persistence::execution_records::owner_instance_id_at(&worker_a_home).unwrap();
+    let worker_b_id =
+        crate::persistence::execution_records::owner_instance_id_at(&worker_b_home).unwrap();
     sshd_a.restore_known_host(&worker_a_id).unwrap();
     sshd_b.restore_known_host(&worker_b_id).unwrap();
-    let worker_a = sshd_a.worker_config(&worker_a_id);
-    let worker_b = sshd_b.worker_config(&worker_b_id);
+    let worker_a = sshd_a
+        .worker_config_with_home(&worker_a_id, &worker_a_home)
+        .unwrap();
+    let worker_b = sshd_b
+        .worker_config_with_home(&worker_b_id, &worker_b_home)
+        .unwrap();
     for (worker_id, worker, sshd) in [
         (&worker_a_id, &worker_a, &sshd_a),
         (&worker_b_id, &worker_b, &sshd_b),

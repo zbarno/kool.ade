@@ -166,6 +166,33 @@ impl SshdFixture {
         }
     }
 
+    pub(super) fn worker_config_with_home(
+        &self,
+        worker_id: &str,
+        worker_home: &Path,
+    ) -> std::io::Result<SshWorkerConfig> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut worker = self.worker_config(worker_id);
+        let wrapper = self.root.join(format!("ssh-worker-{worker_id}"));
+        let config = self.root.join("ssh_config");
+        let ssh = find_ssh().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "ssh was not found")
+        })?;
+        fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\nexport KOOLADE_HOME={}\nexec {} -F {} \"$@\"\n",
+                shell_quote(&worker_home.to_string_lossy()),
+                shell_quote(&ssh.to_string_lossy()),
+                shell_quote(&config.to_string_lossy()),
+            ),
+        )?;
+        fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o700))?;
+        worker.ssh_binary = wrapper;
+        Ok(worker)
+    }
+
     pub(super) fn unauthenticated_worker(&self, worker: &SshWorkerConfig) -> VerifiedSshWorker {
         let mut bad_auth = worker.clone();
         bad_auth
