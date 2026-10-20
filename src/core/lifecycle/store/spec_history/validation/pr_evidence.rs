@@ -49,6 +49,7 @@ fn pr_state_evidence_reference_is_bound_to_exact_persisted_revision() {
         updated_at_ms: 1,
         status: crate::core::lifecycle::PullRequestPreparationStatus::Merged,
         publication_authorization: None,
+        recovery: None,
         provider_pr_id: Some(1),
         provider_pr_url: Some("https://github.com/example/repo/pull/1".into()),
         head_sha: Some("a".repeat(40)),
