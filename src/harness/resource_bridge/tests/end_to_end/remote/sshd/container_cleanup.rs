@@ -18,8 +18,8 @@ impl super::SshdFixture {
 
 impl Drop for super::SshdFixture {
     fn drop(&mut self) {
-        if let Some(pid_path) = &self.worker_process_pid_file
-            && let Some(state) = pid_path.parent()
+        if let Some(process_dir) = &self.worker_process_dir
+            && let Some(state) = process_dir.parent()
             && let Ok(owner) = std::fs::read_to_string(state.join("executions/owner-instance-id"))
         {
             let _ = remove_owned_containers(owner.trim());

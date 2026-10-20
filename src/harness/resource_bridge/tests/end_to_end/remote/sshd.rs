@@ -2,11 +2,11 @@ use fs2::FileExt;
 use std::{
     fs,
     fs::OpenOptions,
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crate::execution::remote::ssh::{SshWorkerConfig, VerifiedSshWorker};
@@ -23,7 +23,9 @@ pub(super) struct SshdFixture {
     known_hosts: PathBuf,
     ssh_wrapper: PathBuf,
     unauthenticated_wrapper: PathBuf,
-    worker_process_pid_file: Option<PathBuf>,
+    worker_process_dir: Option<PathBuf>,
+    worker_binary: Option<PathBuf>,
+    worker_marker: Option<String>,
     pub(super) host_fingerprint: String,
 }
 
@@ -169,8 +171,11 @@ impl SshdFixture {
             known_hosts,
             ssh_wrapper,
             unauthenticated_wrapper,
-            worker_process_pid_file: worker_id
-                .map(|_| root.join("worker-state/worker-process.pid")),
+            worker_process_dir: worker_id.map(|_| root.join("worker-state/worker-processes")),
+            worker_binary: worker_id
+                .map(|_| worker_binary.canonicalize())
+                .transpose()?,
+            worker_marker: worker_id.map(str::to_owned),
             host_fingerprint,
         };
         fixture.wait_ready()?;
@@ -190,21 +195,42 @@ impl SshdFixture {
     }
 
     pub(super) fn terminate_worker_process_for_test(&self) -> std::io::Result<()> {
-        let pid_path = self.worker_process_pid_file.as_ref().ok_or_else(|| {
+        let process_dir = self.worker_process_dir.as_ref().ok_or_else(|| {
             std::io::Error::other("worker process tracking is unavailable for this fixture")
         })?;
-        let pid = fs::read_to_string(pid_path)?
-            .trim()
-            .parse::<libc::pid_t>()
-            .map_err(std::io::Error::other)?;
-        if pid <= 0 {
-            return Err(std::io::Error::other("worker process ID is invalid"));
-        }
-        let result = unsafe { libc::kill(pid, libc::SIGKILL) };
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(std::io::Error::last_os_error())
+        let worker_binary = self.worker_binary.as_ref().ok_or_else(|| {
+            std::io::Error::other("worker binary tracking is unavailable for this fixture")
+        })?;
+        let worker_marker = self.worker_marker.as_deref().ok_or_else(|| {
+            std::io::Error::other("worker marker is unavailable for this fixture")
+        })?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut terminated = 0;
+            for entry in fs::read_dir(process_dir)? {
+                let entry = entry?;
+                let contents = match fs::read_to_string(entry.path()) {
+                    Ok(contents) => contents,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error),
+                };
+                let Ok(pid) = contents.trim().parse::<libc::pid_t>() else {
+                    continue;
+                };
+                if pid > 0 && process::terminate_worker_pid(pid, worker_binary, worker_marker)? {
+                    terminated += 1;
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+            if terminated > 0 {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(std::io::Error::other(
+                    "worker fixture has no active worker server process",
+                ));
+            }
+            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -261,36 +287,11 @@ impl SshdFixture {
             ),
         )
     }
-
-    fn wait_ready(&mut self) -> std::io::Result<()> {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if let Some(status) = self.child.try_wait()? {
-                let diagnostics = fs::read_to_string(self.root.join("sshd.log"))
-                    .unwrap_or_else(|error| format!("could not read sshd log: {error}"));
-                return Err(std::io::Error::other(format!(
-                    "sshd exited before readiness with {status}; executable={} port={} host_key={} root={}; stderr={diagnostics:?}",
-                    self.sshd.display(),
-                    self.port,
-                    self.host_key.display(),
-                    self.root.display()
-                )));
-            }
-            if TcpStream::connect(("127.0.0.1", self.port)).is_ok() {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "loopback sshd did not become ready",
-                ));
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-    }
 }
 
 mod container_cleanup;
+mod process;
+mod readiness;
 use guards::ChildGuard;
 mod guards;
 mod helpers;

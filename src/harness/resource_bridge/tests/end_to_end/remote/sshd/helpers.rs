@@ -40,15 +40,17 @@ pub(super) fn worker_state_command(
     }
     let state = root.join("worker-state");
     let executions = state.join("executions");
-    let worker_pid = state.join("worker-process.pid");
+    let worker_processes = state.join("worker-processes");
     let worker_command = state.join("serve-worker.sh");
     fs::create_dir_all(&executions)?;
+    fs::create_dir_all(&worker_processes)?;
     fs::write(executions.join("owner-instance-id"), worker_id)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&state, fs::Permissions::from_mode(0o700))?;
         fs::set_permissions(&executions, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(&worker_processes, fs::Permissions::from_mode(0o700))?;
         fs::set_permissions(
             executions.join("owner-instance-id"),
             fs::Permissions::from_mode(0o600),
@@ -56,8 +58,9 @@ pub(super) fn worker_state_command(
         fs::write(
             &worker_command,
             format!(
-                "#!/bin/sh\numask 077\nprintf '%s\\n' \"$$\" > {}\nexec /usr/bin/env KOOLADE_HOME={} {} worker serve --stdio\n",
-                shell_quote(&worker_pid.to_string_lossy()),
+                "#!/bin/sh\numask 077\nworker_pid_dir={}\nworker_pid=$$\nworker_pid_file=\"$worker_pid_dir/$worker_pid.pid\"\nworker_pid_temp=\"$worker_pid_file.$$.tmp\"\nprintf '%s\\n' \"$worker_pid\" > \"$worker_pid_temp\"\nmv \"$worker_pid_temp\" \"$worker_pid_file\"\nexec /usr/bin/env KOOLADE_TEST_FIXTURE_WORKER_ID={} KOOLADE_HOME={} {} worker serve --stdio\n",
+                shell_quote(&worker_processes.to_string_lossy()),
+                shell_quote(worker_id),
                 shell_quote(&state.to_string_lossy()),
                 binary,
             ),
