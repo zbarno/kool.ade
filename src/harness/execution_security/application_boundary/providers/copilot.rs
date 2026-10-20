@@ -1,4 +1,4 @@
-use super::{super::super::ApplicationBoundary, shared::set_option};
+use super::super::super::ApplicationBoundary;
 use serde_json::json;
 #[cfg(not(test))]
 use std::path::PathBuf;
@@ -37,7 +37,10 @@ pub(super) fn configure(
         .into_iter()
         .map(|tool| format!("{server_name}-{tool}"))
         .collect::<Vec<_>>();
-    set_option(argv, "--available-tools", names.join(","));
+    argv.retain(|argument| {
+        argument != "--available-tools" && !argument.starts_with("--available-tools=")
+    });
+    argv.push(format!("--available-tools={}", names.join(",")));
     argv.extend([
         format!("--additional-mcp-config=@{}", path.display()),
         "--disable-builtin-mcps".into(),

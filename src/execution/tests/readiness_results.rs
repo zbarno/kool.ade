@@ -80,9 +80,13 @@ fn canonical_harness_roles_preserve_legacy_serialized_names() {
         let actual: HarnessRole = serde_json::from_str(&format!("\"{serialized}\"")).unwrap();
         assert_eq!(actual, expected, "legacy role {serialized}");
     }
-    assert_eq!(HarnessRole::ALL.len(), 10);
+    assert_eq!(HarnessRole::ALL.len(), 11);
     assert_eq!(HarnessRole::ALL[0], Manager);
-    assert_eq!(HarnessRole::ALL[9], PRPreparer);
+    assert_eq!(HarnessRole::ALL[10], PRPreparer);
+    assert_eq!(
+        serde_json::to_string(&DecisionExplainer).unwrap(),
+        "\"decision_explainer\""
+    );
 }
 
 #[test]

@@ -5,10 +5,23 @@ use crate::{
 use egui::{RichText, Ui};
 use std::collections::BTreeMap;
 
-const ROUTABLE_CATEGORIES: [(&str, &str); 3] = [
+const ROUTABLE_CATEGORIES: [(&str, &str); 13] = [
+    (harness_settings::PLANNING, "General planning"),
+    (harness_settings::SPECIFICATION, "Specification"),
+    (harness_settings::FEATURE_PLANNING, "Feature planning"),
+    (harness_settings::TASK_GENERATION, "Task generation"),
+    (harness_settings::INVESTIGATION, "Investigation / analysis"),
+    (harness_settings::PLAN_REVIEW, "Independent plan review"),
     (harness_settings::IMPLEMENTATION, "Implementation"),
     (harness_settings::QA, "QA / Verification"),
+    (harness_settings::RUNTIME_QA, "Runtime QA"),
     (harness_settings::DOCUMENTATION, "Documentation"),
+    (harness_settings::RECONCILIATION, "Reconciliation"),
+    (
+        harness_settings::DECISION_EXPLANATION,
+        "Decision explanation",
+    ),
+    (harness_settings::REPAIR, "Repair worker"),
 ];
 
 pub(super) fn routing_editor(
@@ -24,7 +37,7 @@ pub(super) fn routing_editor(
     egui::CollapsingHeader::new(label)
         .default_open(false)
         .show(ui, |ui| {
-            ui.label(RichText::new("Optional overrides for this task. Each category inherits until you select a replacement.").color(theme::TEXT_MUTED));
+            ui.label(RichText::new("Optional provider overrides for this task by work category. Each category inherits until you select a replacement. Kool.ad/e Manager remains application-routed and cannot be changed from a task.").color(theme::TEXT_MUTED));
             for (category, label) in ROUTABLE_CATEGORIES {
                 route_row(ui, settings, overrides, category, label);
             }
@@ -63,10 +76,20 @@ fn route_row(
             }
         });
 
+        let now = harness_settings::current_unix_ms();
+        let Some(role) = crate::app::root::role_for_work_category(category) else {
+            return;
+        };
         let ready: Vec<_> = settings
             .discovered
             .iter()
-            .filter(|(_, harness)| harness.ready)
+            .filter(|(id, harness)| {
+                harness.has_current_authenticated_capability(id, now)
+                    && harness.supports_role_at(role, now)
+                    && (category != harness_settings::IMPLEMENTATION
+                        || (harness.implementation_available
+                            && crate::harness::implementation_route_available(id)))
+            })
             .collect();
         let route_text = selected.as_ref().map_or_else(
             || "No application route configured".to_owned(),
@@ -225,14 +248,9 @@ mod tests {
             .iter()
             .map(|(category, _)| *category)
             .collect();
-        assert_eq!(
-            categories,
-            [
-                harness_settings::IMPLEMENTATION,
-                harness_settings::QA,
-                harness_settings::DOCUMENTATION
-            ]
-        );
         assert!(!categories.contains(&harness_settings::MANAGER));
+        assert!(categories.contains(&harness_settings::IMPLEMENTATION));
+        assert!(categories.contains(&harness_settings::QA));
+        assert!(categories.contains(&harness_settings::DOCUMENTATION));
     }
 }

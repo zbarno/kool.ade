@@ -1,13 +1,13 @@
-//! Cross the real OpenCode CLI adapter, settings persistence, and task-routing boundary. The
-//! invariant is that a documented authenticated-provider summary yields a current selectable
-//! route; parser tests cannot prove adapter persistence or routing. Uses one synthetic Unix CLI
+//! Cross the real OpenCode CLI adapter, settings persistence, capability profile, and task-routing
+//! boundary. A provider summary alone is insufficient: the clean invocation profile must also be
+//! proven. Parser tests cannot prove adapter persistence or routing. Uses one synthetic Unix CLI
 //! and temporary config; setup cost is one short probe.
 
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
 #[test]
-fn authenticated_provider_summary_persists_and_authorizes_the_implementation_route() {
+fn authenticated_provider_summary_and_valid_profile_enable_supported_routing() {
     let root = std::env::temp_dir().join(format!(
         "koolade-opencode-authenticated-{}",
         uuid::Uuid::new_v4()
@@ -75,10 +75,8 @@ fn authenticated_provider_summary_persists_and_authorizes_the_implementation_rou
             model: Some("synthetic/openai-model".into()),
         },
     )]);
-    assert!(
-        crate::app::root::harness_selection::validate_task_routes(&settings, &advertised_route)
-            .is_ok()
-    );
+    crate::app::root::harness_selection::validate_task_routes(&settings, &advertised_route)
+        .unwrap();
     let unadvertised_route = std::collections::BTreeMap::from([(
         crate::persistence::harness_settings::IMPLEMENTATION.to_owned(),
         crate::persistence::harness_settings::WorkRoute {
@@ -88,7 +86,8 @@ fn authenticated_provider_summary_persists_and_authorizes_the_implementation_rou
     )]);
     assert!(
         crate::app::root::harness_selection::validate_task_routes(&settings, &unadvertised_route)
-            .is_err()
+            .unwrap_err()
+            .contains("unavailable")
     );
 
     std::fs::remove_dir_all(root).unwrap();
@@ -154,7 +153,7 @@ fn explicit_auth_list_failure_is_persisted_as_unknown() {
 /// model, while remote model IDs from the same catalog remain unselectable. Parser tests alone
 /// cannot prove the adapter filters persisted models and produces a usable capability snapshot.
 #[test]
-fn local_model_without_credentials_remains_selectable_and_remote_models_are_filtered() {
+fn local_model_without_credentials_routes_when_profile_proof_is_current() {
     let root = std::env::temp_dir().join(format!(
         "koolade-opencode-local-model-{}",
         uuid::Uuid::new_v4()
@@ -238,9 +237,7 @@ fn local_model_without_credentials_remains_selectable_and_remote_models_are_filt
             model: Some("ollama/llama3.2".into()),
         },
     )]);
-    assert!(
-        crate::app::root::harness_selection::validate_task_routes(&settings, &local_route).is_ok()
-    );
+    crate::app::root::harness_selection::validate_task_routes(&settings, &local_route).unwrap();
     let remote_route = std::collections::BTreeMap::from([(
         crate::persistence::harness_settings::IMPLEMENTATION.to_owned(),
         crate::persistence::harness_settings::WorkRoute {
@@ -250,7 +247,8 @@ fn local_model_without_credentials_remains_selectable_and_remote_models_are_filt
     )]);
     assert!(
         crate::app::root::harness_selection::validate_task_routes(&settings, &remote_route)
-            .is_err()
+            .unwrap_err()
+            .contains("unavailable")
     );
 
     std::fs::write(

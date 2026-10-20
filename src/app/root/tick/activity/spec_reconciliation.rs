@@ -1,7 +1,4 @@
-use crate::{
-    app::{root::configured_harness_for, session::Project},
-    core::lifecycle::LifecycleStore,
-};
+use crate::{app::session::Project, core::lifecycle::LifecycleStore};
 use sha2::Digest as _;
 
 mod feature;
@@ -94,9 +91,10 @@ pub(in crate::app::root) fn advance_spec_reconciliation(
                 }
             }
         }
-        let harness = configured_harness_for(
+        let harness = crate::app::root::configured_harness_for_project(
             task_harness,
             Some(crate::persistence::harness_settings::PLAN_REVIEW),
+            &project.state.harness_routes.routes,
         );
         let route = harness.label();
         match crate::app::root::spec_reconciliation::SpecReconciliation::start(

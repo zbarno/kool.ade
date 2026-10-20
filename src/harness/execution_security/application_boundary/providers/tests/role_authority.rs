@@ -55,6 +55,11 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
             ToolAccess::ReadOnly,
         ),
         (
+            HarnessRole::DecisionExplainer,
+            ExecutionMode::DecisionExplanation,
+            ToolAccess::None,
+        ),
+        (
             HarnessRole::TaskDecomposer,
             ExecutionMode::TaskGeneration,
             ToolAccess::ReadOnly,
@@ -130,6 +135,7 @@ fn expected_execution_mode(role: HarnessRole) -> crate::execution::contract::Exe
         | HarnessRole::PlanReviewer
         | HarnessRole::TaskDecomposer
         | HarnessRole::CodeReviewer
+        | HarnessRole::DecisionExplainer
         | HarnessRole::SpecReconciler => ExecutionModeV1::PlanningReadOnly,
     }
 }

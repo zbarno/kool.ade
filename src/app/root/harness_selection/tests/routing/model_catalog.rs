@@ -77,15 +77,11 @@ fn route_label_reports_configured_default_model_before_harness_usage() {
         None,
         None,
     );
-    assert!(
-        harness
-            .label()
-            .ends_with(" / CLI default (last discovered: gpt-configured)")
-    );
+    assert!(harness.label().ends_with(" / gpt-configured"));
 }
 
 #[test]
-fn route_label_says_when_cli_does_not_report_its_default_model() {
+fn role_route_blocks_when_the_cli_default_model_is_unreported() {
     use crate::persistence::harness_settings::{DetectedHarness, HarnessSettings, WorkRoute};
     let settings = HarnessSettings {
         work_routes: std::collections::BTreeMap::from([(
@@ -120,11 +116,9 @@ fn route_label_says_when_cli_does_not_report_its_default_model() {
         None,
         None,
     );
-    assert!(
-        harness
-            .label()
-            .contains("CLI default (model not reported for pi)")
-    );
+    let error = harness.check_available().unwrap_err().detail();
+    assert!(error.contains("No verified model is selected for pi"));
+    assert!(error.contains("will not run with an unreported CLI default"));
 }
 
 #[test]

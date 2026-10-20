@@ -4,19 +4,22 @@ pub(super) struct RoutedHarness {
     pub(super) inner: Box<dyn AiHarness>,
     pub(super) harness_id: String,
     pub(super) model: Option<String>,
-    pub(super) default_model_hint: Option<String>,
+    pub(super) provenance: crate::harness::HarnessRouteProvenance,
 }
 
 impl AiHarness for RoutedHarness {
+    fn route_provenance(
+        &self,
+        _request: &PlanningRequest,
+    ) -> Option<crate::harness::HarnessRouteProvenance> {
+        Some(self.provenance.clone())
+    }
     fn label(&self) -> String {
         format!(
             "{} / {}",
             self.inner.label(),
             self.model.as_deref().map(str::to_owned).unwrap_or_else(|| {
-                self.default_model_hint.as_ref().map_or_else(
-                    || format!("CLI default (model not reported for {})", self.harness_id),
-                    |model| format!("CLI default (last discovered: {model})"),
-                )
+                format!("CLI default (model not reported for {})", self.harness_id)
             })
         )
     }
@@ -32,6 +35,7 @@ impl AiHarness for RoutedHarness {
         self.ensure_mediated_implementation(request)?;
         self.inner
             .execute_with_model(request, self.model.as_deref())
+            .map_err(|error| self.normalize_failure(request, error))
     }
 
     fn execute_with_model(
@@ -42,17 +46,33 @@ impl AiHarness for RoutedHarness {
         self.ensure_mediated_implementation(request)?;
         self.inner
             .execute_with_model(request, model.or(self.model.as_deref()))
+            .map_err(|error| self.normalize_failure(request, error))
     }
 
     fn plan_retrieval(
         &self,
         request: &PlanningRequest,
     ) -> Result<Option<crate::harness::RetrievalPlan>, crate::error::AppError> {
-        self.inner.plan_retrieval(request)
+        self.inner
+            .plan_retrieval(request)
+            .map_err(|error| self.normalize_failure(request, error))
     }
 }
 
 impl RoutedHarness {
+    fn normalize_failure(
+        &self,
+        request: &PlanningRequest,
+        error: crate::error::AppError,
+    ) -> crate::error::AppError {
+        crate::harness::normalize_provider_error(
+            &self.harness_id,
+            self.provenance.role,
+            request,
+            error,
+        )
+    }
+
     fn ensure_mediated_implementation(
         &self,
         request: &PlanningRequest,
@@ -64,9 +84,25 @@ impl RoutedHarness {
 pub(super) struct ImplementationQaHarness {
     pub(super) implementation: Box<dyn AiHarness>,
     pub(super) qa: Box<dyn AiHarness>,
+    pub(super) repair: Option<Box<dyn AiHarness>>,
 }
 
 impl AiHarness for ImplementationQaHarness {
+    fn route_provenance(
+        &self,
+        request: &PlanningRequest,
+    ) -> Option<crate::harness::HarnessRouteProvenance> {
+        if request.telemetry_phase.as_deref() == Some("qa_verification") {
+            self.qa.route_provenance(request)
+        } else if request.telemetry_phase.as_deref() == Some("repair") {
+            self.repair
+                .as_deref()
+                .unwrap_or(self.implementation.as_ref())
+                .route_provenance(request)
+        } else {
+            self.implementation.route_provenance(request)
+        }
+    }
     fn label(&self) -> String {
         format!("{} · QA: {}", self.implementation.label(), self.qa.label())
     }
@@ -74,6 +110,9 @@ impl AiHarness for ImplementationQaHarness {
     fn check_available(&self) -> Result<String, crate::error::AppError> {
         let implementation = self.implementation.check_available()?;
         self.qa.check_available()?;
+        if let Some(repair) = &self.repair {
+            repair.check_available()?;
+        }
         Ok(implementation)
     }
 
@@ -85,8 +124,32 @@ impl AiHarness for ImplementationQaHarness {
             let mut read_only = request.clone();
             read_only.mode = crate::harness::ExecutionMode::ReadOnlyAnalysis;
             self.qa.execute(&read_only)
+        } else if request.telemetry_phase.as_deref() == Some("repair") {
+            self.repair
+                .as_deref()
+                .unwrap_or(self.implementation.as_ref())
+                .execute(request)
         } else {
             self.implementation.execute(request)
+        }
+    }
+
+    fn execute_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+        if request.telemetry_phase.as_deref() == Some("qa_verification") {
+            let mut read_only = request.clone();
+            read_only.mode = crate::harness::ExecutionMode::ReadOnlyAnalysis;
+            self.qa.execute_with_model(&read_only, model)
+        } else if request.telemetry_phase.as_deref() == Some("repair") {
+            self.repair
+                .as_deref()
+                .unwrap_or(self.implementation.as_ref())
+                .execute_with_model(request, model)
+        } else {
+            self.implementation.execute_with_model(request, model)
         }
     }
 

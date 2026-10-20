@@ -59,6 +59,9 @@ pub struct InvocationRecord {
     pub harness_version: Option<String>,
     #[serde(default)]
     pub provider: Option<String>,
+    /// Selected local CLI identity, distinct from a provider-reported model API.
+    #[serde(default)]
+    pub routed_harness: Option<String>,
     #[serde(default)]
     pub api: Option<String>,
     #[serde(default)]
@@ -69,6 +72,26 @@ pub struct InvocationRecord {
     /// Reasoning/thinking level when the harness exposes one (AC17).
     #[serde(default)]
     pub thinking_level: Option<String>,
+    /// Role and route evidence captured when the task attempt was dispatched.
+    #[serde(default)]
+    pub route_role: Option<String>,
+    #[serde(default)]
+    pub work_category: Option<String>,
+    #[serde(default)]
+    pub capability_probe_id: Option<String>,
+    #[serde(default)]
+    pub capability_generation: Option<u64>,
+    #[serde(default)]
+    pub execution_mode: Option<String>,
+    /// Application-selected execution target identity, when tools were bound.
+    #[serde(default)]
+    pub execution_target: Option<String>,
+    /// Normalized failure category, when this invocation failed.
+    #[serde(default)]
+    pub failure_category: Option<String>,
+    /// Redacted actionable failure detail, never raw provider output.
+    #[serde(default)]
+    pub failure_message: Option<String>,
 
     // Usage (R4, AC10-AC13). Categories are stored independently; a category
     // the provider did not report stays `null` rather than pretending zero,

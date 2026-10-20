@@ -3,12 +3,7 @@ pub(super) fn validate_routing(
 ) -> anyhow::Result<()> {
     for (category, route) in routes {
         anyhow::ensure!(
-            matches!(
-                category.as_str(),
-                crate::persistence::harness_settings::IMPLEMENTATION
-                    | crate::persistence::harness_settings::QA
-                    | crate::persistence::harness_settings::DOCUMENTATION
-            ),
+            crate::persistence::harness_settings::is_task_routable_category(category),
             "Task routing cannot override category '{category}'"
         );
         anyhow::ensure!(
