@@ -227,10 +227,11 @@ mod tests {
 
     #[test]
     fn app_generated_runtime_values_override_the_baseline() {
+        let cwd = std::env::temp_dir();
         let env = provider_environment(
             CliProvider::Pi,
-            Path::new("/tmp"),
-            Path::new("/tmp"),
+            &cwd,
+            &cwd,
             &[("PI_OFFLINE".into(), "1".into())],
         )
         .unwrap();
@@ -297,5 +298,46 @@ mod tests {
             assert!(entries.contains(&system_bin));
         }
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_provider_path_keeps_only_system_root_and_system32() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let system_root = std::env::var_os("SystemRoot")
+            .expect("Windows should provide SystemRoot")
+            .into_string()
+            .expect("SystemRoot should be Unicode");
+        let system_root = Path::new(&system_root).canonicalize().unwrap();
+        let system32 = system_root.join("System32").canonicalize().unwrap();
+        let test_root = std::env::temp_dir().join(format!(
+            "koolade-provider-path-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let workspace = test_root.join("workspace");
+        let repo_bin = workspace.join("bin");
+        let user_bin = test_root.join("user-bin");
+        let private_cwd = test_root.join("private-cwd");
+        for directory in [&repo_bin, &user_bin, &private_cwd] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        let input = std::env::join_paths([
+            system_root.as_path(),
+            system32.as_path(),
+            user_bin.as_path(),
+            std::path::Path::new("relative-bin"),
+        ])
+        .unwrap();
+
+        let filtered =
+            safe_provider_path(&input.to_string_lossy(), &private_cwd, &workspace).unwrap();
+        let entries = std::env::split_paths(std::ffi::OsStr::new(&filtered)).collect::<Vec<_>>();
+        assert_eq!(entries, [system_root, system32]);
+        std::fs::remove_dir_all(test_root).unwrap();
     }
 }
