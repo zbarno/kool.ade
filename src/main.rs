@@ -12,7 +12,7 @@ fn main() -> eframe::Result {
             eprintln!("Usage: koolade worker serve --stdio");
             std::process::exit(2);
         }
-        if let Err(error) = koolade::execution::remote::worker::serve_stdio_worker() {
+        if let Err(error) = koolade::execution::remote::serve_worker_stdio() {
             eprintln!("Kool.ad/e worker stopped: {error}");
             std::process::exit(1);
         }
