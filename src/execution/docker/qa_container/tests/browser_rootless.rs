@@ -20,6 +20,8 @@ use std::{collections::BTreeMap, time::Duration};
 
 #[path = "browser_rootless/cleanup.rs"]
 mod cleanup;
+#[path = "browser_rootless/defects.rs"]
+mod defects;
 #[path = "browser_rootless/redirect.rs"]
 mod redirect;
 #[path = "browser_rootless/support.rs"]
@@ -276,8 +278,22 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         &mut cancel,
     )
     .await;
+    let seeded_defect_result = defects::assert_seeded_wrong_destination_is_reported(
+        &docker,
+        &request,
+        &browser_image,
+        &lock,
+        &artifact_root,
+        &artifact_upload,
+        &preview,
+        &resources,
+        &mut cancel,
+    )
+    .await;
     cleanup::cleanup_and_assert(&docker, &request, driver_container_id, &preview).await;
     origin_escape_result.unwrap_or_else(|error| panic!("origin escape was not blocked: {error}"));
+    seeded_defect_result
+        .unwrap_or_else(|error| panic!("seeded browser defect was not reported: {error}"));
     let output = driver_result.unwrap();
     assert!(output.completed);
     assert_eq!(output.assertions.len(), 1);
