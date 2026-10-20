@@ -21,26 +21,6 @@ use super::staging::WorkerStager;
 use dispatch::{CacheTransfers, DispatchContext, SystemImageTransfers, dispatch};
 use journal::{Lookup, RequestJournal};
 
-/// Serve one bounded framed session. SSH performs peer authentication; this
-/// layer validates protocol identity and delegates all authority checks to the
-/// worker's application-owned `ExecutionBackend`.
-pub fn serve_stdio(
-    backend: Arc<dyn ExecutionBackend>,
-    input: impl Read,
-    output: impl Write,
-) -> io::Result<()> {
-    serve_stdio_with_stager(backend, None, input, output)
-}
-
-pub fn serve_stdio_with_stager(
-    backend: Arc<dyn ExecutionBackend>,
-    stager: Option<Arc<WorkerStager>>,
-    input: impl Read,
-    output: impl Write,
-) -> io::Result<()> {
-    serve_stdio_with_capacity(backend, stager, None, input, output)
-}
-
 pub(crate) fn serve_stdio_with_capacity(
     backend: Arc<dyn ExecutionBackend>,
     stager: Option<Arc<WorkerStager>>,

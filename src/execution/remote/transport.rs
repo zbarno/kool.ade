@@ -117,10 +117,6 @@ impl SshTransport {
         Ok(Some(envelope))
     }
 
-    pub fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
-        self.child.try_wait()
-    }
-
     pub fn terminate(&mut self) -> io::Result<()> {
         if self.child.try_wait()?.is_none() {
             self.child.kill()?;
