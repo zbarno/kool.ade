@@ -1,10 +1,11 @@
 use super::*;
 
-/// Rootless Docker boundary: a real browser interaction reaches a seeded
-/// same-origin wrong-destination defect and the typed URL assertion reports a
-/// failed finding. A request/parser unit test cannot prove Chromium observed
-/// the navigation from the fixture. Uses the candidate browser image and the
-/// already running Python preview; setup cost is one short driver container.
+/// Rootless Docker boundary: a real browser at a mobile viewport reaches a
+/// seeded same-origin wrong-destination defect, preserves visible page state,
+/// and reports the typed URL assertion as failed with viewport-bound screenshots.
+/// A request/parser unit test cannot prove Chromium observed the responsive
+/// fixture. Uses the candidate image and running Python preview; one short
+/// driver container is the setup cost.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn assert_seeded_wrong_destination_is_reported(
     docker: &bollard::Docker,
@@ -31,6 +32,24 @@ pub(super) async fn assert_seeded_wrong_destination_is_reported(
                 true,
             ),
             super::step(
+                QaDriverActionV1::BrowserSetViewport {
+                    width: 390,
+                    height: 844,
+                },
+                "The preview is rendered at a mobile viewport",
+                true,
+            ),
+            super::step(
+                QaDriverActionV1::BrowserAssertText {
+                    locator: QaBrowserLocatorV1::TestId {
+                        test_id: "status".into(),
+                    },
+                    expected_text: "Ready".into(),
+                },
+                "The status remains visible at the mobile viewport",
+                false,
+            ),
+            super::step(
                 QaDriverActionV1::BrowserClick {
                     locator: QaBrowserLocatorV1::Role {
                         role: "button".into(),
@@ -48,9 +67,12 @@ pub(super) async fn assert_seeded_wrong_destination_is_reported(
                 true,
             ),
         ],
-        expected_results: vec!["The Open details action stays on the preview root.".into()],
+        expected_results: vec![
+            "The mobile preview keeps its status visible and Open details stays on the preview root."
+                .into(),
+        ],
         negative_paths: vec![],
-        visual_expectations: vec![],
+        visual_expectations: vec!["The preview fits a 390 by 844 mobile viewport.".into()],
         redaction_regions: vec![],
         priority: 1,
     };
@@ -113,11 +135,16 @@ pub(super) async fn assert_seeded_wrong_destination_is_reported(
         }
         let report = parse_browser_output(&output.stdout, request, &scenario)?;
         if !report.completed
-            || report.assertions.len() != 1
-            || report.assertions[0].status != crate::runtime_qa::QaAssertionStatus::Failed
+            || report.assertions.len() != 2
+            || report.assertions[0].status != crate::runtime_qa::QaAssertionStatus::Passed
+            || report.assertions[1].status != crate::runtime_qa::QaAssertionStatus::Failed
+            || !report
+                .screenshots
+                .iter()
+                .any(|screenshot| screenshot.width == 390 && screenshot.height == 844)
         {
             return Err(
-                "browser driver did not convert the observed wrong destination into a failed assertion"
+                "browser driver did not capture the mobile viewport and failed wrong-destination assertion"
                     .into(),
             );
         }
