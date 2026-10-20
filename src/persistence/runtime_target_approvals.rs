@@ -17,7 +17,6 @@ pub(crate) use origin::{
     has_custom_target_origin, has_trusted_adapter_recipe_origin, save_custom_target_origin,
     save_discovered_target_origin,
 };
-#[cfg(test)]
 pub(crate) use origin::{has_discovered_target_origin, save_trusted_adapter_recipe_origin};
 
 const MAX_BYTES: u64 = 16 * 1024;

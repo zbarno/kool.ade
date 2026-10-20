@@ -56,6 +56,17 @@ target remains `ReadyButUntested`; approval is not QA evidence. Target
 selection remains an explicit Task Details action when the manifest has
 multiple targets.
 
+For a discovered target with no recipes, Task Details offers a small trusted
+test adapter only when the checked-out metadata identifies Rust, JavaScript,
+Python, or Go at that exact target root. Applying it is a separate explicit
+user action. The controller rescans the selected task checkout, uses a fixed
+discrete argv template with network denied, and asks the runtime store to bind
+the recipe to locally recorded discovery provenance. Unknown stacks keep the
+manual recipe path. Build and Start stay on that path because their artifact
+allowlist and surface-specific readiness require project-specific values. The
+adapter action records an approved recipe; it does not execute it or create a
+passing build/test receipt.
+
 `ExecutionRecipeV1` stores a logical executor tool ID and discrete arguments.
 It rejects shell-evaluation switches, absolute or parent-traversing paths,
 protected environment variables, unbounded timeouts, and Git metadata output.

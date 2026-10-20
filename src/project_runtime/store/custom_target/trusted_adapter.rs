@@ -33,8 +33,12 @@ impl<'a> ProjectRuntimeStore<'a> {
             .position(|target| target.target_id == target_id)
             .ok_or_else(|| StoreError::MalformedState("runtime target is missing".into()))?;
         let before = manifest.candidate_targets[target_index].clone();
-        let discovered_sha = ProjectRuntimeStore::discovered_target_origin_sha256(&before)
-            .map_err(StoreError::MalformedState)?;
+        let discovered_sha = ProjectRuntimeStore::discovered_target_origin_sha256(
+            &manifest.workspace_id,
+            &manifest.source_sha,
+            &before,
+        )
+        .map_err(StoreError::MalformedState)?;
         if !crate::persistence::runtime_target_approvals::has_discovered_target_origin(
             &manifest.workspace_id,
             &before.owning_task_id,
@@ -126,8 +130,6 @@ impl<'a> ProjectRuntimeStore<'a> {
         manifest.recipes.push(recipe);
         manifest.revision = next_revision;
         manifest.validate().map_err(StoreError::MalformedState)?;
-        self.save_manifest(&manifest, expected_manifest_revision)?;
-
         let target = &manifest.candidate_targets[target_index];
         let recipe_ids = super::target_recipe_ids(target);
         let recipes = manifest
@@ -183,6 +185,7 @@ impl<'a> ProjectRuntimeStore<'a> {
             &origin_sha,
         )
         .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        self.save_manifest(&manifest, expected_manifest_revision)?;
         Ok(manifest)
     }
 }

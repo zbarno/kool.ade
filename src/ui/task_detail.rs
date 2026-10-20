@@ -268,6 +268,12 @@ pub enum Command {
         readiness_path: String,
         expected_manifest_revision: u64,
     },
+    ApplyRuntimeAdapter {
+        ticket: String,
+        target_id: String,
+        operation: RuntimeRecipeOperation,
+        expected_manifest_revision: u64,
+    },
     AddRuntimeTarget {
         ticket: String,
         app_surface: crate::project_runtime::AppSurface,

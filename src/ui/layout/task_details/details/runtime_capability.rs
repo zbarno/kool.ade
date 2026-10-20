@@ -166,8 +166,24 @@ fn recipe_form(
             draft.executable_id = suggestion.executable_id.into();
             draft.argv_lines = suggestion.argv.join("\n");
         }
+        if operation == task_detail::RuntimeRecipeOperation::Test
+            && target.recipes.is_empty()
+            && ui
+                .button("Apply and approve trusted test adapter")
+                .clicked()
+        {
+            dispatch(
+                surface,
+                task_detail::Command::ApplyRuntimeAdapter {
+                    ticket: ticket.to_owned(),
+                    target_id: target.target_id.clone(),
+                    operation,
+                    expected_manifest_revision: revision,
+                },
+            );
+        }
         if target.detected_language.is_some() {
-            ui.label("Adapter templates only prefill visible argv. Inspect and approve a recipe before it can run.");
+            ui.label("Templates are hints. The trusted test adapter uses a fixed argv and requires a separate explicit action; it does not run the recipe.");
         }
         ui.horizontal(|ui| {
             ui.label("Executable ID");

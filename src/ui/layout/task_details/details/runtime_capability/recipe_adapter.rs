@@ -1,4 +1,7 @@
-use crate::ui::task_detail::RuntimeRecipeOperation;
+use crate::{
+    project_runtime::{RuntimeOperation, trusted_adapter_template},
+    ui::task_detail::RuntimeRecipeOperation,
+};
 
 pub(super) struct Suggestion {
     pub label: &'static str,
@@ -10,20 +13,23 @@ pub(super) fn suggestion(
     language: Option<&str>,
     operation: RuntimeRecipeOperation,
 ) -> Option<Suggestion> {
-    let (label, executable_id, argv) = match (language?, operation) {
-        ("Rust", RuntimeRecipeOperation::Build) => ("Cargo", "cargo", &["build", "--locked"][..]),
-        ("Rust", RuntimeRecipeOperation::Test) => ("Cargo", "cargo", &["test", "--locked"][..]),
-        ("JavaScript", RuntimeRecipeOperation::Build) => ("Node", "npm", &["run", "build"][..]),
-        ("JavaScript", RuntimeRecipeOperation::Test) => ("Node", "npm", &["test"][..]),
-        ("JavaScript", RuntimeRecipeOperation::Start) => ("Node", "npm", &["run", "start"][..]),
-        ("Python", RuntimeRecipeOperation::Test) => ("Python", "python", &["-m", "pytest"][..]),
-        ("Go", RuntimeRecipeOperation::Test) => ("Go", "go", &["test", "./..."][..]),
+    let runtime_operation = match operation {
+        RuntimeRecipeOperation::Build => RuntimeOperation::Build,
+        RuntimeRecipeOperation::Test => RuntimeOperation::Test,
+        RuntimeRecipeOperation::Start => RuntimeOperation::Start,
+    };
+    let template = trusted_adapter_template(language, runtime_operation)?;
+    let label = match template.executable_id {
+        "cargo" => "Cargo",
+        "npm" => "Node",
+        "python" => "Python",
+        "go" => "Go",
         _ => return None,
     };
     Some(Suggestion {
         label,
-        executable_id,
-        argv,
+        executable_id: template.executable_id,
+        argv: template.argv,
     })
 }
 
@@ -37,16 +43,11 @@ mod tests {
         let cases = [
             (
                 "Rust",
-                Operation::Build,
+                Operation::Test,
                 "cargo",
-                ["build", "--locked"].as_slice(),
+                ["test", "--locked"].as_slice(),
             ),
-            (
-                "JavaScript",
-                Operation::Start,
-                "npm",
-                ["run", "start"].as_slice(),
-            ),
+            ("JavaScript", Operation::Test, "npm", ["test"].as_slice()),
             (
                 "Python",
                 Operation::Test,

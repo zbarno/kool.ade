@@ -1,11 +1,14 @@
 //! Stack-agnostic project build, test, launch, and readiness contracts.
 
+mod adapter;
 mod discovery;
 mod executor;
 mod recipe;
 mod store;
 mod target;
 
+pub(crate) use adapter::trusted_adapter_template;
+pub(crate) use discovery::target_id_for_evidence_path;
 pub use discovery::{
     DiscoveryContext, DiscoveryEvidence, add_user_target_override, apply_user_recipe_override,
     detect_candidate_targets, discover_manifest,

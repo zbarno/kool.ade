@@ -9,7 +9,6 @@ use crate::project_runtime::{
 
 mod approval;
 mod provenance;
-#[cfg(test)]
 mod trusted_adapter;
 use approval::{
     RuntimeTargetApprovalRecordV1, approval_path,

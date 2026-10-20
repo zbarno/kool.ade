@@ -63,8 +63,12 @@ impl<'a> ProjectRuntimeStore<'a> {
         // failed later write can leave only inert local records, never a visible
         // discovered target whose provenance was only partially recorded.
         for target in &manifest.candidate_targets {
-            let origin_sha = Self::discovered_target_origin_sha256(target)
-                .map_err(StoreError::MalformedState)?;
+            let origin_sha = Self::discovered_target_origin_sha256(
+                &manifest.workspace_id,
+                &manifest.source_sha,
+                target,
+            )
+            .map_err(StoreError::MalformedState)?;
             crate::persistence::runtime_target_approvals::save_discovered_target_origin(
                 &manifest.workspace_id,
                 &target.owning_task_id,

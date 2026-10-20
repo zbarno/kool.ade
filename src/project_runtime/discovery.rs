@@ -9,6 +9,11 @@ use super::{
 mod scan;
 pub use scan::{DiscoveryEvidence, detect_candidate_targets};
 
+pub(crate) fn target_id_for_evidence_path(evidence_path: &str) -> String {
+    let digest = format!("{:x}", sha2::Sha256::digest(evidence_path.as_bytes()));
+    format!("target-{}", &digest[..20])
+}
+
 /// Identity pinned by the task controller before inspecting a project tree.
 /// Discovery never infers repository, task, or source revision from project files.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -46,14 +51,13 @@ pub fn discover_manifest(
             .filter(|parent| !parent.as_os_str().is_empty())
             .map(|parent| parent.to_string_lossy().replace('\\', "/"))
             .unwrap_or_else(|| ".".into());
-        let digest = format!("{:x}", sha2::Sha256::digest(item.evidence_path.as_bytes()));
         let capability_state = if item.candidate_surface == AppSurface::UnsupportedTarget {
             TargetCapabilityState::UnsupportedPlatform
         } else {
             TargetCapabilityState::ReadyButUntested
         };
         candidate_targets.push(AppTargetV1 {
-            target_id: format!("target-{}", &digest[..20]),
+            target_id: target_id_for_evidence_path(&item.evidence_path),
             owning_task_id: context.owning_task_id.clone(),
             repository_id: context.repository_id.clone(),
             app_surface: item.candidate_surface,

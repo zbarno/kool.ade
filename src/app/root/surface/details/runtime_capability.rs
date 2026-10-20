@@ -68,10 +68,7 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         .map(|target| RuntimeTargetChoice {
             target_id: target.target_id.clone(),
             app_surface: target.app_surface,
-            detected_language: target_language(
-                &target.project_relative_root,
-                &manifest.evidence_refs,
-            ),
+            detected_language: target_language(&target.target_id, &manifest.evidence_refs),
             label: format!(
                 "{:?} · {}",
                 target.app_surface, target.project_relative_root
@@ -118,17 +115,12 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
     Some(view)
 }
 
-fn target_language(root: &str, evidence_refs: &[String]) -> Option<String> {
+fn target_language(target_id: &str, evidence_refs: &[String]) -> Option<String> {
     evidence_refs.iter().find_map(|evidence| {
-        let path = std::path::Path::new(evidence);
-        let parent = path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map(|parent| parent.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|| ".".into());
-        if parent != root {
+        if crate::project_runtime::target_id_for_evidence_path(evidence) != target_id {
             return None;
         }
+        let path = std::path::Path::new(evidence);
         match path.file_name()?.to_str()? {
             "Cargo.toml" => Some("Rust".into()),
             "package.json" => Some("JavaScript".into()),
@@ -165,16 +157,47 @@ mod tests {
         ];
 
         assert_eq!(
-            target_language("apps/web", &evidence).as_deref(),
+            target_language(
+                &crate::project_runtime::target_id_for_evidence_path("apps/web/package.json"),
+                &evidence,
+            )
+            .as_deref(),
             Some("JavaScript")
         );
         assert_eq!(
-            target_language("services/api", &evidence).as_deref(),
+            target_language(
+                &crate::project_runtime::target_id_for_evidence_path("services/api/go.mod"),
+                &evidence,
+            )
+            .as_deref(),
             Some("Go")
         );
-        assert_eq!(target_language(".", &evidence).as_deref(), Some("Rust"));
-        assert_eq!(target_language("apps/unknown", &evidence), None);
-        assert_eq!(target_language("apps", &evidence), None);
+        assert_eq!(
+            target_language(
+                &crate::project_runtime::target_id_for_evidence_path("Cargo.toml"),
+                &evidence,
+            )
+            .as_deref(),
+            Some("Rust")
+        );
+        assert_eq!(target_language("unknown-target", &evidence), None);
+    }
+
+    #[test]
+    fn target_language_does_not_confuse_same_root_polyglot_candidates() {
+        let evidence = vec!["Cargo.toml".to_owned(), "package.json".to_owned()];
+        let rust_target = crate::project_runtime::target_id_for_evidence_path("Cargo.toml");
+        let node_target = crate::project_runtime::target_id_for_evidence_path("package.json");
+
+        assert_ne!(rust_target, node_target);
+        assert_eq!(
+            target_language(&rust_target, &evidence).as_deref(),
+            Some("Rust")
+        );
+        assert_eq!(
+            target_language(&node_target, &evidence).as_deref(),
+            Some("JavaScript")
+        );
     }
 
     #[test]

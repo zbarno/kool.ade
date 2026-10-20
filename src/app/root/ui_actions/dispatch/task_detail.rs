@@ -157,6 +157,17 @@ pub(super) fn dispatch(app: &mut KooladeApp, command: TaskDetailCommand) {
             &readiness_path,
             expected_manifest_revision,
         ),
+        TaskDetailCommand::ApplyRuntimeAdapter {
+            ticket,
+            target_id,
+            operation,
+            expected_manifest_revision,
+        } => app.apply_runtime_adapter(
+            &ticket,
+            &target_id,
+            operation,
+            expected_manifest_revision,
+        ),
         TaskDetailCommand::AddRuntimeTarget {
             ticket,
             app_surface,

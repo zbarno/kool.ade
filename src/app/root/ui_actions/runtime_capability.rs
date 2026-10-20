@@ -9,6 +9,7 @@ use crate::{
 
 mod recipe_artifacts;
 mod target_override;
+mod trusted_adapter;
 
 impl KooladeApp {
     #[allow(clippy::too_many_arguments)]
