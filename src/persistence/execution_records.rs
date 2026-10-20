@@ -13,6 +13,8 @@ mod store;
 #[path = "execution_records/tests.rs"]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use journal::load_events_with_root as load_events_at;
 pub use journal::{append_event, journal_cursor, load_events};
 pub use owner::{owner_instance_id, try_task_lock, unfinished_for_owner};
 pub(crate) use owner::{owner_instance_id_at, unfinished_for_owner_at};

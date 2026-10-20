@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, fs, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::execution::contract::{EventPageRequestV1, EventStreamValidator, ExecutionEventV1};
 
@@ -16,19 +20,19 @@ fn within_journal_limits(event_count: usize, current_bytes: u64, added_bytes: us
         && current_bytes.saturating_add(added_bytes as u64) <= MAX_JOURNAL_BYTES
 }
 
-fn journal_path(task_id: &str, execution_id: &str) -> Result<PathBuf, String> {
+fn journal_path(state_root: &Path, task_id: &str, execution_id: &str) -> Result<PathBuf, String> {
     if !super::record::is_canonical_uuid(task_id) || !super::record::is_canonical_uuid(execution_id)
     {
         return Err("execution journal identity is invalid".into());
     }
-    Ok(task_directory(task_id, false)?.join(format!("{execution_id}.events")))
+    Ok(task_directory(state_root, task_id, false)?.join(format!("{execution_id}.events")))
 }
 
-fn task_directory(task_id: &str, create: bool) -> Result<PathBuf, String> {
+fn task_directory(state_root: &Path, task_id: &str, create: bool) -> Result<PathBuf, String> {
     if !super::record::is_canonical_uuid(task_id) {
         return Err("execution journal task identity is invalid".into());
     }
-    let root = crate::persistence::state_root();
+    let root = state_root.to_path_buf();
     let executions = root.join("executions");
     let task = executions.join(task_id);
     for directory in [&root, &executions, &task] {
@@ -56,13 +60,14 @@ pub fn append_event(task_id: &str, event: &ExecutionEventV1) -> Result<(), Strin
 
 fn append_event_locked(task_id: &str, event: &ExecutionEventV1) -> Result<(), String> {
     event.validate().map_err(|_| "execution event is invalid")?;
-    let path = journal_path(task_id, &event.execution_id)?;
+    let state_root = crate::persistence::state_root();
+    let path = journal_path(&state_root, task_id, &event.execution_id)?;
     let task_id = path
         .parent()
         .and_then(|path| path.file_name())
         .and_then(|value| value.to_str())
         .ok_or_else(|| "execution journal task identity is invalid".to_owned())?;
-    let parent = task_directory(task_id, true)?;
+    let parent = task_directory(&state_root, task_id, true)?;
     if path.parent() != Some(parent.as_path()) {
         return Err("execution journal parent changed".into());
     }
@@ -130,10 +135,24 @@ pub fn load_events(
     execution_id: &str,
     page: EventPageRequestV1,
 ) -> Result<Vec<ExecutionEventV1>, String> {
+    load_events_with_root(
+        &crate::persistence::state_root(),
+        task_id,
+        execution_id,
+        page,
+    )
+}
+
+pub(crate) fn load_events_with_root(
+    state_root: &Path,
+    task_id: &str,
+    execution_id: &str,
+    page: EventPageRequestV1,
+) -> Result<Vec<ExecutionEventV1>, String> {
     if !(1..=256).contains(&page.max_events) {
         return Err("execution journal page size is invalid".into());
     }
-    let path = journal_path(task_id, execution_id)?;
+    let path = journal_path(state_root, task_id, execution_id)?;
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -211,7 +230,7 @@ pub fn journal_cursor(task_id: &str, execution_id: &str) -> Result<u64, String> 
             max_events: 1,
         },
     )?;
-    let path = journal_path(task_id, execution_id)?;
+    let path = journal_path(&crate::persistence::state_root(), task_id, execution_id)?;
     let mut last = 0_u64;
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,

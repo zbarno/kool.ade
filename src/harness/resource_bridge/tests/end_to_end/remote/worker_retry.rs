@@ -80,8 +80,21 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         sshd.add_controller_known_host(worker_id).unwrap();
         let probe = RemoteWorkerClient::connect_for_probe(worker)
             .expect("fixture worker must pass the real SSH capability probe");
-        crate::persistence::remote_workers::trust_reported_capabilities(worker_id, probe.probe())
-            .expect("test enrollment must explicitly trust the reported image and policy");
+        let probe = probe.probe();
+        assert!(probe.available && probe.compatible && probe.failure.is_none());
+        let architecture = probe.architecture.as_deref().unwrap();
+        let image = crate::execution::docker::images::ImageLock::bundled()
+            .unwrap()
+            .select(RuntimeProfile::General, architecture)
+            .unwrap();
+        crate::persistence::remote_workers::configure(
+            worker_id,
+            true,
+            1,
+            vec![architecture.to_owned()],
+            vec![image.digest],
+        )
+        .expect("test enrollment explicitly grants the selected executor image");
     }
     assert!(dispatcher.is_file());
 
@@ -149,10 +162,16 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     );
     let first_worker_id = session.target_id().to_owned();
     assert!(first_worker_id == worker_a_id || first_worker_id == worker_b_id);
-    let first_sshd_log = if first_worker_id == worker_a_id {
-        worker_a_root.join("sshd.log")
+    let (first_sshd_log, first_worker_home) = if first_worker_id == worker_a_id {
+        (
+            worker_a_root.join("sshd.log"),
+            worker_a_root.join("worker-state"),
+        )
     } else {
-        worker_b_root.join("sshd.log")
+        (
+            worker_b_root.join("sshd.log"),
+            worker_b_root.join("worker-state"),
+        )
     };
 
     let running_session = session.clone();
@@ -166,6 +185,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         &session,
         "first-worker-started",
         &mut controller,
+        &first_worker_home,
         &first_sshd_log,
     );
     session.terminate_remote_connection_for_test();
