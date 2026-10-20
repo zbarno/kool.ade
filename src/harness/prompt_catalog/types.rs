@@ -17,6 +17,7 @@ pub enum PromptRole {
     PlannerV2,
     PlannerConversation,
     PlanReviewer,
+    PlanReviewerV1,
     Decomposer,
     Implementer,
     CodeReviewer,
@@ -39,7 +40,8 @@ impl PromptRole {
             Self::Planner => "planner/v5",
             Self::PlannerV2 => "planner/v2",
             Self::PlannerConversation => "planner/v4",
-            Self::PlanReviewer => "plan_reviewer/v1",
+            Self::PlanReviewer => "plan_reviewer/v2",
+            Self::PlanReviewerV1 => "plan_reviewer/v1",
             Self::Decomposer => "decomposer/v2",
             Self::Implementer => "implementer/v1",
             Self::CodeReviewer => "code_review/v1",
@@ -63,6 +65,7 @@ impl PromptRole {
             Self::PlannerV2 => "PlannerOutputV1",
             Self::PlannerConversation => "PlanningTurnResponseV1",
             Self::PlanReviewer
+            | Self::PlanReviewerV1
             | Self::CodeReviewer
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2 => "ReviewVerdictV1",
@@ -84,7 +87,8 @@ impl PromptRole {
             Self::Planner => include_str!("../../../prompts/v5/planner.system.md"),
             Self::PlannerV2 => include_str!("../../../prompts/v2/planner.system.md"),
             Self::PlannerConversation => include_str!("../../../prompts/v4/planner.system.md"),
-            Self::PlanReviewer => include_str!("../../../prompts/v1/plan_review.system.md"),
+            Self::PlanReviewer => include_str!("../../../prompts/v2/plan_review.system.md"),
+            Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.system.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.system.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.system.md"),
             Self::CodeReviewer => include_str!("../../../prompts/v1/code_review.system.md"),
@@ -109,7 +113,8 @@ impl PromptRole {
             Self::Planner => include_str!("../../../prompts/v5/planner.user.md"),
             Self::PlannerV2 => include_str!("../../../prompts/v2/planner.user.md"),
             Self::PlannerConversation => include_str!("../../../prompts/v4/planner.user.md"),
-            Self::PlanReviewer => include_str!("../../../prompts/v1/plan_review.user.md"),
+            Self::PlanReviewer => include_str!("../../../prompts/v2/plan_review.user.md"),
+            Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.user.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.user.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.user.md"),
             Self::CodeReviewer => include_str!("../../../prompts/v1/code_review.user.md"),
@@ -136,6 +141,7 @@ impl PromptRole {
             | Self::SpecReconciler
             | Self::PrPreparer => "no_tools; propose_typed_actions_only",
             Self::PlanReviewer
+            | Self::PlanReviewerV1
             | Self::CodeReviewer
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2 => "read_only; isolated_fresh_review_context",

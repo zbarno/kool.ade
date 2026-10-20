@@ -89,6 +89,8 @@ pub fn render_product(
         },
         evidence_hashes,
         evidence_confidentialities,
+        planning_revision: project.state.baseline_planning_revision.clone(),
+        review_targets: std::collections::HashMap::new(),
         repo_root: Some(repo_root),
         _workspace_guard: Some(workspace_guard),
     }))

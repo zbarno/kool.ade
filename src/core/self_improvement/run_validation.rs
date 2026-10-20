@@ -1,15 +1,24 @@
-use super::validation::{is_digest, is_git_sha, is_uuid, valid_pr_url, valid_ref, valid_text};
+use super::validation::{
+    is_digest, is_git_sha, is_uuid, pr_number, valid_pr_url, valid_ref, valid_text,
+};
 use super::{SelfImprovementPhaseV1, SelfImprovementRunV1};
 
 impl SelfImprovementRunV1 {
     pub fn validate(&self) -> Result<(), String> {
         let valid_optional_digest = |value: &Option<String>| value.as_deref().is_none_or(is_digest);
-        if !matches!(self.schema_version, 1 | 2)
+        if !matches!(self.schema_version, 1..=3)
             || !is_uuid(&self.run_uid)
             || !is_uuid(&self.opportunity_uid)
             || !is_uuid(&self.approved_decision_uid)
             || !is_uuid(&self.target_repository_uid)
             || !is_uuid(&self.feature_uid)
+            || self
+                .parent_run_uid
+                .as_deref()
+                .is_some_and(|uid| !is_uuid(uid) || uid == self.run_uid)
+            || self.chain_depth > super::MAX_SELF_IMPROVEMENT_CHAIN_DEPTH
+            || self.parent_run_uid.is_some() != (self.chain_depth > 0)
+            || (self.schema_version < 3 && (self.parent_run_uid.is_some() || self.chain_depth != 0))
             || self
                 .capability_id
                 .as_deref()
@@ -135,6 +144,33 @@ impl SelfImprovementRunV1 {
             || self.pr_url.as_deref().is_some_and(|url| !valid_pr_url(url))
         {
             return Err("self-improvement run identity or provenance is invalid".into());
+        }
+        let parent_pr_work_items = self
+            .parent_task_progress
+            .iter()
+            .filter_map(|progress| progress.pr_work_item_uid.as_ref())
+            .collect::<std::collections::BTreeSet<_>>();
+        let parent_pr_urls = self
+            .parent_task_progress
+            .iter()
+            .filter_map(|progress| progress.pr_url.as_deref().and_then(pr_number))
+            .collect::<std::collections::BTreeSet<_>>();
+        if parent_pr_work_items.len()
+            != self
+                .parent_task_progress
+                .iter()
+                .filter(|progress| progress.pr_work_item_uid.is_some())
+                .count()
+            || parent_pr_urls.len()
+                != self
+                    .parent_task_progress
+                    .iter()
+                    .filter(|progress| progress.pr_url.is_some())
+                    .count()
+        {
+            return Err(
+                "each self-improvement parent task must use a distinct PR work item and URL".into(),
+            );
         }
         if self.task_uids.is_empty() != self.owner_task_uid.is_none() {
             return Err("self-improvement task ownership is incomplete".into());

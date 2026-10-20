@@ -11,25 +11,19 @@ pub(in crate::ui::layout::board::columns) fn approval(
         .find(|line| line.starts_with('#'))
         .map(|line| line.trim_start_matches('#').trim())
         .unwrap_or(&action.id);
-    let open = crate::ui::layout::task_cards::board_card(
-        ui,
-        &format!("feature-approval:{}", action.id),
-        None,
-        false,
-        true,
-        false,
-        |ui| {
+    let key = action.board_key();
+    let open =
+        crate::ui::layout::task_cards::board_card(ui, &key, None, false, true, false, |ui| {
             ui.horizontal(|ui| {
-                theme::badge(ui, "Specification", theme::PANEL, theme::TEXT_DIM);
+                theme::badge(ui, "Plan confirmation", theme::PANEL, theme::TEXT_DIM);
                 super::super::attention::badge(ui, super::super::attention::Kind::WaitingOnUser);
             });
             ui.label(RichText::new(title).strong().color(theme::TEXT));
             if ui.button("Review specification").clicked() {
-                *selected = Some(format!("feature-approval:{}", action.id));
+                *selected = Some(key.clone());
             }
-        },
-    );
+        });
     if open {
-        *selected = Some(format!("feature-approval:{}", action.id));
+        *selected = Some(key);
     }
 }

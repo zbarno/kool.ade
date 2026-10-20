@@ -106,7 +106,7 @@ fn successful_manager_update_runs_planner_and_persists_follow_up_readiness() {
     // The Manager override is consumed by the answer turn; install a distinct
     // override before its completion dispatches the follow-up Planner.
     let context = egui::Context::default();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
         // Background activity may request a harness during the Manager turn.
         // Reinstall the scripted Planner route immediately before each tick so

@@ -6,6 +6,7 @@ use crate::harness::prompt_catalog::PromptRole;
 
 mod opportunity;
 mod refs;
+mod review;
 mod spec_delta;
 mod task_graph;
 
@@ -34,6 +35,8 @@ pub struct OutputValidationContext<'a> {
     pub approved_decision_refs: Vec<String>,
     pub expected_subject_hash: Option<&'a str>,
     pub evidence_ids: HashSet<String>,
+    /// Exact supplied evidence text used to verify grounded contradiction quotes.
+    pub evidence_content: HashMap<String, String>,
     /// Current open clarification records the Planner may resolve by evidence.
     pub allowed_question_uids: HashSet<String>,
     pub required_requirements: Vec<String>,
@@ -84,83 +87,7 @@ pub fn validate_output_with_context(
             context.turn_purpose,
         )
     })?;
-    if let RoleOutputV1::Review(review) = &decoded {
-        if role == PromptRole::PlanReviewer && !review.pass && review.findings.is_empty() {
-            return Err(
-                "non-passing plan review requires an actionable finding for Manager disposition"
-                    .into(),
-            );
-        }
-        if let Some(expected) = context.expected_subject_hash
-            && review.subject_hash != expected
-        {
-            return Err("review subject hash does not match the immutable subject".into());
-        }
-        if review.pass
-            && review
-                .findings
-                .iter()
-                .any(|finding| matches!(finding.severity, Severity::Blocker | Severity::High))
-        {
-            return Err("review cannot pass with blocking or high-severity findings".into());
-        }
-        if review.pass
-            && (review
-                .coverage
-                .iter()
-                .any(|coverage| !matches!(coverage.status, CoverageStatus::Pass))
-                || !review.untested.is_empty())
-        {
-            return Err("review cannot pass with failed or untested requirements".into());
-        }
-        let actual: HashSet<_> = review
-            .coverage
-            .iter()
-            .map(|coverage| coverage.requirement.as_str())
-            .collect();
-        if actual.len() != review.coverage.len()
-            || context
-                .required_requirements
-                .iter()
-                .any(|requirement| !actual.contains(requirement.as_str()))
-        {
-            return Err("review coverage is duplicate or omits a required acceptance check".into());
-        }
-        if !context.required_requirements.is_empty()
-            && review.coverage.iter().any(|coverage| {
-                !context
-                    .required_requirements
-                    .contains(&coverage.requirement)
-            })
-        {
-            return Err(
-                "review coverage includes a requirement outside the approved matrix".into(),
-            );
-        }
-        for coverage in &review.coverage {
-            if matches!(coverage.status, CoverageStatus::Pass) && coverage.evidence.is_empty() {
-                return Err("passed review coverage requires cited evidence".into());
-            }
-            if matches!(coverage.status, CoverageStatus::Fail)
-                && !review
-                    .findings
-                    .iter()
-                    .any(|finding| finding.requirement == coverage.requirement)
-            {
-                return Err(
-                    "failed coverage requires a traceable finding; zero-findings review rejected"
-                        .into(),
-                );
-            }
-            validate_refs(&coverage.evidence, &context.evidence_ids)?;
-        }
-        for finding in &review.findings {
-            if finding.evidence.is_empty() {
-                return Err("review findings require cited evidence".into());
-            }
-            validate_refs(&finding.evidence, &context.evidence_ids)?;
-        }
-    }
+    review::validate(&decoded, role, context)?;
     if let RoleOutputV1::WorkResult(report) = &decoded {
         if report.schema_version != 2 {
             return Err(format!(
@@ -258,6 +185,7 @@ fn decode(
                 .map(RoleOutputV1::PlanningTurn)
         }
         PromptRole::PlanReviewer
+        | PromptRole::PlanReviewerV1
         | PromptRole::CodeReviewer
         | PromptRole::RuntimeQaReviewer
         | PromptRole::RuntimeQaReviewerV2 => parse!(ReviewVerdictV1, Review),

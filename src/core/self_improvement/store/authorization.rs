@@ -1,4 +1,4 @@
-use crate::artifacts::planning_store::StoreError;
+use crate::{artifacts::planning_store::StoreError, core::lifecycle::LifecycleStore};
 
 use super::SelfImprovementStore;
 use crate::core::self_improvement::{SelfImprovementPhaseV1, SelfImprovementRunV1};
@@ -65,18 +65,36 @@ impl SelfImprovementStore<'_> {
         use crate::core::opportunity::{OpportunityStore, OpportunityTargetKindV1};
 
         let opportunities = OpportunityStore::new(self.store);
-        if opportunities.list()?.iter().any(|proposal| {
-            proposal.target.kind == OpportunityTargetKindV1::KooladeProduct
-                && proposal
-                    .related_feature_uids
-                    .iter()
-                    .any(|uid| uid == feature_uid)
-        }) {
-            return Ok(true);
+        for proposal in opportunities.list()? {
+            if proposal.target.kind != OpportunityTargetKindV1::KooladeProduct {
+                continue;
+            }
+            if proposal
+                .related_feature_uids
+                .iter()
+                .any(|uid| uid == feature_uid)
+            {
+                return Ok(true);
+            }
+            for task_uid in &proposal.related_task_uids {
+                match LifecycleStore::new(self.store).load_task(task_uid) {
+                    Ok(task) if task.feature_uid == feature_uid => return Ok(true),
+                    Ok(_) => {}
+                    Err(StoreError::Io { source, .. })
+                        if source.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                }
+            }
         }
 
-        let feature =
-            crate::core::lifecycle::LifecycleStore::new(self.store).load_feature(feature_uid)?;
+        let lifecycle = LifecycleStore::new(self.store);
+        let feature = match lifecycle.load_feature(feature_uid) {
+            Ok(feature) => feature,
+            Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
         let opportunity_uid = feature.draft.lines().find_map(|line| {
             line.strip_prefix("<!-- opportunity-uid: ")
                 .and_then(|line| line.strip_suffix(" -->"))

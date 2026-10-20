@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 mod active_runs;
 mod authorization;
+mod lineage;
 mod records;
 #[cfg(test)]
 #[path = "store/tests.rs"]
@@ -93,7 +94,7 @@ impl<'a> SelfImprovementStore<'a> {
                 != Some(run.canonical_remote.as_str())
             || proposal.target.source_sha != run.source_sha
             || run.phase != SelfImprovementPhaseV1::ApprovedToPlan
-            || run.schema_version != 2
+            || run.schema_version != 3
             || run.revision != 0
         {
             return Err(StoreError::MalformedState(
@@ -106,6 +107,7 @@ impl<'a> SelfImprovementStore<'a> {
                 "self-improvement identity must be derived from its Pursue decision".into(),
             ));
         }
+        lineage::bind_parent(self, &proposal, &mut run)?;
         run.revision = 1;
         run.validate().map_err(StoreError::MalformedState)?;
         let now = now_unix_ms();
@@ -200,6 +202,7 @@ impl<'a> SelfImprovementStore<'a> {
         let path = run_path(uid)?;
         let (record, actual_revision) = self.store.read_record::<RunRecord>(&path)?;
         validate_run_record(&record, actual_revision, uid, &path)?;
+        lineage::validate_parent(self, &record.data)?;
         Ok(record.data)
     }
 

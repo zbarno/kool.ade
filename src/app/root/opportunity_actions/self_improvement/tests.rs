@@ -106,6 +106,31 @@ fn app_product_proposal(project: &mut crate::app::session::Project) -> String {
     proposal.opportunity_uid
 }
 
+/// Production boundary: dispatch an installation confirmation from a guest
+/// workspace and verify the app denies it before touching run state. A unit
+/// test cannot prove the UI command reaches the identity gate. Dependencies:
+/// headless app fixture and temporary stores; no external services. Setup cost:
+/// one fixture app and one command dispatch.
+#[test]
+fn guest_cannot_confirm_self_improvement_installation() {
+    let mut app = crate::app::root::board_tests::fixture();
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture should be connected")
+    };
+    project.state.identity.source = crate::domain::user::IdentitySource::Guest;
+
+    app.dispatch_ui_command(
+        crate::ui::ApplicationCommand::ConfirmSelfImprovementInstallation {
+            run_uid: uuid::Uuid::new_v4().to_string(),
+            expected_revision: 1,
+        },
+    );
+
+    assert!(app.toasts.last_message().is_some_and(|message| {
+        message.contains("Set a current user identity before confirming installation")
+    }));
+}
+
 /// Production boundary: exercise the board action, persisted user receipt,
 /// feature creation, and self-improvement run setup together. A unit test
 /// cannot prove the UI action wires those services in the right order. It

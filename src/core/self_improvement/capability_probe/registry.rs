@@ -39,6 +39,8 @@ fn registered_feature_probe_can_run_for_another_product_capability() {
         source_sha: "a".repeat(40),
         destination_ref: None,
         feature_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+        parent_run_uid: None,
+        chain_depth: 0,
         capability_id: Some("keyboard-navigation".into()),
         task_uids: vec![],
         owner_task_uid: None,

@@ -16,6 +16,7 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
             pass: false,
+            outcome: None,
             coverage: vec![CoverageV1 {
                 requirement: request.requirement_ids[0].clone(),
                 status: CoverageStatus::Fail,

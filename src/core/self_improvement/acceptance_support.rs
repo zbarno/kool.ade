@@ -233,7 +233,7 @@ pub(super) fn self_improvement_run(
     source_sha: &str,
 ) -> SelfImprovementRunV1 {
     SelfImprovementRunV1 {
-        schema_version: 2,
+        schema_version: 3,
         run_uid: SelfImprovementStore::run_uid_for_decision(decision_uid).unwrap(),
         opportunity_uid: proposal.opportunity_uid.clone(),
         approved_decision_uid: decision_uid.into(),
@@ -243,6 +243,8 @@ pub(super) fn self_improvement_run(
         source_sha: source_sha.into(),
         destination_ref: None,
         feature_uid: uid(),
+        parent_run_uid: None,
+        chain_depth: 0,
         capability_id: None,
         task_uids: vec![],
         owner_task_uid: None,

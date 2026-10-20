@@ -7,6 +7,9 @@ use super::{
 };
 use std::process::Command;
 
+#[path = "fixture/restarts.rs"]
+mod restarts;
+
 use crate::{
     artifacts::planning_store::{PlanningStore, StoreMode},
     core::{
@@ -149,52 +152,9 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
     assert_eq!(run.phase, Phase::Ready);
     let clone_uid = uid();
     let clone_event_uid = uid();
-    let project_id = planning.project_id;
-    let planning_root = planning.root.clone();
-    let run_uid = run.run_uid.clone();
-    let test_name = std::thread::current().name().unwrap().to_owned();
-    drop(planning);
-    // Production boundary: a fresh OS process reopens the managed planning
-    // store after plan approval, loads the run, and records clone allocation.
-    // The parent then reopens it and replays the same event to verify durable
-    // recovery and idempotency beyond a same-process store reopen.
-    let status = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", &test_name, "--nocapture"])
-        .env(
-            "KOOLADE_SELF_IMPROVEMENT_PROJECT_ID",
-            project_id.to_string(),
-        )
-        .env("KOOLADE_SELF_IMPROVEMENT_RUN_UID", &run_uid)
-        .env("KOOLADE_SELF_IMPROVEMENT_EVENT_UID", &clone_event_uid)
-        .env("KOOLADE_SELF_IMPROVEMENT_CLONE_UID", &clone_uid)
-        .env(super::RESTART_CHILD, &planning_root)
-        .status()
-        .unwrap();
-    assert_eq!(
-        status.code(),
-        Some(86),
-        "restart child must persist clone allocation and terminate immediately"
-    );
-    let planning = PlanningStore::new(project_id, planning_root, StoreMode::ManagedLocal);
+    let (planning, mut run) =
+        restarts::verify_clone_allocation_restart(planning, &run, &clone_event_uid, &clone_uid);
     let runs = SelfImprovementStore::new(&planning);
-    let mut run = runs.load(&run_uid).unwrap();
-    assert_eq!(run.phase, Phase::Implementing);
-    let resumed = runs
-        .apply_event(
-            &run_uid,
-            run.revision,
-            &clone_event_uid,
-            Event::CloneAllocated {
-                clone_uid: clone_uid.clone(),
-            },
-        )
-        .unwrap();
-    assert_eq!(
-        resumed, run,
-        "replaying the child process event must be idempotent"
-    );
-    run = resumed;
-    assert_eq!(run.phase, Phase::Implementing);
 
     let (clone, implementation_head, subject_sha256) =
         implement_in_isolated_local_clone(temp.path(), &source, changed);
@@ -296,6 +256,7 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
             url: "https://github.com/zbarno/kool.ade/pull/999999".into(),
         },
     );
+    let planning = restarts::verify_pr_open_restart(planning, &run);
     // A prepared PR can survive a planning-store reopen while the controller
     // waits for an external merge. Reopen before applying merge evidence, and
     // assert the PR state and URL come from durable records.

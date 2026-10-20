@@ -35,6 +35,7 @@ impl AiHarness for Fixture {
             let final_text = serde_json::json!({
                 "subject_hash": subject_hash,
                 "pass": true,
+                "outcome": "pass",
                 "coverage": requirements.iter().map(|requirement| serde_json::json!({
                     "requirement": requirement,
                     "status": "pass",

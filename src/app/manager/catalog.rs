@@ -1,5 +1,5 @@
 use sha2::Digest;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::ManagerOutput;
 use crate::harness::prompt_catalog::{
@@ -9,15 +9,22 @@ use crate::harness::prompt_catalog::{
 
 mod opportunities;
 mod product;
+pub(in crate::app::manager) mod reviews;
 pub(super) use opportunities::persist_opportunities;
 pub(super) use product::render_product;
 pub(super) const KOOLADE_PRODUCT_TARGET_REF: &str = "koolade-product";
+
+#[cfg(test)]
+#[path = "catalog/tests.rs"]
+mod tests;
 
 pub(super) struct ManagerPrompt {
     pub rendered: RenderedPrompt,
     pub validation: OutputValidationContext<'static>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
     pub evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
+    pub planning_revision: String,
+    pub review_targets: std::collections::HashMap<String, reviews::ReviewTarget>,
     pub repo_root: Option<std::path::PathBuf>,
     pub _workspace_guard: Option<tempfile::TempDir>,
 }
@@ -59,27 +66,73 @@ pub(super) fn render(
             id,
         )
     });
+    let koolade_product_repository_ref = project
+        .state
+        .repositories
+        .repositories
+        .iter()
+        .find(|repository| is_koolade_product_remote(&repository.remote))
+        .map(|repository| repository.id.clone());
     let summary = super::Manager::prompt_body(project, events);
     let trusted_evidence = opportunities::trusted_opportunity_evidence(project);
-    let mut evidence_hashes = std::collections::HashMap::from([(
-        "workspace-summary".into(),
-        format!("{:x}", sha2::Sha256::digest(summary.as_bytes())),
-    )]);
-    let mut evidence_ids = HashSet::from(["workspace-summary".to_owned()]);
-    for item in &trusted_evidence {
-        evidence_ids.insert(item.id.clone());
-        evidence_hashes.insert(
-            item.id.clone(),
-            format!("{:x}", sha2::Sha256::digest(item.content.as_bytes())),
-        );
-    }
-    let mut evidence_confidentialities = std::collections::HashMap::from([(
-        "workspace-summary".to_owned(),
-        EvidenceConfidentiality::WorkspacePrivate,
-    )]);
-    for item in &trusted_evidence {
-        evidence_confidentialities.insert(item.id.clone(), item.confidentiality);
-    }
+    let plan_review_evidence = reviews::current_review_evidence(project);
+    let mut evidence_manifest = vec![EvidenceItem {
+        id: "workspace-summary".into(),
+        workspace_uid: workspace_uid.clone(),
+        origin: EvidenceOrigin::Application,
+        confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+        source: "sanitized current workspace activity".into(),
+        content: summary,
+    }];
+    evidence_manifest.extend(trusted_evidence);
+    // Product discovery runs in its own product-only prompt and empty app-owned
+    // cwd. A workspace Manager must never mix even public product evidence into
+    // a user-project context.
+    let public_evidence_ids = HashSet::new();
+    let evidence_repository_refs = HashMap::new();
+    let latest_review_receipts = plan_review_evidence
+        .iter()
+        .map(|review| review.id.clone())
+        .collect();
+    let review_targets = plan_review_evidence
+        .iter()
+        .map(|review| {
+            evidence_manifest.push(review.item.clone());
+            evidence_manifest.extend(review.supporting_items.iter().cloned());
+            (
+                review.id.clone(),
+                reviews::ReviewTarget {
+                    feature_id: review.target.feature_id.clone(),
+                    revision: review.target.revision.clone(),
+                    finding_ids: review.target.finding_ids.clone(),
+                    finding_claims: review.target.finding_claims.clone(),
+                    evidence_ids: review.target.evidence_ids.clone(),
+                },
+            )
+        })
+        .collect();
+    evidence_manifest = deduplicate_evidence(evidence_manifest)?;
+    let evidence_ids = evidence_manifest
+        .iter()
+        .map(|item| item.id.clone())
+        .collect::<HashSet<_>>();
+    let evidence_hashes = evidence_manifest
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                format!("{:x}", sha2::Sha256::digest(item.content.as_bytes())),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let evidence_content = evidence_manifest
+        .iter()
+        .map(|item| (item.id.clone(), item.content.clone()))
+        .collect();
+    let evidence_confidentialities = evidence_manifest
+        .iter()
+        .map(|item| (item.id.clone(), item.confidentiality))
+        .collect();
     let allowed_repositories = project
         .state
         .repositories
@@ -110,16 +163,7 @@ pub(super) fn render(
             format!("{:x}", sha2::Sha256::digest(contract.as_bytes()))
         }),
         decision_refs: Vec::new(),
-        evidence_manifest: std::iter::once(EvidenceItem {
-            id: "workspace-summary".into(),
-            workspace_uid,
-            origin: EvidenceOrigin::Application,
-            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
-            source: "sanitized current workspace activity".into(),
-            content: summary,
-        })
-        .chain(trusted_evidence)
-        .collect(),
+        evidence_manifest,
         execution_policy_ref: "manager-policy/application-actions/v1".into(),
         output_schema_version: PromptRole::Manager.output_schema_version().into(),
         payload: RolePayloadV1::Manager {
@@ -131,22 +175,47 @@ pub(super) fn render(
                 .iter()
                 .map(|(task, issue)| format!("{task}: {}", issue.message))
                 .collect(),
-            latest_review_receipts: Vec::new(),
+            latest_review_receipts,
         },
     };
     Ok(ManagerPrompt {
         rendered: crate::harness::prompt_catalog::render(&input)?,
         validation: OutputValidationContext {
             evidence_ids,
+            evidence_content,
             allowed_repositories,
             active_repository_ref,
+            koolade_product_repository_ref,
+            public_evidence_ids,
+            evidence_repository_refs,
             ..Default::default()
         },
         evidence_hashes,
         evidence_confidentialities,
+        planning_revision: project.state.baseline_planning_revision.clone(),
+        review_targets,
         repo_root: None,
         _workspace_guard: None,
     })
+}
+
+fn deduplicate_evidence(items: Vec<EvidenceItem>) -> Result<Vec<EvidenceItem>, String> {
+    let mut seen = HashMap::<String, EvidenceItem>::new();
+    let mut unique = Vec::with_capacity(items.len());
+    for item in items {
+        if let Some(existing) = seen.get(&item.id) {
+            if existing != &item {
+                return Err(format!(
+                    "Manager evidence ID {} resolved to conflicting content",
+                    item.id
+                ));
+            }
+            continue;
+        }
+        seen.insert(item.id.clone(), item.clone());
+        unique.push(item);
+    }
+    Ok(unique)
 }
 
 fn active_repository_ref(project: &super::super::session::Project) -> Option<String> {
@@ -169,11 +238,24 @@ fn active_repository_ref(project: &super::super::session::Project) -> Option<Str
         .map(|repository| repository.id.clone())
 }
 
+fn is_koolade_product_remote(remote: &str) -> bool {
+    let remote = remote.trim().trim_end_matches(".git").to_ascii_lowercase();
+    matches!(
+        remote.as_str(),
+        "https://github.com/zbarno/kool.ade"
+            | "http://github.com/zbarno/kool.ade"
+            | "git@github.com:zbarno/kool.ade"
+            | "ssh://git@github.com/zbarno/kool.ade"
+    )
+}
+
 pub(super) fn decode(
     text: &str,
     context: &OutputValidationContext<'_>,
     evidence_hashes: std::collections::HashMap<String, String>,
     evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
+    planning_revision: String,
+    review_targets: &std::collections::HashMap<String, reviews::ReviewTarget>,
 ) -> Result<ManagerOutput, String> {
     let RoleOutputV1::Manager(output) =
         crate::harness::prompt_catalog::validate_output_with_context(
@@ -184,8 +266,15 @@ pub(super) fn decode(
     else {
         return Err("manager returned the wrong output schema".into());
     };
+    reviews::validate_dispositions(
+        &output.proposed_actions,
+        review_targets,
+        &context.evidence_ids,
+        &context.evidence_content,
+    )?;
+    let proposed_actions = output.proposed_actions;
     let mut lines = vec![output.summary];
-    for action in output.proposed_actions {
+    for action in &proposed_actions {
         lines.push(format!(
             "{:?}: {} — {}",
             action.kind, action.target, action.reason
@@ -202,8 +291,10 @@ pub(super) fn decode(
     }
     Ok(ManagerOutput {
         summary: lines.join("\n"),
+        proposed_actions,
         opportunities: output.opportunities,
         evidence_hashes,
         evidence_confidentialities,
+        planning_revision,
     })
 }

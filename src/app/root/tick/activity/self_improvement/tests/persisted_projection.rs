@@ -1,10 +1,10 @@
 use super::*;
 
-/// Production boundary: persisted opportunity decisions and lifecycle receipts flow through
-/// the app synchronizer into the durable self-improvement run projection. A unit test of receipt
-/// matching cannot prove the synchronizer reads persisted records in order or keeps the run from
-/// Ready while approval is incomplete. Uses temporary local stores and Git only; no Docker/network.
-/// Setup cost is one headless project fixture and a handful of local record writes.
+/// Production boundary: persisted opportunity, approval, clone, code-review, and runtime-QA
+/// records flow through the app synchronizer into the durable self-improvement run projection.
+/// A unit test of receipt matching cannot prove the synchronizer reads the persisted gates in
+/// order or keeps the run from advancing before each receipt exists. Uses temporary local stores
+/// and Git only; no Docker or network. Setup cost is one headless project fixture and local writes.
 #[test]
 fn synchronize_requires_persisted_user_and_independent_plan_approval_before_ready() {
     use crate::core::{
@@ -311,6 +311,7 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
     assert_app_idle(&mut app);
 
     clone_dispatch::verify_clone_dispatch(&mut app, &lifecycle, &runs, &run_uid, &task_uid);
+    review_qa::verify_reviewer_and_qa_projection(&mut app, &lifecycle, &runs, &run_uid, &task_uid);
 }
 
 #[path = "persisted_projection/clone_dispatch.rs"]
@@ -319,4 +320,6 @@ mod clone_dispatch;
 mod fixtures;
 #[path = "persisted_projection/question_flow.rs"]
 mod question_flow;
+#[path = "persisted_projection/review_qa.rs"]
+mod review_qa;
 use fixtures::*;

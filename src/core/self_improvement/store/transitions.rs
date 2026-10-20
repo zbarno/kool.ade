@@ -203,6 +203,7 @@ impl SelfImprovementStore<'_> {
         }
         let (mut record, actual_revision) = self.store.read_record::<RunRecord>(&path)?;
         validate_run_record(&record, actual_revision, run_uid, &path)?;
+        super::lineage::validate_parent(self, &record.data)?;
         if actual_revision != expected_revision {
             return Err(StoreError::StaleRecordRevision {
                 path,

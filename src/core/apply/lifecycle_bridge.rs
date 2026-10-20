@@ -2,6 +2,8 @@ use super::super::state::PlannerState;
 use crate::core::lifecycle::{LifecycleStore, TaskPhase, TaskRecord};
 use sha2::Digest;
 
+pub(super) mod readiness;
+
 pub(super) fn record_task_batch(
     state: &mut PlannerState,
     batch: &crate::core::workflow::TaskBatch,

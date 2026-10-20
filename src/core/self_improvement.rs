@@ -11,6 +11,8 @@ mod validation;
 pub use store::{SelfImprovementStore, SelfImprovementTransitionV1, TaskSourceAuthorization};
 pub(crate) use validation::canonical_product_remote;
 
+pub const MAX_SELF_IMPROVEMENT_CHAIN_DEPTH: u8 = 2;
+
 #[cfg(test)]
 #[path = "self_improvement/tests.rs"]
 mod tests;
@@ -112,6 +114,12 @@ pub struct SelfImprovementRunV1 {
     pub source_sha: String,
     pub destination_ref: Option<String>,
     pub feature_uid: String,
+    /// Parent improvement when this run was explicitly pursued from related
+    /// self-improvement work. The depth is durable and capped across restarts.
+    #[serde(default)]
+    pub parent_run_uid: Option<String>,
+    #[serde(default)]
+    pub chain_depth: u8,
     /// Product capability declared in the approved plan snapshot.
     #[serde(default)]
     pub capability_id: Option<String>,

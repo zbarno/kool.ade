@@ -69,7 +69,7 @@ fn opportunity() -> OpportunityV1 {
 fn run(decision_uid: &str, proposal: &OpportunityV1) -> SelfImprovementRunV1 {
     let feature_uid = uuid::Uuid::new_v4().to_string();
     SelfImprovementRunV1 {
-        schema_version: 2,
+        schema_version: 3,
         run_uid: SelfImprovementStore::run_uid_for_decision(decision_uid).unwrap(),
         opportunity_uid: proposal.opportunity_uid.clone(),
         approved_decision_uid: decision_uid.into(),
@@ -79,6 +79,8 @@ fn run(decision_uid: &str, proposal: &OpportunityV1) -> SelfImprovementRunV1 {
         source_sha: proposal.target.source_sha.clone(),
         destination_ref: None,
         feature_uid,
+        parent_run_uid: None,
+        chain_depth: 0,
         capability_id: None,
         task_uids: vec![],
         owner_task_uid: None,

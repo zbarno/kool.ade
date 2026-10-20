@@ -11,9 +11,20 @@ fn fixture(name: &str) -> Vec<u8> {
     .unwrap()
 }
 
+fn verify_fixture(
+    bytes: &[u8],
+    keyring: &[u8],
+    expected_fingerprints: &[&str],
+) -> anyhow::Result<SignedRelease> {
+    let signed_at = DateTime::parse_from_rfc3339("2026-10-18T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    verify_inrelease_with_keyring_at(bytes, keyring, expected_fingerprints, signed_at)
+}
+
 #[test]
 fn synthetic_signed_bookworm_release_is_accepted_and_scoped() {
-    let release = verify_inrelease_with_keyring(
+    let release = verify_fixture(
         &fixture("InRelease"),
         &fixture("archive-keyring.gpg"),
         &[SIGNER],
@@ -48,12 +59,9 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
         .position(|window| window == original)
         .unwrap();
     changed[offset..offset + original.len()].copy_from_slice(replacement);
+    assert!(verify_fixture(&changed, &fixture("archive-keyring.gpg"), &[SIGNER]).is_err());
     assert!(
-        verify_inrelease_with_keyring(&changed, &fixture("archive-keyring.gpg"), &[SIGNER])
-            .is_err()
-    );
-    assert!(
-        verify_inrelease_with_keyring(
+        verify_fixture(
             &fixture("InRelease"),
             BOOKWORM_KEYRING,
             BOOKWORM_FINGERPRINTS
@@ -66,13 +74,13 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
 fn unpinned_archive_keys_cannot_block_a_valid_pinned_signer() {
     let mut keyring = BOOKWORM_KEYRING.to_vec();
     keyring.extend(fixture("archive-keyring.gpg"));
-    let release = verify_inrelease_with_keyring(&fixture("InRelease"), &keyring, &[SIGNER]);
+    let release = verify_fixture(&fixture("InRelease"), &keyring, &[SIGNER]);
     assert!(release.is_ok());
 }
 
 #[test]
 fn signed_index_size_and_digest_are_enforced() {
-    let release = verify_inrelease_with_keyring(
+    let release = verify_fixture(
         &fixture("InRelease"),
         &fixture("archive-keyring.gpg"),
         &[SIGNER],
@@ -122,5 +130,7 @@ fn bookworm_release_accepts_debian_lifecycle_suite_label() {
 fn supplied_valid_until_is_enforced_even_when_date_is_recent() {
     let date = Utc::now().format("%a, %d %b %Y %H:%M:%S +0000");
     let expiry = (Utc::now() - chrono::Duration::minutes(1)).format("%a, %d %b %Y %H:%M:%S +0000");
-    assert!(validate_release_window(&date.to_string(), Some(&expiry.to_string())).is_err());
+    assert!(
+        validate_release_window(&date.to_string(), Some(&expiry.to_string()), Utc::now()).is_err()
+    );
 }

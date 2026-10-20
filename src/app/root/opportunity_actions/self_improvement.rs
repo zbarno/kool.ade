@@ -10,6 +10,39 @@ use crate::{
 #[path = "self_improvement/tests.rs"]
 mod tests;
 
+impl super::KooladeApp {
+    pub(in crate::app::root) fn confirm_self_improvement_installation(
+        &mut self,
+        run_uid: &str,
+        expected_revision: u64,
+    ) {
+        let super::Screen::Connected(project) = &mut self.screen else {
+            return;
+        };
+        if project.state.identity.source == crate::domain::IdentitySource::Guest {
+            self.toasts
+                .warning("Set a current user identity before confirming installation.");
+            return;
+        }
+        let operator_id = project.state.effective_user().name.trim().to_owned();
+        if operator_id.is_empty() {
+            self.toasts
+                .warning("Set a current user identity before confirming installation.");
+            return;
+        }
+        match SelfImprovementStore::new(&project.state.planning_store)
+            .record_installation_confirmation(run_uid, expected_revision, &operator_id)
+        {
+            Ok(_) => self
+                .toasts
+                .success("Installation confirmation recorded; capability readiness is pending."),
+            Err(error) => self
+                .toasts
+                .warning(format!("Could not confirm installation: {error}")),
+        }
+    }
+}
+
 pub(super) fn create_self_improvement_run(
     planning: &PlanningStore,
     opportunities: &OpportunityStore<'_>,
@@ -30,7 +63,7 @@ pub(super) fn create_self_improvement_run(
                 )
             })?;
     let run = SelfImprovementRunV1 {
-        schema_version: 2,
+        schema_version: 3,
         run_uid: SelfImprovementStore::run_uid_for_decision(&decision.uid)?,
         opportunity_uid: proposal.opportunity_uid.clone(),
         approved_decision_uid: decision.uid.clone(),
@@ -40,6 +73,8 @@ pub(super) fn create_self_improvement_run(
         source_sha: proposal.target.source_sha.clone(),
         destination_ref: None,
         feature_uid: feature_uid.to_owned(),
+        parent_run_uid: None,
+        chain_depth: 0,
         capability_id: None,
         task_uids: Vec::new(),
         owner_task_uid: None,

@@ -6,6 +6,14 @@ impl KooladeApp {
         {
             return;
         }
+        if self
+            .available_feature_actions(None)
+            .iter()
+            .any(|action| action.id == id && action.retry_review)
+        {
+            self.retry_plan_review(id);
+            return;
+        }
         // A second board action after independent review should update the
         // generation card, not write a fresh confirmation receipt. Replacing
         // that receipt would make the already recorded review stale.

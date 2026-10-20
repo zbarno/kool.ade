@@ -93,7 +93,8 @@ pub(super) fn render(
         capability_plan_guidance(&proposal.target.kind)
     });
     let contract = crate::core::workflow::feature_contract(feature_text);
-    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &project.state.planning_store,
         feature_id,
         &identity,
         feature_text,

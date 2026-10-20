@@ -42,7 +42,12 @@ pub(super) fn run(
         && crate::core::lifecycle::plan_snapshot::has_approved_review(
             &state.planning_store,
             snapshot,
-        )?)
+        )?
+        && crate::core::lifecycle::plan_snapshot::require_current_readiness(
+            &state.planning_store,
+            snapshot,
+        )
+        .is_ok())
     {
         anyhow::bail!(
             "Current immutable user-approved plan and independent review are required before decomposition"
@@ -90,7 +95,11 @@ pub(super) fn run(
         .to_string(),
         feature_uid: identity.uid.clone(),
         task_uid: None,
-        original_goal: snapshot.intent.clone(),
+        original_goal: if snapshot.original_goal.is_empty() {
+            snapshot.intent.clone()
+        } else {
+            snapshot.original_goal.clone()
+        },
         approved_spec_ref: Some(snapshot.uid.clone()),
         approved_spec_hash: Some(snapshot.content_hash.clone()),
         decision_refs: decision_refs.clone(),

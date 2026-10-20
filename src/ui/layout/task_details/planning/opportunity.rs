@@ -2,6 +2,7 @@ use crate::ui::{ApplicationCommand, Surface, planning_board::ViewModel, theme};
 use egui::Ui;
 
 mod evidence;
+mod self_improvement;
 
 pub(super) fn paint(
     ui: &mut Ui,
@@ -182,40 +183,7 @@ fn details(
         }
     }
     if let Some(run) = run {
-        ui.collapsing("Self-improvement progress", |ui| {
-            ui.label(format!("Current phase: {:?}", run.phase));
-            ui.label(format!("{} parent task(s)", run.task_uids.len()));
-            if let Some(url) = &run.pr_url {
-                ui.hyperlink_to("Open pull request", url);
-            }
-            if run.phase
-                == crate::core::self_improvement::SelfImprovementPhaseV1::MergedNotActivated
-            {
-                ui.colored_label(
-                    egui::Color32::YELLOW,
-                    "Merged; confirm after installing this build through the authorized update process",
-                );
-                if ui.button("Confirm installation").clicked() {
-                    surface.dispatch(ApplicationCommand::ConfirmSelfImprovementInstallation {
-                        run_uid: run.run_uid.clone(),
-                        expected_revision: run.revision,
-                    });
-                }
-            } else if run.phase
-                == crate::core::self_improvement::SelfImprovementPhaseV1::InstalledNotActivated
-            {
-                ui.colored_label(
-                    egui::Color32::YELLOW,
-                    "Installed; awaiting the app-owned capability readiness probe",
-                );
-            } else if run.phase == crate::core::self_improvement::SelfImprovementPhaseV1::Activated
-            {
-                ui.label(format!(
-                    "Activated version: {}",
-                    run.activated_version.as_deref().unwrap_or("unknown")
-                ));
-            }
-        });
+        self_improvement::paint_progress(ui, surface, run);
     }
 }
 

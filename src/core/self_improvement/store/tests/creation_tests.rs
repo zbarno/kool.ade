@@ -189,3 +189,6 @@ fn missing_active_index_is_rebuilt_from_durable_runs_before_reserving() {
         .unwrap_err();
     assert!(error.to_string().contains("active self-improvement limit"));
 }
+
+#[path = "creation_tests/lineage.rs"]
+mod lineage;

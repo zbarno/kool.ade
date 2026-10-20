@@ -13,6 +13,74 @@ impl KooladeApp {
             }) else {
                 return;
             };
+            if crate::app::manager::has_pending_plan_repair(project, feature_id) {
+                project.planning_work[index].status =
+                    crate::core::planning_work::WorkStatus::NeedsAttention;
+                project.planning_work[index].detail = "Blocked: Manager-directed plan repair has not been verified by a fresh independent review.".into();
+                if let Err(error) = project.save_planning_work() {
+                    self.toasts.danger(format!(
+                        "Manager plan repair remains unresolved, but the blocked task status could not be saved: {error}"
+                    ));
+                } else {
+                    self.toasts
+                        .warning(project.planning_work[index].detail.clone());
+                }
+                return;
+            }
+            if crate::app::manager::has_pending_plan_contest(project, feature_id) {
+                project.planning_work[index].status =
+                    crate::core::planning_work::WorkStatus::NeedsAttention;
+                project.planning_work[index].detail = "Blocked: a Manager-contested plan finding has not completed independent arbitration.".into();
+                if let Err(error) = project.save_planning_work() {
+                    self.toasts.danger(format!(
+                        "Manager plan arbitration remains unresolved, but the blocked task status could not be saved: {error}"
+                    ));
+                } else {
+                    self.toasts
+                        .warning(project.planning_work[index].detail.clone());
+                }
+                return;
+            }
+            let readiness_current = project
+                .state
+                .active_features
+                .iter()
+                .find(|(id, _)| id == feature_id)
+                .and_then(|(_, markdown)| {
+                    let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+                        .ok()
+                        .flatten()?;
+                    let contract = crate::core::workflow::feature_contract(markdown);
+                    crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+                        &project.state.planning_store,
+                        feature_id,
+                        &identity,
+                        markdown,
+                        &contract,
+                    )
+                    .ok()
+                })
+                .is_some_and(|snapshot| {
+                    crate::app::root::feature_approval::readiness::current(
+                        &project.state.planning_store,
+                        &snapshot,
+                    )
+                    .is_ok()
+                });
+            if !readiness_current {
+                project.planning_work[index].status =
+                    crate::core::planning_work::WorkStatus::NeedsAttention;
+                project.planning_work[index].detail = "Blocked: current readiness evidence is missing or stale. Reassess readiness before generating tasks.".into();
+                if let Err(error) = project.save_planning_work() {
+                    self.toasts.danger(format!(
+                        "Current plan readiness is required, but the blocked task status could not be saved: {error}"
+                    ));
+                } else {
+                    self.toasts
+                        .warning(project.planning_work[index].detail.clone());
+                }
+                return;
+            }
             if !crate::core::workflow::feature_approved(
                 &project.state.planning_store,
                 &project.state.workflow,
@@ -182,9 +250,12 @@ fn feature_branch_targets(
     default_branch: &str,
 ) -> crate::core::workflow::BranchTargets {
     let selected = works.iter().find(|work| {
-        work.kind != crate::core::planning_work::WorkKind::TaskGeneration
-            && (work.feature_uid.as_deref() == feature_uid && feature_uid.is_some()
-                || work.feature_id.as_deref() == Some(feature_id))
+        !matches!(
+            work.kind,
+            crate::core::planning_work::WorkKind::TaskGeneration
+                | crate::core::planning_work::WorkKind::PlanReviewDisposition
+        ) && (work.feature_uid.as_deref() == feature_uid && feature_uid.is_some()
+            || work.feature_id.as_deref() == Some(feature_id))
     });
     crate::core::workflow::BranchTargets {
         source: selected

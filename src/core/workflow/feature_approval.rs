@@ -205,73 +205,9 @@ pub fn feature_approved<R: crate::artifacts::planning_store::PlanningRoot + ?Siz
             .unwrap_or(false)
 }
 
-/// Persist or recover an independent review only when it still refers to the
-/// exact currently confirmed plan snapshot. Legacy receipt-only records are
-/// upgraded only by a fresh review result.
-pub fn record_plan_review_if_current<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
-    repo: &R,
-    id: &str,
-    receipt: &crate::core::lifecycle::GateReceipt,
-    verdict: &crate::harness::prompt_catalog::ReviewVerdictV1,
-    expected_revision: &str,
-) -> anyhow::Result<String> {
-    let _guard = crate::core::writer_gate::acquire();
-    let store = repo.planning_store();
-    let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
-    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
-    let contract = feature_contract(&text);
-    anyhow::ensure!(
-        crate::persistence::feature_approvals::contains(&store.git_root(), id, &contract),
-        "plan review requires current user confirmation"
-    );
-    let identity = crate::domain::ArtifactIdentity::from_markdown(&text)?
-        .ok_or_else(|| anyhow::anyhow!("feature has no stable artifact identity"))?;
-    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
-        &store, id, &identity, &text, &contract,
-    )
-    .map_err(anyhow::Error::msg)?;
-    anyhow::ensure!(
-        crate::core::lifecycle::plan_snapshot::has_user_confirmation(&store, &snapshot)?,
-        "plan review requires a persisted user confirmation receipt for this exact snapshot"
-    );
-    anyhow::ensure!(
-        crate::core::lifecycle::plan_snapshot::is_persisted(&store, &snapshot)?,
-        "reviewed plan snapshot is not persisted"
-    );
-    let (paths, revision) = match crate::core::lifecycle::plan_snapshot::review_change(
-        &store, &snapshot, receipt, verdict,
-    )? {
-        Some((record_path, bytes, check)) => store.transaction_with_revision_and_record_revisions(
-            &[(record_path, bytes)],
-            Some(expected_revision),
-            &[check],
-        )?,
-        None => (
-            vec![format!(
-                "state/lifecycle_plan_reviews/{}.json",
-                snapshot.uid
-            )],
-            store.revision()?,
-        ),
-    };
-    let result = crate::core::gitops::commit(
-        &store.git_root(),
-        &format!("planner: record independent plan review {id}"),
-        &paths
-            .iter()
-            .map(|path| store.git_path(path))
-            .collect::<Vec<_>>(),
-    );
-    result.map_err(|error| anyhow::anyhow!("review saved but checkpoint failed: {error}"))?;
-    let persisted_verdict =
-        crate::core::lifecycle::plan_snapshot::plan_review_verdict(&store, &snapshot)?
-            .ok_or_else(|| anyhow::anyhow!("structured plan review verdict was not persisted"))?;
-    anyhow::ensure!(
-        persisted_verdict == *verdict,
-        "persisted plan review verdict differs from the reviewed result"
-    );
-    Ok(revision)
-}
+#[path = "feature_approval/review.rs"]
+mod review;
+pub use review::{record_plan_arbitration_if_current, record_plan_review_if_current};
 
 pub fn feature_approval_lapsed<R: crate::artifacts::planning_store::PlanningRoot + ?Sized>(
     repo: &R,

@@ -3,6 +3,9 @@ use super::{
     SelfImprovementPhaseV1 as Phase, SelfImprovementRunV1,
 };
 
+#[path = "tests/parent_progress.rs"]
+mod parent_progress;
+
 fn uid(last: u8) -> String {
     format!("00000000-0000-4000-8000-{last:012x}")
 }
@@ -27,6 +30,8 @@ fn run() -> SelfImprovementRunV1 {
         source_sha: commit('a'),
         destination_ref: None,
         feature_uid: uid(5),
+        parent_run_uid: None,
+        chain_depth: 0,
         capability_id: None,
         task_uids: vec![],
         owner_task_uid: None,
@@ -80,78 +85,6 @@ fn self_improvement_requires_an_explicit_reviewed_plan_before_clone_allocation()
     run.apply(3, Event::CloneAllocated { clone_uid: uid(7) })
         .unwrap();
     assert_eq!(run.phase, Phase::Implementing);
-}
-
-#[test]
-fn self_improvement_tracks_progress_for_every_independent_parent_task() {
-    let mut run = run();
-    run.apply(1, Event::BeginPlanning).unwrap();
-    run.apply(
-        2,
-        Event::PlanApproved {
-            approval_sha256: sha('b'),
-            capability_id: Some("self-improvement-lifecycle".into()),
-            review_uid: uid(8),
-            source_ref: "feature/approved-source".into(),
-            destination_ref: "main".into(),
-            task_uids: vec![uid(6), uid(7)],
-            owner_task_uid: uid(6),
-            parent_task_uids: vec![uid(6), uid(7)],
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        run.parent_task_progress
-            .iter()
-            .map(|progress| progress.task_uid.clone())
-            .collect::<Vec<_>>(),
-        vec![uid(6), uid(7)]
-    );
-
-    let first = SelfImprovementParentTaskProgressV1 {
-        task_uid: uid(6),
-        phase: crate::core::lifecycle::TaskPhase::PrOpened,
-        implementation_sha256: Some(sha('c')),
-        code_review_uid: Some(uid(9)),
-        runtime_qa_uid: Some(uid(10)),
-        spec_receipt_uid: Some(uid(11)),
-        pr_work_item_uid: Some(uid(12)),
-        pr_status: Some(crate::core::lifecycle::PullRequestPreparationStatus::Opened),
-        pr_url: Some("https://github.com/zbarno/kool.ade/pull/1".into()),
-        pr_head_sha: Some(commit('d')),
-        pr_base_branch: Some("main".into()),
-        pr_merged_commit_sha: None,
-        pr_merged_at: None,
-    };
-    run.apply(3, Event::ParentTaskProgress(first.clone()))
-        .unwrap();
-    let second = SelfImprovementParentTaskProgressV1 {
-        task_uid: uid(7),
-        phase: crate::core::lifecycle::TaskPhase::Ready,
-        implementation_sha256: None,
-        code_review_uid: None,
-        runtime_qa_uid: None,
-        spec_receipt_uid: None,
-        pr_work_item_uid: None,
-        pr_status: None,
-        pr_url: None,
-        pr_head_sha: None,
-        pr_base_branch: None,
-        pr_merged_commit_sha: None,
-        pr_merged_at: None,
-    };
-    run.apply(4, Event::ParentTaskProgress(second.clone()))
-        .unwrap();
-
-    assert_eq!(run.parent_task_progress, vec![first, second]);
-    assert_eq!(
-        run.parent_task_progress[0].pr_url.as_deref(),
-        Some("https://github.com/zbarno/kool.ade/pull/1")
-    );
-    assert_eq!(
-        run.parent_task_progress[1].phase,
-        crate::core::lifecycle::TaskPhase::Ready
-    );
 }
 
 #[test]

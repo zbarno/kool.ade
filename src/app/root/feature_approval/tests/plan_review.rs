@@ -41,6 +41,10 @@ impl AiHarness for PlanReviewerHarness {
         let typed_request: serde_json::Value = serde_json::from_str(typed_request).unwrap();
         let review = &typed_request["payload"]["request"];
         let subject_hash = review["subject_hash"].as_str().unwrap().to_owned();
+        let evidence_id = typed_request["evidence_manifest"][0]["id"]
+            .as_str()
+            .expect("review manifest contains the approved plan evidence")
+            .to_owned();
         let requirements = review["requirements_matrix"].as_array().unwrap();
         assert!(!requirements.is_empty(), "review has approved requirements");
         let coverage = requirements
@@ -55,13 +59,14 @@ impl AiHarness for PlanReviewerHarness {
                 serde_json::json!({
                     "requirement": requirement,
                     "status": "pass",
-                    "evidence": [format!("requirement:{requirement}")]
+                    "evidence": [evidence_id]
                 })
             })
             .collect::<Vec<_>>();
         let final_text = serde_json::json!({
             "subject_hash": subject_hash,
             "pass": true,
+            "outcome": "pass",
             "coverage": coverage,
             "findings": [],
             "untested": []

@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "readiness/confirmation_card.rs"]
+mod confirmation_card;
+
 pub(super) fn seed_test_readiness(
     store: &crate::artifacts::planning_store::PlanningStore,
     feature_id: &str,
@@ -12,8 +15,8 @@ pub(super) fn seed_test_readiness(
         .unwrap()
         .unwrap();
     let contract = crate::core::workflow::feature_contract(markdown);
-    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
-        feature_id, &identity, markdown, &contract,
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        store, feature_id, &identity, markdown, &contract,
     )
     .unwrap();
     let axes = vec![
@@ -75,7 +78,10 @@ pub(super) fn seed_test_readiness(
         .unwrap();
 }
 
-fn current_snapshot(app: &KooladeApp, id: &str) -> crate::core::lifecycle::PlanSnapshotV1 {
+pub(super) fn current_snapshot(
+    app: &KooladeApp,
+    id: &str,
+) -> crate::core::lifecycle::PlanSnapshotV1 {
     let Screen::Connected(project) = &app.screen else {
         panic!("project remains connected")
     };
@@ -88,7 +94,8 @@ fn current_snapshot(app: &KooladeApp, id: &str) -> crate::core::lifecycle::PlanS
     let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
         .unwrap()
         .unwrap();
-    crate::core::lifecycle::PlanSnapshotV1::from_feature(
+    crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &project.state.planning_store,
         id,
         &identity,
         markdown,
@@ -96,6 +103,9 @@ fn current_snapshot(app: &KooladeApp, id: &str) -> crate::core::lifecycle::PlanS
     )
     .unwrap()
 }
+
+#[path = "readiness/current_gate.rs"]
+mod current_gate;
 
 #[test]
 fn readiness_binding_survives_store_restart_and_allows_current_confirmation() {
@@ -161,11 +171,8 @@ fn confirmation_fails_closed_for_missing_readiness_binding() {
         .unwrap()
     );
     assert!(
-        app.chat_messages()
-            .last()
-            .unwrap()
-            .text
-            .contains("no persisted readiness assessment")
+        app.feature_actions(None).is_empty(),
+        "missing readiness evidence must not expose a confirmation card"
     );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
@@ -200,11 +207,8 @@ fn confirmation_fails_closed_for_stale_spec_and_newer_question_revisions() {
         .unwrap()
     );
     assert!(
-        app.chat_messages()
-            .last()
-            .unwrap()
-            .text
-            .contains("different specification revision")
+        app.feature_actions(None).is_empty(),
+        "no confirmation action is available for stale readiness evidence"
     );
     let Screen::Connected(project) = &mut app.screen else {
         panic!()
@@ -262,11 +266,8 @@ fn confirmation_fails_closed_for_stale_spec_and_newer_question_revisions() {
         .unwrap()
     );
     assert!(
-        app.chat_messages()
-            .last()
-            .unwrap()
-            .text
-            .contains("newer clarification records")
+        app.feature_actions(None).is_empty(),
+        "a newer clarification record keeps the old candidate unavailable"
     );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
