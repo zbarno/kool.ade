@@ -119,8 +119,10 @@ if typed_marker in prompt:
         assert 'approved-task-spec' in ids
         reports = [item for item in evidence if item['id'].startswith('verified-test-report-')]
         diffs = [item for item in evidence if item['id'].startswith('diff-')]
-        subject = json.loads(next(item['content'] for item in evidence
-                                  if item['id'] == 'review-subject-v1'))
+        subject_item = next((item for item in evidence
+                             if item.get('id') == 'review-subject-v1'), None)
+        assert subject_item and subject_item.get('content')
+        subject = json.loads(subject_item['content'])
         assert reports and diffs
         assert (payload['requirements_matrix'] == ['approved-task-scope:' + typed['task_uid']] or
                 all('File exists.' in requirement for requirement in payload['requirements_matrix']))
