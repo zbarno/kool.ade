@@ -222,6 +222,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         &first_worker_home,
         &first_sshd_log,
     );
+    eprintln!("worker-retry E2E: selected worker emitted command output");
     let first_sshd = if first_worker_id == worker_a_id {
         &sshd_a
     } else {
@@ -230,18 +231,22 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     first_sshd
         .terminate_worker_process_for_test()
         .expect("the selected worker process should be terminated for the loss E2E");
+    eprintln!("worker-retry E2E: selected worker process terminated");
     // Killing the worker process does not terminate the container it started. In
     // rootless Docker, docker exec can keep the SSH stream open until that container
     // exits, so remove the fixture-owned container before waiting for retry completion.
     first_sshd
         .cleanup_worker_containers_for_test(&first_worker_id)
         .expect("lost worker's containers must be removed and verified by owner label");
+    eprintln!("worker-retry E2E: selected worker containers removed");
+    eprintln!("worker-retry E2E: waiting for fenced retry result");
     let output = controller
         .take()
         .expect("controller should still be running")
         .join()
         .expect("controller should not panic while retrying on another worker")
         .expect("confirmed worker loss should retry on another trusted worker");
+    eprintln!("worker-retry E2E: retry result received");
     assert_eq!(output.result.exit_code, Some(0));
     assert_eq!(
         fs::read(task_clone.join("retry-result.txt")).unwrap(),
