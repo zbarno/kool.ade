@@ -29,6 +29,16 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
     std::fs::write(&path, &markdown).unwrap();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
     assert_eq!(
         app.feature_actions(None)[0].label(),
@@ -89,6 +99,16 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
     app.approve_feature_only("CHG-004");
     assert!(!app.feature_approved("CHG-004"));
     if let Screen::Connected(project) = &mut app.screen {
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
     assert_eq!(
@@ -156,10 +176,20 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
     );
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let body = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap()
+            .1
+            .clone();
+        readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
     assert_eq!(
         app.feature_actions(None)[0].label(),
-        "Confirm CHG-004 and prepare tasks"
+        "Confirm plan for CHG-004"
     );
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");

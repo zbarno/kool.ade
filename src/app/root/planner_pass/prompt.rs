@@ -76,7 +76,8 @@ pub(super) fn render(
         .ok_or_else(|| "the clarified feature has no stable identity".to_owned())?;
     let opportunity_context = opportunity_planner_context(project, feature_text, feature_uid)?;
     let contract = crate::core::workflow::feature_contract(feature_text);
-    let snapshot = crate::core::lifecycle::PlanSnapshotV1::from_feature(
+    let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
+        &project.state.planning_store,
         feature_id,
         &identity,
         feature_text,

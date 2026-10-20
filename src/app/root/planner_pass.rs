@@ -33,9 +33,9 @@ impl ClarificationPlanner {
                 let (rendered, validation) = prepared?;
                 let request = PlanningRequest {
                     mode: ExecutionMode::ReadOnlyAnalysis,
+                    destination_sha: None,
                     task_id: None,
                     execution_workspace: None,
-                    destination_sha: None,
                     prompt_manifest: Some(rendered.manifest.clone()),
                     reasoning_level: "high".into(),
                     telemetry_phase: None,
@@ -103,11 +103,16 @@ pub(crate) fn spec_revision(
                 .is_some_and(|identity| identity.uid == feature_uid)
         })
         .ok_or_else(|| "the clarified feature is no longer active".to_owned())?;
-    spec_revision_for_markdown(project, feature_uid, feature_id, markdown)
+    spec_revision_for_markdown(
+        &project.state.planning_store,
+        feature_uid,
+        feature_id,
+        markdown,
+    )
 }
 
 pub(crate) fn spec_revision_for_markdown(
-    project: &super::session::Project,
+    store: &crate::artifacts::planning_store::PlanningStore,
     feature_uid: &str,
     feature_id: &str,
     markdown: &str,
@@ -120,11 +125,7 @@ pub(crate) fn spec_revision_for_markdown(
     }
     let contract = crate::core::workflow::feature_contract(markdown);
     crate::core::lifecycle::plan_snapshot::from_feature_with_author(
-        &project.state.planning_store,
-        feature_id,
-        &identity,
-        markdown,
-        &contract,
+        store, feature_id, &identity, markdown, &contract,
     )
     .map(|snapshot| snapshot.spec_revision)
 }

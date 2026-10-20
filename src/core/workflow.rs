@@ -3,6 +3,7 @@ use crate::core::{state::PlannerState, validation::NormalizedTurn};
 use crate::harness::TurnEnvelope;
 use serde::{Deserialize, Serialize};
 
+mod brief_target;
 mod comparison_record;
 #[cfg(test)]
 #[path = "workflow/contract_tests.rs"]
@@ -215,7 +216,8 @@ pub struct TaskRoutingSnapshot {
 pub use feature_approval::{
     approve_feature, approve_feature_if_current, approve_feature_if_current_with_revision,
     approve_feature_if_current_with_snapshot_with_revision, feature_approval_lapsed,
-    feature_approved, feature_contract, record_plan_review_if_current,
+    feature_approved, feature_contract, record_plan_arbitration_if_current,
+    record_plan_review_if_current,
 };
 
 impl Workflow {
@@ -239,64 +241,7 @@ pub fn feature_ids_in(text: &str) -> Vec<String> {
     ids.into_iter().collect()
 }
 
-/// Judge a brief's declared feature identity (`declared`, de-duplicated)
-/// against the feature the batch would actually be stamped with (`stamped`,
-/// the active feature id). `feature_dir_exists` tests whether a candidate id
-/// has a feature document. Returns an actionable operator message when the
-/// two identities cannot both be honored; `None` means the guard passes.
-pub fn brief_target_problem(
-    declared: &[String],
-    stamped: Option<&str>,
-    feature_dir_exists: &dyn Fn(&str) -> bool,
-) -> Option<String> {
-    brief_target_problem_at(
-        declared,
-        stamped,
-        feature_dir_exists,
-        ".koolade-packet/planning/changes",
-    )
-}
-
-pub fn brief_target_problem_with_store(
-    declared: &[String],
-    stamped: Option<&str>,
-    feature_dir_exists: &dyn Fn(&str) -> bool,
-    store: &crate::artifacts::planning_store::PlanningStore,
-) -> Option<String> {
-    brief_target_problem_at(
-        declared,
-        stamped,
-        feature_dir_exists,
-        &store.git_path(crate::artifacts::planning_store::paths::CHANGES),
-    )
-}
-
-fn brief_target_problem_at(
-    declared: &[String],
-    stamped: Option<&str>,
-    feature_dir_exists: &dyn Fn(&str) -> bool,
-    changes_directory: &str,
-) -> Option<String> {
-    match declared {
-        [] => None,
-        [id] if !feature_dir_exists(id) => Some(format!(
-            "Brief references unknown feature {id}; record the change specification under {changes_directory} before generating tasks"
-        )),
-        [id] => match stamped {
-            Some(stamped) if *id == stamped => None,
-            Some(stamped) => Some(format!(
-                "Brief targets {id}, but the active feature is {stamped}; generation stamps every story with {stamped} and freezes its specification — make {id} the active feature (conclude {stamped} first, or reopen {id} if it was concluded) before generating its tasks"
-            )),
-            None => Some(format!(
-                "Brief references feature {id}, but no feature is active"
-            )),
-        },
-        _ => Some(format!(
-            "Brief feature name declares more than one feature id ({}); name exactly one",
-            declared.join(", ")
-        )),
-    }
-}
+pub use brief_target::{brief_target_problem, brief_target_problem_with_store};
 
 pub use preparation::prepare;
 use preparation::substantive;

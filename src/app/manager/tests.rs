@@ -1,4 +1,5 @@
 use super::*;
+use std::time::{Duration, Instant};
 
 #[path = "tests/opportunities.rs"]
 mod opportunities;

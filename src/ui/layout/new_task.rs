@@ -79,6 +79,9 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                     WorkKind::TaskGeneration => {
                         "Generate implementation tasks from an approved specification."
                     }
+                    WorkKind::PlanReviewDisposition => {
+                        "Resolve a Manager disposition for an independent plan-review finding."
+                    }
                 };
                 ui.label(theme::helper_text(selected_help));
                 ui.add_space(theme::spacing::S);

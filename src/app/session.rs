@@ -184,6 +184,25 @@ impl Project {
             self.remember_chat(msgs);
         }
     }
+
+    pub fn remember_planning_work_chat(&mut self, key: &str, msgs: Vec<ChatMessage>) {
+        if msgs.is_empty() {
+            return;
+        }
+        self.activity.pending.push(format!(
+            "Plan review conversation {key} updated: {}",
+            msgs.iter()
+                .map(|message| format!(
+                    "{:?}: {}",
+                    message.role,
+                    crate::core::context_build::clip(&message.text, 1600)
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+        self.task_chats
+            .remember_response(&self.chat_slug, key, msgs);
+    }
 }
 
 /// Hydrate display chat from ~/.koolade (tolerant of corruption by design).

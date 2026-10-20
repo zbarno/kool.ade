@@ -12,6 +12,7 @@ fn plan_review_details_show_confirmed_snapshot_and_pending_reviewer() {
         feature_uid: "feature-uid".into(),
         feature_id: "feature-123".into(),
         original_goal_ref: "goal-1".into(),
+        original_goal: String::new(),
         intent: "Add a safe task review view".into(),
         outcome: "Users can see verified plan status".into(),
         current_state: "Plan status is hidden".into(),

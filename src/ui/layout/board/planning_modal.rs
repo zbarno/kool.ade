@@ -100,19 +100,37 @@ pub(super) fn paint(
             }
         });
         clear_if_closed(selection, closed);
-    } else if let Some(action) = selection
-        .as_deref()
-        .and_then(|key| key.strip_prefix("feature-approval:"))
-        .and_then(|id| {
-            surface
-                .feature_actions(None)
-                .into_iter()
-                .find(|action| action.id == id)
-        })
-    {
-        let id = action.id.clone();
-        let closed = crate::ui::overlays::show_task_modal(ui, &id, bounds, |ui| {
-            super::super::task_details::paint_feature_approval(ui, surface, &action);
+    } else if let Some(action) = selection.as_deref().and_then(|key| {
+        surface
+            .feature_actions(None)
+            .into_iter()
+            .find(|action| action.board_key() == key)
+    }) {
+        let work = board.planning_work.iter().find(|work| {
+            !matches!(
+                work.kind,
+                crate::core::planning_work::WorkKind::TaskGeneration
+                    | crate::core::planning_work::WorkKind::PlanReviewDisposition
+            ) && (work.feature_uid.as_deref()
+                == action
+                    .plan_snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.feature_uid.as_str())
+                || work.feature_id.as_deref() == Some(action.id.as_str()))
+        });
+        let key = work.map_or_else(|| action.board_key(), |work| work.key.clone());
+        let closed = crate::ui::overlays::show_task_modal(ui, &key, bounds, |ui| {
+            if let Some(work) = work {
+                super::super::task_details::paint_planning_work(
+                    ui,
+                    surface,
+                    board,
+                    work,
+                    (bounds.height() - 160.0).max(160.0),
+                );
+            } else {
+                super::super::task_details::paint_feature_approval(ui, surface, &action);
+            }
         });
         clear_if_closed(selection, closed);
     } else if let Some(issue) = board
