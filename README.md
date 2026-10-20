@@ -420,6 +420,7 @@ Right now Kool.ad/e is deliberately opinionated:
 - Pi keeps provider authentication and model transport on the controller process
 - a CLI adapter being integrated does not guarantee every role works with every version yet
 - authenticated remote execution and interactive runtime QA are not yet shipped
+- Runtime QA is unavailable pending the release gate; see the [operator guide](docs/runtime-qa-operations.md) for current readiness, evidence, and recovery boundaries
 
 If you need something polished, cross-platform, and enterprise-ready today, this is probably early for you.
 
