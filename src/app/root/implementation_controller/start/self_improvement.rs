@@ -103,8 +103,10 @@ pub(super) fn publication_policy(
     } else {
         mode
     };
-    let require_independent_checks =
-        !allow_offline && (mode == PublicationMode::AutoPublish || require_independent_checks);
+    let require_independent_checks = !allow_offline
+        && (is_self_improvement
+            || mode == PublicationMode::AutoPublish
+            || require_independent_checks);
     (mode, require_independent_checks)
 }
 
@@ -219,6 +221,16 @@ mod tests {
         assert_eq!(
             publication_policy(false, false, false, false, false, true, false),
             (PublicationMode::AutoPublish, true)
+        );
+        assert_eq!(
+            publication_policy(true, true, false, false, false, true, false),
+            (PublicationMode::CreatePullRequest, true),
+            "self-improvement must require independent checks even when the global gate is off"
+        );
+        assert_eq!(
+            publication_policy(true, true, false, true, false, true, false),
+            (PublicationMode::HoldForReview, false),
+            "offline self-improvement stays held and cannot claim independent checks"
         );
     }
 }

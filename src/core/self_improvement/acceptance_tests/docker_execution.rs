@@ -2,7 +2,7 @@ use super::support::{git, pursue_decision, self_improvement_run, uid};
 use crate::{
     artifacts::planning_store::{PlanningStore, StoreMode},
     core::{
-        opportunity::{OpportunitySaveResult, OpportunityStore},
+        opportunity::{OpportunityExploreModeV1, OpportunitySaveResult, OpportunityStore},
         self_improvement::{
             SelfImprovementEventV1 as Event, SelfImprovementPhaseV1 as Phase, SelfImprovementStore,
             TaskSourceAuthorization,
@@ -81,6 +81,16 @@ fn pursued_self_improvement_executes_in_its_pinned_docker_task_clone() {
     let repository_uid =
         crate::core::project_repos::stable_uid(&workspace_uid, "repository", "root");
     let opportunities = OpportunityStore::new(&planning);
+    let defaults = opportunities.discovery_settings().unwrap();
+    opportunities
+        .save_discovery_settings(
+            &crate::core::opportunity::OpportunityDiscoverySettingsV1 {
+                exploration: OpportunityExploreModeV1::OptedIn,
+                ..defaults.clone()
+            },
+            defaults.revision,
+        )
+        .unwrap();
     let mut proposal = super::support::proposal(&source_sha);
     proposal.workspace_uid = workspace_uid;
     proposal.target.repository_uid = repository_uid.clone();

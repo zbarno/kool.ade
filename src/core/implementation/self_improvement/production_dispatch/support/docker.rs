@@ -6,7 +6,7 @@ use std::{path::Path, sync::Arc};
 
 pub(crate) fn exercise_authorized_docker_if_enabled(
     task_repository: &Path,
-    project_slug: &str,
+    workspace_uid: &str,
     task_uid: &str,
     source_sha: &str,
     verifier: Arc<dyn AuthorizationGenerationVerifier>,
@@ -20,7 +20,7 @@ pub(crate) fn exercise_authorized_docker_if_enabled(
     {
         let _ = (
             task_repository,
-            project_slug,
+            workspace_uid,
             task_uid,
             source_sha,
             verifier,
@@ -49,7 +49,7 @@ pub(crate) fn exercise_authorized_docker_if_enabled(
         let session =
             crate::execution::session::ExecutionSession::connect_local_with_authorization(
                 crate::execution::contract::WorkspaceRef {
-                    project_id: project_slug.into(),
+                    project_id: workspace_uid.into(),
                     task_id: task_uid.into(),
                     source_sha: source_sha.into(),
                 },
