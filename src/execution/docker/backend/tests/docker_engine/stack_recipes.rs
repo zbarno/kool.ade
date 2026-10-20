@@ -219,7 +219,9 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         allowed_output_paths: match tool {
             "cargo" => vec![".koolade-target".into(), "Cargo.lock".into()],
             "python" => vec!["__pycache__".into()],
-            "go" if argv.contains(&"-o") => vec!["app".into()],
+            // The binary produced by Go build remains in the reviewed task
+            // clone while the subsequent test and start recipes are staged.
+            "go" => vec!["app".into()],
             _ => Vec::new(),
         },
         timeout_seconds: 180,
